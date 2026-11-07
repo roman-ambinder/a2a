@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
+using System.Globalization;
 using System.Text;
+using A2A.Push;
 
 namespace A2A.Client.Push;
 
@@ -14,6 +16,12 @@ public enum PushValidationResult
 
     /// <summary>The delivery id was already accepted in the last 10 minutes (a retry).</summary>
     Duplicate,
+
+    /// <summary>The signature headers are missing or malformed, or no signature matches the body and the secret.</summary>
+    InvalidSignature,
+
+    /// <summary>The signature is valid, but its timestamp is outside the tolerance (a replay of an old delivery, or a wrong clock).</summary>
+    Stale,
 }
 
 /// <summary>
@@ -41,8 +49,40 @@ public sealed class PushNotificationReceiver(TimeProvider? time = null)
         if (!matched || expected.Length == 0) return PushValidationResult.InvalidToken;
 
         var id = Find(headers, A2AProtocol.Headers.DeliveryId);
-        if (string.IsNullOrEmpty(id)) return PushValidationResult.Valid;
+        return string.IsNullOrEmpty(id) ? PushValidationResult.Valid : Remember(id);
+    }
 
+    /// <summary>The longest age (and distance into the future) of a signed delivery accepted by default.</summary>
+    public static readonly TimeSpan DefaultSignatureTolerance = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Verifies a delivery signed as Standard Webhooks (<see cref="WebhookSignature"/>): the <c>webhook-signature</c> header must
+    /// hold a <c>v1</c> signature (several may be given, space-separated) over <c>{webhook-id}.{webhook-timestamp}.{body}</c> made
+    /// with <paramref name="secret"/> (the decoded key, see <see cref="WebhookSignature.TryParseSecret"/>), compared in constant
+    /// time, and <c>webhook-timestamp</c> must be within <paramref name="tolerance"/> (default 5 minutes) of now. A delivery is
+    /// remembered by its <c>webhook-id</c> only once it is valid, so a replay within the memory window is <see cref="PushValidationResult.Duplicate"/>.
+    /// <paramref name="body"/> must be the raw request body bytes. Header names are matched case-insensitively.
+    /// </summary>
+    public PushValidationResult VerifySignature(IReadOnlyDictionary<string, string> headers, ReadOnlySpan<byte> body, ReadOnlySpan<byte> secret, TimeSpan? tolerance = null)
+    {
+        ArgumentNullException.ThrowIfNull(headers);
+        var id = Find(headers, WebhookSignature.IdHeader);
+        var timestamp = Find(headers, WebhookSignature.TimestampHeader);
+        var signature = Find(headers, WebhookSignature.SignatureHeader);
+        if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(signature) || secret.IsEmpty
+            || !long.TryParse(timestamp, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds)
+            || !WebhookSignature.Matches(signature, secret, id, seconds, body))
+            return PushValidationResult.InvalidSignature;
+
+        var allowed = tolerance ?? DefaultSignatureTolerance;
+        var now = _time.GetUtcNow().ToUnixTimeSeconds();
+        if (seconds > now + allowed.TotalSeconds || seconds < now - allowed.TotalSeconds) return PushValidationResult.Stale;
+        return Remember("webhook:" + id); // apart from token deliveries, so a receiver may use both checks on one delivery
+    }
+
+    /// <summary>Remembers a delivery id for ten minutes. Duplicate when it was remembered already.</summary>
+    private PushValidationResult Remember(string id)
+    {
         var now = _time.GetUtcNow();
         lock (_gate)
         {

@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using A2A.Diagnostics;
 using A2A.Net;
+using A2A.Push;
 using A2A.Server.Storage;
 using Microsoft.Extensions.Logging;
 
@@ -139,7 +140,7 @@ internal readonly record struct PushSendResult(PushSendOutcome Outcome, string? 
 /// every attempt), the <c>X-A2A-Notification-Sequence</c> (the event store sequence) and the W3C <c>traceparent</c>.
 /// Retries and their timing belong to <see cref="PushDeliveryService"/>.
 /// </summary>
-internal sealed class PushWebhookSender(IHttpClientFactory httpClientFactory, PushNotificationOptions options, ILogger logger)
+internal sealed class PushWebhookSender(IHttpClientFactory httpClientFactory, PushNotificationOptions options, ILogger logger, TimeProvider? time = null)
 {
     public async Task<PushSendResult> SendAsync(TaskPushNotificationConfig config, PushDelivery delivery, ReadOnlyMemory<byte> body,
         Activity? activity, ActivityContext traceContext, CancellationToken ct)
@@ -162,7 +163,21 @@ internal sealed class PushWebhookSender(IHttpClientFactory httpClientFactory, Pu
             request.Content.Headers.ContentType = new MediaTypeHeaderValue(A2AProtocol.MediaType);
             // The body is an A2A v1.0 StreamResponse; say so, as on every other A2A request (a2a-js #647).
             request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, A2AProtocol.Version);
-            if (config.Authentication is { Scheme.Length: > 0 } auth)
+            // The webhook-signature scheme carries the signing secret, never an Authorization header: the bearer token (if any) applies.
+            var signing = config.Authentication is { } a && string.Equals(a.Scheme, WebhookSignature.Scheme, StringComparison.OrdinalIgnoreCase) ? config.Authentication : null;
+            if (signing is not null)
+            {
+                if (!WebhookSignature.TryParseSecret(signing.Credentials, out var secret))
+                {
+                    logger.LogWarning("Webhook {ConfigId} for task {TaskId} has no usable signing secret", config.Id, delivery.Task.TaskId);
+                    return new PushSendResult(PushSendOutcome.Permanent, "Invalid webhook signing secret", "InvalidSigningSecret");
+                }
+                var timestamp = (time ?? TimeProvider.System).GetUtcNow().ToUnixTimeSeconds(); // fresh on every attempt; the id is stable
+                request.Headers.TryAddWithoutValidation(WebhookSignature.IdHeader, delivery.DeliveryId);
+                request.Headers.TryAddWithoutValidation(WebhookSignature.TimestampHeader, timestamp.ToString(CultureInfo.InvariantCulture));
+                request.Headers.TryAddWithoutValidation(WebhookSignature.SignatureHeader, WebhookSignature.Sign(secret, delivery.DeliveryId, timestamp, body.Span));
+            }
+            if (signing is null && config.Authentication is { Scheme.Length: > 0 } auth)
                 request.Headers.TryAddWithoutValidation("Authorization", string.IsNullOrEmpty(auth.Credentials) ? auth.Scheme : $"{auth.Scheme} {auth.Credentials}");
             else if (!string.IsNullOrEmpty(config.Token))
                 request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {config.Token}");

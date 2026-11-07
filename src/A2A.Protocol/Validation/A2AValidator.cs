@@ -60,6 +60,9 @@ public static class A2AValidator
             throw A2AException.InvalidParams($"{path}.taskId is required");
         if (config.Authentication is { } auth && string.IsNullOrWhiteSpace(auth.Scheme))
             throw A2AException.InvalidParams($"{path}.authentication.scheme is required");
+        if (config.Authentication is { } sig && string.Equals(sig.Scheme, A2A.Push.WebhookSignature.Scheme, StringComparison.OrdinalIgnoreCase)
+            && !A2A.Push.WebhookSignature.TryParseSecret(sig.Credentials, out _))
+            throw A2AException.InvalidParams("Invalid webhook signing secret.");
     }
 
     public static void RequireId(string? id, string name)
