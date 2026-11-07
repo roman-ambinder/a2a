@@ -4,7 +4,8 @@ namespace A2A.Client.Resilience;
 
 /// <summary>
 /// Retry rules for idempotent client calls (spec 7.8): at most <see cref="MaxAttempts"/> attempts, exponential backoff with
-/// jitter, <c>Retry-After</c> honoured. Retries only on transport failure, HTTP 503/429 or an error marked retryable.
+/// jitter, <c>Retry-After</c> honoured. Retries only on transport failure, HTTP 503/429 or an error the server explicitly
+/// marked retryable (<c>metadata.retryable</c> = "true"). The server-side default (<see cref="A2AErrors.DefaultRetryable"/>) is not used.
 /// </summary>
 internal static class RetryPolicy
 {
@@ -26,7 +27,10 @@ internal static class RetryPolicy
             case A2AException a2a:
                 retryAfter = a2a.RetryAfter;
                 if (retryAfter > MaxRetryAfter) return false;
-                return a2a.IsRetryable || a2a.HttpStatus is (int)HttpStatusCode.ServiceUnavailable or (int)HttpStatusCode.TooManyRequests;
+                // Only what the server said: HTTP 503/429, or an explicit metadata.retryable = "true". Errors the client
+                // synthesized from a bare HTTP status, or server errors without that metadata, are not retried.
+                return a2a.HttpStatus is (int)HttpStatusCode.ServiceUnavailable or (int)HttpStatusCode.TooManyRequests
+                    || (A2AErrors.TryGetRetryableFromDetails(a2a.Details, out var explicitRetryable) && explicitRetryable);
             case HttpRequestException:
                 return true;
             default:

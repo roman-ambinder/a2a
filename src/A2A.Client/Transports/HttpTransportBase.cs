@@ -41,8 +41,17 @@ public abstract class HttpTransportBase
         if (call is null) return;
         foreach (var (name, value) in call.Headers)
         {
-            request.Headers.Remove(name);
-            if (!request.Headers.TryAddWithoutValidation(name, value) && request.Content is not null)
+            bool isContentHeader;
+            try
+            {
+                request.Headers.Remove(name);
+                isContentHeader = !request.Headers.TryAddWithoutValidation(name, value);
+            }
+            catch (InvalidOperationException)
+            {
+                isContentHeader = true; // Remove throws for names that belong to the content (Content-Type, Content-Language, ...)
+            }
+            if (isContentHeader && request.Content is not null)
             {
                 request.Content.Headers.Remove(name);
                 request.Content.Headers.TryAddWithoutValidation(name, value);

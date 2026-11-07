@@ -163,6 +163,54 @@ public class ClientDefaultsTests
         Assert.Single(handler.Calls);
     }
 
+    [Theory]
+    [InlineData(400)]
+    [InlineData(500)]
+    public async Task Does_not_retry_generic_http_errors(int status)
+    {
+        foreach (var binding in new[] { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson })
+        {
+            var handler = new ScriptedHandler(Respond((HttpStatusCode)status, "oops"), RpcOk(TaskJson));
+            var client = NewClient(handler, new A2AClientOptions { TimeProvider = new FakeTimeProvider() }, binding);
+            var ex = await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync("t1"));
+            Assert.Equal(status, ex.HttpStatus);
+            Assert.Single(handler.Calls);
+        }
+    }
+
+    private static string ErrorWithRetryable(string? retryable)
+    {
+        var meta = retryable is null ? "{}" : "{\"retryable\":\"" + retryable + "\"}";
+        var info = $$$"""{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"INTERNAL","domain":"{{{A2AProtocol.ErrorDomain}}}","metadata":{{{meta}}}}""";
+        return $$$"""{"jsonrpc":"2.0","id":"x","error":{"code":-32603,"message":"e","data":[{{{info}}}]}}""";
+    }
+
+    [Theory]
+    [InlineData("true", 2)]
+    [InlineData("false", 1)]
+    [InlineData(null, 1)]
+    public async Task Retries_server_error_only_with_explicit_retryable_true(string? retryable, int expectedRequests)
+    {
+        var handler = new ScriptedHandler(Respond(HttpStatusCode.OK, ErrorWithRetryable(retryable)), RpcOk(TaskJson));
+        var client = NewClient(handler, new A2AClientOptions { TimeProvider = new FakeTimeProvider() });
+        try { await client.GetTaskAsync("t1"); } catch (A2AException) { }
+        Assert.Equal(expectedRequests, handler.Calls.Count);
+    }
+
+    [Fact]
+    public async Task Per_call_content_header_is_sent()
+    {
+        var handler = new ScriptedHandler(RpcOk(TaskJson));
+        var client = NewClient(handler);
+        var options = new A2ARequestOptions();
+        options.Headers["Content-Language"] = "en";
+
+        await client.GetTaskAsync(new GetTaskRequest { Id = "t1" }, options);
+
+        var call = Assert.Single(handler.Calls);
+        Assert.Equal("en", call.Request.Content!.Headers.ContentLanguage.Single());
+    }
+
     [Fact]
     public async Task Retries_on_transport_failure()
     {
