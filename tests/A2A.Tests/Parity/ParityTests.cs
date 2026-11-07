@@ -35,7 +35,7 @@ public class ParityTests
     {
         public volatile bool Allow = true;
 
-        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperation op, object request, CancellationToken ct) =>
+        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2A.Server.Pipeline.A2AOperationDescriptor op, object request, CancellationToken ct) =>
             ValueTask.FromResult(Allow);
     }
 

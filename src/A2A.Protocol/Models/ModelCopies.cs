@@ -99,6 +99,39 @@ public static class ModelCopies
         };
     }
 
+    /// <summary>
+    /// Copies a stream event and everything reachable from it, whichever of the four kinds it is: a task snapshot
+    /// (<see cref="DeepCopy(AgentTask)"/>), a message (<see cref="DeepCopy(Message)"/>), a status update (new status, status
+    /// message and metadata) or an artifact update (new artifact, parts and metadata). Only immutable values are shared.
+    /// Serializes to the same JSON as the original.
+    /// </summary>
+    public static StreamResponse DeepCopy(this StreamResponse response)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        return response switch
+        {
+            TaskEvent t => new TaskEvent(t.Task.DeepCopy()),
+            MessageEvent m => new MessageEvent(DeepMessage(m.Message)),
+            StatusUpdateEvent s => new StatusUpdateEvent(new TaskStatusUpdateEvent
+            {
+                TaskId = s.StatusUpdate.TaskId,
+                ContextId = s.StatusUpdate.ContextId,
+                Status = CopyStatus(s.StatusUpdate.Status, deep: true),
+                Metadata = CopyMap(s.StatusUpdate.Metadata, clone: true),
+            }),
+            ArtifactUpdateEvent a => new ArtifactUpdateEvent(new TaskArtifactUpdateEvent
+            {
+                TaskId = a.ArtifactUpdate.TaskId,
+                ContextId = a.ArtifactUpdate.ContextId,
+                Artifact = DeepArtifact(a.ArtifactUpdate.Artifact),
+                Append = a.ArtifactUpdate.Append,
+                LastChunk = a.ArtifactUpdate.LastChunk,
+                Metadata = CopyMap(a.ArtifactUpdate.Metadata, clone: true),
+            }),
+            _ => throw new NotSupportedException($"Unknown stream event type {response.GetType().Name}."),
+        };
+    }
+
     private static AgentTaskStatus CopyStatus(AgentTaskStatus s, bool deep) => new()
     {
         State = s.State,

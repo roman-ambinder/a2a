@@ -213,6 +213,77 @@ public class ModelCopyTests
         Assert.Null(new TaskPushNotificationConfig { Url = "https://hooks.test/bare" }.DeepCopy().Authentication);
     }
 
+    private static StreamResponse[] Events() =>
+    [
+        StreamResponse.Of(Task()),
+        StreamResponse.Of(Msg("m")),
+        StreamResponse.Of(new TaskStatusUpdateEvent
+        {
+            TaskId = "t", ContextId = "c",
+            Status = new() { State = TaskState.InputRequired, Message = Msg("s"), Timestamp = DateTimeOffset.UnixEpoch },
+            Metadata = new() { ["sm"] = J("1") },
+        }),
+        StreamResponse.Of(new TaskStatusUpdateEvent { TaskId = "t", ContextId = "c", Status = new() { State = TaskState.Working } }),
+        StreamResponse.Of(new TaskArtifactUpdateEvent
+        {
+            TaskId = "t", ContextId = "c", Artifact = Art("a"), Append = true, LastChunk = true, Metadata = new() { ["am"] = J("2") },
+        }),
+        StreamResponse.Of(new TaskArtifactUpdateEvent { TaskId = "t", ContextId = "c", Artifact = BareArt("b") }),
+    ];
+
+    [Fact]
+    public void StreamResponse_DeepCopy_equals_json_clone()
+    {
+        foreach (var e in Events())
+        {
+            var copy = e.DeepCopy();
+            Assert.Equal(e.GetType(), copy.GetType());
+            Assert.Equal(A2AJson.Serialize(A2AJson.Clone(e)), A2AJson.Serialize(copy));
+            Assert.Equal(A2AJson.Serialize(e), A2AJson.Serialize(copy));
+        }
+    }
+
+    [Fact]
+    public void StreamResponse_DeepCopy_shares_nothing()
+    {
+        foreach (var e in Events())
+        {
+            var copy = e.DeepCopy();
+            NotSame(e, copy);
+            switch (e, copy)
+            {
+                case (TaskEvent o, TaskEvent n):
+                    NotSame(o.Task, n.Task);
+                    NotSame(o.Task.Status, n.Task.Status);
+                    NotSameMessage(o.Task.Status.Message!, n.Task.Status.Message!);
+                    break;
+                case (MessageEvent o, MessageEvent n):
+                    NotSameMessage(o.Message, n.Message);
+                    break;
+                case (StatusUpdateEvent o, StatusUpdateEvent n):
+                    NotSame(o.StatusUpdate, n.StatusUpdate);
+                    NotSame(o.StatusUpdate.Status, n.StatusUpdate.Status);
+                    if (o.StatusUpdate.Status.Message is { } om) NotSameMessage(om, n.StatusUpdate.Status.Message!);
+                    else Assert.Null(n.StatusUpdate.Status.Message);
+                    NotSameDict(o.StatusUpdate.Metadata, n.StatusUpdate.Metadata);
+                    break;
+                case (ArtifactUpdateEvent o, ArtifactUpdateEvent n):
+                    NotSame(o.ArtifactUpdate, n.ArtifactUpdate);
+                    NotSame(o.ArtifactUpdate.Artifact, n.ArtifactUpdate.Artifact);
+                    NotSameList(o.ArtifactUpdate.Artifact.Parts, n.ArtifactUpdate.Artifact.Parts);
+                    NotSameList(o.ArtifactUpdate.Artifact.Extensions, n.ArtifactUpdate.Artifact.Extensions);
+                    NotSameDict(o.ArtifactUpdate.Artifact.Metadata, n.ArtifactUpdate.Artifact.Metadata);
+                    for (var i = 0; i < o.ArtifactUpdate.Artifact.Parts.Count; i++)
+                        NotSamePart(o.ArtifactUpdate.Artifact.Parts[i], n.ArtifactUpdate.Artifact.Parts[i]);
+                    NotSameDict(o.ArtifactUpdate.Metadata, n.ArtifactUpdate.Metadata);
+                    break;
+                default:
+                    Assert.Fail($"copy changed the event kind: {e.GetType().Name} -> {copy.GetType().Name}");
+                    break;
+            }
+        }
+    }
+
     private static void NotSame(object? a, object? b)
     {
         Assert.NotNull(a);

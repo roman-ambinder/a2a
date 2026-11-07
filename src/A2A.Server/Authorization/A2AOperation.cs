@@ -1,6 +1,6 @@
 namespace A2A.Server.Authorization;
 
-/// <summary>The A2A operations an <see cref="A2AAuthorizationHandler"/> is asked about. Same set on every binding.</summary>
+/// <summary>The kinds of operation an <see cref="A2AAuthorizationHandler"/> is asked about: the 11 built-in operations, the same set on every binding, and <see cref="Extension"/>.</summary>
 public enum A2AOperation
 {
     /// <summary>SendMessage (spec §3.1.1).</summary>
@@ -25,4 +25,9 @@ public enum A2AOperation
     DeleteTaskPushNotificationConfig,
     /// <summary>GetExtendedAgentCard (spec §3.1.11).</summary>
     GetExtendedAgentCard,
+    /// <summary>
+    /// An extension operation a host registered; <see cref="Pipeline.A2AOperationDescriptor.Name"/> says which. Always the
+    /// last value: the built-in operations are the values before it.
+    /// </summary>
+    Extension,
 }

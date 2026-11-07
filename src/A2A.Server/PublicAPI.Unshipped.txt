@@ -39,7 +39,7 @@ A2A.Server.Authorization.A2AOperation.SendMessage = 0 -> A2A.Server.Authorizatio
 A2A.Server.Authorization.A2AOperation.SendStreamingMessage = 1 -> A2A.Server.Authorization.A2AOperation
 A2A.Server.Authorization.A2AOperation.SubscribeToTask = 5 -> A2A.Server.Authorization.A2AOperation
 A2A.Server.A2ARequestHandler
-A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Streaming.TaskStreamer! streamer) -> void
+A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Streaming.TaskStreamer! streamer, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AOperationFilterRegistration!>! filters) -> void
 A2A.Server.A2ARequestHandler.AgentCard.get -> A2A.AgentCard!
 A2A.Server.A2ARequestHandler.CancelTaskAsync(A2A.CancelTaskRequest! request, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
 A2A.Server.A2ARequestHandler.CreateTaskPushNotificationConfigAsync(A2A.TaskPushNotificationConfig! config, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TaskPushNotificationConfig!>!
@@ -412,7 +412,7 @@ static A2A.Server.Streaming.StreamCursor.Format(string! taskId, long seq) -> str
 static A2A.Server.Streaming.StreamCursor.TryParse(string? value, string! expectedTaskId, out long seq) -> bool
 static A2A.Server.TaskStateMachine.AcceptsFollowUp(A2A.TaskState state, A2A.Server.FollowUpPolicy policy) -> bool
 static A2A.Server.TaskStateMachine.CanTransition(A2A.TaskState from, A2A.TaskState to) -> bool
-virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeAsync(A2A.Server.ServerCallContext! call, A2A.Server.Authorization.A2AOperation op, object! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<bool>
+virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeAsync(A2A.Server.ServerCallContext! call, A2A.Server.Pipeline.A2AOperationDescriptor! operation, object! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<bool>
 virtual A2A.Server.TaskEventBus.Complete(string! taskId) -> void
 virtual A2A.Server.TaskEventBus.Publish(string! taskId, A2A.Server.Streaming.SequencedEvent evt) -> void
 virtual A2A.Server.TaskEventBus.Subscribe(string! taskId) -> A2A.Server.TaskEventBus.Subscription!
@@ -475,3 +475,28 @@ A2A.Server.IA2ARequestHandler.SendMessageAsync(A2A.SendMessageRequest! request, 
 A2A.Server.IA2ARequestHandler.SendStreamingMessageAsync(A2A.SendMessageRequest! request, A2A.Server.ServerCallContext! call, string? lastEventId = null, System.Action? onCaughtUp = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!
 A2A.Server.IA2ARequestHandler.SubscribeToTaskAsync(A2A.SubscribeToTaskRequest! request, A2A.Server.ServerCallContext! call, long? resumeAfter = null, System.Action? onCaughtUp = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!
 A2A.Server.IA2ARequestHandler.ValidateCall(A2A.Server.ServerCallContext! call) -> void
+A2A.Server.A2AServerBuilder.AddOperationFilter<T>(A2A.Server.Pipeline.A2AFilterStage stage = A2A.Server.Pipeline.A2AFilterStage.AfterAuthorization) -> A2A.Server.A2AServerBuilder!
+A2A.Server.Authorization.A2AOperation.Extension = 11 -> A2A.Server.Authorization.A2AOperation
+A2A.Server.Pipeline.A2AFilterStage
+A2A.Server.Pipeline.A2AFilterStage.AfterAuthorization = 1 -> A2A.Server.Pipeline.A2AFilterStage
+A2A.Server.Pipeline.A2AFilterStage.BeforeAuthorization = 0 -> A2A.Server.Pipeline.A2AFilterStage
+A2A.Server.Pipeline.A2AOperationContext
+A2A.Server.Pipeline.A2AOperationContext.A2AOperationContext(A2A.Server.Pipeline.A2AOperationDescriptor! operation, A2A.Server.ServerCallContext! call) -> void
+A2A.Server.Pipeline.A2AOperationContext.Call.get -> A2A.Server.ServerCallContext!
+A2A.Server.Pipeline.A2AOperationContext.Items.get -> System.Collections.Generic.IDictionary<string!, object?>!
+A2A.Server.Pipeline.A2AOperationContext.Operation.get -> A2A.Server.Pipeline.A2AOperationDescriptor!
+A2A.Server.Pipeline.A2AOperationDelegate
+A2A.Server.Pipeline.A2AOperationDescriptor
+A2A.Server.Pipeline.A2AOperationDescriptor.A2AOperationDescriptor(A2A.Server.Authorization.A2AOperation Kind, string! Name) -> void
+A2A.Server.Pipeline.A2AOperationDescriptor.Kind.get -> A2A.Server.Authorization.A2AOperation
+A2A.Server.Pipeline.A2AOperationDescriptor.Kind.init -> void
+A2A.Server.Pipeline.A2AOperationDescriptor.Name.get -> string!
+A2A.Server.Pipeline.A2AOperationDescriptor.Name.init -> void
+A2A.Server.Pipeline.A2AOperationFilterRegistration
+A2A.Server.Pipeline.A2AOperationFilterRegistration.A2AOperationFilterRegistration(A2A.Server.Pipeline.IA2AOperationFilter! filter, A2A.Server.Pipeline.A2AFilterStage stage = A2A.Server.Pipeline.A2AFilterStage.AfterAuthorization) -> void
+A2A.Server.Pipeline.A2AOperationFilterRegistration.Filter.get -> A2A.Server.Pipeline.IA2AOperationFilter!
+A2A.Server.Pipeline.A2AOperationFilterRegistration.Stage.get -> A2A.Server.Pipeline.A2AFilterStage
+A2A.Server.Pipeline.IA2AOperationFilter
+A2A.Server.Pipeline.IA2AOperationFilter.InvokeAsync(A2A.Server.Pipeline.A2AOperationContext! context, object! request, A2A.Server.Pipeline.A2AOperationDelegate! next, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<object?>
+static A2A.Server.Pipeline.A2AOperationDescriptor.Extension(string! name) -> A2A.Server.Pipeline.A2AOperationDescriptor!
+static A2A.Server.Pipeline.A2AOperationDescriptor.For(A2A.Server.Authorization.A2AOperation kind) -> A2A.Server.Pipeline.A2AOperationDescriptor!

@@ -91,6 +91,23 @@ public sealed class A2AServerBuilder
     }
 
     /// <summary>
+    /// Adds <typeparamref name="T"/> to the operation pipeline (see <see cref="Pipeline.IA2AOperationFilter"/>). Filters run in
+    /// the order they are added, within their stage. <typeparamref name="T"/> is registered as a singleton unless it is already
+    /// registered; one instance serves every call.
+    /// </summary>
+    /// <param name="stage">
+    /// <see cref="Pipeline.A2AFilterStage.AfterAuthorization"/> (the default): the filter only sees authorized calls.
+    /// <see cref="Pipeline.A2AFilterStage.BeforeAuthorization"/>: the filter also sees unauthenticated and unauthorized calls.
+    /// </param>
+    public A2AServerBuilder AddOperationFilter<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(
+        Pipeline.A2AFilterStage stage = Pipeline.A2AFilterStage.AfterAuthorization) where T : class, Pipeline.IA2AOperationFilter
+    {
+        Services.TryAddSingleton<T>();
+        Services.AddSingleton(sp => new Pipeline.A2AOperationFilterRegistration(sp.GetRequiredService<T>(), stage));
+        return this;
+    }
+
+    /// <summary>
     /// Uses the in-memory task, push config, event and idempotency stores. They are already registered by default, so this changes nothing
     /// unless you registered your own stores earlier (it does not replace them).
     /// </summary>

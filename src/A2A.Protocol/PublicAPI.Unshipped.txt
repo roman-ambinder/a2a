@@ -790,3 +790,4 @@ static A2A.ModelCopies.CopyWithParts(this A2A.Artifact! artifact, System.Collect
 static A2A.ModelCopies.DeepCopy(this A2A.AgentTask! task) -> A2A.AgentTask!
 static A2A.ModelCopies.DeepCopy(this A2A.Message! message) -> A2A.Message!
 static A2A.ModelCopies.DeepCopy(this A2A.TaskPushNotificationConfig! config) -> A2A.TaskPushNotificationConfig!
+static A2A.ModelCopies.DeepCopy(this A2A.StreamResponse! response) -> A2A.StreamResponse!

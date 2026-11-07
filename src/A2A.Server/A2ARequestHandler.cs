@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using A2A.Server.Execution;
 using A2A.Server.Idempotency;
 using A2A.Server.Pipeline;
@@ -13,6 +14,9 @@ namespace A2A.Server;
 /// The default <see cref="IA2ARequestHandler"/>: transport-agnostic implementation of every A2A operation. Protocol bindings
 /// (JSON-RPC, HTTP+JSON, gRPC) resolve the interface, parse the wire format, build a <see cref="ServerCallContext"/>, and call
 /// these methods. Errors are thrown as <see cref="A2AException"/>.
+/// Every operation binds the tenant from the request, then runs through the operation pipeline: the
+/// <see cref="A2AFilterStage.BeforeAuthorization"/> filters, authorization, the <see cref="A2AFilterStage.AfterAuthorization"/>
+/// filters, then the operation (see <see cref="IA2AOperationFilter"/>).
 /// The tasks, messages and events these methods return may share instances with the stores: serialize them, never change them.
 /// </summary>
 public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
@@ -20,7 +24,6 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private readonly TaskStore _tasks;
     private readonly EventStore _events;
     private readonly IdempotencyCoordinator _idempotency;
-    private readonly A2AAuthorizationHandler _authorization;
     private readonly TaskEventBus _bus;
     private readonly A2AServerOptions _options;
     private readonly CallValidator _validator;
@@ -28,9 +31,28 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private readonly TaskExecutionEngine _engine;
     private readonly TaskStreamer _streamer;
     private readonly AcceptMessage _accept;
+    private readonly OperationPipeline _pipeline;
+
+    // One cached delegate per operation, so a call through the pipeline creates no closure for its operation.
+    private readonly Func<SendMessageRequest, ServerCallContext, CancellationToken, ValueTask<SendMessageResponse>> _sendMessage;
+    private readonly Func<SendMessageRequest, ServerCallContext, CancellationToken, ValueTask<IAsyncEnumerable<SequencedEvent>>> _sendStreaming;
+    private readonly Func<GetTaskRequest, ServerCallContext, CancellationToken, ValueTask<AgentTask>> _getTask;
+    private readonly Func<ListTasksRequest, ServerCallContext, CancellationToken, ValueTask<ListTasksResponse>> _listTasks;
+    private readonly Func<CancelTaskRequest, ServerCallContext, CancellationToken, ValueTask<AgentTask>> _cancelTask;
+    private readonly Func<TaskPushNotificationConfig, ServerCallContext, CancellationToken, ValueTask<TaskPushNotificationConfig>> _createPush;
+    private readonly Func<GetTaskPushNotificationConfigRequest, ServerCallContext, CancellationToken, ValueTask<TaskPushNotificationConfig>> _getPush;
+    private readonly Func<ListTaskPushNotificationConfigsRequest, ServerCallContext, CancellationToken, ValueTask<ListTaskPushNotificationConfigsResponse>> _listPush;
+    private readonly Func<DeleteTaskPushNotificationConfigRequest, ServerCallContext, CancellationToken, ValueTask<object?>> _deletePush;
+    private readonly Func<GetExtendedAgentCardRequest, ServerCallContext, CancellationToken, ValueTask<AgentCard>> _extendedCard;
+
+    private static readonly A2AOperationDescriptor SendStreamingOperation = A2AOperationDescriptor.For(A2AOperation.SendStreamingMessage);
+    private static readonly A2AOperationDescriptor SubscribeOperation = A2AOperationDescriptor.For(A2AOperation.SubscribeToTask);
 
     /// <summary>Creates the handler. In an ASP.NET Core app the DI container does this; the parameters are the registered services.</summary>
-    /// <remarks>The handler does not own <paramref name="engine"/>: its owner (the DI container) disposes it.</remarks>
+    /// <remarks>
+    /// The handler does not own <paramref name="engine"/>: its owner (the DI container) disposes it. The pipeline is built here,
+    /// once, from <paramref name="filters"/> in their order (registered with <see cref="A2AServerBuilder.AddOperationFilter{T}"/>).
+    /// </remarks>
     public A2ARequestHandler(
         TaskStore tasks,
         EventStore events,
@@ -40,12 +62,12 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         CallValidator validator,
         PushConfigService pushConfigs,
         TaskExecutionEngine engine,
-        TaskStreamer streamer)
+        TaskStreamer streamer,
+        IEnumerable<A2AOperationFilterRegistration> filters)
     {
         _tasks = tasks;
         _events = events;
         _idempotency = idempotency;
-        _authorization = authorization;
         _bus = engine.Bus; // the bus the engine publishes to: SendMessage subscribes to the same one
         _options = options;
         _validator = validator;
@@ -53,6 +75,17 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         _engine = engine;
         _streamer = streamer;
         _accept = AcceptAsync; // one delegate for every stream
+        _pipeline = new OperationPipeline(new AuthorizationFilter(authorization, options), filters);
+        _sendMessage = SendMessageCoreAsync;
+        _sendStreaming = (r, c, ct) => new(_streamer.StreamExecutionAsync(r, c, _accept, SendStreamingOperation, ct));
+        _getTask = GetTaskCoreAsync;
+        _listTasks = ListTasksCoreAsync;
+        _cancelTask = CancelTaskCoreAsync;
+        _createPush = CreateTaskPushNotificationConfigCoreAsync;
+        _getPush = GetTaskPushNotificationConfigCoreAsync;
+        _listPush = ListTaskPushNotificationConfigsCoreAsync;
+        _deletePush = DeleteTaskPushNotificationConfigCoreAsync;
+        _extendedCard = GetExtendedAgentCardCoreAsync;
     }
 
     /// <summary>The public Agent Card from <see cref="A2AServerOptions.AgentCard"/>.</summary>
@@ -66,12 +99,21 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     public void ValidateCall(ServerCallContext call) => _validator.Validate(call);
 
     // =====================================================================
-    // Authorization hook
+    // Operation pipeline
     // =====================================================================
 
-    /// <summary>Runs at the top of every operation: see <see cref="OperationAuthorization.RequireAsync"/>.</summary>
-    private Task AuthorizeAsync(ServerCallContext call, A2AOperation op, object request, string? taskId, CancellationToken ct) =>
-        _authorization.RequireAsync(_options, call, op, request, taskId, ct);
+    /// <summary>
+    /// A streaming operation. Lazy like the stream it returns: on the first read it binds the tenant and runs the pipeline,
+    /// so a refusal surfaces from the first <c>MoveNextAsync</c>, before any event, and bindings turn it into an error response.
+    /// </summary>
+    private async IAsyncEnumerable<SequencedEvent> StreamAsync<TRequest>(A2AOperationDescriptor operation, string? tenant, ServerCallContext call,
+        TRequest request, Func<TRequest, ServerCallContext, CancellationToken, ValueTask<IAsyncEnumerable<SequencedEvent>>> open,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default) where TRequest : class
+    {
+        call.BindTenant(tenant);
+        var events = await _pipeline.RunAsync(operation, call, request, open, cancellationToken).ConfigureAwait(false);
+        await foreach (var e in events.WithCancellation(cancellationToken).ConfigureAwait(false)) yield return e;
+    }
 
     // =====================================================================
     // SendMessage / SendStreamingMessage
@@ -85,7 +127,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     public async Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.SendMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
+        return await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.SendMessage), call, request, _sendMessage, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<SendMessageResponse> SendMessageCoreAsync(SendMessageRequest request, ServerCallContext call, CancellationToken cancellationToken)
+    {
         var (claim, replay) = await _idempotency.BeginAsync(request, call, cancellationToken).ConfigureAwait(false);
         if (replay is not null) return await _idempotency.ReplayAsync(replay, request, call, _engine.WaitUntilSettledAsync, cancellationToken).ConfigureAwait(false);
         var taskId = string.IsNullOrEmpty(request.Message?.TaskId) ? TaskIds.New() : request.Message.TaskId;
@@ -128,7 +174,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         return StreamCursor.TryParse(lastEventId, out var taskId, out var sequence)
                && (string.IsNullOrEmpty(messageTaskId) || string.Equals(messageTaskId, taskId, StringComparison.Ordinal))
             ? SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant }, call, sequence, onCaughtUp, cancellationToken)
-            : _streamer.StreamExecutionAsync(request, call, _accept, cancellationToken);
+            : StreamAsync(SendStreamingOperation, request.Tenant, call, request, _sendStreaming, cancellationToken);
     }
 
     /// <param name="Context">The request context for the agent.</param>
@@ -288,7 +334,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     public async Task<AgentTask> GetTaskAsync(GetTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.GetTask, request, request.Id, cancellationToken).ConfigureAwait(false);
+        return await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.GetTask), call, request, _getTask, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<AgentTask> GetTaskCoreAsync(GetTaskRequest request, ServerCallContext call, CancellationToken cancellationToken)
+    {
         A2AValidator.RequireId(request.Id, "id");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
@@ -299,7 +349,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     public async Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.ListTasks, request, null, cancellationToken).ConfigureAwait(false);
+        return await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.ListTasks), call, request, _listTasks, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<ListTasksResponse> ListTasksCoreAsync(ListTasksRequest request, ServerCallContext call, CancellationToken cancellationToken)
+    {
         if (request.PageSize is < 1) throw A2AException.InvalidParams("pageSize must be between 1 and 100");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var pageSize = Math.Min(request.PageSize ?? 50, _options.Limits.MaxListPageSize);
@@ -327,7 +381,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.CancelTask, request, request.Id, cancellationToken).ConfigureAwait(false);
+        return await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.CancelTask), call, request, _cancelTask, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<AgentTask> CancelTaskCoreAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken)
+    {
         A2AValidator.RequireId(request.Id, "id");
         var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         if (record.Task.Status.State.IsTerminal()) throw NotCancelable(request.Id);
@@ -363,7 +421,8 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// <param name="cancellationToken">Cancellation.</param>
     public IAsyncEnumerable<SequencedEvent> SubscribeToTaskAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter = null,
         Action? onCaughtUp = null, CancellationToken cancellationToken = default) =>
-        _streamer.SubscribeAsync(request, call, resumeAfter, onCaughtUp, cancellationToken);
+        StreamAsync(SubscribeOperation, request.Tenant, call, request,
+            (r, c, ct) => new(_streamer.SubscribeAsync(r, c, resumeAfter, onCaughtUp, SubscribeOperation, ct)), cancellationToken);
 
     /// <summary>Open streams counted against the stream limits. For tests.</summary>
     internal int OpenStreams => _streamer.OpenStreams;
@@ -376,7 +435,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     public async Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(config.Tenant);
-        await AuthorizeAsync(call, A2AOperation.CreateTaskPushNotificationConfig, config, config.TaskId, cancellationToken).ConfigureAwait(false);
+        return await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.CreateTaskPushNotificationConfig), call, config, _createPush, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<TaskPushNotificationConfig> CreateTaskPushNotificationConfigCoreAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken)
+    {
         RequirePush();
         A2AValidator.ValidatePushConfig(config, "config", requireTaskId: true);
         var key = Key(call, config.TaskId!);
@@ -388,7 +451,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     public async Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.GetTaskPushNotificationConfig, request, request.TaskId, cancellationToken).ConfigureAwait(false);
+        return await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.GetTaskPushNotificationConfig), call, request, _getPush, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<TaskPushNotificationConfig> GetTaskPushNotificationConfigCoreAsync(GetTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken)
+    {
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
@@ -401,7 +468,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     public async Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.ListTaskPushNotificationConfigs, request, request.TaskId, cancellationToken).ConfigureAwait(false);
+        return await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.ListTaskPushNotificationConfigs), call, request, _listPush, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsCoreAsync(ListTaskPushNotificationConfigsRequest request, ServerCallContext call, CancellationToken cancellationToken)
+    {
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         var key = Key(call, request.TaskId);
@@ -413,13 +484,18 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     public async Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.DeleteTaskPushNotificationConfig, request, request.TaskId, cancellationToken).ConfigureAwait(false);
+        await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.DeleteTaskPushNotificationConfig), call, request, _deletePush, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<object?> DeleteTaskPushNotificationConfigCoreAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken)
+    {
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.TaskId);
         _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
         await _pushConfigs.DeleteAsync(key, request.Id, cancellationToken).ConfigureAwait(false);
+        return null;
     }
 
     // =====================================================================
@@ -430,7 +506,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     public async Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.GetExtendedAgentCard, request, null, cancellationToken).ConfigureAwait(false);
+        return await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.GetExtendedAgentCard), call, request, _extendedCard, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<AgentCard> GetExtendedAgentCardCoreAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken)
+    {
         if (_options.AgentCard.Capabilities.ExtendedAgentCard != true)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "This agent does not provide an extended agent card.");
         if (!call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated, "The extended agent card requires authentication.");

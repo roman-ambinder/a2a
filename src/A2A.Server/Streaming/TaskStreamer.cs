@@ -58,23 +58,25 @@ public sealed class TaskStreamer
     internal int OpenStreams => _admission.OpenStreams;
 
     /// <summary>
-    /// SendStreamingMessage: authorizes, handles an idempotent retry, takes a stream slot, accepts the message with
+    /// SendStreamingMessage: handles an idempotent retry, takes a stream slot, accepts the message with
     /// <paramref name="accept"/>, then streams the task's events (see <see cref="A2ARequestHandler.SendStreamingMessageAsync"/>).
-    /// Everything runs when the stream is enumerated, inside the stream limits.
+    /// Everything runs when the stream is enumerated, inside the stream limits. The caller has bound the tenant and authorized
+    /// the call (the operation pipeline); the stream limits authorize it again as <paramref name="operation"/>.
     /// </summary>
     internal IAsyncEnumerable<SequencedEvent> StreamExecutionAsync(SendMessageRequest request, ServerCallContext call, AcceptMessage accept,
-        CancellationToken cancellationToken) =>
+        A2AOperationDescriptor operation, CancellationToken cancellationToken) =>
         // CancellationToken.None: LimitStreamAsync owns the token ([EnumeratorCancellation]) and passes its linked token to the core.
-        LimitStreamAsync(SendStreamingCoreAsync(request, call, accept, CancellationToken.None), call, A2AOperation.SendStreamingMessage, request, cancellationToken);
+        LimitStreamAsync(SendStreamingCoreAsync(request, call, accept, CancellationToken.None), call, operation, request, cancellationToken);
 
     /// <summary>
     /// SubscribeToTask, fresh or resumed (see <see cref="A2ARequestHandler.SubscribeToTaskAsync"/>),
-    /// inside the stream limits. <paramref name="onCaughtUp"/> is described on <see cref="SubscribeCoreAsync"/>.
+    /// inside the stream limits. <paramref name="onCaughtUp"/> is described on <see cref="SubscribeCoreAsync"/>. The caller has
+    /// bound the tenant and authorized the call (the operation pipeline); the stream limits authorize it again as <paramref name="operation"/>.
     /// </summary>
     internal IAsyncEnumerable<SequencedEvent> SubscribeAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
-        Action? onCaughtUp, CancellationToken cancellationToken) =>
+        Action? onCaughtUp, A2AOperationDescriptor operation, CancellationToken cancellationToken) =>
         // CancellationToken.None: LimitStreamAsync owns the token ([EnumeratorCancellation]) and passes its linked token to the core.
-        LimitStreamAsync(SubscribeCoreAsync(request, call, resumeAfter, onCaughtUp, CancellationToken.None), call, A2AOperation.SubscribeToTask, request, cancellationToken);
+        LimitStreamAsync(SubscribeCoreAsync(request, call, resumeAfter, onCaughtUp, CancellationToken.None), call, operation, request, cancellationToken);
 
     /// <summary>
     /// The blocking SendMessage, the counterpart of the send stream with the same end rule: follows <paramref name="exec"/> and,
@@ -152,8 +154,6 @@ public sealed class TaskStreamer
     private async IAsyncEnumerable<SequencedEvent> SendStreamingCoreAsync(SendMessageRequest request, ServerCallContext call, AcceptMessage accept,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.SendStreamingMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
         RequireStreaming();
         var (claim, replay) = await _idempotency.BeginAsync(request, call, cancellationToken).ConfigureAwait(false);
         if (replay is IdempotencyOutcome.DirectMessage direct)
@@ -165,7 +165,9 @@ public sealed class TaskStreamer
         if (replay is IdempotencyOutcome.TaskCreated created)
         {
             // The same path as a resume from cursor 0: the retained events from the start, then live events.
+            // The resume is a SubscribeToTask of the created task: authorized as one, as a reconnect would be.
             var resume = new SubscribeToTaskRequest { Id = created.TaskId, Tenant = request.Tenant };
+            await AuthorizeAsync(call, A2AOperationDescriptor.For(A2AOperation.SubscribeToTask), resume, created.TaskId, cancellationToken).ConfigureAwait(false);
             await foreach (var replayed in SubscribeCoreAsync(resume, call, resumeAfter: 0, onCaughtUp: null, cancellationToken).ConfigureAwait(false))
                 yield return replayed;
             yield break;
@@ -332,8 +334,6 @@ public sealed class TaskStreamer
     private async IAsyncEnumerable<SequencedEvent> SubscribeCoreAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
         Action? onCaughtUp, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.SubscribeToTask, request, request.Id, cancellationToken).ConfigureAwait(false);
         RequireStreaming();
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.Id);
@@ -453,11 +453,12 @@ public sealed class TaskStreamer
 
     /// <summary>
     /// Applies the per-stream limits (spec design §7.2, §7.7). Every <see cref="A2ALimits.StreamReauthInterval"/> the caller is
-    /// authorized again; on denial nothing more is sent and the stream ends. At <see cref="A2ALimits.MaxStreamDuration"/> the
+    /// authorized again, as <paramref name="operation"/> with <paramref name="request"/> (what the stream was opened with); on
+    /// denial nothing more is sent and the stream ends. At <see cref="A2ALimits.MaxStreamDuration"/> the
     /// stream ends normally, without an error; clients resume with <c>Last-Event-ID</c>. Stopping the stream never stops the task.
     /// </summary>
     private async IAsyncEnumerable<SequencedEvent> LimitStreamAsync(IAsyncEnumerable<SequencedEvent> source, ServerCallContext call,
-        A2AOperation op, object request, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        A2AOperationDescriptor operation, object request, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var limits = _options.Limits;
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -519,7 +520,7 @@ public sealed class TaskStreamer
         // Asks the authorization handler again and moves the deadline.
         async ValueTask<bool> StillAuthorizedAsync()
         {
-            var allowed = await _authorization.AuthorizeAsync(call, op, request, cancellationToken).ConfigureAwait(false);
+            var allowed = await _authorization.AuthorizeAsync(call, operation, request, cancellationToken).ConfigureAwait(false);
             reauthAt = Stopwatch.GetTimestamp() + Ticks(reauthEvery!.Value);
             return allowed;
         }
@@ -534,8 +535,8 @@ public sealed class TaskStreamer
 
     private AgentTask Shape(AgentTask task) => TaskShaper.Shape(task, null, _options.Limits);
 
-    private Task AuthorizeAsync(ServerCallContext call, A2AOperation op, object request, string? taskId, CancellationToken ct) =>
-        _authorization.RequireAsync(_options, call, op, request, taskId, ct);
+    private Task AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, string? taskId, CancellationToken ct) =>
+        _authorization.RequireAsync(_options, call, operation, request, taskId, ct);
 
     private void RequireStreaming()
     {

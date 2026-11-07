@@ -4,6 +4,7 @@ using System.Text.Json;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Authorization;
+using A2A.Server.Pipeline;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
@@ -19,19 +20,19 @@ public class AuthorizationTests
 {
     private sealed class DenyGetTask : A2AAuthorizationHandler
     {
-        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperation op, object request, CancellationToken ct) =>
-            ValueTask.FromResult(op != A2AOperation.GetTask);
+        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor op, object request, CancellationToken ct) =>
+            ValueTask.FromResult(op.Kind != A2AOperation.GetTask);
     }
 
     private sealed class DenyList : A2AAuthorizationHandler
     {
-        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperation op, object request, CancellationToken ct) =>
-            ValueTask.FromResult(op != A2AOperation.ListTasks);
+        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor op, object request, CancellationToken ct) =>
+            ValueTask.FromResult(op.Kind != A2AOperation.ListTasks);
     }
 
     private sealed class DenyAll : A2AAuthorizationHandler
     {
-        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperation op, object request, CancellationToken ct) =>
+        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor op, object request, CancellationToken ct) =>
             ValueTask.FromResult(false);
     }
 
@@ -181,13 +182,13 @@ public class AuthorizationTests
     }
 
     [Fact]
-    public async Task Default_authorization_handler_allows_everything()
+    public async Task Default_authorization_handler_allows_every_builtin_operation()
     {
         var services = new ServiceCollection();
         services.AddA2AServer().AddInMemoryStores();
         await using var provider = services.BuildServiceProvider();
         var handler = provider.GetRequiredService<A2AAuthorizationHandler>();
-        Assert.True(await handler.AuthorizeAsync(ServerCallContext.Anonymous(), A2AOperation.ListTasks, new object(), default));
+        Assert.True(await handler.AuthorizeAsync(ServerCallContext.Anonymous(), A2AOperationDescriptor.For(A2AOperation.ListTasks), new object(), default));
     }
 
     [Fact]
