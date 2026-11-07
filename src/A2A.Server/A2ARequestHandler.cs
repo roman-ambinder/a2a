@@ -682,6 +682,15 @@ public sealed class A2ARequestHandler : IDisposable
             lastYielded = live.Sequence;
             if (IsFinal(live.Event)) yield break;
         }
+
+        // The bus ended the subscription (the task went terminal) without delivering a final event: a lossy bus can drop
+        // the terminal event itself. Every event is in the store before it is published, so finish from there.
+        await foreach (var stored in ReadContiguousAsync(key, lastYielded, long.MaxValue, cancellationToken).ConfigureAwait(false))
+        {
+            yield return stored;
+            lastYielded = stored.Sequence;
+            if (IsFinal(stored.Event)) yield break;
+        }
     }
 
     /// <summary>A task with its last and oldest retained event sequences, read together.</summary>

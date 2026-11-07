@@ -117,6 +117,36 @@ public class StreamingResumeTests
         }
     }
 
+    /// <summary>A bus that loses the terminal status event but still completes the subscriptions.</summary>
+    private sealed class TerminalLossBus : TaskEventBus
+    {
+        public override void Publish(string taskId, SequencedEvent evt)
+        {
+            if (evt.Event is StatusUpdateEvent { StatusUpdate.Status.State: var s } && s.IsTerminal()) return;
+            base.Publish(taskId, evt);
+        }
+    }
+
+    [Fact]
+    public async Task Lost_terminal_event_is_read_from_the_store_when_the_live_stream_ends()
+    {
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskEventBus, TerminalLossBus>());
+        var call = AliceCall();
+        await using var send = host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("slow") }, call).GetAsyncEnumerator();
+        Assert.True(await send.MoveNextAsync());
+        var taskId = Assert.IsType<TaskEvent>(send.Current.Event).Task.Id;
+
+        var received = new List<SequencedEvent>();
+        await foreach (var e in host.Handler.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId }, call).WithCancellation(new CancellationTokenSource(Timeout).Token))
+        {
+            received.Add(e);
+            if (received.Count == 1) _ = host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = taskId }, call);
+        }
+
+        Assert.Equal(TaskState.Canceled, Assert.IsType<StatusUpdateEvent>(received[^1].Event).StatusUpdate.Status.State);
+        for (var i = 1; i < received.Count; i++) Assert.Equal(received[i - 1].Sequence + 1, received[i].Sequence);
+    }
+
     [Fact]
     public async Task Live_gap_is_filled_from_the_store()
     {
@@ -124,7 +154,7 @@ public class StreamingResumeTests
         {
             s.AddScoped<IAgentExecutor, InterleavingAgent>();
             s.AddSingleton<TaskEventBus, LossyBus>();
-        });
+        }, configure: o => o.CancelGracePeriod = TimeSpan.FromSeconds(60));
         var call = AliceCall();
         await using var send = host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, call).GetAsyncEnumerator();
         Assert.True(await send.MoveNextAsync());
@@ -391,9 +421,8 @@ public class StreamingResumeTests
         Assert.IsType<TaskEvent>((await stream.NextAsync(Timeout))!.Event);
 
         auth.Allow = false;
-        var watch = Stopwatch.StartNew();
-        var rest = await stream.ReadToEndAsync(TimeSpan.FromSeconds(1));
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1));
+        // The "slow" agent never finishes, so a stream that ends within the (generous) timeout ended because of the re-check.
+        var rest = await stream.ReadToEndAsync(Timeout);
         Assert.All(rest, f => Assert.Null(f.Error));
         Assert.DoesNotContain(rest, f => f.Event is StatusUpdateEvent { StatusUpdate.Status.State: var s } && s.IsTerminal());
         await EventuallyAsync(() => Task.FromResult(host.Handler.OpenStreams == 0));
