@@ -64,13 +64,6 @@ A2A.Client.A2AClientOptions.TransportFactories.get -> System.Collections.Generic
 A2A.Client.A2AClientOptions.TransportFactories.set -> void
 A2A.Client.A2AClientOptions.ValidateCapabilities.get -> bool
 A2A.Client.A2AClientOptions.ValidateCapabilities.set -> void
-A2A.Client.A2AClientServiceCollectionExtensions
-A2A.Client.A2ANamedClientOptions
-A2A.Client.A2ANamedClientOptions.A2ANamedClientOptions() -> void
-A2A.Client.A2ANamedClientOptions.AgentUrl.get -> System.Uri?
-A2A.Client.A2ANamedClientOptions.AgentUrl.set -> void
-A2A.Client.A2ANamedClientOptions.Client.get -> A2A.Client.A2AClientOptions!
-A2A.Client.A2ANamedClientOptions.Resolver.get -> A2A.Client.A2ACardResolverOptions!
 A2A.Client.A2ARequestOptions
 A2A.Client.A2ARequestOptions.A2ARequestOptions() -> void
 A2A.Client.A2ARequestOptions.ConfigureRequest.get -> System.Func<System.Net.Http.HttpRequestMessage!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask>?
@@ -92,8 +85,6 @@ A2A.Client.AgentCardPinException.Origin.get -> string!
 A2A.Client.AgentCardVerificationException
 A2A.Client.AgentCardVerificationException.AgentCardVerificationException(A2A.Signing.AgentCardVerificationResult! result) -> void
 A2A.Client.AgentCardVerificationException.Result.get -> A2A.Signing.AgentCardVerificationResult!
-A2A.Client.BearerTokenHandler
-A2A.Client.BearerTokenHandler.BearerTokenHandler(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>! tokenProvider) -> void
 A2A.Client.CardChangedEventArgs
 A2A.Client.CardChangedEventArgs.CardChangedEventArgs(string! origin, string! oldHash, string! newHash) -> void
 A2A.Client.CardChangedEventArgs.NewHash.get -> string!
@@ -133,8 +124,6 @@ A2A.Client.IA2AClient.ListTasksAsync(A2A.ListTasksRequest! request, A2A.Client.A
 A2A.Client.IA2AClient.SendMessageAsync(A2A.SendMessageRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.SendMessageResponse!>!
 A2A.Client.IA2AClient.SendStreamingMessageAsync(A2A.SendMessageRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.StreamResponse!>!
 A2A.Client.IA2AClient.SubscribeToTaskAsync(A2A.SubscribeToTaskRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.StreamResponse!>!
-A2A.Client.IA2AClientFactory
-A2A.Client.IA2AClientFactory.GetClientAsync(string! name, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Client.A2AClient!>
 A2A.Client.IA2ATransportFactory
 A2A.Client.IA2ATransportFactory.CanCreate(A2A.AgentInterface! agentInterface) -> bool
 A2A.Client.IA2ATransportFactory.Create(A2A.AgentInterface! agentInterface, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions! options) -> A2A.Client.IA2AClient!
@@ -220,8 +209,6 @@ static A2A.Client.A2ACardResolver.GetCardUri(System.Uri! agentUrl) -> System.Uri
 static A2A.Client.A2AClientFactory.Create(A2A.AgentCard! card, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions? options = null) -> A2A.Client.A2AClient!
 static A2A.Client.A2AClientFactory.CreateAsync(System.Uri! agentUrl, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions? options = null, A2A.Client.A2ACardResolverOptions? resolverOptions = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.A2AClient!>!
 static A2A.Client.A2AClientFactory.SelectInterface(A2A.AgentCard! card, A2A.Client.A2AClientOptions! options) -> A2A.AgentInterface?
-static A2A.Client.A2AClientServiceCollectionExtensions.AddA2AClient(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, string! name, System.Action<A2A.Client.A2ANamedClientOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IHttpClientBuilder!
-static A2A.Client.A2AClientServiceCollectionExtensions.AddBearerToken(this Microsoft.Extensions.DependencyInjection.IHttpClientBuilder! builder, System.Func<System.IServiceProvider!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>! tokenProvider) -> Microsoft.Extensions.DependencyInjection.IHttpClientBuilder!
 static A2A.Client.Sse.SseReader.ReadAsync(System.IO.Stream! stream, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Client.Sse.SseEvent!>!
 static A2A.Client.Transports.HttpTransportBase.HttpError(System.Net.Http.HttpResponseMessage! response, string? body) -> A2A.A2AException!
 static A2A.Client.Transports.HttpTransportBase.IsEventStream(System.Net.Http.HttpResponseMessage! response) -> bool

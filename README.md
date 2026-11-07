@@ -15,7 +15,8 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | Package (NuGet ID: `RomanAmbinder.` + name) | What it is |
 |---|---|
 | `A2A.Protocol` | Data model (from `a2a.proto`), ProtoJSON serialization, errors, JCS (RFC 8785), JWS card signing/verification |
-| `A2A.Client` | `A2AClient`, JSON-RPC + REST transports, SSE reader, card resolver with caching and signature policy, DI |
+| `A2A.Client` | `A2AClient`, JSON-RPC + REST transports, SSE reader, card resolver with caching and signature policy |
+| `A2A.Client.DependencyInjection` | `AddA2AClient`, `IA2AClientFactory`, `AddBearerToken` (adds DI, Options, `IHttpClientFactory`) |
 | `A2A.Server` | Transport-agnostic server core: executor model, task lifecycle, stores, event bus, push sender |
 | `A2A.Server.AspNetCore` | Endpoints: JSON-RPC, REST, SSE, `/.well-known/agent-card.json`, JWKS |
 | `A2A.Grpc` | Generated types/stubs for `lf.a2a.v1.A2AService` (from `docs/a2a.proto`) and model mapping |
@@ -76,7 +77,7 @@ await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("str
 
 Every client method takes optional `A2ARequestOptions` (headers, timeout, idempotency key, extensions, `ConfigureRequest`). `SendMessage` always sends an `Idempotency-Key` (default: the message id). Unary calls retry up to `MaxRetries` times (default 2, so 3 attempts; set it on `A2AClientOptions` or per call, 0 disables) on 503, 429, errors marked retryable, and transport errors. For `SendMessage` a transport error is retried only when the request never reached the server (connect, DNS, proxy tunnel or TLS failure), so a server without `Idempotency-Key` support cannot create the task twice. Creating or deleting a push config and streams are not retried.
 
-DI: `services.AddA2AClient("weather", o => o.AgentUrl = ...).AddBearerToken(...)`, then `IA2AClientFactory.GetClientAsync("weather")`.
+DI (package `A2A.Client.DependencyInjection`): `services.AddA2AClient("weather", o => o.AgentUrl = ...).AddBearerToken(...)`, then `IA2AClientFactory.GetClientAsync("weather")`.
 
 The factory picks the first interface **in the card's order** that the client supports (spec §8.3.2), and sets `tenant` from it.
 

@@ -10,6 +10,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/A2A.Client.Grpc/A2A.Client.Grpc.csproj" />
+    <Project Path="src/A2A.Client.DependencyInjection/A2A.Client.DependencyInjection.csproj" />
     <Project Path="src/A2A.Client/A2A.Client.csproj" />
     <Project Path="src/A2A.Grpc/A2A.Grpc.csproj" />
     <Project Path="src/A2A.Protocol/A2A.Protocol.csproj" />

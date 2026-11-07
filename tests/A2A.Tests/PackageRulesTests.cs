@@ -29,17 +29,17 @@ public sealed class PackageRulesTests
     [Fact]
     public void Security_Http_has_no_package_references() => Assert.Empty(RefsOf("A2A.Security.Http"));
 
-    [Fact(Skip = "Task 6, Task 8")]
-    public void Client_and_Server_reference_only_extensions_abstractions()
-    {
-        foreach (var project in new[] { "A2A.Client", "A2A.Server" })
-        {
-            var bad = RefsOf(project).Where(r =>
-                !(r.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal)
-                  && (r.EndsWith(".Abstractions", StringComparison.Ordinal) || r == "Microsoft.Extensions.Options")));
-            Assert.Empty(bad);
-        }
-    }
+    private static void AssertOnlyAbstractions(string project, Func<string, bool> allowed) =>
+        Assert.True(RefsOf(project).All(allowed), $"{project} references: {string.Join(", ", RefsOf(project))}");
+
+    [Fact]
+    public void Client_references_only_logging_abstractions() =>
+        AssertOnlyAbstractions("A2A.Client", r => r == "Microsoft.Extensions.Logging.Abstractions");
+
+    [Fact(Skip = "Task 8")]
+    public void Server_references_only_extensions_abstractions() =>
+        AssertOnlyAbstractions("A2A.Server", r => r.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal)
+            && (r.EndsWith(".Abstractions", StringComparison.Ordinal) || r == "Microsoft.Extensions.Options"));
 
     // Server still exposes internals to the ASP.NET Core binding; Task 16 (IA2ARequestHandler) removes it and this entry.
     private static readonly HashSet<(string Owner, string Friend)> KnownExceptions = [("A2A.Server", "A2A.Server.AspNetCore")];
