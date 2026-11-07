@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>A2A.Server</RootNamespace>
+    <Description>Transport-agnostic A2A (Agent2Agent) server core: request handling, task lifecycle, stores, event streaming, push notifications.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\A2A.Protocol\A2A.Protocol.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="A2A.Tests" />
+    <InternalsVisibleTo Include="A2A.Server.AspNetCore" />
+  </ItemGroup>
+</Project>

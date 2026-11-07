@@ -1,0 +1,263 @@
+using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Sockets;
+using A2A.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+
+namespace A2A.Server.Push;
+
+public sealed class PushNotificationOptions
+{
+    /// <summary>Allow http:// webhook URLs. Default false (spec §13.2: SHOULD use HTTPS).</summary>
+    public bool AllowInsecureUrls { get; set; }
+
+    /// <summary>
+    /// Allow webhooks that resolve to loopback, private, link-local, CGNAT, or unique-local addresses. Default false (SSRF guard).
+    /// The check runs at connect time against the resolved IP, which also blocks DNS rebinding.
+    /// </summary>
+    public bool AllowPrivateNetworks { get; set; }
+
+    /// <summary>If non-empty, only these hosts may be used as webhook targets.</summary>
+    public ISet<string> AllowedHosts { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>Delivery attempts per notification, including the first. Default 3.</summary>
+    public int MaxAttempts { get; set; } = 3;
+
+    public TimeSpan InitialBackoff { get; set; } = TimeSpan.FromSeconds(1);
+}
+
+/// <summary>Validates webhook URLs against the SSRF policy.</summary>
+public static class PushUrlValidator
+{
+    /// <summary>Static checks done when a config is registered. Throws InvalidParams.</summary>
+    public static void Validate(string url, PushNotificationOptions options)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            throw A2AException.InvalidParams("Push notification url must be absolute");
+        if (uri.Scheme != Uri.UriSchemeHttps && !(options.AllowInsecureUrls && uri.Scheme == Uri.UriSchemeHttp))
+            throw A2AException.InvalidParams("Push notification url must use https");
+        if (!string.IsNullOrEmpty(uri.UserInfo))
+            throw A2AException.InvalidParams("Push notification url must not contain credentials");
+        if (options.AllowedHosts.Count > 0 && !options.AllowedHosts.Contains(uri.Host))
+            throw A2AException.InvalidParams("Push notification host is not allowed");
+        if (!options.AllowPrivateNetworks)
+        {
+            if (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase))
+                throw A2AException.InvalidParams("Push notification url must not target loopback");
+            if (IPAddress.TryParse(uri.Host.Trim('[', ']'), out var ip) && IsPrivate(ip))
+                throw A2AException.InvalidParams("Push notification url must not target a private network address");
+        }
+    }
+
+    /// <summary>True for addresses that must not be reached from the agent by default.</summary>
+    public static bool IsPrivate(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        if (IPAddress.IsLoopback(ip)) return true;
+        if (ip.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = ip.GetAddressBytes();
+            return b[0] switch
+            {
+                0 or 10 or 127 => true,
+                100 => b[1] >= 64 && b[1] <= 127,          // 100.64.0.0/10 CGNAT
+                169 => b[1] == 254,                         // link-local, cloud metadata
+                172 => b[1] >= 16 && b[1] <= 31,
+                192 => (b[1] == 168) || (b[1] == 0 && b[2] == 0), // 192.168/16, 192.0.0/24
+                198 => b[1] == 18 || b[1] == 19,            // benchmarking
+                >= 224 => true,                             // multicast, reserved, broadcast
+                _ => false,
+            };
+        }
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (ip.Equals(IPAddress.IPv6Any) || ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast) return true;
+            var b = ip.GetAddressBytes();
+            if ((b[0] & 0xFE) == 0xFC) return true; // fc00::/7 unique local
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>Primary handler for the push HttpClient: enforces the IP policy on every connection and disables redirects.</summary>
+    public static SocketsHttpHandler CreateHandler(PushNotificationOptions options) => new()
+    {
+        AllowAutoRedirect = false,
+        UseCookies = false,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        ConnectCallback = async (ctx, ct) =>
+        {
+            var addresses = await Dns.GetHostAddressesAsync(ctx.DnsEndPoint.Host, ct).ConfigureAwait(false);
+            if (!options.AllowPrivateNetworks && addresses.Any(IsPrivate))
+                throw new HttpRequestException($"Webhook host '{ctx.DnsEndPoint.Host}' resolves to a private address.");
+            Exception? last = null;
+            foreach (var address in addresses)
+            {
+                var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                try
+                {
+                    await socket.ConnectAsync(new IPEndPoint(address, ctx.DnsEndPoint.Port), ct).ConfigureAwait(false);
+                    return new NetworkStream(socket, ownsSocket: true);
+                }
+                catch (Exception ex)
+                {
+                    socket.Dispose();
+                    last = ex;
+                }
+            }
+            throw new HttpRequestException($"Could not connect to webhook host '{ctx.DnsEndPoint.Host}'.", last);
+        },
+    };
+}
+
+/// <summary>Sends task events to registered webhooks.</summary>
+public interface IPushNotificationSender
+{
+    void Enqueue(string taskId, StreamResponse evt);
+}
+
+/// <summary>
+/// Delivers notifications per task in order, at least once, with retries and exponential backoff (spec §4.3.3, §13.2).
+/// Adds <c>X-A2A-Notification-Token</c> and an <c>X-A2A-Notification-Sequence</c> number for deduplication and ordering.
+/// </summary>
+public sealed class HttpPushNotificationSender : IPushNotificationSender, IDisposable
+{
+    public const string HttpClientName = "A2A.PushNotifications";
+
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IPushNotificationConfigStore _store;
+    private readonly PushNotificationOptions _options;
+    private readonly ILogger _logger;
+    private readonly object _gate = new();
+    private readonly Dictionary<string, Queue<(long Seq, StreamResponse Evt)>> _queues = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, long> _sequence = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<Task, byte> _workers = new();
+    private readonly CancellationTokenSource _shutdown = new();
+
+    public HttpPushNotificationSender(IHttpClientFactory httpClientFactory, IPushNotificationConfigStore store,
+        IOptions<A2AServerOptions> options, ILogger<HttpPushNotificationSender>? logger = null)
+    {
+        _httpClientFactory = httpClientFactory;
+        _store = store;
+        _options = options.Value.PushNotifications;
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
+    }
+
+    public void Enqueue(string taskId, StreamResponse evt)
+    {
+        var seq = _sequence.AddOrUpdate(taskId, 1, (_, s) => s + 1);
+        lock (_gate)
+        {
+            if (_queues.TryGetValue(taskId, out var q))
+            {
+                q.Enqueue((seq, evt));
+                return;
+            }
+            q = new Queue<(long, StreamResponse)>();
+            q.Enqueue((seq, evt));
+            _queues[taskId] = q;
+        }
+        var worker = Task.Run(() => DrainAsync(taskId));
+        _workers[worker] = 0;
+        worker.ContinueWith(t => _workers.TryRemove(t, out _), TaskScheduler.Default);
+    }
+
+    /// <summary>Completes when all queued notifications have been attempted. For tests and graceful shutdown.</summary>
+    public async Task WhenIdleAsync()
+    {
+        while (!_workers.IsEmpty) await Task.WhenAll(_workers.Keys).ConfigureAwait(false);
+    }
+
+    private async Task DrainAsync(string taskId)
+    {
+        while (true)
+        {
+            (long Seq, StreamResponse Evt) item;
+            lock (_gate)
+            {
+                var q = _queues[taskId];
+                if (q.Count == 0)
+                {
+                    _queues.Remove(taskId);
+                    return;
+                }
+                item = q.Dequeue();
+            }
+
+            try
+            {
+                var configs = await _store.ListAsync(taskId, _shutdown.Token).ConfigureAwait(false);
+                foreach (var config in configs) await DeliverAsync(config, item.Seq, item.Evt).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Push notification processing failed for task {TaskId}", taskId);
+            }
+
+            if (item.Evt.StatusUpdate?.Status.State.IsTerminal() == true) _sequence.TryRemove(taskId, out _);
+        }
+    }
+
+    private async Task DeliverAsync(TaskPushNotificationConfig config, long seq, StreamResponse evt)
+    {
+        var body = A2AJson.SerializeToUtf8Bytes(evt);
+        var delay = _options.InitialBackoff;
+        var http = _httpClientFactory.CreateClient(HttpClientName);
+
+        for (var attempt = 1; attempt <= Math.Max(1, _options.MaxAttempts); attempt++)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ByteArrayContent(body) };
+                request.Content.Headers.ContentType = new MediaTypeHeaderValue(A2AProtocol.MediaType);
+                if (config.Authentication is { Scheme.Length: > 0 } auth)
+                    request.Headers.TryAddWithoutValidation("Authorization", string.IsNullOrEmpty(auth.Credentials) ? auth.Scheme : $"{auth.Scheme} {auth.Credentials}");
+                if (!string.IsNullOrEmpty(config.Token)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationToken, config.Token);
+                request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationSequence, seq.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+                cts.CancelAfter(_options.Timeout);
+                using var response = await http.SendAsync(request, cts.Token).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode) return;
+
+                var status = (int)response.StatusCode;
+                var retryable = status is 408 or 429 || status >= 500;
+                _logger.LogWarning("Webhook {ConfigId} for task {TaskId} returned {Status} (attempt {Attempt})", config.Id, config.TaskId, status, attempt);
+                if (!retryable) return;
+            }
+            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Webhook {ConfigId} for task {TaskId} failed (attempt {Attempt})", config.Id, config.TaskId, attempt);
+            }
+
+            if (attempt < _options.MaxAttempts)
+            {
+                await Task.Delay(delay, _shutdown.Token).ConfigureAwait(false);
+                delay = TimeSpan.FromTicks(delay.Ticks * 2);
+            }
+        }
+        _logger.LogError("Giving up on webhook {ConfigId} for task {TaskId} after {Attempts} attempts", config.Id, config.TaskId, _options.MaxAttempts);
+    }
+
+    private int _disposed;
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _shutdown.Cancel();
+        _shutdown.Dispose();
+    }
+}

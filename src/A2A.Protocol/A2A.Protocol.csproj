@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>A2A</RootNamespace>
+    <Description>A2A (Agent2Agent) protocol v1.0 data model, JSON serialization, errors, and Agent Card signing.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="A2A.Tests" />
+  </ItemGroup>
+</Project>

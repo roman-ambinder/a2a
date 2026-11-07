@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/EchoAgent/EchoAgent.csproj" />
+    <Project Path="samples/EchoClient/EchoClient.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/A2A.Client/A2A.Client.csproj" />
+    <Project Path="src/A2A.Protocol/A2A.Protocol.csproj" />
+    <Project Path="src/A2A.Server.AspNetCore/A2A.Server.AspNetCore.csproj" />
+    <Project Path="src/A2A.Server/A2A.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/A2A.Tests/A2A.Tests.csproj" />
+  </Folder>
+</Solution>

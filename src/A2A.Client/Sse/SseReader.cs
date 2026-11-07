@@ -1,0 +1,75 @@
+using System.Runtime.CompilerServices;
+using System.Text;
+
+namespace A2A.Client.Sse;
+
+/// <summary>A dispatched Server-Sent Event.</summary>
+public sealed record SseEvent(string Data, string? EventType, string? Id);
+
+/// <summary>Server-Sent Events parser (WHATWG HTML §9.2.6). Handles CRLF/LF/CR, multi-line data, comments, and BOM.</summary>
+public static class SseReader
+{
+    public static async IAsyncEnumerable<SseEvent> ReadAsync(Stream stream, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        using var reader = new StreamReader(stream, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: true);
+        var data = new StringBuilder();
+        var hasData = false;
+        string? eventType = null;
+        string? lastId = null;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+#if NET8_0_OR_GREATER
+            var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+#else
+            var line = await reader.ReadLineAsync().ConfigureAwait(false);
+#endif
+            if (line is null)
+            {
+                // End of stream: per spec, an incomplete event is discarded.
+                yield break;
+            }
+
+            if (line.Length == 0)
+            {
+                if (hasData)
+                {
+                    var payload = data.ToString();
+                    yield return new SseEvent(payload, eventType, lastId);
+                }
+                data.Clear();
+                hasData = false;
+                eventType = null;
+                continue;
+            }
+
+            if (line[0] == ':') continue; // comment / keep-alive
+
+            var colon = line.IndexOf(':');
+            string field, value;
+            if (colon < 0) { field = line; value = string.Empty; }
+            else
+            {
+                field = line[..colon];
+                value = colon + 1 < line.Length && line[colon + 1] == ' ' ? line[(colon + 2)..] : line[(colon + 1)..];
+            }
+
+            switch (field)
+            {
+                case "data":
+                    if (hasData) data.Append('\n');
+                    data.Append(value);
+                    hasData = true;
+                    break;
+                case "event":
+                    eventType = value;
+                    break;
+                case "id":
+                    if (!value.Contains('\0')) lastId = value;
+                    break;
+                // "retry" and unknown fields are ignored.
+            }
+        }
+    }
+}
