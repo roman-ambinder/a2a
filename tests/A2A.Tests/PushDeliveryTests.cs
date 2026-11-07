@@ -378,4 +378,41 @@ public class PushDeliveryTests
             Assert.Equal(0, server.Accepted);
         });
     }
+
+    [Fact]
+    public async Task Create_time_dns_is_bounded_by_a_timeout()
+    {
+        var original = PrivateAddressGuard.Resolve;
+        try
+        {
+            PrivateAddressGuard.Resolve = (_, _) => new ValueTask<IPAddress[]>(new TaskCompletionSource<IPAddress[]>().Task); // never completes
+            var opts = new PushNotificationOptions { Timeout = TimeSpan.FromMilliseconds(200) };
+            var ex = await Assert.ThrowsAsync<A2AException>(() => PushUrlValidator.ValidateAsync("https://slow.example/h", opts).AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal(PushUrlValidator.UrlNotAllowed, ex.Message);
+
+            using var caller = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => PushUrlValidator.ValidateAsync("https://slow.example/h", new PushNotificationOptions(), caller.Token).AsTask());
+        }
+        finally { PrivateAddressGuard.Resolve = original; }
+    }
+
+    [Fact]
+    public async Task Overlong_host_is_rejected_with_generic_text()
+    {
+        // Real resolver: Dns.GetHostAddressesAsync throws ArgumentOutOfRangeException for hosts over 255 chars.
+        var host = string.Join('.', Enumerable.Repeat(new string('a', 60), 5));
+        var ex = await Assert.ThrowsAsync<A2AException>(() => PushUrlValidator.ValidateAsync($"https://{host}/h", new PushNotificationOptions()).AsTask());
+        Assert.Equal(PushUrlValidator.UrlNotAllowed, ex.Message);
+    }
+
+    [Fact]
+    public async Task Non_bypassed_proxy_hop_is_allowed_even_on_loopback()
+    {
+        using var proxyServer = new LocalServer();
+        var opts = new PushNotificationOptions { Proxy = new WebProxy($"http://127.0.0.1:{proxyServer.Port}") };
+        using var http = new HttpClient(PushUrlValidator.CreateHandler(opts));
+        using var resp = await http.GetAsync("http://evil.example/");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal(1, proxyServer.Accepted);
+    }
 }

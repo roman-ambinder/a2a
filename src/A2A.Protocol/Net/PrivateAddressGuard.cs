@@ -87,8 +87,15 @@ internal static class PrivateAddressGuard
         if (IPAddress.TryParse(StripZone(host.Trim('[', ']')), out var literal)) addresses = [literal];
         else
         {
-            try { addresses = await Resolve(host, ct).ConfigureAwait(false); }
-            catch (SocketException ex) { throw new HttpRequestException($"{hostKind} host '{host}' did not resolve.", ex); }
+            try
+            {
+                // WaitAsync: getaddrinfo is not cancellable on every platform, so the token must bound the wait itself.
+                addresses = await Resolve(host, ct).AsTask().WaitAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is SocketException or ArgumentException)
+            {
+                throw new HttpRequestException($"{hostKind} host '{host}' did not resolve.", ex);
+            }
         }
         if (addresses.Length == 0) throw new HttpRequestException($"{hostKind} host '{host}' did not resolve.");
         if (addresses.Any(a => IsBlocked(a, allowedNetworks)))
@@ -153,7 +160,7 @@ internal static class PrivateAddressGuard
             var target = ctx.InitialRequestMessage?.RequestUri;
             var viaProxy = false;
             if (proxy is not null && target is not null && !proxy.IsBypassed(target) && proxy.GetProxy(target) is { } hop)
-                viaProxy = string.Equals(hop.Host, host, StringComparison.OrdinalIgnoreCase) && hop.Port == ctx.DnsEndPoint.Port;
+                viaProxy = string.Equals(hop.IdnHost.Trim('[', ']'), host.Trim('[', ']'), StringComparison.OrdinalIgnoreCase) && hop.Port == ctx.DnsEndPoint.Port;
             var addresses = IPAddress.TryParse(host, out var literal) ? [literal] : await Resolve(host, ct).ConfigureAwait(false);
             if (!viaProxy && !allowPrivateNetworks && addresses.Any(a => IsBlocked(a, allowedNetworks)))
                 throw new BlockedAddressException($"{hostKind} host '{host}' resolves to a private address.");

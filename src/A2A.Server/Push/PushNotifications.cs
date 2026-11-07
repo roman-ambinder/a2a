@@ -72,6 +72,8 @@ public static class PushUrlValidator
         }
     }
 
+    internal static readonly TimeSpan DnsTimeout = TimeSpan.FromSeconds(5);
+
     /// <summary>The one message for every DNS-based rejection, so a caller cannot probe internal DNS by comparing error texts.</summary>
     public const string UrlNotAllowed = "Push notification URL is not allowed.";
 
@@ -82,11 +84,17 @@ public static class PushUrlValidator
     public static async ValueTask ValidateAsync(string url, PushNotificationOptions options, CancellationToken ct = default)
     {
         Validate(url, options);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(options.Timeout < DnsTimeout ? options.Timeout : DnsTimeout);
         try
         {
-            await ValidateForDeliveryAsync(url, options, ct).ConfigureAwait(false);
+            await ValidateForDeliveryAsync(url, options, cts.Token).AsTask().WaitAsync(cts.Token).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is HttpRequestException or System.Net.Sockets.SocketException)
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw A2AException.InvalidParams(UrlNotAllowed); // DNS too slow
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Net.Sockets.SocketException or ArgumentException)
         {
             throw A2AException.InvalidParams(UrlNotAllowed);
         }
