@@ -217,7 +217,12 @@ public sealed class A2ARequestHandler : IDisposable
             push.TaskId = taskId;
             push.Id = string.IsNullOrEmpty(push.Id) ? TaskIds.New() : push.Id;
             push.Tenant = call.Tenant;
-            if (existing is not null) await SavePushConfigAsync(Key(call, taskId), push, ct).ConfigureAwait(false);
+            if (existing is not null)
+            {
+                var pushKey = Key(call, taskId);
+                await EnsurePushCapacityAsync(pushKey, push.Id, ct).ConfigureAwait(false);
+                await SavePushConfigAsync(pushKey, push, ct).ConfigureAwait(false);
+            }
         }
 
         var context = new AgentRequestContext
@@ -359,9 +364,7 @@ public sealed class A2ARequestHandler : IDisposable
         var stored = A2AJson.Clone(config);
         stored.Id = string.IsNullOrEmpty(stored.Id) ? TaskIds.New() : stored.Id;
         stored.Tenant = call.Tenant;
-        var replacing = await _pushConfigs.GetAsync(key, stored.Id, cancellationToken).ConfigureAwait(false) is not null;
-        if (!replacing && await _pushConfigs.CountAsync(key, cancellationToken).ConfigureAwait(false) >= MaxPushConfigsPerTask)
-            throw new A2AException(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {MaxPushConfigsPerTask}).");
+        await EnsurePushCapacityAsync(key, stored.Id, cancellationToken).ConfigureAwait(false);
         await SavePushConfigAsync(key, stored, cancellationToken).ConfigureAwait(false);
         return Redact(stored);
     }
@@ -653,6 +656,14 @@ public sealed class A2ARequestHandler : IDisposable
 
     /// <summary>Hard-coded until Task 7 moves it to options.</summary>
     private const int MaxPushConfigsPerTask = 10;
+
+    /// <summary>Throws InvalidRequest when adding config <paramref name="configId"/> would exceed the per-task limit. Replacing an existing id is allowed.</summary>
+    private async ValueTask EnsurePushCapacityAsync(TaskKey key, string configId, CancellationToken ct)
+    {
+        if (await _pushConfigs.GetAsync(key, configId, ct).ConfigureAwait(false) is not null) return;
+        if (await _pushConfigs.CountAsync(key, ct).ConfigureAwait(false) >= MaxPushConfigsPerTask)
+            throw new A2AException(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {MaxPushConfigsPerTask}).");
+    }
 
     /// <summary>Protects the secrets of <paramref name="config"/> and stores a copy. The caller's instance is not changed.</summary>
     private ValueTask SavePushConfigAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct)

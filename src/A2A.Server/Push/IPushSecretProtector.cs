@@ -19,13 +19,14 @@ public interface IPushSecretProtector
 /// <c>AddA2ADataProtectionPushSecrets</c> in A2A.Server.AspNetCore).
 /// Format: <c>e1:</c> + base64url(nonce(12) || ciphertext || tag(16)).
 /// </summary>
-public sealed class EphemeralPushSecretProtector : IPushSecretProtector, IDisposable
+public sealed class EphemeralPushSecretProtector : IPushSecretProtector
 {
     private const string Prefix = "e1:";
     private const int NonceSize = 12;
     private const int TagSize = 16;
 
-    private readonly AesGcm _aes = new(RandomNumberGenerator.GetBytes(32), TagSize);
+    // AesGcm instances are not safe for concurrent use, so each call creates its own from the key.
+    private readonly byte[] _key = RandomNumberGenerator.GetBytes(32);
 
     public string Protect(string plaintext)
     {
@@ -33,7 +34,8 @@ public sealed class EphemeralPushSecretProtector : IPushSecretProtector, IDispos
         var buffer = new byte[NonceSize + data.Length + TagSize];
         var nonce = buffer.AsSpan(0, NonceSize);
         RandomNumberGenerator.Fill(nonce);
-        _aes.Encrypt(nonce, data, buffer.AsSpan(NonceSize, data.Length), buffer.AsSpan(NonceSize + data.Length, TagSize));
+        using var aes = new AesGcm(_key, TagSize);
+        aes.Encrypt(nonce, data, buffer.AsSpan(NonceSize, data.Length), buffer.AsSpan(NonceSize + data.Length, TagSize));
         return Prefix + Base64Url.Encode(buffer);
     }
 
@@ -46,9 +48,8 @@ public sealed class EphemeralPushSecretProtector : IPushSecretProtector, IDispos
         if (buffer.Length < NonceSize + TagSize) throw new CryptographicException("Malformed protected value.");
         var length = buffer.Length - NonceSize - TagSize;
         var plain = new byte[length];
-        _aes.Decrypt(buffer.AsSpan(0, NonceSize), buffer.AsSpan(NonceSize, length), buffer.AsSpan(NonceSize + length, TagSize), plain);
+        using var aes = new AesGcm(_key, TagSize);
+        aes.Decrypt(buffer.AsSpan(0, NonceSize), buffer.AsSpan(NonceSize, length), buffer.AsSpan(NonceSize + length, TagSize), plain);
         return Encoding.UTF8.GetString(plain);
     }
-
-    public void Dispose() => _aes.Dispose();
 }

@@ -140,6 +140,33 @@ public class PushConfigTests : IAsyncLifetime
     }
 
     [Fact]
+    public void Ephemeral_protector_is_safe_under_concurrency_and_never_reuses_a_nonce()
+    {
+        var p = new EphemeralPushSecretProtector();
+        var plain = Enumerable.Range(0, 64).Select(i => $"secret-{i}").ToArray();
+        var protectedValues = new string[plain.Length];
+        Parallel.For(0, plain.Length, new ParallelOptions { MaxDegreeOfParallelism = 32 }, i => protectedValues[i] = p.Protect(plain[i]));
+        Parallel.For(0, plain.Length, i => Assert.Equal(plain[i], p.Unprotect(protectedValues[i])));
+        var nonces = protectedValues.Select(v => Convert.ToBase64String(Signing.Base64Url.Decode(v["e1:".Length..])[..12])).ToHashSet();
+        Assert.Equal(plain.Length, nonces.Count);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Inline_config_on_existing_task_respects_MaxPushConfigsPerTask(string binding)
+    {
+        var client = _host.Client(binding, "alice");
+        var task = (await client.SendMessageAsync("input")).Task!;
+        for (var i = 0; i < 10; i++) await client.CreateTaskPushNotificationConfigAsync(Secret(task.Id));
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(
+            Message.FromUser("more", task.ContextId, task.Id),
+            new SendMessageConfiguration { TaskPushNotificationConfig = Secret("") }));
+        Assert.Equal(A2AErrorCode.InvalidRequest, ex.Code);
+        Assert.Equal(10, (await client.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest { TaskId = task.Id })).Configs.Count);
+    }
+
+    [Fact]
     public async Task Data_protection_protector_round_trips_and_is_used_by_the_store_path()
     {
         await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2ADataProtectionPushSecrets());
