@@ -36,8 +36,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
             try
             {
                 var body = await HttpPlumbing.ReadBodyAsync(http.Request, _limits.MaxRequestBodyBytes).ConfigureAwait(false);
-                using var doc = JsonDocument.Parse(body);
-                HttpPlumbing.EnforceJsonLimits(body, _limits.MaxJsonDepth);
+                using var doc = HttpPlumbing.ParseBody(body, _limits.MaxJsonDepth);
                 if (doc.RootElement.ValueKind != JsonValueKind.Object)
                     throw new A2AException(A2AErrorCode.InvalidRequest, "Batch requests are not supported");
                 if (doc.RootElement.TryGetProperty("id", out var rawId)) id = rawId.Clone();

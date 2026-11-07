@@ -7,8 +7,12 @@ namespace A2A.Json;
 /// <summary>Shared JSON settings for the A2A wire format (camelCase, ProtoJSON enums, UTC timestamps, nulls omitted).</summary>
 public static class A2AJson
 {
-    /// <summary>Deepest JSON nesting the shared options accept (also the default of <c>A2ALimits.MaxJsonDepth</c>).</summary>
-    public const int MaxJsonDepth = 32;
+    /// <summary>
+    /// Deepest JSON nesting the shared options read or write. This is the output ceiling: incoming request bodies are held to the
+    /// smaller <c>A2ALimits.MaxJsonDepth</c> (32), so a task built from an accepted request, wrapped in history, a result
+    /// envelope or a stream event, always fits.
+    /// </summary>
+    public const int MaxJsonDepth = 64;
 
     /// <summary>
     /// Options used for every A2A payload. Do not mutate. Nesting deeper than <see cref="MaxJsonDepth"/> is rejected. On .NET 10

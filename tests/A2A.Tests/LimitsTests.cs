@@ -1,11 +1,13 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Threading.RateLimiting;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Storage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -165,9 +167,32 @@ public class LimitsTests
     public async Task Json_deeper_than_32_rejected(string binding)
     {
         await using var host = await TestAgentHost.StartAsync();
-        var json = $$$"""{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"a"}],"metadata":{{{Deep(40)}}}}}""";
+        // 40 sits between the request limit (32) and the serializer ceiling (64); 100 is beyond both. Same answer for both.
+        foreach (var levels in new[] { 40, 100 })
+        {
+            var json = $$$"""{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"a"}],"metadata":{{{Deep(levels)}}}}}""";
+            var (status, body) = await Send(host, SendRequest(binding, json));
+            AssertInvalidParams(binding, status, body);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Request_at_the_maximum_depth_is_stored_and_served_back(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        // JSON-RPC wraps params two levels deep (root, params, message, metadata), so 29 nested objects reach depth 32 exactly.
+        var json = $$$"""{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"task go"}],"metadata":{{{Deep(29)}}}}}""";
         var (status, body) = await Send(host, SendRequest(binding, json));
-        AssertInvalidParams(binding, status, body);
+        Assert.Equal(HttpStatusCode.OK, status);
+        var task = binding == ProtocolBindings.JsonRpc ? body.GetProperty("result").GetProperty("task") : body.GetProperty("task");
+        var id = task.GetProperty("id").GetString()!;
+
+        foreach (var b in new[] { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson })
+        {
+            var fetched = await host.Client(b).GetTaskAsync(id);
+            Assert.Contains(fetched.History!, m => m.Role == Role.User && m.Metadata is { Count: > 0 });
+        }
     }
 
     [Theory]
@@ -271,19 +296,36 @@ public class LimitsTests
     }
 
     [Fact]
-    public async Task Rate_limit_partitions_by_tenant()
+    public async Task Rate_limit_cannot_be_bypassed_by_varying_the_tenant()
     {
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2ARateLimiting(o => o.TokenLimit = 1));
-        HttpRequestMessage Req(string tenant)
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2ARateLimiting(o => o.TokenLimit = 2));
+        HttpRequestMessage Req(string tenant, string user)
         {
             var r = new HttpRequestMessage(HttpMethod.Get, $"/a2a/{tenant}/tasks/nope");
             r.Headers.Add(A2AProtocol.Headers.Version, A2AProtocol.Version);
-            r.Headers.Add("X-Test-User", "alice");
+            r.Headers.Add("X-Test-User", user);
             return r;
         }
-        Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Send(host, Req("t1"))).Status);
-        Assert.Equal(HttpStatusCode.TooManyRequests, (await Send(host, Req("t1"))).Status);
-        Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Send(host, Req("t2"))).Status);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Send(host, Req("t1", "alice"))).Status);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Send(host, Req("t2", "alice"))).Status);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await Send(host, Req("t3", "alice"))).Status);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Send(host, Req("t1", "bob"))).Status);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Host_supplied_a2a_policy_replaces_the_default(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddRateLimiter(o =>
+        {
+            o.RejectionStatusCode = 418; // default policy would answer 429 and allow 20 requests
+            o.AddPolicy("a2a", _ => RateLimitPartition.GetFixedWindowLimiter("all", __ =>
+                new FixedWindowRateLimiterOptions { PermitLimit = 1, Window = TimeSpan.FromHours(1), QueueLimit = 0 }));
+        }));
+        Assert.NotEqual((HttpStatusCode)418, (await Send(host, GetTaskRequest(binding))).Status);
+        using var client = host.Http();
+        using var resp = await client.SendAsync(GetTaskRequest(binding));
+        Assert.Equal((HttpStatusCode)418, resp.StatusCode);
     }
 
     [Theory]
@@ -314,7 +356,7 @@ public class LimitsTests
     public async Task Startup_fails_without_the_rate_limiter_middleware()
     {
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => TestAgentHost.StartAsync(useA2A: false));
-        Assert.Equal("Call app.UseRateLimiter() or set A2AServerOptions.EnableRateLimiting = false.", ex.Message);
+        Assert.Equal("Call app.UseA2A() (it adds the rate limiter middleware) or set A2AServerOptions.EnableRateLimiting = false.", ex.Message);
     }
 
     [Fact]

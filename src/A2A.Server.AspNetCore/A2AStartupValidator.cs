@@ -55,7 +55,7 @@ internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions
         "A2A endpoints allow anonymous callers. All anonymous callers share one owner and can read each other's tasks.";
 
     internal const string NoRateLimiterMessage =
-        "Call app.UseRateLimiter() or set A2AServerOptions.EnableRateLimiting = false.";
+        "Call app.UseA2A() (it adds the rate limiter middleware) or set A2AServerOptions.EnableRateLimiting = false.";
 
     private const string Prefix = "A2A ";
     private const string AgentCard = "A2A Agent Card";

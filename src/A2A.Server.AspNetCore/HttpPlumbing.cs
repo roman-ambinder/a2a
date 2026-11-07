@@ -202,23 +202,40 @@ internal static class HttpPlumbing
     }
 
     /// <summary>
-    /// Rejects a body nested deeper than <paramref name="maxDepth"/> or with duplicate property names (InvalidParams).
-    /// On .NET 10 the JSON parser does both. On .NET 8 it has no duplicate check, so <see cref="ContainsDuplicateProperties"/> runs first.
+    /// Parses a request body once, enforcing <paramref name="maxDepth"/> and rejecting duplicate property names. Valid JSON that
+    /// breaks a limit is InvalidParams (<see cref="A2AException"/>). Malformed JSON throws <see cref="JsonException"/>.
+    /// On .NET 10 the parser rejects duplicates itself. On .NET 8 it cannot, so <see cref="ContainsDuplicateProperties"/> checks after the parse.
     /// </summary>
-    public static void EnforceJsonLimits(byte[] body, int maxDepth)
+    public static JsonDocument ParseBody(byte[] body, int maxDepth)
     {
         try
         {
 #if NET10_0_OR_GREATER
-            using var doc = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = maxDepth, AllowDuplicateProperties = false });
+            return JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = maxDepth, AllowDuplicateProperties = false });
 #else
-            if (ContainsDuplicateProperties(body, maxDepth))
-                throw A2AException.InvalidParams("Invalid request body: duplicate property names are not allowed");
+            var doc = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = maxDepth });
+            if (!ContainsDuplicateProperties(body, maxDepth)) return doc;
+            doc.Dispose();
+            throw A2AException.InvalidParams("Invalid request body: duplicate property names are not allowed");
 #endif
         }
-        catch (JsonException ex)
+        catch (JsonException ex) when (IsWellFormed(body))
         {
             throw A2AException.InvalidParams($"Invalid request body: {ex.Message}");
+        }
+    }
+
+    /// <summary>Failure path only: tells a limit violation (valid JSON) from a syntax error. Nesting beyond 1024 counts as malformed.</summary>
+    private static bool IsWellFormed(byte[] body)
+    {
+        try
+        {
+            using var _ = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = 1024 });
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 

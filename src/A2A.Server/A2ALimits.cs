@@ -16,8 +16,8 @@ public sealed class A2ALimits
     public int MaxRawPartBytes { get; set; } = 8 * 1024 * 1024;
 
     /// <summary>
-    /// Deepest JSON nesting accepted in a request. Default 32. The shared serializer options (<c>A2AJson.Options</c>) stop at 32,
-    /// so values above 32 do not allow deeper payloads; lower the value to be stricter.
+    /// Deepest JSON nesting accepted in a request body. Default 32. Only request bodies are checked against it; the shared
+    /// serializer options allow 64 so that responses built from accepted requests always serialize. Values above 64 have no effect.
     /// </summary>
     public int MaxJsonDepth { get; set; } = 32;
 

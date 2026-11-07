@@ -221,8 +221,11 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
     {
         var bytes = await HttpPlumbing.ReadBodyAsync(http.Request, _limits.MaxRequestBodyBytes).ConfigureAwait(false);
         if (bytes.Length == 0) return default;
-        HttpPlumbing.EnforceJsonLimits(bytes, _limits.MaxJsonDepth);
-        try { return JsonSerializer.Deserialize<T>(bytes, A2AJson.Options); }
+        try
+        {
+            using var doc = HttpPlumbing.ParseBody(bytes, _limits.MaxJsonDepth);
+            return doc.RootElement.Deserialize<T>(A2AJson.Options);
+        }
         catch (JsonException ex) { throw A2AException.InvalidParams($"Invalid request body: {ex.Message}"); }
     }
 
