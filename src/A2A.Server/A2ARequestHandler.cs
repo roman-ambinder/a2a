@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using A2A.Json;
 using A2A.Server.Idempotency;
+using A2A.Server.Pipeline;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
@@ -36,6 +37,7 @@ public sealed class A2ARequestHandler : IDisposable
     private readonly SemaphoreSlim[] _locks = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
     private readonly RunningRegistry<Execution> _running = new();
     private readonly StreamAdmission _admission;
+    private readonly CallValidator _validator;
 
     /// <summary>Creates the handler. In an ASP.NET Core app the DI container does this; the parameters are the registered services.</summary>
     public A2ARequestHandler(
@@ -49,6 +51,7 @@ public sealed class A2ARequestHandler : IDisposable
         IPushNotificationSender push,
         TaskEventBus bus,
         A2AServerOptions options,
+        CallValidator validator,
         ILogger<A2ARequestHandler>? logger = null)
     {
         _executors = executors;
@@ -61,6 +64,7 @@ public sealed class A2ARequestHandler : IDisposable
         _push = push;
         _bus = bus;
         _options = options;
+        _validator = validator;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _admission = new StreamAdmission(_options.Limits);
     }
@@ -73,38 +77,7 @@ public sealed class A2ARequestHandler : IDisposable
     // =====================================================================
 
     /// <summary>Checks protocol version, required extensions, and authentication; fills <see cref="ServerCallContext.ActivatedExtensions"/>.</summary>
-    public void ValidateCall(ServerCallContext call)
-    {
-        var version = string.IsNullOrWhiteSpace(call.ProtocolVersion)
-            ? (_options.TreatMissingVersionAsCurrent ? A2AProtocol.Version : A2AProtocol.ImplicitVersion)
-            : MajorMinor(call.ProtocolVersion!);
-        if (!_options.SupportedVersions.Contains(version))
-        {
-            throw new A2AException(A2AErrorCode.VersionNotSupported,
-                $"Protocol version '{version}' is not supported. Supported: {string.Join(", ", _options.SupportedVersions)}. Send the {A2AProtocol.Headers.Version} header.")
-            {
-                Metadata = new() { ["requestedVersion"] = version, ["supportedVersions"] = string.Join(",", _options.SupportedVersions) },
-            };
-        }
-
-        // Backstop for hosts where the startup check could not run (or direct use of this class): anonymous is opt-in.
-        if (!_options.AllowAnonymous && !call.IsAuthenticated)
-            throw new A2AException(A2AErrorCode.Unauthenticated);
-
-        var declared = _options.AgentCard.Capabilities.Extensions ?? [];
-        foreach (var ext in declared.Where(e => e.Required))
-        {
-            if (!call.RequestedExtensions.Contains(ext.Uri, StringComparer.Ordinal))
-                throw new A2AException(A2AErrorCode.ExtensionSupportRequired, $"Extension '{ext.Uri}' is required.")
-                {
-                    Metadata = new() { ["extension"] = ext.Uri },
-                };
-        }
-        foreach (var uri in call.RequestedExtensions)
-        {
-            if (declared.Any(e => e.Uri == uri)) call.ActivatedExtensions.Add(uri);
-        }
-    }
+    public void ValidateCall(ServerCallContext call) => _validator.Validate(call);
 
     // =====================================================================
     // Authorization hook
@@ -122,12 +95,6 @@ public sealed class A2ARequestHandler : IDisposable
         if (await _authorization.AuthorizeAsync(call, op, request, ct).ConfigureAwait(false)) return;
         if (!string.IsNullOrEmpty(taskId)) throw A2AException.TaskNotFound(taskId);
         throw new A2AException(A2AErrorCode.PermissionDenied);
-    }
-
-    private static string MajorMinor(string v)
-    {
-        var parts = v.Trim().Split('.');
-        return parts.Length >= 2 ? $"{parts[0]}.{parts[1]}" : parts[0];
     }
 
     // =====================================================================

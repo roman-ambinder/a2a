@@ -38,6 +38,7 @@ public static class A2AServerServiceCollectionExtensions
             sp.GetRequiredService<Storage.PushConfigStore>(), sp.GetRequiredService<IPushSecretProtector>(),
             sp.GetRequiredService<A2AServerOptions>(), sp.GetService<Microsoft.Extensions.Logging.ILogger<HttpPushNotificationSender>>()));
         services.TryAddSingleton<IPushNotificationSender>(sp => sp.GetRequiredService<HttpPushNotificationSender>());
+        services.TryAddSingleton<Pipeline.CallValidator>();
         services.TryAddSingleton<A2ARequestHandler>();
         return new A2AServerBuilder(services);
     }
