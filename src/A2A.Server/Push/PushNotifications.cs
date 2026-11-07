@@ -28,7 +28,10 @@ public sealed class PushNotificationOptions
     /// <summary>Networks that bypass the private-range block (for example an internal webhook range). Empty by default.</summary>
     public IList<(IPAddress Network, int PrefixLength)> AllowedNetworks { get; } = new List<(IPAddress Network, int PrefixLength)>();
 
-    /// <summary>Proxy for webhook delivery. When null (default) the system proxy is ignored.</summary>
+    /// <summary>
+    /// Proxy for webhook delivery. When null (default) the system proxy is ignored. Requests sent through a proxy rely on the proxy
+    /// for egress policy (including DNS rebinding at the proxy); requests the proxy bypasses get the normal IP check.
+    /// </summary>
     public IWebProxy? Proxy { get; set; }
 
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(15);
@@ -51,7 +54,8 @@ public static class PushUrlValidator
             throw A2AException.InvalidParams("Push notification url must use https");
         if (!string.IsNullOrEmpty(uri.UserInfo))
             throw A2AException.InvalidParams("Push notification url must not contain credentials");
-        if (options.AllowedHosts.Count > 0 && !options.AllowedHosts.Contains(uri.Host))
+        var host = PrivateAddressGuard.TrimHost(uri.Host);
+        if (options.AllowedHosts.Count > 0 && !options.AllowedHosts.Contains(host) && !options.AllowedHosts.Contains(uri.Host))
             throw A2AException.InvalidParams("Push notification host is not allowed");
         if (!options.AllowPrivateNetworks)
         {
@@ -61,8 +65,30 @@ public static class PushUrlValidator
                 if (PrivateAddressGuard.IsBlocked(ip, options.AllowedNetworks))
                     throw A2AException.InvalidParams("Push notification url must not target a private network address");
             }
-            else if (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase))
+            else if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase))
                 throw A2AException.InvalidParams("Push notification url must not target loopback");
+            else if (PrivateAddressGuard.IsAmbiguousNumericHost(host))
+                throw A2AException.InvalidParams("Push notification url must not target a private network address");
+        }
+    }
+
+    /// <summary>The one message for every DNS-based rejection, so a caller cannot probe internal DNS by comparing error texts.</summary>
+    public const string UrlNotAllowed = "Push notification URL is not allowed.";
+
+    /// <summary>
+    /// Registration check: <see cref="Validate"/> plus DNS resolution and the IP check (spec 7.6). Every DNS-based failure
+    /// (private, unresolvable) throws the same <see cref="UrlNotAllowed"/> InvalidParams error.
+    /// </summary>
+    public static async ValueTask ValidateAsync(string url, PushNotificationOptions options, CancellationToken ct = default)
+    {
+        Validate(url, options);
+        try
+        {
+            await ValidateForDeliveryAsync(url, options, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Net.Sockets.SocketException)
+        {
+            throw A2AException.InvalidParams(UrlNotAllowed);
         }
     }
 
@@ -254,6 +280,11 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
             catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
             {
                 throw;
+            }
+            catch (HttpRequestException ex) when (ex is BlockedAddressException || ex.InnerException is BlockedAddressException)
+            {
+                _logger.LogWarning("Skipping webhook {ConfigId} for task {TaskId}: target address is not allowed", config.Id, config.TaskId);
+                return;
             }
             catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
             {

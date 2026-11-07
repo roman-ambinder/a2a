@@ -3,13 +3,14 @@ using System.Net.Sockets;
 
 namespace A2A.Net;
 
-/// <summary>
-/// SSRF guard shared by outbound fetches to peer-chosen URLs: push webhooks (server) and <c>jku</c> key sets (Agent Card
-/// verification). Moved here from <c>PushUrlValidator</c> without behaviour change so the client can use it too.
-/// </summary>
 /// <summary>The target resolves to an address the policy forbids. Permanent: callers must not retry.</summary>
 internal sealed class BlockedAddressException(string message) : HttpRequestException(message);
 
+/// <summary>
+/// SSRF guard shared by outbound fetches to peer-chosen URLs: push webhooks (server) and <c>jku</c> key sets (Agent Card
+/// verification). Blocks private, loopback, link-local, CGNAT, multicast and reserved ranges, including IPv4 embedded in IPv6
+/// (mapped, NAT64, IPv4-compatible, 6to4), and checks the resolved address at connect time.
+/// </summary>
 internal static class PrivateAddressGuard
 {
     /// <summary>DNS seam. Defaults to <see cref="Dns.GetHostAddressesAsync(string, CancellationToken)"/>; tests may replace it.</summary>
@@ -22,8 +23,29 @@ internal static class PrivateAddressGuard
     /// </summary>
     public static IPAddress? TryGetLiteral(Uri uri)
     {
-        if (!IPAddress.TryParse(uri.Host.Trim('[', ']'), out var ip)) return null;
+        if (!IPAddress.TryParse(StripZone(uri.Host.Trim('[', ']')), out var ip)) return null;
         return ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip;
+    }
+
+    private static string StripZone(string host)
+    {
+        var i = host.IndexOf('%');
+        return i < 0 ? host : host[..i];
+    }
+
+    /// <summary>The host without one trailing dot (<c>localhost.</c> is <c>localhost</c>).</summary>
+    public static string TrimHost(string host) => host.Length > 1 && host[^1] == '.' ? host[..^1] : host;
+
+    /// <summary>
+    /// True for an all-numeric host that is not a canonical dotted quad (octal <c>0177.0.0.1</c>, hex parts, short forms). Resolvers
+    /// disagree on how to read these, so they are refused outright.
+    /// </summary>
+    public static bool IsAmbiguousNumericHost(string host)
+    {
+        var labels = TrimHost(host).Split('.');
+        if (!labels.All(l => l.Length > 0 && (l.All(char.IsAsciiDigit) || (l.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && l.Skip(2).All(char.IsAsciiHexDigit)))))
+            return false;
+        return labels.Length != 4 || labels.Any(l => l.Length > 1 && l[0] == '0') || labels.Any(l => !l.All(char.IsAsciiDigit));
     }
 
     /// <summary>True when <paramref name="ip"/> lies inside <paramref name="network"/>/<paramref name="prefixLength"/>.</summary>
@@ -61,9 +83,13 @@ internal static class PrivateAddressGuard
         IEnumerable<(IPAddress Network, int PrefixLength)>? allowedNetworks, string hostKind, CancellationToken ct)
     {
         if (allowPrivateNetworks) return;
-        var addresses = IPAddress.TryParse(host.Trim('[', ']'), out var literal)
-            ? [literal]
-            : await Resolve(host, ct).ConfigureAwait(false);
+        IPAddress[] addresses;
+        if (IPAddress.TryParse(StripZone(host.Trim('[', ']')), out var literal)) addresses = [literal];
+        else
+        {
+            try { addresses = await Resolve(host, ct).ConfigureAwait(false); }
+            catch (SocketException ex) { throw new HttpRequestException($"{hostKind} host '{host}' did not resolve.", ex); }
+        }
         if (addresses.Length == 0) throw new HttpRequestException($"{hostKind} host '{host}' did not resolve.");
         if (addresses.Any(a => IsBlocked(a, allowedNetworks)))
             throw new BlockedAddressException($"{hostKind} host '{host}' resolves to a private address.");
@@ -94,34 +120,42 @@ internal static class PrivateAddressGuard
             if (ip.Equals(IPAddress.IPv6Any) || ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast) return true;
             var b = ip.GetAddressBytes();
             if ((b[0] & 0xFE) == 0xFC) return true; // fc00::/7 unique local
+            // IPv4 hidden inside IPv6: judge the embedded address by the IPv4 rules.
+            if (b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xFF && b[3] == 0x9B)
+            {
+                if (b[4] == 0 && b[5] == 0x01) return true;                         // 64:ff9b:1::/48 local-use NAT64
+                if (b[4..12].All(x => x == 0)) return IsPrivate(new IPAddress(b[12..16])); // 64:ff9b::/96 NAT64
+            }
+            if (b[0] == 0x20 && b[1] == 0x02) return IsPrivate(new IPAddress(b[2..6]));    // 2002::/16 6to4
+            if (b[..12].All(x => x == 0)) return IsPrivate(new IPAddress(b[12..16]));      // ::a.b.c.d IPv4-compatible
             return false;
         }
         return true;
     }
 
     /// <summary>
-    /// Primary handler that enforces the IP policy on every connection (resolved IP, so DNS rebinding is blocked too), disables
-    /// redirects and cookies, and ignores the system proxy unless <paramref name="proxy"/> is given. <paramref name="hostKind"/>
-    /// names the target in error messages ("Webhook", "JWKS"). With a proxy the proxy makes the connection, so the connect-time
-    /// check cannot apply; callers must still run <see cref="EnsureHostAllowedAsync"/> first.
+    /// Primary handler that enforces the IP policy on every direct connection (resolved IP, so DNS rebinding is blocked too),
+    /// disables redirects and cookies, and ignores the system proxy unless <paramref name="proxy"/> is given. <paramref name="hostKind"/>
+    /// names the target in error messages ("Webhook", "JWKS"). When a proxy handles a request, the connection to the proxy itself is
+    /// not checked: egress policy for proxied requests is the proxy's job. Requests the proxy bypasses are checked like direct ones.
     /// </summary>
     public static SocketsHttpHandler CreateHandler(bool allowPrivateNetworks, string hostKind,
-        IReadOnlyCollection<(IPAddress Network, int PrefixLength)>? allowedNetworks = null, IWebProxy? proxy = null)
+        IReadOnlyCollection<(IPAddress Network, int PrefixLength)>? allowedNetworks = null, IWebProxy? proxy = null) => new()
     {
-        var handler = new SocketsHttpHandler
-        {
-            AllowAutoRedirect = false,
-            UseCookies = false,
-            UseProxy = proxy is not null,
-            Proxy = proxy,
-            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-        };
-        if (proxy is not null) return handler;
-        handler.ConnectCallback = async (ctx, ct) =>
+        AllowAutoRedirect = false,
+        UseCookies = false,
+        UseProxy = proxy is not null,
+        Proxy = proxy,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        ConnectCallback = async (ctx, ct) =>
         {
             var host = ctx.DnsEndPoint.Host;
+            var target = ctx.InitialRequestMessage?.RequestUri;
+            var viaProxy = false;
+            if (proxy is not null && target is not null && !proxy.IsBypassed(target) && proxy.GetProxy(target) is { } hop)
+                viaProxy = string.Equals(hop.Host, host, StringComparison.OrdinalIgnoreCase) && hop.Port == ctx.DnsEndPoint.Port;
             var addresses = IPAddress.TryParse(host, out var literal) ? [literal] : await Resolve(host, ct).ConfigureAwait(false);
-            if (!allowPrivateNetworks && addresses.Any(a => IsBlocked(a, allowedNetworks)))
+            if (!viaProxy && !allowPrivateNetworks && addresses.Any(a => IsBlocked(a, allowedNetworks)))
                 throw new BlockedAddressException($"{hostKind} host '{host}' resolves to a private address.");
             Exception? last = null;
             foreach (var address in addresses)
@@ -139,7 +173,6 @@ internal static class PrivateAddressGuard
                 }
             }
             throw new HttpRequestException($"Could not connect to {hostKind.ToLowerInvariant()} host '{host}'.", last);
-        };
-        return handler;
-    }
+        },
+    };
 }

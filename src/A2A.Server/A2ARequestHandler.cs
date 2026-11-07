@@ -407,7 +407,7 @@ public sealed class A2ARequestHandler : IDisposable
         if (request.Configuration?.TaskPushNotificationConfig is { } p)
         {
             RequirePush();
-            PushUrlValidator.Validate(p.Url, _options.PushNotifications);
+            await PushUrlValidator.ValidateAsync(p.Url, _options.PushNotifications, ct).ConfigureAwait(false);
             push = A2AJson.Clone(p);
             push.TaskId = taskId;
             push.Id = string.IsNullOrEmpty(push.Id) ? TaskIds.New() : push.Id;
@@ -830,7 +830,7 @@ public sealed class A2ARequestHandler : IDisposable
         await AuthorizeAsync(call, A2AOperation.CreateTaskPushNotificationConfig, config, config.TaskId, cancellationToken).ConfigureAwait(false);
         RequirePush();
         A2AValidator.ValidatePushConfig(config, "config", requireTaskId: true);
-        PushUrlValidator.Validate(config.Url, _options.PushNotifications);
+        await PushUrlValidator.ValidateAsync(config.Url, _options.PushNotifications, cancellationToken).ConfigureAwait(false);
         var key = Key(call, config.TaskId!);
         _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(config.TaskId!);
         var stored = A2AJson.Clone(config);

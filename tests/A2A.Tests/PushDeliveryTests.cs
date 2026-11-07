@@ -44,6 +44,13 @@ public class PushDeliveryTests
     private static async Task<(HttpPushNotificationSender Sender, Scripted Handler)> SendOneAsync(
         Action<PushNotificationOptions> configure, TaskPushNotificationConfig config, params HttpStatusCode[] codes)
     {
+        var handler = new Scripted(codes.Length == 0 ? [HttpStatusCode.OK] : codes);
+        return (await SendWithAsync(handler, configure, config), handler);
+    }
+
+    private static async Task<HttpPushNotificationSender> SendWithAsync(HttpMessageHandler handler,
+        Action<PushNotificationOptions> configure, TaskPushNotificationConfig config)
+    {
         var protector = new EphemeralPushSecretProtector();
         var store = new InMemoryPushConfigStore();
         var stored = A2A.Json.A2AJson.Clone(config);
@@ -56,11 +63,10 @@ public class PushDeliveryTests
         var options = new A2AServerOptions();
         options.PushNotifications.InitialBackoff = TimeSpan.FromMilliseconds(5);
         configure(options.PushNotifications);
-        var handler = new Scripted(codes.Length == 0 ? [HttpStatusCode.OK] : codes);
         var sender = new HttpPushNotificationSender(new Factory(handler), store, protector, Options.Create(options));
         sender.Enqueue(Key, new SequencedEvent(7, StreamResponse.Of(Message.FromUser("x"))));
         await sender.WhenIdleAsync();
-        return (sender, handler);
+        return sender;
     }
 
     private static TaskPushNotificationConfig Hook(string url = "https://hooks.example/cb", string? token = "s3cret") =>
@@ -105,12 +111,17 @@ public class PushDeliveryTests
     [InlineData("https://[fd00::1]/h")]
     [InlineData("https://100.64.0.1/h")]
     [InlineData("https://169.254.169.254/h")]
+    [InlineData("https://0177.0.0.1/h")]
+    [InlineData("https://[fe80::1%25eth0]/h")]
+    [InlineData("https://localhost./h")]
+    [InlineData("https://[64:ff9b::7f00:1]/h")]
+    [InlineData("https://[2002:7f00:1::]/h")]
     public void Obfuscated_private_targets_rejected(string url)
     {
         // The guard must see the normalised address, not the spelling the caller used.
         var ip = PrivateAddressGuard.TryGetLiteral(new Uri(url));
-        Assert.NotNull(ip);
-        Assert.True(PrivateAddressGuard.IsPrivate(ip!));
+        if (ip is null) Assert.True(url.Contains("0177") || url.Contains("localhost."), "only name-like hosts may skip the literal path");
+        else Assert.True(PrivateAddressGuard.IsPrivate(ip));
         if (url.Contains("0x7f") || url.Contains("2130706433")) Assert.Equal(IPAddress.Loopback, ip);
         if (url.Contains("::ffff:")) Assert.Equal(IPAddress.Loopback, ip);
 
@@ -122,30 +133,79 @@ public class PushDeliveryTests
     [InlineData("192.168.1.1")] [InlineData("169.254.1.1")] [InlineData("100.64.0.1")] [InlineData("100.127.255.255")] [InlineData("0.0.0.0")]
     [InlineData("0.1.2.3")] [InlineData("224.0.0.1")] [InlineData("239.255.255.255")] [InlineData("255.255.255.255")] [InlineData("::1")]
     [InlineData("::")] [InlineData("fc00::1")] [InlineData("fdff::1")] [InlineData("fe80::1")] [InlineData("ff02::1")]
+    [InlineData("64:ff9b::7f00:1")] [InlineData("64:ff9b::a9fe:a9fe")] [InlineData("64:ff9b:1::1")] [InlineData("::7f00:1")] [InlineData("::a00:1")]
+    [InlineData("2002:7f00:1::")] [InlineData("2002:a9fe:a9fe::1")]
     [InlineData("::ffff:10.0.0.1")] [InlineData("::ffff:127.0.0.1")] [InlineData("::ffff:169.254.169.254")] [InlineData("::ffff:100.64.0.1")]
     public void Private_ranges_blocked(string ip) => Assert.True(PushUrlValidator.IsPrivate(IPAddress.Parse(ip)));
 
     [Theory]
     [InlineData("8.8.8.8")] [InlineData("172.32.0.1")] [InlineData("100.128.0.1")] [InlineData("2001:4860:4860::8888")] [InlineData("::ffff:8.8.8.8")]
+    [InlineData("64:ff9b::808:808")] [InlineData("2002:808:808::")]
     public void Public_addresses_allowed(string ip) => Assert.False(PushUrlValidator.IsPrivate(IPAddress.Parse(ip)));
 
-    [Fact]
-    public async Task Hostname_resolving_private_rejected_at_delivery()
+    private static async Task WithResolver(Func<string, IPAddress[]> resolve, Func<Task> body)
     {
         var original = PrivateAddressGuard.Resolve;
         try
         {
-            var resolved = new[] { IPAddress.Parse("93.184.216.34") };
-            PrivateAddressGuard.Resolve = (_, _) => ValueTask.FromResult(resolved);
-            // Static validation at create time passes: the name resolves public.
-            PushUrlValidator.Validate("https://evil.example/h", new PushNotificationOptions());
+            PrivateAddressGuard.Resolve = (h, _) => ValueTask.FromResult(resolve(h));
+            await body();
+        }
+        finally { PrivateAddressGuard.Resolve = original; }
+    }
 
+    [Fact]
+    public async Task Hostname_resolving_private_rejected_at_delivery()
+    {
+        var resolved = new[] { IPAddress.Parse("93.184.216.34") };
+        await WithResolver(_ => resolved, async () =>
+        {
+            // Accepted at create while the name resolves public.
+            await PushUrlValidator.ValidateAsync("https://evil.example/h", new PushNotificationOptions());
             resolved[0] = IPAddress.Parse("10.0.0.5"); // DNS answer changes before delivery
             var (sender, h) = await SendOneAsync(_ => { }, Hook("https://evil.example/h"));
             using var _ = sender;
             Assert.Empty(h.Requests);
-        }
-        finally { PrivateAddressGuard.Resolve = original; }
+        });
+    }
+
+    [Fact]
+    public async Task Create_time_validation_resolves_dns_and_uses_one_message()
+    {
+        var opts = new PushNotificationOptions();
+        await WithResolver(h => h == "gone.example" ? throw new System.Net.Sockets.SocketException() : [IPAddress.Parse("10.0.0.5")], async () =>
+        {
+            var priv = await Assert.ThrowsAsync<A2AException>(() => PushUrlValidator.ValidateAsync("https://evil.example/h", opts).AsTask());
+            var gone = await Assert.ThrowsAsync<A2AException>(() => PushUrlValidator.ValidateAsync("https://gone.example/h", opts).AsTask());
+            Assert.Equal(A2AErrorCode.InvalidParams, priv.Code);
+            Assert.Equal(A2AErrorCode.InvalidParams, gone.Code);
+            Assert.Equal(PushUrlValidator.UrlNotAllowed, priv.Message);
+            Assert.Equal(priv.Message, gone.Message);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Handler_create_paths_validate_dns(bool inline)
+    {
+        await using var host = await TestAgentHost.StartAsync(o => o.PushNotifications.AllowPrivateNetworks = false);
+        await WithResolver(_ => [IPAddress.Parse("10.0.0.5")], async () =>
+        {
+            var client = host.Client(ProtocolBindings.JsonRpc, "alice");
+            var cfg = new TaskPushNotificationConfig { Url = "https://evil.example/cb" };
+            A2AException ex;
+            if (inline)
+                ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Message.FromUser("x"), new SendMessageConfiguration { TaskPushNotificationConfig = cfg }));
+            else
+            {
+                var task = (await client.SendMessageAsync("input")).RequireTask();
+                cfg.TaskId = task.Id;
+                ex = await Assert.ThrowsAsync<A2AException>(() => client.CreateTaskPushNotificationConfigAsync(cfg));
+            }
+            Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+            Assert.Contains(PushUrlValidator.UrlNotAllowed, ex.Message);
+        });
     }
 
     [Fact]
@@ -224,5 +284,98 @@ public class PushDeliveryTests
         using var withProxy = PushUrlValidator.CreateHandler(new PushNotificationOptions { Proxy = proxy });
         Assert.True(withProxy.UseProxy);
         Assert.Same(proxy, withProxy.Proxy);
+    }
+
+    private sealed class LocalServer : IDisposable
+    {
+        private readonly System.Net.Sockets.TcpListener _l = new(IPAddress.Loopback, 0);
+        public int Accepted;
+        public LocalServer()
+        {
+            _l.Start();
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    while (true)
+                    {
+                        using var c = await _l.AcceptTcpClientAsync();
+                        Interlocked.Increment(ref Accepted);
+                        var stream = c.GetStream();
+                        var buf = new byte[4096];
+                        _ = await stream.ReadAsync(buf);
+                        await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"u8.ToArray());
+                    }
+                }
+                catch { /* closed */ }
+            });
+        }
+        public int Port => ((IPEndPoint)_l.LocalEndpoint).Port;
+        public void Dispose() => _l.Stop();
+    }
+
+    private sealed class BypassingProxy : IWebProxy
+    {
+        public ICredentials? Credentials { get; set; }
+        public Uri? GetProxy(Uri destination) => null;
+        public bool IsBypassed(Uri host) => true;
+    }
+
+    [Fact]
+    public async Task Connect_callback_blocks_private_resolution_without_connecting()
+    {
+        using var server = new LocalServer();
+        await WithResolver(_ => [IPAddress.Loopback], async () =>
+        {
+            using var http = new HttpClient(PushUrlValidator.CreateHandler(new PushNotificationOptions()));
+            var ex = await Assert.ThrowsAsync<HttpRequestException>(() => http.GetAsync($"http://evil.example:{server.Port}/"));
+            Assert.IsType<BlockedAddressException>(ex.InnerException ?? ex);
+            await Task.Delay(100);
+            Assert.Equal(0, server.Accepted);
+        });
+    }
+
+    [Fact]
+    public async Task Connect_callback_delivers_into_allowed_network()
+    {
+        using var server = new LocalServer();
+        var opts = new PushNotificationOptions();
+        opts.AllowedNetworks.Add((IPAddress.Parse("127.0.0.0"), 8));
+        await WithResolver(_ => [IPAddress.Loopback], async () =>
+        {
+            using var http = new HttpClient(PushUrlValidator.CreateHandler(opts));
+            using var resp = await http.GetAsync($"http://evil.example:{server.Port}/");
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            Assert.Equal(1, server.Accepted);
+        });
+    }
+
+    [Fact]
+    public async Task Proxy_bypassed_host_still_gets_ip_check()
+    {
+        using var server = new LocalServer();
+        var opts = new PushNotificationOptions { Proxy = new BypassingProxy() };
+        await WithResolver(_ => [IPAddress.Loopback], async () =>
+        {
+            using var http = new HttpClient(PushUrlValidator.CreateHandler(opts));
+            var ex = await Assert.ThrowsAsync<HttpRequestException>(() => http.GetAsync($"http://evil.example:{server.Port}/"));
+            Assert.IsType<BlockedAddressException>(ex.InnerException ?? ex);
+            Assert.Equal(0, server.Accepted);
+        });
+    }
+
+    [Fact]
+    public async Task Connect_time_block_is_not_retried()
+    {
+        using var server = new LocalServer();
+        var calls = 0;
+        await WithResolver(_ => Interlocked.Increment(ref calls) == 1 ? [IPAddress.Parse("93.184.216.34")] : [IPAddress.Loopback], async () =>
+        {
+            // First lookup (pre-delivery check) is public; the connect-time lookup is private (rebinding).
+            using var handler = PushUrlValidator.CreateHandler(new PushNotificationOptions());
+            using var sender = await SendWithAsync(handler, o => o.AllowInsecureUrls = true, Hook($"http://good.example:{server.Port}/h"));
+            Assert.Equal(2, Volatile.Read(ref calls));
+            Assert.Equal(0, server.Accepted);
+        });
     }
 }
