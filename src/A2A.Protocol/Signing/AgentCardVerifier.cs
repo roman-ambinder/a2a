@@ -180,7 +180,7 @@ public sealed class AgentCardVerifier
         var keys = Policy.TrustedKeysFor(issuer, kid);
         string? jkuNote = null;
         if (keys.Count == 0 && jku is not null)
-            (keys, jkuNote) = await JkuKeysAsync(jku, kid, jkuFetches, cancellationToken).ConfigureAwait(false);
+            (keys, jkuNote) = await JkuKeysAsync(jku, kid, issuer, jkuFetches, cancellationToken).ConfigureAwait(false);
         if (keys.Count == 0)
             return (AgentCardVerificationStatus.Unverified, kid,
                 $"no trusted key for kid '{TextSanitizer.ForMessage(kid)}' at {issuer}" + (jkuNote is null ? "" : $" ({jkuNote})"));
@@ -202,12 +202,13 @@ public sealed class AgentCardVerifier
         return (Failed, kid, $"signature does not verify with trusted key '{TextSanitizer.ForMessage(kid)}'");
     }
 
-    private async Task<(IReadOnlyList<Jwk> Keys, string? Note)> JkuKeysAsync(string jku, string kid, HashSet<string> fetches, CancellationToken cancellationToken)
+    /// <summary>The keys with <paramref name="kid"/> from <paramref name="jku"/>, when its host is allowed for the card origin <paramref name="issuer"/>.</summary>
+    private async Task<(IReadOnlyList<Jwk> Keys, string? Note)> JkuKeysAsync(string jku, string kid, string issuer, HashSet<string> fetches, CancellationToken cancellationToken)
     {
         if (!Uri.TryCreate(jku, UriKind.Absolute, out var uri)) return ([], "jku is not an absolute URL");
         if (uri.Scheme != Uri.UriSchemeHttps) return ([], "jku must use https");
-        if (!string.IsNullOrEmpty(uri.UserInfo) || !Policy.AllowedJkuHosts.Contains(uri.Host))
-            return ([], $"jku host '{TextSanitizer.ForMessage(uri.Host)}' is not allowed");
+        if (!string.IsNullOrEmpty(uri.UserInfo) || !Policy.IsJkuHostAllowed(issuer, uri.Host))
+            return ([], $"jku host '{TextSanitizer.ForMessage(uri.Host)}' is not allowed for {issuer}");
 
         var cacheKey = uri.AbsoluteUri;
         var now = DateTimeOffset.UtcNow;

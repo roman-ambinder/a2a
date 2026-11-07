@@ -244,7 +244,7 @@ public class SigningTests
     public async Task Jwks_resolver_refuses_cross_host_and_insecure_jku()
     {
         var policy = new CardTrustPolicy();
-        policy.AllowedJkuHosts.Add("agent.example");
+        policy.AllowJkuHost(Origin, "agent.example");
         var verifier = new AgentCardVerifier(policy, new HttpClient(new ThrowingHandler()));
 
         var crossHost = AgentCardSigner.Sign(SampleCard(), NewKey("ES256", jku: "https://evil.example/jwks.json"));

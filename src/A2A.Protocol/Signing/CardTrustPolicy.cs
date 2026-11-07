@@ -3,8 +3,8 @@ namespace A2A.Signing;
 /// <summary>
 /// What an Agent Card signature must chain to before it counts as <see cref="AgentCardVerificationStatus.Verified"/>
 /// (spec §7.5). A key is trusted only when it is pinned for the card's origin in <see cref="TrustedKeys"/>, or when it is
-/// served from a <c>jku</c> URL on a host in <see cref="AllowedJkuHosts"/>. A key the card itself points at is never
-/// trusted on its own.
+/// served from a <c>jku</c> URL on a host that <see cref="AllowedJkuHosts"/> lists for the card's origin. A key the card
+/// itself points at is never trusted on its own.
 /// </summary>
 public sealed class CardTrustPolicy
 {
@@ -16,11 +16,26 @@ public sealed class CardTrustPolicy
     public IDictionary<string, JwkSet> TrustedKeys { get; } = new Dictionary<string, JwkSet>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Hosts from which a <c>jku</c> key set may be fetched (HTTPS only, through an SSRF-guarded client). Empty by default,
-    /// which means <c>jku</c> is ignored, including a <c>jku</c> on the card's own host.
-    /// Keys served by an allowlisted <c>jku</c> host are trusted for cards from any origin.
+    /// Hosts from which a <c>jku</c> key set may be fetched (HTTPS only, through an SSRF-guarded client), per card origin.
+    /// The key is the origin the card is fetched from, normalized like <see cref="TrustedKeys"/>; the value lists the
+    /// <c>jku</c> hosts (compared case-insensitively). A <c>jku</c> key verifies a card only when its host is listed for
+    /// that card's origin: a host allowed for one origin does not verify cards from another. Empty by default, which means
+    /// <c>jku</c> is ignored, including a <c>jku</c> on the card's own host. <see cref="AllowJkuHost"/> adds one entry.
     /// </summary>
-    public ISet<string> AllowedJkuHosts { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    public IDictionary<string, ISet<string>> AllowedJkuHosts { get; } = new Dictionary<string, ISet<string>>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Allows <c>jku</c> key sets from <paramref name="host"/> for cards fetched from <paramref name="origin"/>.</summary>
+    /// <param name="origin">The card origin, <c>"https://host[:port]"</c>.</param>
+    /// <param name="host">The <c>jku</c> host, without scheme or port.</param>
+    public CardTrustPolicy AllowJkuHost(string origin, string host)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(origin);
+        ArgumentException.ThrowIfNullOrEmpty(host);
+        if (!AllowedJkuHosts.TryGetValue(origin, out var hosts))
+            AllowedJkuHosts[origin] = hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        hosts.Add(host);
+        return this;
+    }
 
     /// <summary>
     /// Whether unsigned and unverified cards are rejected. <see langword="null"/> (default) means
@@ -55,6 +70,17 @@ public sealed class CardTrustPolicy
             found.AddRange(set.Keys.Where(k => string.Equals(k.Kid, kid, StringComparison.Ordinal)));
         }
         return found;
+    }
+
+    /// <summary>True when <see cref="AllowedJkuHosts"/> lists <paramref name="host"/> for cards from <paramref name="origin"/>.</summary>
+    internal bool IsJkuHostAllowed(string origin, string host)
+    {
+        foreach (var (configured, hosts) in AllowedJkuHosts)
+        {
+            if (hosts is null || !string.Equals(Normalize(configured), origin, StringComparison.Ordinal)) continue;
+            if (hosts.Any(h => string.Equals(h, host, StringComparison.OrdinalIgnoreCase))) return true;
+        }
+        return false;
     }
 
     // Tolerates "https://Host:443/" style configuration.

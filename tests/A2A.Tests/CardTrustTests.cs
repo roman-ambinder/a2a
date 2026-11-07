@@ -102,7 +102,7 @@ public class CardTrustTests
         var key = NewKey("k1", "https://keys.example/jwks.json");
         var jwks = new JwksServer(Set(key));
         var policy = new CardTrustPolicy();
-        policy.AllowedJkuHosts.Add("keys.example");
+        policy.AllowJkuHost(Origin, "keys.example");
         var verifier = new AgentCardVerifier(policy, new HttpClient(jwks));
 
         var result = await verifier.VerifyAsync(Signed(key), CardUri);
@@ -121,10 +121,32 @@ public class CardTrustTests
             (await new AgentCardVerifier(policy, new HttpClient(plain)).VerifyAsync(Signed(insecure), CardUri)).Status);
         Assert.Empty(plain.Requests);
 
-        var resolved = await Resolver(new CardServer(Signed(key)), o => o.Trust.AllowedJkuHosts.Add("keys.example"), new JwksServer(Set(key)))
+        var resolved = await Resolver(new CardServer(Signed(key)), o => o.Trust.AllowJkuHost(Origin, "keys.example"), new JwksServer(Set(key)))
             .ResolveAsync(AgentUrl);
         Assert.Equal(AgentCardVerificationStatus.Verified, resolved.Verification.Status);
         Assert.Equal((Origin, (string?)"k1"), resolved.Identity);
+    }
+
+    [Fact]
+    public async Task Jku_host_allowlisted_for_one_origin_does_not_verify_a_card_from_another()
+    {
+        var key = NewKey("k1", "https://keys.example/jwks.json");
+        var jwks = new JwksServer(Set(key));
+        var policy = new CardTrustPolicy();
+        policy.AllowJkuHost(Origin, "keys.example");
+        var verifier = new AgentCardVerifier(policy, new HttpClient(jwks));
+
+        var other = await verifier.VerifyAsync(Signed(key), new Uri("https://other.example/.well-known/agent-card.json"));
+
+        Assert.Equal(AgentCardVerificationStatus.Unverified, other.Status);
+        Assert.Contains("not allowed for https://other.example", other.Reason);
+        Assert.Empty(jwks.Requests);
+        // The origin it is listed for still verifies, and the configured origin is normalized.
+        Assert.Equal(AgentCardVerificationStatus.Verified, (await verifier.VerifyAsync(Signed(key), CardUri)).Status);
+        var normalized = new CardTrustPolicy();
+        normalized.AllowedJkuHosts["HTTPS://Agent.Example:443/"] = new HashSet<string> { "KEYS.example" };
+        Assert.Equal(AgentCardVerificationStatus.Verified,
+            (await new AgentCardVerifier(normalized, new HttpClient(jwks)).VerifyAsync(Signed(key), CardUri)).Status);
     }
 
     [Fact]
@@ -304,7 +326,7 @@ public class CardTrustTests
         Assert.Equal(AgentCardVerificationStatus.Unsigned,
             (await Assert.ThrowsAsync<AgentCardVerificationException>(() => required.ResolveAsync(AgentUrl))).Result.Status);
 
-        var jkuOnly = Resolver(new CardServer(Unsigned()), o => o.Trust.AllowedJkuHosts.Add("keys.example"));
+        var jkuOnly = Resolver(new CardServer(Unsigned()), o => o.Trust.AllowJkuHost(Origin, "keys.example"));
         await Assert.ThrowsAsync<AgentCardVerificationException>(() => jkuOnly.ResolveAsync(AgentUrl));
 
         var optedOut = Resolver(new CardServer(Unsigned()), o =>
@@ -395,7 +417,7 @@ public class CardTrustTests
     {
         var key = NewKey("k1", "https://localhost:1/jwks");
         var policy = new CardTrustPolicy();
-        policy.AllowedJkuHosts.Add("localhost");
+        policy.AllowJkuHost(Origin, "localhost");
 
         var result = await new AgentCardVerifier(policy).VerifyAsync(Signed(key), CardUri);
 
@@ -412,7 +434,7 @@ public class CardTrustTests
             .ToList();
         var jwks = new JwksServer(new JwkSet()); // never holds the kid, so every signature asks for its key set
         var policy = new CardTrustPolicy();
-        policy.AllowedJkuHosts.Add("keys.example");
+        policy.AllowJkuHost(Origin, "keys.example");
 
         var result = await new AgentCardVerifier(policy, new HttpClient(jwks)).VerifyAsync(A2AJson.Serialize(card), CardUri);
 
@@ -427,7 +449,7 @@ public class CardTrustTests
         var key = NewKey("k1", "https://keys.example/jwks.json");
         var jwks = new JwksServer(Set(key)) { Status = HttpStatusCode.InternalServerError };
         var policy = new CardTrustPolicy();
-        policy.AllowedJkuHosts.Add("keys.example");
+        policy.AllowJkuHost(Origin, "keys.example");
         var verifier = new AgentCardVerifier(policy, new HttpClient(jwks));
 
         var first = await verifier.VerifyAsync(Signed(key), CardUri);
