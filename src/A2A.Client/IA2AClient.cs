@@ -76,4 +76,19 @@ public sealed class A2AClientOptions
 
     /// <summary>Clock used for retry delays. Default <see cref="System.TimeProvider.System"/>. Replace it in tests.</summary>
     public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+
+    /// <summary>
+    /// Called by <see cref="A2AClient"/> for every agent message it receives, before the caller sees it: a direct reply, the
+    /// message of a status update, and the latest status message of a task snapshot (SendMessage, SendStreamingMessage,
+    /// SubscribeToTask, ObserveTaskAsync, GetTask and CancelTask; unary and streamed; every binding, gRPC included).
+    /// Throw to abort the call: the exception reaches the caller, and a stream stops. Default null.
+    /// </summary>
+    /// <remarks>
+    /// This is the place to check each turn of a multi-turn exchange against the user's original intent, and to require
+    /// human approval before the agent's request leads to a sensitive action. A peer agent can steer a long conversation one
+    /// small step at a time ("agent session smuggling"); a check on every message catches drift that a check on the first
+    /// one misses. The same snapshot message can be seen more than once (for example when polling with GetTask, or after a
+    /// stream reconnects), so make the check idempotent.
+    /// </remarks>
+    public Func<ReceivedMessage, CancellationToken, ValueTask>? OnMessageReceived { get; set; }
 }

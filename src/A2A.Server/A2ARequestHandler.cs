@@ -36,7 +36,12 @@ public sealed class A2ARequestHandler : IDisposable
     private readonly SemaphoreSlim[] _locks = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
     private readonly RunningRegistry<Execution> _running = new();
     private readonly StreamAdmission _admission;
+    private readonly TimeProvider _time;
 
+    /// <summary>
+    /// Created by DI. The optional <c>timeProvider</c> is the clock for <see cref="A2AServerOptions.MaxTaskDuration"/>
+    /// (default <see cref="TimeProvider.System"/>).
+    /// </summary>
     public A2ARequestHandler(
         IServiceScopeFactory scopeFactory,
         TaskStore tasks,
@@ -48,7 +53,8 @@ public sealed class A2ARequestHandler : IDisposable
         IPushNotificationSender push,
         TaskEventBus bus,
         IOptions<A2AServerOptions> options,
-        ILogger<A2ARequestHandler>? logger = null)
+        ILogger<A2ARequestHandler>? logger = null,
+        TimeProvider? timeProvider = null)
     {
         _scopeFactory = scopeFactory;
         _tasks = tasks;
@@ -62,6 +68,7 @@ public sealed class A2ARequestHandler : IDisposable
         _options = options.Value;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _admission = new StreamAdmission(_options.Limits);
+        _time = timeProvider ?? TimeProvider.System;
     }
 
     public AgentCard AgentCard => _options.AgentCard;
@@ -622,6 +629,7 @@ public sealed class A2ARequestHandler : IDisposable
                         {
                             Metadata = new() { ["taskId"] = taskId },
                         };
+                    EnsureTurnCapacity(record.Task);
                     if (push is not null) await EnsurePushCapacityAsync(Key(call, taskId), push.Id!, ct).ConfigureAwait(false);
                     contextId = record.Task.ContextId;
                     message.ContextId = contextId;
@@ -693,6 +701,22 @@ public sealed class A2ARequestHandler : IDisposable
         }
         if (!string.Equals(existing.Owner, call.Principal, StringComparison.Ordinal)) throw A2AException.InvalidParams(NotFound);
         return existing.ContextId;
+    }
+
+    /// <summary>
+    /// Throws UnsupportedOperation when one more message would exceed <see cref="A2AServerOptions.MaxTurnsPerTask"/>.
+    /// Turns are the user messages in the stored history (the first message and every accepted follow-up).
+    /// </summary>
+    private void EnsureTurnCapacity(AgentTask task)
+    {
+        if (_options.MaxTurnsPerTask is not { } max) return;
+        var turns = task.History?.Count(m => m.Role == Role.User) ?? 0;
+        if (turns < max) return;
+        throw new A2AException(A2AErrorCode.UnsupportedOperation,
+            $"The task reached its limit of {max} messages. Start a new task and list this one in referenceTaskIds.")
+        {
+            Metadata = new() { ["taskId"] = task.Id, ["maxTurnsPerTask"] = max.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+        };
     }
 
     // =====================================================================
@@ -1095,20 +1119,25 @@ public sealed class A2ARequestHandler : IDisposable
 
     private Execution StartExecution(AgentRequestContext context, TaskPushNotificationConfig? push, IdempotencyClaim claim) =>
         StartRaw(context.TaskId, context.ContextId, context.IsNewTask, context.Message, context.Call, push, emitInitialSnapshot: !context.IsNewTask,
-            (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct), claim, context.Metadata);
+            (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct), claim, context.Metadata, _options.MaxTaskDuration);
 
     /// <summary>
     /// Runs the agent for a task. An idempotency <c>claim</c> is completed when the task is first stored or the agent replies
-    /// directly, and abandoned when neither happens.
+    /// directly, and abandoned when neither happens. With a <paramref name="timeLimit"/>, an execution still running when it
+    /// expires fails the task (<see cref="TimeLimitText"/>) and is cancelled.
     /// </summary>
     private Execution StartRaw(string taskId, string contextId, bool isNewTask, Message? userMessage, ServerCallContext call,
         TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run,
-        IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null)
+        IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null, TimeSpan? timeLimit = null)
     {
         var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token));
         var scope = ScopeKey(call.Tenant, taskId);
         _running.Add(scope, exec);
         var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
+        // Started before the agent, so the time spent waiting for a thread counts too. Disposed when the agent returns.
+        var timer = timeLimit is { } limit && IsTimeLimit(limit)
+            ? _time.CreateTimer(_ => _ = TimeOutAsync(exec, updater, taskId), null, limit, Timeout.InfiniteTimeSpan)
+            : null;
 
         var producer = Task.Run(async () =>
         {
@@ -1117,6 +1146,11 @@ public sealed class A2ARequestHandler : IDisposable
                 await using var scope = _scopeFactory.CreateAsyncScope();
                 var executor = scope.ServiceProvider.GetRequiredService<IAgentExecutor>();
                 await run(executor, updater, exec.Cts.Token).ConfigureAwait(false);
+                exec.TryMarkReturned();
+            }
+            catch (Exception) when (!exec.TryMarkReturned())
+            {
+                // The task already failed with the time limit text; the agent's late error or cancellation is expected.
             }
             catch (OperationCanceledException) when (exec.Cts.IsCancellationRequested)
             {
@@ -1129,6 +1163,7 @@ public sealed class A2ARequestHandler : IDisposable
             }
             finally
             {
+                if (timer is not null) await timer.DisposeAsync().ConfigureAwait(false);
                 exec.Incoming.Writer.TryComplete();
             }
         });
@@ -1142,6 +1177,18 @@ public sealed class A2ARequestHandler : IDisposable
             exec.MarkDone();
         }, TaskScheduler.Default);
         return exec;
+    }
+
+    /// <summary>
+    /// The execution ran past <see cref="A2AServerOptions.MaxTaskDuration"/>: fails the task (the FAILED event is queued
+    /// before the token fires, so it wins over a CANCELED from the agent's cancellation), then cancels the agent.
+    /// </summary>
+    private async Task TimeOutAsync(Execution exec, TaskUpdater updater, string taskId)
+    {
+        if (!exec.TryMarkTimedOut()) return; // the agent returned first
+        _logger.LogWarning("Task {TaskId}: the agent ran longer than {Limit}; failing the task", taskId, _options.MaxTaskDuration);
+        await TryFinishAsync(updater, TaskState.Failed, TimeLimitText).ConfigureAwait(false);
+        exec.Cancel();
     }
 
     private static async Task TryFinishAsync(TaskUpdater updater, TaskState state, string? text)
@@ -1383,6 +1430,9 @@ public sealed class A2ARequestHandler : IDisposable
     /// <summary>Status text of a task failed because its updates could not be stored.</summary>
     internal const string StoreFailureText = "The task failed because its updates could not be stored.";
 
+    /// <summary>Status text of a task failed because an execution ran longer than <see cref="A2AServerOptions.MaxTaskDuration"/>.</summary>
+    internal const string TimeLimitText = "Task exceeded its time limit";
+
     /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
     internal const string OversizedEventText = "The agent produced an event larger than the configured limit.";
 
@@ -1541,6 +1591,14 @@ public sealed class A2ARequestHandler : IDisposable
         public bool Failed => _failed;
 
         private volatile bool _failed;
+
+        private int _outcome; // 0 running, 1 the agent returned (or threw), 2 timed out
+
+        /// <summary>The agent returned or threw. False when the execution had already timed out.</summary>
+        public bool TryMarkReturned() => Interlocked.CompareExchange(ref _outcome, 1, 0) != 2;
+
+        /// <summary>The time limit expired. False when the agent had already returned.</summary>
+        public bool TryMarkTimedOut() => Interlocked.CompareExchange(ref _outcome, 2, 0) == 0;
 
         /// <summary>Marks the storage failure and ends the outgoing events with <paramref name="error"/>.</summary>
         public void Fail(Exception error)

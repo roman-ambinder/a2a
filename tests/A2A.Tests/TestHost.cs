@@ -38,6 +38,11 @@ public sealed class ScenarioAgent : IAgentExecutor
         if (context.Task is not null && context.Task.Status.State == TaskState.InputRequired)
         {
             if (text.StartsWith("gate ", StringComparison.Ordinal)) await Gate(text).Task.WaitAsync(ct); // no WORKING first
+            if (text == "ask-again") // stays interrupted: one more turn
+            {
+                await updater.RequireInputAsync("need even more", ct);
+                return;
+            }
             await updater.CompleteAsync($"got: {text}", ct);
             return;
         }

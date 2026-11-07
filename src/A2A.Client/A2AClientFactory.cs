@@ -75,6 +75,7 @@ public static class A2AClientFactory
         ValidateCapabilities = o.ValidateCapabilities,
         MaxRetries = o.MaxRetries,
         TimeProvider = o.TimeProvider,
+        OnMessageReceived = o.OnMessageReceived,
         TransportFactories = new List<IA2ATransportFactory>(o.TransportFactories),
     };
 }

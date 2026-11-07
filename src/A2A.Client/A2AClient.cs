@@ -93,8 +93,63 @@ public sealed class A2AClient : IA2AClient
         A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         if (request.Configuration?.TaskPushNotificationConfig is not null) RequireCapability(AgentCard?.Capabilities.PushNotifications, A2AErrorCode.PushNotificationNotSupported);
-        return _transport.SendMessageAsync(request, options, cancellationToken);
+        var call = _transport.SendMessageAsync(request, options, cancellationToken);
+        return _options.OnMessageReceived is null ? call : InspectAsync(call, cancellationToken);
     }
+
+    private async Task<SendMessageResponse> InspectAsync(Task<SendMessageResponse> call, CancellationToken ct)
+    {
+        var response = await call.ConfigureAwait(false);
+        switch (response)
+        {
+            case MessageResponse { Message: var m }:
+                await NotifyAsync(new ReceivedMessage(m, ReceivedMessageSource.DirectReply, m.TaskId, m.ContextId), ct).ConfigureAwait(false);
+                break;
+            case TaskResponse { Task: var t }:
+                await InspectAsync(t, ct).ConfigureAwait(false);
+                break;
+        }
+        return response;
+    }
+
+    private async Task<AgentTask> InspectAsync(Task<AgentTask> call, CancellationToken ct)
+    {
+        var task = await call.ConfigureAwait(false);
+        await InspectAsync(task, ct).ConfigureAwait(false);
+        return task;
+    }
+
+    private ValueTask InspectAsync(AgentTask task, CancellationToken ct) =>
+        task.Status?.Message is { } m
+            ? NotifyAsync(new ReceivedMessage(m, ReceivedMessageSource.TaskSnapshot, task.Id, task.ContextId), ct)
+            : ValueTask.CompletedTask;
+
+    /// <summary>Passes every agent message in <paramref name="source"/> to <see cref="A2AClientOptions.OnMessageReceived"/> before yielding its event.</summary>
+    private IAsyncEnumerable<StreamResponse> Inspect(IAsyncEnumerable<StreamResponse> source) =>
+        _options.OnMessageReceived is null ? source : InspectStreamAsync(source);
+
+    private async IAsyncEnumerable<StreamResponse> InspectStreamAsync(IAsyncEnumerable<StreamResponse> source, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await foreach (var evt in source.WithCancellation(ct).ConfigureAwait(false))
+        {
+            switch (evt)
+            {
+                case MessageEvent { Message: var m }:
+                    await NotifyAsync(new ReceivedMessage(m, ReceivedMessageSource.DirectReply, m.TaskId, m.ContextId), ct).ConfigureAwait(false);
+                    break;
+                case StatusUpdateEvent { StatusUpdate: { Status.Message: { } m } su }:
+                    await NotifyAsync(new ReceivedMessage(m, ReceivedMessageSource.StatusUpdate, su.TaskId, su.ContextId), ct).ConfigureAwait(false);
+                    break;
+                case TaskEvent { Task: var t }:
+                    await InspectAsync(t, ct).ConfigureAwait(false);
+                    break;
+            }
+            yield return evt;
+        }
+    }
+
+    private ValueTask NotifyAsync(ReceivedMessage received, CancellationToken ct) =>
+        _options.OnMessageReceived is { } hook ? hook(received, ct) : ValueTask.CompletedTask;
 
     public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -102,14 +157,14 @@ public sealed class A2AClient : IA2AClient
         A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
-        return ResumableStream.RunAsync(
+        return Inspect(ResumableStream.RunAsync(
             knownTaskId: null,
             ct => _transport is IResumableTransport rt
                 ? rt.SendStreamingFramesAsync(request, options, ct)
                 : Frames(_transport.SendStreamingMessageAsync(request, options, ct)),
             (taskId, cursor, ct) => Resubscribe(request.Tenant, taskId, cursor, options, ct),
             (taskId, ct) => GetTaskForResume(request.Tenant, taskId, options, ct),
-            _options.TimeProvider, cancellationToken);
+            _options.TimeProvider, cancellationToken));
     }
 
     /// <summary>
@@ -128,12 +183,12 @@ public sealed class A2AClient : IA2AClient
         ArgumentException.ThrowIfNullOrEmpty(taskId);
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
         var tenant = _options.Tenant;
-        return ResumableStream.RunAsync(
+        return Inspect(ResumableStream.RunAsync(
             knownTaskId: taskId,
             ct => Resubscribe(tenant, taskId, null, options, ct),
             (id, cursor, ct) => Resubscribe(tenant, id, cursor, options, ct),
             (id, ct) => GetTaskForResume(tenant, id, options, ct),
-            _options.TimeProvider, cancellationToken);
+            _options.TimeProvider, cancellationToken));
     }
 
     private IAsyncEnumerable<StreamFrame> Resubscribe(string? tenant, string taskId, string? lastEventId, A2ARequestOptions? options, CancellationToken ct)
@@ -155,7 +210,8 @@ public sealed class A2AClient : IA2AClient
     public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
-        return _transport.GetTaskAsync(request, options, cancellationToken);
+        var call = _transport.GetTaskAsync(request, options, cancellationToken);
+        return _options.OnMessageReceived is null ? call : InspectAsync(call, cancellationToken);
     }
 
     public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
@@ -167,14 +223,15 @@ public sealed class A2AClient : IA2AClient
     public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
-        return _transport.CancelTaskAsync(request, options, cancellationToken);
+        var call = _transport.CancelTaskAsync(request, options, cancellationToken);
+        return _options.OnMessageReceived is null ? call : InspectAsync(call, cancellationToken);
     }
 
     public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
-        return _transport.SubscribeToTaskAsync(request, options, cancellationToken);
+        return Inspect(_transport.SubscribeToTaskAsync(request, options, cancellationToken));
     }
 
     public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
