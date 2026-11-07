@@ -219,5 +219,18 @@ public static class A2AGrpcClientFactory
         return A2AClientFactory.Create(card, NoHttp, grpcOnly);
     }
 
+    /// <summary>
+    /// Fetches the Agent Card at <paramref name="agentUrl"/> with <paramref name="httpClient"/> (default
+    /// <see cref="A2ACardResolverOptions"/>), then builds a gRPC client as <see cref="Create"/> does.
+    /// <paramref name="httpClient"/> is used only for the card; the gRPC channel is configured by <paramref name="channelOptions"/>.
+    /// </summary>
+    public static async Task<A2AClient> CreateAsync(Uri agentUrl, HttpClient httpClient, A2AClientOptions? options = null,
+        GrpcChannelOptions? channelOptions = null, CancellationToken cancellationToken = default)
+    {
+        var resolver = new A2ACardResolver(httpClient);
+        var card = await resolver.GetAgentCardAsync(agentUrl, cancellationToken).ConfigureAwait(false);
+        return Create(card, options, channelOptions);
+    }
+
     private static readonly HttpClient NoHttp = new();
 }

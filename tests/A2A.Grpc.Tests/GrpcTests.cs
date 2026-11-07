@@ -371,6 +371,7 @@ internal sealed class GrpcHost : IAsyncDisposable
         app.UseAuthentication();
         app.UseA2A();
         app.UseAuthorization();
+        app.MapAgentCard();
         var grpc = app.MapA2AGrpc();
         if (requireAuth) grpc.RequireAuthorization();
         await app.StartAsync();
@@ -383,6 +384,14 @@ internal sealed class GrpcHost : IAsyncDisposable
         if (user is not null) handler = new UserHandler(user) { InnerHandler = handler };
         return GrpcChannel.ForAddress(_app.GetTestServer().BaseAddress, new GrpcChannelOptions { HttpHandler = handler });
     }
+
+    public HttpMessageHandler Handler(string? user = null)
+    {
+        HttpMessageHandler handler = _app.GetTestServer().CreateHandler();
+        return user is null ? handler : new UserHandler(user) { InnerHandler = handler };
+    }
+
+    public Uri BaseAddress => _app.GetTestServer().BaseAddress;
 
     public A2AClient Client(string? user = "alice", A2AClientOptions? options = null)
     {
