@@ -225,7 +225,7 @@ public sealed class A2ARequestHandler : IDisposable
     /// <see cref="A2ALimits.StreamReauthInterval"/> and <see cref="A2ALimits.MaxStreamDuration"/>.
     /// </summary>
     public IAsyncEnumerable<SequencedEvent> SendStreamingMessageAsync(SendMessageRequest request, ServerCallContext call, CancellationToken cancellationToken = default) =>
-        LimitStreamAsync(SendStreamingCoreAsync(request, call), call, A2AOperation.SendStreamingMessage, request, cancellationToken);
+        LimitStreamAsync(SendStreamingCoreAsync(request, call, CancellationToken.None), call, A2AOperation.SendStreamingMessage, request, cancellationToken);
 
     /// <summary>
     /// Like <see cref="SendStreamingMessageAsync(SendMessageRequest, ServerCallContext, CancellationToken)"/>, but a valid
@@ -792,7 +792,7 @@ public sealed class A2ARequestHandler : IDisposable
     /// <summary>As the public overload; <paramref name="onCaughtUp"/> is described on <see cref="SubscribeCoreAsync"/>.</summary>
     internal IAsyncEnumerable<SequencedEvent> SubscribeToTaskAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
         Action? onCaughtUp, CancellationToken cancellationToken) =>
-        LimitStreamAsync(SubscribeCoreAsync(request, call, resumeAfter, onCaughtUp), call, A2AOperation.SubscribeToTask, request, cancellationToken);
+        LimitStreamAsync(SubscribeCoreAsync(request, call, resumeAfter, onCaughtUp, CancellationToken.None), call, A2AOperation.SubscribeToTask, request, cancellationToken);
 
     /// <summary>
     /// The subscribe and resume logic. <paramref name="onCaughtUp"/> runs once when a resume was accepted but has nothing to
@@ -1193,7 +1193,7 @@ public sealed class A2ARequestHandler : IDisposable
                 {
                     // The event is never stored or sent: the task fails instead and the agent is stopped.
                     _logger.LogWarning("Task {TaskId}: the agent produced an event larger than {Limit} bytes; failing the task", taskId, _options.Limits.MaxEventBytes);
-                    evt = FailureEvent(taskId, contextId);
+                    evt = StreamResponse.Of(FailureEvent(taskId, contextId));
                     exec.Cancel();
                 }
 
@@ -1289,7 +1289,7 @@ public sealed class A2ARequestHandler : IDisposable
             {
                 var record = await _tasks.GetAsync(key).ConfigureAwait(false);
                 if (record is null || record.Task.Status.State.IsTerminal()) return;
-                var failed = FailureEvent(key.TaskId, contextId, StoreFailureText);
+                var failed = StreamResponse.Of(FailureEvent(key.TaskId, contextId, StoreFailureText));
                 if (await ApplyAndStoreAsync(key, record, failed).ConfigureAwait(false) is not { } stored) return;
                 _bus.Publish(scope, stored);
                 _push.Enqueue(key, stored);
@@ -1325,7 +1325,8 @@ public sealed class A2ARequestHandler : IDisposable
         {
             if (!Apply(record.Task, evt))
             {
-                _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, record.Task.Status.State);
+                if (_logger.IsEnabled(LogLevel.Debug))
+                    _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, record.Task.Status.State);
                 return null;
             }
             try
@@ -1396,7 +1397,7 @@ public sealed class A2ARequestHandler : IDisposable
     /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
     internal const string OversizedEventText = "The agent produced an event larger than the configured limit.";
 
-    private static StreamResponse FailureEvent(string taskId, string contextId, string text = OversizedEventText) => StreamResponse.Of(new TaskStatusUpdateEvent
+    private static TaskStatusUpdateEvent FailureEvent(string taskId, string contextId, string text = OversizedEventText) => new TaskStatusUpdateEvent
     {
         TaskId = taskId,
         ContextId = contextId,
@@ -1409,7 +1410,7 @@ public sealed class A2ARequestHandler : IDisposable
                 MessageId = Message.NewId(), Role = Role.Agent, Parts = [Part.FromText(text)], TaskId = taskId, ContextId = contextId,
             },
         },
-    });
+    };
 
     private static Message WithTask(Message m, string taskId)
     {

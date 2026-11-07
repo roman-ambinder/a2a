@@ -71,7 +71,8 @@ internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions
                 try { Check(); }
                 catch (InvalidOperationException ex)
                 {
-                    logger.LogCritical(ex, "Stopping the application: {Message}", ex.Message);
+                    if (logger.IsEnabled(LogLevel.Critical))
+                        logger.LogCritical(ex, "Stopping the application: {Message}", ex.Message);
                     lifetime.StopApplication();
                 }
             });

@@ -247,7 +247,8 @@ public sealed class A2ACardResolver
         {
             if (keyId is not null && keyId != pinned.KeyId)
             {
-                _logger.LogInformation("Agent Card from {Origin} is now signed with key {KeyId} (was {PreviousKeyId}); content unchanged", origin, keyId, pinned.KeyId);
+                if (_logger.IsEnabled(LogLevel.Information))
+                    _logger.LogInformation("Agent Card from {Origin} is now signed with key {KeyId} (was {PreviousKeyId}); content unchanged", origin, keyId, pinned.KeyId);
                 await _options.PinStore.SetAsync(origin, pinned with { KeyId = keyId }, cancellationToken).ConfigureAwait(false);
             }
             return;

@@ -114,7 +114,7 @@ public sealed class A2AClient : IA2AClient
             knownTaskId: null,
             ct => _transport is IResumableTransport rt
                 ? rt.SendStreamingFramesAsync(request, options, ct)
-                : Frames(_transport.SendStreamingMessageAsync(request, options, ct)),
+                : Frames(_transport.SendStreamingMessageAsync(request, options, ct), ct),
             (taskId, cursor, ct) => Resubscribe(request.Tenant, taskId, cursor, options, ct),
             (taskId, ct) => GetTaskForResume(request.Tenant, taskId, options, ct),
             _options.TimeProvider, cancellationToken);
@@ -149,7 +149,7 @@ public sealed class A2AClient : IA2AClient
         var request = new SubscribeToTaskRequest { Id = taskId, Tenant = tenant ?? _options.Tenant };
         return _transport is IResumableTransport rt
             ? rt.SubscribeToTaskAsync(request, options, lastEventId, ct)
-            : Frames(_transport.SubscribeToTaskAsync(request, options, ct));
+            : Frames(_transport.SubscribeToTaskAsync(request, options, ct), ct);
     }
 
     private Task<AgentTask> GetTaskForResume(string? tenant, string taskId, A2ARequestOptions? options, CancellationToken ct) =>
