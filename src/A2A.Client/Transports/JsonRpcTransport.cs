@@ -9,8 +9,10 @@ using A2A.JsonRpc;
 namespace A2A.Client.Transports;
 
 /// <summary>JSON-RPC 2.0 over HTTP binding (spec §9).</summary>
-public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumableTransport
+public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumableTransport, ITransportBinding
 {
+    string ITransportBinding.Binding => ProtocolBindings.JsonRpc;
+
     private readonly Uri _endpoint;
 
     public JsonRpcTransport(HttpClient httpClient, Uri endpoint, A2AClientOptions? options = null) : base(httpClient, options)

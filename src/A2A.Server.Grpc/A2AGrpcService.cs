@@ -98,7 +98,7 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
     {
         try
         {
-            var call = HttpPlumbing.CreateCallContext(context.GetHttpContext());
+            var call = HttpPlumbing.CreateCallContext(context.GetHttpContext(), ProtocolBindings.Grpc);
             _handler.ValidateCall(call);
             var result = await action(call, context.CancellationToken).ConfigureAwait(false);
             await WriteExtensionsHeaderAsync(context, call).ConfigureAwait(false);
@@ -115,7 +115,7 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
     {
         try
         {
-            var call = HttpPlumbing.CreateCallContext(context.GetHttpContext());
+            var call = HttpPlumbing.CreateCallContext(context.GetHttpContext(), ProtocolBindings.Grpc);
             _handler.ValidateCall(call);
             var first = true;
             await foreach (var evt in source(call, context.CancellationToken).ConfigureAwait(false))

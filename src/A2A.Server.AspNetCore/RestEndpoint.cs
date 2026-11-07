@@ -146,7 +146,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
     private async Task Run(HttpContext http, Func<ServerCallContext, CancellationToken, Task<object?>> action)
     {
         ServerCallContext call;
-        try { call = HttpPlumbing.CreateCallContext(http); }
+        try { call = HttpPlumbing.CreateCallContext(http, ProtocolBindings.HttpJson); }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
             await WriteErrorAsync(http, ServerCallContext.Anonymous(), HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
@@ -172,7 +172,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
     private async Task RunStream(HttpContext http, Func<ServerCallContext, Action, CancellationToken, Task<IAsyncEnumerable<SequencedEvent>>> action)
     {
         ServerCallContext call;
-        try { call = HttpPlumbing.CreateCallContext(http); }
+        try { call = HttpPlumbing.CreateCallContext(http, ProtocolBindings.HttpJson); }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
             await WriteErrorAsync(http, ServerCallContext.Anonymous(), HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
