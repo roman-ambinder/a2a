@@ -338,5 +338,110 @@ public class ClientResumeTests
         Assert.Equal(2, handler.Calls.Count);
     }
 
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Clean_close_at_input_required_with_ids_is_resumed(string binding)
+    {
+        var handler = new ScriptedHandler(
+            _ => SseResponse(Sse(binding, [new(TaskFrame(), "t1:1"), new(StatusFrame("TASK_STATE_INPUT_REQUIRED"), "t1:2")]), drop: false),
+            _ => SseResponse(Sse(binding, [Run[3] with { Id = "t1:3" }]), drop: false));
+        var client = NewClient(handler, binding);
+
+        var events = await Collect(client.ObserveTaskAsync("t1"));
+
+        Assert.Equal(3, events.Count);
+        Assert.Equal("t1:2", handler.Calls.ToArray()[1].LastEventId);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Clean_close_at_input_required_from_a_peer_without_ids_ends(string binding)
+    {
+        var handler = new ScriptedHandler(
+            _ => SseResponse(Sse(binding, [new(TaskFrame(), null), new(StatusFrame("TASK_STATE_INPUT_REQUIRED"), null)]), drop: false));
+        var client = NewClient(handler, binding);
+
+        Assert.Equal(2, (await Collect(client.ObserveTaskAsync("t1"))).Count);
+
+        Assert.Single(handler.Calls);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Reset_after_the_terminal_event_does_not_reconnect(string binding)
+    {
+        var handler = new ScriptedHandler(_ => SseResponse(Sse(binding, Run), drop: true));
+        var client = NewClient(handler, binding);
+
+        Assert.Equal(4, (await Collect(client.ObserveTaskAsync("t1"))).Count);
+
+        Assert.Single(handler.Calls);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Cursor_for_another_task_is_not_tracked(string binding)
+    {
+        var handler = new ScriptedHandler(
+            _ => SseResponse(Sse(binding, [new(TaskFrame(), "other:5")]), drop: true),
+            _ => SseResponse(Sse(binding, Run), drop: false));
+        var client = NewClient(handler, binding);
+
+        await Collect(client.ObserveTaskAsync("t1"));
+
+        Assert.Null(handler.Calls.ToArray()[1].LastEventId);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task UnsupportedOperation_on_a_running_task_is_rethrown(string binding)
+    {
+        string Unsupported() => binding == ProtocolBindings.JsonRpc
+            ? """{"jsonrpc":"2.0","id":"x","error":{"code":-32004,"message":"nope"}}"""
+            : """{"error":{"code":400,"status":"FAILED_PRECONDITION","message":"nope","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"UNSUPPORTED_OPERATION","domain":"a2a-protocol.org"}]}}""";
+        var handler = new ScriptedHandler(
+            _ => new HttpResponseMessage(binding == ProtocolBindings.JsonRpc ? HttpStatusCode.OK : HttpStatusCode.BadRequest) { Content = new StringContent(Unsupported(), Encoding.UTF8, "application/json") },
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Payload(binding, TaskFrame("TASK_STATE_WORKING")[8..^1]), Encoding.UTF8, "application/json") });
+        var client = NewClient(handler, binding);
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => Collect(client.ObserveTaskAsync("t1")));
+
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Budget_resets_after_progress(string binding)
+    {
+        // Eight drops in a row, each delivering one new sequence: more than five in total, but never five without progress.
+        var script = new List<Func<Call, HttpResponseMessage>>();
+        for (var n = 1; n <= 8; n++)
+        {
+            var id = $"t1:{n}";
+            script.Add(_ => SseResponse(Sse(binding, [new(n == 1 ? TaskFrame() : StatusFrame("TASK_STATE_WORKING"), id)]), drop: true));
+        }
+        script.Add(_ => SseResponse(Sse(binding, [Run[3] with { Id = "t1:9" }]), drop: false));
+        var handler = new ScriptedHandler([.. script]);
+        var time = new FakeTimeProvider();
+        var client = NewClient(handler, binding, time);
+
+        Assert.Equal(9, (await Collect(client.ObserveTaskAsync("t1"))).Count);
+
+        Assert.Equal(9, handler.Calls.Count);
+        Assert.All(time.Delays, d => Assert.Equal(TimeSpan.FromMilliseconds(500), d)); // the budget restarted every time
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Frames_without_ids_do_not_reset_the_budget(string binding)
+    {
+        var handler = new ScriptedHandler(_ => SseResponse(Sse(binding, [new(StatusFrame("TASK_STATE_WORKING"), null)]), drop: true));
+        var client = NewClient(handler, binding);
+
+        await Assert.ThrowsAsync<IOException>(() => Collect(client.ObserveTaskAsync("t1")));
+
+        Assert.Equal(6, handler.Calls.Count);
+    }
+
     private static StreamResponse Parse(Frame f) => A2A.Json.A2AJson.Deserialize<StreamResponse>(f.Json);
 }

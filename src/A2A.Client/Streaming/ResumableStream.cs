@@ -60,6 +60,7 @@ internal static class ResumableStream
         {
             Exception? failure = null;
             AgentTask? finished = null;
+            var completed = false;
             var progressed = false;
             var enumerator = (reconnecting ? resume(taskId!, cursor, cancellationToken) : first(cancellationToken))
                 .GetAsyncEnumerator(cancellationToken);
@@ -74,7 +75,7 @@ internal static class ResumableStream
                         {
                             // Clean end. The server also closes streams at MaxStreamDuration or on re-auth: resume unless the
                             // stream is over (a final event was yielded) or there is no task id to resume with.
-                            if (taskId is null || (lastYielded is not null && EndsStream(lastYielded))) yield break;
+                            if (taskId is null || (lastYielded is not null && EndsStream(lastYielded, cursor))) yield break;
                             failure = new IOException("The server closed the stream before the task finished.");
                             break;
                         }
@@ -89,12 +90,14 @@ internal static class ResumableStream
                     }
                     catch (Exception ex) when (IsConnectionFailure(ex) && !cancellationToken.IsCancellationRequested && taskId is not null)
                     {
-                        failure = ex;
+                        // A reset while the server closes, after the final event, is not a failure.
+                        if (lastYielded is not null && EndsStream(lastYielded, cursor)) completed = true;
+                        else failure = ex;
                         break;
                     }
 
                     taskId ??= TaskIdOf(frame.Response);
-                    if (TryParseCursor(frame.Id, out var cursorTask, out var sequence) && (taskId is null || cursorTask == taskId))
+                    if (TryParseCursor(frame.Id, out var cursorTask, out var sequence) && taskId is not null && cursorTask == taskId)
                     {
                         if (sequence <= lastSequence) continue; // already delivered before the drop
                         lastSequence = sequence;
@@ -109,6 +112,8 @@ internal static class ResumableStream
             {
                 await enumerator.DisposeAsync().ConfigureAwait(false);
             }
+
+            if (completed) yield break;
 
             if (finished is not null)
             {
@@ -125,14 +130,23 @@ internal static class ResumableStream
         }
     }
 
-    /// <summary>True when no more events follow: a direct message, or a task that finished or is waiting for the caller.</summary>
-    private static bool EndsStream(StreamResponse response) => response switch
+    /// <summary>
+    /// True when no more events follow: a direct message or a terminal status. An interrupted state (input or auth required)
+    /// ends the stream only for a peer that sends no event ids (<paramref name="cursor"/> is null): it closes there. This SDK's
+    /// server keeps the stream open, so a close at such a state is a MaxStreamDuration or re-auth close and must be resumed.
+    /// </summary>
+    private static bool EndsStream(StreamResponse response, string? cursor)
     {
-        MessageEvent => true,
-        TaskEvent t => t.Task.Status.State.IsTerminal() || t.Task.Status.State.IsInterrupted(),
-        StatusUpdateEvent s => s.StatusUpdate.Status.State.IsTerminal() || s.StatusUpdate.Status.State.IsInterrupted(),
-        _ => false,
-    };
+        var state = response switch
+        {
+            MessageEvent => (TaskState?)TaskState.Completed,
+            TaskEvent t => t.Task.Status.State,
+            StatusUpdateEvent s => s.StatusUpdate.Status.State,
+            _ => null,
+        };
+        if (state is not { } st) return false;
+        return st.IsTerminal() || (cursor is null && st.IsInterrupted());
+    }
 
     private static bool IsConnectionFailure(Exception ex) => ex is HttpRequestException or IOException;
 
