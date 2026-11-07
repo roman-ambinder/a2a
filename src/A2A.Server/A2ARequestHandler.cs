@@ -221,7 +221,7 @@ public sealed class A2ARequestHandler : IDisposable
         }
         catch
         {
-            await claim.AbandonAsync().ConfigureAwait(false);
+            await AbandonAsync(claim).ConfigureAwait(false);
             throw;
         }
         using var admitted = slot;
@@ -284,7 +284,11 @@ public sealed class A2ARequestHandler : IDisposable
         }
     }
 
-    /// <summary>The answer to a retried SendMessage: the same direct reply, or the task as it is now.</summary>
+    /// <summary>
+    /// The answer to a retried SendMessage: the same direct reply, or the task. Like the first request, a blocking retry
+    /// returns the task once it is terminal or interrupted (or the request is cancelled); a <c>returnImmediately</c> retry
+    /// returns it as it is now.
+    /// </summary>
     private async Task<SendMessageResponse> ReplayAsync(IdempotencyOutcome outcome, SendMessageRequest request, ServerCallContext call, CancellationToken ct)
     {
         switch (outcome)
@@ -292,35 +296,66 @@ public sealed class A2ARequestHandler : IDisposable
             case IdempotencyOutcome.DirectMessage direct:
                 return new MessageResponse(A2AJson.Clone(direct.Message));
             case IdempotencyOutcome.TaskCreated created:
-                var record = await _tasks.GetAsync(Key(call, created.TaskId), ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(created.TaskId);
-                return new TaskResponse(Shape(record.Task, request.Configuration?.HistoryLength));
+                var key = Key(call, created.TaskId);
+                var task = request.Configuration?.ReturnImmediately == true
+                    ? (await _tasks.GetAsync(key, ct).ConfigureAwait(false))?.Task ?? throw A2AException.TaskNotFound(created.TaskId)
+                    : await WaitUntilSettledAsync(key, ct).ConfigureAwait(false);
+                return new TaskResponse(Shape(task, request.Configuration?.HistoryLength));
             default:
                 throw new UnreachableException();
         }
     }
 
     /// <summary>
-    /// Accepts the message and starts the agent. The idempotency claim is abandoned when the message is refused; a follow-up
-    /// records its task at once (the message is already in the task's history), and a new task records it when it is first stored.
+    /// Waits until the task is terminal or interrupted, then returns it (the end point of a blocking SendMessage). Reads the
+    /// task after every live event; subscribing before the first read means no change is missed.
+    /// </summary>
+    private async Task<AgentTask> WaitUntilSettledAsync(TaskKey key, CancellationToken ct)
+    {
+        using var sub = _bus.Subscribe(ScopeKey(key.Tenant, key.TaskId));
+        while (true)
+        {
+            var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
+            var state = record.Task.Status.State;
+            if (state.IsTerminal() || state.IsInterrupted()) return record.Task;
+            if (!await sub.Reader.WaitToReadAsync(ct).ConfigureAwait(false))
+            {
+                // The bus ended the topic (the task finished): one last read.
+                return (await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId)).Task;
+            }
+            while (sub.Reader.TryRead(out _)) { }
+        }
+    }
+
+    /// <summary>
+    /// Accepts the message and starts the agent. The idempotency claim is abandoned when the message is refused or the agent
+    /// cannot start; a follow-up records its task at once (the message is already in the task's history), and a new task
+    /// records it when it is first stored.
     /// </summary>
     private async Task<Execution> AcceptAsync(SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string? newTaskId, CancellationToken ct)
     {
-        Prepared prepared;
         try
         {
-            prepared = await PrepareAsync(request, call, ct, newTaskId).ConfigureAwait(false);
+            var prepared = await PrepareAsync(request, call, ct, newTaskId).ConfigureAwait(false);
+            if (!prepared.Context.IsNewTask)
+            {
+                await RecordAsync(claim, new IdempotencyOutcome.TaskCreated(prepared.Context.TaskId), prepared.Context.TaskId).ConfigureAwait(false);
+                claim = IdempotencyClaim.None;
+            }
+            return StartExecution(prepared.Context, prepared.PushConfig, claim);
         }
         catch
         {
-            await claim.AbandonAsync().ConfigureAwait(false);
+            await AbandonAsync(claim).ConfigureAwait(false);
             throw;
         }
-        if (!prepared.Context.IsNewTask)
-        {
-            await claim.CompleteAsync(new IdempotencyOutcome.TaskCreated(prepared.Context.TaskId)).ConfigureAwait(false);
-            claim = IdempotencyClaim.None;
-        }
-        return StartExecution(prepared.Context, prepared.PushConfig, claim);
+    }
+
+    /// <summary>Abandons an idempotency claim on a failure path. A failing idempotency store is logged; the original error wins.</summary>
+    private async Task AbandonAsync(IdempotencyClaim claim)
+    {
+        try { await claim.AbandonAsync().ConfigureAwait(false); }
+        catch (Exception ex) { _logger.LogError(ex, "Failed to abandon an idempotency entry"); }
     }
 
     private async Task<Prepared> PrepareAsync(SendMessageRequest request, ServerCallContext call, CancellationToken ct, string? newTaskId = null)
@@ -328,13 +363,28 @@ public sealed class A2ARequestHandler : IDisposable
         call.BindTenant(request.Tenant);
         A2AValidator.ValidateIncoming(request);
         RequestLimitValidator.Validate(request.Message, _options.Limits);
-        var message = request.Message;
+        // A copy: the caller's message is never changed (a retry with the same instance must hash the same), and the
+        // stored history does not alias it.
+        var message = A2AJson.Clone(request.Message);
+        var isFollowUp = !string.IsNullOrEmpty(message.TaskId);
+        var taskId = isFollowUp ? message.TaskId! : newTaskId ?? TaskIds.New();
         AgentTask? existing = null;
-        string taskId, contextId;
+        string contextId;
 
-        if (!string.IsNullOrEmpty(message.TaskId))
+        // Check the push config before anything changes, so a refused request leaves no trace and a retry is refused the same way.
+        TaskPushNotificationConfig? push = null;
+        if (request.Configuration?.TaskPushNotificationConfig is { } p)
         {
-            taskId = message.TaskId;
+            RequirePush();
+            PushUrlValidator.Validate(p.Url, _options.PushNotifications);
+            push = A2AJson.Clone(p);
+            push.TaskId = taskId;
+            push.Id = string.IsNullOrEmpty(push.Id) ? TaskIds.New() : push.Id;
+            push.Tenant = call.Tenant;
+        }
+
+        if (isFollowUp)
+        {
             var gate = LockFor(call.Tenant, taskId);
             await gate.WaitAsync(ct).ConfigureAwait(false);
             try
@@ -356,6 +406,7 @@ public sealed class A2ARequestHandler : IDisposable
                         {
                             Metadata = new() { ["taskId"] = taskId },
                         };
+                    if (push is not null) await EnsurePushCapacityAsync(Key(call, taskId), push.Id!, ct).ConfigureAwait(false);
                     contextId = record.Task.ContextId;
                     message.ContextId = contextId;
                     (record.Task.History ??= []).Add(message);
@@ -378,27 +429,12 @@ public sealed class A2ARequestHandler : IDisposable
         }
         else
         {
-            taskId = newTaskId ?? TaskIds.New();
             contextId = await ResolveContextAsync(message.ContextId, call, ct).ConfigureAwait(false);
             message.ContextId = contextId;
         }
 
-        TaskPushNotificationConfig? push = null;
-        if (request.Configuration?.TaskPushNotificationConfig is { } p)
-        {
-            RequirePush();
-            PushUrlValidator.Validate(p.Url, _options.PushNotifications);
-            push = A2AJson.Clone(p);
-            push.TaskId = taskId;
-            push.Id = string.IsNullOrEmpty(push.Id) ? TaskIds.New() : push.Id;
-            push.Tenant = call.Tenant;
-            if (existing is not null)
-            {
-                var pushKey = Key(call, taskId);
-                await EnsurePushCapacityAsync(pushKey, push.Id, ct).ConfigureAwait(false);
-                await SavePushConfigAsync(pushKey, push, ct).ConfigureAwait(false);
-            }
-        }
+        // A new task saves its push config when the task is created; a follow-up saves it now (capacity checked above).
+        if (push is not null && existing is not null) await SavePushConfigAsync(Key(call, taskId), push, ct).ConfigureAwait(false);
 
         var context = new AgentRequestContext
         {

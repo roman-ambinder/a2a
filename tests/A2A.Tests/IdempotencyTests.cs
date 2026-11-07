@@ -1,9 +1,11 @@
 using System.Diagnostics.Metrics;
 using System.Net;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using A2A.Client.Sse;
 using A2A.Json;
+using A2A.Server;
 using A2A.Server.Idempotency;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -166,6 +168,107 @@ public class IdempotencyTests
         var task = await host.Client(binding).GetTaskAsync(waiting.Id);
         Assert.Single(task.History!, m => m.MessageId == "m-follow");
     }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Blocking_duplicate_waits_for_the_task_to_finish(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var text = $"gate {Guid.NewGuid():N}";
+        var body = Body(text, "m-blocking");
+
+        var original = SendTaskAsync(host, binding, body);
+        var duplicate = SendTaskAsync(host, binding, body);
+        await Task.Delay(300); // only gives a broken server time to answer early; a correct one cannot answer before the gate opens
+        Assert.False(original.IsCompleted || duplicate.IsCompleted, "a blocking send returned before the task finished");
+        ScenarioAgent.Gate(text).TrySetResult();
+        var results = await Task.WhenAll(original, duplicate).WaitAsync(Timeout);
+
+        Assert.Equal(results[0].Id, results[1].Id);
+        Assert.All(results, t => Assert.Equal(TaskState.Completed, t.Status.State));
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Blocking_retry_of_a_running_task_waits_for_it_to_finish(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var text = $"gate {Guid.NewGuid():N}";
+        var body = Body(text, "m-running");
+
+        // The first attempt is a stream (same message and configuration, so the same request); it has created the task.
+        using var http = host.Http();
+        using var cts = new CancellationTokenSource(Timeout);
+        using var stream = await http.SendAsync(Send(binding, body, streaming: true), HttpCompletionOption.ResponseHeadersRead, cts.Token);
+        await using var frames = SseReader.ReadAsync(await stream.Content.ReadAsStreamAsync(cts.Token), cts.Token).GetAsyncEnumerator(cts.Token);
+        Assert.True(await frames.MoveNextAsync());
+
+        var retry = SendTaskAsync(host, binding, body);
+        await Task.Delay(300); // as above: only a broken server answers in this window
+        Assert.False(retry.IsCompleted, "the blocking retry returned before the task finished");
+        ScenarioAgent.Gate(text).TrySetResult();
+        var task = await retry.WaitAsync(Timeout);
+
+        Assert.Equal(TaskState.Completed, task.Status.State);
+    }
+
+    [Fact]
+    public async Task In_process_retry_with_the_same_request_instance_returns_the_same_task()
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var request = new SendMessageRequest { Message = new Message { MessageId = "m-instance", Role = Role.User, Parts = [Part.FromText("task")] } };
+
+        var first = (await host.Handler.SendMessageAsync(request, AliceCall())).RequireTask();
+        var second = (await host.Handler.SendMessageAsync(request, AliceCall())).RequireTask();
+
+        Assert.Equal(first.Id, second.Id);
+        Assert.Null(request.Message.ContextId); // the caller's message is not changed
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Refused_follow_up_leaves_the_task_unchanged_and_retries_the_same_way(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var waiting = await SendTaskAsync(host, binding, Body("input", "m-input-push"));
+        var before = (await host.Client(binding).GetTaskAsync(waiting.Id)).History!.Count;
+        var followUp = $$$"""{"message":{"messageId":"m-follow-push","role":"ROLE_USER","taskId":"{{{waiting.Id}}}","parts":[{"text":"more"}]},""" +
+            "\"configuration\":{\"taskPushNotificationConfig\":{\"url\":\"http://user:pw@hooks.test/x\"}}}";
+
+        var (status1, first) = await SendAsync(host, Send(binding, followUp));
+        var afterFirst = (await host.Client(binding).GetTaskAsync(waiting.Id)).History!.Count;
+        var (status2, second) = await SendAsync(host, Send(binding, followUp));
+        var afterRetry = (await host.Client(binding).GetTaskAsync(waiting.Id)).History!.Count;
+
+        Assert.Contains("credentials", first.GetProperty("error").GetRawText());
+        Assert.Contains("credentials", second.GetProperty("error").GetRawText());
+        Assert.Equal(status1, status2);
+        Assert.Equal(before, afterFirst);
+        Assert.Equal(before, afterRetry);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Keys_are_scoped_per_tenant(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        static string InTenant(string tenant) =>
+            $$$"""{"tenant":"{{{tenant}}}","message":{"messageId":"m-tenant","role":"ROLE_USER","parts":[{"text":"task"}]}}""";
+
+        var t1 = await SendTaskAsync(host, binding, InTenant("t1"), idempotencyKey: "K");
+        var t1Again = await SendTaskAsync(host, binding, InTenant("t1"), idempotencyKey: "K");
+        var t2 = await SendTaskAsync(host, binding, InTenant("t2"), idempotencyKey: "K");
+
+        Assert.Equal(t1.Id, t1Again.Id);
+        Assert.NotEqual(t1.Id, t2.Id);
+    }
+
+    private static ServerCallContext AliceCall() => new()
+    {
+        Principal = "alice",
+        User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "alice")], "Test")),
+        ProtocolVersion = A2AProtocol.Version,
+    };
 
     // ---------------------------------------------------------------- store and hash
 
