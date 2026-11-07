@@ -62,6 +62,16 @@ public sealed class A2AServerOptions
     public TimeSpan? MaxTaskDuration { get; set; }
 
     /// <summary>
+    /// Longest a task may wait in <c>INPUT_REQUIRED</c> or <c>AUTH_REQUIRED</c> with no agent running. After that the retention
+    /// sweep (<c>AddA2ARetention</c>) moves it to <see cref="TaskState.Canceled"/> with the status text "The task waited too
+    /// long for input." (sent to streams and webhooks like any final event). Measured from the task's status timestamp, on the
+    /// sweep's clock, so a task is cancelled up to one sweep interval late. Separate from <see cref="MaxTaskDuration"/>, which
+    /// limits running executions. Null turns the timeout off; otherwise it must be positive (checked when the sweep starts).
+    /// Default 24 hours.
+    /// </summary>
+    public TimeSpan? InterruptedTimeout { get; set; } = TimeSpan.FromHours(24);
+
+    /// <summary>
     /// Most incoming messages (SendMessage or SendStreamingMessage calls) one task accepts, counting the message that
     /// created it. A follow-up that would go over the cap is refused with <see cref="A2AErrorCode.UnsupportedOperation"/>
     /// before the agent runs, and the task is not changed. A defense against multi-turn "agent session smuggling", where a

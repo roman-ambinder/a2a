@@ -1,11 +1,11 @@
 namespace A2A.Tests;
 
 /// <summary>Manually advanced clock whose timers fire when <see cref="Advance"/> passes their due time.</summary>
-public sealed class FakeTimeProvider : TimeProvider
+public sealed class FakeTimeProvider(DateTimeOffset? start = null) : TimeProvider
 {
     private readonly object _gate = new();
     private readonly List<FakeTimer> _timers = [];
-    private DateTimeOffset _now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    private DateTimeOffset _now = start ?? new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
     public override DateTimeOffset GetUtcNow() { lock (_gate) return _now; }
 

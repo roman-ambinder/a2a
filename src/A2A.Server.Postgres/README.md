@@ -45,6 +45,7 @@ Differences, because the store is shared by several instances:
 - There is no `Idempotency.MaxEntries` cap; rows live until their retention ends.
 - Every instance's `PushDeliveryService` polls the shared outbox (`PushDelivery.PollInterval`, 1 s). A delivery is leased (`FOR UPDATE SKIP LOCKED`, then hidden for `PushDelivery.Lease`, 1 minute), so two instances never send it at the same time, and a crashed instance's deliveries are sent by another one after the lease. Results are written with the lease's token, so an instance whose lease was taken over changes nothing. The lease must be longer than 2 × `PushNotifications.Timeout` + 5 s (checked at startup).
 - Expired rows are hidden from reads at once and deleted by a background cleanup every `CleanupInterval` (5 minutes). `PostgresMaintenance.PurgeExpiredAsync()` runs it by hand.
+- That cleanup covers event logs and idempotency entries. Expired tasks (with their push configs, deliveries and dead letters), orphan contexts, timed-out interrupted tasks and dead executions are handled by the retention sweep (`services.AddA2ARetention()`).
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 8 and .NET 10.
 See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.

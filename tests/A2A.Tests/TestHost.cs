@@ -129,11 +129,14 @@ public sealed class RecordingHandler : HttpMessageHandler
 {
     public ConcurrentQueue<(HttpRequestMessage Request, string Body)> Calls { get; } = new();
 
+    /// <summary>The status to answer a call with. Default: 200 OK for every call.</summary>
+    public Func<HttpRequestMessage, System.Net.HttpStatusCode> Status { get; set; } = _ => System.Net.HttpStatusCode.OK;
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
         Calls.Enqueue((request, body));
-        return new HttpResponseMessage(System.Net.HttpStatusCode.OK);
+        return new HttpResponseMessage(Status(request));
     }
 }
 

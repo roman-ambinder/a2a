@@ -13,7 +13,7 @@ public static class A2AServerServiceCollectionExtensions
     /// Registers the A2A server core and returns a builder to add the agent, its card and extra services.
     /// Defaults: in-memory stores (tasks, events, push outbox, push configs, idempotency), a hosted <see cref="PushDeliveryService"/>
     /// that sends push notifications through an HTTP client with the SSRF guard, the <see cref="A2APushAdmin"/> dead-letter API,
-    /// an allow-all authorization handler, and a process-local <see cref="Coordination.ExecutionCoordinator"/>. Register your
+    /// the <see cref="Retention.A2ATaskAdmin"/> task delete API, an allow-all authorization handler, and a process-local <see cref="Coordination.ExecutionCoordinator"/>. Register your
     /// own <see cref="Storage.TaskStore"/> (with the <see cref="Storage.EventStore"/> and <see cref="PushOutbox"/> it commits
     /// to), <see cref="Storage.PushConfigStore"/>, <see cref="Idempotency.IdempotencyStore"/> or
     /// <see cref="Coordination.ExecutionCoordinator"/> before or after to replace them.
@@ -39,8 +39,26 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<PushDeliveryService>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PushDeliveryService>(sp => sp.GetRequiredService<PushDeliveryService>()));
         services.TryAddSingleton<A2APushAdmin>();
+        services.TryAddSingleton<Retention.A2ATaskAdmin>();
         services.TryAddSingleton<A2ARequestHandler>();
         return new A2AServerBuilder(services);
+    }
+
+    /// <summary>
+    /// Adds the retention sweep (<see cref="Retention.A2ARetentionService"/>) as a hosted service: deletes expired terminal
+    /// tasks with their data and orphan contexts, cancels tasks that waited longer than
+    /// <see cref="A2AServerOptions.InterruptedTimeout"/> for input, and fails tasks whose execution died with its instance.
+    /// Without it none of this happens. Call it on every instance; one sweeps per interval. Options are checked when the
+    /// service starts. Calling it again only applies <paramref name="configure"/> as well.
+    /// </summary>
+    public static IServiceCollection AddA2ARetention(this IServiceCollection services, Action<Retention.A2ARetentionOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        var options = services.AddOptions<Retention.A2ARetentionOptions>();
+        if (configure is not null) options.Configure(configure);
+        services.TryAddSingleton<Retention.A2ARetentionService>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Retention.A2ARetentionService>(sp => sp.GetRequiredService<Retention.A2ARetentionService>()));
+        return services;
     }
 
     internal static Storage.InMemoryEventStore InMemoryEventStore(IServiceProvider sp) =>

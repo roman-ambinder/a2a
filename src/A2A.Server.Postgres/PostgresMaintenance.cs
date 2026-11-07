@@ -8,7 +8,8 @@ namespace A2A.Server.Postgres;
 
 /// <summary>
 /// Deletes rows that reads already ignore: event logs of terminal tasks past their retention (with their events) and
-/// finished idempotency entries past theirs. Safe to run from every instance at once.
+/// finished idempotency entries past theirs. Safe to run from every instance at once. Tasks, contexts, push configs and
+/// push deliveries are not touched here: the retention sweep (<c>AddA2ARetention</c>) deletes them through the stores.
 /// </summary>
 public sealed class PostgresMaintenance(NpgsqlDataSource dataSource, PostgresStoreOptions? options = null, TimeProvider? time = null)
 {

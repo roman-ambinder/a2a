@@ -1642,6 +1642,56 @@ public sealed class A2ARequestHandler : IDisposable
         }
     }
 
+    /// <summary>
+    /// Commits a status change that no agent made (the retention sweep: interrupted-state timeout, dead execution) through the
+    /// normal path: under the task lock, applied and committed with its push deliveries, then published to subscribers; a
+    /// terminal state also ends the task's streams. The status message is an agent message with <paramref name="text"/>.
+    /// </summary>
+    /// <param name="key">The task.</param>
+    /// <param name="state">The new state. Must be a valid transition from the current one, or nothing is written.</param>
+    /// <param name="text">The status message text.</param>
+    /// <param name="expectedVersion">
+    /// When set, the change applies only while the stored task still has this version: a task that changed since the caller
+    /// looked at it (a follow-up, another instance's sweep) is left alone, and a version conflict is not retried.
+    /// </param>
+    /// <param name="ct">Cancels waiting for the task lock and the first read.</param>
+    /// <returns>True when the change was committed; false when the task is missing, terminal, changed, or the transition is invalid.</returns>
+    internal async Task<bool> CommitSystemStatusAsync(TaskKey key, TaskState state, string text, long? expectedVersion = null, CancellationToken ct = default)
+    {
+        var gate = LockFor(key.Tenant, key.TaskId);
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false);
+            if (record is null) return false;
+            var evt = StatusEvent(key.TaskId, record.Task.ContextId, state, text, _time.GetUtcNow());
+            Func<TaskRecord, bool>? unchanged = expectedVersion is { } v ? r => r.Version == v : null;
+            if (await ApplyAndStoreAsync(key, record, evt, unchanged).ConfigureAwait(false) is not { } stored) return false;
+            var scope = ScopeKey(key.Tenant, key.TaskId);
+            _bus.Publish(scope, stored);
+            if (state.IsTerminal())
+            {
+                await _events.MarkTerminalAsync(key).ConfigureAwait(false);
+                _bus.Complete(scope);
+            }
+            return true;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Cancels every execution of the task: this instance's at once (CancelTask runs included), the other instances' through
+    /// <see cref="ExecutionCoordinator.RequestCancelAsync"/>. Does not wait for them to stop.
+    /// </summary>
+    internal async Task CancelExecutionsAsync(TaskKey key, CancellationToken ct = default)
+    {
+        CancelAll(_running.Snapshot(ScopeKey(key.Tenant, key.TaskId)).Where(exec => exec.Key == key));
+        await _coordinator.RequestCancelAsync(key, ct).ConfigureAwait(false);
+    }
+
     /// <summary>Records an idempotency outcome. A failing idempotency store is logged; it never stops the task.</summary>
     private async Task RecordAsync(IdempotencyClaim claim, IdempotencyOutcome outcome, string taskId)
     {
@@ -1654,13 +1704,18 @@ public sealed class A2ARequestHandler : IDisposable
     /// the log holds only applied events, in the order their changes were stored, even across instances. After a version
     /// conflict, waits (<see cref="ConflictBackoffAsync"/>), reloads and re-applies, up to <see cref="MaxConflictRetries"/>
     /// times: another instance writing the same task back to back can win the race several times in a row. Returns null when the event was
-    /// dropped (for example the task is already terminal).
+    /// dropped (for example the task is already terminal, or the record, also a reloaded one, fails <paramref name="precondition"/>).
     /// </summary>
-    private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt)
+    private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt, Func<TaskRecord, bool>? precondition = null)
     {
         var deliveries = await DeliveriesAsync(key).ConfigureAwait(false);
         for (var attempt = 0; ; attempt++)
         {
+            if (precondition is not null && !precondition(record))
+            {
+                _logger.LogDebug("Task {TaskId} changed; dropping the event", key.TaskId);
+                return null;
+            }
             if (!Apply(record.Task, evt))
             {
                 _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, record.Task.Status.State);
@@ -1768,20 +1823,23 @@ public sealed class A2ARequestHandler : IDisposable
     /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
     internal const string OversizedEventText = "The agent produced an event larger than the configured limit.";
 
-    private static StreamResponse FailureEvent(string taskId, string contextId, string text = OversizedEventText) => StreamResponse.Of(new TaskStatusUpdateEvent
+    private static StreamResponse StatusEvent(string taskId, string contextId, TaskState state, string text, DateTimeOffset at) => StreamResponse.Of(new TaskStatusUpdateEvent
     {
         TaskId = taskId,
         ContextId = contextId,
         Status = new AgentTaskStatus
         {
-            State = TaskState.Failed,
-            Timestamp = DateTimeOffset.UtcNow,
+            State = state,
+            Timestamp = at,
             Message = new Message
             {
                 MessageId = Message.NewId(), Role = Role.Agent, Parts = [Part.FromText(text)], TaskId = taskId, ContextId = contextId,
             },
         },
     });
+
+    private static StreamResponse FailureEvent(string taskId, string contextId, string text = OversizedEventText) =>
+        StatusEvent(taskId, contextId, TaskState.Failed, text, DateTimeOffset.UtcNow);
 
     private static Message WithTask(Message m, string taskId)
     {
