@@ -133,26 +133,81 @@ public sealed class A2ARequestHandler : IDisposable
     // SendMessage / SendStreamingMessage
     // =====================================================================
 
+    /// <summary>
+    /// Sends a message. Unless <see cref="SendMessageConfiguration.ReturnImmediately"/> is set, waits until the task is
+    /// terminal or interrupted, by an event of this execution or of any other execution of the task (for example CancelTask),
+    /// or until no execution of the task is running any more.
+    /// </summary>
     public async Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SendMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
         var (claim, replay) = await BeginIdempotentAsync(request, call, cancellationToken).ConfigureAwait(false);
         if (replay is not null) return await ReplayAsync(replay, request, call, cancellationToken).ConfigureAwait(false);
-        var exec = await AcceptAsync(request, call, claim, newTaskId: null, cancellationToken).ConfigureAwait(false);
+        var taskId = string.IsNullOrEmpty(request.Message?.TaskId) ? TaskIds.New() : request.Message.TaskId;
+        var scope = ScopeKey(call.Tenant, taskId);
+        // Subscribe before the agent starts, so no event of another execution is missed.
+        using var sub = _bus.Subscribe(scope);
+        var (exec, afterSequence) = await AcceptAsync(request, call, claim, taskId, cancellationToken).ConfigureAwait(false);
         var returnImmediately = request.Configuration?.ReturnImmediately == true;
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
-            await foreach (var sequenced in exec.Outgoing.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            var own = exec.Outgoing.Reader;
+            Task<bool>? ownWait = null, busWait = null; // one pending wait per reader: both have a single reader
+            var ownDone = false;
+            var started = false;
+            while (true)
             {
-                var evt = sequenced.Event;
-                if (evt is MessageEvent reply) return new MessageResponse(reply.Message);
-                if (returnImmediately) break;
-                if (evt is StatusUpdateEvent { StatusUpdate: var su } && (su.Status.State.IsTerminal() || su.Status.State.IsInterrupted())) break;
+                if (exec.Failed) throw new A2AException(A2AErrorCode.Internal); // storage failed: an error, not the FAILED task
+
+                // Other executions (CancelTask, a later follow-up) settle the task too.
+                var settledElsewhere = false;
+                while (sub.Reader.TryRead(out var other))
+                    if (other.Sequence > afterSequence && other.Event is StatusUpdateEvent { StatusUpdate.Status.State: var os } && (os.IsTerminal() || os.IsInterrupted()))
+                        settledElsewhere = true;
+                if (settledElsewhere) break;
+
+                if (!ownDone && own.TryRead(out var sequenced))
+                {
+                    var evt = sequenced.Event;
+                    if (evt is MessageEvent reply) return new MessageResponse(reply.Message);
+                    started = true;
+                    if (returnImmediately) break;
+                    if (evt is StatusUpdateEvent { StatusUpdate: var su } && (su.Status.State.IsTerminal() || su.Status.State.IsInterrupted())) break;
+                    continue;
+                }
+
+                if (ownDone)
+                {
+                    // This execution ended. Nothing more will change the task once no execution of it is running.
+                    var running = RunningCompletions(scope);
+                    if (!started || running.Count == 0) break;
+                    busWait ??= sub.Reader.WaitToReadAsync(stop.Token).AsTask();
+                    await Task.WhenAny(running.Append(busWait)).ConfigureAwait(false);
+                }
+                else
+                {
+                    ownWait ??= own.WaitToReadAsync(stop.Token).AsTask();
+                    busWait ??= sub.Reader.WaitToReadAsync(stop.Token).AsTask();
+                    await Task.WhenAny(ownWait, busWait).ConfigureAwait(false);
+                }
+
+                if (ownWait is { IsCompleted: true })
+                {
+                    ownDone = !await ownWait.ConfigureAwait(false); // a storage failure surfaces here as an error
+                    ownWait = null;
+                }
+                if (busWait is { IsCompleted: true })
+                {
+                    if (!await busWait.ConfigureAwait(false)) break; // the bus ended the topic: the task is terminal
+                    busWait = null;
+                }
             }
         }
         finally
         {
+            stop.Cancel();
             exec.Detach();
         }
 
@@ -162,7 +217,9 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     /// <summary>
-    /// Sends a message and streams the task's events. The stream is limited like every stream: see
+    /// Sends a message and streams the task's events, including those of other executions of the task (for example the
+    /// CANCELED event of a CancelTask), in sequence order and without repeats. The stream ends after the task's final event,
+    /// or when this execution ended and no other execution of the task is running. The stream is limited like every stream: see
     /// <see cref="A2ALimits.MaxConcurrentStreamsPerTask"/>, <see cref="A2ALimits.MaxConcurrentStreamsPerPrincipal"/>,
     /// <see cref="A2ALimits.StreamReauthInterval"/> and <see cref="A2ALimits.MaxStreamDuration"/>.
     /// </summary>
@@ -226,24 +283,149 @@ public sealed class A2ARequestHandler : IDisposable
             throw;
         }
         using var admitted = slot;
-        var exec = await AcceptAsync(request, call, claim, taskId, cancellationToken).ConfigureAwait(false);
-        var any = false;
+        var scope = ScopeKey(call.Tenant, taskId);
+        // Subscribe before the agent starts, so no event of another execution is missed.
+        using var sub = _bus.Subscribe(scope);
+        var (exec, _) = await AcceptAsync(request, call, claim, taskId, cancellationToken).ConfigureAwait(false);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
-            await foreach (var sequenced in exec.Outgoing.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            // The first event comes from this execution: the task (new task or follow-up snapshot), or a direct reply.
+            var own = exec.Outgoing.Reader;
+            SequencedEvent first = default;
+            var any = false;
+            while (!any && await own.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+                any = own.TryRead(out first);
+            if (!any) throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The agent finished without replying or creating a task.");
+            yield return first;
+            if (first.Event is MessageEvent || IsFinal(first.Event)) yield break;
+
+            // Then the task's events from every execution (this one, CancelTask, follow-ups), in sequence order and without
+            // repeats, until a final event, the end of the topic, or no execution of the task running any more.
+            var key = Key(call, taskId);
+            var position = new StreamPosition(first.Sequence);
+            Task<bool>? ownWait = null, busWait = null; // one pending wait per reader: both have a single reader
+            var ownDone = false;
+            var topicEnded = false;
+            while (true)
             {
-                any = true;
-                yield return sequenced;
-                if (sequenced.Event is MessageEvent) yield break;
-                if (sequenced.Event is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal()) yield break;
+                if (exec.Failed)
+                {
+                    // Storage failed: send what this execution still has queued, then the error (not the FAILED event on the bus).
+                    while (own.TryRead(out var queued))
+                    {
+                        await foreach (var e in InOrderAsync(key, queued, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                        if (position.Final) yield break;
+                    }
+                    throw new A2AException(A2AErrorCode.Internal);
+                }
+
+                // The bus first: another execution's event may come before this execution's next one.
+                while (sub.Reader.TryRead(out var other))
+                {
+                    await foreach (var e in InOrderAsync(key, other, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                    if (position.Final) yield break;
+                }
+                if (!ownDone && own.TryRead(out var mine))
+                {
+                    await foreach (var e in InOrderAsync(key, mine, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                    if (position.Final) yield break;
+                    continue;
+                }
+
+                if (ownDone)
+                {
+                    var running = RunningCompletions(scope);
+                    if (running.Count == 0) break; // nothing will change the task any more
+                    busWait ??= sub.Reader.WaitToReadAsync(stop.Token).AsTask();
+                    await Task.WhenAny(running.Append(busWait)).ConfigureAwait(false);
+                }
+                else
+                {
+                    ownWait ??= own.WaitToReadAsync(stop.Token).AsTask();
+                    busWait ??= sub.Reader.WaitToReadAsync(stop.Token).AsTask();
+                    await Task.WhenAny(ownWait, busWait).ConfigureAwait(false);
+                }
+
+                if (ownWait is { IsCompleted: true })
+                {
+                    ownDone = !await ownWait.ConfigureAwait(false); // a storage failure surfaces here as an error
+                    ownWait = null;
+                }
+                if (busWait is { IsCompleted: true })
+                {
+                    if (!await busWait.ConfigureAwait(false))
+                    {
+                        topicEnded = true; // the task went terminal
+                        break;
+                    }
+                    busWait = null;
+                }
+            }
+
+            // Finish from the store: every event is stored before it is published, and a lossy bus may have dropped some.
+            await foreach (var stored in ReadContiguousAsync(key, position.Last, long.MaxValue, cancellationToken).ConfigureAwait(false))
+            {
+                yield return stored;
+                position.Last = stored.Sequence;
+                if (IsFinal(stored.Event)) yield break;
+            }
+            if (topicEnded)
+            {
+                // The store no longer has the final event (trimmed): end with a snapshot, never without a final event.
+                var last = await ReadSnapshotAsync(key, cancellationToken).ConfigureAwait(false);
+                if (last.Sequence > position.Last) yield return last;
             }
         }
         finally
         {
+            stop.Cancel();
             exec.Detach();
         }
-        if (!any) throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The agent finished without replying or creating a task.");
     }
+
+    /// <summary>The last sequence a stream sent, and whether it sent the task's final event.</summary>
+    private sealed class StreamPosition(long last)
+    {
+        public long Last { get; set; } = last;
+
+        public bool Final { get; set; }
+    }
+
+    /// <summary>
+    /// Yields <paramref name="live"/> if the stream has not sent it yet, first filling a gap before it from the store, or with
+    /// a snapshot when the store no longer has the missing events. Updates <paramref name="position"/>; stops after a final event.
+    /// </summary>
+    private async IAsyncEnumerable<SequencedEvent> InOrderAsync(TaskKey key, SequencedEvent live, StreamPosition position,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        if (live.Sequence <= position.Last) yield break;
+        if (live.Sequence > position.Last + 1)
+        {
+            await foreach (var stored in ReadContiguousAsync(key, position.Last, live.Sequence, ct).ConfigureAwait(false))
+            {
+                position.Last = stored.Sequence;
+                position.Final = IsFinal(stored.Event);
+                yield return stored;
+                if (position.Final) yield break;
+            }
+            if (live.Sequence > position.Last + 1)
+            {
+                var snapshot = await ReadSnapshotAsync(key, ct).ConfigureAwait(false);
+                position.Last = snapshot.Sequence;
+                position.Final = IsFinal(snapshot.Event);
+                yield return snapshot;
+                if (position.Final || live.Sequence <= position.Last) yield break;
+            }
+        }
+        position.Last = live.Sequence;
+        position.Final = IsFinal(live.Event);
+        yield return live;
+    }
+
+    /// <summary>Completions of the executions running for a task (in-memory scope key).</summary>
+    private List<Task> RunningCompletions(string scope) =>
+        _running.TryGetValue(scope, out var set) ? set.Keys.Select(e => e.Completion).ToList() : [];
 
     /// <param name="Context">The request context for the agent.</param>
     /// <param name="PushConfig">The push config to save when a new task is created.</param>
@@ -330,7 +512,7 @@ public sealed class A2ARequestHandler : IDisposable
         Task<bool>? live = null; // one pending wait at a time: the subscription has a single reader
         while (true)
         {
-            var running = _running.TryGetValue(scope, out var set) ? set.Keys.Select(e => e.Completion).ToList() : [];
+            var running = RunningCompletions(scope);
             var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
             var state = record.Task.Status.State;
             if (state.IsTerminal() || (state.IsInterrupted() && statusAfter) || running.Count == 0) return record.Task;
@@ -362,18 +544,19 @@ public sealed class A2ARequestHandler : IDisposable
     /// cannot start; a follow-up records its task at once (the message is already in the task's history), and a new task
     /// records it when it is first stored.
     /// </summary>
-    private async Task<Execution> AcceptAsync(SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string? newTaskId, CancellationToken ct)
+    /// <returns>The execution, and the task's last sequence before it (0 for a new task; see <see cref="Prepared.LastSequence"/>).</returns>
+    private async Task<(Execution Execution, long AfterSequence)> AcceptAsync(SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string? newTaskId, CancellationToken ct)
     {
         try
         {
             var prepared = await PrepareAsync(request, call, ct, newTaskId).ConfigureAwait(false);
-            if (prepared.Context.IsNewTask) return StartExecution(prepared.Context, prepared.PushConfig, claim);
+            if (prepared.Context.IsNewTask) return (StartExecution(prepared.Context, prepared.PushConfig, claim), 0);
 
             // Record after the execution is registered, so a blocking retry sees it running and waits for its outcome.
             var exec = StartExecution(prepared.Context, prepared.PushConfig, IdempotencyClaim.None);
             var taskId = prepared.Context.TaskId;
             await RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId, prepared.LastSequence), taskId).ConfigureAwait(false);
-            return exec;
+            return (exec, prepared.LastSequence);
         }
         catch
         {
@@ -659,42 +842,24 @@ public sealed class A2ARequestHandler : IDisposable
 
         // Live events arrive in sequence order (they are published under the task lock). Drop what was already sent; fill
         // a gap from the store, or with a snapshot when the store no longer has the missing events.
+        var position = new StreamPosition(lastYielded);
         await foreach (var live in sub.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (live.Sequence <= lastYielded) continue;
-            if (live.Sequence > lastYielded + 1)
-            {
-                await foreach (var stored in ReadContiguousAsync(key, lastYielded, live.Sequence, cancellationToken).ConfigureAwait(false))
-                {
-                    yield return stored;
-                    lastYielded = stored.Sequence;
-                    if (IsFinal(stored.Event)) yield break;
-                }
-                if (live.Sequence > lastYielded + 1)
-                {
-                    var snapshot = await ReadSnapshotAsync(key, cancellationToken).ConfigureAwait(false);
-                    yield return snapshot;
-                    lastYielded = snapshot.Sequence;
-                    if (IsFinal(snapshot.Event)) yield break;
-                    if (live.Sequence <= lastYielded) continue;
-                }
-            }
-            yield return live;
-            lastYielded = live.Sequence;
-            if (IsFinal(live.Event)) yield break;
+            await foreach (var e in InOrderAsync(key, live, position, cancellationToken).ConfigureAwait(false)) yield return e;
+            if (position.Final) yield break;
         }
 
         // The bus ended the subscription (the task went terminal) without delivering a final event: a lossy bus can drop
         // the terminal event itself. Every event is in the store before it is published, so finish from there.
-        await foreach (var stored in ReadContiguousAsync(key, lastYielded, long.MaxValue, cancellationToken).ConfigureAwait(false))
+        await foreach (var stored in ReadContiguousAsync(key, position.Last, long.MaxValue, cancellationToken).ConfigureAwait(false))
         {
             yield return stored;
-            lastYielded = stored.Sequence;
+            position.Last = stored.Sequence;
             if (IsFinal(stored.Event)) yield break;
         }
         // The store no longer has the missing events (trimmed): end with a snapshot, as the live loop does, never without a final event.
         var last = await ReadSnapshotAsync(key, cancellationToken).ConfigureAwait(false);
-        if (last.Sequence > lastYielded) yield return last;
+        if (last.Sequence > position.Last) yield return last;
     }
 
     /// <summary>A task with its last and oldest retained event sequences, read together.</summary>
@@ -992,7 +1157,6 @@ public sealed class A2ARequestHandler : IDisposable
         var taskId = key.TaskId;
         var scope = ScopeKey(key.Tenant, taskId);
         var created = !isNewTask;
-        Exception? failure = null;
         try
         {
             if (emitInitialSnapshot)
@@ -1086,7 +1250,8 @@ public sealed class A2ARequestHandler : IDisposable
         {
             _logger.LogError(ex, "Failed to apply events for task {TaskId}", taskId);
             exec.Cancel();
-            failure = ex;
+            // Before the FAILED event is published: the waiting request must see the error, not that event.
+            exec.Fail(new A2AException(A2AErrorCode.Internal));
             await TryFailStoredTaskAsync(key, contextId, scope).ConfigureAwait(false);
         }
         finally
@@ -1094,8 +1259,8 @@ public sealed class A2ARequestHandler : IDisposable
             // No task and no reply (for example the agent produced nothing): retries may run the request again.
             try { await claim.AbandonAsync().ConfigureAwait(false); }
             catch (Exception ex) { _logger.LogError(ex, "Failed to abandon the idempotency entry for task {TaskId}", taskId); }
-            // A storage failure is an error for the request that is waiting, never a clean end of its stream.
-            exec.Outgoing.Writer.TryComplete(failure is null ? null : new A2AException(A2AErrorCode.Internal));
+            // A storage failure (above) is an error for the request that is waiting, never a clean end of its stream.
+            exec.Outgoing.Writer.TryComplete();
         }
     }
 
@@ -1364,6 +1529,18 @@ public sealed class A2ARequestHandler : IDisposable
         public void Emit(SequencedEvent evt)
         {
             if (!_detached) Outgoing.Writer.TryWrite(evt);
+        }
+
+        /// <summary>True once the events of this execution could not be stored: the initiating request gets an error.</summary>
+        public bool Failed => _failed;
+
+        private volatile bool _failed;
+
+        /// <summary>Marks the storage failure and ends the outgoing events with <paramref name="error"/>.</summary>
+        public void Fail(Exception error)
+        {
+            _failed = true;
+            Outgoing.Writer.TryComplete(error);
         }
 
         /// <summary>The initiating request stopped listening; drop further outgoing events.</summary>
