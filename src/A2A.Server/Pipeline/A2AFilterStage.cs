@@ -6,9 +6,14 @@ public enum A2AFilterStage
     /// <summary>
     /// Before authorization. The filter sees every call, including unauthenticated and unauthorized ones that authorization
     /// will refuse; do not trust the caller's identity here. Use it for work that must see refused calls (for example counting them).
+    /// A result such a filter returns without calling <c>next</c> goes to the client without any authorization.
     /// </summary>
     BeforeAuthorization,
 
-    /// <summary>After authorization (the default). The filter only sees calls that are authenticated (or allowed anonymous) and authorized.</summary>
+    /// <summary>
+    /// After authorization (the default). The filter only sees calls that are authenticated (or allowed anonymous) and authorized.
+    /// Authorization judged the request and call it was given: a replacement request, or a change to
+    /// <see cref="ServerCallContext.Tenant"/>, made by this filter or a later one is not authorized again.
+    /// </summary>
     AfterAuthorization,
 }

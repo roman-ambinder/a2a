@@ -315,6 +315,108 @@ public sealed class OperationFilterTests
         Assert.Equal(stored.Task.Status.Message!.Parts[0].TextOf(), result.Status.Message!.Parts[0].TextOf());
     }
 
+    /// <summary>Renames every Agent Card result it sees.</summary>
+    private sealed class CardRenamer : IA2AOperationFilter
+    {
+        public async ValueTask<object?> InvokeAsync(A2AOperationContext context, object request, A2AOperationDelegate next, CancellationToken cancellationToken)
+        {
+            var result = await next(context, request, cancellationToken);
+            if (result is AgentCard card) card.Name = "renamed by a filter";
+            return result;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Host_filter_receives_detached_agent_card(string binding)
+    {
+        var cached = TestAgentHost.DefaultCard();
+        cached.Name = "Cached Extended Card";
+        await using var host = await TestAgentHost.StartAsync(
+            o => o.ExtendedAgentCardProvider = (_, _) => ValueTask.FromResult<AgentCard?>(cached),
+            services: With(new CardRenamer()));
+        var client = host.Client(binding);
+
+        Assert.Equal("renamed by a filter", (await client.GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest())).Name);
+        Assert.Equal("renamed by a filter", (await client.GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest())).Name);
+        Assert.Equal("Cached Extended Card", cached.Name);
+        Assert.Equal("Scenario Agent", host.Handler.AgentCard.Name);
+    }
+
+    /// <summary>Every built-in operation (not <see cref="A2AOperation.Extension"/>).</summary>
+    public static TheoryData<A2AOperation> BuiltInOperations =>
+        new(Enum.GetValues<A2AOperation>().Where(k => k != A2AOperation.Extension));
+
+    [Theory]
+    [MemberData(nameof(BuiltInOperations))]
+    public async Task Every_operation_runs_through_the_pipeline(A2AOperation kind)
+    {
+        var filter = new Recorder();
+        await using var host = await TestAgentHost.StartAsync(services: With(filter));
+        var task = (await host.Client(ProtocolBindings.JsonRpc).SendMessageAsync("input")).RequireTask();
+        Assert.Equal(1, filter.Calls); // the seed
+
+        var handler = host.Handler;
+        var call = AliceCall();
+        try
+        {
+            switch (kind)
+            {
+                case A2AOperation.SendMessage:
+                    await handler.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("hello") }, call);
+                    break;
+                case A2AOperation.SendStreamingMessage:
+                    await FirstAsync(handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("hello") }, call));
+                    break;
+                case A2AOperation.GetTask:
+                    await handler.GetTaskAsync(new GetTaskRequest { Id = task.Id }, call);
+                    break;
+                case A2AOperation.ListTasks:
+                    await handler.ListTasksAsync(new ListTasksRequest(), call);
+                    break;
+                case A2AOperation.CancelTask:
+                    await handler.CancelTaskAsync(new CancelTaskRequest { Id = task.Id }, call);
+                    break;
+                case A2AOperation.SubscribeToTask:
+                    await FirstAsync(handler.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = task.Id }, call));
+                    break;
+                case A2AOperation.CreateTaskPushNotificationConfig:
+                    await handler.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = task.Id, Url = "http://hooks.test/x" }, call);
+                    break;
+                case A2AOperation.GetTaskPushNotificationConfig:
+                    await handler.GetTaskPushNotificationConfigAsync(new GetTaskPushNotificationConfigRequest { TaskId = task.Id, Id = "c-1" }, call);
+                    break;
+                case A2AOperation.ListTaskPushNotificationConfigs:
+                    await handler.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest { TaskId = task.Id }, call);
+                    break;
+                case A2AOperation.DeleteTaskPushNotificationConfig:
+                    await handler.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = task.Id, Id = "c-1" }, call);
+                    break;
+                case A2AOperation.GetExtendedAgentCard:
+                    await handler.GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest(), call);
+                    break;
+                default:
+                    Assert.Fail($"No case for {kind}: add one.");
+                    break;
+            }
+        }
+        catch (A2AException)
+        {
+            // Errors after the filter (for example a missing push config) do not matter here.
+        }
+
+        Assert.Equal(2, filter.Calls);
+        Assert.Equal(kind, filter.Operation!.Kind);
+        Assert.Same(A2AOperationDescriptor.For(kind), filter.Operation);
+    }
+
+    private static async Task FirstAsync(IAsyncEnumerable<SequencedEvent> events)
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        await using var e = events.GetAsyncEnumerator(cts.Token);
+        await e.MoveNextAsync();
+    }
+
     // ---------------------------------------------------------------- descriptors
 
     [Fact]

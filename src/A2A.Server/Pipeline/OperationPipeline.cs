@@ -1,4 +1,6 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
+using A2A.Json;
 using A2A.Server.Streaming;
 
 namespace A2A.Server.Pipeline;
@@ -121,7 +123,7 @@ internal static class OperationInvoker<TRequest, TResponse> where TRequest : cla
 
 /// <summary>
 /// Copies results that may share instances with the stores before host filters see them: tasks, send results, task lists,
-/// push configs, and every event of a stream. Other results (Agent Cards, null) pass unchanged.
+/// push configs, Agent Cards, and every event of a stream. Null passes unchanged.
 /// </summary>
 internal static class ResponseDetacher
 {
@@ -144,7 +146,10 @@ internal static class ResponseDetacher
             NextPageToken = list.NextPageToken,
         },
         IAsyncEnumerable<SequencedEvent> events => DetachEvents(events),
-        _ => result,
+        // Cold path (GetExtendedAgentCard, only with host filters): a JSON round trip, as cards have no structural copy.
+        // The provider may return a cached card, even the public one, so a filter must never get that instance.
+        AgentCard card => JsonSerializer.Deserialize(A2AJson.SerializeToUtf8Bytes(card), A2AJson.GetTypeInfo<AgentCard>()),
+        _ => result, // null (DeleteTaskPushNotificationConfig)
     };
 
     /// <summary>The same events, in the same order and with the same sequences, each <see cref="SequencedEvent.Event"/> copied.</summary>

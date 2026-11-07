@@ -34,6 +34,12 @@ public delegate ValueTask<object?> A2AOperationDelegate(A2AOperationContext cont
 /// Results and events reach host filters as their own copies: a filter may change them, and they belong to the caller once
 /// the filter returns. Do not keep a result or a streamed event beyond the call.
 /// </para>
+/// <para>
+/// Authorization runs once, on the request and call it receives. A <see cref="A2AFilterStage.BeforeAuthorization"/> filter
+/// that returns without calling <c>next</c> skips authorization: its result goes to the client unauthorized.
+/// A replacement request, or a change to <see cref="ServerCallContext.Tenant"/>, made after authorization (by an
+/// <see cref="A2AFilterStage.AfterAuthorization"/> filter) is not authorized again: the operation runs with it as it is.
+/// </para>
 /// <para>One filter instance serves every call, concurrently: keep per-call state in <see cref="A2AOperationContext.Items"/>.</para>
 /// </remarks>
 public interface IA2AOperationFilter
