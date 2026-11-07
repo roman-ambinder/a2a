@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using A2A.Server;
+using A2A.Server.Storage;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.Tests;
@@ -13,8 +14,9 @@ public class IdentityTests
     {   // Task 6 will make anonymous opt-in; until then the host allows it.
         await using var host = await TestAgentHost.StartAsync();
         var task = (await host.Client(ProtocolBindings.JsonRpc).SendMessageAsync("task")).Task!;
-        var rec = await host.App.Services.GetRequiredService<ITaskStore>().GetAsync(task.Id);
-        Assert.Equal(ServerCallContext.AnonymousPrincipal, rec!.OwnerId);
+        var rec = await host.App.Services.GetRequiredService<TaskStore>()
+            .GetAsync(new TaskKey("", ServerCallContext.AnonymousPrincipal, task.Id));
+        Assert.Equal(ServerCallContext.AnonymousPrincipal, rec!.Owner);
     }
 
     [Fact]

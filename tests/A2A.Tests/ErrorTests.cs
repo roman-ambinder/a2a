@@ -1,4 +1,5 @@
 using A2A.Server;
+using A2A.Server.Storage;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -6,16 +7,16 @@ using Microsoft.Extensions.Hosting;
 namespace A2A.Tests;
 
 /// <summary>Task store whose every method throws, to hit the endpoint's unexpected-exception path.</summary>
-public sealed class ThrowingTaskStore : ITaskStore
+public sealed class ThrowingTaskStore : TaskStore
 {
-    public Task<TaskRecord?> GetAsync(string taskId, CancellationToken cancellationToken = default) =>
-        throw new InvalidOperationException("store exploded");
+    private static InvalidOperationException Boom() => new("store exploded");
 
-    public Task SaveAsync(TaskRecord record, CancellationToken cancellationToken = default) =>
-        throw new InvalidOperationException("store exploded");
-
-    public Task<TaskQueryResult> QueryAsync(TaskQuery query, CancellationToken cancellationToken = default) =>
-        throw new InvalidOperationException("store exploded");
+    public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) => throw Boom();
+    public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => throw Boom();
+    public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default) => throw Boom();
+    public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => throw Boom();
+    public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => throw Boom();
+    public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => throw Boom();
 }
 
 public class ErrorTests
@@ -69,7 +70,7 @@ public class ErrorTests
     [MemberData(nameof(BindingTests.Bindings), MemberType = typeof(BindingTests))]
     public async Task Rate_limit_round_trips_to_client(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<ITaskStore, RateLimitedTaskStore>());
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore, RateLimitedTaskStore>());
         var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(binding).GetTaskAsync("x"));
         Assert.Equal(A2AErrorCode.RateLimited, ex.Code);
         Assert.True(ex.IsRetryable);
@@ -79,7 +80,7 @@ public class ErrorTests
     [MemberData(nameof(BindingTests.Bindings), MemberType = typeof(BindingTests))]
     public async Task Unexpected_exception_text_hidden_outside_development(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<ITaskStore, ThrowingTaskStore>());
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore, ThrowingTaskStore>());
         Assert.False(host.App.Environment.IsDevelopment());
         var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(binding).GetTaskAsync("x"));
         Assert.Equal(A2AErrorCode.Internal, ex.Code);
@@ -90,19 +91,20 @@ public class ErrorTests
     public async Task Unexpected_exception_text_shown_when_option_is_true()
     {
         await using var host = await TestAgentHost.StartAsync(o => o.IncludeExceptionDetails = true,
-            services: s => s.AddSingleton<ITaskStore, ThrowingTaskStore>());
+            services: s => s.AddSingleton<TaskStore, ThrowingTaskStore>());
         var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(ProtocolBindings.JsonRpc).GetTaskAsync("x"));
         Assert.Contains("InvalidOperationException: store exploded", ex.Message);
     }
 }
 
-internal sealed class RateLimitedTaskStore : ITaskStore
+internal sealed class RateLimitedTaskStore : TaskStore
 {
-    public Task<TaskRecord?> GetAsync(string taskId, CancellationToken cancellationToken = default) =>
-        throw A2AException.RateLimited(TimeSpan.FromSeconds(3));
+    private static A2AException Limited() => A2AException.RateLimited(TimeSpan.FromSeconds(3));
 
-    public Task SaveAsync(TaskRecord record, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-    public Task<TaskQueryResult> QueryAsync(TaskQuery query, CancellationToken cancellationToken = default) =>
-        throw A2AException.RateLimited(TimeSpan.FromSeconds(3));
+    public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) => throw Limited();
+    public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => throw Limited();
+    public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default) => throw Limited();
+    public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => throw Limited();
+    public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => throw Limited();
+    public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => throw Limited();
 }

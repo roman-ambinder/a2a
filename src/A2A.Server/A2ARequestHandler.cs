@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using A2A.Json;
 using A2A.Server.Push;
+using A2A.Server.Storage;
 using A2A.Validation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -18,10 +19,10 @@ namespace A2A.Server;
 public sealed class A2ARequestHandler : IDisposable
 {
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ITaskStore _tasks;
+    private readonly TaskStore _tasks;
     private readonly IPushNotificationConfigStore _pushConfigs;
     private readonly IPushNotificationSender _push;
-    private readonly ITaskAccessPolicy _access;
+    private readonly ITaskAccessPolicy _access; // unused until the store scopes by owner end to end (removed with the policy)
     private readonly TaskEventBus _bus;
     private readonly A2AServerOptions _options;
     private readonly ILogger _logger;
@@ -31,7 +32,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     public A2ARequestHandler(
         IServiceScopeFactory scopeFactory,
-        ITaskStore tasks,
+        TaskStore tasks,
         IPushNotificationConfigStore pushConfigs,
         IPushNotificationSender push,
         ITaskAccessPolicy access,
@@ -117,7 +118,7 @@ public sealed class A2ARequestHandler : IDisposable
             exec.Detach();
         }
 
-        var record = await _tasks.GetAsync(prepared.Context.TaskId, cancellationToken).ConfigureAwait(false)
+        var record = await _tasks.GetAsync(Key(call, prepared.Context.TaskId), cancellationToken).ConfigureAwait(false)
             ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The agent finished without replying or creating a task.");
         return new SendMessageResponse { Task = Shape(record.Task, request.Configuration?.HistoryLength) };
     }
@@ -163,7 +164,7 @@ public sealed class A2ARequestHandler : IDisposable
             await gate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                var record = await GetAccessibleAsync(taskId, call, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
+                var record = await _tasks.GetAsync(Key(call, taskId), ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
                 if (!string.IsNullOrEmpty(message.ContextId) && message.ContextId != record.Task.ContextId)
                     throw A2AException.InvalidParams("message.contextId does not match the task's contextId");
                 if (record.Task.Status.State.IsTerminal())
@@ -174,7 +175,7 @@ public sealed class A2ARequestHandler : IDisposable
                 contextId = record.Task.ContextId;
                 message.ContextId = contextId;
                 (record.Task.History ??= []).Add(message);
-                await _tasks.SaveAsync(record, ct).ConfigureAwait(false);
+                await _tasks.UpdateAsync(record, record.Version, ct).ConfigureAwait(false);
                 existing = record.Task;
             }
             finally
@@ -184,7 +185,7 @@ public sealed class A2ARequestHandler : IDisposable
         }
         else
         {
-            taskId = Guid.NewGuid().ToString();
+            taskId = TaskIds.New();
             contextId = string.IsNullOrEmpty(message.ContextId) ? Guid.NewGuid().ToString() : message.ContextId;
             message.ContextId = contextId;
         }
@@ -223,7 +224,7 @@ public sealed class A2ARequestHandler : IDisposable
         call.BindTenant(request.Tenant);
         A2AValidator.RequireId(request.Id, "id");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
-        var record = await GetAccessibleAsync(request.Id, call, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         return Shape(record.Task, request.HistoryLength);
     }
 
@@ -234,21 +235,19 @@ public sealed class A2ARequestHandler : IDisposable
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var pageSize = Math.Min(request.PageSize ?? 50, _options.MaxPageSize);
 
-        var result = await _tasks.QueryAsync(new TaskQuery
-        {
-            OwnerId = call.Principal,
-            Tenant = call.Tenant,
-            ContextId = string.IsNullOrEmpty(request.ContextId) ? null : request.ContextId,
-            Status = request.Status is null or TaskState.Unspecified ? null : request.Status,
-            StatusTimestampAfter = request.StatusTimestampAfter,
-            PageSize = pageSize,
-            PageToken = request.PageToken,
-        }, cancellationToken).ConfigureAwait(false);
+        var result = await _tasks.ListAsync(new TaskQuery(
+            call.Tenant,
+            call.Principal,
+            string.IsNullOrEmpty(request.ContextId) ? null : request.ContextId,
+            request.Status is null or TaskState.Unspecified ? null : request.Status,
+            request.StatusTimestampAfter,
+            pageSize,
+            request.PageToken), cancellationToken).ConfigureAwait(false);
 
         var include = request.IncludeArtifacts == true;
         return new ListTasksResponse
         {
-            Tasks = result.Records.Where(r => _access.CanAccess(r, call)).Select(r => Shape(r.Task, request.HistoryLength, include)).ToList(),
+            Tasks = result.Records.Select(r => Shape(r.Task, request.HistoryLength, include)).ToList(),
             NextPageToken = result.NextPageToken,
             PageSize = pageSize,
             TotalSize = result.TotalSize,
@@ -259,7 +258,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         A2AValidator.RequireId(request.Id, "id");
-        var record = await GetAccessibleAsync(request.Id, call, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         if (record.Task.Status.State.IsTerminal()) throw NotCancelable(request.Id);
 
         var running = _running.TryGetValue(request.Id, out var set) ? set.Keys.ToList() : [];
@@ -273,7 +272,7 @@ public sealed class A2ARequestHandler : IDisposable
         var waitAll = Task.WhenAll(running.Select(r => r.Completion).Append(exec.Completion));
         await Task.WhenAny(waitAll, Task.Delay(_options.CancelGracePeriod, cancellationToken)).ConfigureAwait(false);
 
-        record = await _tasks.GetAsync(request.Id, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         if (record.Task.Status.State != TaskState.Canceled) throw NotCancelable(request.Id);
         return Shape(record.Task, null);
     }
@@ -284,13 +283,13 @@ public sealed class A2ARequestHandler : IDisposable
         call.BindTenant(request.Tenant);
         RequireStreaming();
         A2AValidator.RequireId(request.Id, "id");
-        var record = await GetAccessibleAsync(request.Id, call, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         if (record.Task.Status.State.IsTerminal())
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "Cannot subscribe to a task in a terminal state.") { Metadata = new() { ["taskId"] = request.Id } };
 
         using var sub = _bus.Subscribe(request.Id);
         // Snapshot after subscribing, so no event can fall between the snapshot and the live feed (spec §3.1.6).
-        record = await _tasks.GetAsync(request.Id, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         yield return StreamResponse.Of(Shape(record.Task, null));
         if (record.Task.Status.State.IsTerminal()) yield break;
 
@@ -311,7 +310,7 @@ public sealed class A2ARequestHandler : IDisposable
         RequirePush();
         A2AValidator.ValidatePushConfig(config, "config", requireTaskId: true);
         PushUrlValidator.Validate(config.Url, _options.PushNotifications);
-        _ = await GetAccessibleAsync(config.TaskId!, call, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(config.TaskId!);
+        _ = await _tasks.GetAsync(Key(call, config.TaskId!), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(config.TaskId!);
         var stored = A2AJson.Clone(config);
         stored.Id = string.IsNullOrEmpty(stored.Id) ? Guid.NewGuid().ToString() : stored.Id;
         stored.Tenant = call.Tenant;
@@ -325,7 +324,7 @@ public sealed class A2ARequestHandler : IDisposable
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
-        _ = await GetAccessibleAsync(request.TaskId, call, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
+        _ = await _tasks.GetAsync(Key(call, request.TaskId), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
         return await _pushConfigs.GetAsync(request.TaskId, request.Id, cancellationToken).ConfigureAwait(false)
             ?? throw ConfigNotFound(request.TaskId, request.Id);
     }
@@ -335,7 +334,7 @@ public sealed class A2ARequestHandler : IDisposable
         call.BindTenant(request.Tenant);
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
-        _ = await GetAccessibleAsync(request.TaskId, call, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
+        _ = await _tasks.GetAsync(Key(call, request.TaskId), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
         var all = await _pushConfigs.ListAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
 
         var size = request.PageSize is > 0 ? Math.Min(request.PageSize.Value, 100) : 100;
@@ -358,7 +357,7 @@ public sealed class A2ARequestHandler : IDisposable
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
-        _ = await GetAccessibleAsync(request.TaskId, call, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
+        _ = await _tasks.GetAsync(Key(call, request.TaskId), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
         if (!await _pushConfigs.DeleteAsync(request.TaskId, request.Id, cancellationToken).ConfigureAwait(false))
             throw ConfigNotFound(request.TaskId, request.Id);
     }
@@ -415,7 +414,9 @@ public sealed class A2ARequestHandler : IDisposable
             }
         });
 
-        var consumer = Task.Run(() => ConsumeAsync(exec, taskId, contextId, isNewTask, userMessage, call, push, emitInitialSnapshot));
+        // Background writes outlive the request, so fix the owner scope now.
+        var key = Key(call, taskId);
+        var consumer = Task.Run(() => ConsumeAsync(exec, key, contextId, isNewTask, userMessage, push, emitInitialSnapshot));
         _ = Task.WhenAll(producer, consumer).ContinueWith(_t =>
         {
             if (_running.TryGetValue(taskId, out var set))
@@ -435,15 +436,16 @@ public sealed class A2ARequestHandler : IDisposable
         catch (Exception) { /* channel closed or terminal already */ }
     }
 
-    private async Task ConsumeAsync(Execution exec, string taskId, string contextId, bool isNewTask, Message? userMessage,
-        ServerCallContext call, TaskPushNotificationConfig? push, bool emitInitialSnapshot)
+    private async Task ConsumeAsync(Execution exec, TaskKey key, string contextId, bool isNewTask, Message? userMessage,
+        TaskPushNotificationConfig? push, bool emitInitialSnapshot)
     {
+        var taskId = key.TaskId;
         var created = !isNewTask;
         try
         {
             if (emitInitialSnapshot)
             {
-                var current = await _tasks.GetAsync(taskId).ConfigureAwait(false);
+                var current = await _tasks.GetAsync(key).ConfigureAwait(false);
                 if (current is not null) exec.Emit(StreamResponse.Of(current.Task));
             }
 
@@ -462,26 +464,24 @@ public sealed class A2ARequestHandler : IDisposable
                     TaskRecord? record;
                     if (!created)
                     {
-                        record = new TaskRecord
-                        {
-                            Task = new AgentTask
+                        var now = DateTimeOffset.UtcNow;
+                        record = await _tasks.CreateAsync(new TaskRecord(
+                            key.Tenant, key.Owner,
+                            new AgentTask
                             {
                                 Id = taskId,
                                 ContextId = contextId,
-                                Status = new AgentTaskStatus { State = TaskState.Submitted, Timestamp = evt.StatusUpdate?.Status.Timestamp ?? DateTimeOffset.UtcNow },
+                                Status = new AgentTaskStatus { State = TaskState.Submitted, Timestamp = evt.StatusUpdate?.Status.Timestamp ?? now },
                                 History = userMessage is null ? null : [WithTask(userMessage, taskId)],
                             },
-                            OwnerId = call.Principal,
-                            Tenant = call.Tenant,
-                        };
-                        await _tasks.SaveAsync(record).ConfigureAwait(false);
+                            Version: 0, CreatedAt: now, UpdatedAt: now)).ConfigureAwait(false);
                         if (push is not null) await _pushConfigs.SaveAsync(push).ConfigureAwait(false);
                         created = true;
                         Publish(exec, taskId, StreamResponse.Of(A2AJson.Clone(record.Task)));
                     }
                     else
                     {
-                        record = await _tasks.GetAsync(taskId).ConfigureAwait(false);
+                        record = await _tasks.GetAsync(key).ConfigureAwait(false);
                         if (record is null)
                         {
                             _logger.LogWarning("Task {TaskId} disappeared from the store; dropping event", taskId);
@@ -489,12 +489,7 @@ public sealed class A2ARequestHandler : IDisposable
                         }
                     }
 
-                    if (!Apply(record.Task, evt))
-                    {
-                        _logger.LogDebug("Dropped event for task {TaskId} in state {State}", taskId, record.Task.Status.State);
-                        continue;
-                    }
-                    await _tasks.SaveAsync(record).ConfigureAwait(false);
+                    if (!await ApplyAndStoreAsync(key, record, evt).ConfigureAwait(false)) continue;
                 }
                 finally
                 {
@@ -513,6 +508,37 @@ public sealed class A2ARequestHandler : IDisposable
         finally
         {
             exec.Outgoing.Writer.TryComplete();
+        }
+    }
+
+    /// <summary>Applies the event and stores the result. After a version conflict, reloads once and re-applies. Returns false when the event was dropped.</summary>
+    private async Task<bool> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt)
+    {
+        if (!Apply(record.Task, evt))
+        {
+            _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, record.Task.Status.State);
+            return false;
+        }
+        try
+        {
+            await _tasks.UpdateAsync(record, record.Version).ConfigureAwait(false);
+            return true;
+        }
+        catch (ConcurrencyException)
+        {
+            var fresh = await _tasks.GetAsync(key).ConfigureAwait(false);
+            if (fresh is null)
+            {
+                _logger.LogWarning("Task {TaskId} disappeared from the store; dropping event", key.TaskId);
+                return false;
+            }
+            if (!Apply(fresh.Task, evt))
+            {
+                _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, fresh.Task.Status.State);
+                return false;
+            }
+            await _tasks.UpdateAsync(fresh, fresh.Version).ConfigureAwait(false);
+            return true;
         }
     }
 
@@ -570,11 +596,7 @@ public sealed class A2ARequestHandler : IDisposable
     // Helpers
     // =====================================================================
 
-    private async Task<TaskRecord?> GetAccessibleAsync(string taskId, ServerCallContext call, CancellationToken ct)
-    {
-        var record = await _tasks.GetAsync(taskId, ct).ConfigureAwait(false);
-        return record is not null && _access.CanAccess(record, call) ? record : null;
-    }
+    private static TaskKey Key(ServerCallContext call, string taskId) => new(call.Tenant, call.Principal, taskId);
 
     /// <summary>Applies historyLength (0 = none, n = last n) and artifact inclusion to a copy of the task.</summary>
     internal static AgentTask Shape(AgentTask task, int? historyLength, bool includeArtifacts = true)

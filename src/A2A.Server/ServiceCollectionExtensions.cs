@@ -10,7 +10,7 @@ public static class A2AServerServiceCollectionExtensions
     /// <summary>
     /// Registers the A2A server core with <typeparamref name="TExecutor"/> as the agent (scoped: one instance per execution).
     /// Defaults: in-memory stores, owner+tenant access policy, HTTP push sender with SSRF guard. Register your own
-    /// <see cref="ITaskStore"/>, <see cref="IPushNotificationConfigStore"/>, or <see cref="ITaskAccessPolicy"/> before or after to replace them.
+    /// <see cref="Storage.TaskStore"/>, <see cref="IPushNotificationConfigStore"/>, or <see cref="ITaskAccessPolicy"/> before or after to replace them.
     /// </summary>
     public static IServiceCollection AddA2AServer<TExecutor>(this IServiceCollection services, Action<A2AServerOptions> configure)
         where TExecutor : class, IAgentExecutor
@@ -30,7 +30,7 @@ public static class A2AServerServiceCollectionExtensions
     private static IServiceCollection AddA2AServerCore(this IServiceCollection services, Action<A2AServerOptions> configure)
     {
         services.AddOptions<A2AServerOptions>().Configure(configure);
-        services.TryAddSingleton<ITaskStore, InMemoryTaskStore>();
+        services.TryAddSingleton<Storage.TaskStore, Storage.InMemoryTaskStore>();
         services.TryAddSingleton<IPushNotificationConfigStore, InMemoryPushNotificationConfigStore>();
         services.TryAddSingleton<ITaskAccessPolicy, OwnerTenantAccessPolicy>();
         services.TryAddSingleton<IPrincipalResolver, DefaultPrincipalResolver>();
