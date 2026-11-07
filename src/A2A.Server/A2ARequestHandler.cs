@@ -985,7 +985,6 @@ public sealed class A2ARequestHandler : IDisposable
         await AuthorizeAsync(call, A2AOperation.CreateTaskPushNotificationConfig, config, config.TaskId, cancellationToken).ConfigureAwait(false);
         RequirePush();
         A2AValidator.ValidatePushConfig(config, "config", requireTaskId: true);
-        await _pushConfigs.ValidateUrlAsync(config.Url, cancellationToken).ConfigureAwait(false);
         var key = Key(call, config.TaskId!);
         _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(config.TaskId!);
         return await _pushConfigs.CreateAsync(key, config, cancellationToken).ConfigureAwait(false);

@@ -11,6 +11,7 @@ public sealed class PushConfigService(PushConfigStore store, IPushSecretProtecto
     /// <summary>Checks the webhook URL, applies the per-task limit, stores a copy of <paramref name="config"/> and returns it with secrets removed. The caller's instance is not changed.</summary>
     public async ValueTask<TaskPushNotificationConfig> CreateAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct)
     {
+        await ValidateUrlAsync(config.Url, ct).ConfigureAwait(false);
         var stored = config.DeepCopy(); // the caller's config is never changed
         stored.Id = string.IsNullOrEmpty(stored.Id) ? TaskIds.New() : stored.Id;
         stored.Tenant = key.Tenant;

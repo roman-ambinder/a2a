@@ -194,6 +194,23 @@ public class PushConfigTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Service_CreateAsync_rejects_a_private_network_webhook_URL_on_its_own()
+    {
+        await using var host = await TestAgentHost.StartAsync(o => o.PushNotifications.AllowPrivateNetworks = false);
+        var service = host.App.Services.GetRequiredService<PushConfigService>();
+        var config = new TaskPushNotificationConfig { TaskId = "t1", Url = "https://10.0.0.1/hook" };
+        var ex = await Assert.ThrowsAnyAsync<A2AException>(async () =>
+            await service.CreateAsync(new TaskKey("", "alice", "t1"), config, CancellationToken.None));
+
+        var client = host.Client(ProtocolBindings.JsonRpc, "alice");
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+        var viaHandler = await Assert.ThrowsAnyAsync<A2AException>(() => client.CreateTaskPushNotificationConfigAsync(
+            new TaskPushNotificationConfig { TaskId = task.Id, Url = "https://10.0.0.1/hook" }));
+        Assert.Equal(viaHandler.Code, ex.Code);
+        Assert.Equal(viaHandler.Message, ex.Message);
+    }
+
+    [Fact]
     public async Task Data_protection_protector_round_trips_and_is_used_by_the_store_path()
     {
         await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2ADataProtectionPushSecrets());
