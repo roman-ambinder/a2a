@@ -62,8 +62,11 @@ public class CrossExecutionTests
 
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// The host's 2 s cancel grace: these agents never finish in time, so CancelTask always waits it out, and a shorter grace
+    /// can end before the CancelTask execution stored CANCELED when the machine is loaded.
+    /// </summary>
     private static Task<TestAgentHost> StartAsync() => TestAgentHost.StartAsync(
-        o => o.CancelGracePeriod = TimeSpan.FromMilliseconds(300),
         services: s => s.AddScoped<IAgentExecutor, CancelRaceAgent>());
 
     /// <summary>A bare transport: no client-side resume, so the server stream is seen exactly as sent.</summary>
