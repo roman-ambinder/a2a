@@ -267,6 +267,8 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
 
                 using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ByteArrayContent(body) };
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue(A2AProtocol.MediaType);
+                // The body is an A2A v1.0 StreamResponse; say so, as on every other A2A request (a2a-js #647).
+                request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, A2AProtocol.Version);
                 if (config.Authentication is { Scheme.Length: > 0 } auth)
                     request.Headers.TryAddWithoutValidation("Authorization", string.IsNullOrEmpty(auth.Credentials) ? auth.Scheme : $"{auth.Scheme} {auth.Credentials}");
                 else if (!string.IsNullOrEmpty(config.Token))

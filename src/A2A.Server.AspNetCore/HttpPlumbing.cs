@@ -114,6 +114,7 @@ internal static class HttpPlumbing
     }
 
     private static readonly byte[] IdPrefix = "id: "u8.ToArray();
+    private static readonly byte[] EventPrefix = "event: "u8.ToArray();
     private static readonly byte[] DataPrefix = "data: "u8.ToArray();
     private static readonly byte[] LineEnd = "\n"u8.ToArray();
     private static readonly byte[] EventSuffix = "\n\n"u8.ToArray();
@@ -141,10 +142,19 @@ internal static class HttpPlumbing
         : StreamCursor.TryParse(value, taskId, out var seq) ? seq
         : UnusableCursor;
 
-    /// <summary>Writes one SSE frame. <paramref name="id"/> null writes no <c>id:</c> line.</summary>
-    public static async Task WriteEventAsync(HttpContext http, string? id, byte[] json)
+    /// <summary>
+    /// Writes one SSE frame. <paramref name="id"/> null writes no <c>id:</c> line; <paramref name="eventType"/> null writes
+    /// no <c>event:</c> line.
+    /// </summary>
+    public static async Task WriteEventAsync(HttpContext http, string? id, byte[] json, string? eventType = null)
     {
         var body = http.Response.Body;
+        if (eventType is not null)
+        {
+            await body.WriteAsync(EventPrefix, http.RequestAborted).ConfigureAwait(false);
+            await body.WriteAsync(Encoding.UTF8.GetBytes(eventType), http.RequestAborted).ConfigureAwait(false);
+            await body.WriteAsync(LineEnd, http.RequestAborted).ConfigureAwait(false);
+        }
         if (id is not null)
         {
             await body.WriteAsync(IdPrefix, http.RequestAborted).ConfigureAwait(false);
@@ -228,7 +238,7 @@ internal static class HttpPlumbing
     /// Always disposes the enumerator, which releases the stream's resources (for example its stream slot).
     /// </summary>
     public static async Task PumpAsync(HttpContext http, PrimedStream stream, Func<StreamResponse, byte[]> encode,
-        Func<Exception, byte[]> encodeError, TimeSpan keepAlive, ILogger logger)
+        Func<Exception, byte[]> encodeError, TimeSpan keepAlive, ILogger logger, string? errorEventType = null)
     {
         var e = stream.Events;
         var next = stream.First;
@@ -261,7 +271,7 @@ internal static class HttpPlumbing
         }
         catch (Exception ex)
         {
-            try { await WriteEventAsync(http, null, encodeError(ex)).ConfigureAwait(false); }
+            try { await WriteEventAsync(http, null, encodeError(ex), errorEventType).ConfigureAwait(false); }
             catch (Exception writeEx) { logger.LogDebug(writeEx, "Could not write stream error event"); }
         }
         finally

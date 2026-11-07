@@ -131,6 +131,8 @@ public sealed class GrpcTransport : IA2AClient, IDisposable
                 try { moved = await stream.MoveNext(ct).ConfigureAwait(false); }
                 catch (RpcException ex) { throw GrpcErrors.FromRpcException(ex); }
                 if (!moved) yield break;
+                // A2A #2269: an event of a type this SDK does not know (a newer protocol version) is skipped, not fatal.
+                if (stream.Current.PayloadCase == Pb.StreamResponse.PayloadOneofCase.None) continue;
                 yield return ProtoMapper.ToModel<StreamResponse>(stream.Current);
             }
         }
