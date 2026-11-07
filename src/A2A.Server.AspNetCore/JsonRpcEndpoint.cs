@@ -62,8 +62,13 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
                     await Ok(http, call, id, await handler.SendMessageAsync(Params<SendMessageRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
                 case A2AProtocol.Methods.SendStreamingMessage:
-                    await StreamAsync(http, call, id, handler.SendStreamingMessageAsync(Params<SendMessageRequest>(p), call, HttpPlumbing.LastEventId(http), ct)).ConfigureAwait(false);
+                {
+                    var caughtUp = HttpPlumbing.CaughtUpSignal();
+                    await StreamAsync(http, call, id,
+                        handler.SendStreamingMessageAsync(Params<SendMessageRequest>(p), call, HttpPlumbing.LastEventId(http), caughtUp.Signal, ct),
+                        caughtUp.Fired).ConfigureAwait(false);
                     break;
+                }
                 case A2AProtocol.Methods.GetTask:
                     await Ok(http, call, id, await handler.GetTaskAsync(Params<GetTaskRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
@@ -76,7 +81,10 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
                 case A2AProtocol.Methods.SubscribeToTask:
                 {
                     var subscribe = Params<SubscribeToTaskRequest>(p);
-                    await StreamAsync(http, call, id, handler.SubscribeToTaskAsync(subscribe, call, HttpPlumbing.ResumeAfter(http, subscribe.Id), ct)).ConfigureAwait(false);
+                    var caughtUp = HttpPlumbing.CaughtUpSignal();
+                    await StreamAsync(http, call, id,
+                        handler.SubscribeToTaskAsync(subscribe, call, HttpPlumbing.ResumeAfter(http, subscribe.Id), caughtUp.Signal, ct),
+                        caughtUp.Fired).ConfigureAwait(false);
                     break;
                 }
                 case A2AProtocol.Methods.CreateTaskPushNotificationConfig:
@@ -150,9 +158,9 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
         return HttpPlumbing.WriteJsonAsync(http, JsonRpcResponse.Success(id, A2AJson.SerializeToElement(result)), A2AProtocol.JsonMediaType);
     }
 
-    private async Task StreamAsync(HttpContext http, ServerCallContext call, JsonElement? id, IAsyncEnumerable<SequencedEvent> events)
+    private async Task StreamAsync(HttpContext http, ServerCallContext call, JsonElement? id, IAsyncEnumerable<SequencedEvent> events, Task startNow)
     {
-        var e = await HttpPlumbing.PrimeAsync(events, _keepAlive, http.RequestAborted).ConfigureAwait(false)
+        var e = await HttpPlumbing.PrimeAsync(events, _keepAlive, startNow, http.RequestAborted).ConfigureAwait(false)
                 ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "Empty stream");
         HttpPlumbing.WriteExtensionsHeader(http, call);
         HttpPlumbing.StartEventStream(http);

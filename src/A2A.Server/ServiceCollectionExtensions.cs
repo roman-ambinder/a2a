@@ -10,8 +10,8 @@ public static class A2AServerServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the A2A server core and returns a builder to add the agent, its card and extra services.
-    /// Defaults: in-memory stores, HTTP push sender with SSRF guard, allow-all authorization handler. Register your own
-    /// <see cref="Storage.TaskStore"/> or <see cref="Storage.PushConfigStore"/> before or after to replace them.
+    /// Defaults: in-memory stores (tasks, events, push configs, idempotency), HTTP push sender with SSRF guard, allow-all authorization handler. Register your own
+    /// <see cref="Storage.TaskStore"/>, <see cref="Storage.PushConfigStore"/> or <see cref="Idempotency.IdempotencyStore"/> before or after to replace them.
     /// </summary>
     public static A2AServerBuilder AddA2AServer(this IServiceCollection services, Action<A2AServerOptions>? configure = null)
     {
@@ -21,6 +21,8 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<Storage.PushConfigStore, Storage.InMemoryPushConfigStore>();
         services.TryAddSingleton<Storage.EventStore>(sp => new Storage.InMemoryEventStore(
             sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, sp.GetService<TimeProvider>()));
+        services.TryAddSingleton<Idempotency.IdempotencyStore>(sp => new Idempotency.InMemoryIdempotencyStore(
+            sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Idempotency, sp.GetService<TimeProvider>()));
         services.TryAddSingleton<IPushSecretProtector, EphemeralPushSecretProtector>();
         services.TryAddSingleton<IPrincipalResolver, DefaultPrincipalResolver>();
         services.TryAddSingleton<A2AAuthorizationHandler, AllowAllAuthorizationHandler>();
@@ -71,7 +73,7 @@ public sealed class A2AServerBuilder
     }
 
     /// <summary>
-    /// Uses the in-memory task, push config and event stores. They are already registered by default, so this changes nothing
+    /// Uses the in-memory task, push config, event and idempotency stores. They are already registered by default, so this changes nothing
     /// unless you registered your own stores earlier (it does not replace them).
     /// </summary>
     public A2AServerBuilder AddInMemoryStores()
@@ -80,6 +82,8 @@ public sealed class A2AServerBuilder
         Services.TryAddSingleton<Storage.PushConfigStore, Storage.InMemoryPushConfigStore>();
         Services.TryAddSingleton<Storage.EventStore>(sp => new Storage.InMemoryEventStore(
             sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, sp.GetService<TimeProvider>()));
+        Services.TryAddSingleton<Idempotency.IdempotencyStore>(sp => new Idempotency.InMemoryIdempotencyStore(
+            sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Idempotency, sp.GetService<TimeProvider>()));
         return this;
     }
 }

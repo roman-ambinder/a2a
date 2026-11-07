@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using A2A.Json;
+using A2A.Server.Idempotency;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
@@ -22,6 +24,7 @@ public sealed class A2ARequestHandler : IDisposable
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TaskStore _tasks;
     private readonly EventStore _events;
+    private readonly IdempotencyStore _idempotency;
     private readonly PushConfigStore _pushConfigs;
     private readonly A2AAuthorizationHandler _authorization;
     private readonly IPushSecretProtector _protector;
@@ -38,6 +41,7 @@ public sealed class A2ARequestHandler : IDisposable
         IServiceScopeFactory scopeFactory,
         TaskStore tasks,
         EventStore events,
+        IdempotencyStore idempotency,
         PushConfigStore pushConfigs,
         A2AAuthorizationHandler authorization,
         IPushSecretProtector protector,
@@ -49,6 +53,7 @@ public sealed class A2ARequestHandler : IDisposable
         _scopeFactory = scopeFactory;
         _tasks = tasks;
         _events = events;
+        _idempotency = idempotency;
         _pushConfigs = pushConfigs;
         _authorization = authorization;
         _protector = protector;
@@ -131,8 +136,9 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SendMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
-        var prepared = await PrepareAsync(request, call, cancellationToken).ConfigureAwait(false);
-        var exec = StartExecution(prepared.Context, prepared.PushConfig);
+        var (claim, replay) = await BeginIdempotentAsync(request, call, cancellationToken).ConfigureAwait(false);
+        if (replay is not null) return await ReplayAsync(replay, request, call, cancellationToken).ConfigureAwait(false);
+        var exec = await AcceptAsync(request, call, claim, newTaskId: null, cancellationToken).ConfigureAwait(false);
         var returnImmediately = request.Configuration?.ReturnImmediately == true;
         try
         {
@@ -149,7 +155,7 @@ public sealed class A2ARequestHandler : IDisposable
             exec.Detach();
         }
 
-        var record = await _tasks.GetAsync(Key(call, prepared.Context.TaskId), cancellationToken).ConfigureAwait(false)
+        var record = await _tasks.GetAsync(Key(call, exec.TaskId), cancellationToken).ConfigureAwait(false)
             ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The agent finished without replying or creating a task.");
         return new TaskResponse(Shape(record.Task, request.Configuration?.HistoryLength));
     }
@@ -166,13 +172,24 @@ public sealed class A2ARequestHandler : IDisposable
     /// Like <see cref="SendStreamingMessageAsync(SendMessageRequest, ServerCallContext, CancellationToken)"/>, but a valid
     /// <paramref name="lastEventId"/> (a <see cref="StreamCursor"/>, from the <c>Last-Event-ID</c> header) makes the call a
     /// reconnect: it resumes the task the cursor names, as a <see cref="SubscribeToTaskAsync(SubscribeToTaskRequest, ServerCallContext, long?, CancellationToken)"/>
-    /// of the caller's task, and the message is not sent again. A value that does not parse is ignored.
+    /// of the caller's task, and the message is not sent again. A resume is authorized as <see cref="A2AOperation.SubscribeToTask"/>
+    /// with a <see cref="SubscribeToTaskRequest"/>. The header is ignored, and the message sent normally, when it does not
+    /// parse or when the message names a different task than the cursor.
     /// </summary>
     public IAsyncEnumerable<SequencedEvent> SendStreamingMessageAsync(SendMessageRequest request, ServerCallContext call, string? lastEventId,
         CancellationToken cancellationToken = default) =>
-        StreamCursor.TryParse(lastEventId, out var taskId, out var sequence)
-            ? SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant }, call, sequence, cancellationToken)
+        SendStreamingMessageAsync(request, call, lastEventId, onCaughtUp: null, cancellationToken);
+
+    /// <summary>As the public overload; <paramref name="onCaughtUp"/> is passed to the resume (see <see cref="SubscribeCoreAsync"/>).</summary>
+    internal IAsyncEnumerable<SequencedEvent> SendStreamingMessageAsync(SendMessageRequest request, ServerCallContext call, string? lastEventId,
+        Action? onCaughtUp, CancellationToken cancellationToken)
+    {
+        var messageTaskId = request.Message?.TaskId;
+        return StreamCursor.TryParse(lastEventId, out var taskId, out var sequence)
+               && (string.IsNullOrEmpty(messageTaskId) || string.Equals(messageTaskId, taskId, StringComparison.Ordinal))
+            ? SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant }, call, sequence, onCaughtUp, cancellationToken)
             : SendStreamingMessageAsync(request, call, cancellationToken);
+    }
 
     private async IAsyncEnumerable<SequencedEvent> SendStreamingCoreAsync(SendMessageRequest request, ServerCallContext call,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -180,11 +197,35 @@ public sealed class A2ARequestHandler : IDisposable
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SendStreamingMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
         RequireStreaming();
+        var (claim, replay) = await BeginIdempotentAsync(request, call, cancellationToken).ConfigureAwait(false);
+        if (replay is IdempotencyOutcome.DirectMessage direct)
+        {
+            yield return new SequencedEvent(0, StreamResponse.Of(A2AJson.Clone(direct.Message)));
+            yield break;
+        }
+        if (replay is IdempotencyOutcome.TaskCreated created)
+        {
+            // The same path as a resume from cursor 0: the retained events from the start, then live events.
+            var resume = new SubscribeToTaskRequest { Id = created.TaskId, Tenant = request.Tenant };
+            await foreach (var replayed in SubscribeCoreAsync(resume, call, resumeAfter: 0, onCaughtUp: null, cancellationToken).ConfigureAwait(false))
+                yield return replayed;
+            yield break;
+        }
+
         // Take the stream slot before the message is accepted, so a refused stream leaves no trace on the task.
         var taskId = string.IsNullOrEmpty(request.Message?.TaskId) ? TaskIds.New() : request.Message.TaskId;
-        using var slot = _admission.Enter(Key(call, taskId));
-        var prepared = await PrepareAsync(request, call, cancellationToken, newTaskId: taskId).ConfigureAwait(false);
-        var exec = StartExecution(prepared.Context, prepared.PushConfig);
+        IDisposable slot;
+        try
+        {
+            slot = _admission.Enter(Key(call, taskId));
+        }
+        catch
+        {
+            await claim.AbandonAsync().ConfigureAwait(false);
+            throw;
+        }
+        using var admitted = slot;
+        var exec = await AcceptAsync(request, call, claim, taskId, cancellationToken).ConfigureAwait(false);
         var any = false;
         try
         {
@@ -204,6 +245,83 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     private sealed record Prepared(AgentRequestContext Context, TaskPushNotificationConfig? PushConfig);
+
+    /// <summary>
+    /// Begins idempotency for a SendMessage (spec design §7.3), after authorization and before the message is accepted. The
+    /// key is the <c>Idempotency-Key</c> header, else the message id, scoped by tenant and principal. Returns the claim of a
+    /// new request, or the outcome of the earlier request with the same key, waiting (up to the request's cancellation) while
+    /// it runs. A key reused with a different request is <see cref="A2AException.IdempotencyKeyMismatch"/>.
+    /// </summary>
+    private async Task<(IdempotencyClaim Claim, IdempotencyOutcome? Replay)> BeginIdempotentAsync(SendMessageRequest request,
+        ServerCallContext call, CancellationToken ct)
+    {
+        var key = call.IdempotencyKey ?? request.Message?.MessageId;
+        if (string.IsNullOrEmpty(key) || request.Message is null) return (IdempotencyClaim.None, null); // validation rejects it later
+        var scope = new IdempotencyScope(call.Tenant, call.Principal, key);
+        var hash = RequestHasher.Hash(request);
+        while (true)
+        {
+            switch (await _idempotency.TryBeginAsync(scope, hash, ct).ConfigureAwait(false))
+            {
+                case IdempotencyResult.New:
+                    return (new IdempotencyClaim(_idempotency, scope), null);
+                case IdempotencyResult.Completed done:
+                    return (IdempotencyClaim.None, done.Outcome);
+                case IdempotencyResult.InProgress running:
+                    try
+                    {
+                        return (IdempotencyClaim.None, await running.Completion.WaitAsync(ct).ConfigureAwait(false));
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                        break; // the first request failed before creating anything: try again, possibly as the new owner
+                    }
+                case IdempotencyResult.Mismatch:
+                    throw A2AException.IdempotencyKeyMismatch();
+                default:
+                    throw new UnreachableException();
+            }
+        }
+    }
+
+    /// <summary>The answer to a retried SendMessage: the same direct reply, or the task as it is now.</summary>
+    private async Task<SendMessageResponse> ReplayAsync(IdempotencyOutcome outcome, SendMessageRequest request, ServerCallContext call, CancellationToken ct)
+    {
+        switch (outcome)
+        {
+            case IdempotencyOutcome.DirectMessage direct:
+                return new MessageResponse(A2AJson.Clone(direct.Message));
+            case IdempotencyOutcome.TaskCreated created:
+                var record = await _tasks.GetAsync(Key(call, created.TaskId), ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(created.TaskId);
+                return new TaskResponse(Shape(record.Task, request.Configuration?.HistoryLength));
+            default:
+                throw new UnreachableException();
+        }
+    }
+
+    /// <summary>
+    /// Accepts the message and starts the agent. The idempotency claim is abandoned when the message is refused; a follow-up
+    /// records its task at once (the message is already in the task's history), and a new task records it when it is first stored.
+    /// </summary>
+    private async Task<Execution> AcceptAsync(SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string? newTaskId, CancellationToken ct)
+    {
+        Prepared prepared;
+        try
+        {
+            prepared = await PrepareAsync(request, call, ct, newTaskId).ConfigureAwait(false);
+        }
+        catch
+        {
+            await claim.AbandonAsync().ConfigureAwait(false);
+            throw;
+        }
+        if (!prepared.Context.IsNewTask)
+        {
+            await claim.CompleteAsync(new IdempotencyOutcome.TaskCreated(prepared.Context.TaskId)).ConfigureAwait(false);
+            claim = IdempotencyClaim.None;
+        }
+        return StartExecution(prepared.Context, prepared.PushConfig, claim);
+    }
 
     private async Task<Prepared> PrepareAsync(SendMessageRequest request, ServerCallContext call, CancellationToken ct, string? newTaskId = null)
     {
@@ -408,10 +526,20 @@ public sealed class A2ARequestHandler : IDisposable
     /// <param name="cancellationToken">Cancellation.</param>
     public IAsyncEnumerable<SequencedEvent> SubscribeToTaskAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
         CancellationToken cancellationToken = default) =>
-        LimitStreamAsync(SubscribeCoreAsync(request, call, resumeAfter), call, A2AOperation.SubscribeToTask, request, cancellationToken);
+        SubscribeToTaskAsync(request, call, resumeAfter, onCaughtUp: null, cancellationToken);
 
+    /// <summary>As the public overload; <paramref name="onCaughtUp"/> is described on <see cref="SubscribeCoreAsync"/>.</summary>
+    internal IAsyncEnumerable<SequencedEvent> SubscribeToTaskAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
+        Action? onCaughtUp, CancellationToken cancellationToken) =>
+        LimitStreamAsync(SubscribeCoreAsync(request, call, resumeAfter, onCaughtUp), call, A2AOperation.SubscribeToTask, request, cancellationToken);
+
+    /// <summary>
+    /// The subscribe and resume logic. <paramref name="onCaughtUp"/> runs once when a resume was accepted but has nothing to
+    /// send yet (the client already has every event): the HTTP layer then starts the response at once instead of holding
+    /// the headers until the next live event.
+    /// </summary>
     private async IAsyncEnumerable<SequencedEvent> SubscribeCoreAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        Action? onCaughtUp, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SubscribeToTask, request, request.Id, cancellationToken).ConfigureAwait(false);
@@ -429,11 +557,13 @@ public sealed class A2ARequestHandler : IDisposable
         var terminal = start.Task.Status.State.IsTerminal();
 
         long lastYielded;
+        var sentAny = false;
         if (resumeAfter is { } cursor && CanReplay(cursor, start, terminal))
         {
             lastYielded = cursor;
             await foreach (var stored in ReadContiguousAsync(key, cursor, long.MaxValue, cancellationToken).ConfigureAwait(false))
             {
+                sentAny = true;
                 yield return stored;
                 lastYielded = stored.Sequence;
                 if (IsFinal(stored.Event)) yield break;
@@ -442,6 +572,7 @@ public sealed class A2ARequestHandler : IDisposable
             {
                 // Events were trimmed while we read them. Never skip: send a snapshot instead.
                 var snapshot = await ReadSnapshotAsync(key, cancellationToken).ConfigureAwait(false);
+                sentAny = true;
                 yield return snapshot;
                 lastYielded = snapshot.Sequence;
                 if (IsFinal(snapshot.Event)) yield break;
@@ -450,10 +581,12 @@ public sealed class A2ARequestHandler : IDisposable
         }
         else
         {
+            sentAny = true;
             yield return new SequencedEvent(start.Last, StreamResponse.Of(Shape(start.Task, null)));
             if (terminal) yield break;
             lastYielded = start.Last;
         }
+        if (!sentAny) onCaughtUp?.Invoke();
 
         // Live events arrive in sequence order (they are published under the task lock). Drop what was already sent; fill
         // a gap from the store, or with a snapshot when the store no longer has the missing events.
@@ -551,22 +684,29 @@ public sealed class A2ARequestHandler : IDisposable
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (IsTimeLimit(limits.MaxStreamDuration)) stop.CancelAfter(limits.MaxStreamDuration);
         TimeSpan? reauthEvery = IsTimeLimit(limits.StreamReauthInterval) ? limits.StreamReauthInterval : null;
+        static long Ticks(TimeSpan t) => (long)(t.TotalSeconds * Stopwatch.Frequency);
 
         var events = source.GetAsyncEnumerator(stop.Token);
         Task<bool>? move = null;
-        Task? reauth = null;
+        var reauthAt = reauthEvery is { } first ? Stopwatch.GetTimestamp() + Ticks(first) : long.MaxValue;
         try
         {
             while (true)
             {
                 move = events.MoveNextAsync().AsTask();
-                while (reauthEvery is { } every && !move.IsCompleted)
+                // Idle stream: wake up at the re-check deadline while waiting for the next event.
+                while (reauthEvery is not null && !move.IsCompleted)
                 {
-                    reauth ??= Task.Delay(every, stop.Token);
-                    if (await Task.WhenAny(move, reauth).ConfigureAwait(false) == move || reauth.IsCanceled) break;
-                    reauth = null;
-                    if (!await _authorization.AuthorizeAsync(call, op, request, cancellationToken).ConfigureAwait(false))
-                        yield break; // the finally stops the source
+                    var wait = Stopwatch.GetElapsedTime(Stopwatch.GetTimestamp(), reauthAt);
+                    if (wait > TimeSpan.Zero)
+                    {
+                        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
+                        var delay = Task.Delay(wait, delayCts.Token);
+                        var winner = await Task.WhenAny(move, delay).ConfigureAwait(false);
+                        delayCts.Cancel();
+                        if (winner == move || stop.IsCancellationRequested) break;
+                    }
+                    if (!await StillAuthorizedAsync().ConfigureAwait(false)) yield break; // the finally stops the source
                 }
 
                 bool more;
@@ -579,6 +719,9 @@ public sealed class A2ARequestHandler : IDisposable
                     yield break; // MaxStreamDuration reached
                 }
                 if (!more) yield break;
+
+                // Busy stream: the next event may always be ready, so check the deadline before every event too.
+                if (Stopwatch.GetTimestamp() >= reauthAt && !await StillAuthorizedAsync().ConfigureAwait(false)) yield break;
                 yield return events.Current;
             }
         }
@@ -592,6 +735,14 @@ public sealed class A2ARequestHandler : IDisposable
                 catch (Exception) { /* the stream is stopping anyway */ }
             }
             await events.DisposeAsync().ConfigureAwait(false);
+        }
+
+        // Asks the authorization handler again and moves the deadline.
+        async ValueTask<bool> StillAuthorizedAsync()
+        {
+            var allowed = await _authorization.AuthorizeAsync(call, op, request, cancellationToken).ConfigureAwait(false);
+            reauthAt = Stopwatch.GetTimestamp() + Ticks(reauthEvery!.Value);
+            return allowed;
         }
     }
 
@@ -692,12 +843,17 @@ public sealed class A2ARequestHandler : IDisposable
     // Execution engine
     // =====================================================================
 
-    private Execution StartExecution(AgentRequestContext context, TaskPushNotificationConfig? push) =>
+    private Execution StartExecution(AgentRequestContext context, TaskPushNotificationConfig? push, IdempotencyClaim claim) =>
         StartRaw(context.TaskId, context.ContextId, context.IsNewTask, context.Message, context.Call, push, emitInitialSnapshot: !context.IsNewTask,
-            (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct));
+            (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct), claim);
 
+    /// <summary>
+    /// Runs the agent for a task. An idempotency <c>claim</c> is completed when the task is first stored or the agent replies
+    /// directly, and abandoned when neither happens.
+    /// </summary>
     private Execution StartRaw(string taskId, string contextId, bool isNewTask, Message? userMessage, ServerCallContext call,
-        TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run)
+        TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run,
+        IdempotencyClaim? claim = null)
     {
         var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token));
         var scope = ScopeKey(call.Tenant, taskId);
@@ -729,7 +885,7 @@ public sealed class A2ARequestHandler : IDisposable
 
         // Background writes outlive the request, so fix the owner scope now.
         var key = Key(call, taskId);
-        var consumer = Task.Run(() => ConsumeAsync(exec, key, contextId, isNewTask, userMessage, push, emitInitialSnapshot));
+        var consumer = Task.Run(() => ConsumeAsync(exec, key, contextId, isNewTask, userMessage, push, emitInitialSnapshot, claim ?? IdempotencyClaim.None));
         _ = Task.WhenAll(producer, consumer).ContinueWith(_t =>
         {
             if (_running.TryGetValue(scope, out var set))
@@ -750,7 +906,7 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     private async Task ConsumeAsync(Execution exec, TaskKey key, string contextId, bool isNewTask, Message? userMessage,
-        TaskPushNotificationConfig? push, bool emitInitialSnapshot)
+        TaskPushNotificationConfig? push, bool emitInitialSnapshot, IdempotencyClaim claim)
     {
         var taskId = key.TaskId;
         var scope = ScopeKey(key.Tenant, taskId);
@@ -785,8 +941,9 @@ public sealed class A2ARequestHandler : IDisposable
                     exec.Cancel();
                 }
 
-                if (evt is MessageEvent)
+                if (evt is MessageEvent reply)
                 {
+                    await RecordAsync(claim, new IdempotencyOutcome.DirectMessage(A2AJson.Clone(reply.Message)), taskId).ConfigureAwait(false);
                     exec.Emit(new SequencedEvent(0, evt)); // direct reply, no task, not stored
                     continue;
                 }
@@ -813,6 +970,8 @@ public sealed class A2ARequestHandler : IDisposable
                         created = true;
                         var snapshot = StreamResponse.Of(A2AJson.Clone(record.Task));
                         Publish(exec, key, new SequencedEvent(await _events.AppendAsync(key, snapshot).ConfigureAwait(false), snapshot));
+                        // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
+                        await RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
                     }
                     else
                     {
@@ -848,8 +1007,18 @@ public sealed class A2ARequestHandler : IDisposable
         }
         finally
         {
+            // No task and no reply (for example the agent produced nothing): retries may run the request again.
+            try { await claim.AbandonAsync().ConfigureAwait(false); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to abandon the idempotency entry for task {TaskId}", taskId); }
             exec.Outgoing.Writer.TryComplete();
         }
+    }
+
+    /// <summary>Records an idempotency outcome. A failing idempotency store is logged; it never stops the task.</summary>
+    private async Task RecordAsync(IdempotencyClaim claim, IdempotencyOutcome outcome, string taskId)
+    {
+        try { await claim.CompleteAsync(outcome).ConfigureAwait(false); }
+        catch (Exception ex) { _logger.LogError(ex, "Failed to record the idempotency outcome for task {TaskId}", taskId); }
     }
 
     /// <summary>

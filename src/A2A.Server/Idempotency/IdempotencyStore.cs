@@ -1,0 +1,100 @@
+namespace A2A.Server.Idempotency;
+
+/// <summary>
+/// Who an idempotency key belongs to. A key is never shared across tenants or principals: the same key from another caller
+/// is a different entry.
+/// </summary>
+public readonly record struct IdempotencyScope(string Tenant, string Principal, string Key);
+
+/// <summary>Result of <see cref="IdempotencyStore.TryBeginAsync"/>. A closed union; exactly one case.</summary>
+public abstract record IdempotencyResult
+{
+    private protected IdempotencyResult() { }
+
+    /// <summary>The key is new: the caller owns the request and must call <see cref="IdempotencyStore.CompleteAsync"/> or <see cref="IdempotencyStore.AbandonAsync"/>.</summary>
+    public sealed record New : IdempotencyResult;
+
+    /// <summary>
+    /// The same request is running. <c>Completion</c> finishes with its outcome, or is canceled when the request is
+    /// abandoned (then try again).
+    /// </summary>
+    public sealed record InProgress(Task<IdempotencyOutcome> Completion) : IdempotencyResult;
+
+    /// <summary>The same request already has an outcome.</summary>
+    public sealed record Completed(IdempotencyOutcome Outcome) : IdempotencyResult;
+
+    /// <summary>The key was used with a different request.</summary>
+    public sealed record Mismatch : IdempotencyResult;
+}
+
+/// <summary>What a SendMessage produced, so a retry can be answered without running it again. A closed union; exactly one case.</summary>
+public abstract record IdempotencyOutcome
+{
+    private protected IdempotencyOutcome() { }
+
+    /// <summary>The request created (or continued) the task <c>TaskId</c>.</summary>
+    public sealed record TaskCreated(string TaskId) : IdempotencyOutcome;
+
+    /// <summary>The agent answered with a message and no task.</summary>
+    public sealed record DirectMessage(Message Message) : IdempotencyOutcome;
+}
+
+/// <summary>
+/// Remembers SendMessage requests by idempotency key (spec design §7.3). The handler begins an entry after authorization and
+/// before the message is accepted, records the outcome as soon as a task or a direct reply exists, and abandons the entry
+/// when the request failed before that.
+/// </summary>
+public abstract class IdempotencyStore
+{
+    /// <summary>
+    /// Atomically claims <paramref name="scope"/> for a request with hash <paramref name="requestHash"/>, or reports the earlier
+    /// request with that key: <see cref="IdempotencyResult.InProgress"/>, <see cref="IdempotencyResult.Completed"/>, or
+    /// <see cref="IdempotencyResult.Mismatch"/> when its hash differs.
+    /// </summary>
+    public abstract ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash, CancellationToken ct = default);
+
+    /// <summary>Records the outcome of the request that owns <paramref name="scope"/> and releases requests waiting on it.</summary>
+    public abstract ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken ct = default);
+
+    /// <summary>Forgets the claim of a request that failed before any task or message existed. Waiting requests try again.</summary>
+    public abstract ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken ct = default);
+}
+
+/// <summary>Settings for idempotent SendMessage.</summary>
+public sealed class IdempotencyOptions
+{
+    /// <summary>How long a finished request is remembered. Default 24 hours.</summary>
+    public TimeSpan Retention { get; set; } = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// Most entries the in-memory store keeps. Beyond it the least recently used finished entry is dropped and the
+    /// <c>a2a.idempotency.evictions</c> counter (meter <c>A2A</c>) goes up. Default 100,000.
+    /// </summary>
+    public int MaxEntries { get; set; } = 100_000;
+}
+
+/// <summary>
+/// The handler's claim on one idempotency entry. Records an outcome or abandons the entry at most once, so the execution
+/// engine can call it from every path without double bookkeeping. <see cref="None"/> is a claim that does nothing (no key,
+/// or the request is a replay).
+/// </summary>
+internal sealed class IdempotencyClaim
+{
+    private readonly IdempotencyStore? _store;
+    private readonly IdempotencyScope _scope;
+    private int _settled;
+
+    public static IdempotencyClaim None { get; } = new(null, default);
+
+    public IdempotencyClaim(IdempotencyStore? store, IdempotencyScope scope)
+    {
+        _store = store;
+        _scope = scope;
+    }
+
+    public ValueTask CompleteAsync(IdempotencyOutcome outcome) =>
+        _store is not null && Interlocked.Exchange(ref _settled, 1) == 0 ? _store.CompleteAsync(_scope, outcome) : ValueTask.CompletedTask;
+
+    public ValueTask AbandonAsync() =>
+        _store is not null && Interlocked.Exchange(ref _settled, 1) == 0 ? _store.AbandonAsync(_scope) : ValueTask.CompletedTask;
+}

@@ -125,11 +125,7 @@ public class StreamingResumeTests
             s.AddScoped<IAgentExecutor, InterleavingAgent>();
             s.AddSingleton<TaskEventBus, LossyBus>();
         });
-        var call = new ServerCallContext
-        {
-            Principal = "alice",
-            User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity([new System.Security.Claims.Claim("sub", "alice")], "Test")),
-        };
+        var call = AliceCall();
         await using var send = host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, call).GetAsyncEnumerator();
         Assert.True(await send.MoveNextAsync());
         var taskId = Assert.IsType<TaskEvent>(send.Current.Event).Task.Id;
@@ -227,6 +223,46 @@ public class StreamingResumeTests
         Assert.Equal([3L, 4L, 5L], frames.Select(f => SequenceOf(f, taskId)));
         var list = await host.Client(binding).ListTasksAsync(new ListTasksRequest());
         Assert.Single(list.Tasks); // no second task was started
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Send_stream_for_another_task_ignores_the_cursor(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var client = host.Client(binding);
+        var other = (await client.SendMessageAsync("task")).RequireTask();
+        var waiting = (await client.SendMessageAsync("input")).RequireTask();
+        Assert.Equal(TaskState.InputRequired, waiting.Status.State);
+
+        // The message continues "waiting"; the cursor names "other". The message must not be dropped.
+        await using var stream = await RawSse.OpenAsync(host, SendStream(binding, "more", StreamCursor.Format(other.Id, 2), taskId: waiting.Id), binding);
+        var frames = await stream.ReadToEndAsync(Timeout);
+
+        Assert.All(frames, f => SequenceOf(f, waiting.Id));
+        var last = Assert.IsType<StatusUpdateEvent>(frames[^1].Event).StatusUpdate;
+        Assert.Equal(TaskState.Completed, last.Status.State);
+        Assert.Equal("got: more", last.Status.Message!.GetText());
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Caught_up_resume_starts_promptly_without_keep_alive(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync(o => o.Streaming.KeepAliveInterval = TimeSpan.Zero);
+        var client = host.Client(binding);
+        var task = (await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).RequireTask();
+        await WaitForSequenceAsync(host, task.Id, 2);
+
+        var watch = Stopwatch.StartNew();
+        await using var resumed = await RawSse.OpenAsync(host, Subscribe(binding, task.Id, StreamCursor.Format(task.Id, 2)), binding);
+        Assert.True(resumed.IsEventStream);
+        Assert.True(watch.Elapsed < TimeSpan.FromMilliseconds(900), $"headers took {watch.Elapsed}"); // not the 1 s priming fallback
+
+        await client.CancelTaskAsync(task.Id);
+        var frames = await resumed.ReadToEndAsync(Timeout);
+        Assert.Equal([3L], frames.Select(f => SequenceOf(f, task.Id)));
+        Assert.Equal(TaskState.Canceled, Assert.IsType<StatusUpdateEvent>(frames[0].Event).StatusUpdate.Status.State);
     }
 
     [Theory]
@@ -363,6 +399,53 @@ public class StreamingResumeTests
         await EventuallyAsync(() => Task.FromResult(host.Handler.OpenStreams == 0));
     }
 
+    /// <summary>Emits artifacts without end (about 5 per millisecond at most), faster than a reader that pauses can take them.</summary>
+    private sealed class FloodAgent : IAgentExecutor
+    {
+        public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct)
+        {
+            await updater.StartWorkAsync(cancellationToken: ct);
+            for (var i = 0; ; i++)
+            {
+                await updater.AddArtifactAsync([Part.FromText("x")], artifactId: "flood", cancellationToken: ct);
+                if (i % 5 == 0) await Task.Delay(1, ct);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Busy_stream_rechecks_authorization()
+    {
+        var auth = new Switchable();
+        await using var host = await TestAgentHost.StartAsync(
+            o => o.Limits.StreamReauthInterval = TimeSpan.FromMilliseconds(100),
+            services: s =>
+            {
+                s.AddScoped<IAgentExecutor, FloodAgent>();
+                s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler>(auth));
+            });
+        await using var stream = host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, AliceCall()).GetAsyncEnumerator();
+        Assert.True(await stream.MoveNextAsync());
+        var taskId = Assert.IsType<TaskEvent>(stream.Current.Event).Task.Id;
+        await Task.Delay(300); // a backlog builds up, so every following MoveNext completes at once
+        await WaitForSequenceAsync(host, taskId, 50);
+
+        auth.Allow = false;
+        var watch = Stopwatch.StartNew();
+        var after = 0;
+        while (await stream.MoveNextAsync().AsTask().WaitAsync(Timeout))
+        {
+            after++;
+            if (watch.Elapsed > TimeSpan.FromSeconds(2)) break;
+        }
+
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1), $"stream still open after {watch.Elapsed}");
+        Assert.True(after <= 1, $"{after} events were sent after the re-check deadline passed");
+
+        auth.Allow = true;
+        await host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = taskId }, AliceCall()); // stop the flood
+    }
+
     [Theory]
     [MemberData(nameof(Bindings))]
     public async Task Stream_ends_cleanly_at_max_duration(string binding)
@@ -394,6 +477,12 @@ public class StreamingResumeTests
 
     // ---------------------------------------------------------------- helpers
 
+    private static ServerCallContext AliceCall() => new()
+    {
+        Principal = "alice",
+        User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity([new System.Security.Claims.Claim("sub", "alice")], "Test")),
+    };
+
     private static long SequenceOf(Frame frame, string taskId)
     {
         Assert.NotNull(frame.Id);
@@ -417,9 +506,10 @@ public class StreamingResumeTests
         }
     }
 
-    private static HttpRequestMessage SendStream(string binding, string text, string? lastEventId = null, string user = "alice")
+    private static HttpRequestMessage SendStream(string binding, string text, string? lastEventId = null, string user = "alice", string? taskId = null)
     {
-        var message = $$$"""{"message":{"messageId":"{{{Guid.NewGuid():N}}}","role":"ROLE_USER","parts":[{"text":"{{{text}}}"}]}}""";
+        var task = taskId is null ? "" : $$$""","taskId":"{{{taskId}}}" """.TrimEnd();
+        var message = $$$"""{"message":{"messageId":"{{{Guid.NewGuid():N}}}","role":"ROLE_USER","parts":[{"text":"{{{text}}}"}]{{{task}}}}}""";
         return Build(binding == ProtocolBindings.JsonRpc
             ? Rpc(A2AProtocol.Methods.SendStreamingMessage, message)
             : new HttpRequestMessage(HttpMethod.Post, "/a2a/message:stream") { Content = Json(message) }, lastEventId, user);
