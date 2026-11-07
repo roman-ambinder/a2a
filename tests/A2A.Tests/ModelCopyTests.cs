@@ -20,10 +20,10 @@ public class ModelCopyTests
         Role = Role.Agent,
         Parts =
         [
-            Part.FromText("hi") with { Metadata = new() { ["a"] = J("1") } },
-            Part.FromBytes(raw ?? [1, 2, 3], "application/octet-stream", "a.bin"),
-            Part.FromUrl(new Uri("https://x/y")),
-            Part.FromData(J("{\"k\":[1,2]}")),
+            Part.FromText("hi", "text/plain") with { Metadata = new() { ["a"] = J("1") } },
+            Part.FromBytes(raw ?? [1, 2, 3], "application/octet-stream", "a.bin") with { Metadata = new() { ["r"] = J("[2]") } },
+            Part.FromUrl(new Uri("https://x/y"), "image/png", "y.png") with { Metadata = new() { ["u"] = J("\"s\"") } },
+            Part.FromData(J("{\"k\":[1,2]}")) with { Metadata = new() { ["d"] = J("{\"n\":null}") } },
         ],
         Metadata = new() { ["m"] = J("{\"x\":1}") },
         Extensions = ["e1"],
@@ -40,13 +40,28 @@ public class ModelCopyTests
         Extensions = ["ae"],
     };
 
+    /// <summary>A message whose optional collections are all null.</summary>
+    private static Message BareMsg(string id) => new()
+    {
+        MessageId = id,
+        Role = Role.User,
+        Parts = [Part.FromText("bare")],
+    };
+
+    /// <summary>An artifact whose optional collections are all null.</summary>
+    private static Artifact BareArt(string id) => new()
+    {
+        ArtifactId = id,
+        Parts = [Part.FromText("bare")],
+    };
+
     private static AgentTask Task() => new()
     {
         Id = "t",
         ContextId = "c",
         Status = new() { State = TaskState.Working, Message = Msg("s"), Timestamp = DateTimeOffset.UnixEpoch },
-        Artifacts = [Art("a1"), Art("a2")],
-        History = [Msg("h1"), Msg("h2")],
+        Artifacts = [Art("a1"), Art("a2"), BareArt("a3")],
+        History = [Msg("h1"), Msg("h2"), BareMsg("h3")],
         Metadata = new() { ["tm"] = J("\"v\"") },
     };
 
@@ -64,7 +79,7 @@ public class ModelCopyTests
         for (var i = 0; i < t.History!.Count; i++) Assert.Same(t.History[i], c.History![i]);
         for (var i = 0; i < t.Artifacts!.Count; i++) Assert.Same(t.Artifacts[i], c.Artifacts![i]);
         c.History!.Add(Msg("h3"));
-        Assert.Equal(2, t.History.Count);
+        Assert.Equal(3, t.History.Count);
         Assert.Equal(A2AJson.Serialize(t), A2AJson.Serialize(t.CopyForUpdate()));
     }
 
@@ -102,6 +117,7 @@ public class ModelCopyTests
     public void DeepCopy_equals_json_clone()
     {
         var t = Task();
+        Assert.Equal(A2AJson.Serialize(A2AJson.Clone(t)), A2AJson.Serialize(t.DeepCopy()));
         Assert.Equal(A2AJson.Serialize(t), A2AJson.Serialize(t.DeepCopy()));
         var bare = new AgentTask { Id = "t", Status = new() { State = TaskState.Submitted } };
         Assert.Equal(A2AJson.Serialize(bare), A2AJson.Serialize(bare.DeepCopy()));
