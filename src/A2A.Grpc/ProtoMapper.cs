@@ -37,7 +37,7 @@ public static class ProtoMapper
         ArgumentNullException.ThrowIfNull(model);
         try
         {
-            return Parser.Parse<TProto>(JsonSerializer.Serialize(model, model.GetType(), A2AJson.Options));
+            return Parser.Parse<TProto>(JsonSerializer.Serialize(model, A2AJson.Options.GetTypeInfo(model.GetType())));
         }
         catch (InvalidProtocolBufferException ex)
         {

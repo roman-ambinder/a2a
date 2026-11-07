@@ -1,0 +1,158 @@
+{
+  "name": "Full Agent",
+  "description": "Every optional field set.",
+  "supportedInterfaces": [
+    {
+      "url": "https://agent.example/a2a",
+      "protocolBinding": "JSONRPC",
+      "tenant": "tenant-1",
+      "protocolVersion": "1.0"
+    },
+    {
+      "url": "https://agent.example/rest",
+      "protocolBinding": "HTTP+JSON",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "provider": {
+    "url": "https://provider.example",
+    "organization": "Example Org"
+  },
+  "version": "2.1.0",
+  "documentationUrl": "https://agent.example/docs",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": true,
+    "extensions": [
+      {
+        "uri": "https://ext.example/a",
+        "description": "Extension A",
+        "required": true,
+        "params": {
+          "mode": "strict"
+        }
+      }
+    ],
+    "extendedAgentCard": true
+  },
+  "securitySchemes": {
+    "oauth": {
+      "oauth2SecurityScheme": {
+        "description": "OAuth",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://auth.example/authorize",
+            "tokenUrl": "https://auth.example/token",
+            "refreshUrl": "https://auth.example/refresh",
+            "scopes": {
+              "read": "Read access",
+              "write": "Write access"
+            },
+            "pkceRequired": true
+          }
+        },
+        "oauth2MetadataUrl": "https://auth.example/.well-known/oauth-authorization-server"
+      }
+    },
+    "device": {
+      "oauth2SecurityScheme": {
+        "flows": {
+          "deviceCode": {
+            "deviceAuthorizationUrl": "https://auth.example/device",
+            "tokenUrl": "https://auth.example/token",
+            "scopes": {
+              "read": "Read access"
+            }
+          }
+        }
+      }
+    },
+    "oidc": {
+      "openIdConnectSecurityScheme": {
+        "description": "OIDC",
+        "openIdConnectUrl": "https://auth.example/.well-known/openid-configuration"
+      }
+    },
+    "mtls": {
+      "mtlsSecurityScheme": {
+        "description": "Mutual TLS"
+      }
+    },
+    "apiKey": {
+      "apiKeySecurityScheme": {
+        "description": "API key",
+        "location": "header",
+        "name": "X-Api-Key"
+      }
+    },
+    "bearer": {
+      "httpAuthSecurityScheme": {
+        "description": "JWT bearer",
+        "scheme": "Bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "securityRequirements": [
+    {
+      "schemes": {
+        "oauth": {
+          "list": [
+            "read"
+          ]
+        }
+      }
+    },
+    {
+      "schemes": {
+        "mtls": {}
+      }
+    }
+  ],
+  "defaultInputModes": [
+    "text/plain",
+    "application/json"
+  ],
+  "defaultOutputModes": [
+    "text/plain"
+  ],
+  "skills": [
+    {
+      "id": "search",
+      "name": "Search",
+      "description": "Searches things.",
+      "tags": [
+        "search",
+        "lookup"
+      ],
+      "examples": [
+        "find cats",
+        "find dogs"
+      ],
+      "inputModes": [
+        "text/plain"
+      ],
+      "outputModes": [
+        "application/json"
+      ],
+      "securityRequirements": [
+        {
+          "schemes": {
+            "bearer": {}
+          }
+        }
+      ]
+    }
+  ],
+  "signatures": [
+    {
+      "protected": "eyJhbGciOiJFUzI1NiIsImprdSI6Imh0dHBzOi8vYWdlbnQuZXhhbXBsZS8ud2VsbC1rbm93bi9qd2tzLmpzb24iLCJraWQiOiJweS1lczI1NiIsInR5cCI6IkpPU0UifQ",
+      "signature": "DSklEsmUw2SRtyZWkL_VWCVIL98knz3wvN9AISgnWncz0t_3pViPnkAoyOqBu2dHdSEt-ufzze1khnHKs8vrvQ"
+    },
+    {
+      "protected": "eyJhbGciOiJSUzI1NiIsImprdSI6Imh0dHBzOi8vYWdlbnQuZXhhbXBsZS8ud2VsbC1rbm93bi9qd2tzLmpzb24iLCJraWQiOiJweS1yczI1NiIsInR5cCI6IkpPU0UifQ",
+      "signature": "Kd2Txn7A2M3OdKhc_TcwnoAIDgz21yAK0AYHnzMGiPlcNAZSFBZyUs4YPx50wmgEq0k1ktwR6CCzB9K280Z-MihoYucge4uPUQE612PtXe-3YN9LYc3jr7ToGR4hdpTJFTUY7teKO-qt7WtwHYi7Fwdyj-ILNcPycU2ehory7I2f3ihgMpPN7R9WreSOBmDRGs0XRE1RPYBmUblZFqG985FF-TapL3noIJFdjsQ5YdjT_Ma0h1dvxetweqtctZxbde1b9bYsx9RNvT20JZdEGjUSvG1UFlcdzyE7fLNARhQw9oCwdCJKJ6g850y0JrXx_tsnfctQJyGfD7s8HRqBpw"
+    }
+  ],
+  "iconUrl": "https://agent.example/icon.png"
+}

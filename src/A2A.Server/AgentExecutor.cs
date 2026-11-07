@@ -59,16 +59,25 @@ public sealed class TaskUpdater
     private bool _replied;
     private bool _terminal;
 
-    internal TaskUpdater(string taskId, string contextId, bool isNewTask, ChannelWriter<StreamResponse> writer)
+    internal TaskUpdater(string taskId, string contextId, bool isNewTask, ChannelWriter<StreamResponse> writer,
+        Dictionary<string, JsonElement>? requestMetadata = null)
     {
         TaskId = taskId;
         ContextId = contextId;
         _isNewTask = isNewTask;
         _writer = writer;
+        RequestMetadata = requestMetadata;
     }
 
     public string TaskId { get; }
     public string ContextId { get; }
+
+    /// <summary>
+    /// The <c>metadata</c> of the request that started this run: the SendMessage metadata for
+    /// <see cref="IAgentExecutor.ExecuteAsync"/>, the CancelTask metadata for <see cref="IAgentExecutor.CancelAsync"/>.
+    /// Null when the request had none.
+    /// </summary>
+    public IReadOnlyDictionary<string, JsonElement>? RequestMetadata { get; }
 
     public bool IsTerminal { get { lock (_gate) return _terminal; } }
     public bool HasReplied { get { lock (_gate) return _replied; } }
@@ -91,7 +100,7 @@ public sealed class TaskUpdater
     }
 
     public ValueTask ReplyAsync(string text, CancellationToken cancellationToken = default) =>
-        ReplyAsync(new Message { Parts = [Part.FromText(text)] }, cancellationToken);
+        ReplyAsync(new Message { MessageId = Message.NewId(), Role = Role.Agent, Parts = [Part.FromText(text)] }, cancellationToken);
 
     public ValueTask SubmitAsync(CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(TaskState.Submitted, null, null, cancellationToken);
@@ -159,9 +168,9 @@ public sealed class TaskUpdater
     }
 
     /// <summary>Builds an agent message bound to this task.</summary>
-    public Message NewAgentMessage(string text) => Stamp(new Message { Parts = [Part.FromText(text)] });
+    public Message NewAgentMessage(string text) => Stamp(new Message { MessageId = Message.NewId(), Role = Role.Agent, Parts = [Part.FromText(text)] });
 
-    public Message NewAgentMessage(params Part[] parts) => Stamp(new Message { Parts = parts.ToList() });
+    public Message NewAgentMessage(params Part[] parts) => Stamp(new Message { MessageId = Message.NewId(), Role = Role.Agent, Parts = parts.ToList() });
 
     private Message Stamp(Message m)
     {

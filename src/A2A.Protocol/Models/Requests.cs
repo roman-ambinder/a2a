@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using A2A.Json;
 
 namespace A2A;
 
@@ -43,35 +44,64 @@ public sealed class SendMessageConfiguration
 public sealed class SendMessageRequest
 {
     public string? Tenant { get; set; }
-    public Message Message { get; set; } = new();
+    public required Message Message { get; set; }
     public SendMessageConfiguration? Configuration { get; set; }
     public Dictionary<string, JsonElement>? Metadata { get; set; }
 }
 
-/// <summary>Result of SendMessage: either a task or a direct message.</summary>
-public sealed class SendMessageResponse
+/// <summary>Result of SendMessage: either a task or a direct message. A closed union; exactly one case.</summary>
+[JsonConverter(typeof(SendMessageResponseConverter))]
+public abstract record SendMessageResponse
 {
-    public AgentTask? Task { get; set; }
-    public Message? Message { get; set; }
+    private protected SendMessageResponse() { }
 }
 
-/// <summary>One event in a streaming response or a push notification. Exactly one member is set.</summary>
-public sealed class StreamResponse
-{
-    public AgentTask? Task { get; set; }
-    public Message? Message { get; set; }
-    public TaskStatusUpdateEvent? StatusUpdate { get; set; }
-    public TaskArtifactUpdateEvent? ArtifactUpdate { get; set; }
+/// <summary>SendMessage result: a task.</summary>
+[JsonConverter(typeof(OneOfCaseConverter<SendMessageResponse, TaskResponse, SendMessageResponseConverter>))]
+public sealed record TaskResponse(AgentTask Task) : SendMessageResponse;
 
-    public static StreamResponse Of(AgentTask task) => new() { Task = task };
-    public static StreamResponse Of(Message message) => new() { Message = message };
-    public static StreamResponse Of(TaskStatusUpdateEvent e) => new() { StatusUpdate = e };
-    public static StreamResponse Of(TaskArtifactUpdateEvent e) => new() { ArtifactUpdate = e };
+/// <summary>SendMessage result: a direct message.</summary>
+[JsonConverter(typeof(OneOfCaseConverter<SendMessageResponse, MessageResponse, SendMessageResponseConverter>))]
+public sealed record MessageResponse(Message Message) : SendMessageResponse;
+
+/// <summary>One event in a streaming response or a push notification. A closed union; exactly one case.</summary>
+[JsonConverter(typeof(StreamResponseConverter))]
+public abstract record StreamResponse
+{
+    private protected StreamResponse() { }
+
+    public static TaskEvent Of(AgentTask task) => new(task);
+    public static MessageEvent Of(Message message) => new(message);
+    public static StatusUpdateEvent Of(TaskStatusUpdateEvent e) => new(e);
+    public static ArtifactUpdateEvent Of(TaskArtifactUpdateEvent e) => new(e);
 
     /// <summary>The task id this event refers to, if any.</summary>
     [JsonIgnore]
-    public string? TaskId => Task?.Id ?? StatusUpdate?.TaskId ?? ArtifactUpdate?.TaskId ?? Message?.TaskId;
+    public string? TaskId => this switch
+    {
+        TaskEvent t => t.Task.Id,
+        MessageEvent m => m.Message.TaskId,
+        StatusUpdateEvent s => s.StatusUpdate.TaskId,
+        ArtifactUpdateEvent a => a.ArtifactUpdate.TaskId,
+        _ => null,
+    };
 }
+
+/// <summary>Stream event: a task snapshot.</summary>
+[JsonConverter(typeof(OneOfCaseConverter<StreamResponse, TaskEvent, StreamResponseConverter>))]
+public sealed record TaskEvent(AgentTask Task) : StreamResponse;
+
+/// <summary>Stream event: a message.</summary>
+[JsonConverter(typeof(OneOfCaseConverter<StreamResponse, MessageEvent, StreamResponseConverter>))]
+public sealed record MessageEvent(Message Message) : StreamResponse;
+
+/// <summary>Stream event: task status changed.</summary>
+[JsonConverter(typeof(OneOfCaseConverter<StreamResponse, StatusUpdateEvent, StreamResponseConverter>))]
+public sealed record StatusUpdateEvent(TaskStatusUpdateEvent StatusUpdate) : StreamResponse;
+
+/// <summary>Stream event: artifact created or extended.</summary>
+[JsonConverter(typeof(OneOfCaseConverter<StreamResponse, ArtifactUpdateEvent, StreamResponseConverter>))]
+public sealed record ArtifactUpdateEvent(TaskArtifactUpdateEvent ArtifactUpdate) : StreamResponse;
 
 public sealed class GetTaskRequest
 {
