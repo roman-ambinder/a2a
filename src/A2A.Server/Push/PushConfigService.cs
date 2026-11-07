@@ -5,8 +5,11 @@ namespace A2A.Server.Push;
 /// <summary>
 /// Push notification config operations: webhook URL checks, the per-task limit, secret protection and redaction.
 /// The caller has already authorized the call and built the <see cref="TaskKey"/>. Secrets never leave this class unredacted.
+/// After every stored or deleted config it tells the optional <see cref="IPushConfigChangeListener"/> (in an ASP.NET Core app,
+/// the <see cref="HttpPushNotificationSender"/>), so delivery sees the change from the next event on.
 /// </summary>
-public sealed class PushConfigService(PushConfigStore store, IPushSecretProtector protector, A2AServerOptions options)
+public sealed class PushConfigService(PushConfigStore store, IPushSecretProtector protector, A2AServerOptions options,
+    IPushConfigChangeListener? changes = null)
 {
     /// <summary>Checks the webhook URL, applies the per-task limit, stores a copy of <paramref name="config"/> and returns it with secrets removed. The caller's instance is not changed.</summary>
     public async ValueTask<TaskPushNotificationConfig> CreateAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct)
@@ -52,6 +55,7 @@ public sealed class PushConfigService(PushConfigStore store, IPushSecretProtecto
     {
         if (!await store.DeleteAsync(key, configId, ct).ConfigureAwait(false))
             throw ConfigNotFound(key.TaskId, configId);
+        changes?.ConfigChanged(key);
     }
 
     /// <summary>Checks the webhook URL of the inline config of a SendMessage request, before anything is committed.</summary>
@@ -72,13 +76,14 @@ public sealed class PushConfigService(PushConfigStore store, IPushSecretProtecto
 
     internal ValueTask ValidateUrlAsync(string url, CancellationToken ct) => PushUrlValidator.ValidateAsync(url, options.PushNotifications, ct);
 
-    /// <summary>Protects the secrets of <paramref name="config"/> and stores a copy, which the store then owns.</summary>
-    private ValueTask SaveAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct)
+    /// <summary>Protects the secrets of <paramref name="config"/> and stores a copy, which the store then owns. Then tells the change listener.</summary>
+    private async ValueTask SaveAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct)
     {
         var copy = config.DeepCopy();
         if (!string.IsNullOrEmpty(copy.Token)) copy.Token = protector.Protect(copy.Token);
         if (copy.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = protector.Protect(auth.Credentials);
-        return store.SaveAsync(new PushConfigRecord(key, copy), ct);
+        await store.SaveAsync(new PushConfigRecord(key, copy), ct).ConfigureAwait(false);
+        changes?.ConfigChanged(key);
     }
 
     /// <summary>Returns a copy with the token and credentials blanked; <paramref name="config"/> (often the stored one) is not changed.</summary>

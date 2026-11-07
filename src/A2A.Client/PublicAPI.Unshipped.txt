@@ -171,6 +171,16 @@ A2A.Client.Sse.SseEvent.Id.get -> string?
 A2A.Client.Sse.SseEvent.Id.init -> void
 A2A.Client.Sse.SseEvent.SseEvent(string! Data, string? EventType, string? Id) -> void
 A2A.Client.Sse.SseReader
+A2A.Client.Streaming.IResumableTransport
+A2A.Client.Streaming.IResumableTransport.SendStreamingFramesAsync(A2A.SendMessageRequest! request, A2A.Client.A2ARequestOptions? options, System.Threading.CancellationToken cancellationToken) -> System.Collections.Generic.IAsyncEnumerable<A2A.Client.Streaming.StreamFrame>!
+A2A.Client.Streaming.IResumableTransport.SubscribeToTaskAsync(A2A.SubscribeToTaskRequest! request, A2A.Client.A2ARequestOptions? options, string? lastEventId, System.Threading.CancellationToken cancellationToken) -> System.Collections.Generic.IAsyncEnumerable<A2A.Client.Streaming.StreamFrame>!
+A2A.Client.Streaming.StreamFrame
+A2A.Client.Streaming.StreamFrame.Id.get -> string?
+A2A.Client.Streaming.StreamFrame.Id.init -> void
+A2A.Client.Streaming.StreamFrame.Response.get -> A2A.StreamResponse!
+A2A.Client.Streaming.StreamFrame.Response.init -> void
+A2A.Client.Streaming.StreamFrame.StreamFrame() -> void
+A2A.Client.Streaming.StreamFrame.StreamFrame(A2A.StreamResponse! Response, string? Id) -> void
 A2A.Client.Transports.HttpJsonTransport
 A2A.Client.Transports.HttpJsonTransport.CancelTaskAsync(A2A.CancelTaskRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
 A2A.Client.Transports.HttpJsonTransport.CreateTaskPushNotificationConfigAsync(A2A.TaskPushNotificationConfig! config, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TaskPushNotificationConfig!>!

@@ -36,8 +36,13 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton(sp => new HttpPushNotificationSender(
             sp.GetRequiredKeyedService<HttpMessageInvoker>(HttpPushNotificationSender.InvokerServiceKey),
             sp.GetRequiredService<Storage.PushConfigStore>(), sp.GetRequiredService<IPushSecretProtector>(),
-            sp.GetRequiredService<A2AServerOptions>(), sp.GetService<Microsoft.Extensions.Logging.ILogger<HttpPushNotificationSender>>()));
+            sp.GetRequiredService<A2AServerOptions>(), sp.GetService<Microsoft.Extensions.Logging.ILogger<HttpPushNotificationSender>>(),
+            sp.GetService<TimeProvider>()));
         services.TryAddSingleton<IPushNotificationSender>(sp => sp.GetRequiredService<HttpPushNotificationSender>());
+        // The registered sender hears config changes only if it implements the listener; resolving it never builds the HTTP sender
+        // when a host has replaced IPushNotificationSender.
+        services.TryAddSingleton<IPushConfigChangeListener>(sp =>
+            sp.GetRequiredService<IPushNotificationSender>() as IPushConfigChangeListener ?? NoOpPushConfigChangeListener.Instance);
         services.TryAddSingleton<Pipeline.CallValidator>();
         services.TryAddSingleton<PushConfigService>();
         services.TryAddSingleton<Idempotency.IdempotencyCoordinator>();

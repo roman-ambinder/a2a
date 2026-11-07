@@ -3,14 +3,38 @@ using System.Runtime.CompilerServices;
 
 namespace A2A.Client.Streaming;
 
-/// <summary>One stream event with the SSE <c>id:</c> of its own frame (null when the frame had none).</summary>
-internal readonly record struct StreamFrame(StreamResponse Response, string? Id);
+/// <summary>One stream event together with the SSE <c>id:</c> of its own frame (null when the frame had none).</summary>
+/// <param name="Response">The stream event.</param>
+/// <param name="Id">The server event id of the frame, or null when the frame carried none. Only an id of the form <c>{taskId}:{sequence}</c> counts (see <see cref="IResumableTransport"/>). A transport whose frames never carry a usable id gets a full replay on every reconnect.</param>
+public readonly record struct StreamFrame(StreamResponse Response, string? Id);
 
-/// <summary>Implemented by this SDK's transports: streams that expose frame ids and can send <c>Last-Event-ID</c>.</summary>
-internal interface IResumableTransport
+/// <summary>
+/// Optional contract for a transport whose stream frames carry server event ids and which can send the last one back to
+/// resume. Implement it, next to <see cref="IA2AClient"/>, on a transport returned by an <see cref="IA2ATransportFactory"/>:
+/// <see cref="A2AClient"/> then reconnects dropped streams from the last cursor (<c>Last-Event-ID</c> on HTTP). A transport
+/// that does not implement it still works, but each reconnect subscribes again from the start.
+/// </summary>
+/// <remarks>
+/// A frame id is a cursor only when it has the form <c>{taskId}:{sequence}</c>, with a sequence of 1 or more and a task id
+/// equal to the id of the followed task (this SDK's servers send such ids). Any other id is treated as no id: it is never a
+/// cursor and does not count as progress. The client drops a frame whose sequence is not above the last one it yielded.
+/// <c>lastEventId</c> is the id of the last frame that had a valid cursor; the server must continue strictly after it.
+/// With opaque or missing ids there is no resume and no dedupe: the client reconnects with <c>lastEventId</c> null and
+/// events may be yielded again, starting with a task snapshot. Consumers of such peers must tolerate repeats.
+/// </remarks>
+public interface IResumableTransport
 {
+    /// <summary>Sends a message and streams the events as frames. Same as <see cref="IA2AClient.SendStreamingMessageAsync"/>, with each frame's event id.</summary>
+    /// <param name="request">The message request.</param>
+    /// <param name="options">Per-call options; use the same options on every reconnect.</param>
+    /// <param name="cancellationToken">Cancels the stream.</param>
     IAsyncEnumerable<StreamFrame> SendStreamingFramesAsync(SendMessageRequest request, A2ARequestOptions? options, CancellationToken cancellationToken);
 
+    /// <summary>Subscribes to a task and streams the events as frames, continuing after <paramref name="lastEventId"/> when it is set.</summary>
+    /// <param name="request">The subscribe request.</param>
+    /// <param name="options">Per-call options; the client passes the same options on every reconnect.</param>
+    /// <param name="lastEventId">The id of the last frame the client received, or null on the first subscribe. Send it to the server so it resumes after that event.</param>
+    /// <param name="cancellationToken">Cancels the stream.</param>
     IAsyncEnumerable<StreamFrame> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options, string? lastEventId, CancellationToken cancellationToken);
 }
 

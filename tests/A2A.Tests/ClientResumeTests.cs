@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using A2A.Client;
+using A2A.Client.Streaming;
 using A2A.Client.Transports;
 using Xunit;
 
@@ -441,6 +442,75 @@ public class ClientResumeTests
         await Assert.ThrowsAsync<IOException>(() => Collect(client.ObserveTaskAsync("t1")));
 
         Assert.Equal(6, handler.Calls.Count);
+    }
+
+    private sealed class ThirdPartyTransport : IA2AClient, IResumableTransport
+    {
+        public ConcurrentQueue<string?> LastEventIds { get; } = new();
+
+        IAsyncEnumerable<StreamFrame> IResumableTransport.SendStreamingFramesAsync(SendMessageRequest request, A2ARequestOptions? options, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        async IAsyncEnumerable<StreamFrame> IResumableTransport.SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options, string? lastEventId, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            LastEventIds.Enqueue(lastEventId);
+            // The second run replays t1:3: the server replays the cursor frame, and the client must drop it.
+            var frames = LastEventIds.Count == 1 ? Run.Take(3) : Run.Skip(2);
+            foreach (var f in frames) yield return new StreamFrame(Parse(f), f.Id);
+            if (LastEventIds.Count == 1) throw new IOException("connection reset");
+        }
+
+        public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("The client must use the resumable path.");
+
+        public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class ThirdPartyFactory(ThirdPartyTransport transport) : IA2ATransportFactory
+    {
+        public string ProtocolBinding => "X-THIRD-PARTY";
+        public bool CanCreate(AgentInterface agentInterface) => true;
+        public IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options) => transport;
+    }
+
+    [Fact]
+    public async Task Third_party_resumable_transport_gets_resume()
+    {
+        // Tests see internals; a third party does not. Check the contract is really public.
+        Assert.True(typeof(IResumableTransport).IsPublic);
+        Assert.True(typeof(StreamFrame).IsPublic);
+        var transport = new ThirdPartyTransport();
+        var options = new A2AClientOptions { TimeProvider = new FakeTimeProvider(), SupportedBindings = ["X-THIRD-PARTY"] };
+        options.TransportFactories.Add(new ThirdPartyFactory(transport));
+        var card = new AgentCard
+        {
+            Name = "third",
+            Description = "third party",
+            Version = "1",
+            DefaultInputModes = ["text/plain"],
+            DefaultOutputModes = ["text/plain"],
+            Skills = [],
+            Capabilities = new AgentCapabilities { Streaming = true },
+            SupportedInterfaces = [new AgentInterface { Url = "x://agent", ProtocolBinding = "X-THIRD-PARTY", ProtocolVersion = "1.0" }],
+        };
+        var client = A2AClientFactory.Create(card, new HttpClient(), options);
+
+        var events = await Collect(client.ObserveTaskAsync("t1"));
+
+        Assert.Equal(Run.Select(f => Describe(Parse(f))).ToList(), events.Select(Describe).ToList());
+        var ids = transport.LastEventIds.ToArray();
+        Assert.Equal(2, ids.Length);
+        Assert.Null(ids[0]);
+        Assert.Equal("t1:3", ids[1]);
     }
 
     private static StreamResponse Parse(Frame f) => A2A.Json.A2AJson.Deserialize<StreamResponse>(f.Json);

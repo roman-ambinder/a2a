@@ -23,3 +23,4 @@ A2A.Client.Grpc.GrpcTransportFactory.ProtocolBinding.get -> string!
 static A2A.Client.Grpc.A2AGrpcClientFactory.Create(A2A.AgentCard! card, A2A.Client.A2AClientOptions? options = null, Grpc.Net.Client.GrpcChannelOptions? channelOptions = null) -> A2A.Client.A2AClient!
 static A2A.Client.Grpc.A2AGrpcClientOptionsExtensions.UseGrpc(this A2A.Client.A2AClientOptions! options, Grpc.Net.Client.GrpcChannelOptions? channelOptions = null) -> A2A.Client.A2AClientOptions!
 static A2A.Client.Grpc.GrpcTransport.ParseAddress(string! url) -> System.Uri!
+static A2A.Client.Grpc.A2AGrpcClientFactory.CreateAsync(System.Uri! agentUrl, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions? options = null, Grpc.Net.Client.GrpcChannelOptions? channelOptions = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.A2AClient!>!

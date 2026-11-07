@@ -86,4 +86,10 @@ public sealed class StreamingOptions
 
     /// <summary>Interval for SSE keep-alive comments while a stream is idle. Default 15 seconds. Zero disables.</summary>
     public TimeSpan KeepAliveInterval { get; set; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// Capacity of each per-task bounded event channel, such as the push delivery queue of a task. Default 256. When a channel
+    /// is full, the producer is not blocked and no event is dropped: later events wait, in order, until the consumer catches up.
+    /// </summary>
+    public int ChannelCapacity { get; set; } = 256;
 }

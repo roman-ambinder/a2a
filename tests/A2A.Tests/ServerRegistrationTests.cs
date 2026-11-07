@@ -65,4 +65,54 @@ public sealed class ServerRegistrationTests
         Assert.Null(sp.GetService<HttpMessageInvoker>());
         Assert.NotNull(sp.GetRequiredKeyedService<HttpMessageInvoker>(HttpPushNotificationSender.InvokerServiceKey));
     }
+
+    private class CustomSender : IPushNotificationSender
+    {
+        public void Enqueue(TaskKey task, SequencedEvent evt) { }
+    }
+
+    private sealed class ListeningSender : CustomSender, IPushConfigChangeListener
+    {
+        public List<TaskKey> Changed { get; } = [];
+        public void ConfigChanged(TaskKey key) => Changed.Add(key);
+    }
+
+    private static TaskPushNotificationConfig Hook() => new() { Id = "c1", TaskId = "t1", Url = "https://hooks.example/cb" };
+
+    [Fact]
+    public async Task Custom_sender_that_listens_is_told_about_config_changes()
+    {
+        var custom = new ListeningSender();
+        var services = new ServiceCollection();
+        services.AddSingleton<IPushNotificationSender>(custom);
+        services.AddA2AServer(o => o.PushNotifications.AllowPrivateNetworks = true);
+        using var sp = services.BuildServiceProvider();
+
+        var key = new TaskKey("", "alice", "t1");
+        await sp.GetRequiredService<PushConfigService>().CreateAsync(key, Hook(), default);
+
+        Assert.Same(custom, sp.GetRequiredService<IPushConfigChangeListener>());
+        Assert.Equal([key], custom.Changed);
+    }
+
+    [Fact]
+    public async Task Custom_sender_that_does_not_listen_never_builds_the_http_sender()
+    {
+        var invokers = 0;
+        var services = new ServiceCollection();
+        services.AddSingleton<IPushNotificationSender>(new CustomSender());
+        services.AddKeyedSingleton(HttpPushNotificationSender.InvokerServiceKey, (_, _) =>
+        {
+            Interlocked.Increment(ref invokers); // built only when HttpPushNotificationSender is constructed
+            return new HttpMessageInvoker(new Throwing());
+        });
+        services.AddA2AServer(o => o.PushNotifications.AllowPrivateNetworks = true);
+        using var sp = services.BuildServiceProvider();
+
+        var listener = sp.GetRequiredService<IPushConfigChangeListener>();
+        await sp.GetRequiredService<PushConfigService>().CreateAsync(new TaskKey("", "alice", "t1"), Hook(), default);
+
+        Assert.IsNotType<HttpPushNotificationSender>(listener);
+        Assert.Equal(0, invokers);
+    }
 }
