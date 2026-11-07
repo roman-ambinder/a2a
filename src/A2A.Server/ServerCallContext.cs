@@ -13,6 +13,28 @@ public sealed class ServerCallContext
 
     public ClaimsPrincipal? User { get; init; }
 
+    /// <summary>
+    /// The caller's IP address as the binding saw it (ASP.NET Core: <c>HttpContext.Connection.RemoteIpAddress</c>), or null
+    /// when unknown. Behind a reverse proxy this is the proxy's address unless the host enables the ForwardedHeaders middleware.
+    /// </summary>
+    public string? RemoteAddress { get; init; }
+
+    /// <summary>
+    /// The caller's key for per-caller limits (rate limit, open streams): see <see cref="LimitPartitionFor"/>. Task, context
+    /// and push config ownership use <see cref="Principal"/> instead.
+    /// </summary>
+    public string LimitPartition => LimitPartitionFor(Principal, RemoteAddress);
+
+    /// <summary>
+    /// The key for per-caller limits: <c>user:{principal}</c> for an authenticated caller, and <c>anon:{remoteAddress}</c>
+    /// (<c>anon:unknown</c> without an address) for <see cref="AnonymousPrincipal"/>, so anonymous callers do not share one
+    /// budget. The prefixes keep a principal id from colliding with an address key.
+    /// </summary>
+    public static string LimitPartitionFor(string principal, string? remoteAddress) =>
+        string.Equals(principal, AnonymousPrincipal, StringComparison.Ordinal)
+            ? "anon:" + (string.IsNullOrEmpty(remoteAddress) ? "unknown" : remoteAddress)
+            : "user:" + principal;
+
     public bool IsAuthenticated => User?.Identity?.IsAuthenticated == true;
 
     /// <summary>Tenant of the request (path segment or <c>tenant</c> field). Never null; <c>""</c> is the default tenant. Compared ordinally.</summary>

@@ -14,13 +14,15 @@ internal sealed class StreamAdmission(A2ALimits limits)
 
     /// <summary>
     /// Takes a slot for a stream of <paramref name="task"/>. Dispose the result to give it back. The task counter is keyed
-    /// by the owner too, so another caller's streams never affect (or reveal) this caller's task.
+    /// by the owner too, so another caller's streams never affect (or reveal) this caller's task. The per-caller counter is
+    /// keyed by <paramref name="callerPartition"/> (<see cref="ServerCallContext.LimitPartition"/>): anonymous callers count
+    /// per remote address.
     /// </summary>
     /// <exception cref="A2AException">RATE_LIMITED when a limit is reached.</exception>
-    public IDisposable Enter(TaskKey task)
+    public IDisposable Enter(TaskKey task, string callerPartition)
     {
-        var principal = $"{task.Tenant}\u001f{task.Owner}";
-        var taskKey = $"{principal}\u001f{task.TaskId}";
+        var principal = $"{task.Tenant}\u001f{callerPartition}";
+        var taskKey = $"{task.Tenant}\u001f{task.Owner}\u001f{task.TaskId}";
         lock (_gate)
         {
             if (Count(_perTask, taskKey) >= limits.MaxConcurrentStreamsPerTask || Count(_perPrincipal, principal) >= limits.MaxConcurrentStreamsPerPrincipal)

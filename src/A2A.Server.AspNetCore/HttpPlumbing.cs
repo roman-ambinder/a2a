@@ -42,6 +42,7 @@ internal static class HttpPlumbing
         {
             User = user,
             Principal = principal,
+            RemoteAddress = http.Connection.RemoteIpAddress?.ToString(),
             ProtocolVersion = string.IsNullOrWhiteSpace(version) ? null : version,
             RequestedExtensions = extensions,
             IdempotencyKey = string.IsNullOrEmpty(idempotencyKey) ? null : idempotencyKey,

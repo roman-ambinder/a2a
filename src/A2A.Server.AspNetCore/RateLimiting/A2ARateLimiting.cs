@@ -29,13 +29,19 @@ public static class A2ARateLimitingExtensions
     public const string PolicyName = "a2a";
 
     /// <summary>
-    /// Registers the ASP.NET Core rate limiter policy <c>"a2a"</c>: a token bucket per <c>"{tenant}|{principal}"</c>
-    /// (20 requests burst, 60 per minute by default). <c>MapA2A</c> applies it unless
+    /// Registers the ASP.NET Core rate limiter policy <c>"a2a"</c>: a token bucket per tenant and caller
+    /// (20 requests burst, 60 per minute by default). The caller is the principal, or for an anonymous caller its remote IP
+    /// address (<c>HttpContext.Connection.RemoteIpAddress</c>). <c>MapA2A</c> applies it unless
     /// <see cref="A2AServerOptions.EnableRateLimiting"/> is false. A rejected request gets HTTP 429 with a <c>Retry-After</c>
     /// header and the <c>RATE_LIMITED</c> error, in the format of the binding. <c>AddA2AServerAspNetCore</c> calls this with
     /// the defaults; call it again to change them. The host must add the middleware with <c>app.UseA2A()</c>.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// Behind a reverse proxy or load balancer every connection comes from the proxy, so all anonymous callers would share
+    /// the proxy's bucket. Enable the ForwardedHeaders middleware (<c>app.UseForwardedHeaders()</c> with the proxy listed in
+    /// <c>ForwardedHeadersOptions.KnownProxies</c> or <c>KnownNetworks</c>) before <c>UseA2A()</c>, so the remote address is the client's.
+    /// </para>
     /// To replace the policy, register your own under the same name, for example
     /// <c>services.AddRateLimiter(o =&gt; o.AddPolicy("a2a", ...))</c>. The default is then skipped (no duplicate-name exception,
     /// whatever the registration order) and yours is applied by <c>MapA2A</c>. To drop rate limiting, set
@@ -84,10 +90,11 @@ internal sealed class A2ARateLimitMarker
 }
 
 /// <summary>
-/// The <c>"a2a"</c> policy. The partition is <c>"{tenant}|{principal}"</c>, computed from the <see cref="HttpContext"/> with the
-/// same resolvers the endpoints use (the rate limiter runs before the A2A endpoint builds its call context).
-/// Unauthenticated callers share the principal <see cref="ServerCallContext.AnonymousPrincipal"/>. Every request also draws from
-/// a bucket per principal alone (same settings), so one caller cannot get more by spreading requests over tenants.
+/// The <c>"a2a"</c> policy. The partition is <c>"{tenant}|{caller}"</c>, where the caller is
+/// <see cref="ServerCallContext.LimitPartitionFor"/>: the principal, computed from the <see cref="HttpContext"/> with the same
+/// resolvers the endpoints use (the rate limiter runs before the A2A endpoint builds its call context), or for an
+/// unauthenticated caller its remote IP address, so anonymous callers do not share one bucket. Every request also draws
+/// from a bucket per caller alone (same settings), so one caller cannot get more by spreading requests over tenants.
 /// </summary>
 internal sealed class A2ARateLimiterPolicy(IOptions<A2ARateLimitOptions> options, ITenantResolver tenants, IPrincipalResolver principals)
     : IRateLimiterPolicy<string>, IDisposable
@@ -118,8 +125,9 @@ internal sealed class A2ARateLimiterPolicy(IOptions<A2ARateLimitOptions> options
             var resolved = principals.Resolve(httpContext.User);
             if (!string.IsNullOrEmpty(resolved)) principal = resolved;
         }
-        return RateLimitPartition.Get($"{tenant}|{principal}",
-            _ => new TenantAndPrincipalLimiter(new TokenBucketRateLimiter(Bucket(_options)), _perPrincipal, principal));
+        var caller = ServerCallContext.LimitPartitionFor(principal, httpContext.Connection.RemoteIpAddress?.ToString());
+        return RateLimitPartition.Get($"{tenant}|{caller}",
+            _ => new TenantAndPrincipalLimiter(new TokenBucketRateLimiter(Bucket(_options)), _perPrincipal, caller));
     }
 
     private ValueTask RejectAsync(OnRejectedContext context, CancellationToken cancellationToken)

@@ -275,7 +275,7 @@ public sealed class A2ARequestHandler : IDisposable
         IDisposable slot;
         try
         {
-            slot = _admission.Enter(Key(call, taskId));
+            slot = _admission.Enter(Key(call, taskId), call.LimitPartition);
         }
         catch
         {
@@ -802,7 +802,7 @@ public sealed class A2ARequestHandler : IDisposable
         if (resumeAfter is null && record.Task.Status.State.IsTerminal())
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "Cannot subscribe to a task in a terminal state.") { Metadata = new() { ["taskId"] = request.Id } };
 
-        using var slot = _admission.Enter(key);
+        using var slot = _admission.Enter(key, call.LimitPartition);
         using var sub = _bus.Subscribe(ScopeKey(call.Tenant, request.Id));
         // Read the starting point after subscribing, so every later event reaches the subscription (spec §3.1.6).
         var start = await ReadStartAsync(key, cancellationToken).ConfigureAwait(false);

@@ -35,7 +35,10 @@ public sealed class A2ALimits
     /// </summary>
     public int MaxConcurrentStreamsPerTask { get; set; } = 10;
 
-    /// <summary>Most concurrent streams per caller (tenant and principal). More is RATE_LIMITED. Default 50.</summary>
+    /// <summary>
+    /// Most concurrent streams per caller (tenant and principal; for anonymous callers, tenant and remote IP address, see
+    /// <see cref="ServerCallContext.LimitPartition"/>). More is RATE_LIMITED. Default 50.
+    /// </summary>
     public int MaxConcurrentStreamsPerPrincipal { get; set; } = 50;
 
     /// <summary>
