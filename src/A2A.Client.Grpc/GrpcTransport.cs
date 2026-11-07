@@ -259,33 +259,72 @@ public sealed class GrpcTransport : IA2AClient, IDisposable
     public void Dispose() => _ownedChannel?.Dispose();
 }
 
-/// <summary>Creates gRPC clients from Agent Cards.</summary>
+/// <summary>
+/// Lets <see cref="A2AClientFactory"/> select gRPC interfaces. Add it with
+/// <see cref="A2AGrpcClientOptionsExtensions.UseGrpc"/>. Each created transport owns its own <see cref="GrpcChannel"/>.
+/// </summary>
+public sealed class GrpcTransportFactory(GrpcChannelOptions? channelOptions = null) : IA2ATransportFactory
+{
+    public string ProtocolBinding => ProtocolBindings.Grpc;
+
+    public bool CanCreate(AgentInterface agentInterface)
+    {
+        ArgumentNullException.ThrowIfNull(agentInterface);
+        if (string.IsNullOrWhiteSpace(agentInterface.Url)) return false;
+        try { _ = GrpcTransport.ParseAddress(agentInterface.Url); return true; }
+        catch (UriFormatException) { return false; }
+    }
+
+    /// <summary>Creates a transport with its own channel. <paramref name="httpClient"/> is not used: gRPC needs its own HTTP/2 handler.</summary>
+    public IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options) =>
+        new GrpcTransport(GrpcTransport.ParseAddress(agentInterface.Url), options, channelOptions);
+}
+
+/// <summary>Registers the gRPC transport on <see cref="A2AClientOptions"/>.</summary>
+public static class A2AGrpcClientOptionsExtensions
+{
+    /// <summary>
+    /// Adds <see cref="GrpcTransportFactory"/> and GRPC to <see cref="A2AClientOptions.SupportedBindings"/>, so
+    /// <see cref="A2AClientFactory"/> may select a gRPC interface. The card's interface order still decides (spec §8.3.2).
+    /// </summary>
+    public static A2AClientOptions UseGrpc(this A2AClientOptions options, GrpcChannelOptions? channelOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.TransportFactories.Add(new GrpcTransportFactory(channelOptions));
+        if (!options.SupportedBindings.Contains(ProtocolBindings.Grpc)) options.SupportedBindings.Add(ProtocolBindings.Grpc);
+        return options;
+    }
+}
+
+/// <summary>Creates gRPC-only clients from Agent Cards.</summary>
 public static class A2AGrpcClientFactory
 {
     /// <summary>
     /// Builds a client for the first interface in the card's order whose binding is GRPC and whose major version matches.
-    /// Sets the tenant from that interface. Throws UnsupportedOperation if the card declares no usable gRPC interface.
+    /// Throws UnsupportedOperation if the card declares no usable gRPC interface. To let the card choose among all
+    /// bindings, use <see cref="A2AClientFactory"/> with <see cref="A2AGrpcClientOptionsExtensions.UseGrpc"/>.
     /// </summary>
     public static A2AClient Create(AgentCard card, A2AClientOptions? options = null, GrpcChannelOptions? channelOptions = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         var src = options ?? new A2AClientOptions();
-        options = new A2AClientOptions
+        var grpcOnly = new A2AClientOptions
         {
             ProtocolVersion = src.ProtocolVersion,
             Extensions = new List<string>(src.Extensions),
             Tenant = src.Tenant,
-            SupportedBindings = new List<string>(src.SupportedBindings),
             RestSubscribeMethod = src.RestSubscribeMethod,
             ValidateCapabilities = src.ValidateCapabilities,
             MaxRetries = src.MaxRetries,
             TimeProvider = src.TimeProvider,
-        };
-        var major = options.ProtocolVersion.Split('.')[0];
-        var itf = card.SupportedInterfaces?.FirstOrDefault(i =>
-                      i.ProtocolBinding == ProtocolBindings.Grpc && (i.ProtocolVersion ?? "").Split('.')[0] == major)
-                  ?? throw new A2AException(A2AErrorCode.UnsupportedOperation, $"Agent Card '{card.Name}' declares no gRPC interface for v{major}.x.");
-        if (!string.IsNullOrEmpty(itf.Tenant)) options.Tenant = itf.Tenant;
-        return new A2AClient(new GrpcTransport(GrpcTransport.ParseAddress(itf.Url), options, channelOptions), options, card);
+            SupportedBindings = new List<string>(),
+        }.UseGrpc(channelOptions);
+        if (A2AClientFactory.SelectInterface(card, grpcOnly) is null)
+            throw new A2AException(A2AErrorCode.UnsupportedOperation,
+                $"Agent Card '{card.Name}' declares no gRPC interface for v{grpcOnly.ProtocolVersion.Split('.')[0]}.x.");
+        // The gRPC transport never touches the HttpClient.
+        return A2AClientFactory.Create(card, NoHttp, grpcOnly);
     }
+
+    private static readonly HttpClient NoHttp = new();
 }

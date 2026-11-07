@@ -1,4 +1,5 @@
 using System.Text.Json;
+using A2A.Client;
 using A2A.Client.Grpc;
 using Grpc.Core;
 using Pb = Lf.A2a.V1;
@@ -251,5 +252,47 @@ public class GrpcBindingTests : IAsyncLifetime
         var bad = new Pb.SendMessageRequest { Message = new Pb.Message { MessageId = "m", Role = Pb.Role.User } };
         var ex = await Assert.ThrowsAsync<RpcException>(() => _host.Raw().SendMessageAsync(bad, new Metadata { { "a2a-version", "1.0" } }).ResponseAsync);
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+    }
+}
+
+/// <summary>Selecting gRPC from the Agent Card through <see cref="A2AClientFactory"/> and <see cref="A2AGrpcClientFactory"/>.</summary>
+public class GrpcClientFactoryTests
+{
+    [Fact]
+    public void Factory_selects_grpc_only_when_enabled()
+    {
+        var card = GrpcHost.Card();
+        card.SupportedInterfaces =
+        [
+            new AgentInterface { Url = "grpc.example.com:50051", ProtocolBinding = ProtocolBindings.Grpc },
+            new AgentInterface { Url = "https://agent.example.com/a2a", ProtocolBinding = ProtocolBindings.JsonRpc },
+        ];
+
+        Assert.Equal(ProtocolBindings.JsonRpc, A2AClientFactory.SelectInterface(card, new A2AClientOptions())!.ProtocolBinding);
+        var withGrpc = new A2AClientOptions().UseGrpc();
+        Assert.Equal(ProtocolBindings.Grpc, A2AClientFactory.SelectInterface(card, withGrpc)!.ProtocolBinding);
+
+        using var http = new HttpClient();
+        Assert.NotNull(A2AClientFactory.Create(card, http, withGrpc));
+    }
+
+    [Fact]
+    public void Grpc_only_factory_rejects_cards_without_grpc()
+    {
+        var card = GrpcHost.Card();
+        card.SupportedInterfaces = [new AgentInterface { Url = "https://agent.example.com/a2a", ProtocolBinding = ProtocolBindings.JsonRpc }];
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, Assert.Throws<A2AException>(() => A2AGrpcClientFactory.Create(card)).Code);
+    }
+
+    [Fact]
+    public async Task Idempotency_key_option_deduplicates_end_to_end()
+    {
+        await using var host = await GrpcHost.StartAsync();
+        var client = host.Client();
+        var options = new A2ARequestOptions { IdempotencyKey = "key-1" };
+        var message = Message.FromUser("task");
+        var first = Assert.IsType<TaskResponse>(await client.SendMessageAsync(message, options: options)).Task;
+        var again = Assert.IsType<TaskResponse>(await client.SendMessageAsync(message, options: options)).Task;
+        Assert.Equal(first.Id, again.Id);
     }
 }

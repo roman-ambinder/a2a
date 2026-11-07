@@ -29,9 +29,10 @@ void Expect(bool condition, string what)
 }
 
 using var http = new HttpClient();
-var client = binding == ProtocolBindings.Grpc
-    ? A2AGrpcClientFactory.Create(await new A2ACardResolver(http).GetAgentCardAsync(agentUrl))
-    : await A2AClientFactory.CreateAsync(agentUrl, http, new A2AClientOptions { SupportedBindings = [binding] });
+// One code path for every binding: the factory picks the card's interface for the requested binding.
+var clientOptions = new A2AClientOptions { SupportedBindings = [binding] };
+if (binding == ProtocolBindings.Grpc) clientOptions.UseGrpc();
+var client = await A2AClientFactory.CreateAsync(agentUrl, http, clientOptions);
 Console.WriteLine($"# .NET client -> {client.AgentCard!.Name} via {binding}");
 
 await Check("direct message reply", async () =>
