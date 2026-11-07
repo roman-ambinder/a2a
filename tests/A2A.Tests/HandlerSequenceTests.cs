@@ -6,21 +6,34 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.Tests;
 
-/// <summary>Emits artifacts from both ExecuteAsync and CancelAsync, so two executions append to one task at the same time.</summary>
+/// <summary>
+/// Emits artifacts from both ExecuteAsync and CancelAsync, so two executions append to one task at the same time.
+/// ExecuteAsync keeps emitting until CancelAsync has started (plus a few more), so the overlap does not depend on timing.
+/// </summary>
 public sealed class InterleavingAgent : IAgentExecutor
 {
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource> CancelStarted = new();
+
+    private static TaskCompletionSource Signal(string taskId) =>
+        CancelStarted.GetOrAdd(taskId, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+
     public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct)
     {
+        var cancelStarted = Signal(updater.TaskId);
         await updater.StartWorkAsync(cancellationToken: default);
-        for (var i = 0; i < 60; i++)
+        var extra = 0;
+        for (var i = 0; i < 20_000 && extra < 30; i++) // the cap only bounds a test that never cancels
         {
             await updater.AddArtifactAsync([Part.FromText("x")], artifactId: $"e{i}", cancellationToken: default);
             await Task.Delay(1);
+            if (i >= 60 && cancelStarted.Task.IsCompleted) extra++;
         }
+        CancelStarted.TryRemove(updater.TaskId, out _);
     }
 
     public async Task CancelAsync(AgentTask task, TaskUpdater updater, CancellationToken ct)
     {
+        Signal(task.Id).TrySetResult();
         for (var i = 0; i < 60; i++)
         {
             await updater.AddArtifactAsync([Part.FromText("c")], artifactId: $"c{i}", cancellationToken: default);
@@ -48,7 +61,7 @@ public class HandlerSequenceTests
     [Fact]
     public async Task Concurrent_executions_publish_in_sequence_order_to_subscribers_and_push()
     {
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddScoped<IAgentExecutor, InterleavingAgent>());
+        await using var host = await TestAgentHost.StartAsync(o => o.CancelGracePeriod = TimeSpan.FromSeconds(60), services: s => s.AddScoped<IAgentExecutor, InterleavingAgent>());
         for (var round = 0; round < 8; round++)
         {
             var route = $"seq{round}";

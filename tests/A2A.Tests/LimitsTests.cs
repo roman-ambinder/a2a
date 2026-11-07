@@ -273,7 +273,7 @@ public class LimitsTests
     [MemberData(nameof(Bindings))]
     public async Task Rate_limit_returns_429_with_retry_after(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2ARateLimiting(o => o.TokenLimit = 2));
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2ARateLimiting(o => { o.TokenLimit = 2; o.TokensPerPeriod = 1; o.ReplenishmentPeriod = TimeSpan.FromHours(1); }));
         for (var i = 0; i < 2; i++)
             Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Send(host, GetTaskRequest(binding))).Status);
 
@@ -289,7 +289,7 @@ public class LimitsTests
     [MemberData(nameof(Bindings))]
     public async Task Rate_limit_partitions_by_principal(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2ARateLimiting(o => o.TokenLimit = 2));
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2ARateLimiting(o => { o.TokenLimit = 2; o.TokensPerPeriod = 1; o.ReplenishmentPeriod = TimeSpan.FromHours(1); }));
         for (var i = 0; i < 2; i++) await Send(host, GetTaskRequest(binding, "alice"));
         Assert.Equal(HttpStatusCode.TooManyRequests, (await Send(host, GetTaskRequest(binding, "alice"))).Status);
         Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Send(host, GetTaskRequest(binding, "bob"))).Status);
@@ -298,7 +298,7 @@ public class LimitsTests
     [Fact]
     public async Task Rate_limit_cannot_be_bypassed_by_varying_the_tenant()
     {
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2ARateLimiting(o => o.TokenLimit = 2));
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2ARateLimiting(o => { o.TokenLimit = 2; o.TokensPerPeriod = 1; o.ReplenishmentPeriod = TimeSpan.FromHours(1); }));
         HttpRequestMessage Req(string tenant, string user)
         {
             var r = new HttpRequestMessage(HttpMethod.Get, $"/a2a/{tenant}/tasks/nope");
@@ -333,7 +333,7 @@ public class LimitsTests
     public async Task Rate_limit_can_be_disabled(string binding)
     {
         await using var host = await TestAgentHost.StartAsync(o => o.EnableRateLimiting = false, useA2A: false,
-            services: s => s.AddA2ARateLimiting(o => o.TokenLimit = 1));
+            services: s => s.AddA2ARateLimiting(o => { o.TokenLimit = 1; o.TokensPerPeriod = 1; o.ReplenishmentPeriod = TimeSpan.FromHours(1); }));
         for (var i = 0; i < 5; i++)
             Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Send(host, GetTaskRequest(binding))).Status);
     }
