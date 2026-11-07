@@ -240,7 +240,8 @@ public sealed class A2ARequestHandler : IDisposable
         if (string.IsNullOrEmpty(requested))
         {
             var created = await _tasks.GetOrCreateContextAsync(
-                new ContextRecord(call.Tenant, call.Principal, Guid.NewGuid().ToString(), DateTimeOffset.UtcNow), ct).ConfigureAwait(false);
+                new ContextRecord(call.Tenant, call.Principal, TaskIds.New(), DateTimeOffset.UtcNow), ct).ConfigureAwait(false);
+            if (!string.Equals(created.Owner, call.Principal, StringComparison.Ordinal)) throw A2AException.InvalidParams(NotFound);
             return created.ContextId;
         }
 

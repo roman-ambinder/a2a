@@ -10,16 +10,26 @@ public sealed class FlakyTaskStore : TaskStore
 {
     private readonly InMemoryTaskStore _inner = new();
     private int _failures;
+    private int _cancelBeforeConflict;
+
+    /// <summary>The next update first cancels the stored task behind the caller's back, then conflicts.</summary>
+    public void CancelThenConflictOnNextUpdate() => Volatile.Write(ref _cancelBeforeConflict, 1);
 
     public void FailNextUpdates(int count) => Volatile.Write(ref _failures, count);
 
     public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) => _inner.GetAsync(key, ct);
     public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => _inner.CreateAsync(record, ct);
 
-    public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default)
+    public override async ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default)
     {
+        if (Interlocked.Exchange(ref _cancelBeforeConflict, 0) == 1)
+        {
+            var stored = (await _inner.GetAsync(record.Key, ct))!;
+            await _inner.UpdateAsync(WithState(stored, TaskState.Canceled), stored.Version, ct);
+            throw new ConcurrencyException(record.Key, expectedVersion);
+        }
         if (Interlocked.Decrement(ref _failures) >= 0) throw new ConcurrencyException(record.Key, expectedVersion);
-        return _inner.UpdateAsync(record, expectedVersion, ct);
+        return await _inner.UpdateAsync(record, expectedVersion, ct);
     }
 
     public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => _inner.ListAsync(query, ct);
@@ -135,7 +145,7 @@ public class TaskLifecycleTests
     {
         var store = new FlakyTaskStore();
         await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(store));
-        store.FailNextUpdates(1); // the first event's update conflicts once
+        store.FailNextUpdates(3); // the first event's update conflicts three times, the last allowed retry lands
         var task = (await host.Client(binding).SendMessageAsync("task")).Task!;
         Assert.Equal(TaskState.Completed, task.Status.State);
         Assert.Single(task.Artifacts!);
@@ -154,6 +164,35 @@ public class TaskLifecycleTests
         var second = (await client.SendMessageAsync("more", first.ContextId, first.Id)).Task!;
         Assert.Equal(TaskState.Completed, second.Status.State);
         Assert.Equal("got: more", second.Status.Message!.GetText());
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Follow_up_message_gives_up_after_too_many_conflicts_with_generic_error(string binding)
+    {
+        var store = new FlakyTaskStore();
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(store));
+        var client = host.Client(binding);
+        var first = (await client.SendMessageAsync("input")).Task!;
+        await host.WaitIdleAsync();
+        store.FailNextUpdates(4); // initial attempt + 3 retries all conflict
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync("more", first.ContextId, first.Id));
+        Assert.Equal(A2AErrorCode.Internal, ex.Code);
+        Assert.DoesNotContain("ConcurrencyException", ex.Message);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Event_is_dropped_when_reloaded_task_is_already_terminal(string binding)
+    {
+        var store = new FlakyTaskStore();
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(store));
+        store.CancelThenConflictOnNextUpdate();
+        var task = (await host.Client(binding).SendMessageAsync("task")).Task!;
+        await host.WaitIdleAsync();
+        var stored = await host.Client(binding).GetTaskAsync(task.Id);
+        Assert.Equal(TaskState.Canceled, stored.Status.State);
+        Assert.Null(stored.Artifacts);
     }
 
     [Fact]

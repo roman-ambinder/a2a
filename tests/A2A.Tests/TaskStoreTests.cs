@@ -175,15 +175,25 @@ public class TaskStoreTests
     [Fact]
     public async Task Parallel_updates_with_same_version_have_exactly_one_winner()
     {
-        var s = new InMemoryTaskStore();
-        var r = await s.CreateAsync(NewRecord("t", "a", "id1"));
-        var results = await Task.WhenAll(Enumerable.Range(0, 10).Select(async _ =>
+        for (var round = 0; round < 50; round++)
         {
-            try { await s.UpdateAsync(WithState(r, TaskState.Working), 1); return true; }
-            catch (ConcurrencyException) { return false; }
-        }));
-        Assert.Equal(1, results.Count(ok => ok));
-        Assert.Equal(9, results.Count(ok => !ok));
-        Assert.Equal(2, (await s.GetAsync(r.Key))!.Version);
+            var s = new InMemoryTaskStore();
+            var r = await s.CreateAsync(NewRecord("t", "a", "id1"));
+            using var ready = new CountdownEvent(10);
+            using var go = new ManualResetEventSlim(false);
+            var tasks = Enumerable.Range(0, 10).Select(_ => Task.Run(async () =>
+            {
+                ready.Signal();
+                go.Wait();
+                try { await s.UpdateAsync(WithState(r, TaskState.Working), 1); return true; }
+                catch (ConcurrencyException) { return false; }
+            })).ToArray();
+            ready.Wait();
+            go.Set();
+            var results = await Task.WhenAll(tasks);
+            Assert.Equal(1, results.Count(ok => ok));
+            Assert.Equal(9, results.Count(ok => !ok));
+            Assert.Equal(2, (await s.GetAsync(r.Key))!.Version);
+        }
     }
 }
