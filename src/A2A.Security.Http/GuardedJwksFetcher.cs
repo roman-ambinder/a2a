@@ -8,7 +8,9 @@ namespace A2A.Security.Http;
 /// Fetches <c>jku</c> key sets through the SSRF guard: by default over a client whose connections to private, loopback and
 /// link-local addresses are refused at connect time, without redirects, with a 10 second timeout and a 256 KiB size cap.
 /// </summary>
-/// <param name="invoker">Sends the requests. <see langword="null"/> uses a shared guarded client. Supply one only for tests or a custom egress policy.</param>
+/// <param name="invoker">Sends the requests. <see langword="null"/> uses a shared guarded client. A supplied invoker replaces the
+/// guarded handler: the private-address block, the no-redirect rule and the no-proxy rule are then the caller's responsibility.
+/// Supply one only for tests or a custom egress policy.</param>
 public sealed class GuardedJwksFetcher(HttpMessageInvoker? invoker = null) : IJwksFetcher
 {
     private const int MaxJwksBytes = 256 * 1024;
@@ -31,14 +33,22 @@ public sealed class GuardedJwksFetcher(HttpMessageInvoker? invoker = null) : IJw
             throw new HttpRequestException($"JWKS fetch returned {(int)response.StatusCode}.", null, response.StatusCode);
         if (response.Content.Headers.ContentLength > MaxJwksBytes) throw TooLarge();
 
-        await using var body = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
         using var buffer = new MemoryStream();
-        var chunk = new byte[8192];
-        int read;
-        while ((read = await body.ReadAsync(chunk, timeout.Token).ConfigureAwait(false)) > 0)
+        try
         {
-            if (buffer.Length + read > MaxJwksBytes) throw TooLarge();
-            buffer.Write(chunk, 0, read);
+            await using var body = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
+            var chunk = new byte[8192];
+            int read;
+            while ((read = await body.ReadAsync(chunk, timeout.Token).ConfigureAwait(false)) > 0)
+            {
+                if (buffer.Length + read > MaxJwksBytes) throw TooLarge();
+                buffer.Write(chunk, 0, read);
+            }
+        }
+        catch (IOException ex)
+        {
+            // HttpClient.GetByteArrayAsync used to wrap these; callers filter on HttpRequestException.
+            throw new HttpRequestException("JWKS fetch failed.", ex);
         }
         return JsonSerializer.Deserialize(buffer.ToArray(), A2AJson.GetTypeInfo<JwkSet>()) ?? new JwkSet();
     }

@@ -443,6 +443,64 @@ public class CardTrustTests
     }
 
     [Fact]
+    public async Task Body_read_io_error_is_unverified_and_negatively_cached()
+    {
+        var key = NewKey("k1", "https://keys.example/jwks.json");
+        var handler = new BrokenBodyHandler();
+        var policy = new CardTrustPolicy();
+        policy.AllowJkuHost(Origin, "keys.example");
+        var verifier = new AgentCardVerifier(policy, new GuardedJwksFetcher(new HttpMessageInvoker(handler)));
+
+        var first = await verifier.VerifyAsync(Signed(key), CardUri);
+        var second = await verifier.VerifyAsync(Signed(key), CardUri);
+
+        Assert.Equal(AgentCardVerificationStatus.Unverified, first.Status);
+        Assert.Contains("jku fetch failed", first.Reason);
+        Assert.Equal(AgentCardVerificationStatus.Unverified, second.Status);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task Resolver_reads_the_jku_allowlist_live()
+    {
+        var key = NewKey("k1", "https://keys.example/jwks.json");
+        CardTrustPolicy? trust = null;
+        var resolver = Resolver(new CardServer(Signed(key)), o => trust = o.Trust, new JwksServer(Set(key)));
+
+        trust!.AllowJkuHost(Origin, "keys.example");
+        var resolved = await resolver.ResolveAsync(AgentUrl);
+
+        Assert.Equal(AgentCardVerificationStatus.Verified, resolved.Verification.Status);
+    }
+
+    private sealed class BrokenBodyHandler : HttpMessageHandler
+    {
+        public int Calls;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref Calls);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new ThrowingStream()) });
+        }
+    }
+
+    private sealed class ThrowingStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new IOException("connection reset");
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            throw new IOException("connection reset");
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Fact]
     public async Task Verifier_without_a_fetcher_does_not_fetch_jku_keys()
     {
         var key = NewKey("k1", "https://keys.example/jwks.json");

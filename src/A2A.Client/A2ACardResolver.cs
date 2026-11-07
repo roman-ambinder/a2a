@@ -110,9 +110,9 @@ public sealed class A2ACardResolver
         ArgumentNullException.ThrowIfNull(_options.Trust, "options.Trust");
         ArgumentNullException.ThrowIfNull(_options.PinStore, "options.PinStore");
         ArgumentOutOfRangeException.ThrowIfLessThan(_options.MaxCardTextLength, 1, "options.MaxCardTextLength");
-        // jku targets are chosen by the card, so they are fetched through the SSRF guard; no allowlisted host means no fetch at all.
-        _verifier = new AgentCardVerifier(_options.Trust,
-            _options.Trust.AllowedJkuHosts.Count > 0 ? new GuardedJwksFetcher(_options.JwksHttpClient) : null);
+        // jku targets are chosen by the card, so they are fetched through the SSRF guard. The policy is mutable and read live;
+        // the verifier's per-origin allowlist check still prevents any fetch for a host nobody allowed.
+        _verifier = new AgentCardVerifier(_options.Trust, new GuardedJwksFetcher(_options.JwksHttpClient));
         _logger = logger ?? NullLogger.Instance;
     }
 
