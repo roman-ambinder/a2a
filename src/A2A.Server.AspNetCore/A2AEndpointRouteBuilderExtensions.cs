@@ -113,9 +113,12 @@ public static partial class A2AEndpointRouteBuilderExtensions
     }
 
     /// <summary>
-    /// Puts endpoints of another binding (for example gRPC) under the same fail-closed startup check as <see cref="MapA2A"/>:
-    /// they must carry an authorization policy unless <see cref="A2AServerOptions.AllowAnonymous"/> is true. Their display
-    /// names get the prefix <c>"A2A {bindingName} "</c>. Requires <see cref="A2AServiceCollectionExtensions.AddA2AServerAspNetCore"/>.
+    /// Puts endpoints of another binding under the same checks as <see cref="MapA2A"/>: the fail-closed startup check (they
+    /// must carry an authorization policy unless <see cref="A2AServerOptions.AllowAnonymous"/> is true) and the <c>"a2a"</c>
+    /// rate limit policy (so the host must call <c>app.UseA2A()</c> unless <see cref="A2AServerOptions.EnableRateLimiting"/>
+    /// is false). Their display names get the prefix <c>"A2A {bindingName} "</c>. Requires
+    /// <see cref="A2AServiceCollectionExtensions.AddA2AServerAspNetCore"/>. The built-in gRPC binding
+    /// (<c>MapA2AGrpc</c>) already applies these checks; do not call this on it.
     /// </summary>
     /// <exception cref="InvalidOperationException"><c>services.AddA2AServerAspNetCore()</c> was not called.</exception>
     public static TBuilder WithA2AStartupCheck<TBuilder>(this TBuilder builder, IEndpointRouteBuilder endpoints, string bindingName)
@@ -125,6 +128,7 @@ public static partial class A2AEndpointRouteBuilderExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(bindingName);
         RequireRegistration(endpoints);
         builder.Add(b => b.DisplayName = $"A2A {bindingName} {b.DisplayName}");
+        ApplyRateLimiting(endpoints, builder);
         return builder;
     }
 

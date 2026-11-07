@@ -8,7 +8,8 @@ public static class A2AHttpContextExtensions
     /// <summary>
     /// Builds the <see cref="ServerCallContext"/> for a request exactly as the JSON-RPC and REST bindings do: principal from
     /// <see cref="IPrincipalResolver"/>, tenant from <see cref="ITenantResolver"/>, and the A2A-Version, A2A-Extensions and
-    /// Idempotency-Key headers. gRPC metadata are HTTP/2 headers, so the same names apply.
+    /// Idempotency-Key headers. gRPC metadata are HTTP/2 headers, so the same names apply. It is the same code the built-in
+    /// bindings use; pass the result to <see cref="A2ARequestHandler.ValidateCall"/> before any operation, as they do.
     /// </summary>
     /// <exception cref="A2AException">Unauthenticated when an authenticated user maps to no principal.</exception>
     public static ServerCallContext CreateA2ACallContext(this HttpContext http)
