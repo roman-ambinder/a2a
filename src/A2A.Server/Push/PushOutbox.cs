@@ -16,6 +16,13 @@ public sealed record OutboxEntry(PushDelivery Delivery, int Attempt, DateTimeOff
     /// its dead letter, so a delivery does not depend on the event log's retention and can be re-driven at any time.
     /// </summary>
     public ReadOnlyMemory<byte> Payload { get; init; }
+
+    /// <summary>
+    /// The lease this entry was returned under by <see cref="PushOutbox.LeaseDueAsync"/>, or null. Result writes
+    /// (<see cref="PushOutbox.CompleteAsync"/>, <see cref="PushOutbox.RescheduleAsync"/>, <see cref="PushOutbox.DeadLetterAsync"/>)
+    /// apply only while the entry still holds this lease, so a holder whose lease ran out and was taken over cannot change it.
+    /// </summary>
+    public Guid? LeaseToken { get; init; }
 }
 
 /// <summary>
@@ -28,7 +35,9 @@ public sealed record OutboxEntry(PushDelivery Delivery, int Attempt, DateTimeOff
 /// Order: per task and push config, only the oldest pending entry (lowest sequence) is ever leased, so a delivery is not sent
 /// until the one before it for the same task and config succeeded or was dead-lettered. Leases make delivery safe across
 /// instances: a leased entry is invisible to <see cref="LeaseDueAsync"/> until its lease ends, so an instance that dies
-/// mid-send only delays the delivery (at least once). Operations on an entry that is not there do nothing.
+/// mid-send only delays the delivery (at least once). Result writes are fenced by <see cref="OutboxEntry.LeaseToken"/>: they
+/// take the leased entry and return false (writing nothing) when it is gone or was leased again by someone else.
+/// New entries never replace an existing entry with the same task, config and sequence.
 /// </remarks>
 public abstract class PushOutbox
 {
@@ -37,21 +46,28 @@ public abstract class PushOutbox
     /// <summary>
     /// Leases up to <paramref name="max"/> due entries for <paramref name="lease"/>: those whose due time has come, that are not
     /// leased, and that are the oldest pending entry of their task and config. Two callers never get the same entry while its
-    /// lease runs.
+    /// lease runs. Each returned entry carries a new <see cref="OutboxEntry.LeaseToken"/>.
     /// </summary>
     public abstract ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken ct = default);
 
-    /// <summary>Removes a delivered (or dropped) entry, which releases the next one of its task and config.</summary>
-    public abstract ValueTask CompleteAsync(PushDelivery d, CancellationToken ct = default);
-
-    /// <summary>Records a failed attempt: sets the attempt count, the next due time and the error, and ends the lease.</summary>
-    public abstract ValueTask RescheduleAsync(PushDelivery d, int attempt, DateTimeOffset dueAt, string error, CancellationToken ct = default);
+    /// <summary>
+    /// Removes a delivered (or dropped) leased entry, which releases the next one of its task and config. Returns false, and
+    /// changes nothing, when the entry no longer holds <paramref name="leased"/>'s lease.
+    /// </summary>
+    public abstract ValueTask<bool> CompleteAsync(OutboxEntry leased, CancellationToken ct = default);
 
     /// <summary>
-    /// Moves an entry to the dead letters after its last attempt (counted in <see cref="OutboxEntry.Attempt"/>) failed with
-    /// <paramref name="error"/>. This releases the next entry of its task and config.
+    /// Records a failed attempt of a leased entry: sets the attempt count, the next due time and the error, and ends the lease.
+    /// Returns false, and changes nothing, when the entry no longer holds <paramref name="leased"/>'s lease.
     /// </summary>
-    public abstract ValueTask DeadLetterAsync(PushDelivery d, string error, CancellationToken ct = default);
+    public abstract ValueTask<bool> RescheduleAsync(OutboxEntry leased, int attempt, DateTimeOffset dueAt, string error, CancellationToken ct = default);
+
+    /// <summary>
+    /// Moves a leased entry to the dead letters after its last attempt failed with <paramref name="error"/> (the dead letter's
+    /// <see cref="OutboxEntry.Attempt"/> counts that attempt). This releases the next entry of its task and config. Returns
+    /// false, and changes nothing, when the entry no longer holds <paramref name="leased"/>'s lease.
+    /// </summary>
+    public abstract ValueTask<bool> DeadLetterAsync(OutboxEntry leased, string error, CancellationToken ct = default);
 
     /// <summary>The dead letters of <paramref name="tenant"/>, oldest first, at most <paramref name="max"/>.</summary>
     public abstract ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken ct = default);

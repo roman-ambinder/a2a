@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Security.Cryptography;
@@ -47,6 +48,8 @@ public sealed class PushDeliveryService : BackgroundService
     private readonly PushConfigStore _configs;
     private readonly IPushSecretProtector _protector;
     private readonly PushDeliveryOptions _options;
+    private readonly PushNotificationOptions _notifications;
+    private readonly SemaphoreSlim _slots;
     private readonly PushWebhookSender _sender;
     private readonly ILogger _logger;
     private readonly TimeProvider _time;
@@ -62,34 +65,67 @@ public sealed class PushDeliveryService : BackgroundService
         _configs = configs ?? throw new ArgumentNullException(nameof(configs));
         _protector = protector ?? throw new ArgumentNullException(nameof(protector));
         _options = options.Value.PushDelivery;
+        _notifications = options.Value.PushNotifications;
+        _slots = new SemaphoreSlim(Math.Max(1, _options.BatchSize));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _sender = new PushWebhookSender(httpClientFactory, options.Value.PushNotifications, _logger);
         _time = time ?? TimeProvider.System;
+    }
+
+    /// <summary>Checks the options (<see cref="ValidateOptions"/>), then starts sending.</summary>
+    /// <exception cref="InvalidOperationException">The lease is too short for one send.</exception>
+    public override Task StartAsync(CancellationToken cancellationToken)
+    {
+        ValidateOptions();
+        return base.StartAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Throws <see cref="InvalidOperationException"/> unless <see cref="PushDeliveryOptions.Lease"/> is longer than twice
+    /// <see cref="PushNotificationOptions.Timeout"/> (DNS check plus POST) plus 5 seconds: a send must end before its lease
+    /// does, or another instance could lease and send the same delivery at the same time.
+    /// </summary>
+    internal void ValidateOptions()
+    {
+        var min = (2 * _notifications.Timeout) + TimeSpan.FromSeconds(5);
+        if (_options.Lease <= min)
+            throw new InvalidOperationException(
+                $"PushDelivery.Lease ({_options.Lease}) must be longer than 2 x PushNotifications.Timeout + 5 s ({min}), " +
+                "so a webhook send (DNS check and POST) always ends before its lease.");
     }
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         Activity.Current = null; // each delivery names its parent explicitly
-        while (!stoppingToken.IsCancellationRequested)
+        var running = new ConcurrentDictionary<Task, byte>();
+        try
         {
-            // Wait first: at startup the stores may still be creating their schema.
-            await WaitForWorkAsync(stoppingToken).ConfigureAwait(false);
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                while (await RunOnceAsync(stoppingToken).ConfigureAwait(false) >= Math.Max(1, _options.BatchSize))
+                // Wait first: at startup the stores may still be creating their schema. A finished send wakes the loop too.
+                await WaitForWorkAsync(stoppingToken).ConfigureAwait(false);
+                try
                 {
-                    // A full batch: more may be due.
+                    while (await StartDueAsync(running, stoppingToken).ConfigureAwait(false))
+                    {
+                        // Every free slot got a delivery: more may be due.
+                    }
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Push outbox poll failed");
                 }
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Push outbox poll failed");
-            }
+        }
+        finally
+        {
+            // Sends see the cancelled token and stop; their leases run out and the deliveries are sent again later.
+            await Task.WhenAll(running.Keys).ConfigureAwait(false);
         }
     }
 
@@ -102,7 +138,41 @@ public sealed class PushDeliveryService : BackgroundService
         cts.Cancel();
     }
 
-    /// <summary>One pass: leases due deliveries and sends them in parallel. Returns how many were leased.</summary>
+    /// <summary>
+    /// Leases as many due deliveries as there are free send slots (<see cref="PushDeliveryOptions.BatchSize"/> in all) and
+    /// starts them. Each send holds one slot, so a slow receiver delays only its own task and config. Returns true when
+    /// every free slot got a delivery.
+    /// </summary>
+    private async Task<bool> StartDueAsync(ConcurrentDictionary<Task, byte> running, CancellationToken ct)
+    {
+        var free = _slots.CurrentCount;
+        if (free == 0) return false;
+        var due = await _outbox.LeaseDueAsync(free, _options.Lease, ct).ConfigureAwait(false);
+        foreach (var entry in due)
+        {
+            await _slots.WaitAsync(ct).ConfigureAwait(false); // only this loop takes slots, so one is free
+            var send = SendInSlotAsync(entry, ct);
+            running[send] = 0;
+            _ = send.ContinueWith(t => running.TryRemove(t, out _), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
+        return due.Count > 0 && due.Count == free;
+    }
+
+    private async Task SendInSlotAsync(OutboxEntry entry, CancellationToken ct)
+    {
+        try
+        {
+            await Task.Yield();
+            await DeliverAsync(entry, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _slots.Release();
+            _outbox.NotifyPending(); // a free slot, and maybe the next delivery of this task and config
+        }
+    }
+
+    /// <summary>One pass for tests: leases up to a batch of due deliveries and sends them all. Returns how many were leased.</summary>
     internal async Task<int> RunOnceAsync(CancellationToken ct)
     {
         var due = await _outbox.LeaseDueAsync(Math.Max(1, _options.BatchSize), _options.Lease, ct).ConfigureAwait(false);
@@ -130,7 +200,7 @@ public sealed class PushDeliveryService : BackgroundService
             if (record is null)
             {
                 _logger.LogDebug("Push config {ConfigId} of task {TaskId} was deleted; dropping delivery {Sequence}", d.ConfigId, d.Task.TaskId, d.Sequence);
-                await _outbox.CompleteAsync(d, CancellationToken.None).ConfigureAwait(false);
+                if (!await _outbox.CompleteAsync(entry, CancellationToken.None).ConfigureAwait(false)) LogLostLease(d);
                 return;
             }
             if (activity is not null && Uri.TryCreate(record.Config.Url, UriKind.Absolute, out var target)) activity.SetTag(A2ATelemetry.Tags.ServerAddress, target.Host);
@@ -143,7 +213,7 @@ public sealed class PushDeliveryService : BackgroundService
             catch (CryptographicException ex)
             {
                 _logger.LogError(ex, "Cannot unprotect secrets of webhook {ConfigId} for task {TaskId}", d.ConfigId, d.Task.TaskId);
-                await DeadLetterAsync(d, activity, "Cannot unprotect the config secrets", "SecretUnavailable").ConfigureAwait(false);
+                await DeadLetterAsync(entry, activity, "Cannot unprotect the config secrets", "SecretUnavailable").ConfigureAwait(false);
                 return;
             }
 
@@ -153,21 +223,14 @@ public sealed class PushDeliveryService : BackgroundService
             switch (result.Outcome)
             {
                 case PushSendOutcome.Sent:
-                    await _outbox.CompleteAsync(d, CancellationToken.None).ConfigureAwait(false);
                     Deliveries.Add(1, new KeyValuePair<string, object?>("outcome", "sent"));
-                    break;
-                case PushSendOutcome.Retry when attempt < _options.MaxAttempts:
-                    Fail(activity, result.ErrorType!);
-                    activity?.AddEvent(new ActivityEvent(A2ATelemetry.Events.Retry));
-                    await _outbox.RescheduleAsync(d, attempt, _time.GetUtcNow() + Backoff(attempt), result.Error!, CancellationToken.None).ConfigureAwait(false);
-                    Deliveries.Add(1, new KeyValuePair<string, object?>("outcome", "retried"));
+                    if (!await _outbox.CompleteAsync(entry, CancellationToken.None).ConfigureAwait(false)) LogLostLease(d);
                     break;
                 case PushSendOutcome.Retry:
-                    _logger.LogError("Giving up on webhook {ConfigId} for task {TaskId} after {Attempts} attempts", d.ConfigId, d.Task.TaskId, attempt);
-                    await DeadLetterAsync(d, activity, result.Error!, "GaveUp").ConfigureAwait(false);
+                    await RetryOrDeadLetterAsync(entry, attempt, activity, result.Error!, result.ErrorType!).ConfigureAwait(false);
                     break;
                 default:
-                    await DeadLetterAsync(d, activity, result.Error!, result.ErrorType!).ConfigureAwait(false);
+                    await DeadLetterAsync(entry, activity, result.Error!, result.ErrorType!).ConfigureAwait(false);
                     break;
             }
         }
@@ -178,19 +241,54 @@ public sealed class PushDeliveryService : BackgroundService
         }
         catch (Exception ex)
         {
-            // A store failed: leave the entry leased; it is retried when the lease ends.
+            // Anything else (a failing store or protector) counts as a failed attempt, so a poison entry ends as a dead letter.
             _logger.LogError(ex, "Push delivery {Sequence} of task {TaskId} to webhook {ConfigId} failed", d.Sequence, d.Task.TaskId, d.ConfigId);
             A2ATelemetry.RecordError(activity, ex);
+            try
+            {
+                await RetryOrDeadLetterAsync(entry, attempt, activity, "Internal error: " + ex.GetType().Name, ex.GetType().FullName ?? ex.GetType().Name).ConfigureAwait(false);
+            }
+            catch (Exception recordFailed)
+            {
+                // The outbox itself failed: the entry stays leased and is retried when the lease ends.
+                _logger.LogError(recordFailed, "Could not record the failed push delivery {Sequence} of task {TaskId}", d.Sequence, d.Task.TaskId);
+            }
         }
     }
 
-    private async Task DeadLetterAsync(PushDelivery d, Activity? activity, string error, string errorType)
+    /// <summary>A retryable failure: reschedules with backoff, or dead-letters after <see cref="PushDeliveryOptions.MaxAttempts"/>.</summary>
+    private async Task RetryOrDeadLetterAsync(OutboxEntry entry, int attempt, Activity? activity, string error, string errorType)
+    {
+        var d = entry.Delivery;
+        if (attempt >= _options.MaxAttempts)
+        {
+            _logger.LogError("Giving up on webhook {ConfigId} for task {TaskId} after {Attempts} attempts", d.ConfigId, d.Task.TaskId, attempt);
+            await DeadLetterAsync(entry, activity, error, "GaveUp").ConfigureAwait(false);
+            return;
+        }
+        Fail(activity, errorType);
+        activity?.AddEvent(new ActivityEvent(A2ATelemetry.Events.Retry));
+        if (await _outbox.RescheduleAsync(entry, attempt, _time.GetUtcNow() + Backoff(attempt), error, CancellationToken.None).ConfigureAwait(false))
+            Deliveries.Add(1, new KeyValuePair<string, object?>("outcome", "retried"));
+        else
+            LogLostLease(d);
+    }
+
+    private async Task DeadLetterAsync(OutboxEntry entry, Activity? activity, string error, string errorType)
     {
         Fail(activity, errorType);
-        await _outbox.DeadLetterAsync(d, error, CancellationToken.None).ConfigureAwait(false);
+        if (!await _outbox.DeadLetterAsync(entry, error, CancellationToken.None).ConfigureAwait(false))
+        {
+            LogLostLease(entry.Delivery);
+            return;
+        }
         Deliveries.Add(1, new KeyValuePair<string, object?>("outcome", "dead_lettered"));
         DeadLetters.Add(1);
     }
+
+    /// <summary>A result write found the entry gone or leased by someone else (this send outlived its lease).</summary>
+    private void LogLostLease(PushDelivery d) =>
+        _logger.LogDebug("Push delivery {Sequence} of task {TaskId} to webhook {ConfigId} lost its lease; result not recorded", d.Sequence, d.Task.TaskId, d.ConfigId);
 
     /// <summary>The wait after <paramref name="attempt"/> failed attempts: InitialBackoff · 2^(attempt-1), ±20 %, at most MaxBackoff.</summary>
     private TimeSpan Backoff(int attempt)

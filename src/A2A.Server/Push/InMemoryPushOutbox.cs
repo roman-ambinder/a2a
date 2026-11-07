@@ -28,7 +28,7 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         lock (_gate)
         {
             var now = _time.GetUtcNow();
-            foreach (var d in deliveries) Group(d, create: true)![d.Sequence] = new Entry(d, payload, now);
+            foreach (var d in deliveries) Group(d, create: true)!.TryAdd(d.Sequence, new Entry(d, payload, now)); // never replaces
         }
         NotifyPending();
     }
@@ -45,40 +45,47 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
                 .OrderBy(e => e.DueAt).ThenBy(e => e.Delivery.Sequence)
                 .Take(max)
                 .ToList();
-            foreach (var e in leased) e.LeasedUntil = now + lease;
+            var token = Guid.NewGuid();
+            foreach (var e in leased)
+            {
+                e.LeasedUntil = now + lease;
+                e.LeaseToken = token;
+            }
             return ValueTask.FromResult<IReadOnlyList<OutboxEntry>>(leased.Select(e => e.ToEntry()).ToList());
         }
     }
 
-    public override ValueTask CompleteAsync(PushDelivery d, CancellationToken ct = default)
+    public override ValueTask<bool> CompleteAsync(OutboxEntry leased, CancellationToken ct = default)
     {
-        lock (_gate) Remove(d);
-        return ValueTask.CompletedTask;
+        ArgumentNullException.ThrowIfNull(leased);
+        lock (_gate) return ValueTask.FromResult(Remove(leased) is not null);
     }
 
-    public override ValueTask RescheduleAsync(PushDelivery d, int attempt, DateTimeOffset dueAt, string error, CancellationToken ct = default)
+    public override ValueTask<bool> RescheduleAsync(OutboxEntry leased, int attempt, DateTimeOffset dueAt, string error, CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(leased);
         lock (_gate)
         {
-            if (Group(d, create: false) is { } g && g.TryGetValue(d.Sequence, out var e))
-            {
-                e.Attempt = attempt;
-                e.DueAt = dueAt;
-                e.LastError = error;
-                e.LeasedUntil = null;
-            }
+            if (Held(leased) is not { } e) return ValueTask.FromResult(false);
+            e.Attempt = attempt;
+            e.DueAt = dueAt;
+            e.LastError = error;
+            e.LeasedUntil = null;
+            e.LeaseToken = null;
+            return ValueTask.FromResult(true);
         }
-        return ValueTask.CompletedTask;
     }
 
-    public override ValueTask DeadLetterAsync(PushDelivery d, string error, CancellationToken ct = default)
+    public override ValueTask<bool> DeadLetterAsync(OutboxEntry leased, string error, CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(leased);
         lock (_gate)
         {
-            if (Remove(d) is { } e)
-                _dead[(d.Task, d.ConfigId, d.Sequence)] = new OutboxEntry(e.Delivery, e.Attempt + 1, _time.GetUtcNow(), error) { Payload = e.Payload };
+            if (Remove(leased) is not { } e) return ValueTask.FromResult(false);
+            var d = e.Delivery;
+            _dead[(d.Task, d.ConfigId, d.Sequence)] = new OutboxEntry(d, e.Attempt + 1, _time.GetUtcNow(), error) { Payload = e.Payload };
+            return ValueTask.FromResult(true);
         }
-        return ValueTask.CompletedTask;
     }
 
     public override ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken ct = default)
@@ -127,9 +134,22 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         return _pending[key] = new SortedDictionary<long, Entry>();
     }
 
-    private Entry? Remove(PushDelivery d)
+    /// <summary>The pending entry of <paramref name="leased"/> if it still holds that lease.</summary>
+    private Entry? Held(OutboxEntry leased)
     {
-        if (Group(d, create: false) is not { } g || !g.Remove(d.Sequence, out var e)) return null;
+        var d = leased.Delivery;
+        return leased.LeaseToken is { } token && Group(d, create: false) is { } g && g.TryGetValue(d.Sequence, out var e) && e.LeaseToken == token
+            ? e
+            : null;
+    }
+
+    /// <summary>Removes the entry of <paramref name="leased"/> if it still holds that lease.</summary>
+    private Entry? Remove(OutboxEntry leased)
+    {
+        if (Held(leased) is not { } e) return null;
+        var d = e.Delivery;
+        var g = Group(d, create: false)!;
+        g.Remove(d.Sequence);
         if (g.Count == 0) _pending.Remove((d.Task, d.ConfigId));
         return e;
     }
@@ -142,7 +162,8 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         public DateTimeOffset DueAt { get; set; } = dueAt;
         public string? LastError { get; set; }
         public DateTimeOffset? LeasedUntil { get; set; }
+        public Guid? LeaseToken { get; set; }
 
-        public OutboxEntry ToEntry() => new(Delivery, Attempt, DueAt, LastError) { Payload = Payload };
+        public OutboxEntry ToEntry() => new(Delivery, Attempt, DueAt, LastError) { Payload = Payload, LeaseToken = LeaseToken };
     }
 }

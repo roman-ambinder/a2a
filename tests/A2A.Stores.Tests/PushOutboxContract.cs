@@ -15,7 +15,14 @@ namespace A2A.Stores.Tests;
 public abstract class PushOutboxContract
 {
     /// <summary>A fresh task store and the outbox its commits write to, on <paramref name="time"/>.</summary>
-    protected abstract Task<(TaskStore Tasks, PushOutbox Outbox)> CreateAsync(TimeProvider time);
+    protected async Task<(TaskStore Tasks, PushOutbox Outbox)> CreateAsync(TimeProvider time)
+    {
+        var (tasks, _, outbox) = await CreateWithEventsAsync(time);
+        return (tasks, outbox);
+    }
+
+    /// <summary>A fresh task store with the event store and outbox its commits write to, on <paramref name="time"/>.</summary>
+    protected abstract Task<(TaskStore Tasks, EventStore Events, PushOutbox Outbox)> CreateWithEventsAsync(TimeProvider time);
 
     /// <summary>A second outbox over the same storage (another instance). In-memory: the same object.</summary>
     protected abstract PushOutbox SecondInstance(PushOutbox outbox, TimeProvider time);
@@ -77,10 +84,11 @@ public abstract class PushOutboxContract
 
         var leased = Assert.Single(await outbox.LeaseDueAsync(10, Lease));
         Assert.Equal(expected, Utf8(leased.Payload));
-        await outbox.RescheduleAsync(d, 1, _time.GetUtcNow(), "HTTP 500");
-        Assert.Equal(expected, Utf8(Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Payload));
+        Assert.True(await outbox.RescheduleAsync(leased, 1, _time.GetUtcNow(), "HTTP 500"));
+        var again = Assert.Single(await outbox.LeaseDueAsync(10, Lease));
+        Assert.Equal(expected, Utf8(again.Payload));
 
-        await outbox.DeadLetterAsync(d, "HTTP 500");
+        Assert.True(await outbox.DeadLetterAsync(again, "HTTP 500"));
         Assert.Equal(expected, Utf8(Assert.Single(await outbox.ListDeadLettersAsync("t", 10)).Payload));
         Assert.True(await outbox.RedriveAsync(d));
         Assert.Equal(expected, Utf8(Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Payload));
@@ -138,7 +146,7 @@ public abstract class PushOutboxContract
         Assert.Equal(first.Concat(other).OrderBy(Id), leased.Select(e => e.Delivery).OrderBy(Id));
 
         // Completing "a" seq 1 releases "a" seq 2 only; "b" seq 2 still waits behind its leased seq 1.
-        await outbox.CompleteAsync(first[0]);
+        Assert.True(await outbox.CompleteAsync(Entry(leased, first[0])));
         Assert.Equal(second[0], Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Delivery);
     }
 
@@ -158,10 +166,11 @@ public abstract class PushOutboxContract
     {
         var (tasks, outbox) = await CreateAsync(_time);
         var d = (await CommitAsync(tasks, Alice, "c1"))[0];
-        Assert.Single(await outbox.LeaseDueAsync(10, Lease));
+        var leased = Assert.Single(await outbox.LeaseDueAsync(10, Lease));
+        Assert.NotNull(leased.LeaseToken);
 
         var due = _time.GetUtcNow() + TimeSpan.FromSeconds(5);
-        await outbox.RescheduleAsync(d, 1, due, "HTTP 500");
+        Assert.True(await outbox.RescheduleAsync(leased, 1, due, "HTTP 500"));
         Assert.Empty(await outbox.LeaseDueAsync(10, Lease)); // not due yet; the lease was released, not extended
         _time.Advance(TimeSpan.FromSeconds(5));
 
@@ -178,12 +187,11 @@ public abstract class PushOutboxContract
         var (tasks, outbox) = await CreateAsync(_time);
         var first = (await CommitAsync(tasks, Alice, "c1"))[0];
         var second = (await CommitAsync(tasks, Alice, "c1"))[0];
-        Assert.Single(await outbox.LeaseDueAsync(10, Lease));
-        await outbox.RescheduleAsync(first, 1, _time.GetUtcNow(), "HTTP 500");
-        Assert.Single(await outbox.LeaseDueAsync(10, Lease));
+        Assert.True(await outbox.RescheduleAsync(Assert.Single(await outbox.LeaseDueAsync(10, Lease)), 1, _time.GetUtcNow(), "HTTP 500"));
+        var leased = Assert.Single(await outbox.LeaseDueAsync(10, Lease));
         _time.Advance(TimeSpan.FromSeconds(3));
 
-        await outbox.DeadLetterAsync(first, "HTTP 404");
+        Assert.True(await outbox.DeadLetterAsync(leased, "HTTP 404"));
 
         var dead = Assert.Single(await outbox.ListDeadLettersAsync("t", 10));
         Assert.Equal(first, dead.Delivery);
@@ -200,10 +208,11 @@ public abstract class PushOutboxContract
         var a = (await CommitAsync(tasks, Alice, "c1"))[0];
         var b = (await CommitAsync(tasks, Alice with { TaskId = "task2", Owner = "bob" }, "c1"))[0];
         var other = (await CommitAsync(tasks, Alice with { Tenant = "u" }, "c1"))[0];
-        await outbox.DeadLetterAsync(b, "e");
+        var leased = await outbox.LeaseDueAsync(10, Lease);
+        await outbox.DeadLetterAsync(Entry(leased, b), "e");
         _time.Advance(TimeSpan.FromSeconds(1));
-        await outbox.DeadLetterAsync(a, "e");
-        await outbox.DeadLetterAsync(other, "e");
+        await outbox.DeadLetterAsync(Entry(leased, a), "e");
+        await outbox.DeadLetterAsync(Entry(leased, other), "e");
 
         Assert.Equal([b, a], (await outbox.ListDeadLettersAsync("t", 10)).Select(e => e.Delivery));
         Assert.Equal([b], (await outbox.ListDeadLettersAsync("t", 1)).Select(e => e.Delivery));
@@ -216,9 +225,8 @@ public abstract class PushOutboxContract
     {
         var (tasks, outbox) = await CreateAsync(_time);
         var d = (await CommitAsync(tasks, Alice, "c1"))[0];
-        Assert.Single(await outbox.LeaseDueAsync(10, Lease));
-        await outbox.RescheduleAsync(d, 4, _time.GetUtcNow(), "HTTP 500");
-        await outbox.DeadLetterAsync(d, "HTTP 500");
+        Assert.True(await outbox.RescheduleAsync(Assert.Single(await outbox.LeaseDueAsync(10, Lease)), 4, _time.GetUtcNow(), "HTTP 500"));
+        Assert.True(await outbox.DeadLetterAsync(Assert.Single(await outbox.LeaseDueAsync(10, Lease)), "HTTP 500"));
         _time.Advance(TimeSpan.FromMinutes(10));
 
         Assert.False(await outbox.RedriveAsync(d with { ConfigId = "nope" }));
@@ -237,8 +245,8 @@ public abstract class PushOutboxContract
     {
         var (tasks, outbox) = await CreateAsync(_time);
         var dead = (await CommitAsync(tasks, Alice, "a"))[0];
+        await outbox.DeadLetterAsync(Assert.Single(await outbox.LeaseDueAsync(10, Lease)), "e");
         await CommitAsync(tasks, Alice, "b");
-        await outbox.DeadLetterAsync(dead, "e");
         var otherOwner = (await CommitAsync(tasks, Alice with { TaskId = "task2" }, "a"))[0];
 
         await outbox.DeleteAllAsync(Alice with { Owner = "bob" }); // another owner's key: nothing
@@ -249,17 +257,66 @@ public abstract class PushOutboxContract
     }
 
     [SkippableFact]
-    public async Task Complete_and_reschedule_of_unknown_entries_do_nothing()
+    public async Task Writes_for_unknown_or_unleased_entries_do_nothing()
     {
         var (tasks, outbox) = await CreateAsync(_time);
         var d = (await CommitAsync(tasks, Alice, "c1"))[0];
-        await outbox.CompleteAsync(d with { Sequence = 99 });
-        await outbox.RescheduleAsync(d with { Task = Alice with { Owner = "bob" } }, 1, _time.GetUtcNow() + TimeSpan.FromHours(1), "x");
-        await outbox.DeadLetterAsync(d with { ConfigId = "other" }, "x");
+        var notLeased = new OutboxEntry(d, 0, _time.GetUtcNow(), null);
+        Assert.False(await outbox.CompleteAsync(notLeased));
+        Assert.False(await outbox.RescheduleAsync(notLeased, 1, _time.GetUtcNow() + TimeSpan.FromHours(1), "x"));
+        Assert.False(await outbox.DeadLetterAsync(notLeased, "x"));
+
+        var leased = Assert.Single(await outbox.LeaseDueAsync(10, Lease));
+        Assert.False(await outbox.CompleteAsync(leased with { Delivery = d with { Sequence = 99 } }));
+        Assert.False(await outbox.RescheduleAsync(leased with { Delivery = d with { Task = Alice with { Owner = "bob" } } }, 1, _time.GetUtcNow() + TimeSpan.FromHours(1), "x"));
+        Assert.False(await outbox.DeadLetterAsync(leased with { Delivery = d with { ConfigId = "other" } }, "x"));
+        Assert.False(await outbox.CompleteAsync(leased with { LeaseToken = Guid.NewGuid() }));
 
         Assert.Empty(await outbox.ListDeadLettersAsync("t", 10));
+        _time.Advance(Lease);
         Assert.Equal(d, Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Delivery);
     }
+
+    [SkippableFact]
+    public async Task A_stale_holder_cannot_change_a_re_leased_entry()
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        var first = (await CommitAsync(tasks, Alice, "c1"))[0];
+        var next = (await CommitAsync(tasks, Alice, "c1"))[0];
+        var stale = Assert.Single(await outbox.LeaseDueAsync(10, Lease));
+        _time.Advance(Lease); // the first holder's lease runs out mid-send
+        var current = Assert.Single(await SecondInstance(outbox, _time).LeaseDueAsync(10, Lease));
+        Assert.Equal(first, current.Delivery);
+        Assert.NotEqual(stale.LeaseToken, current.LeaseToken);
+
+        Assert.False(await outbox.CompleteAsync(stale));
+        Assert.False(await outbox.RescheduleAsync(stale, 1, _time.GetUtcNow(), "stale"));
+        Assert.False(await outbox.DeadLetterAsync(stale, "stale"));
+
+        // seq 1 is still held by the current holder: seq 2 is not released, and the lease was not cleared.
+        Assert.Empty(await outbox.LeaseDueAsync(10, Lease));
+        Assert.Empty(await outbox.ListDeadLettersAsync("t", 10));
+        Assert.True(await outbox.CompleteAsync(current));
+        Assert.Equal(next, Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Delivery);
+    }
+
+    [SkippableFact]
+    public async Task A_new_delivery_never_replaces_an_existing_entry()
+    {
+        var (tasks, events, outbox) = await CreateWithEventsAsync(_time);
+        var first = (await CommitAsync(tasks, Alice, "c1"))[0];
+        // The finished task's log expires, so the next event restarts at sequence 1: same key as the pending entry.
+        await events.MarkTerminalAsync(Alice);
+        _time.Advance(TimeSpan.FromDays(1));
+        var second = (await CommitAsync(tasks, Alice, "c1"))[0];
+        Assert.Equal(first.Sequence, second.Sequence);
+
+        var entry = Assert.Single(await outbox.LeaseDueAsync(10, Lease));
+        Assert.Equal(first.DeliveryId, entry.Delivery.DeliveryId);
+        Assert.IsType<TaskEvent>(A2AJson.Deserialize<StreamResponse>(Utf8(entry.Payload))); // the first event's body, not the second's
+    }
+
+    private static OutboxEntry Entry(IEnumerable<OutboxEntry> leased, PushDelivery d) => Assert.Single(leased, e => e.Delivery == d);
 
     [SkippableFact]
     public async Task Two_leasing_instances_never_get_the_same_entry()
@@ -283,11 +340,11 @@ public abstract class PushOutboxContract
 
 public sealed class InMemoryPushOutboxTests : PushOutboxContract
 {
-    protected override Task<(TaskStore Tasks, PushOutbox Outbox)> CreateAsync(TimeProvider time)
+    protected override Task<(TaskStore Tasks, EventStore Events, PushOutbox Outbox)> CreateWithEventsAsync(TimeProvider time)
     {
         var events = new InMemoryEventStore(new StreamingOptions(), time);
         var outbox = new InMemoryPushOutbox(time);
-        return Task.FromResult<(TaskStore, PushOutbox)>((new InMemoryTaskStore(events, outbox), outbox));
+        return Task.FromResult<(TaskStore, EventStore, PushOutbox)>((new InMemoryTaskStore(events, outbox), events, outbox));
     }
 
     protected override PushOutbox SecondInstance(PushOutbox outbox, TimeProvider time) => outbox;
@@ -298,10 +355,12 @@ public sealed class PostgresPushOutboxTests(PostgresFixture db) : PushOutboxCont
 {
     private PostgresStoreOptions? _schema;
 
-    protected override async Task<(TaskStore Tasks, PushOutbox Outbox)> CreateAsync(TimeProvider time)
+    protected override async Task<(TaskStore Tasks, EventStore Events, PushOutbox Outbox)> CreateWithEventsAsync(TimeProvider time)
     {
         _schema = await db.NewSchemaAsync();
-        return (new PostgresTaskStore(db.DataSource, new StreamingOptions(), _schema, time), new PostgresPushOutbox(db.DataSource, _schema, time));
+        var streaming = new StreamingOptions();
+        return (new PostgresTaskStore(db.DataSource, streaming, _schema, time), new PostgresEventStore(db.DataSource, streaming, _schema, time),
+            new PostgresPushOutbox(db.DataSource, _schema, time));
     }
 
     protected override PushOutbox SecondInstance(PushOutbox outbox, TimeProvider time) => new PostgresPushOutbox(db.DataSource, _schema, time);

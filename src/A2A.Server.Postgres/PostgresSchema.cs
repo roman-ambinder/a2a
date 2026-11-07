@@ -112,7 +112,8 @@ public static class PostgresSchema
 
         -- Push deliveries waiting to be sent (PostgresPushOutbox), written with their event by the task commit; payload is the
         -- webhook body (the event JSON, UTF-8), so delivery does not depend on event-log retention. Only the lowest
-        -- seq of a (task, config) is leased; lease_ticks hides a leased row from other instances until then.
+        -- seq of a (task, config) is leased; lease_ticks hides a leased row from other instances until then, and lease_token
+        -- fences the holder's result writes (a holder whose lease was taken over changes nothing).
         CREATE TABLE IF NOT EXISTS {s}.a2a_push_outbox (
             tenant       text COLLATE "C" NOT NULL,
             owner        text COLLATE "C" NOT NULL,
@@ -125,6 +126,7 @@ public static class PostgresSchema
             payload      bytea  NOT NULL,
             due_ticks    bigint NOT NULL,
             lease_ticks  bigint NULL,
+            lease_token  uuid   NULL,
             last_error   text   NULL,
             PRIMARY KEY (tenant, owner, task_id, config_id, seq)
         );

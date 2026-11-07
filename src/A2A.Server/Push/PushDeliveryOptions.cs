@@ -14,7 +14,8 @@ public sealed class PushDeliveryOptions
 
     /// <summary>
     /// How long a leased delivery stays invisible to other instances. An instance that dies mid-send delays the delivery by
-    /// at most this long. Keep it above <see cref="PushNotificationOptions.Timeout"/> plus the DNS check. Default 1 minute.
+    /// at most this long. Must be longer than 2 × <see cref="PushNotificationOptions.Timeout"/> + 5 s (one DNS check and one
+    /// POST), checked when the service starts. Default 1 minute.
     /// </summary>
     public TimeSpan Lease { get; set; } = TimeSpan.FromMinutes(1);
 
@@ -24,6 +25,9 @@ public sealed class PushDeliveryOptions
     /// </summary>
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(1);
 
-    /// <summary>Most deliveries leased and sent in parallel per poll. Default 50.</summary>
+    /// <summary>
+    /// Most deliveries sent at the same time by one instance. Each send holds one slot; a freed slot is filled at once, so one
+    /// slow receiver does not hold up the others. Default 50.
+    /// </summary>
     public int BatchSize { get; set; } = 50;
 }

@@ -38,7 +38,7 @@ internal sealed class PushRig
     public InMemoryPushOutbox Outbox { get; }
     public InMemoryTaskStore Tasks { get; }
     public InMemoryPushConfigStore Configs { get; } = new();
-    public EphemeralPushSecretProtector Protector { get; } = new();
+    public IPushSecretProtector Protector { get; set; } = new EphemeralPushSecretProtector();
     public A2AServerOptions Options { get; } = new();
 
     /// <summary>Stores <paramref name="config"/> for the task as the handler does: with its secrets protected.</summary>
@@ -119,6 +119,33 @@ internal sealed class ScriptedHooks(params HttpStatusCode[] codes) : HttpMessage
     }
 
     public static string Header(HttpRequestMessage r, string name) => r.Headers.GetValues(name).Single();
+}
+
+/// <summary>Holds requests to <paramref name="slowHost"/> until <paramref name="release"/> completes (at most 20 s); answers others at once.</summary>
+internal sealed class BlockingHooks(string slowHost, Task release) : HttpMessageHandler
+{
+    private int _slow;
+    private int _fast;
+    public int Slow => Volatile.Read(ref _slow);
+    public int Fast => Volatile.Read(ref _fast);
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        if (request.RequestUri!.Host == slowHost)
+        {
+            Interlocked.Increment(ref _slow);
+            await Task.WhenAny(release, Task.Delay(TimeSpan.FromSeconds(20), ct));
+        }
+        else Interlocked.Increment(ref _fast);
+        return new HttpResponseMessage(HttpStatusCode.OK);
+    }
+}
+
+/// <summary>Stores secrets as they are and fails every unprotect with an unexpected exception.</summary>
+internal sealed class BrokenProtector : IPushSecretProtector
+{
+    public string Protect(string plaintext) => plaintext;
+    public string Unprotect(string protectedValue) => throw new InvalidOperationException("broken");
 }
 
 [Collection("PushGuard")]
@@ -395,6 +422,105 @@ public class PushOutboxTests
 
         Assert.Equal(["retried", "sent", "dead_lettered"], outcomes);
         Assert.Equal(1, deadLetters);
+    }
+
+    [Fact]
+    public async Task One_slow_receiver_does_not_hold_up_the_others()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hooks = new BlockingHooks("slow.example", release.Task);
+        var rig = new PushRig(hooks);
+        await rig.SaveConfigAsync(Hook("https://slow.example/cb"), "slow");
+        await rig.SaveConfigAsync(Hook("https://fast.example/cb"), "fast");
+        await rig.CommitAsync("slow", "fast");
+        for (var i = 0; i < 4; i++) await rig.CommitAsync("fast"); // in order behind the first, one after another
+        using var service = rig.NewService();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            while (hooks.Fast < 5 && clock.Elapsed < TimeSpan.FromSeconds(15)) await Task.Delay(10);
+            Assert.Equal(5, hooks.Fast);
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"fast deliveries took {clock.Elapsed}");
+            Assert.Equal(1, hooks.Slow);
+            Assert.False(release.Task.IsCompleted); // the slow receiver is still holding its request
+        }
+        finally
+        {
+            release.TrySetResult();
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task Lease_must_outlast_a_send()
+    {
+        var rig = new PushRig(new ScriptedHooks());
+        rig.Options.PushNotifications.Timeout = TimeSpan.FromSeconds(30); // a send may take 2 x 30 s; the default lease is 60 s
+        using (var service = rig.NewService())
+        {
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartAsync(CancellationToken.None));
+            Assert.Contains("PushDelivery.Lease", ex.Message);
+        }
+        rig.Options.PushDelivery.Lease = TimeSpan.FromSeconds(66);
+        using var valid = rig.NewService();
+        valid.ValidateOptions();
+    }
+
+    [Fact]
+    public async Task Unexpected_failure_counts_as_an_attempt_and_ends_as_a_dead_letter()
+    {
+        var hooks = new ScriptedHooks(HttpStatusCode.OK);
+        var rig = new PushRig(hooks) { Protector = new BrokenProtector() };
+        rig.Options.PushDelivery.MaxAttempts = 3;
+        await rig.SaveConfigAsync(Hook());
+        await rig.CommitAsync("c1");
+        using var service = rig.NewService();
+
+        Assert.Equal(1, await service.RunOnceAsync(CancellationToken.None));
+        rig.Time.Advance(TimeSpan.FromSeconds(1.2)); // rescheduled with backoff, not left leased until the lease ends
+        Assert.Equal(1, await service.RunOnceAsync(CancellationToken.None));
+        await rig.DrainAsync(service);
+
+        Assert.Empty(hooks.Requests);
+        var dead = Assert.Single(await rig.Outbox.ListDeadLettersAsync("", 10));
+        Assert.Equal(3, dead.Attempt);
+        Assert.Contains(nameof(InvalidOperationException), dead.LastError);
+    }
+
+    [Fact]
+    public async Task Failed_create_commit_removes_the_inline_push_config()
+    {
+        var store = new FailingCreateStore();
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddTaskStore(store));
+        store.Configs = host.App.Services.GetRequiredService<PushConfigStore>();
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(ProtocolBindings.JsonRpc).SendMessageAsync(new SendMessageRequest
+        {
+            Message = Message.FromUser("task"),
+            Configuration = new SendMessageConfiguration { TaskPushNotificationConfig = new TaskPushNotificationConfig { Url = "http://hooks.test/x", Id = "hook" } },
+        }));
+        await host.WaitIdleAsync();
+
+        Assert.Equal(A2AErrorCode.Internal, ex.Code);
+        Assert.True(store.ConfigSavedBeforeCommit);
+        Assert.Null(await store.Configs.GetAsync(store.FailedTask!.Value, "hook"));
+        Assert.Equal(0, store.Outbox.Count);
+    }
+
+    private sealed class FailingCreateStore : DelegatingTaskStore
+    {
+        public PushConfigStore? Configs { get; set; }
+        public TaskKey? FailedTask { get; private set; }
+        public bool ConfigSavedBeforeCommit { get; private set; }
+
+        public override async ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
+        {
+            if (!commit.IsCreate) return await base.CommitAsync(commit, ct);
+            FailedTask = commit.Record.Key;
+            ConfigSavedBeforeCommit = await Configs!.GetAsync(commit.Record.Key, "hook", ct) is not null;
+            throw new InvalidOperationException("the store is down");
+        }
     }
 
     [Fact]
