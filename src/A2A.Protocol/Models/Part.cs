@@ -38,13 +38,17 @@ public abstract record Part
 }
 
 /// <summary>A text part.</summary>
+[JsonConverter(typeof(PartConverter<TextPart>))]
 public sealed record TextPart(string Text) : Part;
 
 /// <summary>Inline bytes; base64 on the wire.</summary>
+[JsonConverter(typeof(PartConverter<RawPart>))]
 public sealed record RawPart(ReadOnlyMemory<byte> Raw) : Part;
 
 /// <summary>A reference to content by URL.</summary>
+[JsonConverter(typeof(PartConverter<UrlPart>))]
 public sealed record UrlPart(Uri Url) : Part;
 
 /// <summary>Structured JSON data.</summary>
+[JsonConverter(typeof(PartConverter<DataPart>))]
 public sealed record DataPart(JsonElement Data) : Part;

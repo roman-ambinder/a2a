@@ -79,4 +79,27 @@ public class PartTests
         }
         Assert.Contains("found: text, url", body.GetProperty("error").GetRawText());
     }
+
+    [Fact]
+    public void Derived_typed_serialization_matches_part_typed_wire_format()
+    {
+        var meta = new Dictionary<string, JsonElement> { ["k"] = JsonSerializer.SerializeToElement(1) };
+        var text = Part.FromText("hi", "text/plain") with { Metadata = meta };
+        var raw = Part.FromBytes(new byte[] { 1, 2, 3 }, "application/octet-stream", "a.bin");
+        var url = Part.FromUrl(new Uri("https://x/y.png"), "image/png");
+        var data = Part.FromData(JsonSerializer.SerializeToElement(new { a = 1 }));
+
+        Assert.Equal(A2AJson.Serialize<Part>(text), A2AJson.Serialize(text));
+        Assert.Equal(A2AJson.Serialize<Part>(raw), A2AJson.Serialize(raw));
+        Assert.Equal(A2AJson.Serialize<Part>(url), A2AJson.Serialize(url));
+        Assert.Equal(A2AJson.Serialize<Part>(data), A2AJson.Serialize(data));
+        Assert.Contains("\"raw\":\"AQID\"", A2AJson.Serialize(raw));
+        Assert.Contains("\"url\":\"https://x/y.png\"", A2AJson.Serialize(url));
+
+        Assert.Equal(new byte[] { 1, 2, 3 }, A2AJson.Deserialize<RawPart>("""{"raw":"AQID"}""").Raw.ToArray());
+        Assert.Equal("hi", A2AJson.Deserialize<TextPart>("""{"text":"hi"}""").Text);
+        Assert.Equal(new Uri("https://x"), A2AJson.Deserialize<UrlPart>("""{"url":"https://x"}""").Url);
+        Assert.Equal(1, A2AJson.Deserialize<DataPart>("""{"data":{"a":1}}""").Data.GetProperty("a").GetInt32());
+        Assert.Throws<JsonException>(() => A2AJson.Deserialize<TextPart>("""{"url":"https://x"}"""));
+    }
 }

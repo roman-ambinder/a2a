@@ -9,6 +9,12 @@ namespace A2A.Json;
 /// </summary>
 public sealed class PartConverter : JsonConverter<Part>
 {
+    private static readonly PartConverter Shared = new();
+
+    internal static Part ReadPart(ref Utf8JsonReader reader) => Shared.Read(ref reader, typeof(Part), null!);
+
+    internal static void WritePart(Utf8JsonWriter writer, Part value) => Shared.Write(writer, value, null!);
+
     public override Part Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType != JsonTokenType.StartObject)
@@ -107,4 +113,20 @@ public sealed class PartConverter : JsonConverter<Part>
         reader.TokenType == JsonTokenType.String
             ? reader.GetString()!
             : throw new JsonException($"Part {member} must be a string");
+}
+
+/// <summary>
+/// Converter for one concrete <see cref="Part"/> subtype. System.Text.Json does not apply the base type's converter when
+/// the declared type is a derived record, so each subtype names this converter. It shares the logic of <see cref="PartConverter"/>.
+/// </summary>
+public sealed class PartConverter<TPart> : JsonConverter<TPart> where TPart : Part
+{
+    public override TPart Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        var part = PartConverter.ReadPart(ref reader);
+        return part as TPart ?? throw new JsonException($"Part content does not match {typeof(TPart).Name}");
+    }
+
+    public override void Write(Utf8JsonWriter writer, TPart value, JsonSerializerOptions options) =>
+        PartConverter.WritePart(writer, value);
 }
