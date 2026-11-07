@@ -232,7 +232,11 @@ public sealed class PostgresTaskStore : TaskStore
 
     public override async ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default)
     {
-        await using var cmd = _db.CreateCommand($"DELETE FROM {_contexts} WHERE tenant = $1 AND context_id = $2");
+        await using var cmd = _db.CreateCommand(
+            $"""
+            DELETE FROM {_contexts} c WHERE c.tenant = $1 AND c.context_id = $2
+               AND NOT EXISTS (SELECT 1 FROM {_tasks} t WHERE t.tenant = c.tenant AND t.context_id = c.context_id)
+            """);
         cmd.Parameters.Add(Text(tenant));
         cmd.Parameters.Add(Text(contextId));
         return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;

@@ -8,9 +8,9 @@ public abstract class PushConfigStoreContract
 {
     protected abstract Task<PushConfigStore> CreateStoreAsync();
 
-    private static readonly TaskKey Alice = new("t", "alice", "task1");
+    protected static readonly TaskKey Alice = new("t", "alice", "task1");
 
-    private static PushConfigRecord Config(TaskKey key, string id, string url = "https://hooks.example/cb") => new(key, new TaskPushNotificationConfig
+    protected static PushConfigRecord Config(TaskKey key, string id, string url = "https://hooks.example/cb") => new(key, new TaskPushNotificationConfig
     {
         TaskId = key.TaskId, Id = id, Url = url, Token = "protected:" + id,
         Authentication = new AuthenticationInfo { Scheme = "Bearer", Credentials = "protected-creds" },
@@ -168,4 +168,28 @@ public sealed class InMemoryPushConfigStoreTests : PushConfigStoreContract
 public sealed class PostgresPushConfigStoreTests(PostgresFixture db) : PushConfigStoreContract
 {
     protected override async Task<PushConfigStore> CreateStoreAsync() => new PostgresPushConfigStore(db.DataSource, await db.NewSchemaAsync());
+
+    /// <summary>The 20-saver race again, with the task's row present (the production case; the contract test has no task row).</summary>
+    [SkippableFact]
+    public async Task SaveIfUnderLimit_is_atomic_under_parallel_savers_when_the_task_row_exists()
+    {
+        var schema = await db.NewSchemaAsync();
+        var s = new PostgresPushConfigStore(db.DataSource, schema);
+        var now = DateTimeOffset.UtcNow;
+        await new PostgresTaskStore(db.DataSource, new A2A.Server.StreamingOptions(), schema).CreateAsync(new TaskRecord(
+            Alice.Tenant, Alice.Owner,
+            new AgentTask { Id = Alice.TaskId, ContextId = "ctx", Status = new AgentTaskStatus { State = TaskState.Working, Timestamp = now } },
+            0, now, now));
+
+        var go = new TaskCompletionSource();
+        var savers = Enumerable.Range(0, 20).Select(i => Task.Run(async () =>
+        {
+            await go.Task;
+            return await s.SaveIfUnderLimitAsync(Config(Alice, $"c{i:D2}"), 10);
+        })).ToArray();
+        go.SetResult();
+
+        Assert.Equal(10, (await Task.WhenAll(savers)).Count(r => r));
+        Assert.Equal(10, await s.CountAsync(Alice));
+    }
 }

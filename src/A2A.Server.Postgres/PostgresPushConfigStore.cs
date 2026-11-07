@@ -14,25 +14,25 @@ public sealed class PostgresPushConfigStore : PushConfigStore
 {
     private readonly NpgsqlDataSource _db;
     private readonly string _table;
-    private readonly string _tasks;
+    private readonly string _upsertSql;
 
     public PostgresPushConfigStore(NpgsqlDataSource dataSource, PostgresStoreOptions? options = null)
     {
         _db = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         var schema = PostgresSchema.Quote((options ?? new()).Schema);
         _table = $"{schema}.a2a_push_configs";
-        _tasks = $"{schema}.a2a_tasks";
+        _upsertSql =
+            $"""
+            INSERT INTO {_table} (tenant, owner, task_id, config_id, config) VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (tenant, owner, task_id, config_id) DO UPDATE SET config = EXCLUDED.config
+            """;
     }
 
     public override async ValueTask SaveAsync(PushConfigRecord record, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(record);
         var id = record.Config.Id ?? throw new ArgumentException("The config must have an id.", nameof(record));
-        await using var cmd = _db.CreateCommand(
-            $"""
-            INSERT INTO {_table} (tenant, owner, task_id, config_id, config) VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (tenant, owner, task_id, config_id) DO UPDATE SET config = EXCLUDED.config
-            """);
+        await using var cmd = _db.CreateCommand(_upsertSql);
         AddKey(cmd, record.TaskKey);
         cmd.Parameters.Add(Text(id));
         cmd.Parameters.Add(Text(A2AJson.Serialize(record.Config)));
@@ -83,9 +83,8 @@ public sealed class PostgresPushConfigStore : PushConfigStore
     }
 
     /// <summary>
-    /// One transaction: locks the task's row in <c>a2a_tasks</c> (<c>FOR UPDATE</c>), so concurrent savers of one task take
-    /// turns, then counts and writes. A task without a row (not created yet, or already deleted) has nothing to lock; savers
-    /// of such a task are serialized with a transaction-level advisory lock on the task key instead.
+    /// One transaction: takes a transaction-level advisory lock on the task key (tenant, owner, task id), so concurrent savers
+    /// of one task take turns, then counts and writes. It does not depend on the task row, and the task's commits do not wait on it.
     /// </summary>
     public override async ValueTask<bool> SaveIfUnderLimitAsync(PushConfigRecord record, int limit, CancellationToken ct = default)
     {
@@ -96,17 +95,13 @@ public sealed class PostgresPushConfigStore : PushConfigStore
         await using var conn = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
         await using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
 
-        await using (var locker = new NpgsqlCommand(
-            $"SELECT 1 FROM {_tasks} WHERE tenant = $1 AND owner = $2 AND task_id = $3 FOR UPDATE", conn, tx))
+        // Always the same lock, whether or not the task row exists (so there is no window where two savers use different
+        // locks), and one that task commits and updates do not wait on. Released when the transaction ends.
+        await using (var advisory = new NpgsqlCommand(
+            "SELECT pg_advisory_xact_lock(hashtext('a2a_push_configs:' || $1 || chr(1) || $2 || chr(1) || $3))", conn, tx))
         {
-            AddKey(locker, record.TaskKey);
-            if (await locker.ExecuteScalarAsync(ct).ConfigureAwait(false) is null)
-            {
-                await using var advisory = new NpgsqlCommand(
-                    "SELECT pg_advisory_xact_lock(hashtext('a2a_push_configs:' || $1 || chr(1) || $2 || chr(1) || $3))", conn, tx);
-                AddKey(advisory, record.TaskKey);
-                await advisory.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-            }
+            AddKey(advisory, record.TaskKey);
+            await advisory.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
 
         bool exists;
@@ -126,11 +121,7 @@ public sealed class PostgresPushConfigStore : PushConfigStore
         }
         if (!exists && count >= limit) return false; // rolls back (nothing written)
 
-        await using (var save = new NpgsqlCommand(
-            $"""
-            INSERT INTO {_table} (tenant, owner, task_id, config_id, config) VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (tenant, owner, task_id, config_id) DO UPDATE SET config = EXCLUDED.config
-            """, conn, tx))
+        await using (var save = new NpgsqlCommand(_upsertSql, conn, tx))
         {
             AddKey(save, record.TaskKey);
             save.Parameters.Add(Text(id));

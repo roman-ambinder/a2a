@@ -508,6 +508,20 @@ public abstract class TaskStoreContract
     }
 
     [SkippableFact]
+    public async Task DeleteContext_keeps_a_context_that_a_task_still_uses()
+    {
+        var s = await CreateStoreAsync();
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "used", T0));
+        await s.CreateAsync(NewRecord("t", "alice", "id1", T0, contextId: "used"));
+        Assert.False(await s.DeleteContextAsync("t", "used"));
+        Assert.NotNull(await s.GetContextAsync("t", "used"));
+
+        await s.DeleteAsync(new TaskKey("t", "alice", "id1"));
+        Assert.True(await s.DeleteContextAsync("t", "used"));
+        Assert.Null(await s.GetContextAsync("t", "used"));
+    }
+
+    [SkippableFact]
     public async Task DeleteContext_removes_it_once_in_its_tenant_only()
     {
         var s = await CreateStoreAsync();

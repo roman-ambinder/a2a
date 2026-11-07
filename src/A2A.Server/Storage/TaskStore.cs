@@ -99,12 +99,15 @@ public abstract class TaskStore
     public abstract ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default);
 
     /// <summary>
-    /// Maintenance, all tenants and owners: keys of tasks in INPUT_REQUIRED or AUTH_REQUIRED whose status timestamp is
-    /// earlier than <paramref name="before"/>, oldest first, at most <paramref name="max"/>.
+    /// Maintenance, all tenants and owners: keys of tasks in INPUT_REQUIRED or AUTH_REQUIRED whose status timestamp (the
+    /// creation time when there is none) is earlier than <paramref name="before"/>, oldest first, at most <paramref name="max"/>.
     /// </summary>
     public abstract ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default);
 
-    /// <summary>Maintenance: deletes the context row. Returns false when it does not exist in <paramref name="tenant"/>. Tasks are not checked or touched.</summary>
+    /// <summary>
+    /// Maintenance: atomically deletes the context row only if no task refers to it any more. Returns false when the context
+    /// does not exist in <paramref name="tenant"/> or a task still uses it. Tasks are never touched.
+    /// </summary>
     public abstract ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default);
 
     /// <summary>

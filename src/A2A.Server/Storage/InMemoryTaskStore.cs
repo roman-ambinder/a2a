@@ -15,6 +15,7 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
     private readonly InMemoryEventStore _events = events ?? throw new ArgumentNullException(nameof(events));
     private readonly ConcurrentDictionary<(string Tenant, string TaskId), TaskRecord> _tasks = new();
     private readonly ConcurrentDictionary<(string Tenant, string ContextId), ContextRecord> _contexts = new();
+    private readonly object _contextLock = new(); // DeleteContextAsync checks for tasks and removes under it
 
     public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) =>
         ValueTask.FromResult(
@@ -111,8 +112,10 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
     public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) =>
         ValueTask.FromResult(_contexts.TryGetValue((tenant, contextId), out var c) ? c : null);
 
-    public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) =>
-        ValueTask.FromResult(_contexts.GetOrAdd((record.Tenant, record.ContextId), record));
+    public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default)
+    {
+        lock (_contextLock) return ValueTask.FromResult(_contexts.GetOrAdd((record.Tenant, record.ContextId), record));
+    }
 
     public override ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default)
     {
@@ -140,8 +143,14 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
         .Select(x => x.Key)
         .ToList();
 
-    public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default) =>
-        ValueTask.FromResult(_contexts.TryRemove((tenant, contextId), out _));
+    public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default)
+    {
+        lock (_contextLock)
+        {
+            if (_tasks.Values.Any(r => r.Tenant == tenant && r.Task.ContextId == contextId)) return ValueTask.FromResult(false);
+            return ValueTask.FromResult(_contexts.TryRemove((tenant, contextId), out _));
+        }
+    }
 
     public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default)
     {

@@ -71,7 +71,10 @@ public static class PostgresSchema
         CREATE INDEX IF NOT EXISTS a2a_tasks_list_ix ON {s}.a2a_tasks (tenant, owner, status_ticks DESC, task_id);
         CREATE INDEX IF NOT EXISTS a2a_tasks_context_ix ON {s}.a2a_tasks (tenant, owner, context_id, status_ticks DESC, task_id);
         -- Retention sweeps (all tenants and owners): tasks by state and age, and "does any task still use this context".
-        CREATE INDEX IF NOT EXISTS a2a_tasks_state_ix ON {s}.a2a_tasks (state, status_ticks);
+        DROP INDEX IF EXISTS {s}.a2a_tasks_state_ix;
+        -- state 3,4,5,7 = completed, failed, canceled, rejected; 6,8 = input-required, auth-required (TaskState values).
+        CREATE INDEX IF NOT EXISTS a2a_tasks_terminal_ix ON {s}.a2a_tasks (status_ticks, tenant, task_id) WHERE state IN (3, 4, 5, 7);
+        CREATE INDEX IF NOT EXISTS a2a_tasks_interrupted_ix ON {s}.a2a_tasks (status_ticks, tenant, task_id) WHERE state IN (6, 8);
         CREATE INDEX IF NOT EXISTS a2a_tasks_tenant_context_ix ON {s}.a2a_tasks (tenant, context_id);
 
         CREATE TABLE IF NOT EXISTS {s}.a2a_contexts (
@@ -81,6 +84,8 @@ public static class PostgresSchema
             created_ticks bigint NOT NULL,
             PRIMARY KEY (tenant, context_id)
         );
+        -- Orphan-context sweep: oldest first.
+        CREATE INDEX IF NOT EXISTS a2a_contexts_created_ix ON {s}.a2a_contexts (created_ticks, tenant, context_id);
 
         -- Per-task event log header: the last sequence ever appended, and when a terminal task's log expires.
         CREATE TABLE IF NOT EXISTS {s}.a2a_event_logs (

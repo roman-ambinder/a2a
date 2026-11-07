@@ -615,6 +615,9 @@ public sealed class A2ARequestHandler : IDisposable
         {
             var gate = LockFor(call.Tenant, taskId);
             await gate.WaitAsync(ct).ConfigureAwait(false);
+            var pushIsNew = false;   // the config id did not exist before this request
+            var pushSaved = false;
+            var committed = false;
             try
             {
                 for (var attempt = 0; ; attempt++)
@@ -635,7 +638,14 @@ public sealed class A2ARequestHandler : IDisposable
                             Metadata = new() { ["taskId"] = taskId },
                         };
                     EnsureTurnCapacity(record.Task);
-                    if (push is not null) await EnsurePushCapacityAsync(Key(call, taskId), push.Id!, ct).ConfigureAwait(false);
+                    if (push is not null)
+                    {
+                        // Saved atomically under the limit before the message is committed, so a refused request leaves no message.
+                        if (!pushSaved) pushIsNew = await _pushConfigs.GetAsync(Key(call, taskId), push.Id!, ct).ConfigureAwait(false) is null;
+                        if (!await SavePushConfigIfUnderLimitAsync(Key(call, taskId), push, ct).ConfigureAwait(false))
+                            throw TooManyPushConfigs(_options.Limits.MaxPushConfigsPerTask);
+                        pushSaved = true;
+                    }
                     contextId = record.Task.ContextId;
                     message.ContextId = contextId;
                     (record.Task.History ??= []).Add(message);
@@ -643,6 +653,7 @@ public sealed class A2ARequestHandler : IDisposable
                     {
                         await _tasks.UpdateAsync(record, record.Version, ct).ConfigureAwait(false);
                         existing = record.Task;
+                        committed = true;
                         // Still under the task lock. The message is committed: a cancelled request must not stop here, or
                         // the idempotency entry would be abandoned and a retry would append the message again.
                         lastSequence = await _events.LastSequenceAsync(Key(call, taskId), CancellationToken.None).ConfigureAwait(false);
@@ -656,6 +667,8 @@ public sealed class A2ARequestHandler : IDisposable
             }
             finally
             {
+                // The message was not committed (state refused, conflicts, cancel): do not keep the config it came with.
+                if (pushSaved && pushIsNew && !committed) await TryDeletePushConfigAsync(Key(call, taskId), push!.Id!).ConfigureAwait(false);
                 gate.Release();
             }
         }
@@ -665,9 +678,7 @@ public sealed class A2ARequestHandler : IDisposable
             message.ContextId = contextId;
         }
 
-        // A new task saves its push config when the task is created; a follow-up saves it now (capacity checked above), past
-        // cancellation for the same reason as the last sequence: its message is already committed.
-        if (push is not null && existing is not null) await SavePushConfigAsync(Key(call, taskId), push, CancellationToken.None).ConfigureAwait(false);
+        // A new task saves its push config when the task is created; a follow-up saved it above, before its message was committed.
 
         var context = new AgentRequestContext
         {
@@ -1061,10 +1072,7 @@ public sealed class A2ARequestHandler : IDisposable
         stored.Id = string.IsNullOrEmpty(stored.Id) ? TaskIds.New() : stored.Id;
         stored.Tenant = call.Tenant;
         if (!await SavePushConfigIfUnderLimitAsync(key, stored, cancellationToken).ConfigureAwait(false))
-        {
-            var limit = _options.Limits.MaxPushConfigsPerTask;
-            throw new A2AException(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {limit}).");
-        }
+            throw TooManyPushConfigs(_options.Limits.MaxPushConfigsPerTask);
         return Redact(stored);
     }
 
@@ -1561,18 +1569,8 @@ public sealed class A2ARequestHandler : IDisposable
     // Helpers
     // =====================================================================
 
-    /// <summary>
-    /// Early check for a follow-up message: throws InvalidRequest when adding config <paramref name="configId"/> would exceed the
-    /// per-task limit, before the message is committed. Replacing an existing id is allowed. Not atomic with the later save;
-    /// the create-config call uses <see cref="SavePushConfigIfUnderLimitAsync"/>.
-    /// </summary>
-    private async ValueTask EnsurePushCapacityAsync(TaskKey key, string configId, CancellationToken ct)
-    {
-        if (await _pushConfigs.GetAsync(key, configId, ct).ConfigureAwait(false) is not null) return;
-        var limit = _options.Limits.MaxPushConfigsPerTask;
-        if (await _pushConfigs.CountAsync(key, ct).ConfigureAwait(false) >= limit)
-            throw new A2AException(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {limit}).");
-    }
+    private static A2AException TooManyPushConfigs(int limit) =>
+        new(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {limit}).");
 
     /// <summary>Protects the secrets of <paramref name="config"/> and stores a copy. The caller's instance is not changed.</summary>
     private ValueTask SavePushConfigAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct) =>

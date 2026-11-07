@@ -232,6 +232,23 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
     }
 
     [SkippableFact]
+    public async Task Renew_by_another_principal_or_tenant_does_not_extend_the_claim()
+    {
+        var clock = new FakeTimeProvider();
+        var schema = await db.NewSchemaAsync();
+        schema.IdempotencyClaimTimeout = TimeSpan.FromMinutes(5);
+        var s = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
+
+        await s.TryBeginAsync(Scope, Hash);
+        clock.Advance(TimeSpan.FromMinutes(4));
+        await s.RenewAsync(Scope with { Principal = "bob" });
+        await s.RenewAsync(Scope with { Tenant = "u" });
+        await s.RenewAsync(Scope with { Key = "other-key" });
+        clock.Advance(TimeSpan.FromMinutes(2)); // 6 min after the real claim, which nobody renewed
+        Assert.IsType<IdempotencyResult.New>(await s.TryBeginAsync(Scope, Hash));
+    }
+
+    [SkippableFact]
     public void Claim_timeout_defaults_to_two_minutes() =>
         Assert.Equal(TimeSpan.FromMinutes(2), new PostgresStoreOptions().IdempotencyClaimTimeout);
 }
