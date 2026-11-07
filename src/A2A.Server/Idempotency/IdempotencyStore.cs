@@ -32,8 +32,12 @@ public abstract record IdempotencyOutcome
 {
     private protected IdempotencyOutcome() { }
 
-    /// <summary>The request created (or continued) the task <c>TaskId</c>.</summary>
-    public sealed record TaskCreated(string TaskId) : IdempotencyOutcome;
+    /// <summary>
+    /// The request created (or continued) the task <c>TaskId</c>. <c>AfterSequence</c> is the task's last event sequence when
+    /// the request was accepted: 0 for a new task; for a follow-up, events up to it belong to earlier requests, so a blocking
+    /// retry does not take an interrupted state from before as this request's outcome.
+    /// </summary>
+    public sealed record TaskCreated(string TaskId, long AfterSequence = 0) : IdempotencyOutcome;
 
     /// <summary>The agent answered with a message and no task.</summary>
     public sealed record DirectMessage(Message Message) : IdempotencyOutcome;

@@ -244,7 +244,10 @@ public sealed class A2ARequestHandler : IDisposable
         if (!any) throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The agent finished without replying or creating a task.");
     }
 
-    private sealed record Prepared(AgentRequestContext Context, TaskPushNotificationConfig? PushConfig);
+    /// <param name="Context">The request context for the agent.</param>
+    /// <param name="PushConfig">The push config to save when a new task is created.</param>
+    /// <param name="LastSequence">For a follow-up, the task's last event sequence right after the message was appended; 0 for a new task.</param>
+    private sealed record Prepared(AgentRequestContext Context, TaskPushNotificationConfig? PushConfig, long LastSequence);
 
     /// <summary>
     /// Begins idempotency for a SendMessage (spec design §7.3), after authorization and before the message is accepted. The
@@ -299,7 +302,7 @@ public sealed class A2ARequestHandler : IDisposable
                 var key = Key(call, created.TaskId);
                 var task = request.Configuration?.ReturnImmediately == true
                     ? (await _tasks.GetAsync(key, ct).ConfigureAwait(false))?.Task ?? throw A2AException.TaskNotFound(created.TaskId)
-                    : await WaitUntilSettledAsync(key, ct).ConfigureAwait(false);
+                    : await WaitUntilSettledAsync(key, created.AfterSequence, ct).ConfigureAwait(false);
                 return new TaskResponse(Shape(task, request.Configuration?.HistoryLength));
             default:
                 throw new UnreachableException();
@@ -307,24 +310,50 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     /// <summary>
-    /// Waits until the task is terminal or interrupted, then returns it (the end point of a blocking SendMessage). Reads the
-    /// task after every live event; subscribing before the first read means no change is missed.
+    /// Waits for the outcome of a blocking SendMessage, then returns the task, as the first request does:
+    /// <list type="bullet">
+    /// <item>a terminal state;</item>
+    /// <item>an interrupted state reached by a status event after <paramref name="afterSequence"/> (an interrupted state from
+    /// before a follow-up is not its outcome); seen in the event store or on the live bus;</item>
+    /// <item>no execution running for the task any more (the agent returned without settling it, or the server restarted):
+    /// nothing will change it, so its current state;</item>
+    /// <item>or the request is cancelled.</item>
+    /// </list>
+    /// Subscribing before the first read, and checking for running executions before reading the task, means no change is missed.
     /// </summary>
-    private async Task<AgentTask> WaitUntilSettledAsync(TaskKey key, CancellationToken ct)
+    private async Task<AgentTask> WaitUntilSettledAsync(TaskKey key, long afterSequence, CancellationToken ct)
     {
-        using var sub = _bus.Subscribe(ScopeKey(key.Tenant, key.TaskId));
+        var scope = ScopeKey(key.Tenant, key.TaskId);
+        using var sub = _bus.Subscribe(scope);
+        var statusAfter = afterSequence == 0 || await HasStatusEventAfterAsync(key, afterSequence, ct).ConfigureAwait(false);
+        Task<bool>? live = null; // one pending wait at a time: the subscription has a single reader
         while (true)
         {
+            var running = _running.TryGetValue(scope, out var set) ? set.Keys.Select(e => e.Completion).ToList() : [];
             var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
             var state = record.Task.Status.State;
-            if (state.IsTerminal() || state.IsInterrupted()) return record.Task;
-            if (!await sub.Reader.WaitToReadAsync(ct).ConfigureAwait(false))
+            if (state.IsTerminal() || (state.IsInterrupted() && statusAfter) || running.Count == 0) return record.Task;
+
+            live ??= sub.Reader.WaitToReadAsync(ct).AsTask();
+            await Task.WhenAny(running.Append(live)).ConfigureAwait(false);
+            if (!live.IsCompleted) continue; // an execution ended: check again
+            if (!await live.ConfigureAwait(false))
             {
                 // The bus ended the topic (the task finished): one last read.
                 return (await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId)).Task;
             }
-            while (sub.Reader.TryRead(out _)) { }
+            live = null;
+            while (sub.Reader.TryRead(out var evt))
+                if (evt.Sequence > afterSequence && evt.Event is StatusUpdateEvent) statusAfter = true;
         }
+    }
+
+    /// <summary>True when the event store holds a status event of the task with a sequence after <paramref name="afterSequence"/>.</summary>
+    private async Task<bool> HasStatusEventAfterAsync(TaskKey key, long afterSequence, CancellationToken ct)
+    {
+        await foreach (var stored in _events.ReadAfterAsync(key, afterSequence, ct).ConfigureAwait(false))
+            if (stored.Event is StatusUpdateEvent) return true;
+        return false;
     }
 
     /// <summary>
@@ -337,12 +366,13 @@ public sealed class A2ARequestHandler : IDisposable
         try
         {
             var prepared = await PrepareAsync(request, call, ct, newTaskId).ConfigureAwait(false);
-            if (!prepared.Context.IsNewTask)
-            {
-                await RecordAsync(claim, new IdempotencyOutcome.TaskCreated(prepared.Context.TaskId), prepared.Context.TaskId).ConfigureAwait(false);
-                claim = IdempotencyClaim.None;
-            }
-            return StartExecution(prepared.Context, prepared.PushConfig, claim);
+            if (prepared.Context.IsNewTask) return StartExecution(prepared.Context, prepared.PushConfig, claim);
+
+            // Record after the execution is registered, so a blocking retry sees it running and waits for its outcome.
+            var exec = StartExecution(prepared.Context, prepared.PushConfig, IdempotencyClaim.None);
+            var taskId = prepared.Context.TaskId;
+            await RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId, prepared.LastSequence), taskId).ConfigureAwait(false);
+            return exec;
         }
         catch
         {
@@ -369,6 +399,7 @@ public sealed class A2ARequestHandler : IDisposable
         var isFollowUp = !string.IsNullOrEmpty(message.TaskId);
         var taskId = isFollowUp ? message.TaskId! : newTaskId ?? TaskIds.New();
         AgentTask? existing = null;
+        long lastSequence = 0;
         string contextId;
 
         // Check the push config before anything changes, so a refused request leaves no trace and a retry is refused the same way.
@@ -414,6 +445,7 @@ public sealed class A2ARequestHandler : IDisposable
                     {
                         await _tasks.UpdateAsync(record, record.Version, ct).ConfigureAwait(false);
                         existing = record.Task;
+                        lastSequence = await _events.LastSequenceAsync(Key(call, taskId), ct).ConfigureAwait(false); // still under the task lock
                         break;
                     }
                     catch (ConcurrencyException) when (attempt < MaxConflictRetries)
@@ -446,7 +478,7 @@ public sealed class A2ARequestHandler : IDisposable
             Metadata = request.Metadata,
             Call = call,
         };
-        return new Prepared(context, existing is null ? push : null);
+        return new Prepared(context, existing is null ? push : null, lastSequence);
     }
 
     /// <summary>

@@ -212,6 +212,42 @@ public class IdempotencyTests
         Assert.Equal(TaskState.Completed, task.Status.State);
     }
 
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Blocking_duplicate_follow_up_waits_for_the_new_outcome(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var waiting = await SendTaskAsync(host, binding, Body("input", "m-input-gate"));
+        var text = $"gate {Guid.NewGuid():N}";
+        var followUp = $$$"""{"message":{"messageId":"m-follow-gate","role":"ROLE_USER","taskId":"{{{waiting.Id}}}","parts":[{"text":"{{{text}}}"}]}}""";
+
+        var original = SendTaskAsync(host, binding, followUp);
+        var duplicate = SendTaskAsync(host, binding, followUp);
+        await Task.Delay(300); // only a broken server answers in this window: the task is still INPUT_REQUIRED from before
+        Assert.False(original.IsCompleted || duplicate.IsCompleted, "a blocking follow-up returned the earlier interrupted state");
+        ScenarioAgent.Gate(text).TrySetResult();
+        var results = await Task.WhenAll(original, duplicate).WaitAsync(Timeout);
+
+        Assert.All(results, t => Assert.Equal(waiting.Id, t.Id));
+        Assert.All(results, t => Assert.Equal(TaskState.Completed, t.Status.State));
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Blocking_retry_returns_when_no_execution_is_left(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var body = Body("halfway", "m-halfway");
+
+        var first = await SendTaskAsync(host, binding, body); // the agent returned after starting work
+        await host.WaitIdleAsync();
+        var retried = await SendTaskAsync(host, binding, body).WaitAsync(Timeout);
+
+        Assert.Equal(TaskState.Working, first.Status.State);
+        Assert.Equal(first.Id, retried.Id);
+        Assert.Equal(TaskState.Working, retried.Status.State);
+    }
+
     [Fact]
     public async Task In_process_retry_with_the_same_request_instance_returns_the_same_task()
     {
