@@ -692,6 +692,9 @@ public sealed class A2ARequestHandler : IDisposable
             lastYielded = stored.Sequence;
             if (IsFinal(stored.Event)) yield break;
         }
+        // The store no longer has the missing events (trimmed): end with a snapshot, as the live loop does, never without a final event.
+        var last = await ReadSnapshotAsync(key, cancellationToken).ConfigureAwait(false);
+        if (last.Sequence > lastYielded) yield return last;
     }
 
     /// <summary>A task with its last and oldest retained event sequences, read together.</summary>
@@ -1212,9 +1215,10 @@ public sealed class A2ARequestHandler : IDisposable
         return false;
     }
 
-    /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
-    private const string StoreFailureText = "The task failed because its updates could not be stored.";
+    /// <summary>Status text of a task failed because its updates could not be stored.</summary>
+    internal const string StoreFailureText = "The task failed because its updates could not be stored.";
 
+    /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
     internal const string OversizedEventText = "The agent produced an event larger than the configured limit.";
 
     private static StreamResponse FailureEvent(string taskId, string contextId, string text = OversizedEventText) => StreamResponse.Of(new TaskStatusUpdateEvent

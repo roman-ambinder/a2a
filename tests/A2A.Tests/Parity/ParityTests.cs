@@ -346,6 +346,17 @@ public class ParityTests
             else
             {
                 Assert.True(op is Op.SendStreamingMessage or Op.SubscribeToTask);
+                // The first frame is a result for the expected task, not an error.
+                using var reader = new StreamReader(await resp.Content.ReadAsStreamAsync(cts.Token));
+                string? line;
+                do { line = await reader.ReadLineAsync(cts.Token); } while (line is not null && !line.StartsWith("data:", StringComparison.Ordinal));
+                Assert.NotNull(line);
+                using var frame = JsonDocument.Parse(line["data:".Length..]);
+                var payload = frame.RootElement;
+                Assert.False(payload.TryGetProperty("error", out _), line);
+                if (binding == ProtocolBindings.JsonRpc) payload = payload.GetProperty("result");
+                if (op is Op.SubscribeToTask) Assert.Equal(task.Id, payload.GetProperty("task").GetProperty("id").GetString());
+                else Assert.Equal("hi there", payload.GetProperty("message").GetProperty("parts")[0].GetProperty("text").GetString()); // "hello" is a direct reply
             }
         }
         else

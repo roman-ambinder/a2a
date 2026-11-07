@@ -98,18 +98,59 @@ public class RegressionTests
     [MemberData(nameof(Bindings))]
     public async Task Issue495_persistence_failure_mid_stream_is_not_silent_eof(string binding)
     {
-        // Update 1 stores WORKING; update 2 (the first artifact) fails.
+        // Update 1 stores WORKING; update 2 (the completion) fails. The gate keeps the agent running until a subscriber is attached.
+        var gate = $"gate issue495-{binding}";
         await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(new FailOnNthUpdateStore(2)));
+        var client = host.Client(binding);
+        using var cts = new CancellationTokenSource(Wait);
         var seen = new List<StreamResponse>();
+        await using var stream = client.SendStreamingMessageAsync(Message.FromUser(gate)).GetAsyncEnumerator(cts.Token);
+        Assert.True(await stream.MoveNextAsync());
+        seen.Add(stream.Current);
+        var taskId = Assert.IsType<TaskEvent>(seen[0]).Task.Id;
+        Assert.True(await stream.MoveNextAsync()); // WORKING, stored
+        seen.Add(stream.Current);
+
+        // A second observer, attached before the failure.
+        var observed = new List<StreamResponse>();
+        var attached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var observer = Task.Run(async () =>
+        {
+            await foreach (var e in client.SubscribeToTaskAsync(taskId, null, cts.Token))
+            {
+                observed.Add(e);
+                attached.TrySetResult();
+            }
+        });
+        await attached.Task.WaitAsync(Wait);
+        ScenarioAgent.Gate(gate).TrySetResult();
+
         var ex = await Assert.ThrowsAsync<A2AException>(async () =>
         {
-            await foreach (var e in host.Client(binding).SendStreamingMessageAsync(Message.FromUser("task")).WithCancellation(new CancellationTokenSource(Wait).Token))
-                seen.Add(e);
+            while (await stream.MoveNextAsync()) seen.Add(stream.Current);
         });
-
         Assert.Equal(A2AErrorCode.Internal, ex.Code);
         Assert.DoesNotContain("went away", ex.Message);
         Assert.DoesNotContain(seen, e => e is StatusUpdateEvent { StatusUpdate.Status.State: TaskState.Completed });
+
+        // The task does not stay WORKING: it is FAILED, with fixed text and no exception detail.
+        AgentTask current;
+        var deadline = DateTime.UtcNow + Wait;
+        do
+        {
+            current = await client.GetTaskAsync(taskId);
+            if (current.Status.State.IsTerminal()) break;
+            await Task.Delay(20);
+        } while (DateTime.UtcNow < deadline);
+        Assert.Equal(TaskState.Failed, current.Status.State);
+        Assert.Equal(A2ARequestHandler.StoreFailureText, current.Status.Message!.GetText());
+        Assert.DoesNotContain("went away", current.Status.Message!.GetText());
+
+        // The observer was told, and its stream ended.
+        await observer.WaitAsync(Wait);
+        var failed = Assert.IsType<StatusUpdateEvent>(observed[^1]);
+        Assert.Equal(TaskState.Failed, failed.StatusUpdate.Status.State);
+        Assert.Equal(A2ARequestHandler.StoreFailureText, failed.StatusUpdate.Status.Message!.GetText());
     }
 
     /// <summary>#551: a JSON-RPC error object inside an SSE stream is thrown to the caller, not swallowed or parsed as an event.</summary>

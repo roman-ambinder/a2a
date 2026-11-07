@@ -147,6 +147,44 @@ public class StreamingResumeTests
         for (var i = 1; i < received.Count; i++) Assert.Equal(received[i - 1].Sequence + 1, received[i].Sequence);
     }
 
+    /// <summary>A bus that delivers only its first event, so the rest must come from the store.</summary>
+    private sealed class FirstEventOnlyBus : TaskEventBus
+    {
+        private int _published;
+
+        public override void Publish(string taskId, SequencedEvent evt)
+        {
+            if (Interlocked.Increment(ref _published) == 1) base.Publish(taskId, evt);
+        }
+    }
+
+    [Fact]
+    public async Task Stream_ends_with_a_snapshot_when_the_terminal_event_is_lost_and_trimmed()
+    {
+        await using var host = await TestAgentHost.StartAsync(o =>
+        {
+            o.CancelGracePeriod = TimeSpan.FromSeconds(60);
+            o.Streaming.ReplayBufferSize = 1;
+        }, services: s =>
+        {
+            s.AddScoped<IAgentExecutor, InterleavingAgent>();
+            s.AddSingleton<TaskEventBus, FirstEventOnlyBus>();
+        });
+        var call = AliceCall();
+        await using var send = host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, call).GetAsyncEnumerator();
+        Assert.True(await send.MoveNextAsync());
+        var taskId = Assert.IsType<TaskEvent>(send.Current.Event).Task.Id;
+
+        var received = new List<SequencedEvent>();
+        await foreach (var e in host.Handler.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId }, call).WithCancellation(new CancellationTokenSource(Timeout).Token))
+        {
+            received.Add(e);
+            if (received.Count == 1) _ = host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = taskId }, call);
+        }
+
+        Assert.Equal(TaskState.Canceled, Assert.IsType<TaskEvent>(received[^1].Event).Task.Status.State);
+    }
+
     [Fact]
     public async Task Live_gap_is_filled_from_the_store()
     {
