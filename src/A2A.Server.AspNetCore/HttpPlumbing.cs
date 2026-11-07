@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using A2A.Json;
+using A2A.Server.Streaming;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -129,7 +130,7 @@ internal static class HttpPlumbing
     /// Pulls the first element before the response starts, so validation errors become normal error responses
     /// rather than broken streams. Returns null if the sequence is empty.
     /// </summary>
-    public static async Task<IAsyncEnumerator<StreamResponse>?> PrimeAsync(IAsyncEnumerable<StreamResponse> source, CancellationToken ct)
+    public static async Task<IAsyncEnumerator<SequencedEvent>?> PrimeAsync(IAsyncEnumerable<SequencedEvent> source, CancellationToken ct)
     {
         var e = source.GetAsyncEnumerator(ct);
         try
@@ -146,12 +147,12 @@ internal static class HttpPlumbing
     }
 
     /// <summary>Writes the primed enumerator as SSE, emitting keep-alive comments when idle.</summary>
-    public static async Task PumpAsync(HttpContext http, IAsyncEnumerator<StreamResponse> e, Func<StreamResponse, byte[]> encode,
+    public static async Task PumpAsync(HttpContext http, IAsyncEnumerator<SequencedEvent> e, Func<StreamResponse, byte[]> encode,
         Func<Exception, byte[]> encodeError, TimeSpan keepAlive, ILogger logger)
     {
         try
         {
-            await WriteEventAsync(http, encode(e.Current)).ConfigureAwait(false);
+            await WriteEventAsync(http, encode(e.Current.Event)).ConfigureAwait(false);
             while (true)
             {
                 var next = e.MoveNextAsync().AsTask();
@@ -168,7 +169,7 @@ internal static class HttpPlumbing
                     await WriteKeepAliveAsync(http).ConfigureAwait(false);
                 }
                 if (!await next.ConfigureAwait(false)) break;
-                await WriteEventAsync(http, encode(e.Current)).ConfigureAwait(false);
+                await WriteEventAsync(http, encode(e.Current.Event)).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)

@@ -55,9 +55,25 @@ public sealed class A2AServerOptions
     /// <summary>Size, count and time limits (request body, parts, JSON depth, history, page size, streams, push configs).</summary>
     public A2ALimits Limits { get; } = new();
 
+    /// <summary>Event log retention and SSE keep-alive settings.</summary>
+    public StreamingOptions Streaming { get; } = new();
+
     /// <summary>
     /// Rate limit callers per tenant and principal (ASP.NET Core layer, policy <c>"a2a"</c>). Default true. When true the host
     /// must call <c>app.UseA2A()</c> (it adds the rate limiter middleware) or startup fails. Set false to turn rate limiting off.
     /// </summary>
     public bool EnableRateLimiting { get; set; } = true;
+}
+
+/// <summary>Settings for the per-task event log and for SSE streams.</summary>
+public sealed class StreamingOptions
+{
+    /// <summary>Events kept per task for replay. Default 1000.</summary>
+    public int ReplayBufferSize { get; set; } = 1000;
+
+    /// <summary>How long a terminal task's events are kept after it finishes. Default 10 minutes.</summary>
+    public TimeSpan TerminalRetention { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>Interval for SSE keep-alive comments while a stream is idle. Default 15 seconds. Zero disables.</summary>
+    public TimeSpan KeepAliveInterval { get; set; } = TimeSpan.FromSeconds(15);
 }

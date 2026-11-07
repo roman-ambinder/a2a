@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using A2A.Json;
 using A2A.Server.Push;
 using A2A.Server.Storage;
+using A2A.Server.Streaming;
 using A2A.Validation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,6 +21,7 @@ public sealed class A2ARequestHandler : IDisposable
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TaskStore _tasks;
+    private readonly EventStore _events;
     private readonly PushConfigStore _pushConfigs;
     private readonly A2AAuthorizationHandler _authorization;
     private readonly IPushSecretProtector _protector;
@@ -34,6 +36,7 @@ public sealed class A2ARequestHandler : IDisposable
     public A2ARequestHandler(
         IServiceScopeFactory scopeFactory,
         TaskStore tasks,
+        EventStore events,
         PushConfigStore pushConfigs,
         A2AAuthorizationHandler authorization,
         IPushSecretProtector protector,
@@ -44,6 +47,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         _scopeFactory = scopeFactory;
         _tasks = tasks;
+        _events = events;
         _pushConfigs = pushConfigs;
         _authorization = authorization;
         _protector = protector;
@@ -130,8 +134,9 @@ public sealed class A2ARequestHandler : IDisposable
         var returnImmediately = request.Configuration?.ReturnImmediately == true;
         try
         {
-            await foreach (var evt in exec.Outgoing.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            await foreach (var sequenced in exec.Outgoing.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
+                var evt = sequenced.Event;
                 if (evt is MessageEvent reply) return new MessageResponse(reply.Message);
                 if (returnImmediately) break;
                 if (evt is StatusUpdateEvent { StatusUpdate: var su } && (su.Status.State.IsTerminal() || su.Status.State.IsInterrupted())) break;
@@ -147,7 +152,7 @@ public sealed class A2ARequestHandler : IDisposable
         return new TaskResponse(Shape(record.Task, request.Configuration?.HistoryLength));
     }
 
-    public async IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, ServerCallContext call,
+    public async IAsyncEnumerable<SequencedEvent> SendStreamingMessageAsync(SendMessageRequest request, ServerCallContext call,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
@@ -158,12 +163,12 @@ public sealed class A2ARequestHandler : IDisposable
         var any = false;
         try
         {
-            await foreach (var evt in exec.Outgoing.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            await foreach (var sequenced in exec.Outgoing.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 any = true;
-                yield return evt;
-                if (evt is MessageEvent) yield break;
-                if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal()) yield break;
+                yield return sequenced;
+                if (sequenced.Event is MessageEvent) yield break;
+                if (sequenced.Event is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal()) yield break;
             }
         }
         finally
@@ -356,7 +361,7 @@ public sealed class A2ARequestHandler : IDisposable
         return Shape(record.Task, null);
     }
 
-    public async IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, ServerCallContext call,
+    public async IAsyncEnumerable<SequencedEvent> SubscribeToTaskAsync(SubscribeToTaskRequest request, ServerCallContext call,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
@@ -369,14 +374,27 @@ public sealed class A2ARequestHandler : IDisposable
 
         using var sub = _bus.Subscribe(ScopeKey(call.Tenant, request.Id));
         // Snapshot after subscribing, so no event can fall between the snapshot and the live feed (spec §3.1.6).
-        record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
-        yield return StreamResponse.Of(Shape(record.Task, null));
+        // Read under the task lock so the snapshot and its sequence belong together; live events at or below it are duplicates.
+        long snapshotSequence;
+        var gate = LockFor(call.Tenant, request.Id);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+            snapshotSequence = await _events.LastSequenceAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            gate.Release();
+        }
+        yield return new SequencedEvent(snapshotSequence, StreamResponse.Of(Shape(record.Task, null)));
         if (record.Task.Status.State.IsTerminal()) yield break;
 
-        await foreach (var evt in sub.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        await foreach (var sequenced in sub.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
-            yield return evt;
-            if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal()) yield break;
+            if (sequenced.Sequence <= snapshotSequence) continue;
+            yield return sequenced;
+            if (sequenced.Event is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal()) yield break;
         }
     }
 
@@ -538,18 +556,30 @@ public sealed class A2ARequestHandler : IDisposable
         {
             if (emitInitialSnapshot)
             {
-                var current = await _tasks.GetAsync(key).ConfigureAwait(false);
-                if (current is not null) exec.Emit(StreamResponse.Of(current.Task));
+                // Snapshot of the existing task, stamped with the latest sequence. It is not a new event, so it is not appended.
+                var snapshotGate = LockFor(key.Tenant, taskId);
+                await snapshotGate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    var current = await _tasks.GetAsync(key).ConfigureAwait(false);
+                    if (current is not null)
+                        exec.Emit(new SequencedEvent(await _events.LastSequenceAsync(key).ConfigureAwait(false), StreamResponse.Of(current.Task)));
+                }
+                finally
+                {
+                    snapshotGate.Release();
+                }
             }
 
             await foreach (var evt in exec.Incoming.Reader.ReadAllAsync().ConfigureAwait(false))
             {
                 if (evt is MessageEvent)
                 {
-                    exec.Emit(evt); // direct reply, no task
+                    exec.Emit(new SequencedEvent(0, evt)); // direct reply, no task, not stored
                     continue;
                 }
 
+                var toPublish = new List<SequencedEvent>(2);
                 var gate = LockFor(key.Tenant, taskId);
                 await gate.WaitAsync().ConfigureAwait(false);
                 try
@@ -570,7 +600,8 @@ public sealed class A2ARequestHandler : IDisposable
                             Version: 0, CreatedAt: now, UpdatedAt: now)).ConfigureAwait(false);
                         if (push is not null) await SavePushConfigAsync(key, push, CancellationToken.None).ConfigureAwait(false);
                         created = true;
-                        Publish(exec, key, StreamResponse.Of(A2AJson.Clone(record.Task)));
+                        var snapshot = StreamResponse.Of(A2AJson.Clone(record.Task));
+                        toPublish.Add(new SequencedEvent(await _events.AppendAsync(key, snapshot).ConfigureAwait(false), snapshot));
                     }
                     else
                     {
@@ -582,15 +613,20 @@ public sealed class A2ARequestHandler : IDisposable
                         }
                     }
 
-                    if (!await ApplyAndStoreAsync(key, record, evt).ConfigureAwait(false)) continue;
+                    if (await ApplyAndStoreAsync(key, record, evt).ConfigureAwait(false) is { } stored) toPublish.Add(stored);
                 }
                 finally
                 {
                     gate.Release();
                 }
 
-                Publish(exec, key, evt);
-                if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal()) _bus.Complete(scope);
+                // After the lock: bus, push and the initiating request, in sequence order.
+                foreach (var sequenced in toPublish) Publish(exec, key, sequenced);
+                if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal() && toPublish.Count > 0 && ReferenceEquals(toPublish[^1].Event, evt))
+                {
+                    await _events.MarkTerminalAsync(key).ConfigureAwait(false);
+                    _bus.Complete(scope);
+                }
             }
         }
         catch (Exception ex)
@@ -605,22 +641,25 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     /// <summary>
-    /// Applies the event and stores the result. After a version conflict, reloads and re-applies, up to
-    /// <see cref="MaxConflictRetries"/> times. Returns false when the event was dropped (for example the task is already terminal).
+    /// Applies the event, appends it to the event store, then stores the task (the caller holds the task lock). After a
+    /// version conflict, reloads and re-applies, up to <see cref="MaxConflictRetries"/> times; the event is appended only once.
+    /// Returns null when the event was dropped (for example the task is already terminal).
     /// </summary>
-    private async Task<bool> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt)
+    private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt)
     {
+        long sequence = 0;
         for (var attempt = 0; ; attempt++)
         {
             if (!Apply(record.Task, evt))
             {
                 _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, record.Task.Status.State);
-                return false;
+                return null;
             }
+            if (sequence == 0) sequence = await _events.AppendAsync(key, evt).ConfigureAwait(false);
             try
             {
                 await _tasks.UpdateAsync(record, record.Version).ConfigureAwait(false);
-                return true;
+                return new SequencedEvent(sequence, evt);
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
             {
@@ -628,14 +667,14 @@ public sealed class A2ARequestHandler : IDisposable
                 if (fresh is null)
                 {
                     _logger.LogWarning("Task {TaskId} disappeared from the store; dropping event", key.TaskId);
-                    return false;
+                    return null;
                 }
                 record = fresh;
             }
         }
     }
 
-    private void Publish(Execution exec, TaskKey key, StreamResponse evt)
+    private void Publish(Execution exec, TaskKey key, SequencedEvent evt)
     {
         exec.Emit(evt);
         _bus.Publish(ScopeKey(key.Tenant, key.TaskId), evt);
@@ -789,7 +828,7 @@ public sealed class A2ARequestHandler : IDisposable
         public string TaskId { get; } = taskId;
         public CancellationTokenSource Cts { get; } = cts;
         public Channel<StreamResponse> Incoming { get; } = Channel.CreateUnbounded<StreamResponse>(new UnboundedChannelOptions { SingleReader = true });
-        public Channel<StreamResponse> Outgoing { get; } = Channel.CreateUnbounded<StreamResponse>(new UnboundedChannelOptions { SingleWriter = true, SingleReader = true });
+        public Channel<SequencedEvent> Outgoing { get; } = Channel.CreateUnbounded<SequencedEvent>(new UnboundedChannelOptions { SingleWriter = true, SingleReader = true });
         public Task Completion => _done.Task;
 
         public void Cancel()
@@ -804,7 +843,7 @@ public sealed class A2ARequestHandler : IDisposable
             _done.TrySetResult();
         }
 
-        public void Emit(StreamResponse evt)
+        public void Emit(SequencedEvent evt)
         {
             if (!_detached) Outgoing.Writer.TryWrite(evt);
         }

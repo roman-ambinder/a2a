@@ -1,5 +1,6 @@
 using System.Text.Json;
 using A2A.Json;
+using A2A.Server.Streaming;
 using A2A.JsonRpc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
@@ -9,14 +10,14 @@ using Microsoft.Extensions.Options;
 namespace A2A.Server.AspNetCore;
 
 /// <summary>JSON-RPC 2.0 binding (spec §9): one POST endpoint, SSE for streaming methods.</summary>
-internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOptions> httpOptions,
+internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
     IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<JsonRpcEndpoint> logger)
 {
     /// <summary>Display name of the JSON-RPC endpoints. The rate limiter uses it to pick the error format.</summary>
     internal const string DisplayName = "A2A JSON-RPC";
 
-    private readonly A2AHttpOptions _http = httpOptions.Value;
     private readonly A2ALimits _limits = serverOptions.Value.Limits;
+    private readonly TimeSpan _keepAlive = serverOptions.Value.Streaming.KeepAliveInterval;
     private readonly bool _includeDetails = HttpPlumbing.ShouldIncludeDetails(serverOptions.Value, environment);
 
     public async Task HandleAsync(HttpContext http)
@@ -146,7 +147,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
         return HttpPlumbing.WriteJsonAsync(http, JsonRpcResponse.Success(id, A2AJson.SerializeToElement(result)), A2AProtocol.JsonMediaType);
     }
 
-    private async Task StreamAsync(HttpContext http, ServerCallContext call, JsonElement? id, IAsyncEnumerable<StreamResponse> events)
+    private async Task StreamAsync(HttpContext http, ServerCallContext call, JsonElement? id, IAsyncEnumerable<SequencedEvent> events)
     {
         var e = await HttpPlumbing.PrimeAsync(events, http.RequestAborted).ConfigureAwait(false)
                 ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "Empty stream");
@@ -155,6 +156,6 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
         await HttpPlumbing.PumpAsync(http, e,
             evt => A2AJson.SerializeToUtf8Bytes(JsonRpcResponse.Success(id, A2AJson.SerializeToElement(evt))),
             ex => A2AJson.SerializeToUtf8Bytes(JsonRpcResponse.Failure(id, HttpPlumbing.Normalize(ex, logger, _includeDetails))),
-            _http.StreamKeepAliveInterval, logger).ConfigureAwait(false);
+            _keepAlive, logger).ConfigureAwait(false);
     }
 }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using A2A.Json;
+using A2A.Server.Streaming;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -11,11 +12,11 @@ using Microsoft.Extensions.Options;
 namespace A2A.Server.AspNetCore;
 
 /// <summary>HTTP+JSON/REST binding (spec §11). Errors use the google.rpc.Status shape (§11.6).</summary>
-internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOptions> httpOptions,
+internal sealed class RestEndpoint(A2ARequestHandler handler,
     IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<RestEndpoint> logger)
 {
-    private readonly A2AHttpOptions _http = httpOptions.Value;
     private readonly A2ALimits _limits = serverOptions.Value.Limits;
+    private readonly TimeSpan _keepAlive = serverOptions.Value.Streaming.KeepAliveInterval;
     private readonly bool _includeDetails = HttpPlumbing.ShouldIncludeDetails(serverOptions.Value, environment);
 
     /// <summary>
@@ -165,7 +166,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
         }
     }
 
-    private async Task RunStream(HttpContext http, Func<ServerCallContext, CancellationToken, Task<IAsyncEnumerable<StreamResponse>>> action)
+    private async Task RunStream(HttpContext http, Func<ServerCallContext, CancellationToken, Task<IAsyncEnumerable<SequencedEvent>>> action)
     {
         ServerCallContext call;
         try { call = HttpPlumbing.CreateCallContext(http); }
@@ -184,7 +185,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
             HttpPlumbing.StartEventStream(http);
             await HttpPlumbing.PumpAsync(http, e, A2AJson.SerializeToUtf8Bytes,
                 ex => A2AJson.SerializeToUtf8Bytes(StatusBody(HttpPlumbing.Normalize(ex, logger, _includeDetails))),
-                _http.StreamKeepAliveInterval, logger).ConfigureAwait(false);
+                _keepAlive, logger).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
         {

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using A2A.Server.Streaming;
 
 namespace A2A.Server;
 
@@ -13,13 +14,13 @@ public class TaskEventBus
 
     public virtual Subscription Subscribe(string taskId)
     {
-        var channel = Channel.CreateUnbounded<StreamResponse>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+        var channel = Channel.CreateUnbounded<SequencedEvent>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
         var sub = new Subscription(this, taskId, channel);
         _subs.AddOrUpdate(taskId, _ => new ImmutableSubscribers([sub]), (_, s) => s.Add(sub));
         return sub;
     }
 
-    public virtual void Publish(string taskId, StreamResponse evt)
+    public virtual void Publish(string taskId, SequencedEvent evt)
     {
         if (!_subs.TryGetValue(taskId, out var subs)) return;
         foreach (var s in subs.Items) s.Channel.Writer.TryWrite(evt);
@@ -57,7 +58,7 @@ public class TaskEventBus
     {
         private readonly TaskEventBus _bus;
 
-        internal Subscription(TaskEventBus bus, string taskId, Channel<StreamResponse> channel)
+        internal Subscription(TaskEventBus bus, string taskId, Channel<SequencedEvent> channel)
         {
             _bus = bus;
             TaskId = taskId;
@@ -65,8 +66,8 @@ public class TaskEventBus
         }
 
         public string TaskId { get; }
-        internal Channel<StreamResponse> Channel { get; }
-        public ChannelReader<StreamResponse> Reader => Channel.Reader;
+        internal Channel<SequencedEvent> Channel { get; }
+        public ChannelReader<SequencedEvent> Reader => Channel.Reader;
 
         public void Dispose()
         {

@@ -1,0 +1,91 @@
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
+using A2A.Json;
+using A2A.Server.Streaming;
+
+namespace A2A.Server.Storage;
+
+/// <summary>
+/// Process-local event log. Keeps the last <see cref="StreamingOptions.ReplayBufferSize"/> events per task and drops the
+/// buffer of a terminal task <see cref="StreamingOptions.TerminalRetention"/> after <see cref="MarkTerminalAsync"/>.
+/// </summary>
+public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? time = null) : EventStore
+{
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
+    private readonly ConcurrentDictionary<TaskKey, TaskLog> _logs = new();
+
+    public override ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken ct = default)
+    {
+        var copy = A2AJson.Clone(evt);
+        var capacity = Math.Max(1, options.ReplayBufferSize);
+        while (true)
+        {
+            var log = _logs.GetOrAdd(task, _ => new TaskLog());
+            lock (log)
+            {
+                if (log.Evicted) continue; // lost a race with eviction; start a fresh log
+                var seq = ++log.Last;
+                log.Events.Add(new SequencedEvent(seq, copy));
+                if (log.Events.Count > capacity) log.Events.RemoveRange(0, log.Events.Count - capacity);
+                return ValueTask.FromResult(seq);
+            }
+        }
+    }
+
+    public override async IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        SequencedEvent[] snapshot = [];
+        if (_logs.TryGetValue(task, out var log))
+        {
+            lock (log) snapshot = log.Events.Where(e => e.Sequence > afterSequence).ToArray();
+        }
+        foreach (var e in snapshot)
+        {
+            ct.ThrowIfCancellationRequested();
+            yield return e with { Event = A2AJson.Clone(e.Event) };
+        }
+        await Task.CompletedTask.ConfigureAwait(false);
+    }
+
+    public override ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken ct = default)
+    {
+        if (!_logs.TryGetValue(task, out var log)) return ValueTask.FromResult<long?>(null);
+        lock (log) return ValueTask.FromResult<long?>(log.Events.Count == 0 ? null : log.Events[0].Sequence);
+    }
+
+    public override ValueTask<long> LastSequenceAsync(TaskKey task, CancellationToken ct = default)
+    {
+        if (!_logs.TryGetValue(task, out var log)) return ValueTask.FromResult(0L);
+        lock (log) return ValueTask.FromResult(log.Last);
+    }
+
+    public override ValueTask MarkTerminalAsync(TaskKey task, CancellationToken ct = default)
+    {
+        if (!_logs.TryGetValue(task, out var log)) return ValueTask.CompletedTask;
+        lock (log)
+        {
+            if (log.Timer is not null) return ValueTask.CompletedTask;
+            log.Timer = _time.CreateTimer(_ => Evict(task, log), null, options.TerminalRetention, Timeout.InfiniteTimeSpan);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    private void Evict(TaskKey task, TaskLog log)
+    {
+        lock (log)
+        {
+            log.Evicted = true;
+            log.Timer?.Dispose();
+        }
+        _logs.TryRemove(new KeyValuePair<TaskKey, TaskLog>(task, log));
+    }
+
+    private sealed class TaskLog
+    {
+        public readonly List<SequencedEvent> Events = [];
+        public long Last;
+        public bool Evicted;
+        public ITimer? Timer;
+    }
+}
