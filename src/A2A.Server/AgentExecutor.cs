@@ -24,22 +24,28 @@ public interface IAgentExecutor
 /// <summary>Everything the executor knows about the incoming message.</summary>
 public sealed class AgentRequestContext
 {
+    /// <summary>The message the client sent.</summary>
     public required Message Message { get; init; }
 
     /// <summary>The task id: existing, or pre-assigned for a new task (only materialized if you emit a task event).</summary>
     public required string TaskId { get; init; }
 
+    /// <summary>The context (conversation) id: the client's, or one the server assigned.</summary>
     public required string ContextId { get; init; }
 
     /// <summary>The existing task (including this message in its history), or null for a new conversation turn.</summary>
     public AgentTask? Task { get; init; }
 
+    /// <summary>Options from the SendMessage request. Null when the client sent none.</summary>
     public SendMessageConfiguration? Configuration { get; init; }
 
+    /// <summary>The <c>metadata</c> of the SendMessage request. Null when none.</summary>
     public Dictionary<string, JsonElement>? Metadata { get; init; }
 
+    /// <summary>Details of the call: caller, tenant, extensions.</summary>
     public required ServerCallContext Call { get; init; }
 
+    /// <summary>True when no task exists yet for this message.</summary>
     public bool IsNewTask => Task is null;
 
     /// <summary>Concatenated text of the incoming message.</summary>
@@ -69,7 +75,9 @@ public sealed class TaskUpdater
         RequestMetadata = requestMetadata;
     }
 
+    /// <summary>Id of the task this updater writes to.</summary>
     public string TaskId { get; }
+    /// <summary>Id of the context the task belongs to.</summary>
     public string ContextId { get; }
 
     /// <summary>
@@ -79,7 +87,9 @@ public sealed class TaskUpdater
     /// </summary>
     public IReadOnlyDictionary<string, JsonElement>? RequestMetadata { get; }
 
+    /// <summary>True once a terminal state was emitted. Further task events throw.</summary>
     public bool IsTerminal { get { lock (_gate) return _terminal; } }
+    /// <summary>True once a direct message reply was sent.</summary>
     public bool HasReplied { get { lock (_gate) return _replied; } }
     internal bool HasTask { get { lock (_gate) return _taskEmitted || !_isNewTask; } }
 
@@ -99,24 +109,31 @@ public sealed class TaskUpdater
         return _writer.WriteAsync(StreamResponse.Of(message), cancellationToken);
     }
 
+    /// <summary>Replies with a direct agent message that has one text part. Same rules as <see cref="ReplyAsync(Message, CancellationToken)"/>.</summary>
     public ValueTask ReplyAsync(string text, CancellationToken cancellationToken = default) =>
         ReplyAsync(new Message { MessageId = Message.NewId(), Role = Role.Agent, Parts = [Part.FromText(text)] }, cancellationToken);
 
+    /// <summary>Moves the task to Submitted.</summary>
     public ValueTask SubmitAsync(CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(TaskState.Submitted, null, null, cancellationToken);
 
+    /// <summary>Moves the task to Working, with an optional agent message.</summary>
     public ValueTask StartWorkAsync(string? text = null, CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(TaskState.Working, text is null ? null : NewAgentMessage(text), null, cancellationToken);
 
+    /// <summary>Moves the task to Completed (terminal), with an optional agent message.</summary>
     public ValueTask CompleteAsync(string? text = null, CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(TaskState.Completed, text is null ? null : NewAgentMessage(text), null, cancellationToken);
 
+    /// <summary>Moves the task to Failed (terminal), with an optional agent message.</summary>
     public ValueTask FailAsync(string? text = null, CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(TaskState.Failed, text is null ? null : NewAgentMessage(text), null, cancellationToken);
 
+    /// <summary>Moves the task to Rejected (terminal), with an optional agent message.</summary>
     public ValueTask RejectAsync(string? text = null, CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(TaskState.Rejected, text is null ? null : NewAgentMessage(text), null, cancellationToken);
 
+    /// <summary>Moves the task to Canceled (terminal), with an optional agent message.</summary>
     public ValueTask CancelAsync(string? text = null, CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(TaskState.Canceled, text is null ? null : NewAgentMessage(text), null, cancellationToken);
 
@@ -128,6 +145,7 @@ public sealed class TaskUpdater
     public ValueTask RequireAuthAsync(string text, CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(TaskState.AuthRequired, NewAgentMessage(text), null, cancellationToken);
 
+    /// <summary>Moves the task to <paramref name="state"/>, with an optional agent message and metadata. Throws when <paramref name="state"/> is Unspecified or the task is already terminal.</summary>
     public ValueTask UpdateStatusAsync(TaskState state, Message? message = null, Dictionary<string, JsonElement>? metadata = null, CancellationToken cancellationToken = default)
     {
         if (state == TaskState.Unspecified) throw new ArgumentException("State must be specified.", nameof(state));
@@ -160,6 +178,7 @@ public sealed class TaskUpdater
         return artifact.ArtifactId;
     }
 
+    /// <summary>Adds <paramref name="artifact"/>, or appends its parts to the artifact with the same id when <paramref name="append"/> is true. <paramref name="lastChunk"/> marks the final chunk. Both default to false.</summary>
     public ValueTask AddArtifactAsync(Artifact artifact, bool append = false, bool lastChunk = false, CancellationToken cancellationToken = default)
     {
         MarkTaskEvent(false);
@@ -170,6 +189,7 @@ public sealed class TaskUpdater
     /// <summary>Builds an agent message bound to this task.</summary>
     public Message NewAgentMessage(string text) => Stamp(new Message { MessageId = Message.NewId(), Role = Role.Agent, Parts = [Part.FromText(text)] });
 
+    /// <summary>Builds an agent message from <paramref name="parts"/>, bound to this task.</summary>
     public Message NewAgentMessage(params Part[] parts) => Stamp(new Message { MessageId = Message.NewId(), Role = Role.Agent, Parts = parts.ToList() });
 
     private Message Stamp(Message m)
@@ -196,6 +216,7 @@ public sealed class TaskUpdater
 /// <summary>Adapts a delegate to <see cref="IAgentExecutor"/>.</summary>
 public sealed class DelegateAgentExecutor(Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> execute) : IAgentExecutor
 {
+    /// <summary>Runs the delegate given to the constructor.</summary>
     public Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken) =>
         execute(context, updater, cancellationToken);
 }

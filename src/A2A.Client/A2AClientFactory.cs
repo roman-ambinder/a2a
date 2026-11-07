@@ -40,6 +40,7 @@ public static class A2AClientFactory
         return Create(card, httpClient, options);
     }
 
+    /// <summary>Picks the first interface of the card that matches the client's supported bindings and protocol major version. Returns null when none fits.</summary>
     public static AgentInterface? SelectInterface(AgentCard card, A2AClientOptions options)
     {
         var major = Major(options.ProtocolVersion);

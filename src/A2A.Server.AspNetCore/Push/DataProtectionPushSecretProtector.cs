@@ -11,7 +11,9 @@ public sealed class DataProtectionPushSecretProtector(IDataProtectionProvider pr
 
     private readonly IDataProtector _protector = provider.CreateProtector(Purpose);
 
+    /// <inheritdoc />
     public string Protect(string plaintext) => _protector.Protect(plaintext);
 
+    /// <inheritdoc />
     public string Unprotect(string protectedValue) => _protector.Unprotect(protectedValue);
 }

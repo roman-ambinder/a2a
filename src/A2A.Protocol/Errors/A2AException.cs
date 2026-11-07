@@ -8,34 +8,52 @@ namespace A2A;
 public enum A2AErrorCode
 {
     // JSON-RPC standard
+    /// <summary>The request body is not valid JSON (JSON-RPC -32700).</summary>
     JsonParse = -32700,
+    /// <summary>The request is not a valid request object (JSON-RPC -32600).</summary>
     InvalidRequest = -32600,
+    /// <summary>The method does not exist (JSON-RPC -32601).</summary>
     MethodNotFound = -32601,
+    /// <summary>The method parameters are invalid (JSON-RPC -32602).</summary>
     InvalidParams = -32602,
+    /// <summary>The server failed internally (JSON-RPC -32603). Retryable by default.</summary>
     Internal = -32603,
 
     // A2A specific
+    /// <summary>The task id does not exist or the caller cannot see it.</summary>
     TaskNotFound = -32001,
+    /// <summary>The task is in a state where it cannot be canceled.</summary>
     TaskNotCancelable = -32002,
+    /// <summary>The agent does not support push notifications.</summary>
     PushNotificationNotSupported = -32003,
+    /// <summary>The agent does not support the requested operation.</summary>
     UnsupportedOperation = -32004,
+    /// <summary>The media types of the request or the requested output are not supported.</summary>
     ContentTypeNotSupported = -32005,
+    /// <summary>The agent produced a response that violates the protocol.</summary>
     InvalidAgentResponse = -32006,
+    /// <summary>The agent has no extended Agent Card to return.</summary>
     ExtendedAgentCardNotConfigured = -32007,
+    /// <summary>A required extension was not declared by the client in <c>A2A-Extensions</c>.</summary>
     ExtensionSupportRequired = -32008,
+    /// <summary>The server does not support the protocol version the client asked for.</summary>
     VersionNotSupported = -32009,
 
     // SDK extension: server is throttling the caller. Retryable; see A2AException.RetryAfter.
+    /// <summary>The server is throttling the caller (SDK extension). Retryable.</summary>
     RateLimited = -32000,
 
     // Transport-level (HTTP 401/403). Never sent as JSON-RPC codes by this SDK; the server answers with an HTTP status instead.
+    /// <summary>The caller is not authenticated (HTTP 401).</summary>
     Unauthenticated = -1,
+    /// <summary>The caller is authenticated but not allowed (HTTP 403).</summary>
     PermissionDenied = -2,
 }
 
 /// <summary>An A2A protocol error. Thrown by clients on error responses and by servers to produce error responses.</summary>
 public class A2AException : Exception
 {
+    /// <summary>Creates an error with a code. When <paramref name="message"/> is null, the default message for <paramref name="code"/> is used.</summary>
     public A2AException(A2AErrorCode code, string? message = null, Exception? inner = null)
         : base(message ?? A2AErrors.DefaultMessage(code), inner)
     {
@@ -47,6 +65,7 @@ public class A2AException : Exception
         RetryAfter = retryAfter;
     }
 
+    /// <summary>The protocol error code.</summary>
     public A2AErrorCode Code { get; }
 
     /// <summary>Structured error details (ProtoJSON <c>Any</c> objects, each with an <c>@type</c> key).</summary>
@@ -79,12 +98,14 @@ public class A2AException : Exception
     /// </summary>
     public bool IsRetryable => A2AErrors.TryGetRetryableFromDetails(Details, out var r) ? r : Retryable;
 
+    /// <summary>Creates the TaskNotFound error for <paramref name="taskId"/>, with the id in the error metadata.</summary>
     public static A2AException TaskNotFound(string taskId) =>
         new(A2AErrorCode.TaskNotFound, "The specified task ID does not exist or is not accessible")
         {
             Metadata = new() { ["taskId"] = taskId },
         };
 
+    /// <summary>Creates an InvalidParams error with <paramref name="message"/>.</summary>
     public static A2AException InvalidParams(string message) => new(A2AErrorCode.InvalidParams, message);
 
     /// <summary>The request body is larger than <paramref name="limit"/> bytes. HTTP 413.</summary>
@@ -111,11 +132,15 @@ public class A2AException : Exception
 /// <summary>Maps error codes to their HTTP status, gRPC status, ErrorInfo reason, and default message.</summary>
 public static class A2AErrors
 {
+    /// <summary>Type URL of the <c>google.rpc.ErrorInfo</c> detail entry.</summary>
     public const string ErrorInfoType = "type.googleapis.com/google.rpc.ErrorInfo";
 
+    /// <summary>ErrorInfo reason for a request body over the size limit.</summary>
     public const string PayloadTooLargeReason = "PAYLOAD_TOO_LARGE";
+    /// <summary>ErrorInfo reason for an idempotency key reused with a different request.</summary>
     public const string IdempotencyKeyMismatchReason = "IDEMPOTENCY_KEY_MISMATCH";
 
+    /// <summary>Returns the HTTP status for an error code (400 unless the code has a specific status).</summary>
     public static int HttpStatus(A2AErrorCode code) => code switch
     {
         A2AErrorCode.RateLimited => 429,
@@ -126,6 +151,7 @@ public static class A2AErrors
         _ => 400,
     };
 
+    /// <summary>Returns the gRPC status name for an error code, for example <c>NOT_FOUND</c>.</summary>
     public static string GrpcStatus(A2AErrorCode code) => code switch
     {
         A2AErrorCode.TaskNotFound or A2AErrorCode.MethodNotFound => "NOT_FOUND",
@@ -163,6 +189,7 @@ public static class A2AErrors
     /// <summary>True for codes where retrying the same request may succeed.</summary>
     public static bool DefaultRetryable(A2AErrorCode code) => code is A2AErrorCode.Internal or A2AErrorCode.RateLimited;
 
+    /// <summary>Maps an ErrorInfo reason back to an error code. Returns false, with <c>Internal</c>, for an unknown reason.</summary>
     public static bool TryParseReason(string? reason, out A2AErrorCode code)
     {
         if (reason is PayloadTooLargeReason or IdempotencyKeyMismatchReason)
@@ -178,6 +205,7 @@ public static class A2AErrors
         return false;
     }
 
+    /// <summary>Returns the default message for an error code.</summary>
     public static string DefaultMessage(A2AErrorCode code) => code switch
     {
         A2AErrorCode.JsonParse => "Invalid JSON payload",
@@ -258,15 +286,20 @@ public static class A2AErrors
 /// <summary>Error body of the HTTP+JSON binding: <c>{"error": {...}}</c> (spec §11.6).</summary>
 public sealed class RestErrorBody
 {
+    /// <summary>The error object.</summary>
     public RestError Error { get; set; } = new();
 }
 
 /// <summary>The <c>error</c> object of <see cref="RestErrorBody"/>.</summary>
 public sealed class RestError
 {
+    /// <summary>HTTP status code of the response.</summary>
     public int Code { get; set; }
+    /// <summary>gRPC status name, for example <c>NOT_FOUND</c>.</summary>
     public string Status { get; set; } = string.Empty;
+    /// <summary>Human-readable message.</summary>
     public string Message { get; set; } = string.Empty;
+    /// <summary>Structured details, including the ErrorInfo entry.</summary>
     public List<JsonElement> Details { get; set; } = new();
 }
 

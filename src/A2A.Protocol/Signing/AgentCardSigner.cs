@@ -8,6 +8,7 @@ namespace A2A.Signing;
 /// <summary>A private key used to sign Agent Cards.</summary>
 public sealed class AgentCardSigningKey
 {
+    /// <summary>Creates a signing key. <paramref name="algorithm"/> must be one of <see cref="JwsAlgorithms.All"/> and <paramref name="keyId"/> must not be blank. <paramref name="jwksUrl"/> is optional.</summary>
     public AgentCardSigningKey(AsymmetricAlgorithm key, string keyId, string algorithm, string? jwksUrl = null)
     {
         if (!JwsAlgorithms.IsSupported(algorithm)) throw new ArgumentException($"Unsupported JWS algorithm '{algorithm}'.", nameof(algorithm));
@@ -17,13 +18,17 @@ public sealed class AgentCardSigningKey
         JwksUrl = jwksUrl;
     }
 
+    /// <summary>The private key.</summary>
     public AsymmetricAlgorithm Key { get; }
+    /// <summary>Id of the key (the JWS <c>kid</c> header).</summary>
     public string KeyId { get; }
+    /// <summary>JWS algorithm, for example <c>ES256</c>.</summary>
     public string Algorithm { get; }
 
     /// <summary>Optional <c>jku</c> header: HTTPS URL of a JWKS holding the public key.</summary>
     public string? JwksUrl { get; }
 
+    /// <summary>Returns the public half of the key as a JWK, ready to publish in a key set.</summary>
     public Jwk ToPublicJwk() => Jwk.FromPublicKey(Key, KeyId, Algorithm);
 }
 
@@ -59,13 +64,16 @@ public static class AgentCardSigner
 /// <summary>Supported JWS algorithms. Symmetric (HS*) and "none" are deliberately excluded.</summary>
 public static class JwsAlgorithms
 {
+    /// <summary>The algorithm names that are supported.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
         "ES256", "ES384", "ES512", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512",
     };
 
+    /// <summary>Returns true if <paramref name="alg"/> is a supported algorithm.</summary>
     public static bool IsSupported(string? alg) => alg is not null && All.Contains(alg);
 
+    /// <summary>Returns the hash algorithm of a JWS algorithm name, for example SHA-256 for <c>ES256</c>.</summary>
     public static HashAlgorithmName Hash(string alg) => alg[2..] switch
     {
         "256" => HashAlgorithmName.SHA256,
@@ -74,6 +82,7 @@ public static class JwsAlgorithms
         _ => throw new NotSupportedException(alg),
     };
 
+    /// <summary>Signs <paramref name="data"/>. Throws when the key type does not match the algorithm.</summary>
     public static byte[] Sign(string alg, AsymmetricAlgorithm key, byte[] data) => (alg[0], key) switch
     {
         ('E', ECDsa ec) => ec.SignData(data, Hash(alg), DSASignatureFormat.IeeeP1363FixedFieldConcatenation),
@@ -82,6 +91,7 @@ public static class JwsAlgorithms
         _ => throw new CryptographicException($"Key type {key.GetType().Name} does not match algorithm {alg}."),
     };
 
+    /// <summary>Verifies a signature over <paramref name="data"/>. Returns false on any mismatch or failure.</summary>
     public static bool Verify(string alg, AsymmetricAlgorithm key, byte[] data, byte[] signature)
     {
         try

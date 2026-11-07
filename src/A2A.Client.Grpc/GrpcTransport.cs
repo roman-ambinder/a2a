@@ -45,36 +45,47 @@ public sealed class GrpcTransport : IA2AClient, IDisposable
         return new Uri("https://" + url.TrimStart('/'));
     }
 
+    /// <inheritdoc />
     public async Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         ProtoMapper.ToModel<SendMessageResponse>(await Call(_client.SendMessageAsync(ProtoMapper.ToProto<Pb.SendMessageRequest>(request), Unary(options, cancellationToken, IdempotencyKey(request, options))).ResponseAsync).ConfigureAwait(false));
 
+    /// <inheritdoc />
     public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         Stream(_client.SendStreamingMessage(ProtoMapper.ToProto<Pb.SendMessageRequest>(request), Streaming(options, cancellationToken, IdempotencyKey(request, options))), cancellationToken);
 
+    /// <inheritdoc />
     public async Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         ProtoMapper.ToModel<AgentTask>(await Call(_client.GetTaskAsync(ProtoMapper.ToProto<Pb.GetTaskRequest>(request), Unary(options, cancellationToken)).ResponseAsync).ConfigureAwait(false));
 
+    /// <inheritdoc />
     public async Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         ProtoMapper.ToModel<ListTasksResponse>(await Call(_client.ListTasksAsync(ProtoMapper.ToProto<Pb.ListTasksRequest>(request), Unary(options, cancellationToken)).ResponseAsync).ConfigureAwait(false));
 
+    /// <inheritdoc />
     public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         ProtoMapper.ToModel<AgentTask>(await Call(_client.CancelTaskAsync(ProtoMapper.ToProto<Pb.CancelTaskRequest>(request), Unary(options, cancellationToken)).ResponseAsync).ConfigureAwait(false));
 
+    /// <inheritdoc />
     public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         Stream(_client.SubscribeToTask(ProtoMapper.ToProto<Pb.SubscribeToTaskRequest>(request), Streaming(options, cancellationToken)), cancellationToken);
 
+    /// <inheritdoc />
     public async Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         ProtoMapper.ToModel<TaskPushNotificationConfig>(await Call(_client.CreateTaskPushNotificationConfigAsync(ProtoMapper.ToProto<Pb.TaskPushNotificationConfig>(config), Unary(options, cancellationToken)).ResponseAsync).ConfigureAwait(false));
 
+    /// <inheritdoc />
     public async Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         ProtoMapper.ToModel<TaskPushNotificationConfig>(await Call(_client.GetTaskPushNotificationConfigAsync(ProtoMapper.ToProto<Pb.GetTaskPushNotificationConfigRequest>(request), Unary(options, cancellationToken)).ResponseAsync).ConfigureAwait(false));
 
+    /// <inheritdoc />
     public async Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         ProtoMapper.ToModel<ListTaskPushNotificationConfigsResponse>(await Call(_client.ListTaskPushNotificationConfigsAsync(ProtoMapper.ToProto<Pb.ListTaskPushNotificationConfigsRequest>(request), Unary(options, cancellationToken)).ResponseAsync).ConfigureAwait(false));
 
+    /// <inheritdoc />
     public async Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         await Call(_client.DeleteTaskPushNotificationConfigAsync(ProtoMapper.ToProto<Pb.DeleteTaskPushNotificationConfigRequest>(request), Unary(options, cancellationToken)).ResponseAsync).ConfigureAwait(false);
 
+    /// <inheritdoc />
     public async Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         ProtoMapper.ToModel<AgentCard>(await Call(_client.GetExtendedAgentCardAsync(ProtoMapper.ToProto<Pb.GetExtendedAgentCardRequest>(request), Unary(options, cancellationToken)).ResponseAsync).ConfigureAwait(false));
 
@@ -136,6 +147,7 @@ public sealed class GrpcTransport : IA2AClient, IDisposable
         }
     }
 
+    /// <summary>Disposes the channel when the transport created it. A channel passed in by the caller stays open.</summary>
     public void Dispose() => _ownedChannel?.Dispose();
 }
 
@@ -145,8 +157,10 @@ public sealed class GrpcTransport : IA2AClient, IDisposable
 /// </summary>
 public sealed class GrpcTransportFactory(GrpcChannelOptions? channelOptions = null) : IA2ATransportFactory
 {
+    /// <inheritdoc />
     public string ProtocolBinding => ProtocolBindings.Grpc;
 
+    /// <inheritdoc />
     public bool CanCreate(AgentInterface agentInterface)
     {
         ArgumentNullException.ThrowIfNull(agentInterface);

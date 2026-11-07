@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.Server.Grpc;
 
+/// <summary>Dependency injection and endpoint extensions for the gRPC binding.</summary>
 public static class A2AGrpcExtensions
 {
     /// <summary>

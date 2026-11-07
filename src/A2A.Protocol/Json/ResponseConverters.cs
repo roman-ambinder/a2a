@@ -7,14 +7,18 @@ public sealed class SendMessageResponseConverter : OneOfConverter<SendMessageRes
 {
     private static readonly string[] Names = ["task", "message"];
 
+    /// <summary>Name of the union in error messages.</summary>
     protected override string UnionName => nameof(SendMessageResponse);
+    /// <summary>Wire member names, one per case.</summary>
     protected override IReadOnlyList<string> MemberNames => Names;
 
+    /// <summary>Reads the case that matches <paramref name="member"/>.</summary>
     protected override SendMessageResponse ReadCase(ref Utf8JsonReader reader, string member, JsonSerializerOptions options) =>
         member == "task"
             ? new TaskResponse(ReadPayload<AgentTask>(ref reader, options))
             : new MessageResponse(ReadPayload<Message>(ref reader, options));
 
+    /// <summary>Writes the case as its wire member.</summary>
     protected override void WriteCase(Utf8JsonWriter writer, SendMessageResponse value, JsonSerializerOptions options)
     {
         switch (value)
@@ -31,9 +35,12 @@ public sealed class StreamResponseConverter : OneOfConverter<StreamResponse>
 {
     private static readonly string[] Names = ["task", "message", "statusUpdate", "artifactUpdate"];
 
+    /// <summary>Name of the union in error messages.</summary>
     protected override string UnionName => nameof(StreamResponse);
+    /// <summary>Wire member names, one per case.</summary>
     protected override IReadOnlyList<string> MemberNames => Names;
 
+    /// <summary>Reads the case that matches <paramref name="member"/>.</summary>
     protected override StreamResponse ReadCase(ref Utf8JsonReader reader, string member, JsonSerializerOptions options) =>
         member switch
         {
@@ -43,6 +50,7 @@ public sealed class StreamResponseConverter : OneOfConverter<StreamResponse>
             _ => new ArtifactUpdateEvent(ReadPayload<TaskArtifactUpdateEvent>(ref reader, options)),
         };
 
+    /// <summary>Writes the case as its wire member.</summary>
     protected override void WriteCase(Utf8JsonWriter writer, StreamResponse value, JsonSerializerOptions options)
     {
         switch (value)
@@ -62,9 +70,12 @@ public sealed class SecuritySchemeConverter : OneOfConverter<SecurityScheme>
     private static readonly string[] Names =
         ["apiKeySecurityScheme", "httpAuthSecurityScheme", "oauth2SecurityScheme", "openIdConnectSecurityScheme", "mtlsSecurityScheme"];
 
+    /// <summary>Name of the union in error messages.</summary>
     protected override string UnionName => nameof(SecurityScheme);
+    /// <summary>Wire member names, one per case.</summary>
     protected override IReadOnlyList<string> MemberNames => Names;
 
+    /// <summary>Reads the case that matches <paramref name="member"/>.</summary>
     protected override SecurityScheme ReadCase(ref Utf8JsonReader reader, string member, JsonSerializerOptions options) =>
         member switch
         {
@@ -75,6 +86,7 @@ public sealed class SecuritySchemeConverter : OneOfConverter<SecurityScheme>
             _ => new MutualTlsScheme(ReadPayload<MutualTlsSecurityScheme>(ref reader, options)),
         };
 
+    /// <summary>Writes the case as its wire member.</summary>
     protected override void WriteCase(Utf8JsonWriter writer, SecurityScheme value, JsonSerializerOptions options)
     {
         switch (value)

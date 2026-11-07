@@ -9,6 +9,7 @@ public readonly record struct TaskKey(string Tenant, string Owner, string TaskId
 /// <summary>A stored task plus its owner and optimistic-concurrency version.</summary>
 public sealed record TaskRecord(string Tenant, string Owner, AgentTask Task, long Version, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt)
 {
+    /// <summary>The key of this record.</summary>
     public TaskKey Key => new(Tenant, Owner, Task.Id);
 }
 
@@ -18,6 +19,7 @@ public sealed record ContextRecord(string Tenant, string Owner, string ContextId
 /// <summary>A ListTasks query, already scoped to the caller.</summary>
 public sealed record TaskQuery(string Tenant, string Owner, string? ContextId, TaskState? Status, DateTimeOffset? StatusTimestampAfter, int PageSize, string? PageToken);
 
+/// <summary>One page of ListTasks results. <c>NextPageToken</c> is empty on the last page; <c>TotalSize</c> counts all matching tasks.</summary>
 public sealed record TaskPage(IReadOnlyList<TaskRecord> Records, string NextPageToken, int TotalSize);
 
 /// <summary>
@@ -43,6 +45,7 @@ public abstract class TaskStore
     /// </summary>
     public abstract ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default);
 
+    /// <summary>Returns the context, or null when it does not exist in the tenant.</summary>
     public abstract ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default);
 
     /// <summary>Atomic: stores <paramref name="record"/> unless the context exists, and returns whichever record is stored.</summary>

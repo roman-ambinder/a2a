@@ -29,6 +29,7 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
     /// <summary>Entries in use order, most recent first. Locked for every access; its count is the store size.</summary>
     private readonly LinkedList<Entry> _lru = new();
 
+    /// <inheritdoc />
     public override ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(requestHash);
@@ -68,6 +69,7 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
         }
     }
 
+    /// <inheritdoc />
     public override ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(outcome);
@@ -79,6 +81,7 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
         return ValueTask.CompletedTask;
     }
 
+    /// <inheritdoc />
     public override ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken ct = default)
     {
         if (_entries.TryGetValue(scope, out var entry) && !entry.Completion.Task.IsCompleted)

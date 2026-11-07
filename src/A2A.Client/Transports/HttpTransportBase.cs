@@ -9,14 +9,17 @@ namespace A2A.Client.Transports;
 /// <summary>Shared HTTP plumbing for the JSON-RPC and HTTP+JSON transports.</summary>
 public abstract class HttpTransportBase
 {
+    /// <summary>Creates the base. <paramref name="options"/> defaults to a new <see cref="A2AClientOptions"/>.</summary>
     protected HttpTransportBase(HttpClient httpClient, A2AClientOptions? options)
     {
         Http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         Options = options ?? new A2AClientOptions();
     }
 
+    /// <summary>The HTTP client used for all calls.</summary>
     protected HttpClient Http { get; }
 
+    /// <summary>The client options.</summary>
     protected A2AClientOptions Options { get; }
 
     /// <summary>Default time limit of one unary attempt.</summary>
@@ -127,6 +130,7 @@ public abstract class HttpTransportBase
         return null;
     }
 
+    /// <summary>Creates a UTF-8 JSON request body with the given media type.</summary>
     protected static HttpContent JsonBody<T>(T body, string mediaType)
     {
         var content = new ByteArrayContent(A2AJson.SerializeToUtf8Bytes(body));
@@ -134,12 +138,14 @@ public abstract class HttpTransportBase
         return content;
     }
 
+    /// <summary>True when the response media type is <c>*/json</c> or <c>*+json</c>.</summary>
     protected static bool IsJson(HttpResponseMessage response)
     {
         var mt = response.Content.Headers.ContentType?.MediaType;
         return mt is not null && (mt.EndsWith("/json", StringComparison.OrdinalIgnoreCase) || mt.EndsWith("+json", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>True when the response media type is <c>text/event-stream</c>.</summary>
     protected static bool IsEventStream(HttpResponseMessage response) =>
         string.Equals(response.Content.Headers.ContentType?.MediaType, A2AProtocol.EventStreamMediaType, StringComparison.OrdinalIgnoreCase);
 
@@ -159,9 +165,11 @@ public abstract class HttpTransportBase
         return new A2AException(code, msg) { HttpStatus = status, RetryAfter = RetryAfterOf(response, null) };
     }
 
+    /// <summary>Creates an InvalidAgentResponse error for a response that breaks the protocol.</summary>
     protected static A2AException ProtocolError(string message, Exception? inner = null) =>
         new(A2AErrorCode.InvalidAgentResponse, message, inner);
 
+    /// <summary>Deserializes <paramref name="element"/>. Throws a protocol error that names <paramref name="what"/> when it is malformed.</summary>
     protected static T Parse<T>(JsonElement element, string what)
     {
         try { return A2AJson.Deserialize<T>(element); }

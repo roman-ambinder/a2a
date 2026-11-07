@@ -22,6 +22,7 @@ public sealed record SseEvent(string Data, string? EventType, string? Id)
 /// <summary>Server-Sent Events parser (WHATWG HTML §9.2.6). Handles CRLF/LF/CR, multi-line data, comments, and BOM.</summary>
 public static class SseReader
 {
+    /// <summary>Reads events from <paramref name="stream"/> until it ends.</summary>
     public static async IAsyncEnumerable<SseEvent> ReadAsync(Stream stream, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         using var reader = new StreamReader(stream, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: true);

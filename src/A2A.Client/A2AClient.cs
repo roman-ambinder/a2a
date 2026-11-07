@@ -13,6 +13,7 @@ public sealed class A2AClient : IA2AClient
     private readonly IA2AClient _transport;
     private readonly A2AClientOptions _options;
 
+    /// <summary>Creates a client over <paramref name="transport"/>. <paramref name="options"/> defaults to a new <see cref="A2AClientOptions"/>. <paramref name="agentCard"/> enables capability checks when given.</summary>
     public A2AClient(IA2AClient transport, A2AClientOptions? options = null, AgentCard? agentCard = null)
     {
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
@@ -29,18 +30,23 @@ public sealed class A2AClient : IA2AClient
     public Task<SendMessageResponse> SendMessageAsync(string text, string? contextId = null, string? taskId = null, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendMessageAsync(new SendMessageRequest { Message = Message.FromUser(text, contextId, taskId) }, options, cancellationToken);
 
+    /// <summary>Sends <paramref name="message"/> and waits for the result (spec §3.1.1).</summary>
     public Task<SendMessageResponse> SendMessageAsync(Message message, SendMessageConfiguration? configuration = null, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendMessageAsync(new SendMessageRequest { Message = message, Configuration = configuration }, options, cancellationToken);
 
+    /// <summary>Sends <paramref name="message"/> and streams the updates (spec §3.1.2).</summary>
     public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(Message message, SendMessageConfiguration? configuration = null, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendStreamingMessageAsync(new SendMessageRequest { Message = message, Configuration = configuration }, options, cancellationToken);
 
+    /// <summary>Fetches a task (spec §3.1.3). <paramref name="historyLength"/> limits the history; null means the server default.</summary>
     public Task<AgentTask> GetTaskAsync(string taskId, int? historyLength = null, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         GetTaskAsync(new GetTaskRequest { Id = taskId, HistoryLength = historyLength }, options, cancellationToken);
 
+    /// <summary>Asks the agent to cancel a task (spec §3.1.5).</summary>
     public Task<AgentTask> CancelTaskAsync(string taskId, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         CancelTaskAsync(new CancelTaskRequest { Id = taskId }, options, cancellationToken);
 
+    /// <summary>Streams updates of an existing task (spec §3.1.6).</summary>
     public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(string taskId, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId }, options, cancellationToken);
 
@@ -87,6 +93,7 @@ public sealed class A2AClient : IA2AClient
 
     // ---- IA2AClient ----
 
+    /// <inheritdoc />
     public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         EnsureMessageId(request);
@@ -96,6 +103,7 @@ public sealed class A2AClient : IA2AClient
         return _transport.SendMessageAsync(request, options, cancellationToken);
     }
 
+    /// <inheritdoc />
     public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         EnsureMessageId(request);
@@ -152,24 +160,28 @@ public sealed class A2AClient : IA2AClient
         await foreach (var item in source.WithCancellation(ct).ConfigureAwait(false)) yield return new StreamFrame(item, null);
     }
 
+    /// <inheritdoc />
     public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
         return _transport.GetTaskAsync(request, options, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
         return _transport.ListTasksAsync(request, options, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
         return _transport.CancelTaskAsync(request, options, cancellationToken);
     }
 
+    /// <inheritdoc />
     public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
@@ -177,6 +189,7 @@ public sealed class A2AClient : IA2AClient
         return _transport.SubscribeToTaskAsync(request, options, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         config.Tenant ??= _options.Tenant;
@@ -184,24 +197,28 @@ public sealed class A2AClient : IA2AClient
         return _transport.CreateTaskPushNotificationConfigAsync(config, options, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
         return _transport.GetTaskPushNotificationConfigAsync(request, options, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
         return _transport.ListTaskPushNotificationConfigsAsync(request, options, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
         return _transport.DeleteTaskPushNotificationConfigAsync(request, options, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;

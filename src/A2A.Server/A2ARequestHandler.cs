@@ -37,6 +37,7 @@ public sealed class A2ARequestHandler : IDisposable
     private readonly RunningRegistry<Execution> _running = new();
     private readonly StreamAdmission _admission;
 
+    /// <summary>Creates the handler. In an ASP.NET Core app the DI container does this; the parameters are the registered services.</summary>
     public A2ARequestHandler(
         IServiceScopeFactory scopeFactory,
         TaskStore tasks,
@@ -64,6 +65,7 @@ public sealed class A2ARequestHandler : IDisposable
         _admission = new StreamAdmission(_options.Limits);
     }
 
+    /// <summary>The public Agent Card from <see cref="A2AServerOptions.AgentCard"/>.</summary>
     public AgentCard AgentCard => _options.AgentCard;
 
     // =====================================================================
@@ -699,6 +701,7 @@ public sealed class A2ARequestHandler : IDisposable
     // Tasks
     // =====================================================================
 
+    /// <summary>GetTask (spec §3.1.3). Throws TaskNotFound when the task does not exist or belongs to another caller.</summary>
     public async Task<AgentTask> GetTaskAsync(GetTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
@@ -709,6 +712,7 @@ public sealed class A2ARequestHandler : IDisposable
         return Shape(record.Task, request.HistoryLength);
     }
 
+    /// <summary>ListTasks (spec §3.1.4). Returns the caller's tasks, newest status first. The page size defaults to 50 and is capped by <see cref="A2ALimits.MaxListPageSize"/>.</summary>
     public async Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
@@ -736,6 +740,7 @@ public sealed class A2ARequestHandler : IDisposable
         };
     }
 
+    /// <summary>CancelTask (spec §3.1.5). Asks the running agent to stop, waits up to <see cref="A2AServerOptions.CancelGracePeriod"/>, and returns the task. Throws TaskNotCancelable when the task is already terminal.</summary>
     public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
@@ -1006,6 +1011,7 @@ public sealed class A2ARequestHandler : IDisposable
     // Push notification configs
     // =====================================================================
 
+    /// <summary>CreateTaskPushNotificationConfig (spec §3.1.7). Validates the webhook URL, stores the registration and returns it with secrets removed.</summary>
     public async Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(config.Tenant);
@@ -1023,6 +1029,7 @@ public sealed class A2ARequestHandler : IDisposable
         return Redact(stored);
     }
 
+    /// <summary>GetTaskPushNotificationConfig (spec §3.1.8). Returns one registration with secrets removed.</summary>
     public async Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
@@ -1037,6 +1044,7 @@ public sealed class A2ARequestHandler : IDisposable
         return Redact(record.Config);
     }
 
+    /// <summary>ListTaskPushNotificationConfigs (spec §3.1.9). Returns the registrations of a task, 100 per page at most, with secrets removed.</summary>
     public async Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
@@ -1061,6 +1069,7 @@ public sealed class A2ARequestHandler : IDisposable
         return new ListTaskPushNotificationConfigsResponse { Configs = page, NextPageToken = next };
     }
 
+    /// <summary>DeleteTaskPushNotificationConfig (spec §3.1.10). Throws when the registration does not exist.</summary>
     public async Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
@@ -1078,6 +1087,7 @@ public sealed class A2ARequestHandler : IDisposable
     // Extended Agent Card
     // =====================================================================
 
+    /// <summary>GetExtendedAgentCard (spec §3.1.11). Needs an authenticated caller and a card from <see cref="A2AServerOptions.ExtendedAgentCardProvider"/>.</summary>
     public async Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
@@ -1502,6 +1512,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     private int _disposed;
 
+    /// <summary>Stops running executions and releases resources. Safe to call more than once.</summary>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;

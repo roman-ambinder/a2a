@@ -12,6 +12,7 @@ public class TaskEventBus
 {
     private readonly ConcurrentDictionary<string, ImmutableSubscribers> _subs = new(StringComparer.Ordinal);
 
+    /// <summary>Registers a subscriber for the events of <paramref name="taskId"/>. Dispose the result to unsubscribe.</summary>
     public virtual Subscription Subscribe(string taskId)
     {
         var channel = Channel.CreateUnbounded<SequencedEvent>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
@@ -63,6 +64,7 @@ public class TaskEventBus
         public ImmutableSubscribers Remove(Subscription s) => new(Items.Where(x => x != s).ToArray());
     }
 
+    /// <summary>A live subscription to the events of one task.</summary>
     public sealed class Subscription : IDisposable
     {
         private readonly TaskEventBus _bus;
@@ -74,10 +76,13 @@ public class TaskEventBus
             Channel = channel;
         }
 
+        /// <summary>Id of the task the subscription follows.</summary>
         public string TaskId { get; }
         internal Channel<SequencedEvent> Channel { get; }
+        /// <summary>Reads events in sequence order.</summary>
         public ChannelReader<SequencedEvent> Reader => Channel.Reader;
 
+        /// <summary>Ends the subscription and completes the reader.</summary>
         public void Dispose()
         {
             Channel.Writer.TryComplete();

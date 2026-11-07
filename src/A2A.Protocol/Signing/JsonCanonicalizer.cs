@@ -8,8 +8,10 @@ namespace A2A.Signing;
 /// <summary>JSON Canonicalization Scheme (RFC 8785).</summary>
 public static class JsonCanonicalizer
 {
+    /// <summary>Canonicalizes a JSON node and returns the UTF-8 bytes.</summary>
     public static byte[] Canonicalize(JsonNode? node) => Encoding.UTF8.GetBytes(CanonicalizeToString(node));
 
+    /// <summary>Canonicalizes a JSON node and returns the string.</summary>
     public static string CanonicalizeToString(JsonNode? node)
     {
         var sb = new StringBuilder();
@@ -17,6 +19,7 @@ public static class JsonCanonicalizer
         return sb.ToString();
     }
 
+    /// <summary>Parses <paramref name="json"/>, canonicalizes it and returns the string.</summary>
     public static string CanonicalizeToString(string json) => CanonicalizeToString(JsonNode.Parse(json));
 
     private static void Write(StringBuilder sb, JsonNode? node)

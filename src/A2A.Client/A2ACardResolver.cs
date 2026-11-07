@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace A2A.Client;
 
+/// <summary>Settings of <see cref="A2ACardResolver"/>: signature trust, card pinning and text limits.</summary>
 public sealed class A2ACardResolverOptions
 {
     /// <summary>
@@ -72,8 +73,11 @@ public sealed record ResolvedSkill(UntrustedText Name, UntrustedText Description
 /// <summary>Raised when an origin serves a card whose canonical content differs from the pinned one.</summary>
 public sealed class CardChangedEventArgs(string origin, string oldHash, string newHash) : EventArgs
 {
+    /// <summary>Origin (<c>https://host[:port]</c>) that served the changed card.</summary>
     public string Origin { get; } = origin;
+    /// <summary>Hash of the pinned card.</summary>
     public string OldHash { get; } = oldHash;
+    /// <summary>Hash of the card that was received.</summary>
     public string NewHash { get; } = newHash;
 }
 
@@ -96,6 +100,7 @@ public sealed class A2ACardResolver
     private readonly ILogger _logger;
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new();
 
+    /// <summary>Creates a resolver. <paramref name="options"/> defaults to a new <see cref="A2ACardResolverOptions"/>.</summary>
     public A2ACardResolver(HttpClient httpClient, A2ACardResolverOptions? options = null, ILogger? logger = null)
     {
         _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
@@ -117,9 +122,11 @@ public sealed class A2ACardResolver
         return new Uri(agentUrl, A2AProtocol.WellKnownAgentCardPath);
     }
 
+    /// <summary>Fetches the card at <paramref name="agentUrl"/> after the signature and pin checks. Same as <see cref="ResolveAsync"/> but returns only the card.</summary>
     public async Task<AgentCard> GetAgentCardAsync(Uri agentUrl, CancellationToken cancellationToken = default) =>
         (await ResolveAsync(agentUrl, cancellationToken).ConfigureAwait(false)).Card;
 
+    /// <summary>Fetches the card at <paramref name="agentUrl"/>, checks its signatures and pin, and returns the card with its verification result and sanitized text.</summary>
     public async Task<ResolvedAgentCard> ResolveAsync(Uri agentUrl, CancellationToken callerToken = default)
     {
         var uri = GetCardUri(agentUrl);
@@ -268,6 +275,7 @@ public sealed class A2ACardResolver
 public sealed class AgentCardVerificationException(AgentCardVerificationResult result)
     : A2AException(A2AErrorCode.InvalidAgentResponse, $"Agent Card signature check failed ({result.Status}): {result.Reason}")
 {
+    /// <summary>The verification result that caused the failure.</summary>
     public AgentCardVerificationResult Result { get; } = result;
 }
 
@@ -275,7 +283,10 @@ public sealed class AgentCardVerificationException(AgentCardVerificationResult r
 public sealed class AgentCardPinException(string origin, string oldHash, string newHash)
     : A2AException(A2AErrorCode.InvalidAgentResponse, $"Agent Card from {origin} changed: pinned {oldHash}, received {newHash}")
 {
+    /// <summary>Origin that served the changed card.</summary>
     public string Origin { get; } = origin;
+    /// <summary>Hash of the pinned card.</summary>
     public string OldHash { get; } = oldHash;
+    /// <summary>Hash of the card that was received.</summary>
     public string NewHash { get; } = newHash;
 }

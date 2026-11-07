@@ -11,6 +11,7 @@ public sealed class ServerCallContext
     /// <summary>Stable id of the caller. Never null; <see cref="AnonymousPrincipal"/> for unauthenticated callers.</summary>
     public string Principal { get; init; } = AnonymousPrincipal;
 
+    /// <summary>The authenticated user from the host, or null for anonymous callers.</summary>
     public ClaimsPrincipal? User { get; init; }
 
     /// <summary>
@@ -35,6 +36,7 @@ public sealed class ServerCallContext
             ? "anon:" + (string.IsNullOrEmpty(remoteAddress) ? "unknown" : remoteAddress)
             : "user:" + principal;
 
+    /// <summary>True when <see cref="User"/> is set and authenticated.</summary>
     public bool IsAuthenticated => User?.Identity?.IsAuthenticated == true;
 
     /// <summary>Tenant of the request (path segment or <c>tenant</c> field). Never null; <c>""</c> is the default tenant. Compared ordinally.</summary>
@@ -81,5 +83,6 @@ public sealed class ServerCallContext
     /// <summary>Free-form per-request state for bindings and executors.</summary>
     public IDictionary<string, object?> Items { get; } = new Dictionary<string, object?>();
 
+    /// <summary>Creates a context for an anonymous caller. <paramref name="protocolVersion"/> defaults to <see cref="A2AProtocol.Version"/>.</summary>
     public static ServerCallContext Anonymous(string? protocolVersion = A2AProtocol.Version) => new() { ProtocolVersion = protocolVersion };
 }

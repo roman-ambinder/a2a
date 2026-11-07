@@ -14,6 +14,7 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly ConcurrentDictionary<TaskKey, TaskLog> _logs = new();
 
+    /// <inheritdoc />
     public override ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken ct = default)
     {
         var copy = A2AJson.Clone(evt);
@@ -32,6 +33,7 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
         }
     }
 
+    /// <inheritdoc />
     public override async IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
@@ -48,18 +50,21 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
         await Task.CompletedTask.ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
     public override ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken ct = default)
     {
         if (!_logs.TryGetValue(task, out var log)) return ValueTask.FromResult<long?>(null);
         lock (log) return ValueTask.FromResult<long?>(log.Events.Count == 0 ? null : log.Events[0].Sequence);
     }
 
+    /// <inheritdoc />
     public override ValueTask<long> LastSequenceAsync(TaskKey task, CancellationToken ct = default)
     {
         if (!_logs.TryGetValue(task, out var log)) return ValueTask.FromResult(0L);
         lock (log) return ValueTask.FromResult(log.Last);
     }
 
+    /// <inheritdoc />
     public override ValueTask MarkTerminalAsync(TaskKey task, CancellationToken ct = default)
     {
         if (!_logs.TryGetValue(task, out var log)) return ValueTask.CompletedTask;

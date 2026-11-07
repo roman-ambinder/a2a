@@ -80,6 +80,7 @@ public sealed class AgentCardVerifier
         _jwksClient = jwksClient ?? GuardedJwksClient.Value;
     }
 
+    /// <summary>The policy that decides which keys are trusted.</summary>
     public CardTrustPolicy Policy { get; }
 
     /// <inheritdoc cref="VerifyAsync(JsonObject, Uri, CancellationToken)"/>

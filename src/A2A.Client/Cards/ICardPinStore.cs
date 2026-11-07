@@ -22,7 +22,9 @@ public sealed record CardPin(string Hash, string? KeyId);
 /// </summary>
 public interface ICardPinStore
 {
+    /// <summary>Returns the pin of <paramref name="origin"/>, or null when none is stored.</summary>
     ValueTask<CardPin?> GetAsync(string origin, CancellationToken cancellationToken = default);
 
+    /// <summary>Stores the pin of <paramref name="origin"/>, replacing an earlier one.</summary>
     ValueTask SetAsync(string origin, CardPin pin, CancellationToken cancellationToken = default);
 }

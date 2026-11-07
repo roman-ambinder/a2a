@@ -14,29 +14,34 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
 {
     private readonly string _baseUrl;
 
+    /// <summary>Creates the transport for the HTTP+JSON endpoint at <paramref name="baseUrl"/>. <paramref name="options"/> defaults to a new <see cref="A2AClientOptions"/>.</summary>
     public HttpJsonTransport(HttpClient httpClient, Uri baseUrl, A2AClientOptions? options = null) : base(httpClient, options)
     {
         _baseUrl = (baseUrl ?? throw new ArgumentNullException(nameof(baseUrl))).AbsoluteUri.TrimEnd('/');
     }
 
+    /// <inheritdoc />
     public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var key = PrepareSend(request, options);
         return SendAsync<SendMessageResponse>(HttpMethod.Post, Path(request.Tenant, "/message:send"), request, RetryMode.UnsentOnly, options, key, cancellationToken);
     }
 
+    /// <inheritdoc />
     public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         StreamAsync(HttpMethod.Post, Path(request.Tenant, "/message:stream"), request, options, PrepareSend(request, options), null, cancellationToken).Unframe(cancellationToken);
 
     IAsyncEnumerable<StreamFrame> IResumableTransport.SendStreamingFramesAsync(SendMessageRequest request, A2ARequestOptions? options, CancellationToken cancellationToken) =>
         StreamAsync(HttpMethod.Post, Path(request.Tenant, "/message:stream"), request, options, PrepareSend(request, options), null, cancellationToken);
 
+    /// <inheritdoc />
     public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var q = new Query().Add("historyLength", request.HistoryLength);
         return SendAsync<AgentTask>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.Id)}") + q, null, RetryMode.Idempotent, options, null, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var q = new Query()
@@ -50,9 +55,11 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
         return SendAsync<ListTasksResponse>(HttpMethod.Get, Path(request.Tenant, "/tasks") + q, null, RetryMode.Idempotent, options, null, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendAsync<AgentTask>(HttpMethod.Post, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:cancel"), request, RetryMode.Idempotent, options, null, cancellationToken);
 
+    /// <inheritdoc />
     public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         ((IResumableTransport)this).SubscribeToTaskAsync(request, options, null, cancellationToken).Unframe(cancellationToken);
 
@@ -63,18 +70,22 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
         return StreamAsync(method, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:subscribe"), method == HttpMethod.Get ? null : request, options, null, lastEventId, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendAsync<TaskPushNotificationConfig>(HttpMethod.Post, Path(config.Tenant, $"/tasks/{Esc(config.TaskId)}/pushNotificationConfigs"), config, RetryMode.None, options, null, cancellationToken);
 
+    /// <inheritdoc />
     public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendAsync<TaskPushNotificationConfig>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.TaskId)}/pushNotificationConfigs/{Esc(request.Id)}"), null, RetryMode.Idempotent, options, null, cancellationToken);
 
+    /// <inheritdoc />
     public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var q = new Query().Add("pageSize", request.PageSize).Add("pageToken", request.PageToken);
         return SendAsync<ListTaskPushNotificationConfigsResponse>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.TaskId)}/pushNotificationConfigs") + q, null, RetryMode.Idempotent, options, null, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         ExecuteUnaryAsync(RetryMode.None, options, async attemptCt =>
         {
@@ -85,6 +96,7 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
             return true;
         }, cancellationToken);
 
+    /// <inheritdoc />
     public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendAsync<AgentCard>(HttpMethod.Get, Path(request.Tenant, "/extendedAgentCard"), null, RetryMode.Idempotent, options, null, cancellationToken);
 

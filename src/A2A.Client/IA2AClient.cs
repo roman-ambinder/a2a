@@ -6,26 +6,37 @@ namespace A2A.Client;
 /// </summary>
 public interface IA2AClient
 {
+    /// <summary>SendMessage (spec §3.1.1): sends a message and waits for the result, a task or a message.</summary>
     Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default);
 
+    /// <summary>SendStreamingMessage (spec §3.1.2): sends a message and streams the task updates.</summary>
     IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default);
 
+    /// <summary>GetTask (spec §3.1.3): fetches one task.</summary>
     Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default);
 
+    /// <summary>ListTasks (spec §3.1.4): lists tasks with filters and paging.</summary>
     Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default);
 
+    /// <summary>CancelTask (spec §3.1.5): asks the agent to cancel a task.</summary>
     Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default);
 
+    /// <summary>SubscribeToTask (spec §3.1.6): streams updates of an existing task.</summary>
     IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default);
 
+    /// <summary>CreateTaskPushNotificationConfig (spec §3.1.7): registers a webhook for a task.</summary>
     Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default);
 
+    /// <summary>GetTaskPushNotificationConfig (spec §3.1.8): fetches one webhook registration.</summary>
     Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default);
 
+    /// <summary>ListTaskPushNotificationConfigs (spec §3.1.9): lists the webhooks of a task.</summary>
     Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default);
 
+    /// <summary>DeleteTaskPushNotificationConfig (spec §3.1.10): removes a webhook registration.</summary>
     Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default);
 
+    /// <summary>GetExtendedAgentCard (spec §3.1.11): fetches the authenticated, extended Agent Card.</summary>
     Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default);
 }
 

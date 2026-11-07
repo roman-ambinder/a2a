@@ -11,6 +11,7 @@ using Microsoft.Extensions.Options;
 
 namespace A2A.Server.Push;
 
+/// <summary>Settings of push notification delivery: webhook URL policy (SSRF guard), timeouts and retries.</summary>
 public sealed class PushNotificationOptions
 {
     /// <summary>Allow http:// webhook URLs. Default false (spec §13.2: SHOULD use HTTPS).</summary>
@@ -34,11 +35,13 @@ public sealed class PushNotificationOptions
     /// </summary>
     public IWebProxy? Proxy { get; set; }
 
+    /// <summary>Timeout of one delivery attempt. Default 15 seconds.</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(15);
 
     /// <summary>Delivery attempts per notification, including the first. Default 3.</summary>
     public int MaxAttempts { get; set; } = 3;
 
+    /// <summary>Wait before the first retry. Default 1 second; it grows exponentially.</summary>
     public TimeSpan InitialBackoff { get; set; } = TimeSpan.FromSeconds(1);
 }
 
@@ -136,6 +139,7 @@ public interface IPushNotificationSender
 /// </summary>
 public sealed class HttpPushNotificationSender : IPushNotificationSender, IDisposable
 {
+    /// <summary>Name of the <see cref="System.Net.Http.HttpClient"/> registration used for webhook delivery.</summary>
     public const string HttpClientName = "A2A.PushNotifications";
 
     private readonly IHttpClientFactory _httpClientFactory;
@@ -148,6 +152,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
     private readonly ConcurrentDictionary<Task, byte> _workers = new();
     private readonly CancellationTokenSource _shutdown = new();
 
+    /// <summary>Creates the sender. In an ASP.NET Core app the DI container does this.</summary>
     public HttpPushNotificationSender(IHttpClientFactory httpClientFactory, PushConfigStore store, IPushSecretProtector protector,
         IOptions<A2AServerOptions> options, ILogger<HttpPushNotificationSender>? logger = null)
     {
@@ -158,6 +163,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
         _logger = (ILogger?)logger ?? NullLogger.Instance;
     }
 
+    /// <inheritdoc />
     public void Enqueue(TaskKey task, SequencedEvent evt)
     {
         lock (_gate)
@@ -310,6 +316,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
 
     private int _disposed;
 
+    /// <summary>Stops delivery and releases resources. Safe to call more than once.</summary>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;

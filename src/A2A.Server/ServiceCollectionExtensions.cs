@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 
 namespace A2A.Server;
 
+/// <summary>Dependency injection extensions for the A2A server core.</summary>
 public static class A2AServerServiceCollectionExtensions
 {
     /// <summary>

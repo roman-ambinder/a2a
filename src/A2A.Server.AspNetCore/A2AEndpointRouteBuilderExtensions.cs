@@ -10,6 +10,7 @@ using System.Text.RegularExpressions;
 
 namespace A2A.Server.AspNetCore;
 
+/// <summary>Dependency injection extensions for the ASP.NET Core side of the A2A server.</summary>
 public static class A2AServiceCollectionExtensions
 {
     /// <summary>
@@ -44,6 +45,7 @@ public static class A2AServiceCollectionExtensions
     }
 }
 
+/// <summary>Extensions that map the A2A endpoints and the Agent Card into an ASP.NET Core app.</summary>
 public static partial class A2AEndpointRouteBuilderExtensions
 {
     /// <summary>

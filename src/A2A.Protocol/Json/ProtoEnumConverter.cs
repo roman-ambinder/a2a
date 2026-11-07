@@ -9,6 +9,7 @@ namespace A2A.Json;
 [AttributeUsage(AttributeTargets.Field)]
 public sealed class ProtoNameAttribute(string name) : Attribute
 {
+    /// <summary>The ProtoJSON name written to and read from the wire.</summary>
     public string Name { get; } = name;
 }
 
@@ -33,8 +34,10 @@ public sealed class ProtoEnumConverter<[DynamicallyAccessedMembers(DynamicallyAc
         }
     }
 
+    /// <summary>Returns the ProtoJSON name of <paramref name="value"/>, or its C# name when it has no <see cref="ProtoNameAttribute"/>.</summary>
     public static string ToProtoName(TEnum value) => ToName.TryGetValue(value, out var n) ? n : value.ToString();
 
+    /// <summary>Parses a ProtoJSON name. Returns false when the name is unknown.</summary>
     public static bool TryParse(string? name, out TEnum value)
     {
         if (name is not null && FromName.TryGetValue(name, out value)) return true;
@@ -43,6 +46,7 @@ public sealed class ProtoEnumConverter<[DynamicallyAccessedMembers(DynamicallyAc
         return false;
     }
 
+    /// <summary>Reads a ProtoJSON name or an integer. An unknown name reads as the zero value.</summary>
     public override TEnum Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         switch (reader.TokenType)
@@ -56,6 +60,7 @@ public sealed class ProtoEnumConverter<[DynamicallyAccessedMembers(DynamicallyAc
         }
     }
 
+    /// <summary>Writes the ProtoJSON name of the value.</summary>
     public override void Write(Utf8JsonWriter writer, TEnum value, JsonSerializerOptions options)
         => writer.WriteStringValue(ToProtoName(value));
 }

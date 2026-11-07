@@ -13,6 +13,7 @@ public static class GrpcErrors
     /// <summary>Metadata key for the A2A-Extensions service parameter.</summary>
     public const string ExtensionsKey = "a2a-extensions";
 
+    /// <summary>Returns the gRPC status code for an A2A error code, for example NotFound for TaskNotFound.</summary>
     public static StatusCode ToStatusCode(A2AErrorCode code) => A2AErrors.GrpcStatus(code) switch
     {
         "NOT_FOUND" => StatusCode.NotFound,
@@ -30,6 +31,7 @@ public static class GrpcErrors
         _ => StatusCode.Unknown,
     };
 
+    /// <summary>Converts an A2A error into an <see cref="RpcException"/> with a google.rpc.ErrorInfo detail.</summary>
     public static RpcException ToRpcException(A2AException ex)
     {
         var info = new ErrorInfo { Reason = A2AErrors.Reason(ex.Code), Domain = A2AProtocol.ErrorDomain };
@@ -44,6 +46,7 @@ public static class GrpcErrors
         return status.ToRpcException();
     }
 
+    /// <summary>Converts an <see cref="RpcException"/> into an A2A error. The ErrorInfo reason wins; without it the gRPC status code decides.</summary>
     public static A2AException FromRpcException(RpcException ex)
     {
         var status = ex.GetRpcStatus();

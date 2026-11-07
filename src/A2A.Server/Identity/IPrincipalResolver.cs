@@ -20,6 +20,7 @@ public interface IPrincipalResolver
 /// </summary>
 public sealed class DefaultPrincipalResolver : IPrincipalResolver
 {
+    /// <inheritdoc />
     public string? Resolve(ClaimsPrincipal user)
     {
         var id = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;

@@ -9,12 +9,14 @@ public sealed class InMemoryTaskStore : TaskStore
     private readonly ConcurrentDictionary<(string Tenant, string TaskId), TaskRecord> _tasks = new();
     private readonly ConcurrentDictionary<(string Tenant, string ContextId), ContextRecord> _contexts = new();
 
+    /// <inheritdoc />
     public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) =>
         ValueTask.FromResult(
             _tasks.TryGetValue((key.Tenant, key.TaskId), out var r) && string.Equals(r.Owner, key.Owner, StringComparison.Ordinal)
                 ? Copy(r)
                 : null);
 
+    /// <inheritdoc />
     public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default)
     {
         if (record.Version != 0) throw new ArgumentException("A new record must have Version 0.", nameof(record));
@@ -23,6 +25,7 @@ public sealed class InMemoryTaskStore : TaskStore
         return ValueTask.FromResult(Copy(stored));
     }
 
+    /// <inheritdoc />
     public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default)
     {
         var id = (record.Tenant, record.Task.Id);
@@ -36,6 +39,7 @@ public sealed class InMemoryTaskStore : TaskStore
         return ValueTask.FromResult(Copy(next));
     }
 
+    /// <inheritdoc />
     public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default)
     {
         var cursor = PageCursor.Decode(query.PageToken);
@@ -65,9 +69,11 @@ public sealed class InMemoryTaskStore : TaskStore
         return ValueTask.FromResult(new TaskPage(page.Select(Copy).ToList(), next, matching.Count));
     }
 
+    /// <inheritdoc />
     public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) =>
         ValueTask.FromResult(_contexts.TryGetValue((tenant, contextId), out var c) ? c : null);
 
+    /// <inheritdoc />
     public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) =>
         ValueTask.FromResult(_contexts.GetOrAdd((record.Tenant, record.ContextId), record));
 

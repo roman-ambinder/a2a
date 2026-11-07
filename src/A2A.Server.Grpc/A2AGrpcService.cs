@@ -19,46 +19,57 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
     private readonly A2ARequestHandler _handler;
     private readonly ILogger<A2AGrpcService> _logger;
 
+    /// <summary>Creates the service. The DI container does this.</summary>
     public A2AGrpcService(A2ARequestHandler handler, ILogger<A2AGrpcService> logger)
     {
         _handler = handler;
         _logger = logger;
     }
 
+    /// <summary>SendMessage (spec §3.1.1) over gRPC.</summary>
     public override Task<Pb.SendMessageResponse> SendMessage(Pb.SendMessageRequest request, GrpcContext context) =>
         Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.SendMessageResponse>(
             await _handler.SendMessageAsync(ProtoMapper.ToModel<SendMessageRequest>(request), call, ct).ConfigureAwait(false)));
 
+    /// <summary>SendStreamingMessage (spec §3.1.2) over gRPC.</summary>
     public override Task SendStreamingMessage(Pb.SendMessageRequest request, IServerStreamWriter<Pb.StreamResponse> responseStream, GrpcContext context) =>
         Stream(context, responseStream, (call, ct) => _handler.SendStreamingMessageAsync(ProtoMapper.ToModel<SendMessageRequest>(request), call, ct));
 
+    /// <summary>GetTask (spec §3.1.3) over gRPC.</summary>
     public override Task<Pb.Task> GetTask(Pb.GetTaskRequest request, GrpcContext context) =>
         Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.Task>(
             await _handler.GetTaskAsync(ProtoMapper.ToModel<GetTaskRequest>(request), call, ct).ConfigureAwait(false)));
 
+    /// <summary>ListTasks (spec §3.1.4) over gRPC.</summary>
     public override Task<Pb.ListTasksResponse> ListTasks(Pb.ListTasksRequest request, GrpcContext context) =>
         Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.ListTasksResponse>(
             await _handler.ListTasksAsync(ProtoMapper.ToModel<ListTasksRequest>(request), call, ct).ConfigureAwait(false)));
 
+    /// <summary>CancelTask (spec §3.1.5) over gRPC.</summary>
     public override Task<Pb.Task> CancelTask(Pb.CancelTaskRequest request, GrpcContext context) =>
         Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.Task>(
             await _handler.CancelTaskAsync(ProtoMapper.ToModel<CancelTaskRequest>(request), call, ct).ConfigureAwait(false)));
 
+    /// <summary>SubscribeToTask (spec §3.1.6) over gRPC.</summary>
     public override Task SubscribeToTask(Pb.SubscribeToTaskRequest request, IServerStreamWriter<Pb.StreamResponse> responseStream, GrpcContext context) =>
         Stream(context, responseStream, (call, ct) => _handler.SubscribeToTaskAsync(ProtoMapper.ToModel<SubscribeToTaskRequest>(request), call, ct));
 
+    /// <summary>CreateTaskPushNotificationConfig (spec §3.1.7) over gRPC.</summary>
     public override Task<Pb.TaskPushNotificationConfig> CreateTaskPushNotificationConfig(Pb.TaskPushNotificationConfig request, GrpcContext context) =>
         Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.TaskPushNotificationConfig>(
             await _handler.CreateTaskPushNotificationConfigAsync(ProtoMapper.ToModel<TaskPushNotificationConfig>(request), call, ct).ConfigureAwait(false)));
 
+    /// <summary>GetTaskPushNotificationConfig (spec §3.1.8) over gRPC.</summary>
     public override Task<Pb.TaskPushNotificationConfig> GetTaskPushNotificationConfig(Pb.GetTaskPushNotificationConfigRequest request, GrpcContext context) =>
         Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.TaskPushNotificationConfig>(
             await _handler.GetTaskPushNotificationConfigAsync(ProtoMapper.ToModel<GetTaskPushNotificationConfigRequest>(request), call, ct).ConfigureAwait(false)));
 
+    /// <summary>ListTaskPushNotificationConfigs (spec §3.1.9) over gRPC.</summary>
     public override Task<Pb.ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigs(Pb.ListTaskPushNotificationConfigsRequest request, GrpcContext context) =>
         Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.ListTaskPushNotificationConfigsResponse>(
             await _handler.ListTaskPushNotificationConfigsAsync(ProtoMapper.ToModel<ListTaskPushNotificationConfigsRequest>(request), call, ct).ConfigureAwait(false)));
 
+    /// <summary>DeleteTaskPushNotificationConfig (spec §3.1.10) over gRPC.</summary>
     public override Task<Empty> DeleteTaskPushNotificationConfig(Pb.DeleteTaskPushNotificationConfigRequest request, GrpcContext context) =>
         Unary(context, async (call, ct) =>
         {
@@ -66,6 +77,7 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
             return new Empty();
         });
 
+    /// <summary>GetExtendedAgentCard (spec §3.1.11) over gRPC.</summary>
     public override Task<Pb.AgentCard> GetExtendedAgentCard(Pb.GetExtendedAgentCardRequest request, GrpcContext context) =>
         Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.AgentCard>(
             await _handler.GetExtendedAgentCardAsync(ProtoMapper.ToModel<GetExtendedAgentCardRequest>(request), call, ct).ConfigureAwait(false)));

@@ -4,7 +4,9 @@ namespace A2A.Server.Storage;
 public sealed class ConcurrencyException(TaskKey key, long expected)
     : Exception($"Task '{key.TaskId}' was changed concurrently (expected version {expected}).")
 {
+    /// <summary>Key of the task that changed.</summary>
     public TaskKey Key { get; } = key;
+    /// <summary>Version the caller expected.</summary>
     public long ExpectedVersion { get; } = expected;
 }
 
@@ -12,5 +14,6 @@ public sealed class ConcurrencyException(TaskKey key, long expected)
 public sealed class DuplicateTaskException(TaskKey key)
     : Exception($"Task '{key.TaskId}' already exists.")
 {
+    /// <summary>Key of the task that already exists.</summary>
     public TaskKey Key { get; } = key;
 }

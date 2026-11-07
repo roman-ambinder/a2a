@@ -12,8 +12,10 @@ public sealed class A2ANamedClientOptions
     /// <summary>Agent base URL or full Agent Card URL.</summary>
     public Uri? AgentUrl { get; set; }
 
+    /// <summary>Options of the A2A client, such as bindings and protocol version.</summary>
     public A2AClientOptions Client { get; } = new();
 
+    /// <summary>Options of the card resolver, such as trust policy and pinning.</summary>
     public A2ACardResolverOptions Resolver { get; } = new();
 }
 
@@ -56,6 +58,7 @@ internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFacto
     internal static string HttpClientName(string name) => "A2A:" + name;
 }
 
+/// <summary>Dependency injection extensions for A2A clients.</summary>
 public static class A2AClientServiceCollectionExtensions
 {
     /// <summary>
@@ -83,6 +86,7 @@ public static class A2AClientServiceCollectionExtensions
 /// <summary>Sets <c>Authorization: Bearer</c> on each request.</summary>
 public sealed class BearerTokenHandler(Func<CancellationToken, ValueTask<string>> tokenProvider) : DelegatingHandler
 {
+    /// <summary>Sets the bearer token on the request and sends it.</summary>
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var token = await tokenProvider(cancellationToken).ConfigureAwait(false);

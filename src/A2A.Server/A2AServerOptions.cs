@@ -3,6 +3,7 @@ using A2A.Server.Push;
 
 namespace A2A.Server;
 
+/// <summary>Settings of the A2A server. Configure them with <c>AddA2AServer(options =&gt; ...)</c>.</summary>
 public sealed class A2AServerOptions
 {
     /// <summary>The public Agent Card. Required.</summary>
@@ -36,6 +37,7 @@ public sealed class A2AServerOptions
     /// </summary>
     public Func<ServerCallContext, CancellationToken, ValueTask<AgentCard?>>? ExtendedAgentCardProvider { get; set; }
 
+    /// <summary>Webhook delivery and URL policy for push notifications.</summary>
     public PushNotificationOptions PushNotifications { get; } = new();
 
     /// <summary>How long CancelTask waits for a running execution to stop. Default 5 seconds.</summary>
