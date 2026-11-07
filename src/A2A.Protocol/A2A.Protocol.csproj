@@ -5,5 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="A2A.Tests" />
+    <InternalsVisibleTo Include="A2A.Client" />
+    <InternalsVisibleTo Include="A2A.Server" />
   </ItemGroup>
 </Project>

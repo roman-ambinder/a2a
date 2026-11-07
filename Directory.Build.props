@@ -43,6 +43,12 @@
 
     <!-- Catch accidental API differences between target frameworks inside a package. -->
     <EnablePackageValidation>true</EnablePackageValidation>
+
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/tests/')) Or $(MSBuildProjectDirectory.Contains('\tests\'))">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(IsPackable)' == 'true'">

@@ -57,7 +57,8 @@ public static class JsonCanonicalizer
 
     private static void WriteValue(StringBuilder sb, JsonValue val)
     {
-        var element = val.TryGetValue<JsonElement>(out var e) ? e : JsonSerializer.SerializeToElement(val);
+        using var parsed = val.TryGetValue<JsonElement>(out _) ? null : JsonDocument.Parse(val.ToJsonString());
+        var element = parsed?.RootElement ?? val.GetValue<JsonElement>();
         switch (element.ValueKind)
         {
             case JsonValueKind.String: WriteString(sb, element.GetString()!); break;

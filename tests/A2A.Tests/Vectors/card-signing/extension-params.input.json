@@ -1,0 +1,86 @@
+{
+  "name": "Vector Agent",
+  "description": "Agent used for signing vectors.",
+  "version": "1.0.0",
+  "supportedInterfaces": [
+    {
+      "url": "https://agent.example/a2a",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "text/plain"
+  ],
+  "skills": [
+    {
+      "id": "echo",
+      "name": "Echo",
+      "description": "Echoes the input.",
+      "tags": [
+        "echo"
+      ]
+    }
+  ],
+  "capabilities": {
+    "extensions": [
+      {
+        "uri": "https://ext.example/params",
+        "description": "Params of every JSON type",
+        "params": {
+          "int": 1,
+          "negative": -42,
+          "float": 1.5,
+          "zero": 0,
+          "negZero": -0.0,
+          "small": 1e-07,
+          "large": 1e+20,
+          "maxSafe": 9007199254740991,
+          "third": 0.1,
+          "true": true,
+          "false": false,
+          "required": false,
+          "null": null,
+          "emptyString": "",
+          "emptyList": [],
+          "emptyObject": {},
+          "nested": {
+            "a": {
+              "b": ""
+            },
+            "c": [
+              1,
+              "",
+              null,
+              {},
+              [],
+              "x"
+            ],
+            "d": {
+              "e": false
+            }
+          },
+          "list": [
+            {
+              "k": "v"
+            },
+            {
+              "k": ""
+            }
+          ],
+          "é": "e-acute",
+          "😀": "astral",
+          "Ａ": "fullwidth"
+        }
+      },
+      {
+        "uri": "https://ext.example/empty-params",
+        "params": {},
+        "required": true
+      }
+    ]
+  }
+}

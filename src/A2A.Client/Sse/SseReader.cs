@@ -4,7 +4,20 @@ using System.Text;
 namespace A2A.Client.Sse;
 
 /// <summary>A dispatched Server-Sent Event.</summary>
-public sealed record SseEvent(string Data, string? EventType, string? Id);
+/// <param name="Data">The data field.</param>
+/// <param name="EventType">The event field, if any.</param>
+/// <param name="Id">The last event id seen on the stream so far (WHATWG semantics: it carries over to later events).</param>
+public sealed record SseEvent(string Data, string? EventType, string? Id)
+{
+    /// <summary>The id field of this event only. Null when this event carried no <c>id:</c> line. Not part of equality.</summary>
+    public string? FrameId { get; init; }
+
+    /// <inheritdoc/>
+    public bool Equals(SseEvent? other) => other is not null && Data == other.Data && EventType == other.EventType && Id == other.Id;
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => HashCode.Combine(Data, EventType, Id);
+}
 
 /// <summary>Server-Sent Events parser (WHATWG HTML §9.2.6). Handles CRLF/LF/CR, multi-line data, comments, and BOM.</summary>
 public static class SseReader
@@ -16,6 +29,7 @@ public static class SseReader
         var hasData = false;
         string? eventType = null;
         string? lastId = null;
+        string? frameId = null;
 
         while (true)
         {
@@ -36,11 +50,12 @@ public static class SseReader
                 if (hasData)
                 {
                     var payload = data.ToString();
-                    yield return new SseEvent(payload, eventType, lastId);
+                    yield return new SseEvent(payload, eventType, lastId) { FrameId = frameId };
                 }
                 data.Clear();
                 hasData = false;
                 eventType = null;
+                frameId = null;
                 continue;
             }
 
@@ -66,7 +81,7 @@ public static class SseReader
                     eventType = value;
                     break;
                 case "id":
-                    if (!value.Contains('\0')) lastId = value;
+                    if (!value.Contains('\0')) lastId = frameId = value;
                     break;
                 // "retry" and unknown fields are ignored.
             }

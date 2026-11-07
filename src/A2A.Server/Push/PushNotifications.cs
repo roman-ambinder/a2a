@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Sockets;
 using A2A.Json;
+using A2A.Net;
+using A2A.Server.Storage;
+using A2A.Server.Streaming;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -22,6 +24,15 @@ public sealed class PushNotificationOptions
 
     /// <summary>If non-empty, only these hosts may be used as webhook targets.</summary>
     public ISet<string> AllowedHosts { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Networks that bypass the private-range block (for example an internal webhook range). Empty by default.</summary>
+    public IList<(IPAddress Network, int PrefixLength)> AllowedNetworks { get; } = new List<(IPAddress Network, int PrefixLength)>();
+
+    /// <summary>
+    /// Proxy for webhook delivery. When null (default) the system proxy is ignored. Requests sent through a proxy rely on the proxy
+    /// for egress policy (including DNS rebinding at the proxy); requests the proxy bypasses get the normal IP check.
+    /// </summary>
+    public IWebProxy? Proxy { get; set; }
 
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(15);
 
@@ -43,126 +54,124 @@ public static class PushUrlValidator
             throw A2AException.InvalidParams("Push notification url must use https");
         if (!string.IsNullOrEmpty(uri.UserInfo))
             throw A2AException.InvalidParams("Push notification url must not contain credentials");
-        if (options.AllowedHosts.Count > 0 && !options.AllowedHosts.Contains(uri.Host))
+        var host = PrivateAddressGuard.TrimHost(uri.Host);
+        if (options.AllowedHosts.Count > 0 && !options.AllowedHosts.Contains(host) && !options.AllowedHosts.Contains(uri.Host))
             throw A2AException.InvalidParams("Push notification host is not allowed");
         if (!options.AllowPrivateNetworks)
         {
-            if (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase))
+            var ip = PrivateAddressGuard.TryGetLiteral(uri);
+            if (ip is not null)
+            {
+                if (PrivateAddressGuard.IsBlocked(ip, options.AllowedNetworks))
+                    throw A2AException.InvalidParams("Push notification url must not target a private network address");
+            }
+            else if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase))
                 throw A2AException.InvalidParams("Push notification url must not target loopback");
-            if (IPAddress.TryParse(uri.Host.Trim('[', ']'), out var ip) && IsPrivate(ip))
+            else if (PrivateAddressGuard.IsAmbiguousNumericHost(host))
                 throw A2AException.InvalidParams("Push notification url must not target a private network address");
         }
     }
 
-    /// <summary>True for addresses that must not be reached from the agent by default.</summary>
-    public static bool IsPrivate(IPAddress ip)
+    internal static readonly TimeSpan DnsTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>The one message for every DNS-based rejection, so a caller cannot probe internal DNS by comparing error texts.</summary>
+    public const string UrlNotAllowed = "Push notification URL is not allowed.";
+
+    /// <summary>
+    /// Registration check: <see cref="Validate"/> plus DNS resolution and the IP check (spec 7.6). Every DNS-based failure
+    /// (private, unresolvable) throws the same <see cref="UrlNotAllowed"/> InvalidParams error.
+    /// </summary>
+    public static async ValueTask ValidateAsync(string url, PushNotificationOptions options, CancellationToken ct = default)
     {
-        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
-        if (IPAddress.IsLoopback(ip)) return true;
-        if (ip.AddressFamily == AddressFamily.InterNetwork)
+        Validate(url, options);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(options.Timeout < DnsTimeout ? options.Timeout : DnsTimeout);
+        try
         {
-            var b = ip.GetAddressBytes();
-            return b[0] switch
-            {
-                0 or 10 or 127 => true,
-                100 => b[1] >= 64 && b[1] <= 127,          // 100.64.0.0/10 CGNAT
-                169 => b[1] == 254,                         // link-local, cloud metadata
-                172 => b[1] >= 16 && b[1] <= 31,
-                192 => (b[1] == 168) || (b[1] == 0 && b[2] == 0), // 192.168/16, 192.0.0/24
-                198 => b[1] == 18 || b[1] == 19,            // benchmarking
-                >= 224 => true,                             // multicast, reserved, broadcast
-                _ => false,
-            };
+            await ValidateForDeliveryAsync(url, options, cts.Token).AsTask().WaitAsync(cts.Token).ConfigureAwait(false);
         }
-        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            if (ip.Equals(IPAddress.IPv6Any) || ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast) return true;
-            var b = ip.GetAddressBytes();
-            if ((b[0] & 0xFE) == 0xFC) return true; // fc00::/7 unique local
-            return false;
+            throw A2AException.InvalidParams(UrlNotAllowed); // DNS too slow
         }
-        return true;
+        catch (Exception ex) when (ex is HttpRequestException or System.Net.Sockets.SocketException or ArgumentException)
+        {
+            throw A2AException.InvalidParams(UrlNotAllowed);
+        }
     }
 
-    /// <summary>Primary handler for the push HttpClient: enforces the IP policy on every connection and disables redirects.</summary>
-    public static SocketsHttpHandler CreateHandler(PushNotificationOptions options) => new()
+    /// <summary>
+    /// Full check run before each delivery attempt: the static rules of <see cref="Validate"/> plus DNS resolution and the IP check.
+    /// Throws <see cref="A2AException"/> for policy violations (permanent) and <see cref="HttpRequestException"/> when resolution fails or finds a private address.
+    /// </summary>
+    internal static async ValueTask ValidateForDeliveryAsync(string url, PushNotificationOptions options, CancellationToken ct)
     {
-        AllowAutoRedirect = false,
-        UseCookies = false,
-        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-        ConnectCallback = async (ctx, ct) =>
-        {
-            var addresses = await Dns.GetHostAddressesAsync(ctx.DnsEndPoint.Host, ct).ConfigureAwait(false);
-            if (!options.AllowPrivateNetworks && addresses.Any(IsPrivate))
-                throw new HttpRequestException($"Webhook host '{ctx.DnsEndPoint.Host}' resolves to a private address.");
-            Exception? last = null;
-            foreach (var address in addresses)
-            {
-                var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-                try
-                {
-                    await socket.ConnectAsync(new IPEndPoint(address, ctx.DnsEndPoint.Port), ct).ConfigureAwait(false);
-                    return new NetworkStream(socket, ownsSocket: true);
-                }
-                catch (Exception ex)
-                {
-                    socket.Dispose();
-                    last = ex;
-                }
-            }
-            throw new HttpRequestException($"Could not connect to webhook host '{ctx.DnsEndPoint.Host}'.", last);
-        },
-    };
+        Validate(url, options);
+        var uri = new Uri(url);
+        await PrivateAddressGuard.EnsureHostAllowedAsync(uri.Host, options.AllowPrivateNetworks, options.AllowedNetworks, "Webhook", ct).ConfigureAwait(false);
+    }
+
+    /// <summary>True for addresses that must not be reached from the agent by default.</summary>
+    public static bool IsPrivate(IPAddress ip) => PrivateAddressGuard.IsPrivate(ip);
+
+    /// <summary>Primary handler for the push HttpClient: enforces the IP policy on every connection and disables redirects.</summary>
+    public static SocketsHttpHandler CreateHandler(PushNotificationOptions options) =>
+        PrivateAddressGuard.CreateHandler(options.AllowPrivateNetworks, "Webhook", options.AllowedNetworks.ToArray(), options.Proxy);
 }
 
 /// <summary>Sends task events to registered webhooks.</summary>
 public interface IPushNotificationSender
 {
-    void Enqueue(string taskId, StreamResponse evt);
+    /// <summary>Queues delivery of a stored task event to the task's push configs.</summary>
+    /// <remarks>
+    /// Called while the handler holds the task's lock, once per event in sequence order. Implementations must return quickly:
+    /// they must not block, and must not call back into <see cref="A2ARequestHandler"/> for the same task (that would deadlock).
+    /// </remarks>
+    void Enqueue(TaskKey task, SequencedEvent evt);
 }
 
 /// <summary>
 /// Delivers notifications per task in order, at least once, with retries and exponential backoff (spec §4.3.3, §13.2).
-/// Adds <c>X-A2A-Notification-Token</c> and an <c>X-A2A-Notification-Sequence</c> number for deduplication and ordering.
+/// Adds <c>X-A2A-Notification-Token</c> (also sent as a bearer <c>Authorization</c> unless the config has its own), an <c>X-A2A-Delivery-Id</c> that stays the same across retries, and an <c>X-A2A-Notification-Sequence</c> number (the event store sequence) for deduplication and ordering.
 /// </summary>
 public sealed class HttpPushNotificationSender : IPushNotificationSender, IDisposable
 {
     public const string HttpClientName = "A2A.PushNotifications";
 
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly IPushNotificationConfigStore _store;
+    private readonly PushConfigStore _store;
+    private readonly IPushSecretProtector _protector;
     private readonly PushNotificationOptions _options;
     private readonly ILogger _logger;
     private readonly object _gate = new();
-    private readonly Dictionary<string, Queue<(long Seq, StreamResponse Evt)>> _queues = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, long> _sequence = new(StringComparer.Ordinal);
+    private readonly Dictionary<TaskKey, Queue<SequencedEvent>> _queues = new();
     private readonly ConcurrentDictionary<Task, byte> _workers = new();
     private readonly CancellationTokenSource _shutdown = new();
 
-    public HttpPushNotificationSender(IHttpClientFactory httpClientFactory, IPushNotificationConfigStore store,
+    public HttpPushNotificationSender(IHttpClientFactory httpClientFactory, PushConfigStore store, IPushSecretProtector protector,
         IOptions<A2AServerOptions> options, ILogger<HttpPushNotificationSender>? logger = null)
     {
         _httpClientFactory = httpClientFactory;
         _store = store;
+        _protector = protector;
         _options = options.Value.PushNotifications;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
     }
 
-    public void Enqueue(string taskId, StreamResponse evt)
+    public void Enqueue(TaskKey task, SequencedEvent evt)
     {
-        var seq = _sequence.AddOrUpdate(taskId, 1, (_, s) => s + 1);
         lock (_gate)
         {
-            if (_queues.TryGetValue(taskId, out var q))
+            if (_queues.TryGetValue(task, out var q))
             {
-                q.Enqueue((seq, evt));
+                q.Enqueue(evt);
                 return;
             }
-            q = new Queue<(long, StreamResponse)>();
-            q.Enqueue((seq, evt));
-            _queues[taskId] = q;
+            q = new Queue<SequencedEvent>();
+            q.Enqueue(evt);
+            _queues[task] = q;
         }
-        var worker = Task.Run(() => DrainAsync(taskId));
+        var worker = Task.Run(() => DrainAsync(task));
         _workers[worker] = 0;
         worker.ContinueWith(t => _workers.TryRemove(t, out _), TaskScheduler.Default);
     }
@@ -173,17 +182,17 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
         while (!_workers.IsEmpty) await Task.WhenAll(_workers.Keys).ConfigureAwait(false);
     }
 
-    private async Task DrainAsync(string taskId)
+    private async Task DrainAsync(TaskKey task)
     {
         while (true)
         {
-            (long Seq, StreamResponse Evt) item;
+            SequencedEvent item;
             lock (_gate)
             {
-                var q = _queues[taskId];
+                var q = _queues[task];
                 if (q.Count == 0)
                 {
-                    _queues.Remove(taskId);
+                    _queues.Remove(task);
                     return;
                 }
                 item = q.Dequeue();
@@ -191,8 +200,21 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
 
             try
             {
-                var configs = await _store.ListAsync(taskId, _shutdown.Token).ConfigureAwait(false);
-                foreach (var config in configs) await DeliverAsync(config, item.Seq, item.Evt).ConfigureAwait(false);
+                var records = await _store.ListAsync(task, _shutdown.Token).ConfigureAwait(false);
+                foreach (var record in records)
+                {
+                    TaskPushNotificationConfig config;
+                    try
+                    {
+                        config = Unprotect(record.Config);
+                    }
+                    catch (System.Security.Cryptography.CryptographicException ex)
+                    {
+                        _logger.LogError(ex, "Cannot unprotect secrets of webhook {ConfigId} for task {TaskId}; skipping", record.Config.Id, task.TaskId);
+                        continue;
+                    }
+                    await DeliverAsync(config, item.Sequence, item.Event).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
             {
@@ -200,15 +222,23 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Push notification processing failed for task {TaskId}", taskId);
+                _logger.LogError(ex, "Push notification processing failed for task {TaskId}", task.TaskId);
             }
-
-            if (item.Evt.StatusUpdate?.Status.State.IsTerminal() == true) _sequence.TryRemove(taskId, out _);
         }
+    }
+
+    /// <summary>Returns a copy of the stored config with its secrets in plaintext. Used only at delivery time.</summary>
+    private TaskPushNotificationConfig Unprotect(TaskPushNotificationConfig stored)
+    {
+        var config = A2AJson.Clone(stored);
+        if (!string.IsNullOrEmpty(config.Token)) config.Token = _protector.Unprotect(config.Token);
+        if (config.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = _protector.Unprotect(auth.Credentials);
+        return config;
     }
 
     private async Task DeliverAsync(TaskPushNotificationConfig config, long seq, StreamResponse evt)
     {
+        var deliveryId = Guid.NewGuid().ToString("N");
         var body = A2AJson.SerializeToUtf8Bytes(evt);
         var delay = _options.InitialBackoff;
         var http = _httpClientFactory.CreateClient(HttpClientName);
@@ -217,11 +247,32 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
         {
             try
             {
+                // Re-validated on every attempt (not only at create): the host's DNS answer can change, and the allowlist may have.
+                try
+                {
+                    using var vcts = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+                    vcts.CancelAfter(_options.Timeout);
+                    await PushUrlValidator.ValidateForDeliveryAsync(config.Url, _options, vcts.Token).ConfigureAwait(false);
+                }
+                catch (A2AException ex)
+                {
+                    _logger.LogWarning("Skipping webhook {ConfigId} for task {TaskId}: {Reason}", config.Id, config.TaskId, ex.Message);
+                    return;
+                }
+                catch (BlockedAddressException ex)
+                {
+                    _logger.LogWarning("Skipping webhook {ConfigId} for task {TaskId}: {Reason}", config.Id, config.TaskId, ex.Message);
+                    return;
+                }
+
                 using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ByteArrayContent(body) };
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue(A2AProtocol.MediaType);
                 if (config.Authentication is { Scheme.Length: > 0 } auth)
                     request.Headers.TryAddWithoutValidation("Authorization", string.IsNullOrEmpty(auth.Credentials) ? auth.Scheme : $"{auth.Scheme} {auth.Credentials}");
+                else if (!string.IsNullOrEmpty(config.Token))
+                    request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {config.Token}");
                 if (!string.IsNullOrEmpty(config.Token)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationToken, config.Token);
+                request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.DeliveryId, deliveryId);
                 request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationSequence, seq.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
@@ -237,6 +288,11 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
             catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
             {
                 throw;
+            }
+            catch (HttpRequestException ex) when (ex is BlockedAddressException || ex.InnerException is BlockedAddressException)
+            {
+                _logger.LogWarning("Skipping webhook {ConfigId} for task {TaskId}: target address is not allowed", config.Id, config.TaskId);
+                return;
             }
             catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
             {

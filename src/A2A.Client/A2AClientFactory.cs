@@ -64,5 +64,6 @@ public static class A2AClientFactory
         SupportedBindings = new List<string>(o.SupportedBindings),
         RestSubscribeMethod = o.RestSubscribeMethod,
         ValidateCapabilities = o.ValidateCapabilities,
+        TimeProvider = o.TimeProvider,
     };
 }
