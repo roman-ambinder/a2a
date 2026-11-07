@@ -53,6 +53,32 @@ jobs:
           path: TestResults/*.trx
           if-no-files-found: warn
 
+  stores:
+    name: Durable stores (Postgres + Redis, Testcontainers)
+    runs-on: ubuntu-latest
+    env:
+      # Fail instead of skipping when Docker is missing.
+      A2A_REQUIRE_DOCKER: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Test store contracts (in-memory, PostgreSQL, Redis; net8.0 + net10.0)
+        run: dotnet test tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj -c Release --logger "trx;LogFilePrefix=stores" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-stores
+          path: TestResults/*.trx
+          if-no-files-found: warn
+
   interop:
     name: Interop (official Python a2a-sdk)
     runs-on: ubuntu-latest
