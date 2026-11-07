@@ -579,7 +579,6 @@ public sealed class A2ARequestHandler : IDisposable
                     continue;
                 }
 
-                var toPublish = new List<SequencedEvent>(2);
                 var gate = LockFor(key.Tenant, taskId);
                 await gate.WaitAsync().ConfigureAwait(false);
                 try
@@ -601,7 +600,7 @@ public sealed class A2ARequestHandler : IDisposable
                         if (push is not null) await SavePushConfigAsync(key, push, CancellationToken.None).ConfigureAwait(false);
                         created = true;
                         var snapshot = StreamResponse.Of(A2AJson.Clone(record.Task));
-                        toPublish.Add(new SequencedEvent(await _events.AppendAsync(key, snapshot).ConfigureAwait(false), snapshot));
+                        Publish(exec, key, new SequencedEvent(await _events.AppendAsync(key, snapshot).ConfigureAwait(false), snapshot));
                     }
                     else
                     {
@@ -613,19 +612,20 @@ public sealed class A2ARequestHandler : IDisposable
                         }
                     }
 
-                    if (await ApplyAndStoreAsync(key, record, evt).ConfigureAwait(false) is { } stored) toPublish.Add(stored);
+                    if (await ApplyAndStoreAsync(key, record, evt).ConfigureAwait(false) is not { } stored) continue;
+
+                    // Still under the task lock, so sinks see events in sequence order even with concurrent executions.
+                    // Every sink is non-blocking.
+                    Publish(exec, key, stored);
+                    if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal())
+                    {
+                        await _events.MarkTerminalAsync(key).ConfigureAwait(false);
+                        _bus.Complete(scope);
+                    }
                 }
                 finally
                 {
                     gate.Release();
-                }
-
-                // After the lock: bus, push and the initiating request, in sequence order.
-                foreach (var sequenced in toPublish) Publish(exec, key, sequenced);
-                if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal() && toPublish.Count > 0 && ReferenceEquals(toPublish[^1].Event, evt))
-                {
-                    await _events.MarkTerminalAsync(key).ConfigureAwait(false);
-                    _bus.Complete(scope);
                 }
             }
         }
@@ -641,13 +641,12 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     /// <summary>
-    /// Applies the event, appends it to the event store, then stores the task (the caller holds the task lock). After a
-    /// version conflict, reloads and re-applies, up to <see cref="MaxConflictRetries"/> times; the event is appended only once.
-    /// Returns null when the event was dropped (for example the task is already terminal).
+    /// Applies the event, stores the task, then appends the event (the caller holds the task lock, so sequences follow
+    /// the apply order and the log holds only applied events). After a version conflict, reloads and re-applies, up to
+    /// <see cref="MaxConflictRetries"/> times. Returns null when the event was dropped (for example the task is already terminal).
     /// </summary>
     private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt)
     {
-        long sequence = 0;
         for (var attempt = 0; ; attempt++)
         {
             if (!Apply(record.Task, evt))
@@ -655,11 +654,10 @@ public sealed class A2ARequestHandler : IDisposable
                 _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, record.Task.Status.State);
                 return null;
             }
-            if (sequence == 0) sequence = await _events.AppendAsync(key, evt).ConfigureAwait(false);
             try
             {
                 await _tasks.UpdateAsync(record, record.Version).ConfigureAwait(false);
-                return new SequencedEvent(sequence, evt);
+                return new SequencedEvent(await _events.AppendAsync(key, evt).ConfigureAwait(false), evt);
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
             {
