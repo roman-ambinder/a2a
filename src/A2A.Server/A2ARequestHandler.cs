@@ -628,7 +628,9 @@ public sealed class A2ARequestHandler : IDisposable
                     {
                         await _tasks.UpdateAsync(record, record.Version, ct).ConfigureAwait(false);
                         existing = record.Task;
-                        lastSequence = await _events.LastSequenceAsync(Key(call, taskId), ct).ConfigureAwait(false); // still under the task lock
+                        // Still under the task lock. The message is committed: a cancelled request must not stop here, or
+                        // the idempotency entry would be abandoned and a retry would append the message again.
+                        lastSequence = await _events.LastSequenceAsync(Key(call, taskId), CancellationToken.None).ConfigureAwait(false);
                         break;
                     }
                     catch (ConcurrencyException) when (attempt < MaxConflictRetries)
@@ -648,8 +650,9 @@ public sealed class A2ARequestHandler : IDisposable
             message.ContextId = contextId;
         }
 
-        // A new task saves its push config when the task is created; a follow-up saves it now (capacity checked above).
-        if (push is not null && existing is not null) await SavePushConfigAsync(Key(call, taskId), push, ct).ConfigureAwait(false);
+        // A new task saves its push config when the task is created; a follow-up saves it now (capacity checked above), past
+        // cancellation for the same reason as the last sequence: its message is already committed.
+        if (push is not null && existing is not null) await SavePushConfigAsync(Key(call, taskId), push, CancellationToken.None).ConfigureAwait(false);
 
         var context = new AgentRequestContext
         {

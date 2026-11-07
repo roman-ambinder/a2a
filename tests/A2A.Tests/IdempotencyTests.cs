@@ -283,6 +283,66 @@ public class IdempotencyTests
         Assert.Equal(before, afterRetry);
     }
 
+    /// <summary>
+    /// An event store that, once armed, cancels the request the moment it is asked for a task's last sequence with a token
+    /// that can be cancelled, as if the client went away right then.
+    /// </summary>
+    private sealed class CancelOnLastSequenceStore : Server.Storage.EventStore
+    {
+        private readonly Server.Storage.InMemoryEventStore _inner = new(new Server.StreamingOptions());
+
+        public CancellationTokenSource? CancelWhenAsked;
+
+        public override ValueTask<long> LastSequenceAsync(Server.Storage.TaskKey task, CancellationToken ct = default)
+        {
+            if (ct.CanBeCanceled && Interlocked.Exchange(ref CancelWhenAsked, null) is { } request)
+            {
+                request.Cancel();
+                ct.ThrowIfCancellationRequested();
+            }
+            return _inner.LastSequenceAsync(task, ct);
+        }
+
+        public override ValueTask<long> AppendAsync(Server.Storage.TaskKey task, StreamResponse evt, CancellationToken ct = default) => _inner.AppendAsync(task, evt, ct);
+
+        public override IAsyncEnumerable<Server.Streaming.SequencedEvent> ReadAfterAsync(Server.Storage.TaskKey task, long afterSequence, CancellationToken ct = default) =>
+            _inner.ReadAfterAsync(task, afterSequence, ct);
+
+        public override ValueTask<long?> OldestRetainedAsync(Server.Storage.TaskKey task, CancellationToken ct = default) => _inner.OldestRetainedAsync(task, ct);
+
+        public override ValueTask MarkTerminalAsync(Server.Storage.TaskKey task, CancellationToken ct = default) => _inner.MarkTerminalAsync(task, ct);
+    }
+
+    /// <summary>
+    /// Once the follow-up message is committed to the task's history, a cancelled request must not abandon the idempotency
+    /// entry: a retry would append the message a second time.
+    /// </summary>
+    [Fact]
+    public async Task Follow_up_cancelled_after_its_message_is_stored_is_not_appended_again_on_retry()
+    {
+        var events = new CancelOnLastSequenceStore();
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<Server.Storage.EventStore>(events));
+        var waiting = (await host.Handler.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("input") }, AliceCall())).RequireTask();
+        SendMessageRequest FollowUp() => new()
+        {
+            Message = new Message { MessageId = "m-follow-cancel", Role = Role.User, TaskId = waiting.Id, Parts = [Part.FromText("more")] },
+            Configuration = new SendMessageConfiguration { ReturnImmediately = true },
+        };
+
+        using (var request = new CancellationTokenSource())
+        {
+            events.CancelWhenAsked = request;
+            try { await host.Handler.SendMessageAsync(FollowUp(), AliceCall(), request.Token); }
+            catch (OperationCanceledException) { /* the client went away */ }
+            events.CancelWhenAsked = null;
+        }
+        await host.Handler.SendMessageAsync(FollowUp(), AliceCall());
+        await host.WaitIdleAsync();
+
+        var task = await host.Handler.GetTaskAsync(new GetTaskRequest { Id = waiting.Id }, AliceCall());
+        Assert.Single(task.History!, m => m.MessageId == "m-follow-cancel");
+    }
+
     [Theory]
     [MemberData(nameof(Bindings))]
     public async Task Keys_are_scoped_per_tenant(string binding)
