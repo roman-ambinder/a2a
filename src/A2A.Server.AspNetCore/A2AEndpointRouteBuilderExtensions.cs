@@ -104,7 +104,7 @@ public static partial class A2AEndpointRouteBuilderExtensions
     }
 
     /// <summary>Applies the <c>"a2a"</c> rate limit policy when it is registered and <see cref="A2AServerOptions.EnableRateLimiting"/> is true.</summary>
-    private static void ApplyRateLimiting(IEndpointRouteBuilder endpoints, RouteGroupBuilder group)
+    internal static void ApplyRateLimiting<TBuilder>(IEndpointRouteBuilder endpoints, TBuilder group) where TBuilder : IEndpointConventionBuilder
     {
         var services = endpoints.ServiceProvider;
         if (services.GetService<A2ARateLimitMarker>() is null) return;
@@ -117,7 +117,11 @@ public static partial class A2AEndpointRouteBuilderExtensions
     [GeneratedRegex(@"\{\*?tenant[}:=?]")]
     private static partial Regex TenantSegment();
 
-    private static void RequireRegistration(IEndpointRouteBuilder endpoints)
+    /// <summary>
+    /// Records the route builder's data sources for the startup check. Throws when <c>AddA2AServerAspNetCore()</c> was not called.
+    /// Every A2A mapping method (also the gRPC binding's) calls it.
+    /// </summary>
+    internal static void RequireRegistration(IEndpointRouteBuilder endpoints)
     {
         var registry = endpoints.ServiceProvider.GetService<A2AEndpointRegistry>()
             ?? throw new InvalidOperationException(
