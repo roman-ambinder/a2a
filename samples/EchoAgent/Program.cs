@@ -6,6 +6,7 @@ using A2A;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
+using A2A.Signing;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,8 +30,8 @@ builder.Services.AddA2AServer(o =>
         Version = "1.0.0",
         SupportedInterfaces =
         [
-            new AgentInterface { Url = $"{baseUrl}/a2a", ProtocolBinding = ProtocolBindings.JsonRpc },
-            new AgentInterface { Url = $"{baseUrl}/a2a", ProtocolBinding = ProtocolBindings.HttpJson },
+            new AgentInterface { Url = baseUrl, ProtocolBinding = ProtocolBindings.JsonRpc },
+            new AgentInterface { Url = baseUrl, ProtocolBinding = ProtocolBindings.HttpJson },
         ],
         Capabilities = new AgentCapabilities { Streaming = true, PushNotifications = true },
         DefaultInputModes = ["text/plain"],
@@ -42,12 +43,23 @@ builder.Services.AddA2AServer(o =>
 }).AddAgentExecutor<EchoAgent>();
 builder.Services.AddA2AServerAspNetCore();
 
+// Optional: sign the Agent Card. Set EchoAgent:SigningKeyFile to a PKCS#8 or SEC1 EC private key in PEM (P-256, ES256).
+// The public key is then served at /.well-known/jwks.json, and clients pin it with a CardTrustPolicy (see EchoClient).
+// Limits (request size, stream duration, rate) keep their secure defaults: nothing to configure here.
+if (builder.Configuration["EchoAgent:SigningKeyFile"] is { Length: > 0 } keyFile)
+{
+    var ec = System.Security.Cryptography.ECDsa.Create();
+    ec.ImportFromPem(File.ReadAllText(keyFile));
+    var signingKey = new AgentCardSigningKey(ec, builder.Configuration["EchoAgent:SigningKeyId"] ?? "echo-1", "ES256", $"{baseUrl}/.well-known/jwks.json");
+    builder.Services.ConfigureA2AHttp(h => h.SigningKey = signingKey);
+}
+
 var app = builder.Build();
 app.UseAuthentication();
 app.UseA2A();                                // per-caller rate limiting (adds UseRateLimiter)
 app.UseAuthorization();
 app.MapAgentCard();                          // public, anonymous
-app.MapA2A("/a2a").RequireAuthorization();   // needs a valid X-Api-Key
+app.MapA2A("/").RequireAuthorization();      // JSON-RPC and HTTP+JSON; needs a valid X-Api-Key
 app.Run(baseUrl);
 
 internal sealed record ApiKey(string Value);
