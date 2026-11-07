@@ -55,6 +55,11 @@ public sealed class ScenarioAgent : IAgentExecutor
                 await tcs.Task.WaitAsync(ct);
                 await updater.CompleteAsync("authorized", ct);
                 break;
+            case "big":
+                await updater.StartWorkAsync(cancellationToken: ct);
+                await updater.AddArtifactAsync([Part.FromText(new string('x', 2048))], name: "big", cancellationToken: ct);
+                await updater.CompleteAsync("done", ct);
+                break;
             case "fail":
                 throw new InvalidOperationException("boom");
             case "silent":

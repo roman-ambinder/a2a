@@ -20,6 +20,11 @@ public class TaskEventBus
         return sub;
     }
 
+    /// <summary>Sends a stored event to every current subscriber of the task.</summary>
+    /// <remarks>
+    /// Called while the handler holds the task's lock, in sequence order. Overrides must not block and must not call back
+    /// into <see cref="A2ARequestHandler"/> for the same task (that would deadlock).
+    /// </remarks>
     public virtual void Publish(string taskId, SequencedEvent evt)
     {
         if (!_subs.TryGetValue(taskId, out var subs)) return;
@@ -27,6 +32,10 @@ public class TaskEventBus
     }
 
     /// <summary>Ends all subscriptions for a task (after a terminal state).</summary>
+    /// <remarks>
+    /// Called while the handler holds the task's lock. Overrides must not block and must not call back into
+    /// <see cref="A2ARequestHandler"/> for the same task (that would deadlock).
+    /// </remarks>
     public virtual void Complete(string taskId)
     {
         if (_subs.TryRemove(taskId, out var subs))

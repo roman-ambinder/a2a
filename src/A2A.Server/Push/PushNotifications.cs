@@ -120,6 +120,11 @@ public static class PushUrlValidator
 /// <summary>Sends task events to registered webhooks.</summary>
 public interface IPushNotificationSender
 {
+    /// <summary>Queues delivery of a stored task event to the task's push configs.</summary>
+    /// <remarks>
+    /// Called while the handler holds the task's lock, once per event in sequence order. Implementations must return quickly:
+    /// they must not block, and must not call back into <see cref="A2ARequestHandler"/> for the same task (that would deadlock).
+    /// </remarks>
     void Enqueue(TaskKey task, SequencedEvent evt);
 }
 

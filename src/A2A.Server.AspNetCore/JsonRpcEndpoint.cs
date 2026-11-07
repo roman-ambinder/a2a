@@ -62,7 +62,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
                     await Ok(http, call, id, await handler.SendMessageAsync(Params<SendMessageRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
                 case A2AProtocol.Methods.SendStreamingMessage:
-                    await StreamAsync(http, call, id, handler.SendStreamingMessageAsync(Params<SendMessageRequest>(p), call, ct)).ConfigureAwait(false);
+                    await StreamAsync(http, call, id, handler.SendStreamingMessageAsync(Params<SendMessageRequest>(p), call, HttpPlumbing.LastEventId(http), ct)).ConfigureAwait(false);
                     break;
                 case A2AProtocol.Methods.GetTask:
                     await Ok(http, call, id, await handler.GetTaskAsync(Params<GetTaskRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
@@ -74,8 +74,11 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
                     await Ok(http, call, id, await handler.CancelTaskAsync(Params<CancelTaskRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
                 case A2AProtocol.Methods.SubscribeToTask:
-                    await StreamAsync(http, call, id, handler.SubscribeToTaskAsync(Params<SubscribeToTaskRequest>(p), call, ct)).ConfigureAwait(false);
+                {
+                    var subscribe = Params<SubscribeToTaskRequest>(p);
+                    await StreamAsync(http, call, id, handler.SubscribeToTaskAsync(subscribe, call, HttpPlumbing.ResumeAfter(http, subscribe.Id), ct)).ConfigureAwait(false);
                     break;
+                }
                 case A2AProtocol.Methods.CreateTaskPushNotificationConfig:
                     await Ok(http, call, id, await handler.CreateTaskPushNotificationConfigAsync(Params<TaskPushNotificationConfig>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
@@ -149,7 +152,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
 
     private async Task StreamAsync(HttpContext http, ServerCallContext call, JsonElement? id, IAsyncEnumerable<SequencedEvent> events)
     {
-        var e = await HttpPlumbing.PrimeAsync(events, http.RequestAborted).ConfigureAwait(false)
+        var e = await HttpPlumbing.PrimeAsync(events, _keepAlive, http.RequestAborted).ConfigureAwait(false)
                 ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "Empty stream");
         HttpPlumbing.WriteExtensionsHeader(http, call);
         HttpPlumbing.StartEventStream(http);

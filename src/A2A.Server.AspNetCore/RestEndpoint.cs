@@ -54,7 +54,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
     private Task SendStreamingMessage(HttpContext http) => RunStream(http, async (call, ct) =>
     {
         var req = await Body<SendMessageRequest>(http).ConfigureAwait(false);
-        return handler.SendStreamingMessageAsync(req, call, ct);
+        return handler.SendStreamingMessageAsync(req, call, HttpPlumbing.LastEventId(http), ct);
     });
 
     private Task GetTask(HttpContext http) => Run(http, (call, ct) =>
@@ -104,7 +104,10 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
     });
 
     private Task Subscribe(HttpContext http) => RunStream(http, (call, ct) =>
-        Task.FromResult(handler.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = Route(http, "id"), Tenant = call.Tenant }, call, ct)));
+    {
+        var id = Route(http, "id");
+        return Task.FromResult(handler.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = id, Tenant = call.Tenant }, call, HttpPlumbing.ResumeAfter(http, id), ct));
+    });
 
     private Task CreatePushConfig(HttpContext http) => Run(http, async (call, ct) =>
     {
@@ -179,7 +182,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
         {
             handler.ValidateCall(call);
             var events = await action(call, http.RequestAborted).ConfigureAwait(false);
-            var e = await HttpPlumbing.PrimeAsync(events, http.RequestAborted).ConfigureAwait(false)
+            var e = await HttpPlumbing.PrimeAsync(events, _keepAlive, http.RequestAborted).ConfigureAwait(false)
                     ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "Empty stream");
             HttpPlumbing.WriteExtensionsHeader(http, call);
             HttpPlumbing.StartEventStream(http);
