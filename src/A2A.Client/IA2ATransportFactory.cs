@@ -5,6 +5,10 @@ namespace A2A.Client;
 /// <see cref="A2AClientFactory"/> can select bindings beyond the built-in JSON-RPC and HTTP+JSON (for example gRPC from the
 /// <c>A2A.Client.Grpc</c> package).
 /// </summary>
+/// <remarks>
+/// The transport a factory returns may also implement <see cref="Streaming.IResumableTransport"/>. When it does, the client
+/// resumes dropped streams with the last server event id; when it does not, a reconnect starts the stream again.
+/// </remarks>
 public interface IA2ATransportFactory
 {
     /// <summary>The <see cref="AgentInterface.ProtocolBinding"/> this factory serves, e.g. <see cref="ProtocolBindings.Grpc"/>.</summary>
