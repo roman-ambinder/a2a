@@ -40,6 +40,12 @@ public sealed class A2ACardResolverOptions
     /// <summary>Reject non-HTTPS card URLs except loopback. Default true.</summary>
     public bool RequireHttps { get; set; } = true;
 
+    /// <summary>
+    /// Time limit for one card resolution (fetch, signature check, pin check). Default 100 seconds. Needed because the
+    /// HttpClient of <c>AddA2AClient</c> has an infinite timeout. <see cref="Timeout.InfiniteTimeSpan"/> disables it.
+    /// </summary>
+    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(100);
+
     /// <summary>Test seam: client for <c>jku</c> fetches instead of the SSRF-guarded default.</summary>
     internal HttpClient? JwksHttpClient { get; set; }
 }
@@ -114,7 +120,7 @@ public sealed class A2ACardResolver
     public async Task<AgentCard> GetAgentCardAsync(Uri agentUrl, CancellationToken cancellationToken = default) =>
         (await ResolveAsync(agentUrl, cancellationToken).ConfigureAwait(false)).Card;
 
-    public async Task<ResolvedAgentCard> ResolveAsync(Uri agentUrl, CancellationToken cancellationToken = default)
+    public async Task<ResolvedAgentCard> ResolveAsync(Uri agentUrl, CancellationToken callerToken = default)
     {
         var uri = GetCardUri(agentUrl);
         if (_options.RequireHttps && uri.Scheme != Uri.UriSchemeHttps && !uri.IsLoopback)
@@ -123,6 +129,10 @@ public sealed class A2ACardResolver
         var key = uri.AbsoluteUri;
         _cache.TryGetValue(key, out var cached);
         if (cached is not null && cached.Expires > DateTimeOffset.UtcNow) return cached.Result;
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
+        if (_options.Timeout != System.Threading.Timeout.InfiniteTimeSpan) timeoutCts.CancelAfter(_options.Timeout);
+        var cancellationToken = timeoutCts.Token;
 
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.JsonMediaType));

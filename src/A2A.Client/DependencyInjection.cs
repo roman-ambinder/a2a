@@ -59,7 +59,7 @@ internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFacto
 public static class A2AClientServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers a named A2A client. Returns the <see cref="IHttpClientBuilder"/> so you can add auth handlers,
+    /// Registers a named A2A client with safe defaults (no cookies, no redirects, infinite HttpClient timeout). Returns the <see cref="IHttpClientBuilder"/> so you can add auth handlers,
     /// resilience, or a primary handler.
     /// </summary>
     public static IHttpClientBuilder AddA2AClient(this IServiceCollection services, string name, Action<A2ANamedClientOptions> configure)
@@ -67,7 +67,12 @@ public static class A2AClientServiceCollectionExtensions
         services.Configure(name, configure);
         services.AddHttpClient();
         services.AddSingleton<IA2AClientFactory, DefaultA2AClientFactory>();
-        return services.AddHttpClient(DefaultA2AClientFactory.HttpClientName(name));
+        return services.AddHttpClient(DefaultA2AClientFactory.HttpClientName(name))
+            // No cookies and no redirects: a redirect would carry credentials to another origin. Replace it with
+            // ConfigurePrimaryHttpMessageHandler on the returned builder if you need something else.
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { UseCookies = false, AllowAutoRedirect = false })
+            // The limit is per call (A2ARequestOptions.Timeout, default 100 s for unary calls, none for streams).
+            .ConfigureHttpClient(c => c.Timeout = Timeout.InfiniteTimeSpan);
     }
 
     /// <summary>Adds a bearer token to every request, fetched from <paramref name="tokenProvider"/> (cache inside it).</summary>

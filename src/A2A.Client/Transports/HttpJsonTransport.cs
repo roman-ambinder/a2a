@@ -17,19 +17,22 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient
         _baseUrl = (baseUrl ?? throw new ArgumentNullException(nameof(baseUrl))).AbsoluteUri.TrimEnd('/');
     }
 
-    public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, CancellationToken cancellationToken = default) =>
-        SendAsync<SendMessageResponse>(HttpMethod.Post, Path(request.Tenant, "/message:send"), request, cancellationToken);
-
-    public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, CancellationToken cancellationToken = default) =>
-        StreamAsync(HttpMethod.Post, Path(request.Tenant, "/message:stream"), request, cancellationToken);
-
-    public Task<AgentTask> GetTaskAsync(GetTaskRequest request, CancellationToken cancellationToken = default)
+    public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var q = new Query().Add("historyLength", request.HistoryLength);
-        return SendAsync<AgentTask>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.Id)}") + q, null, cancellationToken);
+        var key = PrepareSend(request, options);
+        return SendAsync<SendMessageResponse>(HttpMethod.Post, Path(request.Tenant, "/message:send"), request, retry: true, options, key, cancellationToken);
     }
 
-    public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, CancellationToken cancellationToken = default)
+    public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        StreamAsync(HttpMethod.Post, Path(request.Tenant, "/message:stream"), request, options, PrepareSend(request, options), cancellationToken);
+
+    public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var q = new Query().Add("historyLength", request.HistoryLength);
+        return SendAsync<AgentTask>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.Id)}") + q, null, retry: true, options, null, cancellationToken);
+    }
+
+    public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var q = new Query()
             .Add("contextId", request.ContextId)
@@ -39,40 +42,42 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient
             .Add("historyLength", request.HistoryLength)
             .Add("statusTimestampAfter", request.StatusTimestampAfter is { } t ? TimestampConverter.FormatUtc(t) : null)
             .Add("includeArtifacts", request.IncludeArtifacts is { } b ? (b ? "true" : "false") : null);
-        return SendAsync<ListTasksResponse>(HttpMethod.Get, Path(request.Tenant, "/tasks") + q, null, cancellationToken);
+        return SendAsync<ListTasksResponse>(HttpMethod.Get, Path(request.Tenant, "/tasks") + q, null, retry: true, options, null, cancellationToken);
     }
 
-    public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, CancellationToken cancellationToken = default) =>
-        SendAsync<AgentTask>(HttpMethod.Post, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:cancel"), request, cancellationToken);
+    public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        SendAsync<AgentTask>(HttpMethod.Post, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:cancel"), request, retry: true, options, null, cancellationToken);
 
-    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, CancellationToken cancellationToken = default)
+    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var method = Options.RestSubscribeMethod;
-        return StreamAsync(method, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:subscribe"), method == HttpMethod.Get ? null : request, cancellationToken);
+        return StreamAsync(method, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:subscribe"), method == HttpMethod.Get ? null : request, options, null, cancellationToken);
     }
 
-    public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, CancellationToken cancellationToken = default) =>
-        SendAsync<TaskPushNotificationConfig>(HttpMethod.Post, Path(config.Tenant, $"/tasks/{Esc(config.TaskId)}/pushNotificationConfigs"), config, cancellationToken);
+    public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        SendAsync<TaskPushNotificationConfig>(HttpMethod.Post, Path(config.Tenant, $"/tasks/{Esc(config.TaskId)}/pushNotificationConfigs"), config, retry: false, options, null, cancellationToken);
 
-    public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, CancellationToken cancellationToken = default) =>
-        SendAsync<TaskPushNotificationConfig>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.TaskId)}/pushNotificationConfigs/{Esc(request.Id)}"), null, cancellationToken);
+    public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        SendAsync<TaskPushNotificationConfig>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.TaskId)}/pushNotificationConfigs/{Esc(request.Id)}"), null, retry: true, options, null, cancellationToken);
 
-    public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, CancellationToken cancellationToken = default)
+    public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var q = new Query().Add("pageSize", request.PageSize).Add("pageToken", request.PageToken);
-        return SendAsync<ListTaskPushNotificationConfigsResponse>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.TaskId)}/pushNotificationConfigs") + q, null, cancellationToken);
+        return SendAsync<ListTaskPushNotificationConfigsResponse>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.TaskId)}/pushNotificationConfigs") + q, null, retry: true, options, null, cancellationToken);
     }
 
-    public async Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, CancellationToken cancellationToken = default)
-    {
-        using var req = new HttpRequestMessage(HttpMethod.Delete, Path(request.Tenant, $"/tasks/{Esc(request.TaskId)}/pushNotificationConfigs/{Esc(request.Id)}"));
-        ApplyHeaders(req, streaming: false);
-        using var resp = await Http.SendAsync(req, cancellationToken).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, cancellationToken).ConfigureAwait(false);
-    }
+    public Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        ExecuteUnaryAsync(retry: false, options, async attemptCt =>
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Delete, Path(request.Tenant, $"/tasks/{Esc(request.TaskId)}/pushNotificationConfigs/{Esc(request.Id)}"));
+            await ApplyHeadersAsync(req, streaming: false, options, null, attemptCt).ConfigureAwait(false);
+            using var resp = await Http.SendAsync(req, attemptCt).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, attemptCt).ConfigureAwait(false);
+            return true;
+        }, cancellationToken);
 
-    public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, CancellationToken cancellationToken = default) =>
-        SendAsync<AgentCard>(HttpMethod.Get, Path(request.Tenant, "/extendedAgentCard"), null, cancellationToken);
+    public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        SendAsync<AgentCard>(HttpMethod.Get, Path(request.Tenant, "/extendedAgentCard"), null, retry: true, options, null, cancellationToken);
 
     private string Path(string? tenant, string path)
     {
@@ -82,23 +87,24 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient
 
     private static string Esc(string? s) => Uri.EscapeDataString(s ?? string.Empty);
 
-    private async Task<T> SendAsync<T>(HttpMethod method, string url, object? body, CancellationToken ct)
-    {
-        using var req = new HttpRequestMessage(method, url);
-        if (body is not null) req.Content = JsonBody(body, A2AProtocol.MediaType);
-        ApplyHeaders(req, streaming: false);
-        using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, ct).ConfigureAwait(false);
-        var text = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        try { return A2AJson.Deserialize<T>(text); }
-        catch (JsonException ex) { throw ProtocolError($"Malformed {typeof(T).Name} in agent response: {ex.Message}", ex); }
-    }
+    private Task<T> SendAsync<T>(HttpMethod method, string url, object? body, bool retry, A2ARequestOptions? call, string? key, CancellationToken ct) =>
+        ExecuteUnaryAsync(retry, call, async attemptCt =>
+        {
+            using var req = new HttpRequestMessage(method, url);
+            if (body is not null) req.Content = JsonBody(body, A2AProtocol.MediaType);
+            await ApplyHeadersAsync(req, streaming: false, call, key, attemptCt).ConfigureAwait(false);
+            using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, attemptCt).ConfigureAwait(false);
+            var text = await resp.Content.ReadAsStringAsync(attemptCt).ConfigureAwait(false);
+            try { return A2AJson.Deserialize<T>(text); }
+            catch (JsonException ex) { throw ProtocolError($"Malformed {typeof(T).Name} in agent response: {ex.Message}", ex); }
+        }, ct);
 
-    private async IAsyncEnumerable<StreamResponse> StreamAsync(HttpMethod method, string url, object? body, [EnumeratorCancellation] CancellationToken ct)
+    private async IAsyncEnumerable<StreamResponse> StreamAsync(HttpMethod method, string url, object? body, A2ARequestOptions? call, string? key, [EnumeratorCancellation] CancellationToken ct)
     {
         using var req = new HttpRequestMessage(method, url);
         if (body is not null) req.Content = JsonBody(body, A2AProtocol.MediaType);
-        ApplyHeaders(req, streaming: true);
+        await ApplyHeadersAsync(req, streaming: true, call, key, ct).ConfigureAwait(false);
         using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, ct).ConfigureAwait(false);
         if (!IsEventStream(resp)) throw ProtocolError("Expected text/event-stream.");
@@ -156,7 +162,7 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient
                 _ => A2AErrorCode.Internal,
             };
         }
-        return new A2AException(code, message) { Details = details, HttpStatus = resp is null ? null : (int)resp.StatusCode };
+        return new A2AException(code, message) { Details = details, HttpStatus = resp is null ? null : (int)resp.StatusCode, RetryAfter = RetryAfterOf(resp, details) };
     }
 
     private sealed class Query

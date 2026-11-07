@@ -16,64 +16,68 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient
         _endpoint = endpoint ?? throw new ArgumentNullException(nameof(endpoint));
     }
 
-    public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, CancellationToken cancellationToken = default) =>
-        InvokeAsync<SendMessageRequest, SendMessageResponse>(A2AProtocol.Methods.SendMessage, request, cancellationToken);
-
-    public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, CancellationToken cancellationToken = default) =>
-        StreamAsync(A2AProtocol.Methods.SendStreamingMessage, request, cancellationToken);
-
-    public Task<AgentTask> GetTaskAsync(GetTaskRequest request, CancellationToken cancellationToken = default) =>
-        InvokeAsync<GetTaskRequest, AgentTask>(A2AProtocol.Methods.GetTask, request, cancellationToken);
-
-    public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, CancellationToken cancellationToken = default) =>
-        InvokeAsync<ListTasksRequest, ListTasksResponse>(A2AProtocol.Methods.ListTasks, request, cancellationToken);
-
-    public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, CancellationToken cancellationToken = default) =>
-        InvokeAsync<CancelTaskRequest, AgentTask>(A2AProtocol.Methods.CancelTask, request, cancellationToken);
-
-    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, CancellationToken cancellationToken = default) =>
-        StreamAsync(A2AProtocol.Methods.SubscribeToTask, request, cancellationToken);
-
-    public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, CancellationToken cancellationToken = default) =>
-        InvokeAsync<TaskPushNotificationConfig, TaskPushNotificationConfig>(A2AProtocol.Methods.CreateTaskPushNotificationConfig, config, cancellationToken);
-
-    public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, CancellationToken cancellationToken = default) =>
-        InvokeAsync<GetTaskPushNotificationConfigRequest, TaskPushNotificationConfig>(A2AProtocol.Methods.GetTaskPushNotificationConfig, request, cancellationToken);
-
-    public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, CancellationToken cancellationToken = default) =>
-        InvokeAsync<ListTaskPushNotificationConfigsRequest, ListTaskPushNotificationConfigsResponse>(A2AProtocol.Methods.ListTaskPushNotificationConfigs, request, cancellationToken);
-
-    public async Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, CancellationToken cancellationToken = default) =>
-        await InvokeRawAsync(A2AProtocol.Methods.DeleteTaskPushNotificationConfig, request, cancellationToken).ConfigureAwait(false);
-
-    public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, CancellationToken cancellationToken = default) =>
-        InvokeAsync<GetExtendedAgentCardRequest, AgentCard>(A2AProtocol.Methods.GetExtendedAgentCard, request, cancellationToken);
-
-    private async Task<TResult> InvokeAsync<TParams, TResult>(string method, TParams parameters, CancellationToken ct)
+    public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var result = await InvokeRawAsync(method, parameters, ct).ConfigureAwait(false);
+        var key = PrepareSend(request, options);
+        return InvokeAsync<SendMessageRequest, SendMessageResponse>(A2AProtocol.Methods.SendMessage, request, retry: true, options, key, cancellationToken);
+    }
+
+    public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        StreamAsync(A2AProtocol.Methods.SendStreamingMessage, request, options, PrepareSend(request, options), cancellationToken);
+
+    public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        InvokeAsync<GetTaskRequest, AgentTask>(A2AProtocol.Methods.GetTask, request, retry: true, options, null, cancellationToken);
+
+    public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        InvokeAsync<ListTasksRequest, ListTasksResponse>(A2AProtocol.Methods.ListTasks, request, retry: true, options, null, cancellationToken);
+
+    public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        InvokeAsync<CancelTaskRequest, AgentTask>(A2AProtocol.Methods.CancelTask, request, retry: true, options, null, cancellationToken);
+
+    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        StreamAsync(A2AProtocol.Methods.SubscribeToTask, request, options, null, cancellationToken);
+
+    public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        InvokeAsync<TaskPushNotificationConfig, TaskPushNotificationConfig>(A2AProtocol.Methods.CreateTaskPushNotificationConfig, config, retry: false, options, null, cancellationToken);
+
+    public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        InvokeAsync<GetTaskPushNotificationConfigRequest, TaskPushNotificationConfig>(A2AProtocol.Methods.GetTaskPushNotificationConfig, request, retry: true, options, null, cancellationToken);
+
+    public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        InvokeAsync<ListTaskPushNotificationConfigsRequest, ListTaskPushNotificationConfigsResponse>(A2AProtocol.Methods.ListTaskPushNotificationConfigs, request, retry: true, options, null, cancellationToken);
+
+    public async Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        await InvokeRawAsync(A2AProtocol.Methods.DeleteTaskPushNotificationConfig, request, retry: false, options, null, cancellationToken).ConfigureAwait(false);
+
+    public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        InvokeAsync<GetExtendedAgentCardRequest, AgentCard>(A2AProtocol.Methods.GetExtendedAgentCard, request, retry: true, options, null, cancellationToken);
+
+    private async Task<TResult> InvokeAsync<TParams, TResult>(string method, TParams parameters, bool retry, A2ARequestOptions? call, string? key, CancellationToken ct)
+    {
+        var result = await InvokeRawAsync(method, parameters, retry, call, key, ct).ConfigureAwait(false);
         if (result is not { } r) throw ProtocolError($"{method} response has no result.");
         return Parse<TResult>(r, method + " result");
     }
 
-    private async Task<JsonElement?> InvokeRawAsync<TParams>(string method, TParams parameters, CancellationToken ct)
-    {
-        using var request = BuildRequest(method, parameters, streaming: false);
-        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        var rpc = TryParseResponse(body);
-        if (rpc is null)
+    private Task<JsonElement?> InvokeRawAsync<TParams>(string method, TParams parameters, bool retry, A2ARequestOptions? call, string? key, CancellationToken ct) =>
+        ExecuteUnaryAsync(retry, call, async attemptCt =>
         {
-            if (!response.IsSuccessStatusCode) throw HttpError(response, body);
-            throw ProtocolError($"{method}: response is not a JSON-RPC response.");
-        }
-        if (rpc.Error is not null) throw WithStatus(rpc.Error.ToException(), response);
-        return rpc.Result;
-    }
+            using var request = await BuildRequestAsync(method, parameters, streaming: false, call, key, attemptCt).ConfigureAwait(false);
+            using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(attemptCt).ConfigureAwait(false);
+            var rpc = TryParseResponse(body);
+            if (rpc is null)
+            {
+                if (!response.IsSuccessStatusCode) throw HttpError(response, body);
+                throw ProtocolError($"{method}: response is not a JSON-RPC response.");
+            }
+            if (rpc.Error is not null) throw WithStatus(rpc.Error.ToException(), response);
+            return rpc.Result;
+        }, ct);
 
-    private async IAsyncEnumerable<StreamResponse> StreamAsync<TParams>(string method, TParams parameters, [EnumeratorCancellation] CancellationToken ct)
+    private async IAsyncEnumerable<StreamResponse> StreamAsync<TParams>(string method, TParams parameters, A2ARequestOptions? call, string? key, [EnumeratorCancellation] CancellationToken ct)
     {
-        using var request = BuildRequest(method, parameters, streaming: true);
+        using var request = await BuildRequestAsync(method, parameters, streaming: true, call, key, ct).ConfigureAwait(false);
         using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
 
         if (!IsEventStream(response))
@@ -95,7 +99,7 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient
         }
     }
 
-    private HttpRequestMessage BuildRequest<TParams>(string method, TParams parameters, bool streaming)
+    private async Task<HttpRequestMessage> BuildRequestAsync<TParams>(string method, TParams parameters, bool streaming, A2ARequestOptions? call, string? key, CancellationToken ct)
     {
         var rpc = new JsonRpcRequest
         {
@@ -104,7 +108,15 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient
             Params = A2AJson.SerializeToElement(parameters),
         };
         var request = new HttpRequestMessage(HttpMethod.Post, _endpoint) { Content = JsonBody(rpc, A2AProtocol.JsonMediaType) };
-        ApplyHeaders(request, streaming);
+        try
+        {
+            await ApplyHeadersAsync(request, streaming, call, key, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            request.Dispose();
+            throw;
+        }
         return request;
     }
 
@@ -127,5 +139,5 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient
     }
 
     private static A2AException WithStatus(A2AException ex, HttpResponseMessage response) =>
-        new(ex.Code, ex.Message) { Details = ex.Details, HttpStatus = (int)response.StatusCode };
+        new(ex.Code, ex.Message) { Details = ex.Details, HttpStatus = (int)response.StatusCode, RetryAfter = RetryAfterOf(response, ex.Details) };
 }

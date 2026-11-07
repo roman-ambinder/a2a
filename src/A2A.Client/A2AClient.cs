@@ -25,46 +25,46 @@ public sealed class A2AClient : IA2AClient
     // ---- Convenience ----
 
     /// <summary>Sends a text message. Pass <paramref name="taskId"/>/<paramref name="contextId"/> to continue a conversation.</summary>
-    public Task<SendMessageResponse> SendMessageAsync(string text, string? contextId = null, string? taskId = null, CancellationToken cancellationToken = default) =>
-        SendMessageAsync(new SendMessageRequest { Message = Message.FromUser(text, contextId, taskId) }, cancellationToken);
+    public Task<SendMessageResponse> SendMessageAsync(string text, string? contextId = null, string? taskId = null, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        SendMessageAsync(new SendMessageRequest { Message = Message.FromUser(text, contextId, taskId) }, options, cancellationToken);
 
-    public Task<SendMessageResponse> SendMessageAsync(Message message, SendMessageConfiguration? configuration = null, CancellationToken cancellationToken = default) =>
-        SendMessageAsync(new SendMessageRequest { Message = message, Configuration = configuration }, cancellationToken);
+    public Task<SendMessageResponse> SendMessageAsync(Message message, SendMessageConfiguration? configuration = null, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        SendMessageAsync(new SendMessageRequest { Message = message, Configuration = configuration }, options, cancellationToken);
 
-    public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(Message message, SendMessageConfiguration? configuration = null, CancellationToken cancellationToken = default) =>
-        SendStreamingMessageAsync(new SendMessageRequest { Message = message, Configuration = configuration }, cancellationToken);
+    public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(Message message, SendMessageConfiguration? configuration = null, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        SendStreamingMessageAsync(new SendMessageRequest { Message = message, Configuration = configuration }, options, cancellationToken);
 
-    public Task<AgentTask> GetTaskAsync(string taskId, int? historyLength = null, CancellationToken cancellationToken = default) =>
-        GetTaskAsync(new GetTaskRequest { Id = taskId, HistoryLength = historyLength }, cancellationToken);
+    public Task<AgentTask> GetTaskAsync(string taskId, int? historyLength = null, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        GetTaskAsync(new GetTaskRequest { Id = taskId, HistoryLength = historyLength }, options, cancellationToken);
 
-    public Task<AgentTask> CancelTaskAsync(string taskId, CancellationToken cancellationToken = default) =>
-        CancelTaskAsync(new CancelTaskRequest { Id = taskId }, cancellationToken);
+    public Task<AgentTask> CancelTaskAsync(string taskId, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        CancelTaskAsync(new CancelTaskRequest { Id = taskId }, options, cancellationToken);
 
-    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(string taskId, CancellationToken cancellationToken = default) =>
-        SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId }, cancellationToken);
+    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(string taskId, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId }, options, cancellationToken);
 
     /// <summary>
     /// Polls a task until it reaches a terminal or interrupted state. Use when streaming and push are not available,
     /// or to recover after a dropped stream.
     /// </summary>
-    public async Task<AgentTask> WaitForTaskAsync(string taskId, TimeSpan? pollInterval = null, CancellationToken cancellationToken = default)
+    public async Task<AgentTask> WaitForTaskAsync(string taskId, TimeSpan? pollInterval = null, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var delay = pollInterval ?? TimeSpan.FromSeconds(1);
         while (true)
         {
-            var task = await GetTaskAsync(taskId, 0, cancellationToken).ConfigureAwait(false);
+            var task = await GetTaskAsync(taskId, 0, options, cancellationToken).ConfigureAwait(false);
             if (task.Status.State.IsTerminal() || task.Status.State.IsInterrupted()) return task;
             await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
         }
     }
 
     /// <summary>Pages through all tasks matching <paramref name="request"/>.</summary>
-    public async IAsyncEnumerable<AgentTask> ListAllTasksAsync(ListTasksRequest? request = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public async IAsyncEnumerable<AgentTask> ListAllTasksAsync(ListTasksRequest? request = null, A2ARequestOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         request ??= new ListTasksRequest();
         while (true)
         {
-            var page = await ListTasksAsync(request, cancellationToken).ConfigureAwait(false);
+            var page = await ListTasksAsync(request, options, cancellationToken).ConfigureAwait(false);
             foreach (var t in page.Tasks) yield return t;
             if (string.IsNullOrEmpty(page.NextPageToken)) yield break;
             request = new ListTasksRequest
@@ -77,86 +77,94 @@ public sealed class A2AClient : IA2AClient
     }
 
     /// <summary>Fetches the extended card and makes it the current card for capability checks (spec §3.1.11).</summary>
-    public async Task<AgentCard> RefreshWithExtendedAgentCardAsync(CancellationToken cancellationToken = default)
+    public async Task<AgentCard> RefreshWithExtendedAgentCardAsync(A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var card = await GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest(), cancellationToken).ConfigureAwait(false);
+        var card = await GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest(), options, cancellationToken).ConfigureAwait(false);
         AgentCard = card;
         return card;
     }
 
     // ---- IA2AClient ----
 
-    public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, CancellationToken cancellationToken = default)
+    public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
+        EnsureMessageId(request);
         A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         if (request.Configuration?.TaskPushNotificationConfig is not null) RequireCapability(AgentCard?.Capabilities.PushNotifications, A2AErrorCode.PushNotificationNotSupported);
-        return _transport.SendMessageAsync(request, cancellationToken);
+        return _transport.SendMessageAsync(request, options, cancellationToken);
     }
 
-    public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, CancellationToken cancellationToken = default)
+    public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
+        EnsureMessageId(request);
         A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
-        return _transport.SendStreamingMessageAsync(request, cancellationToken);
+        return _transport.SendStreamingMessageAsync(request, options, cancellationToken);
     }
 
-    public Task<AgentTask> GetTaskAsync(GetTaskRequest request, CancellationToken cancellationToken = default)
+    public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
-        return _transport.GetTaskAsync(request, cancellationToken);
+        return _transport.GetTaskAsync(request, options, cancellationToken);
     }
 
-    public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, CancellationToken cancellationToken = default)
+    public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
-        return _transport.ListTasksAsync(request, cancellationToken);
+        return _transport.ListTasksAsync(request, options, cancellationToken);
     }
 
-    public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, CancellationToken cancellationToken = default)
+    public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
-        return _transport.CancelTaskAsync(request, cancellationToken);
+        return _transport.CancelTaskAsync(request, options, cancellationToken);
     }
 
-    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, CancellationToken cancellationToken = default)
+    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
-        return _transport.SubscribeToTaskAsync(request, cancellationToken);
+        return _transport.SubscribeToTaskAsync(request, options, cancellationToken);
     }
 
-    public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, CancellationToken cancellationToken = default)
+    public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         config.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.PushNotifications, A2AErrorCode.PushNotificationNotSupported);
-        return _transport.CreateTaskPushNotificationConfigAsync(config, cancellationToken);
+        return _transport.CreateTaskPushNotificationConfigAsync(config, options, cancellationToken);
     }
 
-    public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, CancellationToken cancellationToken = default)
+    public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
-        return _transport.GetTaskPushNotificationConfigAsync(request, cancellationToken);
+        return _transport.GetTaskPushNotificationConfigAsync(request, options, cancellationToken);
     }
 
-    public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, CancellationToken cancellationToken = default)
+    public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
-        return _transport.ListTaskPushNotificationConfigsAsync(request, cancellationToken);
+        return _transport.ListTaskPushNotificationConfigsAsync(request, options, cancellationToken);
     }
 
-    public Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, CancellationToken cancellationToken = default)
+    public Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
-        return _transport.DeleteTaskPushNotificationConfigAsync(request, cancellationToken);
+        return _transport.DeleteTaskPushNotificationConfigAsync(request, options, cancellationToken);
     }
 
-    public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, CancellationToken cancellationToken = default)
+    public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         request.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.ExtendedAgentCard, A2AErrorCode.UnsupportedOperation, "Agent does not declare an extended agent card.");
-        return _transport.GetExtendedAgentCardAsync(request, cancellationToken);
+        return _transport.GetExtendedAgentCardAsync(request, options, cancellationToken);
+    }
+
+    private static void EnsureMessageId(SendMessageRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Message is { } m && string.IsNullOrWhiteSpace(m.MessageId)) m.MessageId = Message.NewId();
     }
 
     private void RequireCapability(bool? declared, A2AErrorCode code, string? message = null)

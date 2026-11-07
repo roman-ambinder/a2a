@@ -64,6 +64,8 @@ await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("str
     if (evt is StatusUpdateEvent { StatusUpdate: var s }) Console.WriteLine(s.Status.State);
 ```
 
+Every client method takes optional `A2ARequestOptions` (headers, timeout, idempotency key, extensions, `ConfigureRequest`). `SendMessage` always sends an `Idempotency-Key` (default: the message id). Idempotent calls retry up to 3 times on transport errors, 503, 429 and retryable errors; streams are not retried.
+
 DI: `services.AddA2AClient("weather", o => o.AgentUrl = ...).AddBearerToken(...)`, then `IA2AClientFactory.GetClientAsync("weather")`.
 
 The factory picks the first interface **in the card's order** that the client supports (spec §8.3.2), and sets `tenant` from it.
