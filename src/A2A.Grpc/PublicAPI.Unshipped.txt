@@ -1,0 +1,1268 @@
+A2A.Grpc.GrpcErrors
+A2A.Grpc.ProtoMapper
+Lf.A2a.V1.A2AReflection
+Lf.A2a.V1.A2AService
+Lf.A2a.V1.A2AService.A2AServiceBase
+Lf.A2a.V1.A2AService.A2AServiceBase.A2AServiceBase() -> void
+Lf.A2a.V1.A2AService.A2AServiceClient
+Lf.A2a.V1.A2AService.A2AServiceClient.A2AServiceClient() -> void
+Lf.A2a.V1.APIKeySecurityScheme
+Lf.A2a.V1.APIKeySecurityScheme.APIKeySecurityScheme() -> void
+Lf.A2a.V1.APIKeySecurityScheme.CalculateSize() -> int
+Lf.A2a.V1.AgentCapabilities
+Lf.A2a.V1.AgentCapabilities.AgentCapabilities() -> void
+Lf.A2a.V1.AgentCapabilities.CalculateSize() -> int
+Lf.A2a.V1.AgentCapabilities.ClearExtendedAgentCard() -> void
+Lf.A2a.V1.AgentCapabilities.ClearPushNotifications() -> void
+Lf.A2a.V1.AgentCapabilities.ClearStreaming() -> void
+Lf.A2a.V1.AgentCapabilities.ExtendedAgentCard.get -> bool
+Lf.A2a.V1.AgentCapabilities.ExtendedAgentCard.set -> void
+Lf.A2a.V1.AgentCapabilities.HasExtendedAgentCard.get -> bool
+Lf.A2a.V1.AgentCapabilities.HasPushNotifications.get -> bool
+Lf.A2a.V1.AgentCapabilities.HasStreaming.get -> bool
+Lf.A2a.V1.AgentCapabilities.PushNotifications.get -> bool
+Lf.A2a.V1.AgentCapabilities.PushNotifications.set -> void
+Lf.A2a.V1.AgentCapabilities.Streaming.get -> bool
+Lf.A2a.V1.AgentCapabilities.Streaming.set -> void
+Lf.A2a.V1.AgentCard
+Lf.A2a.V1.AgentCard.AgentCard() -> void
+Lf.A2a.V1.AgentCard.CalculateSize() -> int
+Lf.A2a.V1.AgentCard.ClearDocumentationUrl() -> void
+Lf.A2a.V1.AgentCard.ClearIconUrl() -> void
+Lf.A2a.V1.AgentCard.HasDocumentationUrl.get -> bool
+Lf.A2a.V1.AgentCard.HasIconUrl.get -> bool
+Lf.A2a.V1.AgentCardSignature
+Lf.A2a.V1.AgentCardSignature.AgentCardSignature() -> void
+Lf.A2a.V1.AgentCardSignature.CalculateSize() -> int
+Lf.A2a.V1.AgentExtension
+Lf.A2a.V1.AgentExtension.AgentExtension() -> void
+Lf.A2a.V1.AgentExtension.CalculateSize() -> int
+Lf.A2a.V1.AgentExtension.Required.get -> bool
+Lf.A2a.V1.AgentExtension.Required.set -> void
+Lf.A2a.V1.AgentInterface
+Lf.A2a.V1.AgentInterface.AgentInterface() -> void
+Lf.A2a.V1.AgentInterface.CalculateSize() -> int
+Lf.A2a.V1.AgentProvider
+Lf.A2a.V1.AgentProvider.AgentProvider() -> void
+Lf.A2a.V1.AgentProvider.CalculateSize() -> int
+Lf.A2a.V1.AgentSkill
+Lf.A2a.V1.AgentSkill.AgentSkill() -> void
+Lf.A2a.V1.AgentSkill.CalculateSize() -> int
+Lf.A2a.V1.Artifact
+Lf.A2a.V1.Artifact.Artifact() -> void
+Lf.A2a.V1.Artifact.CalculateSize() -> int
+Lf.A2a.V1.AuthenticationInfo
+Lf.A2a.V1.AuthenticationInfo.AuthenticationInfo() -> void
+Lf.A2a.V1.AuthenticationInfo.CalculateSize() -> int
+Lf.A2a.V1.AuthorizationCodeOAuthFlow
+Lf.A2a.V1.AuthorizationCodeOAuthFlow.AuthorizationCodeOAuthFlow() -> void
+Lf.A2a.V1.AuthorizationCodeOAuthFlow.CalculateSize() -> int
+Lf.A2a.V1.AuthorizationCodeOAuthFlow.PkceRequired.get -> bool
+Lf.A2a.V1.AuthorizationCodeOAuthFlow.PkceRequired.set -> void
+Lf.A2a.V1.CancelTaskRequest
+Lf.A2a.V1.CancelTaskRequest.CalculateSize() -> int
+Lf.A2a.V1.CancelTaskRequest.CancelTaskRequest() -> void
+Lf.A2a.V1.ClientCredentialsOAuthFlow
+Lf.A2a.V1.ClientCredentialsOAuthFlow.CalculateSize() -> int
+Lf.A2a.V1.ClientCredentialsOAuthFlow.ClientCredentialsOAuthFlow() -> void
+Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest
+Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.CalculateSize() -> int
+Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.DeleteTaskPushNotificationConfigRequest() -> void
+Lf.A2a.V1.DeviceCodeOAuthFlow
+Lf.A2a.V1.DeviceCodeOAuthFlow.CalculateSize() -> int
+Lf.A2a.V1.DeviceCodeOAuthFlow.DeviceCodeOAuthFlow() -> void
+Lf.A2a.V1.GetExtendedAgentCardRequest
+Lf.A2a.V1.GetExtendedAgentCardRequest.CalculateSize() -> int
+Lf.A2a.V1.GetExtendedAgentCardRequest.GetExtendedAgentCardRequest() -> void
+Lf.A2a.V1.GetTaskPushNotificationConfigRequest
+Lf.A2a.V1.GetTaskPushNotificationConfigRequest.CalculateSize() -> int
+Lf.A2a.V1.GetTaskPushNotificationConfigRequest.GetTaskPushNotificationConfigRequest() -> void
+Lf.A2a.V1.GetTaskRequest
+Lf.A2a.V1.GetTaskRequest.CalculateSize() -> int
+Lf.A2a.V1.GetTaskRequest.ClearHistoryLength() -> void
+Lf.A2a.V1.GetTaskRequest.GetTaskRequest() -> void
+Lf.A2a.V1.GetTaskRequest.HasHistoryLength.get -> bool
+Lf.A2a.V1.GetTaskRequest.HistoryLength.get -> int
+Lf.A2a.V1.GetTaskRequest.HistoryLength.set -> void
+Lf.A2a.V1.HTTPAuthSecurityScheme
+Lf.A2a.V1.HTTPAuthSecurityScheme.CalculateSize() -> int
+Lf.A2a.V1.HTTPAuthSecurityScheme.HTTPAuthSecurityScheme() -> void
+Lf.A2a.V1.ImplicitOAuthFlow
+Lf.A2a.V1.ImplicitOAuthFlow.CalculateSize() -> int
+Lf.A2a.V1.ImplicitOAuthFlow.ImplicitOAuthFlow() -> void
+Lf.A2a.V1.ListTaskPushNotificationConfigsRequest
+Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.CalculateSize() -> int
+Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.ListTaskPushNotificationConfigsRequest() -> void
+Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.PageSize.get -> int
+Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.PageSize.set -> void
+Lf.A2a.V1.ListTaskPushNotificationConfigsResponse
+Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.CalculateSize() -> int
+Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.ListTaskPushNotificationConfigsResponse() -> void
+Lf.A2a.V1.ListTasksRequest
+Lf.A2a.V1.ListTasksRequest.CalculateSize() -> int
+Lf.A2a.V1.ListTasksRequest.ClearHistoryLength() -> void
+Lf.A2a.V1.ListTasksRequest.ClearIncludeArtifacts() -> void
+Lf.A2a.V1.ListTasksRequest.ClearPageSize() -> void
+Lf.A2a.V1.ListTasksRequest.HasHistoryLength.get -> bool
+Lf.A2a.V1.ListTasksRequest.HasIncludeArtifacts.get -> bool
+Lf.A2a.V1.ListTasksRequest.HasPageSize.get -> bool
+Lf.A2a.V1.ListTasksRequest.HistoryLength.get -> int
+Lf.A2a.V1.ListTasksRequest.HistoryLength.set -> void
+Lf.A2a.V1.ListTasksRequest.IncludeArtifacts.get -> bool
+Lf.A2a.V1.ListTasksRequest.IncludeArtifacts.set -> void
+Lf.A2a.V1.ListTasksRequest.ListTasksRequest() -> void
+Lf.A2a.V1.ListTasksRequest.PageSize.get -> int
+Lf.A2a.V1.ListTasksRequest.PageSize.set -> void
+Lf.A2a.V1.ListTasksRequest.Status.get -> Lf.A2a.V1.TaskState
+Lf.A2a.V1.ListTasksRequest.Status.set -> void
+Lf.A2a.V1.ListTasksResponse
+Lf.A2a.V1.ListTasksResponse.CalculateSize() -> int
+Lf.A2a.V1.ListTasksResponse.ListTasksResponse() -> void
+Lf.A2a.V1.ListTasksResponse.PageSize.get -> int
+Lf.A2a.V1.ListTasksResponse.PageSize.set -> void
+Lf.A2a.V1.ListTasksResponse.TotalSize.get -> int
+Lf.A2a.V1.ListTasksResponse.TotalSize.set -> void
+Lf.A2a.V1.Message
+Lf.A2a.V1.Message.CalculateSize() -> int
+Lf.A2a.V1.Message.Message() -> void
+Lf.A2a.V1.Message.Role.get -> Lf.A2a.V1.Role
+Lf.A2a.V1.Message.Role.set -> void
+Lf.A2a.V1.MutualTlsSecurityScheme
+Lf.A2a.V1.MutualTlsSecurityScheme.CalculateSize() -> int
+Lf.A2a.V1.MutualTlsSecurityScheme.MutualTlsSecurityScheme() -> void
+Lf.A2a.V1.OAuth2SecurityScheme
+Lf.A2a.V1.OAuth2SecurityScheme.CalculateSize() -> int
+Lf.A2a.V1.OAuth2SecurityScheme.OAuth2SecurityScheme() -> void
+Lf.A2a.V1.OAuthFlows
+Lf.A2a.V1.OAuthFlows.CalculateSize() -> int
+Lf.A2a.V1.OAuthFlows.ClearFlow() -> void
+Lf.A2a.V1.OAuthFlows.FlowCase.get -> Lf.A2a.V1.OAuthFlows.FlowOneofCase
+Lf.A2a.V1.OAuthFlows.FlowOneofCase
+Lf.A2a.V1.OAuthFlows.FlowOneofCase.AuthorizationCode = 1 -> Lf.A2a.V1.OAuthFlows.FlowOneofCase
+Lf.A2a.V1.OAuthFlows.FlowOneofCase.ClientCredentials = 2 -> Lf.A2a.V1.OAuthFlows.FlowOneofCase
+Lf.A2a.V1.OAuthFlows.FlowOneofCase.DeviceCode = 5 -> Lf.A2a.V1.OAuthFlows.FlowOneofCase
+Lf.A2a.V1.OAuthFlows.FlowOneofCase.Implicit = 3 -> Lf.A2a.V1.OAuthFlows.FlowOneofCase
+Lf.A2a.V1.OAuthFlows.FlowOneofCase.None = 0 -> Lf.A2a.V1.OAuthFlows.FlowOneofCase
+Lf.A2a.V1.OAuthFlows.FlowOneofCase.Password = 4 -> Lf.A2a.V1.OAuthFlows.FlowOneofCase
+Lf.A2a.V1.OAuthFlows.OAuthFlows() -> void
+Lf.A2a.V1.OpenIdConnectSecurityScheme
+Lf.A2a.V1.OpenIdConnectSecurityScheme.CalculateSize() -> int
+Lf.A2a.V1.OpenIdConnectSecurityScheme.OpenIdConnectSecurityScheme() -> void
+Lf.A2a.V1.Part
+Lf.A2a.V1.Part.CalculateSize() -> int
+Lf.A2a.V1.Part.ClearContent() -> void
+Lf.A2a.V1.Part.ClearRaw() -> void
+Lf.A2a.V1.Part.ClearText() -> void
+Lf.A2a.V1.Part.ClearUrl() -> void
+Lf.A2a.V1.Part.ContentCase.get -> Lf.A2a.V1.Part.ContentOneofCase
+Lf.A2a.V1.Part.ContentOneofCase
+Lf.A2a.V1.Part.ContentOneofCase.Data = 4 -> Lf.A2a.V1.Part.ContentOneofCase
+Lf.A2a.V1.Part.ContentOneofCase.None = 0 -> Lf.A2a.V1.Part.ContentOneofCase
+Lf.A2a.V1.Part.ContentOneofCase.Raw = 2 -> Lf.A2a.V1.Part.ContentOneofCase
+Lf.A2a.V1.Part.ContentOneofCase.Text = 1 -> Lf.A2a.V1.Part.ContentOneofCase
+Lf.A2a.V1.Part.ContentOneofCase.Url = 3 -> Lf.A2a.V1.Part.ContentOneofCase
+Lf.A2a.V1.Part.HasRaw.get -> bool
+Lf.A2a.V1.Part.HasText.get -> bool
+Lf.A2a.V1.Part.HasUrl.get -> bool
+Lf.A2a.V1.Part.Part() -> void
+Lf.A2a.V1.PasswordOAuthFlow
+Lf.A2a.V1.PasswordOAuthFlow.CalculateSize() -> int
+Lf.A2a.V1.PasswordOAuthFlow.PasswordOAuthFlow() -> void
+Lf.A2a.V1.Role
+Lf.A2a.V1.Role.Agent = 2 -> Lf.A2a.V1.Role
+Lf.A2a.V1.Role.Unspecified = 0 -> Lf.A2a.V1.Role
+Lf.A2a.V1.Role.User = 1 -> Lf.A2a.V1.Role
+Lf.A2a.V1.SecurityRequirement
+Lf.A2a.V1.SecurityRequirement.CalculateSize() -> int
+Lf.A2a.V1.SecurityRequirement.SecurityRequirement() -> void
+Lf.A2a.V1.SecurityScheme
+Lf.A2a.V1.SecurityScheme.CalculateSize() -> int
+Lf.A2a.V1.SecurityScheme.ClearScheme() -> void
+Lf.A2a.V1.SecurityScheme.SchemeCase.get -> Lf.A2a.V1.SecurityScheme.SchemeOneofCase
+Lf.A2a.V1.SecurityScheme.SchemeOneofCase
+Lf.A2a.V1.SecurityScheme.SchemeOneofCase.ApiKeySecurityScheme = 1 -> Lf.A2a.V1.SecurityScheme.SchemeOneofCase
+Lf.A2a.V1.SecurityScheme.SchemeOneofCase.HttpAuthSecurityScheme = 2 -> Lf.A2a.V1.SecurityScheme.SchemeOneofCase
+Lf.A2a.V1.SecurityScheme.SchemeOneofCase.MtlsSecurityScheme = 5 -> Lf.A2a.V1.SecurityScheme.SchemeOneofCase
+Lf.A2a.V1.SecurityScheme.SchemeOneofCase.None = 0 -> Lf.A2a.V1.SecurityScheme.SchemeOneofCase
+Lf.A2a.V1.SecurityScheme.SchemeOneofCase.Oauth2SecurityScheme = 3 -> Lf.A2a.V1.SecurityScheme.SchemeOneofCase
+Lf.A2a.V1.SecurityScheme.SchemeOneofCase.OpenIdConnectSecurityScheme = 4 -> Lf.A2a.V1.SecurityScheme.SchemeOneofCase
+Lf.A2a.V1.SecurityScheme.SecurityScheme() -> void
+Lf.A2a.V1.SendMessageConfiguration
+Lf.A2a.V1.SendMessageConfiguration.CalculateSize() -> int
+Lf.A2a.V1.SendMessageConfiguration.ClearHistoryLength() -> void
+Lf.A2a.V1.SendMessageConfiguration.HasHistoryLength.get -> bool
+Lf.A2a.V1.SendMessageConfiguration.HistoryLength.get -> int
+Lf.A2a.V1.SendMessageConfiguration.HistoryLength.set -> void
+Lf.A2a.V1.SendMessageConfiguration.ReturnImmediately.get -> bool
+Lf.A2a.V1.SendMessageConfiguration.ReturnImmediately.set -> void
+Lf.A2a.V1.SendMessageConfiguration.SendMessageConfiguration() -> void
+Lf.A2a.V1.SendMessageRequest
+Lf.A2a.V1.SendMessageRequest.CalculateSize() -> int
+Lf.A2a.V1.SendMessageRequest.SendMessageRequest() -> void
+Lf.A2a.V1.SendMessageResponse
+Lf.A2a.V1.SendMessageResponse.CalculateSize() -> int
+Lf.A2a.V1.SendMessageResponse.ClearPayload() -> void
+Lf.A2a.V1.SendMessageResponse.PayloadCase.get -> Lf.A2a.V1.SendMessageResponse.PayloadOneofCase
+Lf.A2a.V1.SendMessageResponse.PayloadOneofCase
+Lf.A2a.V1.SendMessageResponse.PayloadOneofCase.Message = 2 -> Lf.A2a.V1.SendMessageResponse.PayloadOneofCase
+Lf.A2a.V1.SendMessageResponse.PayloadOneofCase.None = 0 -> Lf.A2a.V1.SendMessageResponse.PayloadOneofCase
+Lf.A2a.V1.SendMessageResponse.PayloadOneofCase.Task = 1 -> Lf.A2a.V1.SendMessageResponse.PayloadOneofCase
+Lf.A2a.V1.SendMessageResponse.SendMessageResponse() -> void
+Lf.A2a.V1.StreamResponse
+Lf.A2a.V1.StreamResponse.CalculateSize() -> int
+Lf.A2a.V1.StreamResponse.ClearPayload() -> void
+Lf.A2a.V1.StreamResponse.PayloadCase.get -> Lf.A2a.V1.StreamResponse.PayloadOneofCase
+Lf.A2a.V1.StreamResponse.PayloadOneofCase
+Lf.A2a.V1.StreamResponse.PayloadOneofCase.ArtifactUpdate = 4 -> Lf.A2a.V1.StreamResponse.PayloadOneofCase
+Lf.A2a.V1.StreamResponse.PayloadOneofCase.Message = 2 -> Lf.A2a.V1.StreamResponse.PayloadOneofCase
+Lf.A2a.V1.StreamResponse.PayloadOneofCase.None = 0 -> Lf.A2a.V1.StreamResponse.PayloadOneofCase
+Lf.A2a.V1.StreamResponse.PayloadOneofCase.StatusUpdate = 3 -> Lf.A2a.V1.StreamResponse.PayloadOneofCase
+Lf.A2a.V1.StreamResponse.PayloadOneofCase.Task = 1 -> Lf.A2a.V1.StreamResponse.PayloadOneofCase
+Lf.A2a.V1.StreamResponse.StreamResponse() -> void
+Lf.A2a.V1.StringList
+Lf.A2a.V1.StringList.CalculateSize() -> int
+Lf.A2a.V1.StringList.StringList() -> void
+Lf.A2a.V1.SubscribeToTaskRequest
+Lf.A2a.V1.SubscribeToTaskRequest.CalculateSize() -> int
+Lf.A2a.V1.SubscribeToTaskRequest.SubscribeToTaskRequest() -> void
+Lf.A2a.V1.Task
+Lf.A2a.V1.Task.CalculateSize() -> int
+Lf.A2a.V1.Task.Task() -> void
+Lf.A2a.V1.TaskArtifactUpdateEvent
+Lf.A2a.V1.TaskArtifactUpdateEvent.Append.get -> bool
+Lf.A2a.V1.TaskArtifactUpdateEvent.Append.set -> void
+Lf.A2a.V1.TaskArtifactUpdateEvent.CalculateSize() -> int
+Lf.A2a.V1.TaskArtifactUpdateEvent.LastChunk.get -> bool
+Lf.A2a.V1.TaskArtifactUpdateEvent.LastChunk.set -> void
+Lf.A2a.V1.TaskArtifactUpdateEvent.TaskArtifactUpdateEvent() -> void
+Lf.A2a.V1.TaskPushNotificationConfig
+Lf.A2a.V1.TaskPushNotificationConfig.CalculateSize() -> int
+Lf.A2a.V1.TaskPushNotificationConfig.TaskPushNotificationConfig() -> void
+Lf.A2a.V1.TaskState
+Lf.A2a.V1.TaskState.AuthRequired = 8 -> Lf.A2a.V1.TaskState
+Lf.A2a.V1.TaskState.Canceled = 5 -> Lf.A2a.V1.TaskState
+Lf.A2a.V1.TaskState.Completed = 3 -> Lf.A2a.V1.TaskState
+Lf.A2a.V1.TaskState.Failed = 4 -> Lf.A2a.V1.TaskState
+Lf.A2a.V1.TaskState.InputRequired = 6 -> Lf.A2a.V1.TaskState
+Lf.A2a.V1.TaskState.Rejected = 7 -> Lf.A2a.V1.TaskState
+Lf.A2a.V1.TaskState.Submitted = 1 -> Lf.A2a.V1.TaskState
+Lf.A2a.V1.TaskState.Unspecified = 0 -> Lf.A2a.V1.TaskState
+Lf.A2a.V1.TaskState.Working = 2 -> Lf.A2a.V1.TaskState
+Lf.A2a.V1.TaskStatus
+Lf.A2a.V1.TaskStatus.CalculateSize() -> int
+Lf.A2a.V1.TaskStatus.State.get -> Lf.A2a.V1.TaskState
+Lf.A2a.V1.TaskStatus.State.set -> void
+Lf.A2a.V1.TaskStatus.TaskStatus() -> void
+Lf.A2a.V1.TaskStatusUpdateEvent
+Lf.A2a.V1.TaskStatusUpdateEvent.CalculateSize() -> int
+Lf.A2a.V1.TaskStatusUpdateEvent.TaskStatusUpdateEvent() -> void
+const A2A.Grpc.GrpcErrors.ExtensionsKey = "a2a-extensions" -> string!
+const A2A.Grpc.GrpcErrors.VersionKey = "a2a-version" -> string!
+const Lf.A2a.V1.APIKeySecurityScheme.DescriptionFieldNumber = 1 -> int
+const Lf.A2a.V1.APIKeySecurityScheme.LocationFieldNumber = 2 -> int
+const Lf.A2a.V1.APIKeySecurityScheme.NameFieldNumber = 3 -> int
+const Lf.A2a.V1.AgentCapabilities.ExtendedAgentCardFieldNumber = 4 -> int
+const Lf.A2a.V1.AgentCapabilities.ExtensionsFieldNumber = 3 -> int
+const Lf.A2a.V1.AgentCapabilities.PushNotificationsFieldNumber = 2 -> int
+const Lf.A2a.V1.AgentCapabilities.StreamingFieldNumber = 1 -> int
+const Lf.A2a.V1.AgentCard.CapabilitiesFieldNumber = 7 -> int
+const Lf.A2a.V1.AgentCard.DefaultInputModesFieldNumber = 10 -> int
+const Lf.A2a.V1.AgentCard.DefaultOutputModesFieldNumber = 11 -> int
+const Lf.A2a.V1.AgentCard.DescriptionFieldNumber = 2 -> int
+const Lf.A2a.V1.AgentCard.DocumentationUrlFieldNumber = 6 -> int
+const Lf.A2a.V1.AgentCard.IconUrlFieldNumber = 14 -> int
+const Lf.A2a.V1.AgentCard.NameFieldNumber = 1 -> int
+const Lf.A2a.V1.AgentCard.ProviderFieldNumber = 4 -> int
+const Lf.A2a.V1.AgentCard.SecurityRequirementsFieldNumber = 9 -> int
+const Lf.A2a.V1.AgentCard.SecuritySchemesFieldNumber = 8 -> int
+const Lf.A2a.V1.AgentCard.SignaturesFieldNumber = 13 -> int
+const Lf.A2a.V1.AgentCard.SkillsFieldNumber = 12 -> int
+const Lf.A2a.V1.AgentCard.SupportedInterfacesFieldNumber = 3 -> int
+const Lf.A2a.V1.AgentCard.VersionFieldNumber = 5 -> int
+const Lf.A2a.V1.AgentCardSignature.HeaderFieldNumber = 3 -> int
+const Lf.A2a.V1.AgentCardSignature.ProtectedFieldNumber = 1 -> int
+const Lf.A2a.V1.AgentCardSignature.SignatureFieldNumber = 2 -> int
+const Lf.A2a.V1.AgentExtension.DescriptionFieldNumber = 2 -> int
+const Lf.A2a.V1.AgentExtension.ParamsFieldNumber = 4 -> int
+const Lf.A2a.V1.AgentExtension.RequiredFieldNumber = 3 -> int
+const Lf.A2a.V1.AgentExtension.UriFieldNumber = 1 -> int
+const Lf.A2a.V1.AgentInterface.ProtocolBindingFieldNumber = 2 -> int
+const Lf.A2a.V1.AgentInterface.ProtocolVersionFieldNumber = 4 -> int
+const Lf.A2a.V1.AgentInterface.TenantFieldNumber = 3 -> int
+const Lf.A2a.V1.AgentInterface.UrlFieldNumber = 1 -> int
+const Lf.A2a.V1.AgentProvider.OrganizationFieldNumber = 2 -> int
+const Lf.A2a.V1.AgentProvider.UrlFieldNumber = 1 -> int
+const Lf.A2a.V1.AgentSkill.DescriptionFieldNumber = 3 -> int
+const Lf.A2a.V1.AgentSkill.ExamplesFieldNumber = 5 -> int
+const Lf.A2a.V1.AgentSkill.IdFieldNumber = 1 -> int
+const Lf.A2a.V1.AgentSkill.InputModesFieldNumber = 6 -> int
+const Lf.A2a.V1.AgentSkill.NameFieldNumber = 2 -> int
+const Lf.A2a.V1.AgentSkill.OutputModesFieldNumber = 7 -> int
+const Lf.A2a.V1.AgentSkill.SecurityRequirementsFieldNumber = 8 -> int
+const Lf.A2a.V1.AgentSkill.TagsFieldNumber = 4 -> int
+const Lf.A2a.V1.Artifact.ArtifactIdFieldNumber = 1 -> int
+const Lf.A2a.V1.Artifact.DescriptionFieldNumber = 3 -> int
+const Lf.A2a.V1.Artifact.ExtensionsFieldNumber = 6 -> int
+const Lf.A2a.V1.Artifact.MetadataFieldNumber = 5 -> int
+const Lf.A2a.V1.Artifact.NameFieldNumber = 2 -> int
+const Lf.A2a.V1.Artifact.PartsFieldNumber = 4 -> int
+const Lf.A2a.V1.AuthenticationInfo.CredentialsFieldNumber = 2 -> int
+const Lf.A2a.V1.AuthenticationInfo.SchemeFieldNumber = 1 -> int
+const Lf.A2a.V1.AuthorizationCodeOAuthFlow.AuthorizationUrlFieldNumber = 1 -> int
+const Lf.A2a.V1.AuthorizationCodeOAuthFlow.PkceRequiredFieldNumber = 5 -> int
+const Lf.A2a.V1.AuthorizationCodeOAuthFlow.RefreshUrlFieldNumber = 3 -> int
+const Lf.A2a.V1.AuthorizationCodeOAuthFlow.ScopesFieldNumber = 4 -> int
+const Lf.A2a.V1.AuthorizationCodeOAuthFlow.TokenUrlFieldNumber = 2 -> int
+const Lf.A2a.V1.CancelTaskRequest.IdFieldNumber = 2 -> int
+const Lf.A2a.V1.CancelTaskRequest.MetadataFieldNumber = 3 -> int
+const Lf.A2a.V1.CancelTaskRequest.TenantFieldNumber = 1 -> int
+const Lf.A2a.V1.ClientCredentialsOAuthFlow.RefreshUrlFieldNumber = 2 -> int
+const Lf.A2a.V1.ClientCredentialsOAuthFlow.ScopesFieldNumber = 3 -> int
+const Lf.A2a.V1.ClientCredentialsOAuthFlow.TokenUrlFieldNumber = 1 -> int
+const Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.IdFieldNumber = 3 -> int
+const Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.TaskIdFieldNumber = 2 -> int
+const Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.TenantFieldNumber = 1 -> int
+const Lf.A2a.V1.DeviceCodeOAuthFlow.DeviceAuthorizationUrlFieldNumber = 1 -> int
+const Lf.A2a.V1.DeviceCodeOAuthFlow.RefreshUrlFieldNumber = 3 -> int
+const Lf.A2a.V1.DeviceCodeOAuthFlow.ScopesFieldNumber = 4 -> int
+const Lf.A2a.V1.DeviceCodeOAuthFlow.TokenUrlFieldNumber = 2 -> int
+const Lf.A2a.V1.GetExtendedAgentCardRequest.TenantFieldNumber = 1 -> int
+const Lf.A2a.V1.GetTaskPushNotificationConfigRequest.IdFieldNumber = 3 -> int
+const Lf.A2a.V1.GetTaskPushNotificationConfigRequest.TaskIdFieldNumber = 2 -> int
+const Lf.A2a.V1.GetTaskPushNotificationConfigRequest.TenantFieldNumber = 1 -> int
+const Lf.A2a.V1.GetTaskRequest.HistoryLengthFieldNumber = 3 -> int
+const Lf.A2a.V1.GetTaskRequest.IdFieldNumber = 2 -> int
+const Lf.A2a.V1.GetTaskRequest.TenantFieldNumber = 1 -> int
+const Lf.A2a.V1.HTTPAuthSecurityScheme.BearerFormatFieldNumber = 3 -> int
+const Lf.A2a.V1.HTTPAuthSecurityScheme.DescriptionFieldNumber = 1 -> int
+const Lf.A2a.V1.HTTPAuthSecurityScheme.SchemeFieldNumber = 2 -> int
+const Lf.A2a.V1.ImplicitOAuthFlow.AuthorizationUrlFieldNumber = 1 -> int
+const Lf.A2a.V1.ImplicitOAuthFlow.RefreshUrlFieldNumber = 2 -> int
+const Lf.A2a.V1.ImplicitOAuthFlow.ScopesFieldNumber = 3 -> int
+const Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.PageSizeFieldNumber = 2 -> int
+const Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.PageTokenFieldNumber = 3 -> int
+const Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.TaskIdFieldNumber = 1 -> int
+const Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.TenantFieldNumber = 4 -> int
+const Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.ConfigsFieldNumber = 1 -> int
+const Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.NextPageTokenFieldNumber = 2 -> int
+const Lf.A2a.V1.ListTasksRequest.ContextIdFieldNumber = 2 -> int
+const Lf.A2a.V1.ListTasksRequest.HistoryLengthFieldNumber = 6 -> int
+const Lf.A2a.V1.ListTasksRequest.IncludeArtifactsFieldNumber = 8 -> int
+const Lf.A2a.V1.ListTasksRequest.PageSizeFieldNumber = 4 -> int
+const Lf.A2a.V1.ListTasksRequest.PageTokenFieldNumber = 5 -> int
+const Lf.A2a.V1.ListTasksRequest.StatusFieldNumber = 3 -> int
+const Lf.A2a.V1.ListTasksRequest.StatusTimestampAfterFieldNumber = 7 -> int
+const Lf.A2a.V1.ListTasksRequest.TenantFieldNumber = 1 -> int
+const Lf.A2a.V1.ListTasksResponse.NextPageTokenFieldNumber = 2 -> int
+const Lf.A2a.V1.ListTasksResponse.PageSizeFieldNumber = 3 -> int
+const Lf.A2a.V1.ListTasksResponse.TasksFieldNumber = 1 -> int
+const Lf.A2a.V1.ListTasksResponse.TotalSizeFieldNumber = 4 -> int
+const Lf.A2a.V1.Message.ContextIdFieldNumber = 2 -> int
+const Lf.A2a.V1.Message.ExtensionsFieldNumber = 7 -> int
+const Lf.A2a.V1.Message.MessageIdFieldNumber = 1 -> int
+const Lf.A2a.V1.Message.MetadataFieldNumber = 6 -> int
+const Lf.A2a.V1.Message.PartsFieldNumber = 5 -> int
+const Lf.A2a.V1.Message.ReferenceTaskIdsFieldNumber = 8 -> int
+const Lf.A2a.V1.Message.RoleFieldNumber = 4 -> int
+const Lf.A2a.V1.Message.TaskIdFieldNumber = 3 -> int
+const Lf.A2a.V1.MutualTlsSecurityScheme.DescriptionFieldNumber = 1 -> int
+const Lf.A2a.V1.OAuth2SecurityScheme.DescriptionFieldNumber = 1 -> int
+const Lf.A2a.V1.OAuth2SecurityScheme.FlowsFieldNumber = 2 -> int
+const Lf.A2a.V1.OAuth2SecurityScheme.Oauth2MetadataUrlFieldNumber = 3 -> int
+const Lf.A2a.V1.OAuthFlows.AuthorizationCodeFieldNumber = 1 -> int
+const Lf.A2a.V1.OAuthFlows.ClientCredentialsFieldNumber = 2 -> int
+const Lf.A2a.V1.OAuthFlows.DeviceCodeFieldNumber = 5 -> int
+const Lf.A2a.V1.OAuthFlows.ImplicitFieldNumber = 3 -> int
+const Lf.A2a.V1.OAuthFlows.PasswordFieldNumber = 4 -> int
+const Lf.A2a.V1.OpenIdConnectSecurityScheme.DescriptionFieldNumber = 1 -> int
+const Lf.A2a.V1.OpenIdConnectSecurityScheme.OpenIdConnectUrlFieldNumber = 2 -> int
+const Lf.A2a.V1.Part.DataFieldNumber = 4 -> int
+const Lf.A2a.V1.Part.FilenameFieldNumber = 6 -> int
+const Lf.A2a.V1.Part.MediaTypeFieldNumber = 7 -> int
+const Lf.A2a.V1.Part.MetadataFieldNumber = 5 -> int
+const Lf.A2a.V1.Part.RawFieldNumber = 2 -> int
+const Lf.A2a.V1.Part.TextFieldNumber = 1 -> int
+const Lf.A2a.V1.Part.UrlFieldNumber = 3 -> int
+const Lf.A2a.V1.PasswordOAuthFlow.RefreshUrlFieldNumber = 2 -> int
+const Lf.A2a.V1.PasswordOAuthFlow.ScopesFieldNumber = 3 -> int
+const Lf.A2a.V1.PasswordOAuthFlow.TokenUrlFieldNumber = 1 -> int
+const Lf.A2a.V1.SecurityRequirement.SchemesFieldNumber = 1 -> int
+const Lf.A2a.V1.SecurityScheme.ApiKeySecuritySchemeFieldNumber = 1 -> int
+const Lf.A2a.V1.SecurityScheme.HttpAuthSecuritySchemeFieldNumber = 2 -> int
+const Lf.A2a.V1.SecurityScheme.MtlsSecuritySchemeFieldNumber = 5 -> int
+const Lf.A2a.V1.SecurityScheme.Oauth2SecuritySchemeFieldNumber = 3 -> int
+const Lf.A2a.V1.SecurityScheme.OpenIdConnectSecuritySchemeFieldNumber = 4 -> int
+const Lf.A2a.V1.SendMessageConfiguration.AcceptedOutputModesFieldNumber = 1 -> int
+const Lf.A2a.V1.SendMessageConfiguration.HistoryLengthFieldNumber = 3 -> int
+const Lf.A2a.V1.SendMessageConfiguration.ReturnImmediatelyFieldNumber = 4 -> int
+const Lf.A2a.V1.SendMessageConfiguration.TaskPushNotificationConfigFieldNumber = 2 -> int
+const Lf.A2a.V1.SendMessageRequest.ConfigurationFieldNumber = 3 -> int
+const Lf.A2a.V1.SendMessageRequest.MessageFieldNumber = 2 -> int
+const Lf.A2a.V1.SendMessageRequest.MetadataFieldNumber = 4 -> int
+const Lf.A2a.V1.SendMessageRequest.TenantFieldNumber = 1 -> int
+const Lf.A2a.V1.SendMessageResponse.MessageFieldNumber = 2 -> int
+const Lf.A2a.V1.SendMessageResponse.TaskFieldNumber = 1 -> int
+const Lf.A2a.V1.StreamResponse.ArtifactUpdateFieldNumber = 4 -> int
+const Lf.A2a.V1.StreamResponse.MessageFieldNumber = 2 -> int
+const Lf.A2a.V1.StreamResponse.StatusUpdateFieldNumber = 3 -> int
+const Lf.A2a.V1.StreamResponse.TaskFieldNumber = 1 -> int
+const Lf.A2a.V1.StringList.ListFieldNumber = 1 -> int
+const Lf.A2a.V1.SubscribeToTaskRequest.IdFieldNumber = 2 -> int
+const Lf.A2a.V1.SubscribeToTaskRequest.TenantFieldNumber = 1 -> int
+const Lf.A2a.V1.Task.ArtifactsFieldNumber = 4 -> int
+const Lf.A2a.V1.Task.ContextIdFieldNumber = 2 -> int
+const Lf.A2a.V1.Task.HistoryFieldNumber = 5 -> int
+const Lf.A2a.V1.Task.IdFieldNumber = 1 -> int
+const Lf.A2a.V1.Task.MetadataFieldNumber = 6 -> int
+const Lf.A2a.V1.Task.StatusFieldNumber = 3 -> int
+const Lf.A2a.V1.TaskArtifactUpdateEvent.AppendFieldNumber = 4 -> int
+const Lf.A2a.V1.TaskArtifactUpdateEvent.ArtifactFieldNumber = 3 -> int
+const Lf.A2a.V1.TaskArtifactUpdateEvent.ContextIdFieldNumber = 2 -> int
+const Lf.A2a.V1.TaskArtifactUpdateEvent.LastChunkFieldNumber = 5 -> int
+const Lf.A2a.V1.TaskArtifactUpdateEvent.MetadataFieldNumber = 6 -> int
+const Lf.A2a.V1.TaskArtifactUpdateEvent.TaskIdFieldNumber = 1 -> int
+const Lf.A2a.V1.TaskPushNotificationConfig.AuthenticationFieldNumber = 6 -> int
+const Lf.A2a.V1.TaskPushNotificationConfig.IdFieldNumber = 2 -> int
+const Lf.A2a.V1.TaskPushNotificationConfig.TaskIdFieldNumber = 3 -> int
+const Lf.A2a.V1.TaskPushNotificationConfig.TenantFieldNumber = 1 -> int
+const Lf.A2a.V1.TaskPushNotificationConfig.TokenFieldNumber = 5 -> int
+const Lf.A2a.V1.TaskPushNotificationConfig.UrlFieldNumber = 4 -> int
+const Lf.A2a.V1.TaskStatus.MessageFieldNumber = 2 -> int
+const Lf.A2a.V1.TaskStatus.StateFieldNumber = 1 -> int
+const Lf.A2a.V1.TaskStatus.TimestampFieldNumber = 3 -> int
+const Lf.A2a.V1.TaskStatusUpdateEvent.ContextIdFieldNumber = 2 -> int
+const Lf.A2a.V1.TaskStatusUpdateEvent.MetadataFieldNumber = 4 -> int
+const Lf.A2a.V1.TaskStatusUpdateEvent.StatusFieldNumber = 3 -> int
+const Lf.A2a.V1.TaskStatusUpdateEvent.TaskIdFieldNumber = 1 -> int
+override Lf.A2a.V1.APIKeySecurityScheme.GetHashCode() -> int
+override Lf.A2a.V1.AgentCapabilities.GetHashCode() -> int
+override Lf.A2a.V1.AgentCard.GetHashCode() -> int
+override Lf.A2a.V1.AgentCardSignature.GetHashCode() -> int
+override Lf.A2a.V1.AgentExtension.GetHashCode() -> int
+override Lf.A2a.V1.AgentInterface.GetHashCode() -> int
+override Lf.A2a.V1.AgentProvider.GetHashCode() -> int
+override Lf.A2a.V1.AgentSkill.GetHashCode() -> int
+override Lf.A2a.V1.Artifact.GetHashCode() -> int
+override Lf.A2a.V1.AuthenticationInfo.GetHashCode() -> int
+override Lf.A2a.V1.AuthorizationCodeOAuthFlow.GetHashCode() -> int
+override Lf.A2a.V1.CancelTaskRequest.GetHashCode() -> int
+override Lf.A2a.V1.ClientCredentialsOAuthFlow.GetHashCode() -> int
+override Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.GetHashCode() -> int
+override Lf.A2a.V1.DeviceCodeOAuthFlow.GetHashCode() -> int
+override Lf.A2a.V1.GetExtendedAgentCardRequest.GetHashCode() -> int
+override Lf.A2a.V1.GetTaskPushNotificationConfigRequest.GetHashCode() -> int
+override Lf.A2a.V1.GetTaskRequest.GetHashCode() -> int
+override Lf.A2a.V1.HTTPAuthSecurityScheme.GetHashCode() -> int
+override Lf.A2a.V1.ImplicitOAuthFlow.GetHashCode() -> int
+override Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.GetHashCode() -> int
+override Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.GetHashCode() -> int
+override Lf.A2a.V1.ListTasksRequest.GetHashCode() -> int
+override Lf.A2a.V1.ListTasksResponse.GetHashCode() -> int
+override Lf.A2a.V1.Message.GetHashCode() -> int
+override Lf.A2a.V1.MutualTlsSecurityScheme.GetHashCode() -> int
+override Lf.A2a.V1.OAuth2SecurityScheme.GetHashCode() -> int
+override Lf.A2a.V1.OAuthFlows.GetHashCode() -> int
+override Lf.A2a.V1.OpenIdConnectSecurityScheme.GetHashCode() -> int
+override Lf.A2a.V1.Part.GetHashCode() -> int
+override Lf.A2a.V1.PasswordOAuthFlow.GetHashCode() -> int
+override Lf.A2a.V1.SecurityRequirement.GetHashCode() -> int
+override Lf.A2a.V1.SecurityScheme.GetHashCode() -> int
+override Lf.A2a.V1.SendMessageConfiguration.GetHashCode() -> int
+override Lf.A2a.V1.SendMessageRequest.GetHashCode() -> int
+override Lf.A2a.V1.SendMessageResponse.GetHashCode() -> int
+override Lf.A2a.V1.StreamResponse.GetHashCode() -> int
+override Lf.A2a.V1.StringList.GetHashCode() -> int
+override Lf.A2a.V1.SubscribeToTaskRequest.GetHashCode() -> int
+override Lf.A2a.V1.Task.GetHashCode() -> int
+override Lf.A2a.V1.TaskArtifactUpdateEvent.GetHashCode() -> int
+override Lf.A2a.V1.TaskPushNotificationConfig.GetHashCode() -> int
+override Lf.A2a.V1.TaskStatus.GetHashCode() -> int
+override Lf.A2a.V1.TaskStatusUpdateEvent.GetHashCode() -> int
+static A2A.Grpc.GrpcErrors.FromRpcException(Grpc.Core.RpcException! ex) -> A2A.A2AException!
+static A2A.Grpc.GrpcErrors.ToRpcException(A2A.A2AException! ex) -> Grpc.Core.RpcException!
+static A2A.Grpc.GrpcErrors.ToStatusCode(A2A.A2AErrorCode code) -> Grpc.Core.StatusCode
+static A2A.Grpc.ProtoMapper.ToModel<T>(Google.Protobuf.IMessage! proto) -> T
+static A2A.Grpc.ProtoMapper.ToProto<TProto>(object! model) -> TProto
+~Lf.A2a.V1.A2AService.A2AServiceClient.A2AServiceClient(Grpc.Core.CallInvoker callInvoker) -> void
+~Lf.A2a.V1.A2AService.A2AServiceClient.A2AServiceClient(Grpc.Core.ChannelBase channel) -> void
+~Lf.A2a.V1.A2AService.A2AServiceClient.A2AServiceClient(Grpc.Core.ClientBase.ClientBaseConfiguration configuration) -> void
+~Lf.A2a.V1.APIKeySecurityScheme.APIKeySecurityScheme(Lf.A2a.V1.APIKeySecurityScheme other) -> void
+~Lf.A2a.V1.APIKeySecurityScheme.Clone() -> Lf.A2a.V1.APIKeySecurityScheme
+~Lf.A2a.V1.APIKeySecurityScheme.Description.get -> string
+~Lf.A2a.V1.APIKeySecurityScheme.Description.set -> void
+~Lf.A2a.V1.APIKeySecurityScheme.Equals(Lf.A2a.V1.APIKeySecurityScheme other) -> bool
+~Lf.A2a.V1.APIKeySecurityScheme.Location.get -> string
+~Lf.A2a.V1.APIKeySecurityScheme.Location.set -> void
+~Lf.A2a.V1.APIKeySecurityScheme.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.APIKeySecurityScheme.MergeFrom(Lf.A2a.V1.APIKeySecurityScheme other) -> void
+~Lf.A2a.V1.APIKeySecurityScheme.Name.get -> string
+~Lf.A2a.V1.APIKeySecurityScheme.Name.set -> void
+~Lf.A2a.V1.APIKeySecurityScheme.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.AgentCapabilities.AgentCapabilities(Lf.A2a.V1.AgentCapabilities other) -> void
+~Lf.A2a.V1.AgentCapabilities.Clone() -> Lf.A2a.V1.AgentCapabilities
+~Lf.A2a.V1.AgentCapabilities.Equals(Lf.A2a.V1.AgentCapabilities other) -> bool
+~Lf.A2a.V1.AgentCapabilities.Extensions.get -> Google.Protobuf.Collections.RepeatedField<Lf.A2a.V1.AgentExtension>
+~Lf.A2a.V1.AgentCapabilities.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.AgentCapabilities.MergeFrom(Lf.A2a.V1.AgentCapabilities other) -> void
+~Lf.A2a.V1.AgentCapabilities.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.AgentCard.AgentCard(Lf.A2a.V1.AgentCard other) -> void
+~Lf.A2a.V1.AgentCard.Capabilities.get -> Lf.A2a.V1.AgentCapabilities
+~Lf.A2a.V1.AgentCard.Capabilities.set -> void
+~Lf.A2a.V1.AgentCard.Clone() -> Lf.A2a.V1.AgentCard
+~Lf.A2a.V1.AgentCard.DefaultInputModes.get -> Google.Protobuf.Collections.RepeatedField<string>
+~Lf.A2a.V1.AgentCard.DefaultOutputModes.get -> Google.Protobuf.Collections.RepeatedField<string>
+~Lf.A2a.V1.AgentCard.Description.get -> string
+~Lf.A2a.V1.AgentCard.Description.set -> void
+~Lf.A2a.V1.AgentCard.DocumentationUrl.get -> string
+~Lf.A2a.V1.AgentCard.DocumentationUrl.set -> void
+~Lf.A2a.V1.AgentCard.Equals(Lf.A2a.V1.AgentCard other) -> bool
+~Lf.A2a.V1.AgentCard.IconUrl.get -> string
+~Lf.A2a.V1.AgentCard.IconUrl.set -> void
+~Lf.A2a.V1.AgentCard.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.AgentCard.MergeFrom(Lf.A2a.V1.AgentCard other) -> void
+~Lf.A2a.V1.AgentCard.Name.get -> string
+~Lf.A2a.V1.AgentCard.Name.set -> void
+~Lf.A2a.V1.AgentCard.Provider.get -> Lf.A2a.V1.AgentProvider
+~Lf.A2a.V1.AgentCard.Provider.set -> void
+~Lf.A2a.V1.AgentCard.SecurityRequirements.get -> Google.Protobuf.Collections.RepeatedField<Lf.A2a.V1.SecurityRequirement>
+~Lf.A2a.V1.AgentCard.SecuritySchemes.get -> Google.Protobuf.Collections.MapField<string, Lf.A2a.V1.SecurityScheme>
+~Lf.A2a.V1.AgentCard.Signatures.get -> Google.Protobuf.Collections.RepeatedField<Lf.A2a.V1.AgentCardSignature>
+~Lf.A2a.V1.AgentCard.Skills.get -> Google.Protobuf.Collections.RepeatedField<Lf.A2a.V1.AgentSkill>
+~Lf.A2a.V1.AgentCard.SupportedInterfaces.get -> Google.Protobuf.Collections.RepeatedField<Lf.A2a.V1.AgentInterface>
+~Lf.A2a.V1.AgentCard.Version.get -> string
+~Lf.A2a.V1.AgentCard.Version.set -> void
+~Lf.A2a.V1.AgentCard.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.AgentCardSignature.AgentCardSignature(Lf.A2a.V1.AgentCardSignature other) -> void
+~Lf.A2a.V1.AgentCardSignature.Clone() -> Lf.A2a.V1.AgentCardSignature
+~Lf.A2a.V1.AgentCardSignature.Equals(Lf.A2a.V1.AgentCardSignature other) -> bool
+~Lf.A2a.V1.AgentCardSignature.Header.get -> Google.Protobuf.WellKnownTypes.Struct
+~Lf.A2a.V1.AgentCardSignature.Header.set -> void
+~Lf.A2a.V1.AgentCardSignature.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.AgentCardSignature.MergeFrom(Lf.A2a.V1.AgentCardSignature other) -> void
+~Lf.A2a.V1.AgentCardSignature.Protected.get -> string
+~Lf.A2a.V1.AgentCardSignature.Protected.set -> void
+~Lf.A2a.V1.AgentCardSignature.Signature.get -> string
+~Lf.A2a.V1.AgentCardSignature.Signature.set -> void
+~Lf.A2a.V1.AgentCardSignature.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.AgentExtension.AgentExtension(Lf.A2a.V1.AgentExtension other) -> void
+~Lf.A2a.V1.AgentExtension.Clone() -> Lf.A2a.V1.AgentExtension
+~Lf.A2a.V1.AgentExtension.Description.get -> string
+~Lf.A2a.V1.AgentExtension.Description.set -> void
+~Lf.A2a.V1.AgentExtension.Equals(Lf.A2a.V1.AgentExtension other) -> bool
+~Lf.A2a.V1.AgentExtension.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.AgentExtension.MergeFrom(Lf.A2a.V1.AgentExtension other) -> void
+~Lf.A2a.V1.AgentExtension.Params.get -> Google.Protobuf.WellKnownTypes.Struct
+~Lf.A2a.V1.AgentExtension.Params.set -> void
+~Lf.A2a.V1.AgentExtension.Uri.get -> string
+~Lf.A2a.V1.AgentExtension.Uri.set -> void
+~Lf.A2a.V1.AgentExtension.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.AgentInterface.AgentInterface(Lf.A2a.V1.AgentInterface other) -> void
+~Lf.A2a.V1.AgentInterface.Clone() -> Lf.A2a.V1.AgentInterface
+~Lf.A2a.V1.AgentInterface.Equals(Lf.A2a.V1.AgentInterface other) -> bool
+~Lf.A2a.V1.AgentInterface.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.AgentInterface.MergeFrom(Lf.A2a.V1.AgentInterface other) -> void
+~Lf.A2a.V1.AgentInterface.ProtocolBinding.get -> string
+~Lf.A2a.V1.AgentInterface.ProtocolBinding.set -> void
+~Lf.A2a.V1.AgentInterface.ProtocolVersion.get -> string
+~Lf.A2a.V1.AgentInterface.ProtocolVersion.set -> void
+~Lf.A2a.V1.AgentInterface.Tenant.get -> string
+~Lf.A2a.V1.AgentInterface.Tenant.set -> void
+~Lf.A2a.V1.AgentInterface.Url.get -> string
+~Lf.A2a.V1.AgentInterface.Url.set -> void
+~Lf.A2a.V1.AgentInterface.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.AgentProvider.AgentProvider(Lf.A2a.V1.AgentProvider other) -> void
+~Lf.A2a.V1.AgentProvider.Clone() -> Lf.A2a.V1.AgentProvider
+~Lf.A2a.V1.AgentProvider.Equals(Lf.A2a.V1.AgentProvider other) -> bool
+~Lf.A2a.V1.AgentProvider.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.AgentProvider.MergeFrom(Lf.A2a.V1.AgentProvider other) -> void
+~Lf.A2a.V1.AgentProvider.Organization.get -> string
+~Lf.A2a.V1.AgentProvider.Organization.set -> void
+~Lf.A2a.V1.AgentProvider.Url.get -> string
+~Lf.A2a.V1.AgentProvider.Url.set -> void
+~Lf.A2a.V1.AgentProvider.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.AgentSkill.AgentSkill(Lf.A2a.V1.AgentSkill other) -> void
+~Lf.A2a.V1.AgentSkill.Clone() -> Lf.A2a.V1.AgentSkill
+~Lf.A2a.V1.AgentSkill.Description.get -> string
+~Lf.A2a.V1.AgentSkill.Description.set -> void
+~Lf.A2a.V1.AgentSkill.Equals(Lf.A2a.V1.AgentSkill other) -> bool
+~Lf.A2a.V1.AgentSkill.Examples.get -> Google.Protobuf.Collections.RepeatedField<string>
+~Lf.A2a.V1.AgentSkill.Id.get -> string
+~Lf.A2a.V1.AgentSkill.Id.set -> void
+~Lf.A2a.V1.AgentSkill.InputModes.get -> Google.Protobuf.Collections.RepeatedField<string>
+~Lf.A2a.V1.AgentSkill.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.AgentSkill.MergeFrom(Lf.A2a.V1.AgentSkill other) -> void
+~Lf.A2a.V1.AgentSkill.Name.get -> string
+~Lf.A2a.V1.AgentSkill.Name.set -> void
+~Lf.A2a.V1.AgentSkill.OutputModes.get -> Google.Protobuf.Collections.RepeatedField<string>
+~Lf.A2a.V1.AgentSkill.SecurityRequirements.get -> Google.Protobuf.Collections.RepeatedField<Lf.A2a.V1.SecurityRequirement>
+~Lf.A2a.V1.AgentSkill.Tags.get -> Google.Protobuf.Collections.RepeatedField<string>
+~Lf.A2a.V1.AgentSkill.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.Artifact.Artifact(Lf.A2a.V1.Artifact other) -> void
+~Lf.A2a.V1.Artifact.ArtifactId.get -> string
+~Lf.A2a.V1.Artifact.ArtifactId.set -> void
+~Lf.A2a.V1.Artifact.Clone() -> Lf.A2a.V1.Artifact
+~Lf.A2a.V1.Artifact.Description.get -> string
+~Lf.A2a.V1.Artifact.Description.set -> void
+~Lf.A2a.V1.Artifact.Equals(Lf.A2a.V1.Artifact other) -> bool
+~Lf.A2a.V1.Artifact.Extensions.get -> Google.Protobuf.Collections.RepeatedField<string>
+~Lf.A2a.V1.Artifact.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.Artifact.MergeFrom(Lf.A2a.V1.Artifact other) -> void
+~Lf.A2a.V1.Artifact.Metadata.get -> Google.Protobuf.WellKnownTypes.Struct
+~Lf.A2a.V1.Artifact.Metadata.set -> void
+~Lf.A2a.V1.Artifact.Name.get -> string
+~Lf.A2a.V1.Artifact.Name.set -> void
+~Lf.A2a.V1.Artifact.Parts.get -> Google.Protobuf.Collections.RepeatedField<Lf.A2a.V1.Part>
+~Lf.A2a.V1.Artifact.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.AuthenticationInfo.AuthenticationInfo(Lf.A2a.V1.AuthenticationInfo other) -> void
+~Lf.A2a.V1.AuthenticationInfo.Clone() -> Lf.A2a.V1.AuthenticationInfo
+~Lf.A2a.V1.AuthenticationInfo.Credentials.get -> string
+~Lf.A2a.V1.AuthenticationInfo.Credentials.set -> void
+~Lf.A2a.V1.AuthenticationInfo.Equals(Lf.A2a.V1.AuthenticationInfo other) -> bool
+~Lf.A2a.V1.AuthenticationInfo.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.AuthenticationInfo.MergeFrom(Lf.A2a.V1.AuthenticationInfo other) -> void
+~Lf.A2a.V1.AuthenticationInfo.Scheme.get -> string
+~Lf.A2a.V1.AuthenticationInfo.Scheme.set -> void
+~Lf.A2a.V1.AuthenticationInfo.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.AuthorizationCodeOAuthFlow(Lf.A2a.V1.AuthorizationCodeOAuthFlow other) -> void
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.AuthorizationUrl.get -> string
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.AuthorizationUrl.set -> void
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.Clone() -> Lf.A2a.V1.AuthorizationCodeOAuthFlow
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.Equals(Lf.A2a.V1.AuthorizationCodeOAuthFlow other) -> bool
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.MergeFrom(Lf.A2a.V1.AuthorizationCodeOAuthFlow other) -> void
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.RefreshUrl.get -> string
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.RefreshUrl.set -> void
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.Scopes.get -> Google.Protobuf.Collections.MapField<string, string>
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.TokenUrl.get -> string
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.TokenUrl.set -> void
+~Lf.A2a.V1.AuthorizationCodeOAuthFlow.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.CancelTaskRequest.CancelTaskRequest(Lf.A2a.V1.CancelTaskRequest other) -> void
+~Lf.A2a.V1.CancelTaskRequest.Clone() -> Lf.A2a.V1.CancelTaskRequest
+~Lf.A2a.V1.CancelTaskRequest.Equals(Lf.A2a.V1.CancelTaskRequest other) -> bool
+~Lf.A2a.V1.CancelTaskRequest.Id.get -> string
+~Lf.A2a.V1.CancelTaskRequest.Id.set -> void
+~Lf.A2a.V1.CancelTaskRequest.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.CancelTaskRequest.MergeFrom(Lf.A2a.V1.CancelTaskRequest other) -> void
+~Lf.A2a.V1.CancelTaskRequest.Metadata.get -> Google.Protobuf.WellKnownTypes.Struct
+~Lf.A2a.V1.CancelTaskRequest.Metadata.set -> void
+~Lf.A2a.V1.CancelTaskRequest.Tenant.get -> string
+~Lf.A2a.V1.CancelTaskRequest.Tenant.set -> void
+~Lf.A2a.V1.CancelTaskRequest.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.ClientCredentialsOAuthFlow.ClientCredentialsOAuthFlow(Lf.A2a.V1.ClientCredentialsOAuthFlow other) -> void
+~Lf.A2a.V1.ClientCredentialsOAuthFlow.Clone() -> Lf.A2a.V1.ClientCredentialsOAuthFlow
+~Lf.A2a.V1.ClientCredentialsOAuthFlow.Equals(Lf.A2a.V1.ClientCredentialsOAuthFlow other) -> bool
+~Lf.A2a.V1.ClientCredentialsOAuthFlow.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.ClientCredentialsOAuthFlow.MergeFrom(Lf.A2a.V1.ClientCredentialsOAuthFlow other) -> void
+~Lf.A2a.V1.ClientCredentialsOAuthFlow.RefreshUrl.get -> string
+~Lf.A2a.V1.ClientCredentialsOAuthFlow.RefreshUrl.set -> void
+~Lf.A2a.V1.ClientCredentialsOAuthFlow.Scopes.get -> Google.Protobuf.Collections.MapField<string, string>
+~Lf.A2a.V1.ClientCredentialsOAuthFlow.TokenUrl.get -> string
+~Lf.A2a.V1.ClientCredentialsOAuthFlow.TokenUrl.set -> void
+~Lf.A2a.V1.ClientCredentialsOAuthFlow.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.Clone() -> Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest
+~Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.DeleteTaskPushNotificationConfigRequest(Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest other) -> void
+~Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.Equals(Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest other) -> bool
+~Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.Id.get -> string
+~Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.Id.set -> void
+~Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.MergeFrom(Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest other) -> void
+~Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.TaskId.get -> string
+~Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.TaskId.set -> void
+~Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.Tenant.get -> string
+~Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.Tenant.set -> void
+~Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.DeviceCodeOAuthFlow.Clone() -> Lf.A2a.V1.DeviceCodeOAuthFlow
+~Lf.A2a.V1.DeviceCodeOAuthFlow.DeviceAuthorizationUrl.get -> string
+~Lf.A2a.V1.DeviceCodeOAuthFlow.DeviceAuthorizationUrl.set -> void
+~Lf.A2a.V1.DeviceCodeOAuthFlow.DeviceCodeOAuthFlow(Lf.A2a.V1.DeviceCodeOAuthFlow other) -> void
+~Lf.A2a.V1.DeviceCodeOAuthFlow.Equals(Lf.A2a.V1.DeviceCodeOAuthFlow other) -> bool
+~Lf.A2a.V1.DeviceCodeOAuthFlow.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.DeviceCodeOAuthFlow.MergeFrom(Lf.A2a.V1.DeviceCodeOAuthFlow other) -> void
+~Lf.A2a.V1.DeviceCodeOAuthFlow.RefreshUrl.get -> string
+~Lf.A2a.V1.DeviceCodeOAuthFlow.RefreshUrl.set -> void
+~Lf.A2a.V1.DeviceCodeOAuthFlow.Scopes.get -> Google.Protobuf.Collections.MapField<string, string>
+~Lf.A2a.V1.DeviceCodeOAuthFlow.TokenUrl.get -> string
+~Lf.A2a.V1.DeviceCodeOAuthFlow.TokenUrl.set -> void
+~Lf.A2a.V1.DeviceCodeOAuthFlow.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.GetExtendedAgentCardRequest.Clone() -> Lf.A2a.V1.GetExtendedAgentCardRequest
+~Lf.A2a.V1.GetExtendedAgentCardRequest.Equals(Lf.A2a.V1.GetExtendedAgentCardRequest other) -> bool
+~Lf.A2a.V1.GetExtendedAgentCardRequest.GetExtendedAgentCardRequest(Lf.A2a.V1.GetExtendedAgentCardRequest other) -> void
+~Lf.A2a.V1.GetExtendedAgentCardRequest.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.GetExtendedAgentCardRequest.MergeFrom(Lf.A2a.V1.GetExtendedAgentCardRequest other) -> void
+~Lf.A2a.V1.GetExtendedAgentCardRequest.Tenant.get -> string
+~Lf.A2a.V1.GetExtendedAgentCardRequest.Tenant.set -> void
+~Lf.A2a.V1.GetExtendedAgentCardRequest.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.GetTaskPushNotificationConfigRequest.Clone() -> Lf.A2a.V1.GetTaskPushNotificationConfigRequest
+~Lf.A2a.V1.GetTaskPushNotificationConfigRequest.Equals(Lf.A2a.V1.GetTaskPushNotificationConfigRequest other) -> bool
+~Lf.A2a.V1.GetTaskPushNotificationConfigRequest.GetTaskPushNotificationConfigRequest(Lf.A2a.V1.GetTaskPushNotificationConfigRequest other) -> void
+~Lf.A2a.V1.GetTaskPushNotificationConfigRequest.Id.get -> string
+~Lf.A2a.V1.GetTaskPushNotificationConfigRequest.Id.set -> void
+~Lf.A2a.V1.GetTaskPushNotificationConfigRequest.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.GetTaskPushNotificationConfigRequest.MergeFrom(Lf.A2a.V1.GetTaskPushNotificationConfigRequest other) -> void
+~Lf.A2a.V1.GetTaskPushNotificationConfigRequest.TaskId.get -> string
+~Lf.A2a.V1.GetTaskPushNotificationConfigRequest.TaskId.set -> void
+~Lf.A2a.V1.GetTaskPushNotificationConfigRequest.Tenant.get -> string
+~Lf.A2a.V1.GetTaskPushNotificationConfigRequest.Tenant.set -> void
+~Lf.A2a.V1.GetTaskPushNotificationConfigRequest.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.GetTaskRequest.Clone() -> Lf.A2a.V1.GetTaskRequest
+~Lf.A2a.V1.GetTaskRequest.Equals(Lf.A2a.V1.GetTaskRequest other) -> bool
+~Lf.A2a.V1.GetTaskRequest.GetTaskRequest(Lf.A2a.V1.GetTaskRequest other) -> void
+~Lf.A2a.V1.GetTaskRequest.Id.get -> string
+~Lf.A2a.V1.GetTaskRequest.Id.set -> void
+~Lf.A2a.V1.GetTaskRequest.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.GetTaskRequest.MergeFrom(Lf.A2a.V1.GetTaskRequest other) -> void
+~Lf.A2a.V1.GetTaskRequest.Tenant.get -> string
+~Lf.A2a.V1.GetTaskRequest.Tenant.set -> void
+~Lf.A2a.V1.GetTaskRequest.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.HTTPAuthSecurityScheme.BearerFormat.get -> string
+~Lf.A2a.V1.HTTPAuthSecurityScheme.BearerFormat.set -> void
+~Lf.A2a.V1.HTTPAuthSecurityScheme.Clone() -> Lf.A2a.V1.HTTPAuthSecurityScheme
+~Lf.A2a.V1.HTTPAuthSecurityScheme.Description.get -> string
+~Lf.A2a.V1.HTTPAuthSecurityScheme.Description.set -> void
+~Lf.A2a.V1.HTTPAuthSecurityScheme.Equals(Lf.A2a.V1.HTTPAuthSecurityScheme other) -> bool
+~Lf.A2a.V1.HTTPAuthSecurityScheme.HTTPAuthSecurityScheme(Lf.A2a.V1.HTTPAuthSecurityScheme other) -> void
+~Lf.A2a.V1.HTTPAuthSecurityScheme.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.HTTPAuthSecurityScheme.MergeFrom(Lf.A2a.V1.HTTPAuthSecurityScheme other) -> void
+~Lf.A2a.V1.HTTPAuthSecurityScheme.Scheme.get -> string
+~Lf.A2a.V1.HTTPAuthSecurityScheme.Scheme.set -> void
+~Lf.A2a.V1.HTTPAuthSecurityScheme.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.ImplicitOAuthFlow.AuthorizationUrl.get -> string
+~Lf.A2a.V1.ImplicitOAuthFlow.AuthorizationUrl.set -> void
+~Lf.A2a.V1.ImplicitOAuthFlow.Clone() -> Lf.A2a.V1.ImplicitOAuthFlow
+~Lf.A2a.V1.ImplicitOAuthFlow.Equals(Lf.A2a.V1.ImplicitOAuthFlow other) -> bool
+~Lf.A2a.V1.ImplicitOAuthFlow.ImplicitOAuthFlow(Lf.A2a.V1.ImplicitOAuthFlow other) -> void
+~Lf.A2a.V1.ImplicitOAuthFlow.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.ImplicitOAuthFlow.MergeFrom(Lf.A2a.V1.ImplicitOAuthFlow other) -> void
+~Lf.A2a.V1.ImplicitOAuthFlow.RefreshUrl.get -> string
+~Lf.A2a.V1.ImplicitOAuthFlow.RefreshUrl.set -> void
+~Lf.A2a.V1.ImplicitOAuthFlow.Scopes.get -> Google.Protobuf.Collections.MapField<string, string>
+~Lf.A2a.V1.ImplicitOAuthFlow.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.Clone() -> Lf.A2a.V1.ListTaskPushNotificationConfigsRequest
+~Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.Equals(Lf.A2a.V1.ListTaskPushNotificationConfigsRequest other) -> bool
+~Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.ListTaskPushNotificationConfigsRequest(Lf.A2a.V1.ListTaskPushNotificationConfigsRequest other) -> void
+~Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.MergeFrom(Lf.A2a.V1.ListTaskPushNotificationConfigsRequest other) -> void
+~Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.PageToken.get -> string
+~Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.PageToken.set -> void
+~Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.TaskId.get -> string
+~Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.TaskId.set -> void
+~Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.Tenant.get -> string
+~Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.Tenant.set -> void
+~Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.Clone() -> Lf.A2a.V1.ListTaskPushNotificationConfigsResponse
+~Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.Configs.get -> Google.Protobuf.Collections.RepeatedField<Lf.A2a.V1.TaskPushNotificationConfig>
+~Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.Equals(Lf.A2a.V1.ListTaskPushNotificationConfigsResponse other) -> bool
+~Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.ListTaskPushNotificationConfigsResponse(Lf.A2a.V1.ListTaskPushNotificationConfigsResponse other) -> void
+~Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.MergeFrom(Lf.A2a.V1.ListTaskPushNotificationConfigsResponse other) -> void
+~Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.NextPageToken.get -> string
+~Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.NextPageToken.set -> void
+~Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.ListTasksRequest.Clone() -> Lf.A2a.V1.ListTasksRequest
+~Lf.A2a.V1.ListTasksRequest.ContextId.get -> string
+~Lf.A2a.V1.ListTasksRequest.ContextId.set -> void
+~Lf.A2a.V1.ListTasksRequest.Equals(Lf.A2a.V1.ListTasksRequest other) -> bool
+~Lf.A2a.V1.ListTasksRequest.ListTasksRequest(Lf.A2a.V1.ListTasksRequest other) -> void
+~Lf.A2a.V1.ListTasksRequest.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.ListTasksRequest.MergeFrom(Lf.A2a.V1.ListTasksRequest other) -> void
+~Lf.A2a.V1.ListTasksRequest.PageToken.get -> string
+~Lf.A2a.V1.ListTasksRequest.PageToken.set -> void
+~Lf.A2a.V1.ListTasksRequest.StatusTimestampAfter.get -> Google.Protobuf.WellKnownTypes.Timestamp
+~Lf.A2a.V1.ListTasksRequest.StatusTimestampAfter.set -> void
+~Lf.A2a.V1.ListTasksRequest.Tenant.get -> string
+~Lf.A2a.V1.ListTasksRequest.Tenant.set -> void
+~Lf.A2a.V1.ListTasksRequest.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.ListTasksResponse.Clone() -> Lf.A2a.V1.ListTasksResponse
+~Lf.A2a.V1.ListTasksResponse.Equals(Lf.A2a.V1.ListTasksResponse other) -> bool
+~Lf.A2a.V1.ListTasksResponse.ListTasksResponse(Lf.A2a.V1.ListTasksResponse other) -> void
+~Lf.A2a.V1.ListTasksResponse.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.ListTasksResponse.MergeFrom(Lf.A2a.V1.ListTasksResponse other) -> void
+~Lf.A2a.V1.ListTasksResponse.NextPageToken.get -> string
+~Lf.A2a.V1.ListTasksResponse.NextPageToken.set -> void
+~Lf.A2a.V1.ListTasksResponse.Tasks.get -> Google.Protobuf.Collections.RepeatedField<Lf.A2a.V1.Task>
+~Lf.A2a.V1.ListTasksResponse.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.Message.Clone() -> Lf.A2a.V1.Message
+~Lf.A2a.V1.Message.ContextId.get -> string
+~Lf.A2a.V1.Message.ContextId.set -> void
+~Lf.A2a.V1.Message.Equals(Lf.A2a.V1.Message other) -> bool
+~Lf.A2a.V1.Message.Extensions.get -> Google.Protobuf.Collections.RepeatedField<string>
+~Lf.A2a.V1.Message.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.Message.MergeFrom(Lf.A2a.V1.Message other) -> void
+~Lf.A2a.V1.Message.Message(Lf.A2a.V1.Message other) -> void
+~Lf.A2a.V1.Message.MessageId.get -> string
+~Lf.A2a.V1.Message.MessageId.set -> void
+~Lf.A2a.V1.Message.Metadata.get -> Google.Protobuf.WellKnownTypes.Struct
+~Lf.A2a.V1.Message.Metadata.set -> void
+~Lf.A2a.V1.Message.Parts.get -> Google.Protobuf.Collections.RepeatedField<Lf.A2a.V1.Part>
+~Lf.A2a.V1.Message.ReferenceTaskIds.get -> Google.Protobuf.Collections.RepeatedField<string>
+~Lf.A2a.V1.Message.TaskId.get -> string
+~Lf.A2a.V1.Message.TaskId.set -> void
+~Lf.A2a.V1.Message.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.MutualTlsSecurityScheme.Clone() -> Lf.A2a.V1.MutualTlsSecurityScheme
+~Lf.A2a.V1.MutualTlsSecurityScheme.Description.get -> string
+~Lf.A2a.V1.MutualTlsSecurityScheme.Description.set -> void
+~Lf.A2a.V1.MutualTlsSecurityScheme.Equals(Lf.A2a.V1.MutualTlsSecurityScheme other) -> bool
+~Lf.A2a.V1.MutualTlsSecurityScheme.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.MutualTlsSecurityScheme.MergeFrom(Lf.A2a.V1.MutualTlsSecurityScheme other) -> void
+~Lf.A2a.V1.MutualTlsSecurityScheme.MutualTlsSecurityScheme(Lf.A2a.V1.MutualTlsSecurityScheme other) -> void
+~Lf.A2a.V1.MutualTlsSecurityScheme.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.OAuth2SecurityScheme.Clone() -> Lf.A2a.V1.OAuth2SecurityScheme
+~Lf.A2a.V1.OAuth2SecurityScheme.Description.get -> string
+~Lf.A2a.V1.OAuth2SecurityScheme.Description.set -> void
+~Lf.A2a.V1.OAuth2SecurityScheme.Equals(Lf.A2a.V1.OAuth2SecurityScheme other) -> bool
+~Lf.A2a.V1.OAuth2SecurityScheme.Flows.get -> Lf.A2a.V1.OAuthFlows
+~Lf.A2a.V1.OAuth2SecurityScheme.Flows.set -> void
+~Lf.A2a.V1.OAuth2SecurityScheme.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.OAuth2SecurityScheme.MergeFrom(Lf.A2a.V1.OAuth2SecurityScheme other) -> void
+~Lf.A2a.V1.OAuth2SecurityScheme.OAuth2SecurityScheme(Lf.A2a.V1.OAuth2SecurityScheme other) -> void
+~Lf.A2a.V1.OAuth2SecurityScheme.Oauth2MetadataUrl.get -> string
+~Lf.A2a.V1.OAuth2SecurityScheme.Oauth2MetadataUrl.set -> void
+~Lf.A2a.V1.OAuth2SecurityScheme.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.OAuthFlows.AuthorizationCode.get -> Lf.A2a.V1.AuthorizationCodeOAuthFlow
+~Lf.A2a.V1.OAuthFlows.AuthorizationCode.set -> void
+~Lf.A2a.V1.OAuthFlows.ClientCredentials.get -> Lf.A2a.V1.ClientCredentialsOAuthFlow
+~Lf.A2a.V1.OAuthFlows.ClientCredentials.set -> void
+~Lf.A2a.V1.OAuthFlows.Clone() -> Lf.A2a.V1.OAuthFlows
+~Lf.A2a.V1.OAuthFlows.DeviceCode.get -> Lf.A2a.V1.DeviceCodeOAuthFlow
+~Lf.A2a.V1.OAuthFlows.DeviceCode.set -> void
+~Lf.A2a.V1.OAuthFlows.Equals(Lf.A2a.V1.OAuthFlows other) -> bool
+~Lf.A2a.V1.OAuthFlows.Implicit.get -> Lf.A2a.V1.ImplicitOAuthFlow
+~Lf.A2a.V1.OAuthFlows.Implicit.set -> void
+~Lf.A2a.V1.OAuthFlows.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.OAuthFlows.MergeFrom(Lf.A2a.V1.OAuthFlows other) -> void
+~Lf.A2a.V1.OAuthFlows.OAuthFlows(Lf.A2a.V1.OAuthFlows other) -> void
+~Lf.A2a.V1.OAuthFlows.Password.get -> Lf.A2a.V1.PasswordOAuthFlow
+~Lf.A2a.V1.OAuthFlows.Password.set -> void
+~Lf.A2a.V1.OAuthFlows.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.OpenIdConnectSecurityScheme.Clone() -> Lf.A2a.V1.OpenIdConnectSecurityScheme
+~Lf.A2a.V1.OpenIdConnectSecurityScheme.Description.get -> string
+~Lf.A2a.V1.OpenIdConnectSecurityScheme.Description.set -> void
+~Lf.A2a.V1.OpenIdConnectSecurityScheme.Equals(Lf.A2a.V1.OpenIdConnectSecurityScheme other) -> bool
+~Lf.A2a.V1.OpenIdConnectSecurityScheme.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.OpenIdConnectSecurityScheme.MergeFrom(Lf.A2a.V1.OpenIdConnectSecurityScheme other) -> void
+~Lf.A2a.V1.OpenIdConnectSecurityScheme.OpenIdConnectSecurityScheme(Lf.A2a.V1.OpenIdConnectSecurityScheme other) -> void
+~Lf.A2a.V1.OpenIdConnectSecurityScheme.OpenIdConnectUrl.get -> string
+~Lf.A2a.V1.OpenIdConnectSecurityScheme.OpenIdConnectUrl.set -> void
+~Lf.A2a.V1.OpenIdConnectSecurityScheme.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.Part.Clone() -> Lf.A2a.V1.Part
+~Lf.A2a.V1.Part.Data.get -> Google.Protobuf.WellKnownTypes.Value
+~Lf.A2a.V1.Part.Data.set -> void
+~Lf.A2a.V1.Part.Equals(Lf.A2a.V1.Part other) -> bool
+~Lf.A2a.V1.Part.Filename.get -> string
+~Lf.A2a.V1.Part.Filename.set -> void
+~Lf.A2a.V1.Part.MediaType.get -> string
+~Lf.A2a.V1.Part.MediaType.set -> void
+~Lf.A2a.V1.Part.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.Part.MergeFrom(Lf.A2a.V1.Part other) -> void
+~Lf.A2a.V1.Part.Metadata.get -> Google.Protobuf.WellKnownTypes.Struct
+~Lf.A2a.V1.Part.Metadata.set -> void
+~Lf.A2a.V1.Part.Part(Lf.A2a.V1.Part other) -> void
+~Lf.A2a.V1.Part.Raw.get -> Google.Protobuf.ByteString
+~Lf.A2a.V1.Part.Raw.set -> void
+~Lf.A2a.V1.Part.Text.get -> string
+~Lf.A2a.V1.Part.Text.set -> void
+~Lf.A2a.V1.Part.Url.get -> string
+~Lf.A2a.V1.Part.Url.set -> void
+~Lf.A2a.V1.Part.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.PasswordOAuthFlow.Clone() -> Lf.A2a.V1.PasswordOAuthFlow
+~Lf.A2a.V1.PasswordOAuthFlow.Equals(Lf.A2a.V1.PasswordOAuthFlow other) -> bool
+~Lf.A2a.V1.PasswordOAuthFlow.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.PasswordOAuthFlow.MergeFrom(Lf.A2a.V1.PasswordOAuthFlow other) -> void
+~Lf.A2a.V1.PasswordOAuthFlow.PasswordOAuthFlow(Lf.A2a.V1.PasswordOAuthFlow other) -> void
+~Lf.A2a.V1.PasswordOAuthFlow.RefreshUrl.get -> string
+~Lf.A2a.V1.PasswordOAuthFlow.RefreshUrl.set -> void
+~Lf.A2a.V1.PasswordOAuthFlow.Scopes.get -> Google.Protobuf.Collections.MapField<string, string>
+~Lf.A2a.V1.PasswordOAuthFlow.TokenUrl.get -> string
+~Lf.A2a.V1.PasswordOAuthFlow.TokenUrl.set -> void
+~Lf.A2a.V1.PasswordOAuthFlow.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.SecurityRequirement.Clone() -> Lf.A2a.V1.SecurityRequirement
+~Lf.A2a.V1.SecurityRequirement.Equals(Lf.A2a.V1.SecurityRequirement other) -> bool
+~Lf.A2a.V1.SecurityRequirement.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.SecurityRequirement.MergeFrom(Lf.A2a.V1.SecurityRequirement other) -> void
+~Lf.A2a.V1.SecurityRequirement.Schemes.get -> Google.Protobuf.Collections.MapField<string, Lf.A2a.V1.StringList>
+~Lf.A2a.V1.SecurityRequirement.SecurityRequirement(Lf.A2a.V1.SecurityRequirement other) -> void
+~Lf.A2a.V1.SecurityRequirement.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.SecurityScheme.ApiKeySecurityScheme.get -> Lf.A2a.V1.APIKeySecurityScheme
+~Lf.A2a.V1.SecurityScheme.ApiKeySecurityScheme.set -> void
+~Lf.A2a.V1.SecurityScheme.Clone() -> Lf.A2a.V1.SecurityScheme
+~Lf.A2a.V1.SecurityScheme.Equals(Lf.A2a.V1.SecurityScheme other) -> bool
+~Lf.A2a.V1.SecurityScheme.HttpAuthSecurityScheme.get -> Lf.A2a.V1.HTTPAuthSecurityScheme
+~Lf.A2a.V1.SecurityScheme.HttpAuthSecurityScheme.set -> void
+~Lf.A2a.V1.SecurityScheme.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.SecurityScheme.MergeFrom(Lf.A2a.V1.SecurityScheme other) -> void
+~Lf.A2a.V1.SecurityScheme.MtlsSecurityScheme.get -> Lf.A2a.V1.MutualTlsSecurityScheme
+~Lf.A2a.V1.SecurityScheme.MtlsSecurityScheme.set -> void
+~Lf.A2a.V1.SecurityScheme.Oauth2SecurityScheme.get -> Lf.A2a.V1.OAuth2SecurityScheme
+~Lf.A2a.V1.SecurityScheme.Oauth2SecurityScheme.set -> void
+~Lf.A2a.V1.SecurityScheme.OpenIdConnectSecurityScheme.get -> Lf.A2a.V1.OpenIdConnectSecurityScheme
+~Lf.A2a.V1.SecurityScheme.OpenIdConnectSecurityScheme.set -> void
+~Lf.A2a.V1.SecurityScheme.SecurityScheme(Lf.A2a.V1.SecurityScheme other) -> void
+~Lf.A2a.V1.SecurityScheme.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.SendMessageConfiguration.AcceptedOutputModes.get -> Google.Protobuf.Collections.RepeatedField<string>
+~Lf.A2a.V1.SendMessageConfiguration.Clone() -> Lf.A2a.V1.SendMessageConfiguration
+~Lf.A2a.V1.SendMessageConfiguration.Equals(Lf.A2a.V1.SendMessageConfiguration other) -> bool
+~Lf.A2a.V1.SendMessageConfiguration.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.SendMessageConfiguration.MergeFrom(Lf.A2a.V1.SendMessageConfiguration other) -> void
+~Lf.A2a.V1.SendMessageConfiguration.SendMessageConfiguration(Lf.A2a.V1.SendMessageConfiguration other) -> void
+~Lf.A2a.V1.SendMessageConfiguration.TaskPushNotificationConfig.get -> Lf.A2a.V1.TaskPushNotificationConfig
+~Lf.A2a.V1.SendMessageConfiguration.TaskPushNotificationConfig.set -> void
+~Lf.A2a.V1.SendMessageConfiguration.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.SendMessageRequest.Clone() -> Lf.A2a.V1.SendMessageRequest
+~Lf.A2a.V1.SendMessageRequest.Configuration.get -> Lf.A2a.V1.SendMessageConfiguration
+~Lf.A2a.V1.SendMessageRequest.Configuration.set -> void
+~Lf.A2a.V1.SendMessageRequest.Equals(Lf.A2a.V1.SendMessageRequest other) -> bool
+~Lf.A2a.V1.SendMessageRequest.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.SendMessageRequest.MergeFrom(Lf.A2a.V1.SendMessageRequest other) -> void
+~Lf.A2a.V1.SendMessageRequest.Message.get -> Lf.A2a.V1.Message
+~Lf.A2a.V1.SendMessageRequest.Message.set -> void
+~Lf.A2a.V1.SendMessageRequest.Metadata.get -> Google.Protobuf.WellKnownTypes.Struct
+~Lf.A2a.V1.SendMessageRequest.Metadata.set -> void
+~Lf.A2a.V1.SendMessageRequest.SendMessageRequest(Lf.A2a.V1.SendMessageRequest other) -> void
+~Lf.A2a.V1.SendMessageRequest.Tenant.get -> string
+~Lf.A2a.V1.SendMessageRequest.Tenant.set -> void
+~Lf.A2a.V1.SendMessageRequest.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.SendMessageResponse.Clone() -> Lf.A2a.V1.SendMessageResponse
+~Lf.A2a.V1.SendMessageResponse.Equals(Lf.A2a.V1.SendMessageResponse other) -> bool
+~Lf.A2a.V1.SendMessageResponse.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.SendMessageResponse.MergeFrom(Lf.A2a.V1.SendMessageResponse other) -> void
+~Lf.A2a.V1.SendMessageResponse.Message.get -> Lf.A2a.V1.Message
+~Lf.A2a.V1.SendMessageResponse.Message.set -> void
+~Lf.A2a.V1.SendMessageResponse.SendMessageResponse(Lf.A2a.V1.SendMessageResponse other) -> void
+~Lf.A2a.V1.SendMessageResponse.Task.get -> Lf.A2a.V1.Task
+~Lf.A2a.V1.SendMessageResponse.Task.set -> void
+~Lf.A2a.V1.SendMessageResponse.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.StreamResponse.ArtifactUpdate.get -> Lf.A2a.V1.TaskArtifactUpdateEvent
+~Lf.A2a.V1.StreamResponse.ArtifactUpdate.set -> void
+~Lf.A2a.V1.StreamResponse.Clone() -> Lf.A2a.V1.StreamResponse
+~Lf.A2a.V1.StreamResponse.Equals(Lf.A2a.V1.StreamResponse other) -> bool
+~Lf.A2a.V1.StreamResponse.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.StreamResponse.MergeFrom(Lf.A2a.V1.StreamResponse other) -> void
+~Lf.A2a.V1.StreamResponse.Message.get -> Lf.A2a.V1.Message
+~Lf.A2a.V1.StreamResponse.Message.set -> void
+~Lf.A2a.V1.StreamResponse.StatusUpdate.get -> Lf.A2a.V1.TaskStatusUpdateEvent
+~Lf.A2a.V1.StreamResponse.StatusUpdate.set -> void
+~Lf.A2a.V1.StreamResponse.StreamResponse(Lf.A2a.V1.StreamResponse other) -> void
+~Lf.A2a.V1.StreamResponse.Task.get -> Lf.A2a.V1.Task
+~Lf.A2a.V1.StreamResponse.Task.set -> void
+~Lf.A2a.V1.StreamResponse.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.StringList.Clone() -> Lf.A2a.V1.StringList
+~Lf.A2a.V1.StringList.Equals(Lf.A2a.V1.StringList other) -> bool
+~Lf.A2a.V1.StringList.List.get -> Google.Protobuf.Collections.RepeatedField<string>
+~Lf.A2a.V1.StringList.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.StringList.MergeFrom(Lf.A2a.V1.StringList other) -> void
+~Lf.A2a.V1.StringList.StringList(Lf.A2a.V1.StringList other) -> void
+~Lf.A2a.V1.StringList.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.SubscribeToTaskRequest.Clone() -> Lf.A2a.V1.SubscribeToTaskRequest
+~Lf.A2a.V1.SubscribeToTaskRequest.Equals(Lf.A2a.V1.SubscribeToTaskRequest other) -> bool
+~Lf.A2a.V1.SubscribeToTaskRequest.Id.get -> string
+~Lf.A2a.V1.SubscribeToTaskRequest.Id.set -> void
+~Lf.A2a.V1.SubscribeToTaskRequest.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.SubscribeToTaskRequest.MergeFrom(Lf.A2a.V1.SubscribeToTaskRequest other) -> void
+~Lf.A2a.V1.SubscribeToTaskRequest.SubscribeToTaskRequest(Lf.A2a.V1.SubscribeToTaskRequest other) -> void
+~Lf.A2a.V1.SubscribeToTaskRequest.Tenant.get -> string
+~Lf.A2a.V1.SubscribeToTaskRequest.Tenant.set -> void
+~Lf.A2a.V1.SubscribeToTaskRequest.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.Task.Artifacts.get -> Google.Protobuf.Collections.RepeatedField<Lf.A2a.V1.Artifact>
+~Lf.A2a.V1.Task.Clone() -> Lf.A2a.V1.Task
+~Lf.A2a.V1.Task.ContextId.get -> string
+~Lf.A2a.V1.Task.ContextId.set -> void
+~Lf.A2a.V1.Task.Equals(Lf.A2a.V1.Task other) -> bool
+~Lf.A2a.V1.Task.History.get -> Google.Protobuf.Collections.RepeatedField<Lf.A2a.V1.Message>
+~Lf.A2a.V1.Task.Id.get -> string
+~Lf.A2a.V1.Task.Id.set -> void
+~Lf.A2a.V1.Task.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.Task.MergeFrom(Lf.A2a.V1.Task other) -> void
+~Lf.A2a.V1.Task.Metadata.get -> Google.Protobuf.WellKnownTypes.Struct
+~Lf.A2a.V1.Task.Metadata.set -> void
+~Lf.A2a.V1.Task.Status.get -> Lf.A2a.V1.TaskStatus
+~Lf.A2a.V1.Task.Status.set -> void
+~Lf.A2a.V1.Task.Task(Lf.A2a.V1.Task other) -> void
+~Lf.A2a.V1.Task.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.TaskArtifactUpdateEvent.Artifact.get -> Lf.A2a.V1.Artifact
+~Lf.A2a.V1.TaskArtifactUpdateEvent.Artifact.set -> void
+~Lf.A2a.V1.TaskArtifactUpdateEvent.Clone() -> Lf.A2a.V1.TaskArtifactUpdateEvent
+~Lf.A2a.V1.TaskArtifactUpdateEvent.ContextId.get -> string
+~Lf.A2a.V1.TaskArtifactUpdateEvent.ContextId.set -> void
+~Lf.A2a.V1.TaskArtifactUpdateEvent.Equals(Lf.A2a.V1.TaskArtifactUpdateEvent other) -> bool
+~Lf.A2a.V1.TaskArtifactUpdateEvent.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.TaskArtifactUpdateEvent.MergeFrom(Lf.A2a.V1.TaskArtifactUpdateEvent other) -> void
+~Lf.A2a.V1.TaskArtifactUpdateEvent.Metadata.get -> Google.Protobuf.WellKnownTypes.Struct
+~Lf.A2a.V1.TaskArtifactUpdateEvent.Metadata.set -> void
+~Lf.A2a.V1.TaskArtifactUpdateEvent.TaskArtifactUpdateEvent(Lf.A2a.V1.TaskArtifactUpdateEvent other) -> void
+~Lf.A2a.V1.TaskArtifactUpdateEvent.TaskId.get -> string
+~Lf.A2a.V1.TaskArtifactUpdateEvent.TaskId.set -> void
+~Lf.A2a.V1.TaskArtifactUpdateEvent.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.TaskPushNotificationConfig.Authentication.get -> Lf.A2a.V1.AuthenticationInfo
+~Lf.A2a.V1.TaskPushNotificationConfig.Authentication.set -> void
+~Lf.A2a.V1.TaskPushNotificationConfig.Clone() -> Lf.A2a.V1.TaskPushNotificationConfig
+~Lf.A2a.V1.TaskPushNotificationConfig.Equals(Lf.A2a.V1.TaskPushNotificationConfig other) -> bool
+~Lf.A2a.V1.TaskPushNotificationConfig.Id.get -> string
+~Lf.A2a.V1.TaskPushNotificationConfig.Id.set -> void
+~Lf.A2a.V1.TaskPushNotificationConfig.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.TaskPushNotificationConfig.MergeFrom(Lf.A2a.V1.TaskPushNotificationConfig other) -> void
+~Lf.A2a.V1.TaskPushNotificationConfig.TaskId.get -> string
+~Lf.A2a.V1.TaskPushNotificationConfig.TaskId.set -> void
+~Lf.A2a.V1.TaskPushNotificationConfig.TaskPushNotificationConfig(Lf.A2a.V1.TaskPushNotificationConfig other) -> void
+~Lf.A2a.V1.TaskPushNotificationConfig.Tenant.get -> string
+~Lf.A2a.V1.TaskPushNotificationConfig.Tenant.set -> void
+~Lf.A2a.V1.TaskPushNotificationConfig.Token.get -> string
+~Lf.A2a.V1.TaskPushNotificationConfig.Token.set -> void
+~Lf.A2a.V1.TaskPushNotificationConfig.Url.get -> string
+~Lf.A2a.V1.TaskPushNotificationConfig.Url.set -> void
+~Lf.A2a.V1.TaskPushNotificationConfig.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.TaskStatus.Clone() -> Lf.A2a.V1.TaskStatus
+~Lf.A2a.V1.TaskStatus.Equals(Lf.A2a.V1.TaskStatus other) -> bool
+~Lf.A2a.V1.TaskStatus.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.TaskStatus.MergeFrom(Lf.A2a.V1.TaskStatus other) -> void
+~Lf.A2a.V1.TaskStatus.Message.get -> Lf.A2a.V1.Message
+~Lf.A2a.V1.TaskStatus.Message.set -> void
+~Lf.A2a.V1.TaskStatus.TaskStatus(Lf.A2a.V1.TaskStatus other) -> void
+~Lf.A2a.V1.TaskStatus.Timestamp.get -> Google.Protobuf.WellKnownTypes.Timestamp
+~Lf.A2a.V1.TaskStatus.Timestamp.set -> void
+~Lf.A2a.V1.TaskStatus.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~Lf.A2a.V1.TaskStatusUpdateEvent.Clone() -> Lf.A2a.V1.TaskStatusUpdateEvent
+~Lf.A2a.V1.TaskStatusUpdateEvent.ContextId.get -> string
+~Lf.A2a.V1.TaskStatusUpdateEvent.ContextId.set -> void
+~Lf.A2a.V1.TaskStatusUpdateEvent.Equals(Lf.A2a.V1.TaskStatusUpdateEvent other) -> bool
+~Lf.A2a.V1.TaskStatusUpdateEvent.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~Lf.A2a.V1.TaskStatusUpdateEvent.MergeFrom(Lf.A2a.V1.TaskStatusUpdateEvent other) -> void
+~Lf.A2a.V1.TaskStatusUpdateEvent.Metadata.get -> Google.Protobuf.WellKnownTypes.Struct
+~Lf.A2a.V1.TaskStatusUpdateEvent.Metadata.set -> void
+~Lf.A2a.V1.TaskStatusUpdateEvent.Status.get -> Lf.A2a.V1.TaskStatus
+~Lf.A2a.V1.TaskStatusUpdateEvent.Status.set -> void
+~Lf.A2a.V1.TaskStatusUpdateEvent.TaskId.get -> string
+~Lf.A2a.V1.TaskStatusUpdateEvent.TaskId.set -> void
+~Lf.A2a.V1.TaskStatusUpdateEvent.TaskStatusUpdateEvent(Lf.A2a.V1.TaskStatusUpdateEvent other) -> void
+~Lf.A2a.V1.TaskStatusUpdateEvent.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~override Lf.A2a.V1.A2AService.A2AServiceClient.NewInstance(Grpc.Core.ClientBase.ClientBaseConfiguration configuration) -> Lf.A2a.V1.A2AService.A2AServiceClient
+~override Lf.A2a.V1.APIKeySecurityScheme.Equals(object other) -> bool
+~override Lf.A2a.V1.APIKeySecurityScheme.ToString() -> string
+~override Lf.A2a.V1.AgentCapabilities.Equals(object other) -> bool
+~override Lf.A2a.V1.AgentCapabilities.ToString() -> string
+~override Lf.A2a.V1.AgentCard.Equals(object other) -> bool
+~override Lf.A2a.V1.AgentCard.ToString() -> string
+~override Lf.A2a.V1.AgentCardSignature.Equals(object other) -> bool
+~override Lf.A2a.V1.AgentCardSignature.ToString() -> string
+~override Lf.A2a.V1.AgentExtension.Equals(object other) -> bool
+~override Lf.A2a.V1.AgentExtension.ToString() -> string
+~override Lf.A2a.V1.AgentInterface.Equals(object other) -> bool
+~override Lf.A2a.V1.AgentInterface.ToString() -> string
+~override Lf.A2a.V1.AgentProvider.Equals(object other) -> bool
+~override Lf.A2a.V1.AgentProvider.ToString() -> string
+~override Lf.A2a.V1.AgentSkill.Equals(object other) -> bool
+~override Lf.A2a.V1.AgentSkill.ToString() -> string
+~override Lf.A2a.V1.Artifact.Equals(object other) -> bool
+~override Lf.A2a.V1.Artifact.ToString() -> string
+~override Lf.A2a.V1.AuthenticationInfo.Equals(object other) -> bool
+~override Lf.A2a.V1.AuthenticationInfo.ToString() -> string
+~override Lf.A2a.V1.AuthorizationCodeOAuthFlow.Equals(object other) -> bool
+~override Lf.A2a.V1.AuthorizationCodeOAuthFlow.ToString() -> string
+~override Lf.A2a.V1.CancelTaskRequest.Equals(object other) -> bool
+~override Lf.A2a.V1.CancelTaskRequest.ToString() -> string
+~override Lf.A2a.V1.ClientCredentialsOAuthFlow.Equals(object other) -> bool
+~override Lf.A2a.V1.ClientCredentialsOAuthFlow.ToString() -> string
+~override Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.Equals(object other) -> bool
+~override Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.ToString() -> string
+~override Lf.A2a.V1.DeviceCodeOAuthFlow.Equals(object other) -> bool
+~override Lf.A2a.V1.DeviceCodeOAuthFlow.ToString() -> string
+~override Lf.A2a.V1.GetExtendedAgentCardRequest.Equals(object other) -> bool
+~override Lf.A2a.V1.GetExtendedAgentCardRequest.ToString() -> string
+~override Lf.A2a.V1.GetTaskPushNotificationConfigRequest.Equals(object other) -> bool
+~override Lf.A2a.V1.GetTaskPushNotificationConfigRequest.ToString() -> string
+~override Lf.A2a.V1.GetTaskRequest.Equals(object other) -> bool
+~override Lf.A2a.V1.GetTaskRequest.ToString() -> string
+~override Lf.A2a.V1.HTTPAuthSecurityScheme.Equals(object other) -> bool
+~override Lf.A2a.V1.HTTPAuthSecurityScheme.ToString() -> string
+~override Lf.A2a.V1.ImplicitOAuthFlow.Equals(object other) -> bool
+~override Lf.A2a.V1.ImplicitOAuthFlow.ToString() -> string
+~override Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.Equals(object other) -> bool
+~override Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.ToString() -> string
+~override Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.Equals(object other) -> bool
+~override Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.ToString() -> string
+~override Lf.A2a.V1.ListTasksRequest.Equals(object other) -> bool
+~override Lf.A2a.V1.ListTasksRequest.ToString() -> string
+~override Lf.A2a.V1.ListTasksResponse.Equals(object other) -> bool
+~override Lf.A2a.V1.ListTasksResponse.ToString() -> string
+~override Lf.A2a.V1.Message.Equals(object other) -> bool
+~override Lf.A2a.V1.Message.ToString() -> string
+~override Lf.A2a.V1.MutualTlsSecurityScheme.Equals(object other) -> bool
+~override Lf.A2a.V1.MutualTlsSecurityScheme.ToString() -> string
+~override Lf.A2a.V1.OAuth2SecurityScheme.Equals(object other) -> bool
+~override Lf.A2a.V1.OAuth2SecurityScheme.ToString() -> string
+~override Lf.A2a.V1.OAuthFlows.Equals(object other) -> bool
+~override Lf.A2a.V1.OAuthFlows.ToString() -> string
+~override Lf.A2a.V1.OpenIdConnectSecurityScheme.Equals(object other) -> bool
+~override Lf.A2a.V1.OpenIdConnectSecurityScheme.ToString() -> string
+~override Lf.A2a.V1.Part.Equals(object other) -> bool
+~override Lf.A2a.V1.Part.ToString() -> string
+~override Lf.A2a.V1.PasswordOAuthFlow.Equals(object other) -> bool
+~override Lf.A2a.V1.PasswordOAuthFlow.ToString() -> string
+~override Lf.A2a.V1.SecurityRequirement.Equals(object other) -> bool
+~override Lf.A2a.V1.SecurityRequirement.ToString() -> string
+~override Lf.A2a.V1.SecurityScheme.Equals(object other) -> bool
+~override Lf.A2a.V1.SecurityScheme.ToString() -> string
+~override Lf.A2a.V1.SendMessageConfiguration.Equals(object other) -> bool
+~override Lf.A2a.V1.SendMessageConfiguration.ToString() -> string
+~override Lf.A2a.V1.SendMessageRequest.Equals(object other) -> bool
+~override Lf.A2a.V1.SendMessageRequest.ToString() -> string
+~override Lf.A2a.V1.SendMessageResponse.Equals(object other) -> bool
+~override Lf.A2a.V1.SendMessageResponse.ToString() -> string
+~override Lf.A2a.V1.StreamResponse.Equals(object other) -> bool
+~override Lf.A2a.V1.StreamResponse.ToString() -> string
+~override Lf.A2a.V1.StringList.Equals(object other) -> bool
+~override Lf.A2a.V1.StringList.ToString() -> string
+~override Lf.A2a.V1.SubscribeToTaskRequest.Equals(object other) -> bool
+~override Lf.A2a.V1.SubscribeToTaskRequest.ToString() -> string
+~override Lf.A2a.V1.Task.Equals(object other) -> bool
+~override Lf.A2a.V1.Task.ToString() -> string
+~override Lf.A2a.V1.TaskArtifactUpdateEvent.Equals(object other) -> bool
+~override Lf.A2a.V1.TaskArtifactUpdateEvent.ToString() -> string
+~override Lf.A2a.V1.TaskPushNotificationConfig.Equals(object other) -> bool
+~override Lf.A2a.V1.TaskPushNotificationConfig.ToString() -> string
+~override Lf.A2a.V1.TaskStatus.Equals(object other) -> bool
+~override Lf.A2a.V1.TaskStatus.ToString() -> string
+~override Lf.A2a.V1.TaskStatusUpdateEvent.Equals(object other) -> bool
+~override Lf.A2a.V1.TaskStatusUpdateEvent.ToString() -> string
+~static Lf.A2a.V1.A2AReflection.Descriptor.get -> Google.Protobuf.Reflection.FileDescriptor
+~static Lf.A2a.V1.A2AService.BindService(Grpc.Core.ServiceBinderBase serviceBinder, Lf.A2a.V1.A2AService.A2AServiceBase serviceImpl) -> void
+~static Lf.A2a.V1.A2AService.BindService(Lf.A2a.V1.A2AService.A2AServiceBase serviceImpl) -> Grpc.Core.ServerServiceDefinition
+~static Lf.A2a.V1.A2AService.Descriptor.get -> Google.Protobuf.Reflection.ServiceDescriptor
+~static Lf.A2a.V1.APIKeySecurityScheme.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.APIKeySecurityScheme.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.APIKeySecurityScheme>
+~static Lf.A2a.V1.AgentCapabilities.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.AgentCapabilities.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.AgentCapabilities>
+~static Lf.A2a.V1.AgentCard.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.AgentCard.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.AgentCard>
+~static Lf.A2a.V1.AgentCardSignature.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.AgentCardSignature.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.AgentCardSignature>
+~static Lf.A2a.V1.AgentExtension.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.AgentExtension.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.AgentExtension>
+~static Lf.A2a.V1.AgentInterface.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.AgentInterface.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.AgentInterface>
+~static Lf.A2a.V1.AgentProvider.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.AgentProvider.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.AgentProvider>
+~static Lf.A2a.V1.AgentSkill.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.AgentSkill.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.AgentSkill>
+~static Lf.A2a.V1.Artifact.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.Artifact.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.Artifact>
+~static Lf.A2a.V1.AuthenticationInfo.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.AuthenticationInfo.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.AuthenticationInfo>
+~static Lf.A2a.V1.AuthorizationCodeOAuthFlow.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.AuthorizationCodeOAuthFlow.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.AuthorizationCodeOAuthFlow>
+~static Lf.A2a.V1.CancelTaskRequest.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.CancelTaskRequest.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.CancelTaskRequest>
+~static Lf.A2a.V1.ClientCredentialsOAuthFlow.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.ClientCredentialsOAuthFlow.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.ClientCredentialsOAuthFlow>
+~static Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest>
+~static Lf.A2a.V1.DeviceCodeOAuthFlow.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.DeviceCodeOAuthFlow.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.DeviceCodeOAuthFlow>
+~static Lf.A2a.V1.GetExtendedAgentCardRequest.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.GetExtendedAgentCardRequest.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.GetExtendedAgentCardRequest>
+~static Lf.A2a.V1.GetTaskPushNotificationConfigRequest.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.GetTaskPushNotificationConfigRequest.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.GetTaskPushNotificationConfigRequest>
+~static Lf.A2a.V1.GetTaskRequest.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.GetTaskRequest.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.GetTaskRequest>
+~static Lf.A2a.V1.HTTPAuthSecurityScheme.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.HTTPAuthSecurityScheme.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.HTTPAuthSecurityScheme>
+~static Lf.A2a.V1.ImplicitOAuthFlow.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.ImplicitOAuthFlow.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.ImplicitOAuthFlow>
+~static Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.ListTaskPushNotificationConfigsRequest.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.ListTaskPushNotificationConfigsRequest>
+~static Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.ListTaskPushNotificationConfigsResponse.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.ListTaskPushNotificationConfigsResponse>
+~static Lf.A2a.V1.ListTasksRequest.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.ListTasksRequest.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.ListTasksRequest>
+~static Lf.A2a.V1.ListTasksResponse.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.ListTasksResponse.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.ListTasksResponse>
+~static Lf.A2a.V1.Message.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.Message.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.Message>
+~static Lf.A2a.V1.MutualTlsSecurityScheme.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.MutualTlsSecurityScheme.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.MutualTlsSecurityScheme>
+~static Lf.A2a.V1.OAuth2SecurityScheme.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.OAuth2SecurityScheme.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.OAuth2SecurityScheme>
+~static Lf.A2a.V1.OAuthFlows.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.OAuthFlows.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.OAuthFlows>
+~static Lf.A2a.V1.OpenIdConnectSecurityScheme.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.OpenIdConnectSecurityScheme.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.OpenIdConnectSecurityScheme>
+~static Lf.A2a.V1.Part.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.Part.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.Part>
+~static Lf.A2a.V1.PasswordOAuthFlow.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.PasswordOAuthFlow.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.PasswordOAuthFlow>
+~static Lf.A2a.V1.SecurityRequirement.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.SecurityRequirement.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.SecurityRequirement>
+~static Lf.A2a.V1.SecurityScheme.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.SecurityScheme.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.SecurityScheme>
+~static Lf.A2a.V1.SendMessageConfiguration.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.SendMessageConfiguration.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.SendMessageConfiguration>
+~static Lf.A2a.V1.SendMessageRequest.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.SendMessageRequest.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.SendMessageRequest>
+~static Lf.A2a.V1.SendMessageResponse.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.SendMessageResponse.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.SendMessageResponse>
+~static Lf.A2a.V1.StreamResponse.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.StreamResponse.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.StreamResponse>
+~static Lf.A2a.V1.StringList.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.StringList.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.StringList>
+~static Lf.A2a.V1.SubscribeToTaskRequest.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.SubscribeToTaskRequest.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.SubscribeToTaskRequest>
+~static Lf.A2a.V1.Task.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.Task.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.Task>
+~static Lf.A2a.V1.TaskArtifactUpdateEvent.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.TaskArtifactUpdateEvent.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.TaskArtifactUpdateEvent>
+~static Lf.A2a.V1.TaskPushNotificationConfig.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.TaskPushNotificationConfig.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.TaskPushNotificationConfig>
+~static Lf.A2a.V1.TaskStatus.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.TaskStatus.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.TaskStatus>
+~static Lf.A2a.V1.TaskStatusUpdateEvent.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static Lf.A2a.V1.TaskStatusUpdateEvent.Parser.get -> Google.Protobuf.MessageParser<Lf.A2a.V1.TaskStatusUpdateEvent>
+~virtual Lf.A2a.V1.A2AService.A2AServiceBase.CancelTask(Lf.A2a.V1.CancelTaskRequest request, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task<Lf.A2a.V1.Task>
+~virtual Lf.A2a.V1.A2AService.A2AServiceBase.CreateTaskPushNotificationConfig(Lf.A2a.V1.TaskPushNotificationConfig request, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task<Lf.A2a.V1.TaskPushNotificationConfig>
+~virtual Lf.A2a.V1.A2AService.A2AServiceBase.DeleteTaskPushNotificationConfig(Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest request, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task<Google.Protobuf.WellKnownTypes.Empty>
+~virtual Lf.A2a.V1.A2AService.A2AServiceBase.GetExtendedAgentCard(Lf.A2a.V1.GetExtendedAgentCardRequest request, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task<Lf.A2a.V1.AgentCard>
+~virtual Lf.A2a.V1.A2AService.A2AServiceBase.GetTask(Lf.A2a.V1.GetTaskRequest request, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task<Lf.A2a.V1.Task>
+~virtual Lf.A2a.V1.A2AService.A2AServiceBase.GetTaskPushNotificationConfig(Lf.A2a.V1.GetTaskPushNotificationConfigRequest request, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task<Lf.A2a.V1.TaskPushNotificationConfig>
+~virtual Lf.A2a.V1.A2AService.A2AServiceBase.ListTaskPushNotificationConfigs(Lf.A2a.V1.ListTaskPushNotificationConfigsRequest request, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task<Lf.A2a.V1.ListTaskPushNotificationConfigsResponse>
+~virtual Lf.A2a.V1.A2AService.A2AServiceBase.ListTasks(Lf.A2a.V1.ListTasksRequest request, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task<Lf.A2a.V1.ListTasksResponse>
+~virtual Lf.A2a.V1.A2AService.A2AServiceBase.SendMessage(Lf.A2a.V1.SendMessageRequest request, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task<Lf.A2a.V1.SendMessageResponse>
+~virtual Lf.A2a.V1.A2AService.A2AServiceBase.SendStreamingMessage(Lf.A2a.V1.SendMessageRequest request, Grpc.Core.IServerStreamWriter<Lf.A2a.V1.StreamResponse> responseStream, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task
+~virtual Lf.A2a.V1.A2AService.A2AServiceBase.SubscribeToTask(Lf.A2a.V1.SubscribeToTaskRequest request, Grpc.Core.IServerStreamWriter<Lf.A2a.V1.StreamResponse> responseStream, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.CancelTask(Lf.A2a.V1.CancelTaskRequest request, Grpc.Core.CallOptions options) -> Lf.A2a.V1.Task
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.CancelTask(Lf.A2a.V1.CancelTaskRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Lf.A2a.V1.Task
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.CancelTaskAsync(Lf.A2a.V1.CancelTaskRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.Task>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.CancelTaskAsync(Lf.A2a.V1.CancelTaskRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.Task>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.CreateTaskPushNotificationConfig(Lf.A2a.V1.TaskPushNotificationConfig request, Grpc.Core.CallOptions options) -> Lf.A2a.V1.TaskPushNotificationConfig
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.CreateTaskPushNotificationConfig(Lf.A2a.V1.TaskPushNotificationConfig request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Lf.A2a.V1.TaskPushNotificationConfig
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.CreateTaskPushNotificationConfigAsync(Lf.A2a.V1.TaskPushNotificationConfig request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.TaskPushNotificationConfig>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.CreateTaskPushNotificationConfigAsync(Lf.A2a.V1.TaskPushNotificationConfig request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.TaskPushNotificationConfig>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.DeleteTaskPushNotificationConfig(Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest request, Grpc.Core.CallOptions options) -> Google.Protobuf.WellKnownTypes.Empty
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.DeleteTaskPushNotificationConfig(Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Google.Protobuf.WellKnownTypes.Empty
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.DeleteTaskPushNotificationConfigAsync(Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncUnaryCall<Google.Protobuf.WellKnownTypes.Empty>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.DeleteTaskPushNotificationConfigAsync(Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncUnaryCall<Google.Protobuf.WellKnownTypes.Empty>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.GetExtendedAgentCard(Lf.A2a.V1.GetExtendedAgentCardRequest request, Grpc.Core.CallOptions options) -> Lf.A2a.V1.AgentCard
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.GetExtendedAgentCard(Lf.A2a.V1.GetExtendedAgentCardRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Lf.A2a.V1.AgentCard
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.GetExtendedAgentCardAsync(Lf.A2a.V1.GetExtendedAgentCardRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.AgentCard>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.GetExtendedAgentCardAsync(Lf.A2a.V1.GetExtendedAgentCardRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.AgentCard>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.GetTask(Lf.A2a.V1.GetTaskRequest request, Grpc.Core.CallOptions options) -> Lf.A2a.V1.Task
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.GetTask(Lf.A2a.V1.GetTaskRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Lf.A2a.V1.Task
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.GetTaskAsync(Lf.A2a.V1.GetTaskRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.Task>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.GetTaskAsync(Lf.A2a.V1.GetTaskRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.Task>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.GetTaskPushNotificationConfig(Lf.A2a.V1.GetTaskPushNotificationConfigRequest request, Grpc.Core.CallOptions options) -> Lf.A2a.V1.TaskPushNotificationConfig
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.GetTaskPushNotificationConfig(Lf.A2a.V1.GetTaskPushNotificationConfigRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Lf.A2a.V1.TaskPushNotificationConfig
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.GetTaskPushNotificationConfigAsync(Lf.A2a.V1.GetTaskPushNotificationConfigRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.TaskPushNotificationConfig>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.GetTaskPushNotificationConfigAsync(Lf.A2a.V1.GetTaskPushNotificationConfigRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.TaskPushNotificationConfig>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.ListTaskPushNotificationConfigs(Lf.A2a.V1.ListTaskPushNotificationConfigsRequest request, Grpc.Core.CallOptions options) -> Lf.A2a.V1.ListTaskPushNotificationConfigsResponse
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.ListTaskPushNotificationConfigs(Lf.A2a.V1.ListTaskPushNotificationConfigsRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Lf.A2a.V1.ListTaskPushNotificationConfigsResponse
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.ListTaskPushNotificationConfigsAsync(Lf.A2a.V1.ListTaskPushNotificationConfigsRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.ListTaskPushNotificationConfigsResponse>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.ListTaskPushNotificationConfigsAsync(Lf.A2a.V1.ListTaskPushNotificationConfigsRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.ListTaskPushNotificationConfigsResponse>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.ListTasks(Lf.A2a.V1.ListTasksRequest request, Grpc.Core.CallOptions options) -> Lf.A2a.V1.ListTasksResponse
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.ListTasks(Lf.A2a.V1.ListTasksRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Lf.A2a.V1.ListTasksResponse
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.ListTasksAsync(Lf.A2a.V1.ListTasksRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.ListTasksResponse>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.ListTasksAsync(Lf.A2a.V1.ListTasksRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.ListTasksResponse>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SendMessage(Lf.A2a.V1.SendMessageRequest request, Grpc.Core.CallOptions options) -> Lf.A2a.V1.SendMessageResponse
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SendMessage(Lf.A2a.V1.SendMessageRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Lf.A2a.V1.SendMessageResponse
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SendMessageAsync(Lf.A2a.V1.SendMessageRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.SendMessageResponse>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SendMessageAsync(Lf.A2a.V1.SendMessageRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncUnaryCall<Lf.A2a.V1.SendMessageResponse>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SendStreamingMessage(Lf.A2a.V1.SendMessageRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncServerStreamingCall<Lf.A2a.V1.StreamResponse>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SendStreamingMessage(Lf.A2a.V1.SendMessageRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncServerStreamingCall<Lf.A2a.V1.StreamResponse>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SubscribeToTask(Lf.A2a.V1.SubscribeToTaskRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncServerStreamingCall<Lf.A2a.V1.StreamResponse>
+~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SubscribeToTask(Lf.A2a.V1.SubscribeToTaskRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncServerStreamingCall<Lf.A2a.V1.StreamResponse>

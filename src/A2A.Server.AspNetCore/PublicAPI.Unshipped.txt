@@ -1,0 +1,42 @@
+A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions
+A2A.Server.AspNetCore.A2AHttpContextExtensions
+A2A.Server.AspNetCore.A2AHttpOptions
+A2A.Server.AspNetCore.A2AHttpOptions.A2AHttpOptions() -> void
+A2A.Server.AspNetCore.A2AHttpOptions.AgentCardMaxAge.get -> System.TimeSpan
+A2A.Server.AspNetCore.A2AHttpOptions.AgentCardMaxAge.set -> void
+A2A.Server.AspNetCore.A2AHttpOptions.JwksPath.get -> string!
+A2A.Server.AspNetCore.A2AHttpOptions.JwksPath.set -> void
+A2A.Server.AspNetCore.A2AHttpOptions.SigningKey.get -> A2A.Signing.AgentCardSigningKey?
+A2A.Server.AspNetCore.A2AHttpOptions.SigningKey.set -> void
+A2A.Server.AspNetCore.A2ARateLimitingExtensions
+A2A.Server.AspNetCore.A2ARateLimitOptions
+A2A.Server.AspNetCore.A2ARateLimitOptions.A2ARateLimitOptions() -> void
+A2A.Server.AspNetCore.A2ARateLimitOptions.ReplenishmentPeriod.get -> System.TimeSpan
+A2A.Server.AspNetCore.A2ARateLimitOptions.ReplenishmentPeriod.set -> void
+A2A.Server.AspNetCore.A2ARateLimitOptions.TokenLimit.get -> int
+A2A.Server.AspNetCore.A2ARateLimitOptions.TokenLimit.set -> void
+A2A.Server.AspNetCore.A2ARateLimitOptions.TokensPerPeriod.get -> int
+A2A.Server.AspNetCore.A2ARateLimitOptions.TokensPerPeriod.set -> void
+A2A.Server.AspNetCore.A2AServiceCollectionExtensions
+A2A.Server.AspNetCore.DataProtectionPushSecretProtector
+A2A.Server.AspNetCore.DataProtectionPushSecretProtector.DataProtectionPushSecretProtector(Microsoft.AspNetCore.DataProtection.IDataProtectionProvider! provider) -> void
+A2A.Server.AspNetCore.DataProtectionPushSecretProtector.Protect(string! plaintext) -> string!
+A2A.Server.AspNetCore.DataProtectionPushSecretProtector.Unprotect(string! protectedValue) -> string!
+A2A.Server.AspNetCore.ITenantResolver
+A2A.Server.AspNetCore.ITenantResolver.Resolve(Microsoft.AspNetCore.Http.HttpContext! http) -> string!
+A2A.Server.AspNetCore.RouteTenantResolver
+A2A.Server.AspNetCore.RouteTenantResolver.Resolve(Microsoft.AspNetCore.Http.HttpContext! http) -> string!
+A2A.Server.AspNetCore.RouteTenantResolver.RouteTenantResolver() -> void
+const A2A.Server.AspNetCore.A2ARateLimitingExtensions.PolicyName = "a2a" -> string!
+const A2A.Server.AspNetCore.DataProtectionPushSecretProtector.Purpose = "A2A.PushSecrets.v1" -> string!
+static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2A(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern = "/") -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
+static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AHttpJson(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! prefix = "/") -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
+static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AJsonRpc(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern = "/") -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
+static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapAgentCard(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints) -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder!
+static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.WithA2AStartupCheck<TBuilder>(this TBuilder builder, Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! bindingName) -> TBuilder
+static A2A.Server.AspNetCore.A2AHttpContextExtensions.CreateA2ACallContext(this Microsoft.AspNetCore.Http.HttpContext! http) -> A2A.Server.ServerCallContext!
+static A2A.Server.AspNetCore.A2ARateLimitingExtensions.AddA2ARateLimiting(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<A2A.Server.AspNetCore.A2ARateLimitOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static A2A.Server.AspNetCore.A2ARateLimitingExtensions.UseA2A(this Microsoft.AspNetCore.Builder.IApplicationBuilder! app) -> Microsoft.AspNetCore.Builder.IApplicationBuilder!
+static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2ADataProtectionPushSecrets(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2AServerAspNetCore(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.ConfigureA2AHttp(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<A2A.Server.AspNetCore.A2AHttpOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
