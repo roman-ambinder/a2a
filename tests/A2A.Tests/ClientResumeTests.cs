@@ -281,4 +281,62 @@ public class ClientResumeTests
         Assert.Equal(1, seen);
         Assert.Single(handler.Calls);
     }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Observe_resumes_after_clean_close_mid_task(string binding)
+    {
+        var handler = new ScriptedHandler(
+            _ => SseResponse(Sse(binding, Run.Take(2)), drop: false),
+            _ => SseResponse(Sse(binding, Run.Skip(2)), drop: false));
+        var client = NewClient(handler, binding);
+
+        var events = await Collect(client.ObserveTaskAsync("t1"));
+
+        Assert.Equal(Run.Select(f => Describe(Parse(f))).ToList(), events.Select(Describe).ToList());
+        Assert.Equal("t1:2", handler.Calls.ToArray()[1].LastEventId);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Observe_gives_up_when_server_always_closes_without_events(string binding)
+    {
+        var time = new FakeTimeProvider();
+        var handler = new ScriptedHandler(_ => SseResponse("", drop: false));
+        var client = NewClient(handler, binding, time);
+
+        await Assert.ThrowsAsync<IOException>(() => Collect(client.ObserveTaskAsync("t1")));
+
+        Assert.Equal(6, handler.Calls.Count);
+        Assert.Equal(5, time.Delays.Count);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Clean_close_after_terminal_event_makes_no_extra_request(string binding)
+    {
+        var handler = new ScriptedHandler(_ => SseResponse(Sse(binding, Run), drop: false));
+        var client = NewClient(handler, binding);
+
+        Assert.Equal(4, (await Collect(client.ObserveTaskAsync("t1"))).Count);
+
+        Assert.Single(handler.Calls);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Resume_denied_after_clean_close_surfaces_the_error(string binding)
+    {
+        var handler = new ScriptedHandler(
+            _ => SseResponse(Sse(binding, Run.Take(2)), drop: false),
+            _ => new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("", Encoding.UTF8, "text/plain") });
+        var client = NewClient(handler, binding);
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => Collect(client.ObserveTaskAsync("t1")));
+
+        Assert.Equal(A2AErrorCode.Unauthenticated, ex.Code);
+        Assert.Equal(2, handler.Calls.Count);
+    }
+
+    private static StreamResponse Parse(Frame f) => A2A.Json.A2AJson.Deserialize<StreamResponse>(f.Json);
 }

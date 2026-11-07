@@ -291,7 +291,7 @@ public class ClientDefaultsTests
     {
         var sse = (HttpRequestMessage _, CancellationToken ct) =>
         {
-            var content = new StringContent("data: " + $$"""{"jsonrpc":"2.0","id":"x","result":{"task":{{TaskJson}} } }""" + "\n\n", Encoding.UTF8, "text/event-stream");
+            var content = new StringContent("data: " + $$"""{"jsonrpc":"2.0","id":"x","result":{"task":{{TaskJson.Replace("WORKING", "COMPLETED")}} } }""" + "\n\n", Encoding.UTF8, "text/event-stream");
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
         };
         var handler = new ScriptedHandler(async (r, ct) => { await Task.Delay(200, ct); return await sse(r, ct); });

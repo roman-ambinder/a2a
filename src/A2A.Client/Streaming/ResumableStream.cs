@@ -54,6 +54,7 @@ internal static class ResumableStream
         long lastSequence = 0;
         var failures = 0;
         var reconnecting = false;
+        StreamResponse? lastYielded = null;
 
         while (true)
         {
@@ -69,7 +70,14 @@ internal static class ResumableStream
                     StreamFrame frame;
                     try
                     {
-                        if (!await enumerator.MoveNextAsync().ConfigureAwait(false)) yield break;
+                        if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+                        {
+                            // Clean end. The server also closes streams at MaxStreamDuration or on re-auth: resume unless the
+                            // stream is over (a final event was yielded) or there is no task id to resume with.
+                            if (taskId is null || (lastYielded is not null && EndsStream(lastYielded))) yield break;
+                            failure = new IOException("The server closed the stream before the task finished.");
+                            break;
+                        }
                         frame = enumerator.Current;
                     }
                     catch (A2AException ex) when (ex.Code == A2AErrorCode.UnsupportedOperation && taskId is not null && !cancellationToken.IsCancellationRequested)
@@ -85,14 +93,15 @@ internal static class ResumableStream
                         break;
                     }
 
-                    progressed = true;
                     taskId ??= TaskIdOf(frame.Response);
                     if (TryParseCursor(frame.Id, out var cursorTask, out var sequence) && (taskId is null || cursorTask == taskId))
                     {
                         if (sequence <= lastSequence) continue; // already delivered before the drop
                         lastSequence = sequence;
                         cursor = frame.Id;
+                        progressed = true; // only a new sequence is progress: frames without ids cannot be told from replays
                     }
+                    lastYielded = frame.Response;
                     yield return frame.Response;
                 }
             }
@@ -107,7 +116,7 @@ internal static class ResumableStream
                 yield break;
             }
 
-            // The connection failed. Progress since the last reconnect means a fresh budget of attempts.
+            // The connection ended early. Progress (a new sequence) since the last reconnect means a fresh budget of attempts.
             if (progressed) failures = 0;
             if (failures >= Backoff.Length) throw failure!;
             await Task.Delay(Backoff[failures], timeProvider, cancellationToken).ConfigureAwait(false);
@@ -115,6 +124,15 @@ internal static class ResumableStream
             reconnecting = true;
         }
     }
+
+    /// <summary>True when no more events follow: a direct message, or a task that finished or is waiting for the caller.</summary>
+    private static bool EndsStream(StreamResponse response) => response switch
+    {
+        MessageEvent => true,
+        TaskEvent t => t.Task.Status.State.IsTerminal() || t.Task.Status.State.IsInterrupted(),
+        StatusUpdateEvent s => s.StatusUpdate.Status.State.IsTerminal() || s.StatusUpdate.Status.State.IsInterrupted(),
+        _ => false,
+    };
 
     private static bool IsConnectionFailure(Exception ex) => ex is HttpRequestException or IOException;
 
