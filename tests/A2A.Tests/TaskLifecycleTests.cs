@@ -5,10 +5,9 @@ using static A2A.Tests.TaskStoreTests;
 
 namespace A2A.Tests;
 
-/// <summary>Wraps a real store and throws <see cref="ConcurrencyException"/> from the next N updates.</summary>
-public sealed class FlakyTaskStore : TaskStore
+/// <summary>Wraps a real store and throws <see cref="ConcurrencyException"/> from the next N updates or commits of an existing task.</summary>
+public sealed class FlakyTaskStore : DelegatingTaskStore
 {
-    private readonly InMemoryTaskStore _inner = new();
     private int _failures;
     private int _cancelBeforeConflict;
 
@@ -17,24 +16,28 @@ public sealed class FlakyTaskStore : TaskStore
 
     public void FailNextUpdates(int count) => Volatile.Write(ref _failures, count);
 
-    public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) => _inner.GetAsync(key, ct);
-    public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => _inner.CreateAsync(record, ct);
-
     public override async ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default)
+    {
+        await MaybeConflictAsync(record.Key, expectedVersion, ct);
+        return await Inner.UpdateAsync(record, expectedVersion, ct);
+    }
+
+    public override async ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
+    {
+        if (!commit.IsCreate) await MaybeConflictAsync(commit.Record.Key, commit.ExpectedVersion, ct);
+        return await Inner.CommitAsync(commit, ct);
+    }
+
+    private async ValueTask MaybeConflictAsync(TaskKey key, long expectedVersion, CancellationToken ct)
     {
         if (Interlocked.Exchange(ref _cancelBeforeConflict, 0) == 1)
         {
-            var stored = (await _inner.GetAsync(record.Key, ct))!;
-            await _inner.UpdateAsync(WithState(stored, TaskState.Canceled), stored.Version, ct);
-            throw new ConcurrencyException(record.Key, expectedVersion);
+            var stored = (await Inner.GetAsync(key, ct))!;
+            await Inner.UpdateAsync(WithState(stored, TaskState.Canceled), stored.Version, ct);
+            throw new ConcurrencyException(key, expectedVersion);
         }
-        if (Interlocked.Decrement(ref _failures) >= 0) throw new ConcurrencyException(record.Key, expectedVersion);
-        return await _inner.UpdateAsync(record, expectedVersion, ct);
+        if (Interlocked.Decrement(ref _failures) >= 0) throw new ConcurrencyException(key, expectedVersion);
     }
-
-    public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => _inner.ListAsync(query, ct);
-    public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => _inner.GetContextAsync(tenant, contextId, ct);
-    public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => _inner.GetOrCreateContextAsync(record, ct);
 }
 
 public class TaskLifecycleTests
@@ -144,7 +147,7 @@ public class TaskLifecycleTests
     public async Task Event_apply_retries_after_version_conflict(string binding)
     {
         var store = new FlakyTaskStore();
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(store));
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddTaskStore(store));
         store.FailNextUpdates(3); // the first event's update conflicts three times, the last allowed retry lands
         var task = (await host.Client(binding).SendMessageAsync("task")).RequireTask();
         Assert.Equal(TaskState.Completed, task.Status.State);
@@ -156,7 +159,7 @@ public class TaskLifecycleTests
     public async Task Follow_up_message_retries_after_version_conflict(string binding)
     {
         var store = new FlakyTaskStore();
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(store));
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddTaskStore(store));
         var client = host.Client(binding);
         var first = (await client.SendMessageAsync("input")).RequireTask();
         await host.WaitIdleAsync();
@@ -171,7 +174,7 @@ public class TaskLifecycleTests
     public async Task Follow_up_message_gives_up_after_too_many_conflicts_with_generic_error(string binding)
     {
         var store = new FlakyTaskStore();
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(store));
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddTaskStore(store));
         var client = host.Client(binding);
         var first = (await client.SendMessageAsync("input")).RequireTask();
         await host.WaitIdleAsync();
@@ -186,7 +189,7 @@ public class TaskLifecycleTests
     public async Task Event_is_dropped_when_reloaded_task_is_already_terminal(string binding)
     {
         var store = new FlakyTaskStore();
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(store));
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddTaskStore(store));
         store.CancelThenConflictOnNextUpdate();
         var task = (await host.Client(binding).SendMessageAsync("task")).RequireTask();
         await host.WaitIdleAsync();
@@ -220,7 +223,7 @@ public class TaskLifecycleTests
     public async Task Terminal_state_first_writer_wins()
     {
         Assert.False(TaskStateMachine.CanTransition(TaskState.Completed, TaskState.Canceled));
-        var s = new InMemoryTaskStore();
+        var s = new InMemoryTaskStore(new InMemoryEventStore(new StreamingOptions()));
         var v1 = await s.CreateAsync(NewRecord("t", "a", "id1"));
         var v2 = await s.UpdateAsync(WithState(v1, TaskState.Working), 1);
         var a = await s.UpdateAsync(WithState(v2, TaskState.Completed), 2);

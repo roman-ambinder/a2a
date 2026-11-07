@@ -11,16 +11,16 @@ public static class A2AServerServiceCollectionExtensions
     /// <summary>
     /// Registers the A2A server core and returns a builder to add the agent, its card and extra services.
     /// Defaults: in-memory stores (tasks, events, push configs, idempotency), HTTP push sender with SSRF guard, allow-all authorization handler. Register your own
-    /// <see cref="Storage.TaskStore"/>, <see cref="Storage.PushConfigStore"/> or <see cref="Idempotency.IdempotencyStore"/> before or after to replace them.
+    /// <see cref="Storage.TaskStore"/> (with the <see cref="Storage.EventStore"/> it commits events to), <see cref="Storage.PushConfigStore"/> or
+    /// <see cref="Idempotency.IdempotencyStore"/> before or after to replace them.
     /// </summary>
     public static A2AServerBuilder AddA2AServer(this IServiceCollection services, Action<A2AServerOptions>? configure = null)
     {
         var options = services.AddOptions<A2AServerOptions>();
         if (configure is not null) options.Configure(configure);
-        services.TryAddSingleton<Storage.TaskStore, Storage.InMemoryTaskStore>();
+        services.TryAddSingleton<Storage.TaskStore>(InMemoryTaskStore);
         services.TryAddSingleton<Storage.PushConfigStore, Storage.InMemoryPushConfigStore>();
-        services.TryAddSingleton<Storage.EventStore>(sp => new Storage.InMemoryEventStore(
-            sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, sp.GetService<TimeProvider>()));
+        services.TryAddSingleton<Storage.EventStore>(InMemoryEventStore);
         services.TryAddSingleton<Idempotency.IdempotencyStore>(sp => new Idempotency.InMemoryIdempotencyStore(
             sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Idempotency, sp.GetService<TimeProvider>()));
         services.TryAddSingleton<IPushSecretProtector, EphemeralPushSecretProtector>();
@@ -34,6 +34,16 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<A2ARequestHandler>();
         return new A2AServerBuilder(services);
     }
+
+    internal static Storage.InMemoryEventStore InMemoryEventStore(IServiceProvider sp) =>
+        new(sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, sp.GetService<TimeProvider>());
+
+    /// <summary>The in-memory task store commits events to the registered event store, so that must be the in-memory one too.</summary>
+    internal static Storage.InMemoryTaskStore InMemoryTaskStore(IServiceProvider sp) =>
+        new(sp.GetRequiredService<Storage.EventStore>() as Storage.InMemoryEventStore
+            ?? throw new InvalidOperationException(
+                "The in-memory TaskStore writes events to the in-memory EventStore, but another EventStore is registered. " +
+                "Register a TaskStore that commits to your EventStore (the same provider's task store)."));
 }
 
 /// <summary>Fluent setup for the A2A server. Created by <c>AddA2AServer</c>.</summary>
@@ -78,10 +88,9 @@ public sealed class A2AServerBuilder
     /// </summary>
     public A2AServerBuilder AddInMemoryStores()
     {
-        Services.TryAddSingleton<Storage.TaskStore, Storage.InMemoryTaskStore>();
+        Services.TryAddSingleton<Storage.TaskStore>(A2AServerServiceCollectionExtensions.InMemoryTaskStore);
         Services.TryAddSingleton<Storage.PushConfigStore, Storage.InMemoryPushConfigStore>();
-        Services.TryAddSingleton<Storage.EventStore>(sp => new Storage.InMemoryEventStore(
-            sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, sp.GetService<TimeProvider>()));
+        Services.TryAddSingleton<Storage.EventStore>(A2AServerServiceCollectionExtensions.InMemoryEventStore);
         Services.TryAddSingleton<Idempotency.IdempotencyStore>(sp => new Idempotency.InMemoryIdempotencyStore(
             sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Idempotency, sp.GetService<TimeProvider>()));
         return this;

@@ -182,10 +182,10 @@ builder.Services.AddA2ADataProtectionPushSecrets();
 - `A2A.Server.Postgres` stores tasks, event logs, push configs and idempotency keys, and creates its tables at startup ([README](src/A2A.Server.Postgres/README.md)).
 - `A2A.Server.Redis` fans live events out to every instance ([README](src/A2A.Server.Redis/README.md)).
 - Push secrets need a protector with persisted, shared keys; the default one is per process.
-- The handler's per-task lock is per process. Across instances, the stores' version checks keep task writes consistent.
+- The handler's per-task lock is per process. Across instances, each task change and its event are written in one transaction (`TaskStore.CommitAsync`) with a version check, so the event log follows the order of task versions.
 - Both packages pass the same contract tests as the in-memory versions (`tests/A2A.Stores.Tests`, Docker via Testcontainers).
 
-For another database, implement `TaskStore`, `EventStore`, `PushConfigStore` and `IdempotencyStore`, and run the contract tests against it.
+For another database, implement `TaskStore`, `EventStore`, `PushConfigStore` and `IdempotencyStore`, and run the contract tests against it. `TaskStore.CommitAsync` must write the task and append the event to the log your `EventStore` reads as one atomic unit.
 
 ## Not included yet
 

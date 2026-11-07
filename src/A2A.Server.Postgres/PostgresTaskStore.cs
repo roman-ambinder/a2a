@@ -9,21 +9,42 @@ namespace A2A.Server.Postgres;
 /// <summary>
 /// PostgreSQL <see cref="TaskStore"/>. Same behavior as <see cref="InMemoryTaskStore"/>: owner- and tenant-scoped reads,
 /// optimistic concurrency on <see cref="TaskRecord.Version"/>, ListTasks newest first with keyset paging.
+/// <see cref="CommitAsync"/> writes the task row and the event log (the tables <see cref="PostgresEventStore"/> reads) in
+/// one transaction, so give both stores the same data source, <see cref="StreamingOptions"/> and schema.
 /// </summary>
 public sealed class PostgresTaskStore : TaskStore
 {
     private readonly NpgsqlDataSource _db;
+    private readonly StreamingOptions _streaming;
     private readonly TimeProvider _time;
     private readonly string _tasks;
     private readonly string _contexts;
+    private readonly EventTables _eventTables;
+    private readonly string _insertSql;
+    private readonly string _updateSql;
 
-    public PostgresTaskStore(NpgsqlDataSource dataSource, PostgresStoreOptions? options = null, TimeProvider? time = null)
+    public PostgresTaskStore(NpgsqlDataSource dataSource, StreamingOptions streaming, PostgresStoreOptions? options = null, TimeProvider? time = null)
     {
         _db = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
+        _streaming = streaming ?? throw new ArgumentNullException(nameof(streaming));
         _time = time ?? TimeProvider.System;
         var s = PostgresSchema.Quote((options ?? new()).Schema);
         _tasks = $"{s}.a2a_tasks";
         _contexts = $"{s}.a2a_contexts";
+        _eventTables = EventTables.For(options);
+        _insertSql =
+            $"""
+            INSERT INTO {_tasks} (tenant, task_id, owner, context_id, state, status_ticks, version, created_ticks, updated_ticks, task)
+            VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9)
+            ON CONFLICT (tenant, task_id) DO NOTHING
+            """;
+        _updateSql =
+            $"""
+            UPDATE {_tasks}
+               SET context_id = $4, state = $5, status_ticks = COALESCE($6, created_ticks), version = version + 1, updated_ticks = $7, task = $8
+             WHERE tenant = $1 AND task_id = $2 AND owner = $3 AND version = $9
+            RETURNING created_ticks
+            """;
     }
 
     public override async ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default)
@@ -39,56 +60,56 @@ public sealed class PostgresTaskStore : TaskStore
 
     public override async ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default)
     {
-        ArgumentNullException.ThrowIfNull(record);
-        if (record.Version != 0) throw new ArgumentException("A new record must have Version 0.", nameof(record));
-        var (json, stored) = Snapshot(record with { Version = 1 });
-
-        await using var cmd = _db.CreateCommand(
-            $"""
-            INSERT INTO {_tasks} (tenant, task_id, owner, context_id, state, status_ticks, version, created_ticks, updated_ticks, task)
-            VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9)
-            ON CONFLICT (tenant, task_id) DO NOTHING
-            """);
-        cmd.Parameters.Add(Text(stored.Tenant));
-        cmd.Parameters.Add(Text(stored.Task.Id));
-        cmd.Parameters.Add(Text(stored.Owner));
-        cmd.Parameters.Add(Text(stored.Task.ContextId ?? string.Empty));
-        cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = (int)stored.Task.Status.State });
-        cmd.Parameters.Add(Long(StatusTicks(stored)));
-        cmd.Parameters.Add(Long(stored.CreatedAt.UtcTicks));
-        cmd.Parameters.Add(Long(stored.UpdatedAt.UtcTicks));
-        cmd.Parameters.Add(Text(json));
+        var (json, stored) = ForCreate(record);
+        await using var cmd = _db.CreateCommand(_insertSql);
+        AddInsertParameters(cmd, stored, json);
         if (await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 0) throw new DuplicateTaskException(record.Key);
         return stored;
     }
 
     public override async ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default)
     {
-        ArgumentNullException.ThrowIfNull(record);
-        var now = _time.GetUtcNow();
-        var (json, stored) = Snapshot(record with { Version = expectedVersion + 1, UpdatedAt = now });
-
-        await using var cmd = _db.CreateCommand(
-            $"""
-            UPDATE {_tasks}
-               SET context_id = $4, state = $5, status_ticks = COALESCE($6, created_ticks), version = version + 1, updated_ticks = $7, task = $8
-             WHERE tenant = $1 AND task_id = $2 AND owner = $3 AND version = $9
-            RETURNING created_ticks
-            """);
-        cmd.Parameters.Add(Text(stored.Tenant));
-        cmd.Parameters.Add(Text(stored.Task.Id));
-        cmd.Parameters.Add(Text(stored.Owner));
-        cmd.Parameters.Add(Text(stored.Task.ContextId ?? string.Empty));
-        cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = (int)stored.Task.Status.State });
-        // Without a status timestamp the sort key falls back to the creation time, which only the database row has.
-        cmd.Parameters.Add(new NpgsqlParameter { Value = (object?)stored.Task.Status.Timestamp?.UtcTicks ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
-        cmd.Parameters.Add(Long(now.UtcTicks));
-        cmd.Parameters.Add(Text(json));
-        cmd.Parameters.Add(Long(expectedVersion));
-
+        var (json, stored) = ForUpdate(record, expectedVersion);
+        await using var cmd = _db.CreateCommand(_updateSql);
+        AddUpdateParameters(cmd, stored, json, expectedVersion);
         var created = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
         if (created is not long createdTicks) throw new ConcurrencyException(record.Key, expectedVersion);
         return stored with { CreatedAt = new DateTimeOffset(createdTicks, TimeSpan.Zero) };
+    }
+
+    /// <summary>
+    /// One transaction: the task insert or compare-and-set update (whose row lock serializes commits to the task, so log
+    /// order = version order across instances), then the event append with its sequence. Any failure rolls back all of it.
+    /// </summary>
+    public override async ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(commit);
+        if (commit.Deliveries.Count > 0) throw new NotSupportedException("This store does not store push deliveries.");
+        var key = commit.Record.Key;
+        var (json, stored) = commit.IsCreate ? ForCreate(commit.Record) : ForUpdate(commit.Record, commit.ExpectedVersion);
+        var eventJson = A2AJson.Serialize(commit.Event);
+
+        await using var conn = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
+        if (commit.IsCreate)
+        {
+            await using var insert = new NpgsqlCommand(_insertSql, conn, tx);
+            AddInsertParameters(insert, stored, json);
+            if (await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 0) throw new DuplicateTaskException(key);
+        }
+        else
+        {
+            await using var update = new NpgsqlCommand(_updateSql, conn, tx);
+            AddUpdateParameters(update, stored, json, commit.ExpectedVersion);
+            if (await update.ExecuteScalarAsync(ct).ConfigureAwait(false) is not long createdTicks)
+                throw new ConcurrencyException(key, commit.ExpectedVersion);
+            stored = stored with { CreatedAt = new DateTimeOffset(createdTicks, TimeSpan.Zero) };
+        }
+
+        var seq = await AppendEventAsync(conn, tx, _eventTables, key, eventJson, Math.Max(1, _streaming.ReplayBufferSize),
+            _time.GetUtcNow().UtcTicks, ct).ConfigureAwait(false);
+        await tx.CommitAsync(ct).ConfigureAwait(false);
+        return new CommitResult(stored, seq);
     }
 
     public override async ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default)
@@ -157,6 +178,46 @@ public sealed class PostgresTaskStore : TaskStore
         // Lost the race (or the context existed): a new statement sees the committed winner.
         return await GetContextAsync(record.Tenant, record.ContextId, ct).ConfigureAwait(false)
                ?? throw new InvalidOperationException($"Context '{record.ContextId}' vanished while it was being created.");
+    }
+
+    private static (string Json, TaskRecord Stored) ForCreate(TaskRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        if (record.Version != 0) throw new ArgumentException("A new record must have Version 0.", nameof(record));
+        return Snapshot(record with { Version = 1 });
+    }
+
+    private (string Json, TaskRecord Stored) ForUpdate(TaskRecord record, long expectedVersion)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        return Snapshot(record with { Version = expectedVersion + 1, UpdatedAt = _time.GetUtcNow() });
+    }
+
+    private static void AddInsertParameters(NpgsqlCommand cmd, TaskRecord stored, string json)
+    {
+        cmd.Parameters.Add(Text(stored.Tenant));
+        cmd.Parameters.Add(Text(stored.Task.Id));
+        cmd.Parameters.Add(Text(stored.Owner));
+        cmd.Parameters.Add(Text(stored.Task.ContextId ?? string.Empty));
+        cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = (int)stored.Task.Status.State });
+        cmd.Parameters.Add(Long(StatusTicks(stored)));
+        cmd.Parameters.Add(Long(stored.CreatedAt.UtcTicks));
+        cmd.Parameters.Add(Long(stored.UpdatedAt.UtcTicks));
+        cmd.Parameters.Add(Text(json));
+    }
+
+    private static void AddUpdateParameters(NpgsqlCommand cmd, TaskRecord stored, string json, long expectedVersion)
+    {
+        cmd.Parameters.Add(Text(stored.Tenant));
+        cmd.Parameters.Add(Text(stored.Task.Id));
+        cmd.Parameters.Add(Text(stored.Owner));
+        cmd.Parameters.Add(Text(stored.Task.ContextId ?? string.Empty));
+        cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = (int)stored.Task.Status.State });
+        // Without a status timestamp the sort key falls back to the creation time, which only the database row has.
+        cmd.Parameters.Add(new NpgsqlParameter { Value = (object?)stored.Task.Status.Timestamp?.UtcTicks ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
+        cmd.Parameters.Add(Long(stored.UpdatedAt.UtcTicks));
+        cmd.Parameters.Add(Text(json));
+        cmd.Parameters.Add(Long(expectedVersion));
     }
 
     /// <summary>Serializes the task once and returns both the JSON and a record rebuilt from it, so what is returned matches what is stored.</summary>

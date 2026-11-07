@@ -14,6 +14,7 @@ public sealed class ThrowingTaskStore : TaskStore
     public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) => throw Boom();
     public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => throw Boom();
     public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default) => throw Boom();
+    public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default) => throw Boom();
     public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => throw Boom();
     public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => throw Boom();
     public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => throw Boom();
@@ -104,6 +105,7 @@ internal sealed class RateLimitedTaskStore : TaskStore
     public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) => throw Limited();
     public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => throw Limited();
     public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default) => throw Limited();
+    public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default) => throw Limited();
     public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => throw Limited();
     public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => throw Limited();
     public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => throw Limited();

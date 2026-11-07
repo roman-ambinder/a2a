@@ -3,9 +3,13 @@ using A2A.Json;
 
 namespace A2A.Server.Storage;
 
-/// <summary>Process-local task store. For development and tests; data is lost on restart.</summary>
-public sealed class InMemoryTaskStore : TaskStore
+/// <summary>
+/// Process-local task store. For development and tests; data is lost on restart. <see cref="CommitAsync"/> appends to
+/// the given <see cref="InMemoryEventStore"/>, which must be the server's <see cref="EventStore"/>.
+/// </summary>
+public sealed class InMemoryTaskStore(InMemoryEventStore events) : TaskStore
 {
+    private readonly InMemoryEventStore _events = events ?? throw new ArgumentNullException(nameof(events));
     private readonly ConcurrentDictionary<(string Tenant, string TaskId), TaskRecord> _tasks = new();
     private readonly ConcurrentDictionary<(string Tenant, string ContextId), ContextRecord> _contexts = new();
 
@@ -23,7 +27,36 @@ public sealed class InMemoryTaskStore : TaskStore
         return ValueTask.FromResult(Copy(stored));
     }
 
-    public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default)
+    public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default) =>
+        ValueTask.FromResult(Copy(Replace(record, A2AJson.Clone(record.Task), expectedVersion)));
+
+    public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(commit);
+        if (commit.Deliveries.Count > 0) throw new NotSupportedException("This store does not store push deliveries.");
+        var record = commit.Record;
+        var task = A2AJson.Clone(record.Task); // before the commit: nothing that can fail runs after the task write
+        TaskRecord? stored = null;
+        long seq;
+        if (commit.IsCreate)
+        {
+            if (record.Version != 0) throw new ArgumentException("A new record must have Version 0.", nameof(commit));
+            var created = record with { Task = task, Version = 1 };
+            seq = _events.AppendAfter(record.Key, commit.Event, () =>
+            {
+                if (!_tasks.TryAdd((created.Tenant, created.Task.Id), created)) throw new DuplicateTaskException(record.Key);
+                stored = created;
+            });
+        }
+        else
+        {
+            seq = _events.AppendAfter(record.Key, commit.Event, () => stored = Replace(record, task, commit.ExpectedVersion));
+        }
+        return ValueTask.FromResult(new CommitResult(Copy(stored!), seq));
+    }
+
+    /// <summary>Compare-and-set: stores <paramref name="record"/> with <paramref name="task"/> (already a copy) as version expected + 1.</summary>
+    private TaskRecord Replace(TaskRecord record, AgentTask task, long expectedVersion)
     {
         var id = (record.Tenant, record.Task.Id);
         if (!_tasks.TryGetValue(id, out var current)
@@ -31,9 +64,9 @@ public sealed class InMemoryTaskStore : TaskStore
             || current.Version != expectedVersion)
             throw new ConcurrencyException(record.Key, expectedVersion);
 
-        var next = Copy(record with { Version = expectedVersion + 1, CreatedAt = current.CreatedAt, UpdatedAt = DateTimeOffset.UtcNow });
+        var next = record with { Task = task, Version = expectedVersion + 1, CreatedAt = current.CreatedAt, UpdatedAt = DateTimeOffset.UtcNow };
         if (!_tasks.TryUpdate(id, next, current)) throw new ConcurrencyException(record.Key, expectedVersion);
-        return ValueTask.FromResult(Copy(next));
+        return next;
     }
 
     public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default)

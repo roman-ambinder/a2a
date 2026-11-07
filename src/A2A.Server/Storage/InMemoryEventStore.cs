@@ -14,9 +14,17 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly ConcurrentDictionary<TaskKey, TaskLog> _logs = new();
 
-    public override ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken ct = default)
+    public override ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken ct = default) =>
+        ValueTask.FromResult(AppendAfter(task, evt, static () => { }));
+
+    /// <summary>
+    /// Runs <paramref name="write"/> and then appends <paramref name="evt"/>, both under the task's log lock: if
+    /// <paramref name="write"/> throws, nothing is appended. <see cref="InMemoryTaskStore.CommitAsync"/> does its
+    /// compare-and-set here, so commits to one task are serialized and the log follows their order.
+    /// </summary>
+    internal long AppendAfter(TaskKey task, StreamResponse evt, Action write)
     {
-        var copy = A2AJson.Clone(evt);
+        var copy = A2AJson.Clone(evt); // before the write: nothing that can fail runs after it
         var capacity = Math.Max(1, options.ReplayBufferSize);
         while (true)
         {
@@ -24,10 +32,21 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
             lock (log)
             {
                 if (log.Evicted) continue; // lost a race with eviction; start a fresh log
+                try
+                {
+                    write();
+                }
+                catch when (log.Last == 0)
+                {
+                    // Do not keep an empty log created only for a write that failed.
+                    log.Evicted = true;
+                    _logs.TryRemove(new KeyValuePair<TaskKey, TaskLog>(task, log));
+                    throw;
+                }
                 var seq = ++log.Last;
                 log.Events.Add(new SequencedEvent(seq, copy));
                 if (log.Events.Count > capacity) log.Events.RemoveRange(0, log.Events.Count - capacity);
-                return ValueTask.FromResult(seq);
+                return seq;
             }
         }
     }

@@ -1,13 +1,19 @@
 using A2A.Json;
+using A2A.Server;
 using A2A.Server.Postgres;
 using A2A.Server.Storage;
+using A2A.Server.Streaming;
+using Npgsql;
 
 namespace A2A.Stores.Tests;
 
 /// <summary>Behavior every <see cref="TaskStore"/> must have. Each store runs the same tests through a subclass.</summary>
 public abstract class TaskStoreContract
 {
-    protected abstract Task<TaskStore> CreateStoreAsync(TimeProvider? time = null);
+    /// <summary>A fresh task store and the event store its commits write to.</summary>
+    protected abstract Task<(TaskStore Tasks, EventStore Events)> CreateStoresAsync(TimeProvider? time = null);
+
+    protected async Task<TaskStore> CreateStoreAsync(TimeProvider? time = null) => (await CreateStoresAsync(time)).Tasks;
 
     internal static TaskRecord NewRecord(string tenant, string owner, string id, DateTimeOffset? at = null, string contextId = "ctx")
     {
@@ -303,16 +309,159 @@ public abstract class TaskStoreContract
             Assert.Equal(2, (await s.GetAsync(r.Key))!.Version);
         }
     }
+
+    internal static StreamResponse StatusEvent(string taskId, TaskState state, long? v = null) =>
+        new StatusUpdateEvent(new TaskStatusUpdateEvent
+        {
+            TaskId = taskId,
+            ContextId = "ctx",
+            Status = new AgentTaskStatus { State = state },
+            Metadata = v is { } n ? new() { ["v"] = A2AJson.SerializeToElement(n.ToString(System.Globalization.CultureInfo.InvariantCulture)) } : null,
+        });
+
+    internal static TaskCommit CreateCommit(TaskRecord record) => new(record, 0, StreamResponse.Of(record.Task), []);
+
+    internal static async Task<List<SequencedEvent>> ReadAllAsync(EventStore events, TaskKey key)
+    {
+        var list = new List<SequencedEvent>();
+        await foreach (var e in events.ReadAfterAsync(key, 0)) list.Add(e);
+        return list;
+    }
+
+    [SkippableFact]
+    public async Task Commit_stores_task_and_event_with_the_next_sequence()
+    {
+        var (s, events) = await CreateStoresAsync();
+        var created = await s.CommitAsync(CreateCommit(NewRecord("t", "alice", "id1")));
+        Assert.Equal(1, created.Sequence);
+        Assert.Equal(1, created.Record.Version);
+
+        var next = await s.CommitAsync(new TaskCommit(WithState(created.Record, TaskState.Working), 1, StatusEvent("id1", TaskState.Working), []));
+
+        Assert.Equal(2, next.Sequence);
+        Assert.Equal(2, next.Record.Version);
+        Assert.Equal(created.Record.CreatedAt, next.Record.CreatedAt);
+        var stored = (await s.GetAsync(created.Record.Key))!;
+        Assert.Equal(2, stored.Version);
+        Assert.Equal(TaskState.Working, stored.Task.Status.State);
+        var log = await ReadAllAsync(events, created.Record.Key);
+        Assert.Equal([1L, 2L], log.Select(e => e.Sequence));
+        Assert.Equal("id1", Assert.IsType<TaskEvent>(log[0].Event).Task.Id);
+        Assert.Equal(TaskState.Working, Assert.IsType<StatusUpdateEvent>(log[1].Event).StatusUpdate.Status.State);
+    }
+
+    [SkippableFact]
+    public async Task Stale_foreign_or_duplicate_commit_writes_nothing()
+    {
+        var (s, events) = await CreateStoresAsync();
+        var input = NewRecord("t", "alice", "id1");
+        var created = await s.CommitAsync(CreateCommit(input));
+        await s.CommitAsync(new TaskCommit(WithState(created.Record, TaskState.Working), 1, StatusEvent("id1", TaskState.Working), []));
+
+        await Assert.ThrowsAsync<ConcurrencyException>(() =>
+            s.CommitAsync(new TaskCommit(WithState(created.Record, TaskState.Failed), 1, StatusEvent("id1", TaskState.Failed), [])).AsTask());
+        await Assert.ThrowsAsync<ConcurrencyException>(() =>
+            s.CommitAsync(new TaskCommit(WithState(created.Record with { Owner = "bob" }, TaskState.Failed), 2, StatusEvent("id1", TaskState.Failed), [])).AsTask());
+        await Assert.ThrowsAsync<ConcurrencyException>(() =>
+            s.CommitAsync(new TaskCommit(NewRecord("t", "alice", "ghost"), 1, StatusEvent("ghost", TaskState.Failed), [])).AsTask());
+        await Assert.ThrowsAsync<DuplicateTaskException>(() => s.CommitAsync(CreateCommit(input)).AsTask());
+        await Assert.ThrowsAsync<ArgumentException>(() => s.CommitAsync(CreateCommit(input with { Version = 2 })).AsTask());
+
+        var stored = (await s.GetAsync(created.Record.Key))!;
+        Assert.Equal(2, stored.Version);
+        Assert.Equal(TaskState.Working, stored.Task.Status.State);
+        Assert.Equal([1L, 2L], (await ReadAllAsync(events, created.Record.Key)).Select(e => e.Sequence));
+        Assert.Equal(0, await events.LastSequenceAsync(new TaskKey("t", "bob", "id1")));
+        Assert.Equal(0, await events.LastSequenceAsync(new TaskKey("t", "alice", "ghost")));
+    }
+
+    /// <summary>
+    /// Writers on several threads commit to one task, each reloading and retrying after a conflict. Every event carries
+    /// the version its commit produced, so the log must list versions 1, 2, 3, ... in sequence order, with no gaps.
+    /// </summary>
+    [SkippableFact]
+    public async Task Concurrent_commits_log_order_equals_version_order()
+    {
+        const int writers = 20;
+        var (s, events) = await CreateStoresAsync();
+        var key = (await s.CommitAsync(CreateCommit(NewRecord("t", "a", "id1")))).Record.Key;
+        var go = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var tasks = Enumerable.Range(0, writers).Select(_ => Task.Run(async () =>
+        {
+            await go.Task;
+            for (var attempt = 0; ; attempt++)
+            {
+                var current = (await s.GetAsync(key))!;
+                var produced = current.Version + 1;
+                try
+                {
+                    await s.CommitAsync(new TaskCommit(WithState(current, TaskState.Working), current.Version, StatusEvent("id1", TaskState.Working, produced), []));
+                    return;
+                }
+                catch (ConcurrencyException) when (attempt < 1000)
+                {
+                    // Reload and retry, like the request handler.
+                }
+            }
+        })).ToArray();
+        go.SetResult();
+        await Task.WhenAll(tasks);
+
+        var log = await ReadAllAsync(events, key);
+        Assert.Equal(Enumerable.Range(1, writers + 1).Select(i => (long)i), log.Select(e => e.Sequence));
+        foreach (var e in log.Skip(1))
+            Assert.Equal(e.Sequence.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Assert.IsType<StatusUpdateEvent>(e.Event).StatusUpdate.Metadata!["v"].GetString());
+        Assert.Equal(writers + 1, (await s.GetAsync(key))!.Version);
+    }
 }
 
 public sealed class InMemoryTaskStoreTests : TaskStoreContract
 {
-    protected override Task<TaskStore> CreateStoreAsync(TimeProvider? time = null) => Task.FromResult<TaskStore>(new InMemoryTaskStore());
+    protected override Task<(TaskStore Tasks, EventStore Events)> CreateStoresAsync(TimeProvider? time = null)
+    {
+        var events = new InMemoryEventStore(new StreamingOptions(), time);
+        return Task.FromResult<(TaskStore, EventStore)>((new InMemoryTaskStore(events), events));
+    }
 }
 
 [Collection(ContainersCollection.Name)]
 public sealed class PostgresTaskStoreTests(PostgresFixture db) : TaskStoreContract
 {
-    protected override async Task<TaskStore> CreateStoreAsync(TimeProvider? time = null) =>
-        new PostgresTaskStore(db.DataSource, await db.NewSchemaAsync(), time);
+    protected override async Task<(TaskStore Tasks, EventStore Events)> CreateStoresAsync(TimeProvider? time = null)
+    {
+        var schema = await db.NewSchemaAsync();
+        return Create(schema, time);
+    }
+
+    private (TaskStore Tasks, EventStore Events) Create(PostgresStoreOptions schema, TimeProvider? time = null)
+    {
+        var streaming = new StreamingOptions();
+        return (new PostgresTaskStore(db.DataSource, streaming, schema, time), new PostgresEventStore(db.DataSource, streaming, schema, time));
+    }
+
+    /// <summary>
+    /// The event insert fails after the task row was updated in the same transaction (a row already holds the next
+    /// sequence): the whole commit rolls back, so the task keeps its version and the log its last sequence.
+    /// </summary>
+    [SkippableFact]
+    public async Task Commit_is_atomic()
+    {
+        var schema = await db.NewSchemaAsync();
+        var (s, events) = Create(schema);
+        var created = await s.CommitAsync(CreateCommit(NewRecord("t", "a", "id1")));
+        await using (var plant = db.DataSource.CreateCommand(
+            $"INSERT INTO \"{schema.Schema}\".a2a_events (tenant, owner, task_id, seq, event) VALUES ('t', 'a', 'id1', 2, '{{}}')"))
+            await plant.ExecuteNonQueryAsync();
+
+        var ex = await Assert.ThrowsAsync<PostgresException>(() =>
+            s.CommitAsync(new TaskCommit(WithState(created.Record, TaskState.Working), 1, StatusEvent("id1", TaskState.Working), [])).AsTask());
+
+        Assert.Equal(PostgresErrorCodes.UniqueViolation, ex.SqlState);
+        var stored = (await s.GetAsync(created.Record.Key))!;
+        Assert.Equal(1, stored.Version);
+        Assert.Equal(TaskState.Submitted, stored.Task.Status.State);
+        Assert.Equal(1, await events.LastSequenceAsync(created.Record.Key));
+    }
 }

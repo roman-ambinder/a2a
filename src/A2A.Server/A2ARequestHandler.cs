@@ -1297,7 +1297,7 @@ public sealed class A2ARequestHandler : IDisposable
                     if (!created)
                     {
                         var now = DateTimeOffset.UtcNow;
-                        record = await _tasks.CreateAsync(new TaskRecord(
+                        var initial = new TaskRecord(
                             key.Tenant, key.Owner,
                             new AgentTask
                             {
@@ -1306,11 +1306,14 @@ public sealed class A2ARequestHandler : IDisposable
                                 Status = new AgentTaskStatus { State = TaskState.Submitted, Timestamp = (evt as StatusUpdateEvent)?.StatusUpdate.Status.Timestamp ?? now },
                                 History = userMessage is null ? null : [WithTask(userMessage, taskId)],
                             },
-                            Version: 0, CreatedAt: now, UpdatedAt: now)).ConfigureAwait(false);
+                            Version: 0, CreatedAt: now, UpdatedAt: now);
+                        // The task and its first event (the snapshot) are stored together.
+                        var snapshot = StreamResponse.Of(A2AJson.Clone(initial.Task));
+                        var committed = await _tasks.CommitAsync(new TaskCommit(initial, 0, snapshot, [])).ConfigureAwait(false);
+                        record = committed.Record;
                         if (push is not null) await SavePushConfigAsync(key, push, CancellationToken.None).ConfigureAwait(false);
                         created = true;
-                        var snapshot = StreamResponse.Of(A2AJson.Clone(record.Task));
-                        Publish(exec, key, new SequencedEvent(await _events.AppendAsync(key, snapshot).ConfigureAwait(false), snapshot));
+                        Publish(exec, key, new SequencedEvent(committed.Sequence, snapshot));
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
                         await RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
                     }
@@ -1402,9 +1405,10 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     /// <summary>
-    /// Applies the event, stores the task, then appends the event (the caller holds the task lock, so sequences follow
-    /// the apply order and the log holds only applied events). After a version conflict, reloads and re-applies, up to
-    /// <see cref="MaxConflictRetries"/> times. Returns null when the event was dropped (for example the task is already terminal).
+    /// Applies the event, then commits the task change and the event as one unit (<see cref="TaskStore.CommitAsync"/>), so
+    /// the log holds only applied events, in the order their changes were stored, even across instances. After a version
+    /// conflict, reloads and re-applies, up to <see cref="MaxConflictRetries"/> times. Returns null when the event was
+    /// dropped (for example the task is already terminal).
     /// </summary>
     private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt)
     {
@@ -1417,8 +1421,8 @@ public sealed class A2ARequestHandler : IDisposable
             }
             try
             {
-                await _tasks.UpdateAsync(record, record.Version).ConfigureAwait(false);
-                return new SequencedEvent(await _events.AppendAsync(key, evt).ConfigureAwait(false), evt);
+                var committed = await _tasks.CommitAsync(new TaskCommit(record, record.Version, evt, [])).ConfigureAwait(false);
+                return new SequencedEvent(committed.Sequence, evt);
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
             {

@@ -57,7 +57,8 @@ public static class A2APostgresServiceCollectionExtensions
         configure?.Invoke(options);
         services.AddOptions<A2AServerOptions>();
 
-        services.Replace(ServiceDescriptor.Singleton<TaskStore>(sp => new PostgresTaskStore(db(sp), options, sp.GetService<TimeProvider>())));
+        services.Replace(ServiceDescriptor.Singleton<TaskStore>(sp => new PostgresTaskStore(
+            db(sp), sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, options, sp.GetService<TimeProvider>())));
         services.Replace(ServiceDescriptor.Singleton<EventStore>(sp => new PostgresEventStore(
             db(sp), sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, options, sp.GetService<TimeProvider>())));
         services.Replace(ServiceDescriptor.Singleton<PushConfigStore>(sp => new PostgresPushConfigStore(db(sp), options)));

@@ -9,7 +9,10 @@ namespace A2A.Server.Storage;
 /// </summary>
 public abstract class EventStore
 {
-    /// <summary>Appends an event and returns its sequence. The first event of a task gets 1.</summary>
+    /// <summary>
+    /// Appends an event and returns its sequence. The first event of a task gets 1. The request handler does not call
+    /// this: it appends through <see cref="TaskStore.CommitAsync"/>, together with the task change.
+    /// </summary>
     public abstract ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken ct = default);
 
     /// <summary>Reads the retained events with a sequence greater than <paramref name="afterSequence"/>, in order.</summary>

@@ -35,6 +35,7 @@ Times are UTC ticks (`bigint`), JSON is `text`, and keys use the `"C"` collation
 
 Same contract as the in-memory stores (the same test suite runs against both): owner and tenant scoping, optimistic concurrency on versions,
 ListTasks newest first with keyset paging, per-task event sequences from 1, trimming to the replay buffer, terminal retention, and idempotency retention.
+A task change and its event are written in one transaction (`TaskStore.CommitAsync`), so the event log follows the order of task versions, also across instances.
 
 Differences, because the store is shared by several instances:
 - A request that waits on an idempotency key held by another instance polls every `IdempotencyPollInterval` (200 ms).

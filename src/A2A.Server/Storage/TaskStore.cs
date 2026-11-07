@@ -38,6 +38,22 @@ public abstract class TaskStore
     public abstract ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default);
 
     /// <summary>
+    /// Writes <see cref="TaskCommit.Record"/>, appends <see cref="TaskCommit.Event"/> to the task's event log with the next
+    /// sequence, and stores <see cref="TaskCommit.Deliveries"/>, as one atomic unit: all of it or nothing. Commits to one
+    /// task are serialized, so the log order equals the version order, also across instances that share the store.
+    /// The event log is the <see cref="EventStore"/> that belongs to this store (same backend, same data).
+    /// </summary>
+    /// <remarks>
+    /// A create (<see cref="TaskCommit.ExpectedVersion"/> 0) inserts the task with version 1. Otherwise the stored version
+    /// must equal <see cref="TaskCommit.ExpectedVersion"/>; the stored record gets version expected + 1 and keeps its creation time.
+    /// </remarks>
+    /// <returns>The stored record and the event's sequence.</returns>
+    /// <exception cref="ConcurrencyException">The stored version differs, or the task does not exist for this owner. Nothing was written.</exception>
+    /// <exception cref="DuplicateTaskException">A create, and a task with this tenant and id exists. Nothing was written.</exception>
+    /// <exception cref="ArgumentException">A create whose record does not have version 0.</exception>
+    public abstract ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default);
+
+    /// <summary>
     /// Returns tasks matching the query, sorted by status timestamp descending (spec §3.1.4). Must filter by owner and tenant before counting or paging.
     /// Throws <see cref="A2AException"/> (InvalidParams) for a bad page token.
     /// </summary>
