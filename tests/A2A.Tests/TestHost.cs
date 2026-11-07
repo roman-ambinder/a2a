@@ -22,11 +22,19 @@ public sealed class ScenarioAgent : IAgentExecutor
 {
     public static readonly ConcurrentDictionary<string, TaskCompletionSource> AuthSignals = new();
 
+    /// <summary>Signals for the <c>gate</c> scenario, keyed by the whole user text.</summary>
+    public static readonly ConcurrentDictionary<string, TaskCompletionSource> GateSignals = new();
+
+    /// <summary>The signal for <paramref name="text"/> (a <c>gate ...</c> message).</summary>
+    public static TaskCompletionSource Gate(string text) =>
+        GateSignals.GetOrAdd(text, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+
     public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct)
     {
         var text = context.UserText;
         if (context.Task is not null && context.Task.Status.State == TaskState.InputRequired)
         {
+            if (text.StartsWith("gate ", StringComparison.Ordinal)) await Gate(text).Task.WaitAsync(ct); // no WORKING first
             await updater.CompleteAsync($"got: {text}", ct);
             return;
         }
@@ -54,6 +62,14 @@ public sealed class ScenarioAgent : IAgentExecutor
                 var tcs = AuthSignals.GetOrAdd(updater.TaskId, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
                 await tcs.Task.WaitAsync(ct);
                 await updater.CompleteAsync("authorized", ct);
+                break;
+            case "gate":
+                await updater.StartWorkAsync("waiting at the gate", ct);
+                await Gate(text).Task.WaitAsync(ct);
+                await updater.CompleteAsync("through the gate", ct);
+                break;
+            case "halfway": // starts work, then returns without finishing the task
+                await updater.StartWorkAsync(cancellationToken: ct);
                 break;
             case "big":
                 await updater.StartWorkAsync(cancellationToken: ct);
