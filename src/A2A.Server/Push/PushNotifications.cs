@@ -25,6 +25,12 @@ public sealed class PushNotificationOptions
     /// <summary>If non-empty, only these hosts may be used as webhook targets.</summary>
     public ISet<string> AllowedHosts { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Networks that bypass the private-range block (for example an internal webhook range). Empty by default.</summary>
+    public IList<(IPAddress Network, int PrefixLength)> AllowedNetworks { get; } = new List<(IPAddress Network, int PrefixLength)>();
+
+    /// <summary>Proxy for webhook delivery. When null (default) the system proxy is ignored.</summary>
+    public IWebProxy? Proxy { get; set; }
+
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(15);
 
     /// <summary>Delivery attempts per notification, including the first. Default 3.</summary>
@@ -49,11 +55,26 @@ public static class PushUrlValidator
             throw A2AException.InvalidParams("Push notification host is not allowed");
         if (!options.AllowPrivateNetworks)
         {
-            if (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase))
+            var ip = PrivateAddressGuard.TryGetLiteral(uri);
+            if (ip is not null)
+            {
+                if (PrivateAddressGuard.IsBlocked(ip, options.AllowedNetworks))
+                    throw A2AException.InvalidParams("Push notification url must not target a private network address");
+            }
+            else if (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase))
                 throw A2AException.InvalidParams("Push notification url must not target loopback");
-            if (IPAddress.TryParse(uri.Host.Trim('[', ']'), out var ip) && IsPrivate(ip))
-                throw A2AException.InvalidParams("Push notification url must not target a private network address");
         }
+    }
+
+    /// <summary>
+    /// Full check run before each delivery attempt: the static rules of <see cref="Validate"/> plus DNS resolution and the IP check.
+    /// Throws <see cref="A2AException"/> for policy violations (permanent) and <see cref="HttpRequestException"/> when resolution fails or finds a private address.
+    /// </summary>
+    internal static async ValueTask ValidateForDeliveryAsync(string url, PushNotificationOptions options, CancellationToken ct)
+    {
+        Validate(url, options);
+        var uri = new Uri(url);
+        await PrivateAddressGuard.EnsureHostAllowedAsync(uri.Host, options.AllowPrivateNetworks, options.AllowedNetworks, "Webhook", ct).ConfigureAwait(false);
     }
 
     /// <summary>True for addresses that must not be reached from the agent by default.</summary>
@@ -61,7 +82,7 @@ public static class PushUrlValidator
 
     /// <summary>Primary handler for the push HttpClient: enforces the IP policy on every connection and disables redirects.</summary>
     public static SocketsHttpHandler CreateHandler(PushNotificationOptions options) =>
-        PrivateAddressGuard.CreateHandler(options.AllowPrivateNetworks, "Webhook");
+        PrivateAddressGuard.CreateHandler(options.AllowPrivateNetworks, "Webhook", options.AllowedNetworks.ToArray(), options.Proxy);
 }
 
 /// <summary>Sends task events to registered webhooks.</summary>
@@ -77,7 +98,7 @@ public interface IPushNotificationSender
 
 /// <summary>
 /// Delivers notifications per task in order, at least once, with retries and exponential backoff (spec §4.3.3, §13.2).
-/// Adds <c>X-A2A-Notification-Token</c> and an <c>X-A2A-Notification-Sequence</c> number (the event store sequence) for deduplication and ordering.
+/// Adds <c>X-A2A-Notification-Token</c> (also sent as a bearer <c>Authorization</c> unless the config has its own), an <c>X-A2A-Delivery-Id</c> that stays the same across retries, and an <c>X-A2A-Notification-Sequence</c> number (the event store sequence) for deduplication and ordering.
 /// </summary>
 public sealed class HttpPushNotificationSender : IPushNotificationSender, IDisposable
 {
@@ -183,6 +204,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
 
     private async Task DeliverAsync(TaskPushNotificationConfig config, long seq, StreamResponse evt)
     {
+        var deliveryId = Guid.NewGuid().ToString("N");
         var body = A2AJson.SerializeToUtf8Bytes(evt);
         var delay = _options.InitialBackoff;
         var http = _httpClientFactory.CreateClient(HttpClientName);
@@ -191,11 +213,32 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
         {
             try
             {
+                // Re-validated on every attempt (not only at create): the host's DNS answer can change, and the allowlist may have.
+                try
+                {
+                    using var vcts = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
+                    vcts.CancelAfter(_options.Timeout);
+                    await PushUrlValidator.ValidateForDeliveryAsync(config.Url, _options, vcts.Token).ConfigureAwait(false);
+                }
+                catch (A2AException ex)
+                {
+                    _logger.LogWarning("Skipping webhook {ConfigId} for task {TaskId}: {Reason}", config.Id, config.TaskId, ex.Message);
+                    return;
+                }
+                catch (BlockedAddressException ex)
+                {
+                    _logger.LogWarning("Skipping webhook {ConfigId} for task {TaskId}: {Reason}", config.Id, config.TaskId, ex.Message);
+                    return;
+                }
+
                 using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ByteArrayContent(body) };
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue(A2AProtocol.MediaType);
                 if (config.Authentication is { Scheme.Length: > 0 } auth)
                     request.Headers.TryAddWithoutValidation("Authorization", string.IsNullOrEmpty(auth.Credentials) ? auth.Scheme : $"{auth.Scheme} {auth.Credentials}");
+                else if (!string.IsNullOrEmpty(config.Token))
+                    request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {config.Token}");
                 if (!string.IsNullOrEmpty(config.Token)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationToken, config.Token);
+                request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.DeliveryId, deliveryId);
                 request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationSequence, seq.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
