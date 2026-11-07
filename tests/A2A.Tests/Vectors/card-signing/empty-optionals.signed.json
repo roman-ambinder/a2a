@@ -1,0 +1,44 @@
+{
+  "name": "Vector Agent",
+  "description": "Agent used for signing vectors.",
+  "supportedInterfaces": [
+    {
+      "url": "https://agent.example/a2a",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "provider": {},
+  "version": "1.0.0",
+  "documentationUrl": "",
+  "capabilities": {},
+  "securityRequirements": [
+    {}
+  ],
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "text/plain",
+    ""
+  ],
+  "skills": [
+    {
+      "id": "echo",
+      "name": "Echo",
+      "tags": [
+        "",
+        "echo"
+      ],
+      "inputModes": [
+        ""
+      ]
+    }
+  ],
+  "signatures": [
+    {
+      "protected": "eyJhbGciOiJFUzI1NiIsImtpZCI6InB5LWVzMjU2IiwidHlwIjoiSk9TRSJ9",
+      "signature": "NyIVfOo1N5ZfT_ng3hLO4-HcPz21A1r8jbmC8jrt2L9jt1_rGYdGIVt3dKulVMlKyBH9t2P7BnHJhHSkCmpsYg"
+    }
+  ]
+}

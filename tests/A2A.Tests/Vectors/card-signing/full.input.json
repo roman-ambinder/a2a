@@ -1,0 +1,152 @@
+{
+  "name": "Full Agent",
+  "description": "Every optional field set.",
+  "supportedInterfaces": [
+    {
+      "url": "https://agent.example/a2a",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "tenant": "tenant-1"
+    },
+    {
+      "url": "https://agent.example/rest",
+      "protocolBinding": "HTTP+JSON",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "provider": {
+    "url": "https://provider.example",
+    "organization": "Example Org"
+  },
+  "version": "2.1.0",
+  "documentationUrl": "https://agent.example/docs",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": true,
+    "extendedAgentCard": true,
+    "extensions": [
+      {
+        "uri": "https://ext.example/a",
+        "description": "Extension A",
+        "required": true,
+        "params": {
+          "mode": "strict"
+        }
+      }
+    ]
+  },
+  "securitySchemes": {
+    "apiKey": {
+      "apiKeySecurityScheme": {
+        "description": "API key",
+        "location": "header",
+        "name": "X-Api-Key"
+      }
+    },
+    "bearer": {
+      "httpAuthSecurityScheme": {
+        "description": "JWT bearer",
+        "scheme": "Bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "oauth": {
+      "oauth2SecurityScheme": {
+        "description": "OAuth",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://auth.example/authorize",
+            "tokenUrl": "https://auth.example/token",
+            "refreshUrl": "https://auth.example/refresh",
+            "scopes": {
+              "read": "Read access",
+              "write": "Write access"
+            },
+            "pkceRequired": true
+          }
+        },
+        "oauth2MetadataUrl": "https://auth.example/.well-known/oauth-authorization-server"
+      }
+    },
+    "device": {
+      "oauth2SecurityScheme": {
+        "flows": {
+          "deviceCode": {
+            "deviceAuthorizationUrl": "https://auth.example/device",
+            "tokenUrl": "https://auth.example/token",
+            "scopes": {
+              "read": "Read access"
+            }
+          }
+        }
+      }
+    },
+    "oidc": {
+      "openIdConnectSecurityScheme": {
+        "description": "OIDC",
+        "openIdConnectUrl": "https://auth.example/.well-known/openid-configuration"
+      }
+    },
+    "mtls": {
+      "mtlsSecurityScheme": {
+        "description": "Mutual TLS"
+      }
+    }
+  },
+  "securityRequirements": [
+    {
+      "schemes": {
+        "oauth": {
+          "list": [
+            "read"
+          ]
+        }
+      }
+    },
+    {
+      "schemes": {
+        "mtls": {
+          "list": []
+        }
+      }
+    }
+  ],
+  "defaultInputModes": [
+    "text/plain",
+    "application/json"
+  ],
+  "defaultOutputModes": [
+    "text/plain"
+  ],
+  "skills": [
+    {
+      "id": "search",
+      "name": "Search",
+      "description": "Searches things.",
+      "tags": [
+        "search",
+        "lookup"
+      ],
+      "examples": [
+        "find cats",
+        "find dogs"
+      ],
+      "inputModes": [
+        "text/plain"
+      ],
+      "outputModes": [
+        "application/json"
+      ],
+      "securityRequirements": [
+        {
+          "schemes": {
+            "bearer": {
+              "list": []
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "iconUrl": "https://agent.example/icon.png"
+}

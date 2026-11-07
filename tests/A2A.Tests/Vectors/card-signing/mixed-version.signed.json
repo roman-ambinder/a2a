@@ -1,0 +1,76 @@
+{
+  "name": "Vector Agent",
+  "description": "Agent used for signing vectors.",
+  "supportedInterfaces": [
+    {
+      "url": "https://agent.example/a2a",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    },
+    {
+      "url": "https://agent.example/v03",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "0.3.0"
+    }
+  ],
+  "version": "1.0.0",
+  "capabilities": {
+    "streaming": true,
+    "extensions": [
+      {
+        "uri": "https://ext.example/opt",
+        "required": false
+      }
+    ],
+    "extendedAgentCard": true
+  },
+  "securitySchemes": {
+    "key": {
+      "apiKeySecurityScheme": {
+        "location": "header",
+        "name": "X-Api-Key"
+      },
+      "in": "header",
+      "name": "X-Api-Key",
+      "type": "apiKey"
+    }
+  },
+  "securityRequirements": [
+    {
+      "schemes": {
+        "key": {}
+      }
+    }
+  ],
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "text/plain"
+  ],
+  "skills": [
+    {
+      "id": "echo",
+      "name": "Echo",
+      "description": "Echoes the input.",
+      "tags": [
+        "echo"
+      ]
+    }
+  ],
+  "signatures": [
+    {
+      "protected": "eyJhbGciOiJFUzI1NiIsImtpZCI6InB5LWVzMjU2IiwidHlwIjoiSk9TRSJ9",
+      "signature": "uwBmAXvZPWEDBCihkwxoPvQuEGz0zulyorkkJRaD2-np6ltb1ZBjJFq-xW1GjbCtITGIadMvMGMqZ9w0LQWMBQ"
+    }
+  ],
+  "preferredTransport": "JSONRPC",
+  "protocolVersion": "0.3.0",
+  "security": [
+    {
+      "key": []
+    }
+  ],
+  "supportsAuthenticatedExtendedCard": true,
+  "url": "https://agent.example/v03"
+}

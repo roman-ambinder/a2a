@@ -39,12 +39,17 @@ public static class AgentCardSigner
         return signed;
     }
 
+    /// <summary>Creates a detached JWS signature over <see cref="AgentCardCanonicalizer.Canonicalize"/> of <paramref name="card"/>.</summary>
+    /// <remarks>
+    /// Values the canonicalization prunes (see <see cref="AgentCardCanonicalizer.PrunedPaths"/>) are signed around, not
+    /// refused: they stay in the served card but the signature does not cover them.
+    /// </remarks>
     public static AgentCardSignature CreateSignature(AgentCard card, AgentCardSigningKey key)
     {
+        var payload = AgentCardCanonicalizer.Canonicalize(AgentCardCanonicalizer.ToNode(card));
         var header = new Dictionary<string, string> { ["alg"] = key.Algorithm, ["typ"] = "JOSE", ["kid"] = key.KeyId };
         if (key.JwksUrl is not null) header["jku"] = key.JwksUrl;
         var protectedB64 = Base64Url.Encode(JsonSerializer.SerializeToUtf8Bytes(header));
-        var payload = AgentCardCanonicalizer.Normalized(card);
         var signingInput = Encoding.ASCII.GetBytes(protectedB64 + "." + Base64Url.Encode(payload));
         var sig = JwsAlgorithms.Sign(key.Algorithm, key.Key, signingInput);
         return new AgentCardSignature { Protected = protectedB64, Signature = Base64Url.Encode(sig) };
