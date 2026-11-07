@@ -27,6 +27,11 @@ internal static class StreamFrameExtensions
 /// fails reconnects with <c>Last-Event-ID</c> after a backoff. A cursor is only taken from frames that carry an id, and
 /// no sequence at or below the last one yielded is yielded again.
 /// </summary>
+/// <remarks>
+/// A peer that sends no SSE event ids (any plain A2A v1.0 server; this SDK's servers send them) gives no cursor: a resume
+/// then subscribes again without <c>Last-Event-ID</c>, and events already yielded may be yielded again (starting with a
+/// task snapshot). Consumers of such peers must tolerate repeats.
+/// </remarks>
 internal static class ResumableStream
 {
     /// <summary>Waits before reconnect 1..5. After the fifth failed reconnect the error is rethrown.</summary>

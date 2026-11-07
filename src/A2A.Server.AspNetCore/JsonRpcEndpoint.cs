@@ -54,7 +54,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
                 throw new A2AException(A2AErrorCode.InvalidRequest, "id must be a string, number, or null");
 
             handler.ValidateCall(call);
-            var p = rpc.Params ?? EmptyObject;
+            var p = rpc.Params ?? A2AJson.EmptyObject;
 
             switch (rpc.Method)
             {
@@ -136,8 +136,6 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
         HttpPlumbing.WriteExtensionsHeader(http, call);
         await HttpPlumbing.WriteJsonAsync(http, JsonRpcResponse.Failure(id, a2a), A2AProtocol.JsonMediaType, status).ConfigureAwait(false);
     }
-
-    private static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement.Clone();
 
     private static T Params<T>(JsonElement p)
     {

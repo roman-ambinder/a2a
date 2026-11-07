@@ -118,6 +118,11 @@ public sealed class A2AClient : IA2AClient
     /// is answered with its final snapshot as a <see cref="TaskEvent"/>. The same <paramref name="options"/> (headers,
     /// credentials) are used on every reconnect.
     /// </summary>
+    /// <remarks>
+    /// "Not repeated" needs SSE event ids, which this SDK's servers send. A peer without event ids gives no cursor to resume
+    /// from: after a reconnect it may send events again (starting with a task snapshot), and they are yielded again.
+    /// The same holds for <see cref="SendStreamingMessageAsync(SendMessageRequest, A2ARequestOptions?, CancellationToken)"/>.
+    /// </remarks>
     public IAsyncEnumerable<StreamResponse> ObserveTaskAsync(string taskId, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(taskId);

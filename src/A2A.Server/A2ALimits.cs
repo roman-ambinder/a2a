@@ -43,7 +43,8 @@ public sealed class A2ALimits
 
     /// <summary>
     /// Largest single agent event in bytes, measured as serialized JSON. A larger event is never stored or sent: the task
-    /// fails and the agent is stopped. Split large artifacts into chunks. Default 4 MB.
+    /// fails and the agent is stopped. This includes a direct reply (a message instead of a task): an oversized reply is not
+    /// sent, and the request gets a FAILED task instead. Split large artifacts into chunks. Default 4 MB.
     /// </summary>
     public int MaxEventBytes { get; set; } = 4 * 1024 * 1024;
 
