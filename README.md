@@ -84,7 +84,7 @@ These are places where the spec is loose or self-contradictory. Here is what thi
 ## Not included yet
 
 - gRPC binding
-- Durable stores (implement `ITaskStore` / `IPushNotificationConfigStore`; the in-memory ones are for dev and tests)
+- Durable stores (implement `TaskStore` / `PushConfigStore`; the in-memory ones are for dev and tests)
 - A multi-instance event bus (`TaskEventBus` is process-local; subclass it over Redis or similar)
 - A webhook-receiver helper for clients
 

@@ -20,7 +20,8 @@ public sealed class A2ARequestHandler : IDisposable
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TaskStore _tasks;
-    private readonly IPushNotificationConfigStore _pushConfigs;
+    private readonly PushConfigStore _pushConfigs;
+    private readonly IPushSecretProtector _protector;
     private readonly IPushNotificationSender _push;
     private readonly TaskEventBus _bus;
     private readonly A2AServerOptions _options;
@@ -32,7 +33,8 @@ public sealed class A2ARequestHandler : IDisposable
     public A2ARequestHandler(
         IServiceScopeFactory scopeFactory,
         TaskStore tasks,
-        IPushNotificationConfigStore pushConfigs,
+        PushConfigStore pushConfigs,
+        IPushSecretProtector protector,
         IPushNotificationSender push,
         TaskEventBus bus,
         IOptions<A2AServerOptions> options,
@@ -41,6 +43,7 @@ public sealed class A2ARequestHandler : IDisposable
         _scopeFactory = scopeFactory;
         _tasks = tasks;
         _pushConfigs = pushConfigs;
+        _protector = protector;
         _push = push;
         _bus = bus;
         _options = options.Value;
@@ -212,9 +215,9 @@ public sealed class A2ARequestHandler : IDisposable
             PushUrlValidator.Validate(p.Url, _options.PushNotifications);
             push = A2AJson.Clone(p);
             push.TaskId = taskId;
-            push.Id = string.IsNullOrEmpty(push.Id) ? Guid.NewGuid().ToString() : push.Id;
+            push.Id = string.IsNullOrEmpty(push.Id) ? TaskIds.New() : push.Id;
             push.Tenant = call.Tenant;
-            if (existing is not null) await _pushConfigs.SaveAsync(push, ct).ConfigureAwait(false);
+            if (existing is not null) await SavePushConfigAsync(Key(call, taskId), push, ct).ConfigureAwait(false);
         }
 
         var context = new AgentRequestContext
@@ -351,12 +354,16 @@ public sealed class A2ARequestHandler : IDisposable
         RequirePush();
         A2AValidator.ValidatePushConfig(config, "config", requireTaskId: true);
         PushUrlValidator.Validate(config.Url, _options.PushNotifications);
-        _ = await _tasks.GetAsync(Key(call, config.TaskId!), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(config.TaskId!);
+        var key = Key(call, config.TaskId!);
+        _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(config.TaskId!);
         var stored = A2AJson.Clone(config);
-        stored.Id = string.IsNullOrEmpty(stored.Id) ? Guid.NewGuid().ToString() : stored.Id;
+        stored.Id = string.IsNullOrEmpty(stored.Id) ? TaskIds.New() : stored.Id;
         stored.Tenant = call.Tenant;
-        await _pushConfigs.SaveAsync(stored, cancellationToken).ConfigureAwait(false);
-        return stored;
+        var replacing = await _pushConfigs.GetAsync(key, stored.Id, cancellationToken).ConfigureAwait(false) is not null;
+        if (!replacing && await _pushConfigs.CountAsync(key, cancellationToken).ConfigureAwait(false) >= MaxPushConfigsPerTask)
+            throw new A2AException(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {MaxPushConfigsPerTask}).");
+        await SavePushConfigAsync(key, stored, cancellationToken).ConfigureAwait(false);
+        return Redact(stored);
     }
 
     public async Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
@@ -365,9 +372,11 @@ public sealed class A2ARequestHandler : IDisposable
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
-        _ = await _tasks.GetAsync(Key(call, request.TaskId), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
-        return await _pushConfigs.GetAsync(request.TaskId, request.Id, cancellationToken).ConfigureAwait(false)
+        var key = Key(call, request.TaskId);
+        _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
+        var record = await _pushConfigs.GetAsync(key, request.Id, cancellationToken).ConfigureAwait(false)
             ?? throw ConfigNotFound(request.TaskId, request.Id);
+        return Redact(record.Config);
     }
 
     public async Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
@@ -375,8 +384,9 @@ public sealed class A2ARequestHandler : IDisposable
         call.BindTenant(request.Tenant);
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
-        _ = await _tasks.GetAsync(Key(call, request.TaskId), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
-        var all = await _pushConfigs.ListAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
+        var key = Key(call, request.TaskId);
+        _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
+        var all = (await _pushConfigs.ListAsync(key, cancellationToken).ConfigureAwait(false)).Select(r => Redact(r.Config)).ToList();
 
         var size = request.PageSize is > 0 ? Math.Min(request.PageSize.Value, 100) : 100;
         IEnumerable<TaskPushNotificationConfig> rest = all;
@@ -398,8 +408,9 @@ public sealed class A2ARequestHandler : IDisposable
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
-        _ = await _tasks.GetAsync(Key(call, request.TaskId), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
-        if (!await _pushConfigs.DeleteAsync(request.TaskId, request.Id, cancellationToken).ConfigureAwait(false))
+        var key = Key(call, request.TaskId);
+        _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
+        if (!await _pushConfigs.DeleteAsync(key, request.Id, cancellationToken).ConfigureAwait(false))
             throw ConfigNotFound(request.TaskId, request.Id);
     }
 
@@ -518,7 +529,7 @@ public sealed class A2ARequestHandler : IDisposable
                                 History = userMessage is null ? null : [WithTask(userMessage, taskId)],
                             },
                             Version: 0, CreatedAt: now, UpdatedAt: now)).ConfigureAwait(false);
-                        if (push is not null) await _pushConfigs.SaveAsync(push).ConfigureAwait(false);
+                        if (push is not null) await SavePushConfigAsync(key, push, CancellationToken.None).ConfigureAwait(false);
                         created = true;
                         Publish(exec, key, StreamResponse.Of(A2AJson.Clone(record.Task)));
                     }
@@ -589,7 +600,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         exec.Emit(evt);
         _bus.Publish(ScopeKey(key.Tenant, key.TaskId), evt);
-        _push.Enqueue(key.TaskId, evt);
+        _push.Enqueue(key, evt);
     }
 
     /// <summary>Applies an event to the task. Returns false if the event must be dropped (task already terminal).</summary>
@@ -639,6 +650,27 @@ public sealed class A2ARequestHandler : IDisposable
     // =====================================================================
     // Helpers
     // =====================================================================
+
+    /// <summary>Hard-coded until Task 7 moves it to options.</summary>
+    private const int MaxPushConfigsPerTask = 10;
+
+    /// <summary>Protects the secrets of <paramref name="config"/> and stores a copy. The caller's instance is not changed.</summary>
+    private ValueTask SavePushConfigAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct)
+    {
+        var copy = A2AJson.Clone(config);
+        if (!string.IsNullOrEmpty(copy.Token)) copy.Token = _protector.Protect(copy.Token);
+        if (copy.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = _protector.Protect(auth.Credentials);
+        return _pushConfigs.SaveAsync(new PushConfigRecord(key, copy), ct);
+    }
+
+    /// <summary>Returns a copy with the token and credentials blanked. Secrets never leave the server.</summary>
+    private static TaskPushNotificationConfig Redact(TaskPushNotificationConfig config)
+    {
+        var copy = A2AJson.Clone(config);
+        if (!string.IsNullOrEmpty(copy.Token)) copy.Token = "";
+        if (copy.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = "";
+        return copy;
+    }
 
     private static TaskKey Key(ServerCallContext call, string taskId) => new(call.Tenant, call.Principal, taskId);
 

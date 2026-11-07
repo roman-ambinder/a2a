@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
 using A2A.Json;
+using A2A.Server.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -118,7 +119,7 @@ public static class PushUrlValidator
 /// <summary>Sends task events to registered webhooks.</summary>
 public interface IPushNotificationSender
 {
-    void Enqueue(string taskId, StreamResponse evt);
+    void Enqueue(TaskKey task, StreamResponse evt);
 }
 
 /// <summary>
@@ -130,39 +131,41 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
     public const string HttpClientName = "A2A.PushNotifications";
 
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly IPushNotificationConfigStore _store;
+    private readonly PushConfigStore _store;
+    private readonly IPushSecretProtector _protector;
     private readonly PushNotificationOptions _options;
     private readonly ILogger _logger;
     private readonly object _gate = new();
-    private readonly Dictionary<string, Queue<(long Seq, StreamResponse Evt)>> _queues = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, long> _sequence = new(StringComparer.Ordinal);
+    private readonly Dictionary<TaskKey, Queue<(long Seq, StreamResponse Evt)>> _queues = new();
+    private readonly ConcurrentDictionary<TaskKey, long> _sequence = new();
     private readonly ConcurrentDictionary<Task, byte> _workers = new();
     private readonly CancellationTokenSource _shutdown = new();
 
-    public HttpPushNotificationSender(IHttpClientFactory httpClientFactory, IPushNotificationConfigStore store,
+    public HttpPushNotificationSender(IHttpClientFactory httpClientFactory, PushConfigStore store, IPushSecretProtector protector,
         IOptions<A2AServerOptions> options, ILogger<HttpPushNotificationSender>? logger = null)
     {
         _httpClientFactory = httpClientFactory;
         _store = store;
+        _protector = protector;
         _options = options.Value.PushNotifications;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
     }
 
-    public void Enqueue(string taskId, StreamResponse evt)
+    public void Enqueue(TaskKey task, StreamResponse evt)
     {
-        var seq = _sequence.AddOrUpdate(taskId, 1, (_, s) => s + 1);
+        var seq = _sequence.AddOrUpdate(task, 1, (_, s) => s + 1);
         lock (_gate)
         {
-            if (_queues.TryGetValue(taskId, out var q))
+            if (_queues.TryGetValue(task, out var q))
             {
                 q.Enqueue((seq, evt));
                 return;
             }
             q = new Queue<(long, StreamResponse)>();
             q.Enqueue((seq, evt));
-            _queues[taskId] = q;
+            _queues[task] = q;
         }
-        var worker = Task.Run(() => DrainAsync(taskId));
+        var worker = Task.Run(() => DrainAsync(task));
         _workers[worker] = 0;
         worker.ContinueWith(t => _workers.TryRemove(t, out _), TaskScheduler.Default);
     }
@@ -173,17 +176,17 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
         while (!_workers.IsEmpty) await Task.WhenAll(_workers.Keys).ConfigureAwait(false);
     }
 
-    private async Task DrainAsync(string taskId)
+    private async Task DrainAsync(TaskKey task)
     {
         while (true)
         {
             (long Seq, StreamResponse Evt) item;
             lock (_gate)
             {
-                var q = _queues[taskId];
+                var q = _queues[task];
                 if (q.Count == 0)
                 {
-                    _queues.Remove(taskId);
+                    _queues.Remove(task);
                     return;
                 }
                 item = q.Dequeue();
@@ -191,8 +194,21 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
 
             try
             {
-                var configs = await _store.ListAsync(taskId, _shutdown.Token).ConfigureAwait(false);
-                foreach (var config in configs) await DeliverAsync(config, item.Seq, item.Evt).ConfigureAwait(false);
+                var records = await _store.ListAsync(task, _shutdown.Token).ConfigureAwait(false);
+                foreach (var record in records)
+                {
+                    TaskPushNotificationConfig config;
+                    try
+                    {
+                        config = Unprotect(record.Config);
+                    }
+                    catch (System.Security.Cryptography.CryptographicException ex)
+                    {
+                        _logger.LogError(ex, "Cannot unprotect secrets of webhook {ConfigId} for task {TaskId}; skipping", record.Config.Id, task.TaskId);
+                        continue;
+                    }
+                    await DeliverAsync(config, item.Seq, item.Evt).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
             {
@@ -200,11 +216,20 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Push notification processing failed for task {TaskId}", taskId);
+                _logger.LogError(ex, "Push notification processing failed for task {TaskId}", task.TaskId);
             }
 
-            if (item.Evt.StatusUpdate?.Status.State.IsTerminal() == true) _sequence.TryRemove(taskId, out _);
+            if (item.Evt.StatusUpdate?.Status.State.IsTerminal() == true) _sequence.TryRemove(task, out _);
         }
+    }
+
+    /// <summary>Returns a copy of the stored config with its secrets in plaintext. Used only at delivery time.</summary>
+    private TaskPushNotificationConfig Unprotect(TaskPushNotificationConfig stored)
+    {
+        var config = A2AJson.Clone(stored);
+        if (!string.IsNullOrEmpty(config.Token)) config.Token = _protector.Unprotect(config.Token);
+        if (config.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = _protector.Unprotect(auth.Credentials);
+        return config;
     }
 
     private async Task DeliverAsync(TaskPushNotificationConfig config, long seq, StreamResponse evt)

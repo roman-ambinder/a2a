@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using A2A.Server.Push;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace A2A.Server.AspNetCore;
 
@@ -10,6 +12,17 @@ public static class A2AServiceCollectionExtensions
     /// <summary>Configures HTTP-level settings (caller id, SSE keep-alive, card signing).</summary>
     public static IServiceCollection ConfigureA2AHttp(this IServiceCollection services, Action<A2AHttpOptions> configure) =>
         services.Configure(configure);
+
+    /// <summary>
+    /// Stores push notification secrets (token, credentials) with ASP.NET Core Data Protection instead of the default
+    /// per-process key. Configure the key ring (persistence, application name) with <c>AddDataProtection()</c>.
+    /// </summary>
+    public static IServiceCollection AddA2ADataProtectionPushSecrets(this IServiceCollection services)
+    {
+        services.AddDataProtection();
+        services.Replace(ServiceDescriptor.Singleton<IPushSecretProtector, DataProtectionPushSecretProtector>());
+        return services;
+    }
 }
 
 public static class A2AEndpointRouteBuilderExtensions
