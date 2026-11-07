@@ -79,10 +79,55 @@ public class WebhookSignatureTests
         var (retry, retryBody) = Signed(secret, "msg_1", clock.GetUtcNow() + TimeSpan.FromSeconds(1));
         Assert.Equal(PushValidationResult.Duplicate, receiver.VerifySignature(retry, retryBody, secret));
 
-        // The tolerance can be changed; the old delivery was captured, so it is stale however it is replayed later.
+        // The tolerance can be changed. A longer tolerance keeps ids longer than the 10-minute memory, so the replay of an
+        // accepted delivery is a duplicate while its timestamp is still acceptable.
         clock.Advance(TimeSpan.FromMinutes(11));
         Assert.Equal(PushValidationResult.Stale, receiver.VerifySignature(headers, body, secret));
-        Assert.Equal(PushValidationResult.Valid, receiver.VerifySignature(headers, body, secret, TimeSpan.FromMinutes(30)));
+    }
+
+    [Fact]
+    public void Replay_with_a_long_tolerance_is_still_a_duplicate_after_the_memory_window()
+    {
+        var clock = new FakeTimeProvider();
+        var receiver = new PushNotificationReceiver(clock);
+        var secret = Secret();
+        var tolerance = TimeSpan.FromMinutes(30);
+        var (headers, body) = Signed(secret, "msg_1", clock.GetUtcNow());
+        Assert.Equal(PushValidationResult.Valid, receiver.VerifySignature(headers, body, secret, tolerance));
+        clock.Advance(TimeSpan.FromMinutes(11));
+        Assert.Equal(PushValidationResult.Duplicate, receiver.VerifySignature(headers, body, secret, tolerance));
+        clock.Advance(TimeSpan.FromMinutes(19));
+        Assert.Equal(PushValidationResult.Duplicate, receiver.VerifySignature(headers, body, secret, tolerance)); // ts + tolerance
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(PushValidationResult.Stale, receiver.VerifySignature(headers, body, secret, tolerance));
+    }
+
+    [Fact]
+    public void Replay_at_the_edge_of_the_default_tolerance_is_a_duplicate()
+    {
+        var clock = new FakeTimeProvider();
+        var receiver = new PushNotificationReceiver(clock);
+        var secret = Secret();
+        var ts = clock.GetUtcNow() + TimeSpan.FromMinutes(5); // signed 5 minutes ahead: acceptable now, and until ts + 5 min
+        var (headers, body) = Signed(secret, "msg_1", ts);
+        Assert.Equal(PushValidationResult.Valid, receiver.VerifySignature(headers, body, secret));
+        clock.Advance(TimeSpan.FromMinutes(10)); // now = ts + 5 min: the last moment the timestamp is acceptable
+        Assert.Equal(PushValidationResult.Duplicate, receiver.VerifySignature(headers, body, secret));
+        clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(PushValidationResult.Stale, receiver.VerifySignature(headers, body, secret));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(-1)] // Timeout.InfiniteTimeSpan
+    public void Tolerance_must_be_positive_and_finite(int seconds)
+    {
+        var receiver = new PushNotificationReceiver(new FakeTimeProvider());
+        var secret = Secret();
+        var (headers, body) = Signed(secret, "msg_1", new FakeTimeProvider().GetUtcNow());
+        var tolerance = seconds == -1 ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(seconds);
+        Assert.Throws<ArgumentOutOfRangeException>(() => receiver.VerifySignature(headers, body, secret, tolerance));
     }
 
     [Fact]
@@ -115,7 +160,7 @@ public class WebhookSignatureTests
         var secret = Secret();
         var (headers, body) = Signed(secret, "msg_1", clock.GetUtcNow());
         var other = WebhookSignature.Sign(Secret(NewSecret()), "msg_1", long.Parse(headers[WebhookSignature.TimestampHeader]), body);
-        headers[WebhookSignature.SignatureHeader] = $"v2,AAAA {other} {headers[WebhookSignature.SignatureHeader]}"; // rotation: old and new key
+        headers[WebhookSignature.SignatureHeader] = $"v2,AAAA {other} {headers[WebhookSignature.SignatureHeader]}"; // one of several v1 signatures matches
         Assert.Equal(PushValidationResult.Valid, receiver.VerifySignature(headers, body, secret));
         Assert.Equal(PushValidationResult.InvalidSignature, receiver.VerifySignature(new Dictionary<string, string>(headers)
             { [WebhookSignature.IdHeader] = "msg_9", [WebhookSignature.SignatureHeader] = "v2," + headers[WebhookSignature.SignatureHeader][3..] }, body, secret));
@@ -153,6 +198,7 @@ public class WebhookSignatureTests
         await host.WaitIdleAsync();
 
         var calls = host.Webhooks.Calls.Where(c => c.Request.RequestUri!.AbsolutePath == $"/{binding}").ToList();
+        Assert.NotNull(task.Id);
         Assert.True(calls.Count >= 2);
         var receiver = new PushNotificationReceiver();
         var secret = Secret(whsec);
@@ -165,7 +211,6 @@ public class WebhookSignatureTests
             // The P0 headers are unchanged, and the scheme is not an Authorization header.
             Assert.Equal("secret-token", request.Headers.GetValues(A2AProtocol.Headers.NotificationToken).Single());
             Assert.Equal("Bearer secret-token", request.Headers.Authorization!.ToString());
-            Assert.NotNull(task.Id);
         }
     }
 

@@ -31,9 +31,11 @@ public enum PushValidationResult
 public sealed class PushNotificationReceiver(TimeProvider? time = null)
 {
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan MaxTolerance = TimeSpan.FromDays(3650); // keeps the arithmetic in range
 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly object _gate = new();
+    /// <summary>Remembered ids and the time each is forgotten.</summary>
     private readonly Dictionary<string, DateTimeOffset> _seen = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -49,7 +51,7 @@ public sealed class PushNotificationReceiver(TimeProvider? time = null)
         if (!matched || expected.Length == 0) return PushValidationResult.InvalidToken;
 
         var id = Find(headers, A2AProtocol.Headers.DeliveryId);
-        return string.IsNullOrEmpty(id) ? PushValidationResult.Valid : Remember(id);
+        return string.IsNullOrEmpty(id) ? PushValidationResult.Valid : Remember(id, null);
     }
 
     /// <summary>The longest age (and distance into the future) of a signed delivery accepted by default.</summary>
@@ -66,6 +68,8 @@ public sealed class PushNotificationReceiver(TimeProvider? time = null)
     public PushValidationResult VerifySignature(IReadOnlyDictionary<string, string> headers, ReadOnlySpan<byte> body, ReadOnlySpan<byte> secret, TimeSpan? tolerance = null)
     {
         ArgumentNullException.ThrowIfNull(headers);
+        if (tolerance is { } t && (t <= TimeSpan.Zero || t == Timeout.InfiniteTimeSpan))
+            throw new ArgumentOutOfRangeException(nameof(tolerance), tolerance, "The tolerance must be positive and finite.");
         var id = Find(headers, WebhookSignature.IdHeader);
         var timestamp = Find(headers, WebhookSignature.TimestampHeader);
         var signature = Find(headers, WebhookSignature.SignatureHeader);
@@ -77,11 +81,14 @@ public sealed class PushNotificationReceiver(TimeProvider? time = null)
         var allowed = tolerance ?? DefaultSignatureTolerance;
         var now = _time.GetUtcNow().ToUnixTimeSeconds();
         if (seconds > now + allowed.TotalSeconds || seconds < now - allowed.TotalSeconds) return PushValidationResult.Stale;
-        return Remember("webhook:" + id); // apart from token deliveries, so a receiver may use both checks on one delivery
+        // A delivery is acceptable from ts - tolerance to ts + tolerance, so its id is kept until ts + tolerance (+1 s: the
+        // check above works in whole seconds), however long the usual memory window is.
+        var lastAcceptable = DateTimeOffset.FromUnixTimeSeconds(seconds) + (allowed > MaxTolerance ? MaxTolerance : allowed) + TimeSpan.FromSeconds(1);
+        return Remember("webhook:" + id, lastAcceptable); // apart from token deliveries, so a receiver may use both checks on one delivery
     }
 
-    /// <summary>Remembers a delivery id for ten minutes. Duplicate when it was remembered already.</summary>
-    private PushValidationResult Remember(string id)
+    /// <summary>Remembers a delivery id for ten minutes, or until <paramref name="keepUntil"/> when later. Duplicate when it was remembered already.</summary>
+    private PushValidationResult Remember(string id, DateTimeOffset? keepUntil)
     {
         var now = _time.GetUtcNow();
         lock (_gate)
@@ -89,12 +96,13 @@ public sealed class PushNotificationReceiver(TimeProvider? time = null)
             if (_seen.Count > 0)
             {
                 List<string>? expired = null;
-                foreach (var (key, at) in _seen)
-                    if (now - at >= Window) (expired ??= []).Add(key);
+                foreach (var (key, until) in _seen)
+                    if (now >= until) (expired ??= []).Add(key);
                 if (expired is not null) foreach (var key in expired) _seen.Remove(key);
             }
             if (_seen.ContainsKey(id)) return PushValidationResult.Duplicate;
-            _seen[id] = now;
+            var expiry = now + Window;
+            _seen[id] = keepUntil is { } k && k > expiry ? k : expiry;
         }
         return PushValidationResult.Valid;
     }
