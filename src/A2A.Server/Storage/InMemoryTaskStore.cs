@@ -39,9 +39,12 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
         var record = commit.Record;
         ValidateDeliveries(commit);
         if (commit.Deliveries.Count > 0 && outbox is null) throw new NotSupportedException("This store has no push outbox.");
-        Action<long>? enqueue = commit.Deliveries.Count == 0
-            ? null
-            : seq => outbox!.Add(commit.Deliveries.Select(d => d with { Sequence = seq }));
+        Action<long>? enqueue = null;
+        if (commit.Deliveries.Count > 0)
+        {
+            var payload = A2AJson.SerializeToUtf8Bytes(commit.Event); // the webhook body, captured with the event
+            enqueue = seq => outbox!.Add(commit.Deliveries.Select(d => d with { Sequence = seq }), payload);
+        }
         var task = A2AJson.Clone(record.Task); // before the commit: nothing that can fail runs after the task write
         TaskRecord? stored = null;
         long seq;

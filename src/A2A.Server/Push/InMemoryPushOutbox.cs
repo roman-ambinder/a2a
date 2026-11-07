@@ -19,13 +19,16 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         get { lock (_gate) return _pending.Values.Sum(g => g.Count); }
     }
 
-    /// <summary>Adds new deliveries, due now. Called by <see cref="InMemoryTaskStore"/> inside its commit; does not fail.</summary>
-    internal void Add(IEnumerable<PushDelivery> deliveries)
+    /// <summary>
+    /// Adds new deliveries of one event, due now, with its JSON <paramref name="payload"/> (shared, never changed).
+    /// Called by <see cref="InMemoryTaskStore"/> inside its commit; does not fail.
+    /// </summary>
+    internal void Add(IEnumerable<PushDelivery> deliveries, ReadOnlyMemory<byte> payload)
     {
         lock (_gate)
         {
             var now = _time.GetUtcNow();
-            foreach (var d in deliveries) Group(d, create: true)![d.Sequence] = new Entry(d, now);
+            foreach (var d in deliveries) Group(d, create: true)![d.Sequence] = new Entry(d, payload, now);
         }
         NotifyPending();
     }
@@ -73,7 +76,7 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         lock (_gate)
         {
             if (Remove(d) is { } e)
-                _dead[(d.Task, d.ConfigId, d.Sequence)] = new OutboxEntry(e.Delivery, e.Attempt + 1, _time.GetUtcNow(), error);
+                _dead[(d.Task, d.ConfigId, d.Sequence)] = new OutboxEntry(e.Delivery, e.Attempt + 1, _time.GetUtcNow(), error) { Payload = e.Payload };
         }
         return ValueTask.CompletedTask;
     }
@@ -100,7 +103,7 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         lock (_gate)
         {
             if (!_dead.Remove((d.Task, d.ConfigId, d.Sequence), out var dead)) return ValueTask.FromResult(false);
-            Group(d, create: true)![d.Sequence] = new Entry(dead.Delivery, _time.GetUtcNow());
+            Group(d, create: true)![d.Sequence] = new Entry(dead.Delivery, dead.Payload, _time.GetUtcNow());
         }
         NotifyPending();
         return ValueTask.FromResult(true);
@@ -131,14 +134,15 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         return e;
     }
 
-    private sealed class Entry(PushDelivery delivery, DateTimeOffset dueAt)
+    private sealed class Entry(PushDelivery delivery, ReadOnlyMemory<byte> payload, DateTimeOffset dueAt)
     {
         public PushDelivery Delivery { get; } = delivery;
+        public ReadOnlyMemory<byte> Payload { get; } = payload;
         public int Attempt { get; set; }
         public DateTimeOffset DueAt { get; set; } = dueAt;
         public string? LastError { get; set; }
         public DateTimeOffset? LeasedUntil { get; set; }
 
-        public OutboxEntry ToEntry() => new(Delivery, Attempt, DueAt, LastError);
+        public OutboxEntry ToEntry() => new(Delivery, Attempt, DueAt, LastError) { Payload = Payload };
     }
 }

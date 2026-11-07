@@ -13,7 +13,7 @@ namespace A2A.Server.Postgres;
 /// </summary>
 public sealed class PostgresPushOutbox : PushOutbox
 {
-    private const string Columns = "tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt";
+    private const string Columns = "tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt, payload";
     private const string KeyFilter = "tenant = $1 AND owner = $2 AND task_id = $3 AND config_id = $4 AND seq = $5";
 
     private readonly NpgsqlDataSource _db;
@@ -31,15 +31,18 @@ public sealed class PostgresPushOutbox : PushOutbox
 
     internal static string OutboxTable(PostgresStoreOptions? options) => $"{PostgresSchema.Quote((options ?? new()).Schema)}.a2a_push_outbox";
 
-    /// <summary>The insert of new deliveries (due now, attempt 0) for <see cref="PostgresTaskStore.CommitAsync"/>'s transaction.</summary>
-    internal static NpgsqlBatchCommand InsertCommand(string outboxTable, PushDelivery d, long seq, long nowTicks)
+    /// <summary>
+    /// The insert of a new delivery (due now, attempt 0, the event's JSON as <paramref name="payload"/>) for
+    /// <see cref="PostgresTaskStore.CommitAsync"/>'s transaction.
+    /// </summary>
+    internal static NpgsqlBatchCommand InsertCommand(string outboxTable, PushDelivery d, long seq, byte[] payload, long nowTicks)
     {
         var cmd = new NpgsqlBatchCommand(
             $"""
-            INSERT INTO {outboxTable} (tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt, due_ticks, lease_ticks, last_error)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, NULL, NULL)
+            INSERT INTO {outboxTable} (tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt, payload, due_ticks, lease_ticks, last_error)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $9, $8, NULL, NULL)
             ON CONFLICT (tenant, owner, task_id, config_id, seq) DO UPDATE SET
-                delivery_id = EXCLUDED.delivery_id, trace_parent = EXCLUDED.trace_parent, attempt = 0,
+                delivery_id = EXCLUDED.delivery_id, trace_parent = EXCLUDED.trace_parent, attempt = 0, payload = EXCLUDED.payload,
                 due_ticks = EXCLUDED.due_ticks, lease_ticks = NULL, last_error = NULL
             """);
         AddKey(cmd.Parameters, d.Task);
@@ -48,6 +51,7 @@ public sealed class PostgresPushOutbox : PushOutbox
         cmd.Parameters.Add(Text(d.DeliveryId));
         cmd.Parameters.Add(NullableText(d.TraceParent));
         cmd.Parameters.Add(Long(nowTicks));
+        cmd.Parameters.Add(Bytes(payload));
         return cmd;
     }
 
@@ -71,7 +75,7 @@ public sealed class PostgresPushOutbox : PushOutbox
             )
             UPDATE {_outbox} o SET lease_ticks = $2 FROM picked p
             WHERE o.tenant = p.tenant AND o.owner = p.owner AND o.task_id = p.task_id AND o.config_id = p.config_id AND o.seq = p.seq
-            RETURNING o.tenant, o.owner, o.task_id, o.config_id, o.seq, o.delivery_id, o.trace_parent, o.attempt, o.due_ticks, o.last_error
+            RETURNING o.tenant, o.owner, o.task_id, o.config_id, o.seq, o.delivery_id, o.trace_parent, o.attempt, o.payload, o.due_ticks, o.last_error
             """);
         cmd.Parameters.Add(Long(now));
         cmd.Parameters.Add(Long(AddClamped(now, lease)));
@@ -109,10 +113,10 @@ public sealed class PostgresPushOutbox : PushOutbox
             $"""
             WITH moved AS (DELETE FROM {_outbox} WHERE {KeyFilter} RETURNING {Columns})
             INSERT INTO {_dead} ({Columns}, dead_ticks, last_error)
-            SELECT tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt + 1, $6, $7 FROM moved
+            SELECT tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt + 1, payload, $6, $7 FROM moved
             ON CONFLICT (tenant, owner, task_id, config_id, seq) DO UPDATE SET
                 delivery_id = EXCLUDED.delivery_id, trace_parent = EXCLUDED.trace_parent, attempt = EXCLUDED.attempt,
-                dead_ticks = EXCLUDED.dead_ticks, last_error = EXCLUDED.last_error
+                payload = EXCLUDED.payload, dead_ticks = EXCLUDED.dead_ticks, last_error = EXCLUDED.last_error
             """);
         AddEntryKey(cmd.Parameters, d);
         cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
@@ -143,7 +147,7 @@ public sealed class PostgresPushOutbox : PushOutbox
             $"""
             WITH moved AS (DELETE FROM {_dead} WHERE {KeyFilter} RETURNING {Columns})
             INSERT INTO {_outbox} ({Columns}, due_ticks, lease_ticks, last_error)
-            SELECT tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, 0, $6, NULL, NULL FROM moved
+            SELECT tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, 0, payload, $6, NULL, NULL FROM moved
             ON CONFLICT (tenant, owner, task_id, config_id, seq) DO UPDATE SET
                 attempt = 0, due_ticks = EXCLUDED.due_ticks, lease_ticks = NULL, last_error = NULL
             """);
@@ -179,6 +183,9 @@ public sealed class PostgresPushOutbox : PushOutbox
         {
             TraceParent = r.IsDBNull(6) ? null : r.GetString(6),
         };
-        return new OutboxEntry(delivery, r.GetInt32(7), new DateTimeOffset(r.GetInt64(8), TimeSpan.Zero), r.IsDBNull(9) ? null : r.GetString(9));
+        return new OutboxEntry(delivery, r.GetInt32(7), new DateTimeOffset(r.GetInt64(9), TimeSpan.Zero), r.IsDBNull(10) ? null : r.GetString(10))
+        {
+            Payload = r.GetFieldValue<byte[]>(8),
+        };
     }
 }

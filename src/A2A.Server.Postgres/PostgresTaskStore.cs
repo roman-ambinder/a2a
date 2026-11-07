@@ -115,8 +115,9 @@ public sealed class PostgresTaskStore : TaskStore
         var seq = await AppendEventAsync(conn, tx, _eventTables, key, eventJson, Math.Max(1, _streaming.ReplayBufferSize), now, ct).ConfigureAwait(false);
         if (commit.Deliveries.Count > 0)
         {
+            var payload = System.Text.Encoding.UTF8.GetBytes(eventJson); // the webhook body, stored with the event
             await using var batch = new NpgsqlBatch(conn, tx);
-            foreach (var d in commit.Deliveries) batch.BatchCommands.Add(PostgresPushOutbox.InsertCommand(_outbox, d, seq, now));
+            foreach (var d in commit.Deliveries) batch.BatchCommands.Add(PostgresPushOutbox.InsertCommand(_outbox, d, seq, payload, now));
             await batch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
         await tx.CommitAsync(CancellationToken.None).ConfigureAwait(false);

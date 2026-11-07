@@ -68,6 +68,27 @@ public abstract class PushOutboxContract
     }
 
     [SkippableFact]
+    public async Task Payload_is_the_committed_event_and_survives_dead_letter_and_redrive()
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        await CommitAsync(tasks, Alice);
+        var d = (await CommitAsync(tasks, Alice, "c1"))[0];
+        var expected = A2AJson.Serialize(TaskStoreContract.StatusEvent(Alice.TaskId, TaskState.Working));
+
+        var leased = Assert.Single(await outbox.LeaseDueAsync(10, Lease));
+        Assert.Equal(expected, Utf8(leased.Payload));
+        await outbox.RescheduleAsync(d, 1, _time.GetUtcNow(), "HTTP 500");
+        Assert.Equal(expected, Utf8(Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Payload));
+
+        await outbox.DeadLetterAsync(d, "HTTP 500");
+        Assert.Equal(expected, Utf8(Assert.Single(await outbox.ListDeadLettersAsync("t", 10)).Payload));
+        Assert.True(await outbox.RedriveAsync(d));
+        Assert.Equal(expected, Utf8(Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Payload));
+    }
+
+    private static string Utf8(ReadOnlyMemory<byte> bytes) => System.Text.Encoding.UTF8.GetString(bytes.Span);
+
+    [SkippableFact]
     public async Task Trace_parent_is_kept()
     {
         var (tasks, outbox) = await CreateAsync(_time);

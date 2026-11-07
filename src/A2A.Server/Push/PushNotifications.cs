@@ -141,7 +141,7 @@ internal readonly record struct PushSendResult(PushSendOutcome Outcome, string? 
 /// </summary>
 internal sealed class PushWebhookSender(IHttpClientFactory httpClientFactory, PushNotificationOptions options, ILogger logger)
 {
-    public async Task<PushSendResult> SendAsync(TaskPushNotificationConfig config, PushDelivery delivery, byte[] body,
+    public async Task<PushSendResult> SendAsync(TaskPushNotificationConfig config, PushDelivery delivery, ReadOnlyMemory<byte> body,
         Activity? activity, ActivityContext traceContext, CancellationToken ct)
     {
         try
@@ -158,7 +158,7 @@ internal sealed class PushWebhookSender(IHttpClientFactory httpClientFactory, Pu
                 return new PushSendResult(PushSendOutcome.Permanent, "URL not allowed: " + ex.Message, "UrlNotAllowed");
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ByteArrayContent(body) };
+            using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ReadOnlyMemoryContent(body) };
             request.Content.Headers.ContentType = new MediaTypeHeaderValue(A2AProtocol.MediaType);
             // The body is an A2A v1.0 StreamResponse; say so, as on every other A2A request (a2a-js #647).
             request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, A2AProtocol.Version);

@@ -15,8 +15,8 @@ public sealed class A2APushAdmin(PushOutbox outbox)
         _outbox.ListDeadLettersAsync(tenant, max, ct);
 
     /// <summary>
-    /// Queues a dead letter for delivery again (attempt 0, same delivery id, due now). Returns false when it is not a dead
-    /// letter. The event is read from the event store when it is sent, so it must still be retained.
+    /// Queues a dead letter for delivery again (attempt 0, same delivery id, same payload, due now). Returns false when it is
+    /// not a dead letter.
     /// </summary>
     public async ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken ct = default)
     {

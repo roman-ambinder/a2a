@@ -22,16 +22,18 @@ internal sealed class PushRig
     private readonly HttpMessageHandler _hooks;
     private TaskRecord? _record;
 
-    public PushRig(HttpMessageHandler hooks)
+    public PushRig(HttpMessageHandler hooks, int replayBufferSize = 1000)
     {
         _hooks = hooks;
-        Events = new InMemoryEventStore(new StreamingOptions(), Time);
+        Events = new InMemoryEventStore(Streaming, Time);
+        Streaming.ReplayBufferSize = replayBufferSize;
         Outbox = new InMemoryPushOutbox(Time);
         Tasks = new InMemoryTaskStore(Events, Outbox);
         Options.PushNotifications.AllowPrivateNetworks = true;
     }
 
     public FakeTimeProvider Time { get; } = new();
+    public StreamingOptions Streaming { get; } = new();
     public InMemoryEventStore Events { get; }
     public InMemoryPushOutbox Outbox { get; }
     public InMemoryTaskStore Tasks { get; }
@@ -74,7 +76,7 @@ internal sealed class PushRig
         return deliveries.Select(d => d with { Sequence = committed.Sequence }).ToList();
     }
 
-    public PushDeliveryService NewService() => new(Outbox, Events, Configs, Protector, new Factory(_hooks),
+    public PushDeliveryService NewService() => new(Outbox, Configs, Protector, new Factory(_hooks),
         Microsoft.Extensions.Options.Options.Create(Options), logger: null, time: Time);
 
     /// <summary>Runs passes, moving the clock past every backoff, until the outbox is empty.</summary>
@@ -100,15 +102,20 @@ internal sealed class ScriptedHooks(params HttpStatusCode[] codes) : HttpMessage
     private int _i;
     public List<HttpRequestMessage> Requests { get; } = [];
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    /// <summary>The body of each request, in order (read before the sender disposes the request).</summary>
+    public List<string> Bodies { get; } = [];
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
+        var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
         HttpStatusCode code;
         lock (Requests)
         {
             Requests.Add(request);
+            Bodies.Add(body);
             code = codes.Length == 0 ? HttpStatusCode.OK : codes[Math.Min(_i++, codes.Length - 1)];
         }
-        return Task.FromResult(new HttpResponseMessage(code));
+        return new HttpResponseMessage(code);
     }
 
     public static string Header(HttpRequestMessage r, string name) => r.Headers.GetValues(name).Single();
@@ -214,6 +221,78 @@ public class PushOutboxTests
         Assert.Equal(2, hooks.Requests.Count);
         Assert.Equal(d.DeliveryId, ScriptedHooks.Header(hooks.Requests[1], A2AProtocol.Headers.DeliveryId));
         Assert.Equal(0, rig.Outbox.Count);
+    }
+
+    [Fact]
+    public async Task Receiver_down_longer_than_terminal_retention_still_gets_the_event()
+    {
+        var hooks = new ScriptedHooks(HttpStatusCode.ServiceUnavailable, HttpStatusCode.ServiceUnavailable, HttpStatusCode.OK);
+        var rig = new PushRig(hooks);
+        await rig.SaveConfigAsync(Hook());
+        await rig.CommitAsync();
+        await rig.CommitAsync("c1"); // the last event of the task
+        await rig.Events.MarkTerminalAsync(PushRig.Key);
+        using var service = rig.NewService();
+
+        await service.RunOnceAsync(CancellationToken.None); // 503: the receiver is down
+        rig.Time.Advance(rig.Streaming.TerminalRetention + TimeSpan.FromMinutes(1));
+        Assert.Empty(await ReadLogAsync(rig)); // the event log of the finished task is gone
+        await service.RunOnceAsync(CancellationToken.None); // still down
+        rig.Time.Advance(rig.Options.PushDelivery.MaxBackoff);
+        Assert.Equal(1, await service.RunOnceAsync(CancellationToken.None)); // back
+
+        Assert.Equal(3, hooks.Requests.Count);
+        Assert.Equal(0, rig.Outbox.Count);
+        Assert.Equal("2", ScriptedHooks.Header(hooks.Requests[2], A2AProtocol.Headers.NotificationSequence));
+        Assert.Equal(TaskState.Working, Assert.IsType<StatusUpdateEvent>(A2AJson.Deserialize<StreamResponse>(hooks.Bodies[2])).StatusUpdate.Status.State);
+    }
+
+    [Fact]
+    public async Task Event_trimmed_from_the_replay_buffer_is_still_delivered()
+    {
+        var hooks = new ScriptedHooks(HttpStatusCode.OK);
+        var rig = new PushRig(hooks, replayBufferSize: 2);
+        await rig.SaveConfigAsync(Hook());
+        await rig.CommitAsync("c1"); // seq 1, the snapshot
+        for (var i = 0; i < 3; i++) await rig.CommitAsync();
+        Assert.Equal(3, (await ReadLogAsync(rig))[0].Sequence); // seq 1 was trimmed
+        using var service = rig.NewService();
+
+        Assert.Equal(1, await service.RunOnceAsync(CancellationToken.None));
+
+        Assert.Equal("1", ScriptedHooks.Header(Assert.Single(hooks.Requests), A2AProtocol.Headers.NotificationSequence));
+        Assert.Equal(PushRig.Key.TaskId, Assert.IsType<TaskEvent>(A2AJson.Deserialize<StreamResponse>(hooks.Bodies[0])).Task.Id);
+    }
+
+    [Fact]
+    public async Task Redrive_after_the_event_was_evicted_is_delivered()
+    {
+        var hooks = new ScriptedHooks(HttpStatusCode.InternalServerError, HttpStatusCode.OK);
+        var rig = new PushRig(hooks);
+        rig.Options.PushDelivery.MaxAttempts = 1;
+        await rig.SaveConfigAsync(Hook());
+        await rig.CommitAsync("c1");
+        await rig.Events.MarkTerminalAsync(PushRig.Key);
+        using var service = rig.NewService();
+        await rig.DrainAsync(service);
+        var dead = Assert.Single(await rig.Outbox.ListDeadLettersAsync("", 10));
+
+        rig.Time.Advance(rig.Streaming.TerminalRetention + TimeSpan.FromHours(1));
+        Assert.Empty(await ReadLogAsync(rig));
+        Assert.True(await new A2APushAdmin(rig.Outbox).RedriveAsync(dead.Delivery));
+        Assert.Equal(1, await service.RunOnceAsync(CancellationToken.None));
+
+        Assert.Equal(2, hooks.Requests.Count);
+        Assert.Equal(hooks.Bodies[0], hooks.Bodies[1]);
+        Assert.IsType<TaskEvent>(A2AJson.Deserialize<StreamResponse>(hooks.Bodies[1]));
+        Assert.Equal(0, rig.Outbox.Count);
+    }
+
+    private static async Task<List<SequencedEvent>> ReadLogAsync(PushRig rig)
+    {
+        var list = new List<SequencedEvent>();
+        await foreach (var e in rig.Events.ReadAfterAsync(PushRig.Key, 0)) list.Add(e);
+        return list;
     }
 
     [Fact]

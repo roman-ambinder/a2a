@@ -9,12 +9,20 @@ namespace A2A.Server.Push;
 /// </param>
 /// <param name="DueAt">When the next attempt may start. For a dead letter, when it was dead-lettered.</param>
 /// <param name="LastError">Why the last attempt failed, or null. Never holds secrets.</param>
-public sealed record OutboxEntry(PushDelivery Delivery, int Attempt, DateTimeOffset DueAt, string? LastError);
+public sealed record OutboxEntry(PushDelivery Delivery, int Attempt, DateTimeOffset DueAt, string? LastError)
+{
+    /// <summary>
+    /// The webhook body: the event's <see cref="StreamResponse"/> JSON (UTF-8), captured by the commit. Kept with the entry and
+    /// its dead letter, so a delivery does not depend on the event log's retention and can be re-driven at any time.
+    /// </summary>
+    public ReadOnlyMemory<byte> Payload { get; init; }
+}
 
 /// <summary>
 /// Durable queue of push deliveries (spec §4.3.3). Entries are written by <see cref="TaskStore.CommitAsync"/> in the same
-/// atomic unit as the event they announce (<see cref="TaskCommit.Deliveries"/>, due at once, attempt 0), and processed by
-/// <see cref="PushDeliveryService"/>. An entry is identified by its task, config id and sequence.
+/// atomic unit as the event they announce (<see cref="TaskCommit.Deliveries"/>, due at once, attempt 0, with the event's
+/// JSON as <see cref="OutboxEntry.Payload"/>), and processed by <see cref="PushDeliveryService"/>. An entry is identified
+/// by its task, config id and sequence.
 /// </summary>
 /// <remarks>
 /// Order: per task and push config, only the oldest pending entry (lowest sequence) is ever leased, so a delivery is not sent
@@ -49,8 +57,8 @@ public abstract class PushOutbox
     public abstract ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken ct = default);
 
     /// <summary>
-    /// Moves a dead letter back to the outbox, due at once with attempt 0 and the same delivery id. Returns false when it is
-    /// not a dead letter.
+    /// Moves a dead letter back to the outbox, due at once with attempt 0, the same delivery id and the same payload. Returns
+    /// false when it is not a dead letter.
     /// </summary>
     public abstract ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken ct = default);
 

@@ -12,11 +12,11 @@ using Microsoft.Extensions.Options;
 namespace A2A.Server.Push;
 
 /// <summary>
-/// Sends the push deliveries of the <see cref="PushOutbox"/> (spec §4.3.3, §13.2). Each pass leases due deliveries, reads
-/// each event from the <see cref="EventStore"/> by its sequence, sends it to its push config and records the result:
-/// sent (removed), failed and retryable (rescheduled with exponential backoff and jitter, <see cref="PushDeliveryOptions"/>)
-/// or failed for good (dead-lettered: a URL refused by the SSRF policy, a 4xx other than 408/429, an event no longer
-/// retained, or the last attempt). Delivery is at least once and in order per task and push config; several instances can
+/// Sends the push deliveries of the <see cref="PushOutbox"/> (spec §4.3.3, §13.2). Each pass leases due deliveries, sends
+/// each stored payload (the event as committed) to its push config and records the result: sent (removed), failed and
+/// retryable (rescheduled with exponential backoff and jitter, <see cref="PushDeliveryOptions"/>) or failed for good
+/// (dead-lettered: a URL refused by the SSRF policy, a 4xx other than 408/429, secrets that cannot be unprotected, or the
+/// last attempt). Delivery is at least once and in order per task and push config; several instances can
 /// run this service against one shared outbox.
 /// </summary>
 /// <remarks>
@@ -44,7 +44,6 @@ public sealed class PushDeliveryService : BackgroundService
         description: "Push deliveries that failed for good and were moved to the dead letters.");
 
     private readonly PushOutbox _outbox;
-    private readonly EventStore _events;
     private readonly PushConfigStore _configs;
     private readonly IPushSecretProtector _protector;
     private readonly PushDeliveryOptions _options;
@@ -53,14 +52,13 @@ public sealed class PushDeliveryService : BackgroundService
     private readonly TimeProvider _time;
 
     /// <summary>Created by DI. The optional <paramref name="time"/> is the clock for due times and polling.</summary>
-    public PushDeliveryService(PushOutbox outbox, EventStore events, PushConfigStore configs, IPushSecretProtector protector,
+    public PushDeliveryService(PushOutbox outbox, PushConfigStore configs, IPushSecretProtector protector,
         IHttpClientFactory httpClientFactory, IOptions<A2AServerOptions> options, ILogger<PushDeliveryService>? logger = null,
         TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(options);
         _outbox = outbox ?? throw new ArgumentNullException(nameof(outbox));
-        _events = events ?? throw new ArgumentNullException(nameof(events));
         _configs = configs ?? throw new ArgumentNullException(nameof(configs));
         _protector = protector ?? throw new ArgumentNullException(nameof(protector));
         _options = options.Value.PushDelivery;
@@ -149,16 +147,9 @@ public sealed class PushDeliveryService : BackgroundService
                 return;
             }
 
-            if (await ReadEventAsync(d, ct).ConfigureAwait(false) is not { } evt)
-            {
-                _logger.LogError("Event {Sequence} of task {TaskId} is no longer retained; cannot deliver it to webhook {ConfigId}", d.Sequence, d.Task.TaskId, d.ConfigId);
-                await DeadLetterAsync(d, activity, "The event is no longer retained", "EventNotRetained").ConfigureAwait(false);
-                return;
-            }
-
             // Without a listener there is no span: pass on the producer's context, so the receiver still joins the trace.
             var traceContext = activity?.Context ?? parent;
-            var result = await _sender.SendAsync(config, d, A2AJson.SerializeToUtf8Bytes(evt), activity, traceContext, ct).ConfigureAwait(false);
+            var result = await _sender.SendAsync(config, d, entry.Payload, activity, traceContext, ct).ConfigureAwait(false);
             switch (result.Outcome)
             {
                 case PushSendOutcome.Sent:
@@ -207,13 +198,6 @@ public sealed class PushDeliveryService : BackgroundService
         var baseTicks = _options.InitialBackoff.Ticks * Math.Pow(2, Math.Min(attempt - 1, 62));
         var jittered = baseTicks * (0.8 + (0.4 * Random.Shared.NextDouble()));
         return TimeSpan.FromTicks((long)Math.Min(jittered, _options.MaxBackoff.Ticks));
-    }
-
-    private async Task<StreamResponse?> ReadEventAsync(PushDelivery d, CancellationToken ct)
-    {
-        await foreach (var e in _events.ReadAfterAsync(d.Task, d.Sequence - 1, ct).ConfigureAwait(false))
-            return e.Sequence == d.Sequence ? e.Event : null;
-        return null;
     }
 
     /// <summary>Returns a copy of the stored config with its secrets in plaintext. Used only at delivery time.</summary>
