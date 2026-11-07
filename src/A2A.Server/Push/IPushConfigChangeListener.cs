@@ -11,3 +11,13 @@ public interface IPushConfigChangeListener
     /// <summary>Called after a push config of <paramref name="key"/> was stored or deleted. Must return quickly and must not throw.</summary>
     void ConfigChanged(TaskKey key);
 }
+
+/// <summary>Listener used when the registered <see cref="IPushNotificationSender"/> does not listen for config changes.</summary>
+internal sealed class NoOpPushConfigChangeListener : IPushConfigChangeListener
+{
+    public static readonly NoOpPushConfigChangeListener Instance = new();
+
+    private NoOpPushConfigChangeListener() { }
+
+    public void ConfigChanged(TaskKey key) { }
+}

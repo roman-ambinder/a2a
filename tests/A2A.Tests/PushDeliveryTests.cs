@@ -551,19 +551,25 @@ public class PushDeliveryTests
     [Fact]
     public async Task Worker_exits_when_idle()
     {
+        var clock = new TimerClock();
         var h = new Recorder();
-        var (sender, configs) = NewSender(h, o => o.PushNotifications.WorkerIdleTimeout = TimeSpan.FromMilliseconds(300));
+        var (sender, configs) = NewSender(h, o => o.PushNotifications.WorkerIdleTimeout = TimeSpan.FromSeconds(30), clock);
         using var _ = sender;
         await AddHookAsync(configs, "c1");
 
         sender.Enqueue(Key, Evt(1));
         await sender.WhenIdleAsync();
-        Assert.Equal(1, sender.ActiveWorkers); // lingers while idle shorter than the timeout
+        await WaitUntil(() => clock.ArmedTimers > 0); // the worker waits for its next event
+        Assert.Equal(1, sender.ActiveWorkers);
+        clock.Advance(TimeSpan.FromSeconds(29));
+        Assert.Equal(1, sender.ActiveWorkers); // not idle long enough yet
+        clock.Advance(TimeSpan.FromSeconds(1)); // the idle timeout passes
         await WaitUntil(() => sender.ActiveWorkers == 0);
 
         sender.Enqueue(Key, Evt(2)); // a new worker starts on the next event
         await sender.WhenIdleAsync();
         Assert.Equal([1L, 2L], h.Seqs("/c1"));
+        Assert.Equal(1, sender.ActiveWorkers);
     }
 
     [Fact]
@@ -575,11 +581,8 @@ public class PushDeliveryTests
         using var _ = sender;
         await AddHookAsync(configs, "c1");
 
-        var sw = Stopwatch.StartNew();
         var enqueue = Task.Run(() => { for (var i = 1; i <= 20; i++) sender.Enqueue(Key, Evt(i)); });
-        await enqueue.WaitAsync(TimeSpan.FromSeconds(5)); // would time out if Enqueue waited for channel space
-        sw.Stop();
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(1), $"20 Enqueue calls took {sw.Elapsed}");
+        await enqueue.WaitAsync(TimeSpan.FromSeconds(5)); // the webhook is still closed: this times out if Enqueue waits for channel space
         Assert.Equal(0, h.Count);
 
         open.SetResult();
