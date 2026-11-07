@@ -21,7 +21,7 @@ public sealed class A2ARequestOptions
 
     /// <summary>
     /// <c>Idempotency-Key</c> for <c>SendMessage</c> and <c>SendStreamingMessage</c>. Default: the message id.
-    /// Ignored by other methods.
+    /// Ignored by other methods. Servers built with this SDK refuse a key (or message id) longer than 256 characters.
     /// </summary>
     public string? IdempotencyKey { get; set; }
 

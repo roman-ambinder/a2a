@@ -435,13 +435,15 @@ public sealed class A2ARequestHandler : IDisposable
     /// Begins idempotency for a SendMessage (spec design §7.3), after authorization and before the message is accepted. The
     /// key is the <c>Idempotency-Key</c> header, else the message id, scoped by tenant and principal. Returns the claim of a
     /// new request, or the outcome of the earlier request with the same key, waiting (up to the request's cancellation) while
-    /// it runs. A key reused with a different request is <see cref="A2AException.IdempotencyKeyMismatch"/>.
+    /// it runs. A key reused with a different request is <see cref="A2AException.IdempotencyKeyMismatch"/>; a key longer than
+    /// <see cref="MaxIdempotencyKeyLength"/> characters is InvalidParams.
     /// </summary>
     private async Task<(IdempotencyClaim Claim, IdempotencyOutcome? Replay)> BeginIdempotentAsync(SendMessageRequest request,
         ServerCallContext call, CancellationToken ct)
     {
         var key = call.IdempotencyKey ?? request.Message?.MessageId;
         if (string.IsNullOrEmpty(key) || request.Message is null) return (IdempotencyClaim.None, null); // validation rejects it later
+        if (key.Length > MaxIdempotencyKeyLength) throw A2AException.InvalidParams("Idempotency key too long.");
         var scope = new IdempotencyScope(call.Tenant, call.Principal, key);
         var hash = RequestHasher.Hash(request);
         while (true)
@@ -1471,6 +1473,12 @@ public sealed class A2ARequestHandler : IDisposable
 
     private static A2AException ConfigNotFound(string taskId, string id) =>
         new(A2AErrorCode.TaskNotFound, "Push notification config not found") { Metadata = new() { ["taskId"] = taskId, ["configId"] = id } };
+
+    /// <summary>
+    /// Longest idempotency key (the <c>Idempotency-Key</c> header, else the message id), in characters. Keys are held in
+    /// memory per caller, so a longer one is InvalidParams.
+    /// </summary>
+    internal const int MaxIdempotencyKeyLength = 256;
 
     /// <summary>Retries after a version conflict when applying one change to a task.</summary>
     private const int MaxConflictRetries = 3;

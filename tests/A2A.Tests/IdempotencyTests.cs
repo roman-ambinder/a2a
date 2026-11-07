@@ -343,6 +343,34 @@ public class IdempotencyTests
         Assert.Single(task.History!, m => m.MessageId == "m-follow-cancel");
     }
 
+    private static void AssertKeyTooLong(string binding, HttpStatusCode status, JsonElement body)
+    {
+        var error = body.GetProperty("error");
+        if (binding == ProtocolBindings.JsonRpc) Assert.Equal((int)A2AErrorCode.InvalidParams, error.GetProperty("code").GetInt32());
+        else Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("Idempotency key too long.", error.GetProperty("message").GetString());
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Idempotency_key_longer_than_256_characters_is_refused(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var tooLong = new string('k', 257);
+
+        var (headerStatus, headerBody) = await SendAsync(host, Send(binding, Body("task", "m-short"), idempotencyKey: tooLong));
+        AssertKeyTooLong(binding, headerStatus, headerBody);
+
+        // Without the header the message id is the key, and the same cap applies, also to a stream.
+        var (idStatus, idBody) = await SendAsync(host, Send(binding, Body("task", tooLong)));
+        AssertKeyTooLong(binding, idStatus, idBody);
+        var (streamStatus, streamBody) = await SendAsync(host, Send(binding, Body("task", tooLong), streaming: true));
+        AssertKeyTooLong(binding, streamStatus, streamBody);
+
+        Assert.Empty((await host.Client(binding).ListTasksAsync(new ListTasksRequest())).Tasks);
+        await SendTaskAsync(host, binding, Body("task", new string('m', 256)), idempotencyKey: new string('k', 256)); // at the cap
+    }
+
     [Theory]
     [MemberData(nameof(Bindings))]
     public async Task Keys_are_scoped_per_tenant(string binding)
