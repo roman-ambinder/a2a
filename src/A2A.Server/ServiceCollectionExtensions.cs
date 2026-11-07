@@ -13,9 +13,10 @@ public static class A2AServerServiceCollectionExtensions
     /// Registers the A2A server core and returns a builder to add the agent, its card and extra services.
     /// Defaults: in-memory stores (tasks, events, push outbox, push configs, idempotency), a hosted <see cref="PushDeliveryService"/>
     /// that sends push notifications through an HTTP client with the SSRF guard, the <see cref="A2APushAdmin"/> dead-letter API,
-    /// and an allow-all authorization handler. Register your own <see cref="Storage.TaskStore"/> (with the
-    /// <see cref="Storage.EventStore"/> and <see cref="PushOutbox"/> it commits to), <see cref="Storage.PushConfigStore"/> or
-    /// <see cref="Idempotency.IdempotencyStore"/> before or after to replace them.
+    /// an allow-all authorization handler, and a process-local <see cref="Coordination.ExecutionCoordinator"/>. Register your
+    /// own <see cref="Storage.TaskStore"/> (with the <see cref="Storage.EventStore"/> and <see cref="PushOutbox"/> it commits
+    /// to), <see cref="Storage.PushConfigStore"/>, <see cref="Idempotency.IdempotencyStore"/> or
+    /// <see cref="Coordination.ExecutionCoordinator"/> before or after to replace them.
     /// </summary>
     public static A2AServerBuilder AddA2AServer(this IServiceCollection services, Action<A2AServerOptions>? configure = null)
     {
@@ -31,6 +32,8 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<IPrincipalResolver, DefaultPrincipalResolver>();
         services.TryAddSingleton<A2AAuthorizationHandler, AllowAllAuthorizationHandler>();
         services.TryAddSingleton<TaskEventBus>();
+        services.TryAddSingleton<Coordination.ExecutionCoordinator>(sp => new Coordination.InMemoryExecutionCoordinator(
+            sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Coordination, sp.GetService<TimeProvider>()));
         services.AddHttpClient(PushDeliveryService.HttpClientName)
             .ConfigurePrimaryHttpMessageHandler(sp => PushUrlValidator.CreateHandler(sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.PushNotifications));
         services.TryAddSingleton<PushDeliveryService>();

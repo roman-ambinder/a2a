@@ -22,7 +22,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | `A2A.Server.Grpc` | `MapA2AGrpc()`: the gRPC binding on ASP.NET Core |
 | `A2A.Client.Grpc` | `GrpcTransport` and `A2AGrpcClientFactory` |
 | `A2A.Server.Postgres` | PostgreSQL stores (tasks, events, push configs, push outbox, idempotency) via Npgsql |
-| `A2A.Server.Redis` | Redis pub/sub `TaskEventBus` for running several server instances |
+| `A2A.Server.Redis` | Redis pub/sub `TaskEventBus` and execution coordinator for running several server instances |
 
 ## Server in 20 lines
 
@@ -180,7 +180,7 @@ builder.Services.AddA2ADataProtectionPushSecrets();
 ```
 
 - `A2A.Server.Postgres` stores tasks, event logs, push configs, the push outbox and idempotency keys, and creates its tables at startup ([README](src/A2A.Server.Postgres/README.md)).
-- `A2A.Server.Redis` fans live events out to every instance ([README](src/A2A.Server.Redis/README.md)).
+- `A2A.Server.Redis` fans live events out to every instance, and `AddRedisEventBus` also registers its execution coordinator: a cluster-wide "is this task running" check, CancelTask that reaches the instance running the agent, and leases that expire when an instance dies ([README](src/A2A.Server.Redis/README.md)). Lease timing is in `A2AServerOptions.Coordination` (`LeaseTtl` 30 s, `Heartbeat` 10 s, `RunningPollInterval` 1 s).
 - Push secrets need a protector with persisted, shared keys; the default one is per process.
 - The handler's per-task lock is per process. Across instances, each task change and its event are written in one transaction (`TaskStore.CommitAsync`) with a version check, so the event log follows the order of task versions.
 - Both packages pass the same contract tests as the in-memory versions (`tests/A2A.Stores.Tests`, Docker via Testcontainers).

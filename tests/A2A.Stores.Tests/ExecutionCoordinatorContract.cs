@@ -1,0 +1,382 @@
+using A2A.Server;
+using A2A.Server.Coordination;
+using A2A.Server.Redis;
+using A2A.Server.Storage;
+using A2A.Tests;
+using Microsoft.Extensions.DependencyInjection;
+using StackExchange.Redis;
+
+namespace A2A.Stores.Tests;
+
+/// <summary>
+/// Behavior every <see cref="ExecutionCoordinator"/> must have. A coordinator pair stands for two server instances; for the
+/// process-local coordinator both are the same instance.
+/// </summary>
+public abstract class ExecutionCoordinatorContract
+{
+    protected static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
+
+    protected static TaskKey Key(string id = "task", string tenant = "t", string owner = "alice") => new(tenant, owner, id);
+
+    /// <summary>The lease settings the coordinators are created with.</summary>
+    protected abstract CoordinationOptions Options { get; }
+
+    /// <summary>Returns two coordinators that share state (two instances), or the same one twice.</summary>
+    protected abstract Task<(ExecutionCoordinator A, ExecutionCoordinator B)> CreatePairAsync();
+
+    /// <summary>Lets <paramref name="time"/> pass on the coordinators' clock: the fake clock, or the real one.</summary>
+    protected abstract Task PassAsync(TimeSpan time);
+
+    /// <summary>Lets every lease registered so far expire.</summary>
+    private Task PassLeaseTtlAsync() => PassAsync(Options.LeaseTtl + TimeSpan.FromMilliseconds(50));
+
+    /// <summary>Polls <paramref name="condition"/> until it holds, failing after <see cref="Wait"/>.</summary>
+    protected static async Task EventuallyAsync(Func<Task<bool>> condition, string what)
+    {
+        var deadline = DateTime.UtcNow + Wait;
+        while (!await condition())
+        {
+            if (DateTime.UtcNow > deadline) Assert.Fail($"Timed out waiting until {what}.");
+            await Task.Delay(20);
+        }
+    }
+
+    private static async Task<bool> ExpiredContainsAsync(ExecutionCoordinator c, TaskKey task, string executionId) =>
+        (await c.ListExpiredAsync(100)).Contains((task, executionId));
+
+    [SkippableFact]
+    public async Task Registered_execution_runs_everywhere_until_unregistered()
+    {
+        var (a, b) = await CreatePairAsync();
+        Assert.False(await b.IsRunningAsync(Key()));
+        await a.RegisterAsync(Key(), "e1");
+        Assert.True(await a.IsRunningAsync(Key()));
+        Assert.True(await b.IsRunningAsync(Key()));
+        await a.UnregisterAsync(Key(), "e1");
+        Assert.False(await a.IsRunningAsync(Key()));
+        Assert.False(await b.IsRunningAsync(Key()));
+        Assert.Empty(await b.ListExpiredAsync(10));
+    }
+
+    [SkippableFact]
+    public async Task Running_is_scoped_to_tenant_owner_and_task()
+    {
+        var (a, b) = await CreatePairAsync();
+        await a.RegisterAsync(Key("x"), "e1");
+        Assert.True(await b.IsRunningAsync(Key("x")));
+        Assert.False(await b.IsRunningAsync(Key("y")));
+        Assert.False(await b.IsRunningAsync(Key("x", owner: "bob")));
+        Assert.False(await b.IsRunningAsync(Key("x", tenant: "u")));
+    }
+
+    [SkippableFact]
+    public async Task Task_runs_while_any_of_its_executions_runs()
+    {
+        var (a, b) = await CreatePairAsync();
+        await a.RegisterAsync(Key(), "e1");
+        await b.RegisterAsync(Key(), "e2");
+        await a.UnregisterAsync(Key(), "e1");
+        Assert.True(await a.IsRunningAsync(Key()));
+        await b.UnregisterAsync(Key(), "e2");
+        Assert.False(await a.IsRunningAsync(Key()));
+    }
+
+    [SkippableFact]
+    public async Task Stale_execution_id_never_touches_a_newer_lease()
+    {
+        var (a, b) = await CreatePairAsync();
+        await a.RegisterAsync(Key(), "old");
+        await a.UnregisterAsync(Key(), "old");
+        await b.RegisterAsync(Key(), "new");
+
+        await a.HeartbeatAsync(Key(), "old");
+        await a.UnregisterAsync(Key(), "old");
+        Assert.True(await a.IsRunningAsync(Key()));
+
+        // The old heartbeat did not create a lease: once the new one ends, nothing runs.
+        await b.UnregisterAsync(Key(), "new");
+        Assert.False(await a.IsRunningAsync(Key()));
+        Assert.Empty(await a.ListExpiredAsync(10));
+    }
+
+    [SkippableFact]
+    public async Task Lease_without_heartbeat_expires_and_is_listed()
+    {
+        var (a, b) = await CreatePairAsync();
+        await a.RegisterAsync(Key(), "e1");
+        Assert.Empty(await b.ListExpiredAsync(10));
+        await PassLeaseTtlAsync();
+        await EventuallyAsync(async () => !await b.IsRunningAsync(Key()), "the lease expired");
+        Assert.Equal([(Key(), "e1")], await b.ListExpiredAsync(10));
+    }
+
+    [SkippableFact]
+    public async Task Heartbeats_keep_the_lease_alive()
+    {
+        var (a, b) = await CreatePairAsync();
+        await a.RegisterAsync(Key(), "e1");
+        // Well past the TTL in all, one heartbeat interval at a time.
+        for (var i = 0; i < 6; i++)
+        {
+            await PassAsync(Options.Heartbeat);
+            await a.HeartbeatAsync(Key(), "e1");
+        }
+        Assert.True(Options.Heartbeat * 6 > Options.LeaseTtl);
+        Assert.True(await b.IsRunningAsync(Key()));
+        Assert.Empty(await b.ListExpiredAsync(10));
+    }
+
+    [SkippableFact]
+    public async Task Heartbeat_never_brings_back_an_expired_lease()
+    {
+        var (a, b) = await CreatePairAsync();
+        await a.RegisterAsync(Key(), "e1");
+        await PassLeaseTtlAsync();
+        await EventuallyAsync(async () => !await b.IsRunningAsync(Key()), "the lease expired");
+
+        await a.HeartbeatAsync(Key(), "e1");
+        Assert.False(await b.IsRunningAsync(Key()));
+        Assert.True(await ExpiredContainsAsync(b, Key(), "e1"));
+    }
+
+    [SkippableFact]
+    public async Task Heartbeat_of_a_missing_lease_creates_nothing()
+    {
+        var (a, b) = await CreatePairAsync();
+        await a.HeartbeatAsync(Key(), "never-registered");
+        Assert.False(await b.IsRunningAsync(Key()));
+        await PassLeaseTtlAsync();
+        Assert.Empty(await b.ListExpiredAsync(10));
+    }
+
+    [SkippableFact]
+    public async Task Unregistered_expired_lease_is_no_longer_listed()
+    {
+        var (a, b) = await CreatePairAsync();
+        await a.RegisterAsync(Key(), "e1");
+        await PassLeaseTtlAsync();
+        await EventuallyAsync(() => ExpiredContainsAsync(b, Key(), "e1"), "the lease is listed as expired");
+        await b.UnregisterAsync(Key(), "e1");
+        Assert.Empty(await b.ListExpiredAsync(10));
+    }
+
+    [SkippableFact]
+    public async Task Expired_listing_is_oldest_first_and_capped()
+    {
+        var (a, b) = await CreatePairAsync();
+        await a.RegisterAsync(Key("x"), "first");
+        await PassAsync(TimeSpan.FromMilliseconds(100));
+        await b.RegisterAsync(Key("y"), "second");
+        await PassLeaseTtlAsync();
+        await EventuallyAsync(async () => (await a.ListExpiredAsync(10)).Count == 2, "both leases expired");
+
+        Assert.Equal([(Key("x"), "first"), (Key("y"), "second")], await a.ListExpiredAsync(10));
+        Assert.Equal([(Key("x"), "first")], await b.ListExpiredAsync(1));
+    }
+
+    [SkippableFact]
+    public async Task Keys_with_separator_characters_round_trip()
+    {
+        var (a, b) = await CreatePairAsync();
+        var odd = new TaskKey("t:\u001f\"[", "o,\"]\\", "id \u00e9\u001f*");
+        await a.RegisterAsync(odd, "e:1");
+        Assert.True(await b.IsRunningAsync(odd));
+        Assert.False(await b.IsRunningAsync(Key()));
+        await PassLeaseTtlAsync();
+        await EventuallyAsync(() => ExpiredContainsAsync(b, odd, "e:1"), "the odd lease is listed as expired");
+    }
+
+    [SkippableFact]
+    public async Task Cancel_request_reaches_every_reader_of_every_instance()
+    {
+        var (a, b) = await CreatePairAsync();
+        using var cts = new CancellationTokenSource(Wait);
+        await using var onB = b.CancelRequestsAsync(cts.Token).GetAsyncEnumerator(cts.Token);
+        await using var onB2 = b.CancelRequestsAsync(cts.Token).GetAsyncEnumerator(cts.Token);
+        await using var onA = a.CancelRequestsAsync(cts.Token).GetAsyncEnumerator(cts.Token);
+        var nextB = onB.MoveNextAsync(); // registers the reader
+        var nextB2 = onB2.MoveNextAsync();
+        var nextA = onA.MoveNextAsync();
+
+        await a.RequestCancelAsync(Key("x", owner: "o\u001f1"));
+
+        Assert.True(await nextB);
+        Assert.Equal(Key("x", owner: "o\u001f1"), onB.Current);
+        Assert.True(await nextB2);
+        Assert.Equal(Key("x", owner: "o\u001f1"), onB2.Current);
+        Assert.True(await nextA);
+        Assert.Equal(Key("x", owner: "o\u001f1"), onA.Current);
+        cts.Cancel();
+    }
+
+    [SkippableFact]
+    public async Task Sweep_lease_is_held_by_one_caller_until_it_expires()
+    {
+        var (a, b) = await CreatePairAsync();
+        var duration = Options.LeaseTtl;
+        Assert.True(await a.TryAcquireSweepLeaseAsync("retention", duration));
+        Assert.False(await b.TryAcquireSweepLeaseAsync("retention", duration));
+        Assert.False(await a.TryAcquireSweepLeaseAsync("retention", duration));
+        Assert.True(await b.TryAcquireSweepLeaseAsync("other", duration)); // names are separate
+
+        await PassAsync(duration + TimeSpan.FromMilliseconds(50));
+        await EventuallyAsync(async () => await b.TryAcquireSweepLeaseAsync("retention", duration), "the sweep lease expired");
+        Assert.False(await a.TryAcquireSweepLeaseAsync("retention", duration));
+    }
+}
+
+public sealed class InMemoryExecutionCoordinatorTests : ExecutionCoordinatorContract
+{
+    private readonly FakeTimeProvider _clock = new();
+
+    protected override CoordinationOptions Options { get; } = new();
+
+    protected override Task<(ExecutionCoordinator A, ExecutionCoordinator B)> CreatePairAsync()
+    {
+        var c = new InMemoryExecutionCoordinator(Options, _clock);
+        return Task.FromResult<(ExecutionCoordinator, ExecutionCoordinator)>((c, c));
+    }
+
+    protected override Task PassAsync(TimeSpan time)
+    {
+        _clock.Advance(time);
+        return Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task Lease_expiry_follows_the_injected_clock()
+    {
+        var c = new InMemoryExecutionCoordinator(Options, _clock);
+        await c.RegisterAsync(Key(), "e1");
+        _clock.Advance(Options.LeaseTtl - TimeSpan.FromMilliseconds(1));
+        Assert.True(await c.IsRunningAsync(Key()));
+        _clock.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.False(await c.IsRunningAsync(Key()));
+    }
+
+    [Theory]
+    [InlineData(0, 30, 1)]       // no heartbeat
+    [InlineData(-1, 30, 1)]
+    [InlineData(10, 20, 1)]      // TTL must be more than 2 x heartbeat
+    [InlineData(10, 15, 1)]
+    [InlineData(10, 30, 0)]      // no poll interval
+    public void Invalid_options_are_rejected(int heartbeatSeconds, int ttlSeconds, int pollSeconds)
+    {
+        var options = new CoordinationOptions
+        {
+            Heartbeat = TimeSpan.FromSeconds(heartbeatSeconds),
+            LeaseTtl = TimeSpan.FromSeconds(ttlSeconds),
+            RunningPollInterval = TimeSpan.FromSeconds(pollSeconds),
+        };
+        var error = Assert.Throws<InvalidOperationException>(options.Validate);
+        Assert.Contains("Coordination.", error.Message);
+        Assert.Throws<InvalidOperationException>(() => new InMemoryExecutionCoordinator(options));
+    }
+
+    [Fact]
+    public void Default_options_are_valid() => new CoordinationOptions().Validate();
+
+    [Fact]
+    public void AddA2AServer_registers_the_in_memory_coordinator()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddA2AServer();
+        using var sp = services.BuildServiceProvider();
+        Assert.IsType<InMemoryExecutionCoordinator>(sp.GetRequiredService<ExecutionCoordinator>());
+    }
+}
+
+/// <summary>Two Redis coordinators on one Redis stand for two instances. Leases are short, so expiry takes real time.</summary>
+[Collection(ContainersCollection.Name)]
+public sealed class RedisExecutionCoordinatorTests(RedisFixture redis) : ExecutionCoordinatorContract, IAsyncLifetime
+{
+    private readonly List<IAsyncDisposable> _cleanup = [];
+
+    protected override CoordinationOptions Options { get; } = new()
+    {
+        LeaseTtl = TimeSpan.FromMilliseconds(600),
+        Heartbeat = TimeSpan.FromMilliseconds(150),
+        RunningPollInterval = TimeSpan.FromMilliseconds(50),
+    };
+
+    protected override async Task<(ExecutionCoordinator A, ExecutionCoordinator B)> CreatePairAsync()
+    {
+        var prefix = $"coord:{Guid.NewGuid():N}:";
+        return (await NewAsync(prefix), await NewAsync(prefix));
+    }
+
+    protected override Task PassAsync(TimeSpan time) => Task.Delay(time);
+
+    private async Task<RedisExecutionCoordinator> NewAsync(string prefix)
+    {
+        var mux = await redis.ConnectAsync();
+        var coordinator = new RedisExecutionCoordinator(mux, new RedisEventBusOptions { ChannelPrefix = prefix }, Options);
+        await coordinator.StartAsync();
+        _cleanup.Add(mux);
+        _cleanup.Insert(0, coordinator);
+        return coordinator;
+    }
+
+    /// <summary>Review Focus 4: an instance whose clock runs 60 s ahead neither expires nor misreads a fresh lease.</summary>
+    [SkippableFact]
+    public async Task Skewed_instance_clock_does_not_expire_a_fresh_lease()
+    {
+        var prefix = $"coord:{Guid.NewGuid():N}:";
+        var mux = await redis.ConnectAsync();
+        _cleanup.Add(mux);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<TimeProvider>(new SkewedClock(TimeSpan.FromSeconds(60)));
+        services.AddA2AServer(o =>
+            {
+                o.Coordination.LeaseTtl = TimeSpan.FromSeconds(30);
+                o.Coordination.Heartbeat = TimeSpan.FromSeconds(10);
+            })
+            .AddRedisEventBus(mux, o => o.ChannelPrefix = prefix);
+        await using var sp = services.BuildServiceProvider();
+        var skewed = Assert.IsType<RedisExecutionCoordinator>(sp.GetRequiredService<ExecutionCoordinator>());
+        var normal = await NewAsync(prefix);
+
+        await normal.RegisterAsync(Key("by-normal"), "e1");
+        await skewed.RegisterAsync(Key("by-skewed"), "e2");
+
+        foreach (var c in new ExecutionCoordinator[] { skewed, normal })
+        {
+            Assert.True(await c.IsRunningAsync(Key("by-normal")));
+            Assert.True(await c.IsRunningAsync(Key("by-skewed")));
+            Assert.Empty(await c.ListExpiredAsync(10));
+        }
+    }
+
+    [SkippableFact]
+    public async Task Event_bus_registration_can_leave_the_coordinator_out()
+    {
+        var mux = await redis.ConnectAsync();
+        _cleanup.Add(mux);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddA2AServer().AddRedisEventBus(mux, o => o.RegisterCoordinator = false);
+        await using var sp = services.BuildServiceProvider();
+        Assert.IsType<InMemoryExecutionCoordinator>(sp.GetRequiredService<ExecutionCoordinator>());
+
+        var explicitServices = new ServiceCollection();
+        explicitServices.AddLogging();
+        explicitServices.AddA2AServer().AddRedisExecutionCoordinator(mux);
+        await using var explicitSp = explicitServices.BuildServiceProvider();
+        Assert.IsType<RedisExecutionCoordinator>(explicitSp.GetRequiredService<ExecutionCoordinator>());
+        Assert.IsType<TaskEventBus>(explicitSp.GetRequiredService<TaskEventBus>()); // the bus stays local
+    }
+
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task DisposeAsync()
+    {
+        foreach (var d in _cleanup) await d.DisposeAsync();
+    }
+
+    private sealed class SkewedClock(TimeSpan skew) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => System.GetUtcNow() + skew;
+    }
+}

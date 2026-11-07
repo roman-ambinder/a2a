@@ -1,3 +1,4 @@
+using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
 
@@ -40,6 +41,12 @@ public sealed class A2AServerOptions
 
     /// <summary>Retry, lease and polling settings of the push outbox (<see cref="PushDeliveryService"/>).</summary>
     public PushDeliveryOptions PushDelivery { get; } = new();
+
+    /// <summary>
+    /// Lease, heartbeat and polling settings of the <see cref="ExecutionCoordinator"/>, which tracks running executions across
+    /// instances. Checked when the request handler is created.
+    /// </summary>
+    public CoordinationOptions Coordination { get; } = new();
 
     /// <summary>How long CancelTask waits for a running execution to stop. Default 5 seconds.</summary>
     public TimeSpan CancelGracePeriod { get; set; } = TimeSpan.FromSeconds(5);

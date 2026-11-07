@@ -108,4 +108,8 @@ internal sealed class IdempotencyClaim
 
     public ValueTask AbandonAsync() =>
         _store is not null && Interlocked.Exchange(ref _settled, 1) == 0 ? _store.AbandonAsync(_scope) : ValueTask.CompletedTask;
+
+    /// <summary>Extends the timeout of the running claim (<see cref="IdempotencyStore.RenewAsync"/>). Does nothing once it is settled.</summary>
+    public ValueTask RenewAsync() =>
+        _store is not null && Volatile.Read(ref _settled) == 0 ? _store.RenewAsync(_scope) : ValueTask.CompletedTask;
 }
