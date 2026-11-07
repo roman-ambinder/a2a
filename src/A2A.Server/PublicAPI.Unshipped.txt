@@ -174,7 +174,10 @@ A2A.Server.Push.EphemeralPushSecretProtector.Unprotect(string! protectedValue) -
 A2A.Server.Push.HttpPushNotificationSender
 A2A.Server.Push.HttpPushNotificationSender.Dispose() -> void
 A2A.Server.Push.HttpPushNotificationSender.Enqueue(A2A.Server.Storage.TaskKey task, A2A.Server.Streaming.SequencedEvent evt) -> void
-A2A.Server.Push.HttpPushNotificationSender.HttpPushNotificationSender(System.Net.Http.HttpMessageInvoker! http, A2A.Server.Storage.PushConfigStore! store, A2A.Server.Push.IPushSecretProtector! protector, A2A.Server.A2AServerOptions! options, Microsoft.Extensions.Logging.ILogger<A2A.Server.Push.HttpPushNotificationSender!>? logger = null) -> void
+A2A.Server.Push.HttpPushNotificationSender.HttpPushNotificationSender(System.Net.Http.HttpMessageInvoker! http, A2A.Server.Storage.PushConfigStore! store, A2A.Server.Push.IPushSecretProtector! protector, A2A.Server.A2AServerOptions! options, Microsoft.Extensions.Logging.ILogger<A2A.Server.Push.HttpPushNotificationSender!>? logger = null, System.TimeProvider? time = null) -> void
+A2A.Server.Push.HttpPushNotificationSender.ConfigChanged(A2A.Server.Storage.TaskKey key) -> void
+A2A.Server.Push.IPushConfigChangeListener
+A2A.Server.Push.IPushConfigChangeListener.ConfigChanged(A2A.Server.Storage.TaskKey key) -> void
 A2A.Server.Push.HttpPushNotificationSender.WhenIdleAsync() -> System.Threading.Tasks.Task!
 A2A.Server.Push.IPushNotificationSender
 A2A.Server.Push.IPushNotificationSender.Enqueue(A2A.Server.Storage.TaskKey task, A2A.Server.Streaming.SequencedEvent evt) -> void
@@ -197,6 +200,8 @@ A2A.Server.Push.PushNotificationOptions.Proxy.set -> void
 A2A.Server.Push.PushNotificationOptions.PushNotificationOptions() -> void
 A2A.Server.Push.PushNotificationOptions.Timeout.get -> System.TimeSpan
 A2A.Server.Push.PushNotificationOptions.Timeout.set -> void
+A2A.Server.Push.PushNotificationOptions.WorkerIdleTimeout.get -> System.TimeSpan
+A2A.Server.Push.PushNotificationOptions.WorkerIdleTimeout.set -> void
 A2A.Server.Push.PushUrlValidator
 A2A.Server.RequestLimitValidator
 A2A.Server.ServerCallContext
@@ -316,6 +321,8 @@ A2A.Server.Streaming.SequencedEvent.SequencedEvent() -> void
 A2A.Server.Streaming.SequencedEvent.SequencedEvent(long Sequence, A2A.StreamResponse! Event) -> void
 A2A.Server.Streaming.StreamCursor
 A2A.Server.StreamingOptions
+A2A.Server.StreamingOptions.ChannelCapacity.get -> int
+A2A.Server.StreamingOptions.ChannelCapacity.set -> void
 A2A.Server.StreamingOptions.KeepAliveInterval.get -> System.TimeSpan
 A2A.Server.StreamingOptions.KeepAliveInterval.set -> void
 A2A.Server.StreamingOptions.ReplayBufferSize.get -> int
@@ -433,7 +440,7 @@ A2A.Server.Push.PushConfigService.EnsureCapacityAsync(A2A.Server.Storage.TaskKey
 A2A.Server.Push.PushConfigService.DeleteAsync(A2A.Server.Storage.TaskKey key, string! configId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask
 A2A.Server.Push.PushConfigService.GetAsync(A2A.Server.Storage.TaskKey key, string! configId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.TaskPushNotificationConfig!>
 A2A.Server.Push.PushConfigService.ListAsync(A2A.Server.Storage.TaskKey key, int pageSize, string? pageToken, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.ListTaskPushNotificationConfigsResponse!>
-A2A.Server.Push.PushConfigService.PushConfigService(A2A.Server.Storage.PushConfigStore! store, A2A.Server.Push.IPushSecretProtector! protector, A2A.Server.A2AServerOptions! options) -> void
+A2A.Server.Push.PushConfigService.PushConfigService(A2A.Server.Storage.PushConfigStore! store, A2A.Server.Push.IPushSecretProtector! protector, A2A.Server.A2AServerOptions! options, A2A.Server.Push.IPushConfigChangeListener? changes = null) -> void
 A2A.Server.Push.PushConfigService.SaveInlineAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask
 A2A.Server.Push.PushConfigService.ValidateInlineAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask
 A2A.Server.Idempotency.IdempotencyCoordinator

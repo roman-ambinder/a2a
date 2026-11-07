@@ -36,8 +36,10 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton(sp => new HttpPushNotificationSender(
             sp.GetRequiredKeyedService<HttpMessageInvoker>(HttpPushNotificationSender.InvokerServiceKey),
             sp.GetRequiredService<Storage.PushConfigStore>(), sp.GetRequiredService<IPushSecretProtector>(),
-            sp.GetRequiredService<A2AServerOptions>(), sp.GetService<Microsoft.Extensions.Logging.ILogger<HttpPushNotificationSender>>()));
+            sp.GetRequiredService<A2AServerOptions>(), sp.GetService<Microsoft.Extensions.Logging.ILogger<HttpPushNotificationSender>>(),
+            sp.GetService<TimeProvider>()));
         services.TryAddSingleton<IPushNotificationSender>(sp => sp.GetRequiredService<HttpPushNotificationSender>());
+        services.TryAddSingleton<IPushConfigChangeListener>(sp => sp.GetRequiredService<HttpPushNotificationSender>());
         services.TryAddSingleton<Pipeline.CallValidator>();
         services.TryAddSingleton<PushConfigService>();
         services.TryAddSingleton<Idempotency.IdempotencyCoordinator>();
