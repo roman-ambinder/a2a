@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Json;
 using A2A.Net;
+using A2A.Validation;
 
 namespace A2A.Signing;
 
@@ -45,7 +46,12 @@ public sealed record AgentCardVerificationResult(AgentCardVerificationStatus Sta
 public sealed class AgentCardVerifier
 {
     private const int MaxJwksBytes = 256 * 1024;
+
+    /// <summary>Distinct <c>jku</c> key sets one verification may fetch; further signatures needing a fetch get no key.</summary>
+    internal const int MaxJkuFetchesPerVerification = 5;
+
     private static readonly TimeSpan JwksCacheDuration = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan JwksFailureCacheDuration = TimeSpan.FromSeconds(60);
 
     // jku targets are chosen by the card, so the fetch goes through the same SSRF guard as push webhooks.
     private static readonly Lazy<HttpClient> GuardedJwksClient = new(() =>
@@ -56,9 +62,13 @@ public sealed class AgentCardVerifier
         });
 
     private readonly HttpClient _jwksClient;
-    private readonly ConcurrentDictionary<string, (DateTimeOffset Expires, JwkSet Set)> _jwksCache = new(StringComparer.Ordinal);
+    // A failed fetch is cached too (Set null, Failure set) so a card cannot make every verification hit the host again.
+    private readonly ConcurrentDictionary<string, JwksCacheEntry> _jwksCache = new(StringComparer.Ordinal);
 
-    /// <summary>Creates a verifier. <c>jku</c> key sets are fetched through an SSRF-guarded client and cached for 10 minutes.</summary>
+    /// <summary>
+    /// Creates a verifier. <c>jku</c> key sets are fetched through an SSRF-guarded client, cached for 10 minutes (failures for
+    /// 60 seconds), and at most <see cref="MaxJkuFetchesPerVerification"/> distinct key sets are fetched per verification.
+    /// </summary>
     public AgentCardVerifier(CardTrustPolicy policy) : this(policy, null)
     {
     }
@@ -98,12 +108,13 @@ public sealed class AgentCardVerifier
             return new(AgentCardVerificationStatus.Unsigned, null, issuer, "the card has no signatures");
 
         var payload = new Lazy<byte[]>(() => AgentCardCanonicalizer.Canonicalize(card));
+        var jkuFetches = new HashSet<string>(StringComparer.Ordinal);
         var failed = new List<(string? Kid, string Reason)>();
         var unverified = new List<(string? Kid, string Reason)>();
 
         for (var i = 0; i < sigs.Count; i++)
         {
-            var (outcome, kid, reason) = await CheckAsync(sigs[i], issuer, payload, cancellationToken).ConfigureAwait(false);
+            var (outcome, kid, reason) = await CheckAsync(sigs[i], issuer, payload, jkuFetches, cancellationToken).ConfigureAwait(false);
             switch (outcome)
             {
                 case AgentCardVerificationStatus.Verified:
@@ -112,7 +123,7 @@ public sealed class AgentCardVerifier
                     if (caseVariants.Count > 0)
                     {
                         return new(AgentCardVerificationStatus.Failed, kid, issuer,
-                            string.Join("; ", caseVariants.Select(p => $"member '{p}' differs from a v1.0 Agent Card field only by case and is not signed")));
+                            string.Join("; ", caseVariants.Select(p => $"member '{TextSanitizer.ForMessage(p)}' differs from a v1.0 Agent Card field only by case and is not signed")));
                     }
                     return new(AgentCardVerificationStatus.Verified, kid, issuer, null);
                 case AgentCardVerificationStatus.Failed:
@@ -130,13 +141,13 @@ public sealed class AgentCardVerifier
     }
 
     private async Task<(AgentCardVerificationStatus Outcome, string? Kid, string? Reason)> CheckAsync(
-        JsonNode? node, string issuer, Lazy<byte[]> payload, CancellationToken cancellationToken)
+        JsonNode? node, string issuer, Lazy<byte[]> payload, HashSet<string> jkuFetches, CancellationToken cancellationToken)
     {
         const AgentCardVerificationStatus Failed = AgentCardVerificationStatus.Failed;
 
         AgentCardSignature? sig;
         try { sig = node is null ? null : A2AJson.Deserialize<AgentCardSignature>(node.ToJsonString()); }
-        catch (JsonException ex) { return (Failed, null, $"malformed ({ex.Message})"); }
+        catch (JsonException ex) { return (Failed, null, $"malformed ({TextSanitizer.ForMessage(ex.Message)})"); }
         if (sig is null || string.IsNullOrEmpty(sig.Protected) || string.IsNullOrEmpty(sig.Signature))
             return (Failed, null, "missing protected header or signature");
 
@@ -149,7 +160,7 @@ public sealed class AgentCardVerifier
         }
         catch (Exception ex) when (ex is FormatException or JsonException)
         {
-            return (Failed, null, $"undecodable ({ex.Message})");
+            return (Failed, null, $"undecodable ({TextSanitizer.ForMessage(ex.Message)})");
         }
         if (header is null) return (Failed, null, "empty header");
 
@@ -158,19 +169,21 @@ public sealed class AgentCardVerifier
         var typ = StringMember(header, "typ");
         var jku = StringMember(header, "jku");
 
+        // Header values come from the card: sanitize before they reach Reason, exception messages and logs.
         if (typ is null) return (Failed, kid, "missing typ header");
-        if (!Policy.AcceptedTyp.Contains(typ)) return (Failed, kid, $"typ '{typ}' not accepted");
+        if (!Policy.AcceptedTyp.Contains(typ)) return (Failed, kid, $"typ '{TextSanitizer.ForMessage(typ)}' not accepted");
         if (alg is null || !Policy.AllowedAlgorithms.Contains(alg) || !JwsAlgorithms.IsSupported(alg))
-            return (Failed, kid, $"algorithm '{alg}' not allowed");
+            return (Failed, kid, $"algorithm '{TextSanitizer.ForMessage(alg)}' not allowed");
         if (header.ContainsKey("crit")) return (Failed, kid, "unsupported 'crit' header");
         if (string.IsNullOrEmpty(kid)) return (AgentCardVerificationStatus.Unverified, null, "missing kid, no trusted key applies");
 
         var keys = Policy.TrustedKeysFor(issuer, kid);
         string? jkuNote = null;
         if (keys.Count == 0 && jku is not null)
-            (keys, jkuNote) = await JkuKeysAsync(jku, kid, cancellationToken).ConfigureAwait(false);
+            (keys, jkuNote) = await JkuKeysAsync(jku, kid, jkuFetches, cancellationToken).ConfigureAwait(false);
         if (keys.Count == 0)
-            return (AgentCardVerificationStatus.Unverified, kid, $"no trusted key for kid '{kid}' at {issuer}" + (jkuNote is null ? "" : $" ({jkuNote})"));
+            return (AgentCardVerificationStatus.Unverified, kid,
+                $"no trusted key for kid '{TextSanitizer.ForMessage(kid)}' at {issuer}" + (jkuNote is null ? "" : $" ({jkuNote})"));
 
         foreach (var jwk in keys)
         {
@@ -186,33 +199,61 @@ public sealed class AgentCardVerifier
                 // An unusable trusted key cannot verify anything; fall through to the next one.
             }
         }
-        return (Failed, kid, $"signature does not verify with trusted key '{kid}'");
+        return (Failed, kid, $"signature does not verify with trusted key '{TextSanitizer.ForMessage(kid)}'");
     }
 
-    private async Task<(IReadOnlyList<Jwk> Keys, string? Note)> JkuKeysAsync(string jku, string kid, CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<Jwk> Keys, string? Note)> JkuKeysAsync(string jku, string kid, HashSet<string> fetches, CancellationToken cancellationToken)
     {
         if (!Uri.TryCreate(jku, UriKind.Absolute, out var uri)) return ([], "jku is not an absolute URL");
         if (uri.Scheme != Uri.UriSchemeHttps) return ([], "jku must use https");
-        if (!string.IsNullOrEmpty(uri.UserInfo) || !Policy.AllowedJkuHosts.Contains(uri.Host)) return ([], $"jku host '{uri.Host}' is not allowed");
+        if (!string.IsNullOrEmpty(uri.UserInfo) || !Policy.AllowedJkuHosts.Contains(uri.Host))
+            return ([], $"jku host '{TextSanitizer.ForMessage(uri.Host)}' is not allowed");
 
         var cacheKey = uri.AbsoluteUri;
-        if (!_jwksCache.TryGetValue(cacheKey, out var entry) || entry.Expires < DateTimeOffset.UtcNow)
+        var now = DateTimeOffset.UtcNow;
+        if (!_jwksCache.TryGetValue(cacheKey, out var entry) || entry.Expires < now)
         {
+            if (!fetches.Contains(cacheKey) && fetches.Count >= MaxJkuFetchesPerVerification)
+                return ([], $"jku fetch limit of {MaxJkuFetchesPerVerification} per card reached");
+            fetches.Add(cacheKey);
             try
             {
                 var bytes = await _jwksClient.GetByteArrayAsync(uri, cancellationToken).ConfigureAwait(false);
                 var set = JsonSerializer.Deserialize(bytes, A2AJson.GetTypeInfo<JwkSet>()) ?? new JwkSet();
-                entry = (DateTimeOffset.UtcNow + JwksCacheDuration, set);
-                _jwksCache[cacheKey] = entry;
+                entry = new JwksCacheEntry(DateTimeOffset.UtcNow + JwksCacheDuration, set, null);
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException
                                        || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
             {
-                return ([], $"jku fetch failed: {ex.Message}");
+                entry = new JwksCacheEntry(DateTimeOffset.UtcNow + JwksFailureCacheDuration, null, Messages(ex));
             }
+            EvictExpired(DateTimeOffset.UtcNow);
+            _jwksCache[cacheKey] = entry;
         }
+        if (entry.Set is null) return ([], $"jku fetch failed: {entry.Failure}");
         return (entry.Set.Keys.Where(k => string.Equals(k.Kid, kid, StringComparison.Ordinal)).ToList(), null);
     }
+
+    private void EvictExpired(DateTimeOffset now)
+    {
+        foreach (var (key, cached) in _jwksCache)
+        {
+            if (cached.Expires < now) _jwksCache.TryRemove(new KeyValuePair<string, JwksCacheEntry>(key, cached));
+        }
+    }
+
+    // The SSRF guard's reason (e.g. a private address) can sit in an inner exception of the handler's HttpRequestException.
+    private static string Messages(Exception ex)
+    {
+        var parts = new List<string>();
+        for (var e = ex; e is not null; e = e.InnerException)
+        {
+            if (!parts.Contains(e.Message)) parts.Add(e.Message);
+        }
+        return TextSanitizer.ForMessage(string.Join(" ", parts));
+    }
+
+    private sealed record JwksCacheEntry(DateTimeOffset Expires, JwkSet? Set, string? Failure);
 
     private static string? StringMember(Dictionary<string, JsonElement> header, string name) =>
         header.TryGetValue(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;

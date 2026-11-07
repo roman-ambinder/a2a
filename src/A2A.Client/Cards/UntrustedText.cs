@@ -1,4 +1,4 @@
-using System.Text;
+using A2A.Validation;
 
 namespace A2A.Client.Cards;
 
@@ -30,22 +30,5 @@ public readonly struct UntrustedText
     public int MaxLength => _maxLength == 0 ? DefaultMaxLength : _maxLength;
 
     /// <summary>The sanitized text.</summary>
-    public override string ToString() => Sanitize(Raw, MaxLength);
-
-    private static string Sanitize(string text, int maxLength)
-    {
-        var sb = new StringBuilder(Math.Min(text.Length, maxLength + 1));
-        foreach (var c in text)
-        {
-            if (char.IsControl(c) && c is not ('\n' or '\t')) continue;
-            if (c is (>= '‪' and <= '‮') or (>= '⁦' and <= '⁩')) continue;
-            sb.Append(c);
-            if (sb.Length > maxLength) break; // long enough to know it is truncated
-        }
-        if (sb.Length <= maxLength) return sb.ToString();
-
-        var keep = maxLength - 1;
-        if (keep > 0 && char.IsHighSurrogate(sb[keep - 1])) keep--; // do not split a surrogate pair
-        return sb.ToString(0, keep) + "…";
-    }
+    public override string ToString() => TextSanitizer.Sanitize(Raw, MaxLength);
 }

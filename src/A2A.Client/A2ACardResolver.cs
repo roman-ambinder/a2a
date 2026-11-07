@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 using A2A.Client.Cards;
 using A2A.Json;
 using A2A.Signing;
+using A2A.Validation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -76,9 +77,12 @@ public sealed class CardChangedEventArgs(string origin, string oldHash, string n
 /// </summary>
 public sealed class A2ACardResolver
 {
-    private static readonly Meter Meter = new("A2A.Client");
+    // Spec: metrics live under the "A2A" meter.
+    private static readonly Meter Meter = new("A2A");
     private static readonly Counter<long> CardChangedCounter =
         Meter.CreateCounter<long>("a2a.card.changed", description: "Agent Cards whose content differs from the pinned card of their origin.");
+    private static readonly Counter<long> CardUnsignedCounter =
+        Meter.CreateCounter<long>("a2a.card.unsigned", description: "Unsigned Agent Cards returned because signatures are not required.");
 
     private readonly HttpClient _http;
     private readonly A2ACardResolverOptions _options;
@@ -138,7 +142,7 @@ public sealed class A2ACardResolver
         var node = ParseCard(raw);
         AgentCard card;
         try { card = A2AJson.Deserialize<AgentCard>(raw); }
-        catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {ex.Message}", ex); }
+        catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex); }
 
         var verification = await _verifier.VerifyAsync(node, uri, cancellationToken).ConfigureAwait(false);
         var reject = verification.Status switch
@@ -151,6 +155,8 @@ public sealed class A2ACardResolver
         if (verification.Status == AgentCardVerificationStatus.Verified) card = FromSignedContent(node);
 
         var origin = CardTrustPolicy.OriginOf(uri);
+        if (verification.Status == AgentCardVerificationStatus.Unsigned)
+            CardUnsignedCounter.Add(1, new KeyValuePair<string, object?>("origin", origin));
         var keyId = verification.Status == AgentCardVerificationStatus.Verified ? verification.KeyId : null;
         await CheckPinAsync(origin, node, keyId, cancellationToken).ConfigureAwait(false);
 
@@ -181,7 +187,7 @@ public sealed class A2ACardResolver
         }
         catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException)
         {
-            throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {ex.Message}", ex);
+            throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex);
         }
     }
 
@@ -205,7 +211,7 @@ public sealed class A2ACardResolver
         var signed = AgentCardCanonicalizer.SignedContent(received);
         if (received["signatures"] is { } signatures) signed["signatures"] = signatures.DeepClone();
         try { return A2AJson.Deserialize<AgentCard>(signed.ToJsonString()); }
-        catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed signed Agent Card content: {ex.Message}", ex); }
+        catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed signed Agent Card content: {TextSanitizer.ForMessage(ex.Message)}", ex); }
     }
 
     private async Task CheckPinAsync(string origin, JsonObject card, string? keyId, CancellationToken cancellationToken)

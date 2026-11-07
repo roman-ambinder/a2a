@@ -193,7 +193,7 @@ public class CardTrustTests
         var store = new InMemoryCardPinStore();
         var changes = new List<CardChangedEventArgs>();
         var measured = new List<long>();
-        using var listener = CardChangedListener(measured);
+        using var listener = CounterListener("a2a.card.changed", Origin, measured);
         var notify = Resolver(server, o => o.PinStore = store, logger: logger);
         notify.CardChanged += (_, e) => changes.Add(e);
 
@@ -262,10 +262,10 @@ public class CardTrustTests
     [Fact]
     public async Task Untrusted_text_strips_controls_and_truncates()
     {
-        var text = new UntrustedText("a\u0007b‮c");
+        var text = new UntrustedText("a\u0007b\u202Ec");
         Assert.Equal("abc", text.ToString());
-        Assert.Equal("a\u0007b‮c", text.Raw);
-        Assert.Equal("l1\n\tl2", new UntrustedText("l1\n\tl2\r\u0000\u0085\u009B‪⁦⁩").ToString());
+        Assert.Equal("a\u0007b\u202Ec", text.Raw);
+        Assert.Equal("l1\n\tl2", new UntrustedText("l1\n\tl2\r\u0000\u0085\u009B\u202A\u2066\u2069").ToString());
 
         var longText = new UntrustedText(new string('x', 3000)).ToString();
         Assert.Equal(2000, longText.Length);
@@ -274,12 +274,12 @@ public class CardTrustTests
 
         var raw = Unsigned(c =>
         {
-            c.Description = "evil‮txt";
+            c.Description = "evil\u202Etxt";
             c.Skills[0].Examples = ["ex\u001B[31m"];
         });
         var resolved = await Resolver(new CardServer(raw), o => o.MaxCardTextLength = 3).ResolveAsync(AgentUrl);
         Assert.Equal("ev…", resolved.Description.ToString());
-        Assert.Equal("evil‮txt", resolved.Description.Raw);
+        Assert.Equal("evil\u202Etxt", resolved.Description.Raw);
         var skill = Assert.Single(resolved.Skills);
         Assert.Equal("S", skill.Name.ToString());
         Assert.Equal("x", skill.Description.ToString());
@@ -355,20 +355,148 @@ public class CardTrustTests
         Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
     }
 
-    private static MeterListener CardChangedListener(List<long> measured)
+    [Fact]
+    public async Task Verified_signature_wins_over_a_failed_one()
+    {
+        var key = NewKey("k1");
+        var card = SigningTests.SampleCard();
+        var bad = AgentCardSigner.CreateSignature(Changed(c => c.Description = "other content"), key); // trusted kid, wrong content
+        card.Signatures = [bad, AgentCardSigner.CreateSignature(SigningTests.SampleCard(), key)];
+        var policy = new CardTrustPolicy();
+        policy.TrustedKeys[Origin] = Set(key);
+
+        var result = await new AgentCardVerifier(policy).VerifyAsync(A2AJson.Serialize(card), CardUri);
+
+        Assert.Equal(AgentCardVerificationStatus.Verified, result.Status);
+        Assert.Equal("k1", result.KeyId);
+    }
+
+    [Fact]
+    public async Task Failed_and_unverified_signatures_are_failed()
+    {
+        var trusted = NewKey("k1");
+        var card = SigningTests.SampleCard();
+        card.Signatures =
+        [
+            AgentCardSigner.CreateSignature(SigningTests.SampleCard(), NewKey("unknown")),
+            AgentCardSigner.CreateSignature(Changed(c => c.Description = "other content"), trusted),
+        ];
+        var policy = new CardTrustPolicy();
+        policy.TrustedKeys[Origin] = Set(trusted);
+
+        var result = await new AgentCardVerifier(policy).VerifyAsync(A2AJson.Serialize(card), CardUri);
+
+        Assert.Equal(AgentCardVerificationStatus.Failed, result.Status);
+        Assert.Equal("k1", result.KeyId);
+    }
+
+    [Fact]
+    public async Task Default_jwks_client_refuses_private_addresses()
+    {
+        var key = NewKey("k1", "https://localhost:1/jwks");
+        var policy = new CardTrustPolicy();
+        policy.AllowedJkuHosts.Add("localhost");
+
+        var result = await new AgentCardVerifier(policy).VerifyAsync(Signed(key), CardUri);
+
+        Assert.Equal(AgentCardVerificationStatus.Unverified, result.Status);
+        Assert.Contains("private address", result.Reason);
+    }
+
+    [Fact]
+    public async Task Jku_fetches_are_capped_per_verification()
+    {
+        var card = SigningTests.SampleCard();
+        card.Signatures = Enumerable.Range(0, 7)
+            .Select(i => AgentCardSigner.CreateSignature(SigningTests.SampleCard(), NewKey($"k{i}", $"https://keys.example/jwks{i}.json")))
+            .ToList();
+        var jwks = new JwksServer(new JwkSet()); // never holds the kid, so every signature asks for its key set
+        var policy = new CardTrustPolicy();
+        policy.AllowedJkuHosts.Add("keys.example");
+
+        var result = await new AgentCardVerifier(policy, new HttpClient(jwks)).VerifyAsync(A2AJson.Serialize(card), CardUri);
+
+        Assert.Equal(AgentCardVerificationStatus.Unverified, result.Status);
+        Assert.Equal(AgentCardVerifier.MaxJkuFetchesPerVerification, jwks.Requests.Count);
+        Assert.Contains("limit", result.Reason);
+    }
+
+    [Fact]
+    public async Task Failed_jku_fetch_is_cached_briefly()
+    {
+        var key = NewKey("k1", "https://keys.example/jwks.json");
+        var jwks = new JwksServer(Set(key)) { Status = HttpStatusCode.InternalServerError };
+        var policy = new CardTrustPolicy();
+        policy.AllowedJkuHosts.Add("keys.example");
+        var verifier = new AgentCardVerifier(policy, new HttpClient(jwks));
+
+        var first = await verifier.VerifyAsync(Signed(key), CardUri);
+        jwks.Status = HttpStatusCode.OK;
+        var second = await verifier.VerifyAsync(Signed(key), CardUri);
+
+        Assert.Equal(AgentCardVerificationStatus.Unverified, first.Status);
+        Assert.Contains("jku fetch failed", first.Reason);
+        Assert.Equal(AgentCardVerificationStatus.Unverified, second.Status);
+        Assert.Single(jwks.Requests);
+    }
+
+    [Fact]
+    public async Task Header_values_in_reasons_are_sanitized()
+    {
+        var key = NewKey("k1");
+        var hostile = "evil\u202E\u0007\r\n" + new string('x', 500);
+
+        var typ = await new AgentCardVerifier(new CardTrustPolicy())
+            .VerifyAsync(SignedWithHeader(key, new() { ["alg"] = "ES256", ["kid"] = "k1", ["typ"] = hostile }), CardUri);
+        var kid = await new AgentCardVerifier(new CardTrustPolicy())
+            .VerifyAsync(SignedWithHeader(key, new() { ["alg"] = "ES256", ["kid"] = hostile, ["typ"] = "JOSE" }), CardUri);
+        var alg = await new AgentCardVerifier(new CardTrustPolicy())
+            .VerifyAsync(SignedWithHeader(key, new() { ["alg"] = hostile, ["kid"] = "k1", ["typ"] = "JOSE" }), CardUri);
+
+        foreach (var result in new[] { typ, kid, alg })
+        {
+            Assert.Contains("evil", result.Reason);
+            Assert.DoesNotContain('\u202E', result.Reason!);
+            Assert.DoesNotContain(result.Reason!, c => char.IsControl(c));
+            Assert.DoesNotContain(new string('x', 200), result.Reason);
+        }
+    }
+
+    [Fact]
+    public async Task Accepted_unsigned_card_counts_a2a_card_unsigned()
+    {
+        const string origin = "https://unsigned.example";
+        var measured = new List<long>();
+        using var listener = CounterListener("a2a.card.unsigned", origin, measured);
+
+        await Resolver(new CardServer(Unsigned())).ResolveAsync(new Uri(origin + "/"));
+        await Assert.ThrowsAsync<AgentCardVerificationException>(() =>
+            Resolver(new CardServer(Unsigned()), o => o.Trust.RequireSignature = true).ResolveAsync(new Uri(origin + "/")));
+
+        Assert.Equal([1L], measured);
+    }
+
+    private static AgentCard Changed(Action<AgentCard> change)
+    {
+        var card = SigningTests.SampleCard();
+        change(card);
+        return card;
+    }
+
+    private static MeterListener CounterListener(string name, string origin, List<long> measured)
     {
         var listener = new MeterListener
         {
             InstrumentPublished = (instrument, l) =>
             {
-                if (instrument.Meter.Name == "A2A.Client" && instrument.Name == "a2a.card.changed") l.EnableMeasurementEvents(instrument);
+                if (instrument.Meter.Name == "A2A" && instrument.Name == name) l.EnableMeasurementEvents(instrument);
             },
         };
         listener.SetMeasurementEventCallback<long>((_, value, tags, _) =>
         {
             foreach (var tag in tags)
             {
-                if (tag.Key == "origin" && Equals(tag.Value, Origin))
+                if (tag.Key == "origin" && Equals(tag.Value, origin))
                 {
                     lock (measured) measured.Add(value);
                 }
@@ -390,10 +518,12 @@ public class CardTrustTests
     {
         public List<string> Requests { get; } = [];
 
+        public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             lock (Requests) Requests.Add(request.RequestUri!.AbsoluteUri);
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return Task.FromResult(new HttpResponseMessage(Status)
             {
                 Content = new StringContent(A2AJson.Serialize(set), Encoding.UTF8, "application/json"),
             });

@@ -18,6 +18,7 @@ public sealed class CardTrustPolicy
     /// <summary>
     /// Hosts from which a <c>jku</c> key set may be fetched (HTTPS only, through an SSRF-guarded client). Empty by default,
     /// which means <c>jku</c> is ignored, including a <c>jku</c> on the card's own host.
+    /// Keys served by an allowlisted <c>jku</c> host are trusted for cards from any origin.
     /// </summary>
     public ISet<string> AllowedJkuHosts { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
