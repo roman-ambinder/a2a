@@ -5,3 +5,5 @@ obj/
 .idea/
 TestResults/
 *.nupkg
+.venv/
+__pycache__/
