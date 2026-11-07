@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using A2A.Diagnostics;
 using A2A.Json;
 using A2A.Server.Streaming;
 using Microsoft.AspNetCore.Http;
@@ -13,7 +14,7 @@ namespace A2A.Server.AspNetCore;
 
 internal static class HttpPlumbing
 {
-    public static ServerCallContext CreateCallContext(HttpContext http)
+    public static ServerCallContext CreateCallContext(HttpContext http, string? binding)
     {
         var extensions = http.Request.Headers[A2AProtocol.Headers.Extensions]
             .SelectMany(v => (v ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -50,6 +51,9 @@ internal static class HttpPlumbing
             IdempotencyKey = string.IsNullOrEmpty(idempotencyKey) ? null : idempotencyKey,
             Tenant = tenant,
             TenantFromRoute = http.GetRouteValue("tenant") is string { Length: > 0 },
+            Binding = binding,
+            TraceParent = A2ATelemetry.TryExtractTraceContext(
+                http.Request.Headers[A2ATelemetry.TraceParentHeader], http.Request.Headers[A2ATelemetry.TraceStateHeader], out var parent) ? parent : default,
         };
     }
 

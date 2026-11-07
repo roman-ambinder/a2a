@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Claims;
 
 namespace A2A.Server;
@@ -77,6 +78,19 @@ public sealed class ServerCallContext
     /// Echoed back in the A2A-Extensions response header so clients know what was honored.
     /// </summary>
     public ISet<string> ActivatedExtensions { get; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The protocol binding of the request (<see cref="ProtocolBindings"/>: <c>JSONRPC</c>, <c>HTTP+JSON</c>, <c>GRPC</c>), or
+    /// null when unknown. Used as the <c>a2a.binding</c> span tag.
+    /// </summary>
+    public string? Binding { get; init; }
+
+    /// <summary>
+    /// The caller's W3C trace context (from the <c>traceparent</c> and <c>tracestate</c> headers or gRPC metadata), or the
+    /// default (empty) context. Server spans use it as their parent when no local span of the same trace is current (for
+    /// example when ASP.NET Core did not start its own request activity).
+    /// </summary>
+    public ActivityContext TraceParent { get; init; }
 
     /// <summary>Free-form per-request state for bindings and executors.</summary>
     public IDictionary<string, object?> Items { get; } = new Dictionary<string, object?>();

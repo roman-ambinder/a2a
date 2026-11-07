@@ -10,8 +10,10 @@ using A2A.Json;
 namespace A2A.Client.Transports;
 
 /// <summary>HTTP+JSON/REST binding (spec §11).</summary>
-public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumableTransport
+public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumableTransport, ITransportBinding
 {
+    string ITransportBinding.Binding => ProtocolBindings.HttpJson;
+
     private readonly string _baseUrl;
 
     public HttpJsonTransport(HttpClient httpClient, Uri baseUrl, A2AClientOptions? options = null) : base(httpClient, options)

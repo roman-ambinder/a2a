@@ -25,7 +25,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
         var ct = http.RequestAborted;
         JsonElement? id = null;
         ServerCallContext call;
-        try { call = HttpPlumbing.CreateCallContext(http); }
+        try { call = HttpPlumbing.CreateCallContext(http, ProtocolBindings.JsonRpc); }
         catch (Exception ex)
         {
             await WriteFailureAsync(http, ServerCallContext.Anonymous(), id, HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);

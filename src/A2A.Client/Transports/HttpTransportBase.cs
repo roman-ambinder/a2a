@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using A2A.Client.Resilience;
+using A2A.Diagnostics;
 using A2A.Json;
 
 namespace A2A.Client.Transports;
@@ -24,7 +26,8 @@ public abstract class HttpTransportBase
 
     /// <summary>
     /// Sets the request headers in this order: SDK headers (<c>A2A-Version</c>, <c>A2A-Extensions</c>, <c>Accept</c>,
-    /// <c>Idempotency-Key</c>, and <c>Last-Event-ID</c> on a stream resume), then <see cref="A2ARequestOptions.Headers"/>, then <see cref="A2ARequestOptions.ConfigureRequest"/>.
+    /// <c>Idempotency-Key</c>, <c>Last-Event-ID</c> on a stream resume, and the W3C <c>traceparent</c>/<c>tracestate</c> of the
+    /// current activity), then <see cref="A2ARequestOptions.Headers"/>, then <see cref="A2ARequestOptions.ConfigureRequest"/>.
     /// The later steps can replace or remove the earlier ones, including <c>A2A-Version</c>.
     /// </summary>
     protected async Task ApplyHeadersAsync(HttpRequestMessage request, bool streaming, A2ARequestOptions? call, string? idempotencyKey, CancellationToken ct, string? lastEventId = null)
@@ -38,6 +41,11 @@ public abstract class HttpTransportBase
         if (!streaming) request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.JsonMediaType));
         if (!string.IsNullOrEmpty(idempotencyKey)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.IdempotencyKey, idempotencyKey);
         if (!string.IsNullOrEmpty(lastEventId)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.LastEventId, lastEventId);
+        A2ATelemetry.InjectTraceContext(Activity.Current, (name, value) =>
+        {
+            request.Headers.Remove(name);
+            request.Headers.TryAddWithoutValidation(name, value);
+        });
 
         if (call is null) return;
         foreach (var (name, value) in call.Headers)

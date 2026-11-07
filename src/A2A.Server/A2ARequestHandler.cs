@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Channels;
+using A2A.Diagnostics;
 using A2A.Json;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
@@ -144,7 +145,10 @@ public sealed class A2ARequestHandler : IDisposable
     /// terminal or interrupted, by an event of this execution or of any other execution of the task (for example CancelTask),
     /// or until no execution of the task is running any more.
     /// </summary>
-    public async Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
+    public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, ServerCallContext call, CancellationToken cancellationToken = default) =>
+        ServerTelemetry.TraceAsync(A2AProtocol.Methods.SendMessage, call, request.Message?.TaskId, () => SendMessageCoreAsync(request, call, cancellationToken), cancellationToken);
+
+    private async Task<SendMessageResponse> SendMessageCoreAsync(SendMessageRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SendMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
@@ -230,7 +234,8 @@ public sealed class A2ARequestHandler : IDisposable
     /// <see cref="A2ALimits.StreamReauthInterval"/> and <see cref="A2ALimits.MaxStreamDuration"/>.
     /// </summary>
     public IAsyncEnumerable<SequencedEvent> SendStreamingMessageAsync(SendMessageRequest request, ServerCallContext call, CancellationToken cancellationToken = default) =>
-        LimitStreamAsync(SendStreamingCoreAsync(request, call), call, A2AOperation.SendStreamingMessage, request, cancellationToken);
+        ServerTelemetry.TraceStream(A2AProtocol.Methods.SendStreamingMessage, call, request.Message?.TaskId,
+            LimitStreamAsync(SendStreamingCoreAsync(request, call), call, A2AOperation.SendStreamingMessage, request, cancellationToken));
 
     /// <summary>
     /// Like <see cref="SendStreamingMessageAsync(SendMessageRequest, ServerCallContext, CancellationToken)"/>, but a valid
@@ -723,7 +728,10 @@ public sealed class A2ARequestHandler : IDisposable
     // Tasks
     // =====================================================================
 
-    public async Task<AgentTask> GetTaskAsync(GetTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
+    public Task<AgentTask> GetTaskAsync(GetTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default) =>
+        ServerTelemetry.TraceAsync(A2AProtocol.Methods.GetTask, call, request.Id, () => GetTaskCoreAsync(request, call, cancellationToken), cancellationToken);
+
+    private async Task<AgentTask> GetTaskCoreAsync(GetTaskRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.GetTask, request, request.Id, cancellationToken).ConfigureAwait(false);
@@ -733,7 +741,10 @@ public sealed class A2ARequestHandler : IDisposable
         return Shape(record.Task, request.HistoryLength);
     }
 
-    public async Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
+    public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, ServerCallContext call, CancellationToken cancellationToken = default) =>
+        ServerTelemetry.TraceAsync(A2AProtocol.Methods.ListTasks, call, null, () => ListTasksCoreAsync(request, call, cancellationToken), cancellationToken);
+
+    private async Task<ListTasksResponse> ListTasksCoreAsync(ListTasksRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.ListTasks, request, null, cancellationToken).ConfigureAwait(false);
@@ -760,7 +771,10 @@ public sealed class A2ARequestHandler : IDisposable
         };
     }
 
-    public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
+    public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default) =>
+        ServerTelemetry.TraceAsync(A2AProtocol.Methods.CancelTask, call, request.Id, () => CancelTaskCoreAsync(request, call, cancellationToken), cancellationToken);
+
+    private async Task<AgentTask> CancelTaskCoreAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.CancelTask, request, request.Id, cancellationToken).ConfigureAwait(false);
@@ -773,7 +787,7 @@ public sealed class A2ARequestHandler : IDisposable
 
         var snapshot = record.Task;
         var exec = StartRaw(snapshot.Id, snapshot.ContextId, isNewTask: false, userMessage: null, call, push: null, emitInitialSnapshot: false,
-            (executor, updater, ct) => executor.CancelAsync(snapshot, updater, ct), requestMetadata: request.Metadata);
+            (executor, updater, ct) => executor.CancelAsync(snapshot, updater, ct), requestMetadata: request.Metadata, kind: "cancel");
         exec.Detach();
 
         var waitAll = Task.WhenAll(running.Select(r => r.Completion).Append(exec.Completion));
@@ -811,7 +825,8 @@ public sealed class A2ARequestHandler : IDisposable
     /// <summary>As the public overload; <paramref name="onCaughtUp"/> is described on <see cref="SubscribeCoreAsync"/>.</summary>
     internal IAsyncEnumerable<SequencedEvent> SubscribeToTaskAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
         Action? onCaughtUp, CancellationToken cancellationToken) =>
-        LimitStreamAsync(SubscribeCoreAsync(request, call, resumeAfter, onCaughtUp), call, A2AOperation.SubscribeToTask, request, cancellationToken);
+        ServerTelemetry.TraceStream(A2AProtocol.Methods.SubscribeToTask, call, request.Id,
+            LimitStreamAsync(SubscribeCoreAsync(request, call, resumeAfter, onCaughtUp), call, A2AOperation.SubscribeToTask, request, cancellationToken));
 
     /// <summary>
     /// The subscribe and resume logic. <paramref name="onCaughtUp"/> runs once when a resume was accepted but has nothing to
@@ -1030,7 +1045,10 @@ public sealed class A2ARequestHandler : IDisposable
     // Push notification configs
     // =====================================================================
 
-    public async Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken = default)
+    public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken = default) =>
+        ServerTelemetry.TraceAsync(A2AProtocol.Methods.CreateTaskPushNotificationConfig, call, config.TaskId, () => CreateTaskPushNotificationConfigCoreAsync(config, call, cancellationToken), cancellationToken);
+
+    private async Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigCoreAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken)
     {
         call.BindTenant(config.Tenant);
         await AuthorizeAsync(call, A2AOperation.CreateTaskPushNotificationConfig, config, config.TaskId, cancellationToken).ConfigureAwait(false);
@@ -1047,7 +1065,10 @@ public sealed class A2ARequestHandler : IDisposable
         return Redact(stored);
     }
 
-    public async Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
+    public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default) =>
+        ServerTelemetry.TraceAsync(A2AProtocol.Methods.GetTaskPushNotificationConfig, call, request.TaskId, () => GetTaskPushNotificationConfigCoreAsync(request, call, cancellationToken), cancellationToken);
+
+    private async Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigCoreAsync(GetTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.GetTaskPushNotificationConfig, request, request.TaskId, cancellationToken).ConfigureAwait(false);
@@ -1061,7 +1082,10 @@ public sealed class A2ARequestHandler : IDisposable
         return Redact(record.Config);
     }
 
-    public async Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
+    public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, ServerCallContext call, CancellationToken cancellationToken = default) =>
+        ServerTelemetry.TraceAsync(A2AProtocol.Methods.ListTaskPushNotificationConfigs, call, request.TaskId, () => ListTaskPushNotificationConfigsCoreAsync(request, call, cancellationToken), cancellationToken);
+
+    private async Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsCoreAsync(ListTaskPushNotificationConfigsRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.ListTaskPushNotificationConfigs, request, request.TaskId, cancellationToken).ConfigureAwait(false);
@@ -1085,7 +1109,10 @@ public sealed class A2ARequestHandler : IDisposable
         return new ListTaskPushNotificationConfigsResponse { Configs = page, NextPageToken = next };
     }
 
-    public async Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
+    public Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default) =>
+        ServerTelemetry.TraceAsync(A2AProtocol.Methods.DeleteTaskPushNotificationConfig, call, request.TaskId, () => DeleteTaskPushNotificationConfigCoreAsync(request, call, cancellationToken), cancellationToken);
+
+    private async Task DeleteTaskPushNotificationConfigCoreAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.DeleteTaskPushNotificationConfig, request, request.TaskId, cancellationToken).ConfigureAwait(false);
@@ -1102,7 +1129,10 @@ public sealed class A2ARequestHandler : IDisposable
     // Extended Agent Card
     // =====================================================================
 
-    public async Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
+    public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken = default) =>
+        ServerTelemetry.TraceAsync(A2AProtocol.Methods.GetExtendedAgentCard, call, null, () => GetExtendedAgentCardCoreAsync(request, call, cancellationToken), cancellationToken);
+
+    private async Task<AgentCard> GetExtendedAgentCardCoreAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.GetExtendedAgentCard, request, null, cancellationToken).ConfigureAwait(false);
@@ -1128,9 +1158,13 @@ public sealed class A2ARequestHandler : IDisposable
     /// </summary>
     private Execution StartRaw(string taskId, string contextId, bool isNewTask, Message? userMessage, ServerCallContext call,
         TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run,
-        IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null, TimeSpan? timeLimit = null)
+        IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null, TimeSpan? timeLimit = null, string kind = "execute")
     {
-        var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token));
+        var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token))
+        {
+            // A child of the operation's span; ends when the agent has returned and every event is stored.
+            Activity = ServerTelemetry.StartExecution(kind, call, taskId, contextId),
+        };
         var scope = ScopeKey(call.Tenant, taskId);
         _running.Add(scope, exec);
         var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
@@ -1141,6 +1175,7 @@ public sealed class A2ARequestHandler : IDisposable
 
         var producer = Task.Run(async () =>
         {
+            if (exec.Activity is not null) Activity.Current = exec.Activity; // the agent's own spans nest under the run
             try
             {
                 await using var scope = _scopeFactory.CreateAsyncScope();
@@ -1154,10 +1189,12 @@ public sealed class A2ARequestHandler : IDisposable
             }
             catch (OperationCanceledException) when (exec.Cts.IsCancellationRequested)
             {
+                exec.Activity?.SetTag(A2ATelemetry.ErrorTypeCanceledTag, true);
                 await TryFinishAsync(updater, TaskState.Canceled, null).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
+                A2ATelemetry.RecordError(exec.Activity, ex);
                 _logger.LogError(ex, "Agent executor failed for task {TaskId}", taskId);
                 await TryFinishAsync(updater, TaskState.Failed, "The agent failed to process the request.").ConfigureAwait(false);
             }
@@ -1170,10 +1207,15 @@ public sealed class A2ARequestHandler : IDisposable
 
         // Background writes outlive the request, so fix the owner scope now.
         var key = Key(call, taskId);
-        var consumer = Task.Run(() => ConsumeAsync(exec, key, contextId, isNewTask, userMessage, push, emitInitialSnapshot, claim ?? IdempotencyClaim.None));
+        var consumer = Task.Run(() =>
+        {
+            if (exec.Activity is not null) Activity.Current = exec.Activity; // webhook deliveries link to the run
+            return ConsumeAsync(exec, key, contextId, isNewTask, userMessage, push, emitInitialSnapshot, claim ?? IdempotencyClaim.None);
+        });
         _ = Task.WhenAll(producer, consumer).ContinueWith(_t =>
         {
             _running.Remove(scope, exec);
+            exec.EndActivity();
             exec.MarkDone();
         }, TaskScheduler.Default);
         return exec;
@@ -1186,6 +1228,12 @@ public sealed class A2ARequestHandler : IDisposable
     private async Task TimeOutAsync(Execution exec, TaskUpdater updater, string taskId)
     {
         if (!exec.TryMarkTimedOut()) return; // the agent returned first
+        if (exec.Activity is { } activity)
+        {
+            activity.SetTag(A2ATelemetry.Tags.TimedOut, true);
+            activity.SetTag(A2ATelemetry.Tags.ErrorType, "TimeLimit");
+            activity.SetStatus(ActivityStatusCode.Error, "TimeLimit");
+        }
         _logger.LogWarning("Task {TaskId}: the agent ran longer than {Limit}; failing the task", taskId, _options.MaxTaskDuration);
         await TryFinishAsync(updater, TaskState.Failed, TimeLimitText).ConfigureAwait(false);
         exec.Cancel();
@@ -1281,6 +1329,7 @@ public sealed class A2ARequestHandler : IDisposable
                     // Still under the task lock, so sinks see events in sequence order even with concurrent executions.
                     // Every sink is non-blocking.
                     Publish(exec, key, stored);
+                    if (stored.Event is StatusUpdateEvent { StatusUpdate.Status.State: var recorded }) exec.Activity?.SetTag(A2ATelemetry.Tags.TaskState, recorded.ToString());
                     if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal())
                     {
                         await _events.MarkTerminalAsync(key).ConfigureAwait(false);
@@ -1296,6 +1345,7 @@ public sealed class A2ARequestHandler : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to apply events for task {TaskId}", taskId);
+            A2ATelemetry.RecordError(exec.Activity, ex);
             exec.Cancel();
             // Before the FAILED event is published: the waiting request must see the error, not that event.
             exec.Fail(new A2AException(A2AErrorCode.Internal));
@@ -1566,6 +1616,25 @@ public sealed class A2ARequestHandler : IDisposable
 
         public string TaskId { get; } = taskId;
         public CancellationTokenSource Cts { get; } = cts;
+
+        /// <summary>The run's span, or null when nobody listens.</summary>
+        public Activity? Activity { get; init; }
+
+        /// <summary>
+        /// Ends the run's span. A run that left the task FAILED gets an error status (unless a more specific error was
+        /// recorded, for example the time limit).
+        /// </summary>
+        public void EndActivity()
+        {
+            if (Activity is not { } activity) return;
+            if (activity.Status == ActivityStatusCode.Unset && activity.GetTagItem(A2ATelemetry.Tags.TaskState) is string state
+                && string.Equals(state, nameof(TaskState.Failed), StringComparison.Ordinal))
+            {
+                activity.SetTag(A2ATelemetry.Tags.ErrorType, "TaskFailed");
+                activity.SetStatus(ActivityStatusCode.Error, "TaskFailed");
+            }
+            activity.Dispose();
+        }
         public Channel<StreamResponse> Incoming { get; } = Channel.CreateUnbounded<StreamResponse>(new UnboundedChannelOptions { SingleReader = true });
         public Channel<SequencedEvent> Outgoing { get; } = Channel.CreateUnbounded<SequencedEvent>(new UnboundedChannelOptions { SingleWriter = true, SingleReader = true });
         public Task Completion => _done.Task;

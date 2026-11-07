@@ -6,5 +6,7 @@ Transport-agnostic A2A (Agent2Agent) server core: the agent executor model, task
 services.AddA2AServer<MyAgent>(o => o.AgentCard = card);
 ```
 
+Tracing: spans on the `A2A.Server` `ActivitySource` (one per operation, agent run and webhook delivery); see [Observability](https://github.com/roman-ambinder/a2a#observability).
+
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 8 and .NET 10.
 See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.

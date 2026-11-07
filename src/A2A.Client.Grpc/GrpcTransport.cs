@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using A2A.Client.Resilience;
 using A2A.Client.Transports;
+using A2A.Diagnostics;
 using A2A.Grpc;
 using Google.Protobuf;
 using Grpc.Core;
@@ -27,8 +28,10 @@ namespace A2A.Client.Grpc;
 /// lost stream, call <c>SubscribeToTask</c> again).
 /// </para>
 /// </remarks>
-public sealed class GrpcTransport : IA2AClient, IDisposable
+public sealed class GrpcTransport : IA2AClient, IDisposable, ITransportBinding
 {
+    string ITransportBinding.Binding => ProtocolBindings.Grpc;
+
     private readonly Pb.A2AService.A2AServiceClient _client;
     private readonly A2AClientOptions _options;
     private readonly GrpcChannel? _ownedChannel;
@@ -148,7 +151,8 @@ public sealed class GrpcTransport : IA2AClient, IDisposable
 
     /// <summary>
     /// Request metadata in the order of the HTTP transports: <c>a2a-version</c>, <c>a2a-extensions</c>, <c>idempotency-key</c>,
-    /// then <see cref="A2ARequestOptions.Headers"/> (replacing an SDK entry of the same name).
+    /// the W3C <c>traceparent</c>/<c>tracestate</c> of the current activity, then <see cref="A2ARequestOptions.Headers"/>
+    /// (replacing an SDK entry of the same name).
     /// </summary>
     private CallOptions CreateCallOptions(A2ARequestOptions? call, string? idempotencyKey, DateTime? deadline, CancellationToken ct)
     {
@@ -158,6 +162,7 @@ public sealed class GrpcTransport : IA2AClient, IDisposable
         var joined = string.Join(",", extensions);
         if (joined.Length > 0) Set(headers, GrpcErrors.ExtensionsKey, joined);
         if (!string.IsNullOrEmpty(idempotencyKey)) Set(headers, GrpcErrors.IdempotencyKeyKey, idempotencyKey);
+        A2ATelemetry.InjectTraceContext(System.Diagnostics.Activity.Current, (name, value) => Set(headers, name, value));
         if (call is not null)
             foreach (var (name, value) in call.Headers) Set(headers, name.ToLowerInvariant(), value);
         return new CallOptions(headers, deadline, ct);
