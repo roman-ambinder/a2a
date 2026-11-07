@@ -1,17 +1,18 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace A2A.Net;
+namespace A2A.Security.Http;
 
 /// <summary>The target resolves to an address the policy forbids. Permanent: callers must not retry.</summary>
-internal sealed class BlockedAddressException(string message) : HttpRequestException(message);
+/// <param name="message">What was blocked.</param>
+public sealed class BlockedAddressException(string message) : HttpRequestException(message);
 
 /// <summary>
 /// SSRF guard shared by outbound fetches to peer-chosen URLs: push webhooks (server) and <c>jku</c> key sets (Agent Card
 /// verification). Blocks private, loopback, link-local, CGNAT, multicast and reserved ranges, including IPv4 embedded in IPv6
 /// (mapped, NAT64, IPv4-compatible, 6to4), and checks the resolved address at connect time.
 /// </summary>
-internal static class PrivateAddressGuard
+public static class PrivateAddressGuard
 {
     /// <summary>DNS seam. Defaults to <see cref="Dns.GetHostAddressesAsync(string, CancellationToken)"/>; tests may replace it.</summary>
     internal static Func<string, CancellationToken, ValueTask<IPAddress[]>> Resolve { get; set; } =

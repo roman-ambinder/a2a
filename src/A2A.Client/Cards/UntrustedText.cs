@@ -1,4 +1,4 @@
-using A2A.Validation;
+using A2A.Text;
 
 namespace A2A.Client.Cards;
 

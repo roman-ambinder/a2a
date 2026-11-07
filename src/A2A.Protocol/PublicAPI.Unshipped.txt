@@ -531,7 +531,6 @@ A2A.Signing.AgentCardVerificationStatus.Unsigned = 1 -> A2A.Signing.AgentCardVer
 A2A.Signing.AgentCardVerificationStatus.Unverified = 2 -> A2A.Signing.AgentCardVerificationStatus
 A2A.Signing.AgentCardVerificationStatus.Verified = 0 -> A2A.Signing.AgentCardVerificationStatus
 A2A.Signing.AgentCardVerifier
-A2A.Signing.AgentCardVerifier.AgentCardVerifier(A2A.Signing.CardTrustPolicy! policy) -> void
 A2A.Signing.AgentCardVerifier.Policy.get -> A2A.Signing.CardTrustPolicy!
 A2A.Signing.AgentCardVerifier.VerifyAsync(A2A.AgentCard! card, System.Uri! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Signing.AgentCardVerificationResult!>!
 A2A.Signing.AgentCardVerifier.VerifyAsync(string! rawCardJson, System.Uri! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Signing.AgentCardVerificationResult!>!
@@ -779,3 +778,10 @@ static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.SendMessageRequest! requ
 static A2A.Validation.A2AValidator.ValidatePart(A2A.Part! part, string! path) -> void
 static A2A.Validation.A2AValidator.ValidatePushConfig(A2A.TaskPushNotificationConfig! config, string! path, bool requireTaskId) -> void
 static readonly A2A.Signing.JwsAlgorithms.All -> System.Collections.Generic.IReadOnlySet<string!>!
+A2A.Signing.AgentCardVerifier.AgentCardVerifier(A2A.Signing.CardTrustPolicy! policy, A2A.Signing.IJwksFetcher? jwksFetcher = null) -> void
+A2A.Signing.IJwksFetcher
+A2A.Signing.IJwksFetcher.FetchAsync(System.Uri! jku, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.Signing.JwkSet!>
+A2A.Text.TextSanitizer
+const A2A.Text.TextSanitizer.MaxHeaderValueLength = 200 -> int
+static A2A.Text.TextSanitizer.ForMessage(string? value) -> string!
+static A2A.Text.TextSanitizer.Sanitize(string! text, int maxLength) -> string!

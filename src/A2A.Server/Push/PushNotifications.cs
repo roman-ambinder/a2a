@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using A2A.Json;
-using A2A.Net;
+using A2A.Security.Http;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
 using Microsoft.Extensions.Logging;

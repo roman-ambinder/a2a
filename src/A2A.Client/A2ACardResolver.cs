@@ -7,7 +7,9 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Client.Cards;
 using A2A.Json;
+using A2A.Security.Http;
 using A2A.Signing;
+using A2A.Text;
 using A2A.Validation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -108,7 +110,9 @@ public sealed class A2ACardResolver
         ArgumentNullException.ThrowIfNull(_options.Trust, "options.Trust");
         ArgumentNullException.ThrowIfNull(_options.PinStore, "options.PinStore");
         ArgumentOutOfRangeException.ThrowIfLessThan(_options.MaxCardTextLength, 1, "options.MaxCardTextLength");
-        _verifier = new AgentCardVerifier(_options.Trust, _options.JwksHttpClient);
+        // jku targets are chosen by the card, so they are fetched through the SSRF guard; no allowlisted host means no fetch at all.
+        _verifier = new AgentCardVerifier(_options.Trust,
+            _options.Trust.AllowedJkuHosts.Count > 0 ? new GuardedJwksFetcher(_options.JwksHttpClient) : null);
         _logger = logger ?? NullLogger.Instance;
     }
 

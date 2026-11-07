@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using A2A.Client;
 using A2A.Client.Cards;
 using A2A.Json;
+using A2A.Security.Http;
 using A2A.Signing;
 using Microsoft.Extensions.Logging;
 
@@ -69,7 +70,7 @@ public class CardTrustTests
         var evil = new JwksServer(Set(attacker));
 
         // (a) No trust configured: reported Unverified, the card is still returned.
-        var result = await new AgentCardVerifier(new CardTrustPolicy(), new HttpClient(evil)).VerifyAsync(raw, CardUri);
+        var result = await new AgentCardVerifier(new CardTrustPolicy(), new GuardedJwksFetcher(new HttpMessageInvoker(evil))).VerifyAsync(raw, CardUri);
         Assert.Equal(AgentCardVerificationStatus.Unverified, result.Status);
         var resolved = await Resolver(new CardServer(raw), jwks: evil).ResolveAsync(AgentUrl);
         Assert.Equal(AgentCardVerificationStatus.Unverified, resolved.Verification.Status);
@@ -89,7 +90,7 @@ public class CardTrustTests
         var key = NewKey("k1", Origin + "/.well-known/jwks.json");
         var jwks = new JwksServer(Set(key));
 
-        var result = await new AgentCardVerifier(new CardTrustPolicy(), new HttpClient(jwks)).VerifyAsync(Signed(key), CardUri);
+        var result = await new AgentCardVerifier(new CardTrustPolicy(), new GuardedJwksFetcher(new HttpMessageInvoker(jwks))).VerifyAsync(Signed(key), CardUri);
 
         Assert.Equal(AgentCardVerificationStatus.Unverified, result.Status);
         Assert.Equal(Origin, result.Issuer);
@@ -103,7 +104,7 @@ public class CardTrustTests
         var jwks = new JwksServer(Set(key));
         var policy = new CardTrustPolicy();
         policy.AllowJkuHost(Origin, "keys.example");
-        var verifier = new AgentCardVerifier(policy, new HttpClient(jwks));
+        var verifier = new AgentCardVerifier(policy, new GuardedJwksFetcher(new HttpMessageInvoker(jwks)));
 
         var result = await verifier.VerifyAsync(Signed(key), CardUri);
 
@@ -118,7 +119,7 @@ public class CardTrustTests
         var insecure = NewKey("k2", "http://keys.example/jwks.json");
         var plain = new JwksServer(Set(insecure));
         Assert.Equal(AgentCardVerificationStatus.Unverified,
-            (await new AgentCardVerifier(policy, new HttpClient(plain)).VerifyAsync(Signed(insecure), CardUri)).Status);
+            (await new AgentCardVerifier(policy, new GuardedJwksFetcher(new HttpMessageInvoker(plain))).VerifyAsync(Signed(insecure), CardUri)).Status);
         Assert.Empty(plain.Requests);
 
         var resolved = await Resolver(new CardServer(Signed(key)), o => o.Trust.AllowJkuHost(Origin, "keys.example"), new JwksServer(Set(key)))
@@ -134,7 +135,7 @@ public class CardTrustTests
         var jwks = new JwksServer(Set(key));
         var policy = new CardTrustPolicy();
         policy.AllowJkuHost(Origin, "keys.example");
-        var verifier = new AgentCardVerifier(policy, new HttpClient(jwks));
+        var verifier = new AgentCardVerifier(policy, new GuardedJwksFetcher(new HttpMessageInvoker(jwks)));
 
         var other = await verifier.VerifyAsync(Signed(key), new Uri("https://other.example/.well-known/agent-card.json"));
 
@@ -146,7 +147,7 @@ public class CardTrustTests
         var normalized = new CardTrustPolicy();
         normalized.AllowedJkuHosts["HTTPS://Agent.Example:443/"] = new HashSet<string> { "KEYS.example" };
         Assert.Equal(AgentCardVerificationStatus.Verified,
-            (await new AgentCardVerifier(normalized, new HttpClient(jwks)).VerifyAsync(Signed(key), CardUri)).Status);
+            (await new AgentCardVerifier(normalized, new GuardedJwksFetcher(new HttpMessageInvoker(jwks))).VerifyAsync(Signed(key), CardUri)).Status);
     }
 
     [Fact]
@@ -429,16 +430,29 @@ public class CardTrustTests
     }
 
     [Fact]
-    public async Task Default_jwks_client_refuses_private_addresses()
+    public async Task Default_guarded_fetcher_refuses_private_addresses()
     {
         var key = NewKey("k1", "https://localhost:1/jwks");
         var policy = new CardTrustPolicy();
         policy.AllowJkuHost(Origin, "localhost");
 
-        var result = await new AgentCardVerifier(policy).VerifyAsync(Signed(key), CardUri);
+        var result = await new AgentCardVerifier(policy, new GuardedJwksFetcher()).VerifyAsync(Signed(key), CardUri);
 
         Assert.Equal(AgentCardVerificationStatus.Unverified, result.Status);
         Assert.Contains("private address", result.Reason);
+    }
+
+    [Fact]
+    public async Task Verifier_without_a_fetcher_does_not_fetch_jku_keys()
+    {
+        var key = NewKey("k1", "https://keys.example/jwks.json");
+        var policy = new CardTrustPolicy();
+        policy.AllowJkuHost(Origin, "keys.example");
+
+        var result = await new AgentCardVerifier(policy).VerifyAsync(Signed(key), CardUri);
+
+        Assert.Equal(AgentCardVerificationStatus.Unverified, result.Status);
+        Assert.Contains("no JWKS fetcher configured", result.Reason);
     }
 
     [Fact]
@@ -452,7 +466,7 @@ public class CardTrustTests
         var policy = new CardTrustPolicy();
         policy.AllowJkuHost(Origin, "keys.example");
 
-        var result = await new AgentCardVerifier(policy, new HttpClient(jwks)).VerifyAsync(A2AJson.Serialize(card), CardUri);
+        var result = await new AgentCardVerifier(policy, new GuardedJwksFetcher(new HttpMessageInvoker(jwks))).VerifyAsync(A2AJson.Serialize(card), CardUri);
 
         Assert.Equal(AgentCardVerificationStatus.Unverified, result.Status);
         Assert.Equal(AgentCardVerifier.MaxJkuFetchesPerVerification, jwks.Requests.Count);
@@ -466,7 +480,7 @@ public class CardTrustTests
         var jwks = new JwksServer(Set(key)) { Status = HttpStatusCode.InternalServerError };
         var policy = new CardTrustPolicy();
         policy.AllowJkuHost(Origin, "keys.example");
-        var verifier = new AgentCardVerifier(policy, new HttpClient(jwks));
+        var verifier = new AgentCardVerifier(policy, new GuardedJwksFetcher(new HttpMessageInvoker(jwks)));
 
         var first = await verifier.VerifyAsync(Signed(key), CardUri);
         jwks.Status = HttpStatusCode.OK;

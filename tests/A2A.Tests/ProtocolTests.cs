@@ -4,6 +4,7 @@ using A2A.Client.Sse;
 using A2A.Json;
 using A2A.JsonRpc;
 using A2A.Server.Push;
+using A2A.Security.Http;
 using A2A.Signing;
 
 namespace A2A.Tests;
@@ -245,7 +246,7 @@ public class SigningTests
     {
         var policy = new CardTrustPolicy();
         policy.AllowJkuHost(Origin, "agent.example");
-        var verifier = new AgentCardVerifier(policy, new HttpClient(new ThrowingHandler()));
+        var verifier = new AgentCardVerifier(policy, new GuardedJwksFetcher(new HttpMessageInvoker(new ThrowingHandler())));
 
         var crossHost = AgentCardSigner.Sign(SampleCard(), NewKey("ES256", jku: "https://evil.example/jwks.json"));
         Assert.Equal(AgentCardVerificationStatus.Unverified, (await verifier.VerifyAsync(crossHost, CardUri)).Status);

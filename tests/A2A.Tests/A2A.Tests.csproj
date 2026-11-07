@@ -15,6 +15,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\A2A.Protocol\A2A.Protocol.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Security.Http\A2A.Security.Http.csproj" />
     <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server\A2A.Server.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />

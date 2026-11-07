@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Json;
-using A2A.Net;
+using A2A.Text;
 using A2A.Validation;
 
 namespace A2A.Signing;
@@ -34,7 +34,7 @@ public sealed record AgentCardVerificationResult(AgentCardVerificationStatus Sta
 
 /// <summary>
 /// Verifies Agent Card JWS signatures (spec §8.4.3, §7.5) against a <see cref="CardTrustPolicy"/>: the key must be pinned for the
-/// card's origin or come from an allowlisted <c>jku</c> host (HTTPS, SSRF-guarded fetch). Also enforces a <c>typ</c> and
+/// card's origin or come from an allowlisted <c>jku</c> host (HTTPS, fetched by an <see cref="IJwksFetcher"/>). Also enforces a <c>typ</c> and
 /// algorithm allowlist (no "none"/HS*), rejects <c>crit</c>, and checks key/algorithm matching. The payload is
 /// <see cref="AgentCardCanonicalizer.Canonicalize(JsonObject)"/>, which matches a2a-python and a2a-js.
 /// </summary>
@@ -45,39 +45,28 @@ public sealed record AgentCardVerificationResult(AgentCardVerificationStatus Sta
 /// </remarks>
 public sealed class AgentCardVerifier
 {
-    private const int MaxJwksBytes = 256 * 1024;
-
     /// <summary>Distinct <c>jku</c> key sets one verification may fetch; further signatures needing a fetch get no key.</summary>
     internal const int MaxJkuFetchesPerVerification = 5;
 
     private static readonly TimeSpan JwksCacheDuration = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan JwksFailureCacheDuration = TimeSpan.FromSeconds(60);
 
-    // jku targets are chosen by the card, so the fetch goes through the same SSRF guard as push webhooks.
-    private static readonly Lazy<HttpClient> GuardedJwksClient = new(() =>
-        new HttpClient(PrivateAddressGuard.CreateHandler(allowPrivateNetworks: false, "JWKS"))
-        {
-            Timeout = TimeSpan.FromSeconds(10),
-            MaxResponseContentBufferSize = MaxJwksBytes,
-        });
-
-    private readonly HttpClient _jwksClient;
+    private readonly IJwksFetcher? _jwksFetcher;
     // A failed fetch is cached too (Set null, Failure set) so a card cannot make every verification hit the host again.
     private readonly ConcurrentDictionary<string, JwksCacheEntry> _jwksCache = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Creates a verifier. <c>jku</c> key sets are fetched through an SSRF-guarded client, cached for 10 minutes (failures for
-    /// 60 seconds), and at most <see cref="MaxJkuFetchesPerVerification"/> distinct key sets are fetched per verification.
+    /// Creates a verifier. <c>jku</c> key sets (HTTPS, host allowlisted for the card origin) are fetched with
+    /// <paramref name="jwksFetcher"/>, cached for 10 minutes (failures for 60 seconds), and at most
+    /// <see cref="MaxJkuFetchesPerVerification"/> distinct key sets are fetched per verification.
     /// </summary>
-    public AgentCardVerifier(CardTrustPolicy policy) : this(policy, null)
-    {
-    }
-
-    /// <summary>Test seam: fetches <c>jku</c> key sets with <paramref name="jwksClient"/> instead of the guarded client.</summary>
-    internal AgentCardVerifier(CardTrustPolicy policy, HttpClient? jwksClient)
+    /// <param name="policy">Decides which keys are trusted.</param>
+    /// <param name="jwksFetcher">Fetches <c>jku</c> key sets. With <see langword="null"/>, a signature that needs a <c>jku</c> fetch is
+    /// <see cref="AgentCardVerificationStatus.Unverified"/> (reason "no JWKS fetcher configured"). Use <c>A2A.Security.Http.GuardedJwksFetcher</c> for an SSRF-guarded one.</param>
+    public AgentCardVerifier(CardTrustPolicy policy, IJwksFetcher? jwksFetcher = null)
     {
         Policy = policy ?? throw new ArgumentNullException(nameof(policy));
-        _jwksClient = jwksClient ?? GuardedJwksClient.Value;
+        _jwksFetcher = jwksFetcher;
     }
 
     /// <summary>The policy that decides which keys are trusted.</summary>
@@ -211,6 +200,8 @@ public sealed class AgentCardVerifier
         if (!string.IsNullOrEmpty(uri.UserInfo) || !Policy.IsJkuHostAllowed(issuer, uri.Host))
             return ([], $"jku host '{TextSanitizer.ForMessage(uri.Host)}' is not allowed for {issuer}");
 
+        if (_jwksFetcher is null) return ([], "no JWKS fetcher configured");
+
         var cacheKey = uri.AbsoluteUri;
         var now = DateTimeOffset.UtcNow;
         if (!_jwksCache.TryGetValue(cacheKey, out var entry) || entry.Expires < now)
@@ -220,8 +211,7 @@ public sealed class AgentCardVerifier
             fetches.Add(cacheKey);
             try
             {
-                var bytes = await _jwksClient.GetByteArrayAsync(uri, cancellationToken).ConfigureAwait(false);
-                var set = JsonSerializer.Deserialize(bytes, A2AJson.GetTypeInfo<JwkSet>()) ?? new JwkSet();
+                var set = await _jwksFetcher.FetchAsync(uri, cancellationToken).ConfigureAwait(false);
                 entry = new JwksCacheEntry(DateTimeOffset.UtcNow + JwksCacheDuration, set, null);
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException

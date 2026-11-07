@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace A2A.Validation;
+namespace A2A.Text;
 
 /// <summary>
 /// Makes peer-supplied text safe to display, log or put in a prompt: removes C0/C1 control characters except <c>\n</c> and
@@ -8,11 +8,14 @@ namespace A2A.Validation;
 /// (U+200B to U+200F, U+2060 to U+2064, U+FEFF, U+061C, U+180E) and Unicode tag characters (U+E0000 to U+E007F, which can
 /// hide text), and caps the length, ending with an ellipsis.
 /// </summary>
-internal static class TextSanitizer
+public static class TextSanitizer
 {
     /// <summary>Length cap for header values (<c>typ</c>, <c>kid</c>, <c>alg</c>, hosts) quoted in error messages.</summary>
     public const int MaxHeaderValueLength = 200;
 
+    /// <summary>Strips hostile characters from <paramref name="text"/> and caps it at <paramref name="maxLength"/> UTF-16 units, ending with an ellipsis when cut.</summary>
+    /// <param name="text">The peer-supplied text.</param>
+    /// <param name="maxLength">The length cap, at least 1.</param>
     public static string Sanitize(string text, int maxLength)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -53,6 +56,7 @@ internal static class TextSanitizer
             or '\uFEFF' or '\u061C' or '\u180E';
 
     /// <summary>A single-line form for quoting a peer value inside an error message.</summary>
+    /// <param name="value">The peer value, or <see langword="null"/> for an empty string.</param>
     public static string ForMessage(string? value) =>
         value is null ? "" : Sanitize(value, MaxHeaderValueLength).Replace('\n', ' ').Replace('\t', ' ');
 }
