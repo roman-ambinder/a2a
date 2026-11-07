@@ -85,6 +85,14 @@ public class PushDeliveryTests
     }
 
     [Fact]
+    public async Task Webhook_request_carries_protocol_version()
+    {
+        var (sender, h) = await SendOneAsync(o => o.AllowPrivateNetworks = true, Hook());
+        using var _ = sender;
+        Assert.Equal(A2AProtocol.Version, Assert.Single(h.Requests).Headers.GetValues(A2AProtocol.Headers.Version).Single());
+    }
+
+    [Fact]
     public async Task Explicit_authentication_wins_over_bearer_token()
     {
         var cfg = Hook();

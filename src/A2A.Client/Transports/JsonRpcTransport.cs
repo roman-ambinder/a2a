@@ -72,7 +72,7 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
         ExecuteUnaryAsync(retry, call, async attemptCt =>
         {
             using var request = await BuildRequestAsync(method, parameters, streaming: false, call, key, attemptCt).ConfigureAwait(false);
-            using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
+            using var response = await SendCheckedAsync(request, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(attemptCt).ConfigureAwait(false);
             var rpc = TryParseResponse(body);
             if (rpc is null)
@@ -87,7 +87,7 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
     private async IAsyncEnumerable<StreamFrame> StreamAsync<TParams>(string method, TParams parameters, A2ARequestOptions? call, string? key, string? lastEventId, [EnumeratorCancellation] CancellationToken ct)
     {
         using var request = await BuildRequestAsync(method, parameters, streaming: true, call, key, ct, lastEventId).ConfigureAwait(false);
-        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        using var response = await SendCheckedAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
 
         if (!IsEventStream(response))
         {
@@ -104,6 +104,8 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
             var rpc = TryParseResponse(evt.Data) ?? throw ProtocolError($"{method}: SSE event is not a JSON-RPC response.");
             if (rpc.Error is not null) throw rpc.Error.ToException();
             if (rpc.Result is not { } r) throw ProtocolError($"{method}: SSE event has no result.");
+            // A2A #2269: an event of a type this SDK does not know (a newer protocol version) is skipped, not fatal.
+            if (!IsKnownStreamEvent(r)) continue;
             yield return new StreamFrame(Parse<StreamResponse>(r, "stream event"), evt.FrameId);
         }
     }

@@ -80,7 +80,7 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
         {
             using var req = new HttpRequestMessage(HttpMethod.Delete, Path(request.Tenant, $"/tasks/{Esc(request.TaskId)}/pushNotificationConfigs/{Esc(request.Id)}"));
             await ApplyHeadersAsync(req, streaming: false, options, null, attemptCt).ConfigureAwait(false);
-            using var resp = await Http.SendAsync(req, attemptCt).ConfigureAwait(false);
+            using var resp = await SendCheckedAsync(req, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, attemptCt).ConfigureAwait(false);
             return true;
         }, cancellationToken);
@@ -102,7 +102,7 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
             using var req = new HttpRequestMessage(method, url);
             if (body is not null) req.Content = JsonBody(body, A2AProtocol.MediaType);
             await ApplyHeadersAsync(req, streaming: false, call, key, attemptCt).ConfigureAwait(false);
-            using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
+            using var resp = await SendCheckedAsync(req, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, attemptCt).ConfigureAwait(false);
             var text = await resp.Content.ReadAsStringAsync(attemptCt).ConfigureAwait(false);
             try { return A2AJson.Deserialize<T>(text); }
@@ -114,23 +114,27 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
         using var req = new HttpRequestMessage(method, url);
         if (body is not null) req.Content = JsonBody(body, A2AProtocol.MediaType);
         await ApplyHeadersAsync(req, streaming: true, call, key, ct, lastEventId).ConfigureAwait(false);
-        using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        using var resp = await SendCheckedAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, ct).ConfigureAwait(false);
         if (!IsEventStream(resp)) throw ProtocolError("Expected text/event-stream.");
 
         await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         await foreach (var evt in SseReader.ReadAsync(stream, ct).ConfigureAwait(false))
         {
-            StreamResponse? item;
+            StreamResponse? item = null;
             try
             {
                 using var doc = JsonDocument.Parse(evt.Data);
-                if (doc.RootElement.TryGetProperty("error", out var err)) throw ParseStatus(err, null);
-                item = doc.RootElement.Deserialize(A2AJson.GetTypeInfo<StreamResponse>());
+                var root = doc.RootElement;
+                if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("error", out var err)) throw ParseStatus(err, null);
+                // A2A #1262: some servers name error frames "error" and send a bare google.rpc.Status.
+                if (string.Equals(evt.EventType, "error", StringComparison.Ordinal))
+                    throw root.ValueKind == JsonValueKind.Object ? ParseStatus(root, null) : ProtocolError($"Stream error: {evt.Data}");
+                // A2A #2269: an event of a type this SDK does not know (a newer protocol version) is skipped, not fatal.
+                if (IsKnownStreamEvent(root)) item = root.Deserialize(A2AJson.GetTypeInfo<StreamResponse>()) ?? throw ProtocolError("Empty stream event.");
             }
             catch (JsonException ex) { throw ProtocolError($"Malformed stream event: {ex.Message}", ex); }
-            if (item is null) throw ProtocolError("Empty stream event.");
-            yield return new StreamFrame(item, evt.FrameId);
+            if (item is not null) yield return new StreamFrame(item, evt.FrameId);
         }
     }
 

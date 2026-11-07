@@ -62,33 +62,32 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
 
     private Task ListTasks(HttpContext http) => Run(http, (call, ct) =>
     {
-        var q = http.Request.Query;
         TaskState? status = null;
-        if (!string.IsNullOrEmpty(q["status"]))
+        if (!string.IsNullOrEmpty(Query(http, "status")))
         {
-            if (!ProtoEnumConverter<TaskState>.TryParse(q["status"], out var s)) throw A2AException.InvalidParams("status is not a valid TaskState");
+            if (!ProtoEnumConverter<TaskState>.TryParse(Query(http, "status"), out var s)) throw A2AException.InvalidParams("status is not a valid TaskState");
             status = s;
         }
         DateTimeOffset? after = null;
-        if (!string.IsNullOrEmpty(q["statusTimestampAfter"]))
+        if (!string.IsNullOrEmpty(Query(http, "statusTimestampAfter")))
         {
-            if (!DateTimeOffset.TryParse(q["statusTimestampAfter"], CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var t))
+            if (!DateTimeOffset.TryParse(Query(http, "statusTimestampAfter"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var t))
                 throw A2AException.InvalidParams("statusTimestampAfter must be an ISO 8601 timestamp");
             after = t.ToUniversalTime();
         }
         bool? includeArtifacts = null;
-        if (!string.IsNullOrEmpty(q["includeArtifacts"]))
+        if (!string.IsNullOrEmpty(Query(http, "includeArtifacts")))
         {
-            if (!bool.TryParse(q["includeArtifacts"], out var b)) throw A2AException.InvalidParams("includeArtifacts must be true or false");
+            if (!bool.TryParse(Query(http, "includeArtifacts"), out var b)) throw A2AException.InvalidParams("includeArtifacts must be true or false");
             includeArtifacts = b;
         }
         var req = new ListTasksRequest
         {
             Tenant = call.Tenant,
-            ContextId = q["contextId"],
+            ContextId = Query(http, "contextId"),
             Status = status,
             PageSize = QueryInt(http, "pageSize"),
-            PageToken = q["pageToken"],
+            PageToken = Query(http, "pageToken"),
             HistoryLength = QueryInt(http, "historyLength"),
             StatusTimestampAfter = after,
             IncludeArtifacts = includeArtifacts,
@@ -125,7 +124,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
     private Task ListPushConfigs(HttpContext http) => Run(http, (call, ct) =>
         Box(handler.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest
         {
-            TaskId = Route(http, "id"), PageSize = QueryInt(http, "pageSize"), PageToken = http.Request.Query["pageToken"], Tenant = call.Tenant,
+            TaskId = Route(http, "id"), PageSize = QueryInt(http, "pageSize"), PageToken = Query(http, "pageToken"), Tenant = call.Tenant,
         }, call, ct)));
 
     private Task DeletePushConfig(HttpContext http) => Run(http, async (call, ct) =>
@@ -190,7 +189,8 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
             HttpPlumbing.StartEventStream(http);
             await HttpPlumbing.PumpAsync(http, e, A2AJson.SerializeToUtf8Bytes,
                 ex => A2AJson.SerializeToUtf8Bytes(StatusBody(HttpPlumbing.Normalize(ex, logger, _includeDetails))),
-                _keepAlive, logger).ConfigureAwait(false);
+                // A2A #1262: a2a-python reads REST stream errors from frames named "error".
+                _keepAlive, logger, errorEventType: "error").ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
         {
@@ -230,7 +230,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
         try
         {
             using var doc = HttpPlumbing.ParseBody(bytes, _limits.MaxJsonDepth);
-            return doc.RootElement.Deserialize(A2AJson.GetTypeInfo<T>());
+            return ProtoJsonFieldNames.Normalize(doc.RootElement).Deserialize(A2AJson.GetTypeInfo<T>());
         }
         catch (JsonException ex) { throw A2AException.InvalidParams($"Invalid request body: {ex.Message}"); }
     }
@@ -238,9 +238,35 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
     private static string Route(HttpContext http, string name) =>
         http.GetRouteValue(name) as string ?? throw A2AException.InvalidParams($"{name} is required");
 
+    /// <summary>
+    /// A query parameter by its JSON name (<c>historyLength</c>) or its proto name (<c>history_length</c>), as HTTP
+    /// transcoding accepts both. Both present is InvalidParams.
+    /// </summary>
+    private static string? Query(HttpContext http, string jsonName)
+    {
+        string? value = http.Request.Query[jsonName];
+        var protoName = ProtoName(jsonName);
+        if (protoName == jsonName) return value;
+        string? alt = http.Request.Query[protoName];
+        if (string.IsNullOrEmpty(alt)) return value;
+        if (!string.IsNullOrEmpty(value)) throw A2AException.InvalidParams($"Both '{jsonName}' and '{protoName}' are present; send only one.");
+        return alt;
+    }
+
+    private static string ProtoName(string jsonName)
+    {
+        var sb = new System.Text.StringBuilder(jsonName.Length + 4);
+        foreach (var c in jsonName)
+        {
+            if (char.IsUpper(c)) sb.Append('_').Append(char.ToLowerInvariant(c));
+            else sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
     private static int? QueryInt(HttpContext http, string name)
     {
-        string? v = http.Request.Query[name];
+        var v = Query(http, name);
         if (string.IsNullOrEmpty(v)) return null;
         return int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i) ? i : throw A2AException.InvalidParams($"{name} must be an integer");
     }

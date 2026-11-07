@@ -142,7 +142,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
         if (p.ValueKind != JsonValueKind.Object) throw A2AException.InvalidParams("params must be an object");
         try
         {
-            return p.Deserialize(A2AJson.GetTypeInfo<T>()) ?? throw A2AException.InvalidParams("params are required");
+            return ProtoJsonFieldNames.Normalize(p).Deserialize(A2AJson.GetTypeInfo<T>()) ?? throw A2AException.InvalidParams("params are required");
         }
         catch (JsonException ex)
         {

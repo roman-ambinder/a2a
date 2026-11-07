@@ -167,4 +167,45 @@ public abstract class HttpTransportBase
         try { return A2AJson.Deserialize<T>(element); }
         catch (JsonException ex) { throw ProtocolError($"Malformed {what} in agent response: {ex.Message}", ex); }
     }
+
+    private static readonly string[] StreamEventMembers = ["task", "message", "statusUpdate", "artifactUpdate"];
+
+    /// <summary>
+    /// True when a stream event object carries a StreamResponse member this SDK knows. An object with only unknown
+    /// members comes from a newer protocol version and is skipped by the transports.
+    /// </summary>
+    private protected static bool IsKnownStreamEvent(JsonElement e)
+    {
+        if (e.ValueKind != JsonValueKind.Object) return true; // let the parser report the error
+        foreach (var name in StreamEventMembers)
+            if (e.TryGetProperty(name, out _)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Sends <paramref name="request"/> and refuses a response that arrived through a redirect. A2A endpoints are taken
+    /// from the Agent Card and never redirect; a redirect could hand the response, and the request's headers, to another
+    /// origin.
+    /// </summary>
+    /// <remarks>
+    /// This check runs after the response arrives, so it cannot stop an <see cref="HttpClient"/> that follows redirects
+    /// from re-sending custom credential headers (only <c>Authorization</c> is dropped). Use a handler with
+    /// <c>AllowAutoRedirect = false</c>; <c>AddA2AClient</c> sets that up.
+    /// </remarks>
+    private protected async Task<HttpResponseMessage> SendCheckedAsync(HttpRequestMessage request, HttpCompletionOption completion, CancellationToken ct)
+    {
+        var requested = request.RequestUri is { IsAbsoluteUri: true } abs ? abs
+            : Http.BaseAddress is { } baseAddress && request.RequestUri is { } rel ? new Uri(baseAddress, rel)
+            : request.RequestUri;
+        var response = await Http.SendAsync(request, completion, ct).ConfigureAwait(false);
+        var final = response.RequestMessage?.RequestUri;
+        if (requested is not null && final is not null && final != requested)
+        {
+            response.Dispose();
+            throw new A2AException(A2AErrorCode.InvalidAgentResponse,
+                $"The agent redirected the request to {final.GetLeftPart(UriPartial.Authority)}. A2A clients do not follow redirects: " +
+                "use an HttpClient whose handler sets AllowAutoRedirect = false (AddA2AClient does this).");
+        }
+        return response;
+    }
 }
