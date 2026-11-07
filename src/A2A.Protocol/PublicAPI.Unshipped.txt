@@ -785,3 +785,7 @@ A2A.Text.TextSanitizer
 const A2A.Text.TextSanitizer.MaxHeaderValueLength = 200 -> int
 static A2A.Text.TextSanitizer.ForMessage(string? value) -> string!
 static A2A.Text.TextSanitizer.Sanitize(string! text, int maxLength) -> string!
+A2A.ModelCopies
+static A2A.ModelCopies.CopyForUpdate(this A2A.AgentTask! task) -> A2A.AgentTask!
+static A2A.ModelCopies.CopyWithParts(this A2A.Artifact! artifact, System.Collections.Generic.IEnumerable<A2A.Part!>! extraParts) -> A2A.Artifact!
+static A2A.ModelCopies.DeepCopy(this A2A.AgentTask! task) -> A2A.AgentTask!

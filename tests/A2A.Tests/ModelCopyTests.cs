@@ -1,0 +1,191 @@
+using System.Collections;
+using System.Text.Json;
+using A2A.Json;
+
+namespace A2A.Tests;
+
+public class ModelCopyTests
+{
+    private static JsonElement J(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
+    }
+
+    private static Message Msg(string id, byte[]? raw = null) => new()
+    {
+        MessageId = id,
+        ContextId = "c",
+        TaskId = "t",
+        Role = Role.Agent,
+        Parts =
+        [
+            Part.FromText("hi") with { Metadata = new() { ["a"] = J("1") } },
+            Part.FromBytes(raw ?? [1, 2, 3], "application/octet-stream", "a.bin"),
+            Part.FromUrl(new Uri("https://x/y")),
+            Part.FromData(J("{\"k\":[1,2]}")),
+        ],
+        Metadata = new() { ["m"] = J("{\"x\":1}") },
+        Extensions = ["e1"],
+        ReferenceTaskIds = ["r1"],
+    };
+
+    private static Artifact Art(string id) => new()
+    {
+        ArtifactId = id,
+        Name = "n",
+        Description = "d",
+        Parts = [Part.FromText("a"), Part.FromData(J("[1]"))],
+        Metadata = new() { ["am"] = J("true") },
+        Extensions = ["ae"],
+    };
+
+    private static AgentTask Task() => new()
+    {
+        Id = "t",
+        ContextId = "c",
+        Status = new() { State = TaskState.Working, Message = Msg("s"), Timestamp = DateTimeOffset.UnixEpoch },
+        Artifacts = [Art("a1"), Art("a2")],
+        History = [Msg("h1"), Msg("h2")],
+        Metadata = new() { ["tm"] = J("\"v\"") },
+    };
+
+    [Fact]
+    public void CopyForUpdate_shares_messages_but_not_lists()
+    {
+        var t = Task();
+        var c = t.CopyForUpdate();
+        Assert.NotSame(t, c);
+        Assert.NotSame(t.Status, c.Status);
+        Assert.Same(t.Status.Message, c.Status.Message);
+        Assert.NotSame(t.History, c.History);
+        Assert.NotSame(t.Artifacts, c.Artifacts);
+        Assert.NotSame(t.Metadata, c.Metadata);
+        for (var i = 0; i < t.History!.Count; i++) Assert.Same(t.History[i], c.History![i]);
+        for (var i = 0; i < t.Artifacts!.Count; i++) Assert.Same(t.Artifacts[i], c.Artifacts![i]);
+        c.History!.Add(Msg("h3"));
+        Assert.Equal(2, t.History.Count);
+        Assert.Equal(A2AJson.Serialize(t), A2AJson.Serialize(t.CopyForUpdate()));
+    }
+
+    [Fact]
+    public void CopyForUpdate_keeps_null_collections_null()
+    {
+        var t = new AgentTask { Id = "t", Status = new() { State = TaskState.Submitted } };
+        var c = t.CopyForUpdate();
+        Assert.Null(c.History);
+        Assert.Null(c.Artifacts);
+        Assert.Null(c.Metadata);
+        Assert.Null(c.Status.Message);
+    }
+
+    [Fact]
+    public void CopyWithParts_leaves_original_untouched()
+    {
+        var a = Art("a1");
+        var extra = Part.FromText("more");
+        var c = a.CopyWithParts([extra]);
+        Assert.NotSame(a, c);
+        Assert.Equal(2, a.Parts.Count);
+        Assert.Equal(3, c.Parts.Count);
+        Assert.Same(a.Parts[0], c.Parts[0]);
+        Assert.Same(extra, c.Parts[2]);
+        Assert.NotSame(a.Metadata, c.Metadata);
+        Assert.Equal(a.Metadata!["am"].GetRawText(), c.Metadata!["am"].GetRawText());
+        Assert.Equal(a.ArtifactId, c.ArtifactId);
+        Assert.Equal(a.Name, c.Name);
+        Assert.Equal(a.Description, c.Description);
+        Assert.Equal(a.Extensions, c.Extensions);
+    }
+
+    [Fact]
+    public void DeepCopy_equals_json_clone()
+    {
+        var t = Task();
+        Assert.Equal(A2AJson.Serialize(t), A2AJson.Serialize(t.DeepCopy()));
+        var bare = new AgentTask { Id = "t", Status = new() { State = TaskState.Submitted } };
+        Assert.Equal(A2AJson.Serialize(bare), A2AJson.Serialize(bare.DeepCopy()));
+    }
+
+    [Fact]
+    public void DeepCopy_shares_nothing()
+    {
+        var t = Task();
+        var c = t.DeepCopy();
+        NotSame(t, c);
+        NotSame(t.Status, c.Status);
+        NotSameMessage(t.Status.Message!, c.Status.Message!);
+        NotSameDict(t.Metadata, c.Metadata);
+        NotSameList(t.History, c.History);
+        for (var i = 0; i < t.History!.Count; i++) NotSameMessage(t.History[i], c.History![i]);
+        NotSameList(t.Artifacts, c.Artifacts);
+        for (var i = 0; i < t.Artifacts!.Count; i++)
+        {
+            var o = t.Artifacts[i];
+            var n = c.Artifacts![i];
+            NotSame(o, n);
+            NotSameList(o.Parts, n.Parts);
+            NotSameList(o.Extensions, n.Extensions);
+            NotSameDict(o.Metadata, n.Metadata);
+            for (var j = 0; j < o.Parts.Count; j++) NotSamePart(o.Parts[j], n.Parts[j]);
+        }
+    }
+
+    [Fact]
+    public void DeepCopy_raw_bytes_and_json_are_independent()
+    {
+        var bytes = new byte[] { 1, 2, 3 };
+        var doc = JsonDocument.Parse("{\"k\":1}");
+        var m = Msg("m", bytes);
+        m.Parts[3] = Part.FromData(doc.RootElement);
+        var t = new AgentTask { Id = "t", Status = new() { State = TaskState.Working }, History = [m] };
+        var c = t.DeepCopy();
+        bytes[0] = 99;
+        doc.Dispose();
+        var raw = (RawPart)c.History![0].Parts[1];
+        Assert.Equal(1, raw.Raw.Span[0]);
+        Assert.Equal("{\"k\":1}", ((DataPart)c.History[0].Parts[3]).Data.GetRawText());
+    }
+
+    private static void NotSame(object? a, object? b)
+    {
+        Assert.NotNull(a);
+        Assert.NotNull(b);
+        Assert.NotSame(a, b);
+    }
+
+    private static void NotSameList(IList? a, IList? b)
+    {
+        if (a is null) { Assert.Null(b); return; }
+        NotSame(a, b);
+    }
+
+    private static void NotSameDict(IDictionary? a, IDictionary? b)
+    {
+        if (a is null) { Assert.Null(b); return; }
+        NotSame(a, b);
+    }
+
+    private static void NotSameMessage(Message o, Message n)
+    {
+        NotSame(o, n);
+        NotSameList(o.Parts, n.Parts);
+        NotSameList(o.Extensions, n.Extensions);
+        NotSameList(o.ReferenceTaskIds, n.ReferenceTaskIds);
+        NotSameDict(o.Metadata, n.Metadata);
+        for (var i = 0; i < o.Parts.Count; i++) NotSamePart(o.Parts[i], n.Parts[i]);
+    }
+
+    private static void NotSamePart(Part o, Part n)
+    {
+        NotSame(o, n);
+        Assert.Equal(o.GetType(), n.GetType());
+        NotSameDict(o.Metadata, n.Metadata);
+        if (o is RawPart ro)
+        {
+            Assert.True(System.Runtime.InteropServices.MemoryMarshal.TryGetArray(ro.Raw, out var oa));
+            Assert.True(System.Runtime.InteropServices.MemoryMarshal.TryGetArray(((RawPart)n).Raw, out var na));
+            Assert.NotSame(oa.Array, na.Array);
+        }
+    }
+}
