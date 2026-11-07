@@ -1,0 +1,184 @@
+using A2A.Server.Push;
+using A2A.Server.Storage;
+using Npgsql;
+using static A2A.Server.Postgres.Sql;
+
+namespace A2A.Server.Postgres;
+
+/// <summary>
+/// PostgreSQL <see cref="PushOutbox"/> over <c>a2a_push_outbox</c> and <c>a2a_push_dead_letters</c>. Entries are written
+/// by <see cref="PostgresTaskStore.CommitAsync"/> in the commit's transaction, so give both the same data source and schema.
+/// Leasing locks the rows it takes (<c>FOR UPDATE SKIP LOCKED</c>) and only takes the lowest sequence of a task and config,
+/// so several instances can share one outbox. Times come from the <see cref="TimeProvider"/> (the instances' clocks should agree).
+/// </summary>
+public sealed class PostgresPushOutbox : PushOutbox
+{
+    private const string Columns = "tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt";
+    private const string KeyFilter = "tenant = $1 AND owner = $2 AND task_id = $3 AND config_id = $4 AND seq = $5";
+
+    private readonly NpgsqlDataSource _db;
+    private readonly TimeProvider _time;
+    private readonly string _outbox;
+    private readonly string _dead;
+
+    public PostgresPushOutbox(NpgsqlDataSource dataSource, PostgresStoreOptions? options = null, TimeProvider? time = null)
+    {
+        _db = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
+        _time = time ?? TimeProvider.System;
+        _outbox = OutboxTable(options);
+        _dead = $"{PostgresSchema.Quote((options ?? new()).Schema)}.a2a_push_dead_letters";
+    }
+
+    internal static string OutboxTable(PostgresStoreOptions? options) => $"{PostgresSchema.Quote((options ?? new()).Schema)}.a2a_push_outbox";
+
+    /// <summary>The insert of new deliveries (due now, attempt 0) for <see cref="PostgresTaskStore.CommitAsync"/>'s transaction.</summary>
+    internal static NpgsqlBatchCommand InsertCommand(string outboxTable, PushDelivery d, long seq, long nowTicks)
+    {
+        var cmd = new NpgsqlBatchCommand(
+            $"""
+            INSERT INTO {outboxTable} (tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt, due_ticks, lease_ticks, last_error)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, NULL, NULL)
+            ON CONFLICT (tenant, owner, task_id, config_id, seq) DO UPDATE SET
+                delivery_id = EXCLUDED.delivery_id, trace_parent = EXCLUDED.trace_parent, attempt = 0,
+                due_ticks = EXCLUDED.due_ticks, lease_ticks = NULL, last_error = NULL
+            """);
+        AddKey(cmd.Parameters, d.Task);
+        cmd.Parameters.Add(Text(d.ConfigId));
+        cmd.Parameters.Add(Long(seq));
+        cmd.Parameters.Add(Text(d.DeliveryId));
+        cmd.Parameters.Add(NullableText(d.TraceParent));
+        cmd.Parameters.Add(Long(nowTicks));
+        return cmd;
+    }
+
+    public override async ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken ct = default)
+    {
+        if (max <= 0) return [];
+        var now = _time.GetUtcNow().UtcTicks;
+        // The lease and due conditions are on o itself, so a row another leaser just took is re-checked after its lock (or
+        // skipped while locked). NOT EXISTS keeps every entry queued behind a lower sequence of its task and config.
+        await using var cmd = _db.CreateCommand(
+            $"""
+            WITH picked AS (
+                SELECT o.tenant, o.owner, o.task_id, o.config_id, o.seq FROM {_outbox} o
+                WHERE o.due_ticks <= $1 AND (o.lease_ticks IS NULL OR o.lease_ticks <= $1)
+                  AND NOT EXISTS (SELECT 1 FROM {_outbox} p
+                                  WHERE p.tenant = o.tenant AND p.owner = o.owner AND p.task_id = o.task_id
+                                    AND p.config_id = o.config_id AND p.seq < o.seq)
+                ORDER BY o.due_ticks, o.seq
+                LIMIT $3
+                FOR UPDATE OF o SKIP LOCKED
+            )
+            UPDATE {_outbox} o SET lease_ticks = $2 FROM picked p
+            WHERE o.tenant = p.tenant AND o.owner = p.owner AND o.task_id = p.task_id AND o.config_id = p.config_id AND o.seq = p.seq
+            RETURNING o.tenant, o.owner, o.task_id, o.config_id, o.seq, o.delivery_id, o.trace_parent, o.attempt, o.due_ticks, o.last_error
+            """);
+        cmd.Parameters.Add(Long(now));
+        cmd.Parameters.Add(Long(AddClamped(now, lease)));
+        cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = max });
+        var list = new List<OutboxEntry>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false)) list.Add(ReadEntry(reader));
+        return list.OrderBy(e => e.DueAt).ThenBy(e => e.Delivery.Sequence).ToList();
+    }
+
+    public override async ValueTask CompleteAsync(PushDelivery d, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(d);
+        await using var cmd = _db.CreateCommand($"DELETE FROM {_outbox} WHERE {KeyFilter}");
+        AddEntryKey(cmd.Parameters, d);
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    public override async ValueTask RescheduleAsync(PushDelivery d, int attempt, DateTimeOffset dueAt, string error, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(d);
+        await using var cmd = _db.CreateCommand(
+            $"UPDATE {_outbox} SET attempt = $6, due_ticks = $7, last_error = $8, lease_ticks = NULL WHERE {KeyFilter}");
+        AddEntryKey(cmd.Parameters, d);
+        cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = attempt });
+        cmd.Parameters.Add(Long(dueAt.UtcTicks));
+        cmd.Parameters.Add(Text(error));
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    public override async ValueTask DeadLetterAsync(PushDelivery d, string error, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(d);
+        await using var cmd = _db.CreateCommand(
+            $"""
+            WITH moved AS (DELETE FROM {_outbox} WHERE {KeyFilter} RETURNING {Columns})
+            INSERT INTO {_dead} ({Columns}, dead_ticks, last_error)
+            SELECT tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt + 1, $6, $7 FROM moved
+            ON CONFLICT (tenant, owner, task_id, config_id, seq) DO UPDATE SET
+                delivery_id = EXCLUDED.delivery_id, trace_parent = EXCLUDED.trace_parent, attempt = EXCLUDED.attempt,
+                dead_ticks = EXCLUDED.dead_ticks, last_error = EXCLUDED.last_error
+            """);
+        AddEntryKey(cmd.Parameters, d);
+        cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
+        cmd.Parameters.Add(Text(error));
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    public override async ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(tenant);
+        await using var cmd = _db.CreateCommand(
+            $"""
+            SELECT {Columns}, dead_ticks, last_error FROM {_dead}
+            WHERE tenant = $1 ORDER BY dead_ticks, owner, task_id, config_id, seq LIMIT $2
+            """);
+        cmd.Parameters.Add(Text(tenant));
+        cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = Math.Max(0, max) });
+        var list = new List<OutboxEntry>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false)) list.Add(ReadEntry(reader));
+        return list;
+    }
+
+    public override async ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(d);
+        await using var cmd = _db.CreateCommand(
+            $"""
+            WITH moved AS (DELETE FROM {_dead} WHERE {KeyFilter} RETURNING {Columns})
+            INSERT INTO {_outbox} ({Columns}, due_ticks, lease_ticks, last_error)
+            SELECT tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, 0, $6, NULL, NULL FROM moved
+            ON CONFLICT (tenant, owner, task_id, config_id, seq) DO UPDATE SET
+                attempt = 0, due_ticks = EXCLUDED.due_ticks, lease_ticks = NULL, last_error = NULL
+            """);
+        AddEntryKey(cmd.Parameters, d);
+        cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
+        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
+    }
+
+    public override async ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default)
+    {
+        await using var batch = _db.CreateBatch();
+        foreach (var table in new[] { _outbox, _dead })
+        {
+            var delete = new NpgsqlBatchCommand($"DELETE FROM {table} WHERE tenant = $1 AND owner = $2 AND task_id = $3");
+            AddKey(delete.Parameters, task);
+            batch.BatchCommands.Add(delete);
+        }
+        await batch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The entry key as $1..$5: tenant, owner, task id, config id, sequence.</summary>
+    private static void AddEntryKey(NpgsqlParameterCollection parameters, PushDelivery d)
+    {
+        AddKey(parameters, d.Task);
+        parameters.Add(Text(d.ConfigId));
+        parameters.Add(Long(d.Sequence));
+    }
+
+    /// <summary>Reads <see cref="Columns"/>, then the due (or dead-letter) ticks and the last error.</summary>
+    private static OutboxEntry ReadEntry(NpgsqlDataReader r)
+    {
+        var delivery = new PushDelivery(new TaskKey(r.GetString(0), r.GetString(1), r.GetString(2)), r.GetString(3), r.GetInt64(4), r.GetString(5))
+        {
+            TraceParent = r.IsDBNull(6) ? null : r.GetString(6),
+        };
+        return new OutboxEntry(delivery, r.GetInt32(7), new DateTimeOffset(r.GetInt64(8), TimeSpan.Zero), r.IsDBNull(9) ? null : r.GetString(9));
+    }
+}

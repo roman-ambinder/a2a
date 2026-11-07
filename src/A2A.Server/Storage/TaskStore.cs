@@ -41,17 +41,35 @@ public abstract class TaskStore
     /// Writes <see cref="TaskCommit.Record"/>, appends <see cref="TaskCommit.Event"/> to the task's event log with the next
     /// sequence, and stores <see cref="TaskCommit.Deliveries"/>, as one atomic unit: all of it or nothing. Commits to one
     /// task are serialized, so the log order equals the version order, also across instances that share the store.
-    /// The event log is the <see cref="EventStore"/> that belongs to this store (same backend, same data).
+    /// The event log is the <see cref="EventStore"/> and the deliveries go to the <see cref="Push.PushOutbox"/> that belong
+    /// to this store (same backend, same data).
     /// </summary>
     /// <remarks>
     /// A create (<see cref="TaskCommit.ExpectedVersion"/> 0) inserts the task with version 1. Otherwise the stored version
     /// must equal <see cref="TaskCommit.ExpectedVersion"/>; the stored record gets version expected + 1 and keeps its creation time.
+    /// Each delivery is stored with the event's sequence (<see cref="PushDelivery.Sequence"/>), attempt 0, due at once.
     /// </remarks>
     /// <returns>The stored record and the event's sequence.</returns>
     /// <exception cref="ConcurrencyException">The stored version differs, or the task does not exist for this owner. Nothing was written.</exception>
     /// <exception cref="DuplicateTaskException">A create, and a task with this tenant and id exists. Nothing was written.</exception>
-    /// <exception cref="ArgumentException">A create whose record does not have version 0.</exception>
+    /// <exception cref="ArgumentException">A create whose record does not have version 0, or a delivery of another task (<see cref="ValidateDeliveries"/>).</exception>
     public abstract ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default);
+
+    /// <summary>
+    /// Throws <see cref="ArgumentException"/> unless every delivery of <paramref name="commit"/> is for the committed task
+    /// (same tenant, owner and id). Call it in <see cref="CommitAsync"/> before writing anything.
+    /// </summary>
+    protected static void ValidateDeliveries(TaskCommit commit)
+    {
+        ArgumentNullException.ThrowIfNull(commit);
+        var key = commit.Record.Key;
+        foreach (var d in commit.Deliveries)
+        {
+            if (d.Task != key) throw new ArgumentException("Every push delivery must be for the committed task.", nameof(commit));
+            ArgumentException.ThrowIfNullOrEmpty(d.ConfigId, nameof(commit));
+            ArgumentException.ThrowIfNullOrEmpty(d.DeliveryId, nameof(commit));
+        }
+    }
 
     /// <summary>
     /// Returns tasks matching the query, sorted by status timestamp descending (spec §3.1.4). Must filter by owner and tenant before counting or paging.

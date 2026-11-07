@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>A2A.Server.Postgres</RootNamespace>
-    <Description>PostgreSQL stores for the A2A (Agent2Agent) server: tasks, event log, push configs and idempotency keys. Npgsql, no EF.</Description>
+    <Description>PostgreSQL stores for the A2A (Agent2Agent) server: tasks, event log, push configs, push outbox and idempotency keys. Npgsql, no EF.</Description>
     <PackageTags>$(PackageTags);postgres;postgresql;npgsql</PackageTags>
   </PropertyGroup>
   <ItemGroup>

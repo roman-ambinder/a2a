@@ -110,6 +110,40 @@ public static class PostgresSchema
             PRIMARY KEY (tenant, owner, task_id, config_id)
         );
 
+        -- Push deliveries waiting to be sent (PostgresPushOutbox), written with their event by the task commit. Only the lowest
+        -- seq of a (task, config) is leased; lease_ticks hides a leased row from other instances until then.
+        CREATE TABLE IF NOT EXISTS {s}.a2a_push_outbox (
+            tenant       text COLLATE "C" NOT NULL,
+            owner        text COLLATE "C" NOT NULL,
+            task_id      text COLLATE "C" NOT NULL,
+            config_id    text COLLATE "C" NOT NULL,
+            seq          bigint NOT NULL,
+            delivery_id  text   NOT NULL,
+            trace_parent text   NULL,
+            attempt      int    NOT NULL,
+            due_ticks    bigint NOT NULL,
+            lease_ticks  bigint NULL,
+            last_error   text   NULL,
+            PRIMARY KEY (tenant, owner, task_id, config_id, seq)
+        );
+        CREATE INDEX IF NOT EXISTS a2a_push_outbox_due_ix ON {s}.a2a_push_outbox (due_ticks);
+
+        -- Push deliveries that failed for good, until re-driven (A2APushAdmin) or deleted with their task.
+        CREATE TABLE IF NOT EXISTS {s}.a2a_push_dead_letters (
+            tenant       text COLLATE "C" NOT NULL,
+            owner        text COLLATE "C" NOT NULL,
+            task_id      text COLLATE "C" NOT NULL,
+            config_id    text COLLATE "C" NOT NULL,
+            seq          bigint NOT NULL,
+            delivery_id  text   NOT NULL,
+            trace_parent text   NULL,
+            attempt      int    NOT NULL,
+            dead_ticks   bigint NOT NULL,
+            last_error   text   NOT NULL,
+            PRIMARY KEY (tenant, owner, task_id, config_id, seq)
+        );
+        CREATE INDEX IF NOT EXISTS a2a_push_dead_letters_list_ix ON {s}.a2a_push_dead_letters (tenant, dead_ticks);
+
         -- Idempotency keys. outcome is NULL while the request runs; claim_id identifies the running claim.
         CREATE TABLE IF NOT EXISTS {s}.a2a_idempotency (
             tenant        text COLLATE "C" NOT NULL,

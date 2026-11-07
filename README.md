@@ -16,12 +16,12 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 |---|---|
 | `A2A.Protocol` | Data model (from `a2a.proto`), ProtoJSON serialization, errors, JCS (RFC 8785), JWS card signing/verification |
 | `A2A.Client` | `A2AClient`, JSON-RPC + REST transports, SSE reader, card resolver with caching and signature policy, DI |
-| `A2A.Server` | Transport-agnostic server core: executor model, task lifecycle, stores, event bus, push sender |
+| `A2A.Server` | Transport-agnostic server core: executor model, task lifecycle, stores, event bus, durable push delivery |
 | `A2A.Server.AspNetCore` | Endpoints: JSON-RPC, REST, SSE, `/.well-known/agent-card.json`, JWKS |
 | `A2A.Grpc` | Generated types/stubs for `lf.a2a.v1.A2AService` (from `docs/a2a.proto`) and model mapping |
 | `A2A.Server.Grpc` | `MapA2AGrpc()`: the gRPC binding on ASP.NET Core |
 | `A2A.Client.Grpc` | `GrpcTransport` and `A2AGrpcClientFactory` |
-| `A2A.Server.Postgres` | PostgreSQL stores (tasks, events, push configs, idempotency) via Npgsql |
+| `A2A.Server.Postgres` | PostgreSQL stores (tasks, events, push configs, push outbox, idempotency) via Npgsql |
 | `A2A.Server.Redis` | Redis pub/sub `TaskEventBus` for running several server instances |
 
 ## Server in 20 lines
@@ -125,7 +125,7 @@ builder.Services.AddOpenTelemetry().WithTracing(t => t
 |---|---|---|---|
 | `A2A.Server` | `a2a.{Operation}` (`a2a.SendMessage`, `a2a.GetTask`, ...) | Server, or Internal under ASP.NET Core's request span | every `A2ARequestHandler` operation, all bindings |
 | `A2A.Server` | `a2a.agent.execute` | Internal | one agent run (execute or cancel); child of the operation span |
-| `A2A.Server` | `a2a.push.deliver` | Client | one event to one webhook, retries included; child of the agent run |
+| `A2A.Server` | `a2a.push.deliver` | Client | one attempt to send one event to one webhook; child of the agent run (also after a retry or on another instance) |
 | `A2A.Client` | `a2a.{Operation}` | Client | every `A2AClient` operation, retries and stream reconnects included |
 
 - **Propagation**: the client transports send the current span as W3C `traceparent`/`tracestate` on JSON-RPC, HTTP+JSON and gRPC (metadata). The server reads them on all three bindings (`ServerCallContext.TraceParent`), so client and server spans share one trace. Webhook POSTs carry the `traceparent` of their delivery span. A `traceparent` in `A2ARequestOptions.Headers` replaces the SDK's.
@@ -162,7 +162,7 @@ These are places where the spec is loose or self-contradictory. Here is what thi
 - **Extensions**: required extensions are enforced. The server **echoes the activated extensions** in the `A2A-Extensions` response header, so clients can tell what was honored.
 - **REST subscribe**: the spec text says `POST /tasks/{id}:subscribe` but the normative proto says `GET`. The server accepts both. The client defaults to POST (`RestSubscribeMethod` to change).
 - **Stream closing**: a send stream ends on a terminal state (also one set by another execution, such as CancelTask) or when the executor returns and no other execution of the task is running. `AUTH_REQUIRED` keeps the stream open while the executor waits for out-of-band credentials (§7.6.1). `SubscribeToTask` ends on a terminal state.
-- **Push delivery**: events for one task are delivered in order, at least once, with exponential backoff (408/429/5xx retried). Each POST carries `A2A-Version`, `X-A2A-Notification-Token` and `X-A2A-Notification-Sequence` (an SDK extension: a per-task counter for deduplication and ordering; the spec defines neither).
+- **Push delivery**: each event's deliveries (one per push config) are written to a durable outbox in the same atomic commit as the event, and a hosted `PushDeliveryService` sends them: at least once, in order per task and push config (a delivery waits until the one before it succeeded or was dead-lettered), with exponential backoff and ±20 % jitter (`A2AServerOptions.PushDelivery`: 1 s initial, 5 min max, 10 attempts; 408/429/5xx, timeouts and connection errors are retried). The SSRF guard runs again before every attempt. A refused URL, another 4xx, an event no longer in the event log, or the last failed attempt moves the delivery to the dead letters, which `A2APushAdmin` lists and re-drives. Counters `a2a.push.deliveries` (tag `outcome`: `sent`, `retried`, `dead_lettered`) and `a2a.push.dead_letters` are on the `A2A` meter. Each POST carries `A2A-Version`, `X-A2A-Notification-Token`, an `X-A2A-Delivery-Id` that stays the same across retries, and `X-A2A-Notification-Sequence` (an SDK extension: a per-task counter for deduplication and ordering; the spec defines neither). The event is read from the event log when it is sent, so keep `Streaming.TerminalRetention` and `ReplayBufferSize` large enough to cover a receiver's outage.
 - **Auth errors**: the HTTP layer answers 401/403 with `WWW-Authenticate`. Over JSON-RPC the body uses code `-32603` with an `ErrorInfo` reason of `UNAUTHENTICATED` / `PERMISSION_DENIED`, since the spec assigns no JSON-RPC number.
 - **Artifacts**: `append: true` concatenates parts onto the stored artifact; otherwise the artifact is replaced.
 
@@ -179,13 +179,13 @@ builder.Services.AddDataProtection();              // persist and share the key 
 builder.Services.AddA2ADataProtectionPushSecrets();
 ```
 
-- `A2A.Server.Postgres` stores tasks, event logs, push configs and idempotency keys, and creates its tables at startup ([README](src/A2A.Server.Postgres/README.md)).
+- `A2A.Server.Postgres` stores tasks, event logs, push configs, the push outbox and idempotency keys, and creates its tables at startup ([README](src/A2A.Server.Postgres/README.md)).
 - `A2A.Server.Redis` fans live events out to every instance ([README](src/A2A.Server.Redis/README.md)).
 - Push secrets need a protector with persisted, shared keys; the default one is per process.
 - The handler's per-task lock is per process. Across instances, each task change and its event are written in one transaction (`TaskStore.CommitAsync`) with a version check, so the event log follows the order of task versions.
 - Both packages pass the same contract tests as the in-memory versions (`tests/A2A.Stores.Tests`, Docker via Testcontainers).
 
-For another database, implement `TaskStore`, `EventStore`, `PushConfigStore` and `IdempotencyStore`, and run the contract tests against it. `TaskStore.CommitAsync` must write the task and append the event to the log your `EventStore` reads as one atomic unit.
+For another database, implement `TaskStore`, `EventStore`, `PushOutbox`, `PushConfigStore` and `IdempotencyStore`, and run the contract tests against it. `TaskStore.CommitAsync` must write the task, append the event to the log your `EventStore` reads, and add the push deliveries to the outbox your `PushOutbox` reads, as one atomic unit.
 
 ## Not included yet
 

@@ -1,5 +1,6 @@
 using A2A.Json;
 using A2A.Server;
+using A2A.Server.Push;
 using A2A.Server.Storage;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -41,10 +42,13 @@ public class TaskStoreTests
 /// </summary>
 public abstract class DelegatingTaskStore : TaskStore
 {
-    protected DelegatingTaskStore() => Inner = new InMemoryTaskStore(Events);
+    protected DelegatingTaskStore() => Inner = new InMemoryTaskStore(Events, Outbox);
 
     /// <summary>The event store the inner store commits to.</summary>
     public InMemoryEventStore Events { get; } = new(new StreamingOptions());
+
+    /// <summary>The push outbox the inner store commits deliveries to.</summary>
+    public InMemoryPushOutbox Outbox { get; } = new();
 
     protected InMemoryTaskStore Inner { get; }
 
@@ -59,7 +63,10 @@ public abstract class DelegatingTaskStore : TaskStore
 
 public static class TestStoreExtensions
 {
-    /// <summary>Uses <paramref name="store"/> as the task store and its <see cref="DelegatingTaskStore.Events"/> as the event store.</summary>
+    /// <summary>
+    /// Uses <paramref name="store"/> as the task store, its <see cref="DelegatingTaskStore.Events"/> as the event store and its
+    /// <see cref="DelegatingTaskStore.Outbox"/> as the push outbox.
+    /// </summary>
     public static IServiceCollection AddTaskStore(this IServiceCollection services, DelegatingTaskStore store) =>
-        services.AddSingleton<TaskStore>(store).AddSingleton<EventStore>(store.Events);
+        services.AddSingleton<TaskStore>(store).AddSingleton<EventStore>(store.Events).AddSingleton<PushOutbox>(store.Outbox);
 }

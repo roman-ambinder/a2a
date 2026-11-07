@@ -1,13 +1,16 @@
 using System.Collections.Concurrent;
 using A2A.Json;
+using A2A.Server.Push;
 
 namespace A2A.Server.Storage;
 
 /// <summary>
 /// Process-local task store. For development and tests; data is lost on restart. <see cref="CommitAsync"/> appends to
-/// the given <see cref="InMemoryEventStore"/>, which must be the server's <see cref="EventStore"/>.
+/// the given <see cref="InMemoryEventStore"/> and queues push deliveries in the given <see cref="InMemoryPushOutbox"/>,
+/// which must be the server's <see cref="EventStore"/> and <see cref="PushOutbox"/>. Without an outbox, a commit with
+/// deliveries throws <see cref="NotSupportedException"/>.
 /// </summary>
-public sealed class InMemoryTaskStore(InMemoryEventStore events) : TaskStore
+public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOutbox? outbox = null) : TaskStore
 {
     private readonly InMemoryEventStore _events = events ?? throw new ArgumentNullException(nameof(events));
     private readonly ConcurrentDictionary<(string Tenant, string TaskId), TaskRecord> _tasks = new();
@@ -33,8 +36,12 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events) : TaskStore
     public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(commit);
-        if (commit.Deliveries.Count > 0) throw new NotSupportedException("This store does not store push deliveries.");
         var record = commit.Record;
+        ValidateDeliveries(commit);
+        if (commit.Deliveries.Count > 0 && outbox is null) throw new NotSupportedException("This store has no push outbox.");
+        Action<long>? enqueue = commit.Deliveries.Count == 0
+            ? null
+            : seq => outbox!.Add(commit.Deliveries.Select(d => d with { Sequence = seq }));
         var task = A2AJson.Clone(record.Task); // before the commit: nothing that can fail runs after the task write
         TaskRecord? stored = null;
         long seq;
@@ -46,11 +53,11 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events) : TaskStore
             {
                 if (!_tasks.TryAdd((created.Tenant, created.Task.Id), created)) throw new DuplicateTaskException(record.Key);
                 stored = created;
-            });
+            }, enqueue);
         }
         else
         {
-            seq = _events.AppendAfter(record.Key, commit.Event, () => stored = Replace(record, task, commit.ExpectedVersion));
+            seq = _events.AppendAfter(record.Key, commit.Event, () => stored = Replace(record, task, commit.ExpectedVersion), enqueue);
         }
         return ValueTask.FromResult(new CommitResult(Copy(stored!), seq));
     }

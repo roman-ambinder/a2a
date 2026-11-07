@@ -24,4 +24,11 @@ public sealed record CommitResult(TaskRecord Record, long Sequence);
 /// <param name="ConfigId">The push config to deliver to.</param>
 /// <param name="Sequence">The event's sequence. Set by the store when the commit allocates it.</param>
 /// <param name="DeliveryId">Unique id of this delivery, sent to the receiver so it can drop duplicates.</param>
-public sealed record PushDelivery(TaskKey Task, string ConfigId, long Sequence, string DeliveryId);
+public sealed record PushDelivery(TaskKey Task, string ConfigId, long Sequence, string DeliveryId)
+{
+    /// <summary>
+    /// W3C <c>traceparent</c> of the agent run that produced the event, or null. Stored with the delivery so its
+    /// <c>a2a.push.deliver</c> span joins that trace, whichever instance sends it and however late.
+    /// </summary>
+    public string? TraceParent { get; init; }
+}

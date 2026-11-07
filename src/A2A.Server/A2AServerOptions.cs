@@ -38,6 +38,9 @@ public sealed class A2AServerOptions
 
     public PushNotificationOptions PushNotifications { get; } = new();
 
+    /// <summary>Retry, lease and polling settings of the push outbox (<see cref="PushDeliveryService"/>).</summary>
+    public PushDeliveryOptions PushDelivery { get; } = new();
+
     /// <summary>How long CancelTask waits for a running execution to stop. Default 5 seconds.</summary>
     public TimeSpan CancelGracePeriod { get; set; } = TimeSpan.FromSeconds(5);
 

@@ -146,7 +146,7 @@ public sealed class TestAgentHost : IAsyncDisposable
     public WebApplication App { get; }
     public RecordingHandler Webhooks { get; }
     public A2ARequestHandler Handler => App.Services.GetRequiredService<A2ARequestHandler>();
-    public HttpPushNotificationSender PushSender => App.Services.GetRequiredService<HttpPushNotificationSender>();
+    public InMemoryPushOutbox PushOutbox => (InMemoryPushOutbox)App.Services.GetRequiredService<PushOutbox>();
 
     public static AgentCard DefaultCard() => new()
     {
@@ -184,7 +184,8 @@ public sealed class TestAgentHost : IAsyncDisposable
             o.AgentCard = DefaultCard();
             o.PushNotifications.AllowInsecureUrls = true;
             o.PushNotifications.AllowPrivateNetworks = true;
-            o.PushNotifications.InitialBackoff = TimeSpan.FromMilliseconds(10);
+            o.PushDelivery.InitialBackoff = TimeSpan.FromMilliseconds(10);
+            o.PushDelivery.PollInterval = TimeSpan.FromMilliseconds(20);
             o.CancelGracePeriod = TimeSpan.FromSeconds(2);
             o.ExtendedAgentCardProvider = (call, _) =>
             {
@@ -198,7 +199,7 @@ public sealed class TestAgentHost : IAsyncDisposable
         if (grpc) builder.Services.AddA2AGrpc();
         services?.Invoke(builder.Services);
         var webhooks = new RecordingHandler();
-        builder.Services.AddHttpClient(HttpPushNotificationSender.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => webhooks);
+        builder.Services.AddHttpClient(PushDeliveryService.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => webhooks);
         if (configureHttp is not null) builder.Services.ConfigureA2AHttp(configureHttp);
 
         var app = builder.Build();
@@ -257,10 +258,22 @@ public sealed class TestAgentHost : IAsyncDisposable
         }
     }
 
+    /// <summary>Waits until no agent runs and every committed push delivery was sent or dead-lettered.</summary>
     public async Task WaitIdleAsync()
     {
         await Handler.WhenIdleAsync();
-        await PushSender.WhenIdleAsync();
+        await WaitForPushIdleAsync();
+    }
+
+    /// <summary>Waits until the push outbox is empty: every delivery was sent, dropped or dead-lettered.</summary>
+    public async Task WaitForPushIdleAsync()
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (PushOutbox.Count > 0)
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException($"{PushOutbox.Count} push deliveries are still pending.");
+            await Task.Delay(5);
+        }
     }
 
     public async ValueTask DisposeAsync()

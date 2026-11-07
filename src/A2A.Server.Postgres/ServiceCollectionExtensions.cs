@@ -1,4 +1,5 @@
 using A2A.Server.Idempotency;
+using A2A.Server.Push;
 using A2A.Server.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -11,7 +12,7 @@ namespace A2A.Server.Postgres;
 public static class A2APostgresServiceCollectionExtensions
 {
     /// <summary>
-    /// Uses PostgreSQL for the task, event, push config and idempotency stores. Works before or after <c>AddA2AServer</c>
+    /// Uses PostgreSQL for the task, event, push config, push outbox and idempotency stores. Works before or after <c>AddA2AServer</c>
     /// (it replaces the in-memory defaults). Builds an <see cref="NpgsqlDataSource"/> from <paramref name="connectionString"/>
     /// and disposes it with the container.
     /// </summary>
@@ -62,6 +63,7 @@ public static class A2APostgresServiceCollectionExtensions
         services.Replace(ServiceDescriptor.Singleton<EventStore>(sp => new PostgresEventStore(
             db(sp), sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, options, sp.GetService<TimeProvider>())));
         services.Replace(ServiceDescriptor.Singleton<PushConfigStore>(sp => new PostgresPushConfigStore(db(sp), options)));
+        services.Replace(ServiceDescriptor.Singleton<PushOutbox>(sp => new PostgresPushOutbox(db(sp), options, sp.GetService<TimeProvider>())));
         services.Replace(ServiceDescriptor.Singleton<IdempotencyStore>(sp => new PostgresIdempotencyStore(
             db(sp), sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Idempotency, options, sp.GetService<TimeProvider>())));
         services.Replace(ServiceDescriptor.Singleton(sp => new PostgresMaintenance(db(sp), options, sp.GetService<TimeProvider>())));

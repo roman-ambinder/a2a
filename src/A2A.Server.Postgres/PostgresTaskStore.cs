@@ -9,8 +9,9 @@ namespace A2A.Server.Postgres;
 /// <summary>
 /// PostgreSQL <see cref="TaskStore"/>. Same behavior as <see cref="InMemoryTaskStore"/>: owner- and tenant-scoped reads,
 /// optimistic concurrency on <see cref="TaskRecord.Version"/>, ListTasks newest first with keyset paging.
-/// <see cref="CommitAsync"/> writes the task row and the event log (the tables <see cref="PostgresEventStore"/> reads) in
-/// one transaction, so give both stores the same data source, <see cref="StreamingOptions"/> and schema.
+/// <see cref="CommitAsync"/> writes the task row, the event log (the tables <see cref="PostgresEventStore"/> reads) and the
+/// push deliveries (the outbox <see cref="PostgresPushOutbox"/> reads) in one transaction, so give these stores the same
+/// data source, <see cref="StreamingOptions"/> and schema.
 /// </summary>
 public sealed class PostgresTaskStore : TaskStore
 {
@@ -20,6 +21,7 @@ public sealed class PostgresTaskStore : TaskStore
     private readonly string _tasks;
     private readonly string _contexts;
     private readonly EventTables _eventTables;
+    private readonly string _outbox;
     private readonly string _insertSql;
     private readonly string _updateSql;
 
@@ -32,6 +34,7 @@ public sealed class PostgresTaskStore : TaskStore
         _tasks = $"{s}.a2a_tasks";
         _contexts = $"{s}.a2a_contexts";
         _eventTables = EventTables.For(options);
+        _outbox = PostgresPushOutbox.OutboxTable(options);
         _insertSql =
             $"""
             INSERT INTO {_tasks} (tenant, task_id, owner, context_id, state, status_ticks, version, created_ticks, updated_ticks, task)
@@ -79,12 +82,14 @@ public sealed class PostgresTaskStore : TaskStore
 
     /// <summary>
     /// One transaction: the task insert or compare-and-set update (whose row lock serializes commits to the task, so log
-    /// order = version order across instances), then the event append with its sequence. Any failure rolls back all of it.
+    /// order = version order across instances), then the event append with its sequence, then the push deliveries with
+    /// that sequence. Any failure rolls back all of it. The final COMMIT is not cancelled: once it is sent, a cancelled
+    /// token must not leave the caller unsure whether the event and its deliveries were stored.
     /// </summary>
     public override async ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(commit);
-        if (commit.Deliveries.Count > 0) throw new NotSupportedException("This store does not store push deliveries.");
+        ValidateDeliveries(commit);
         var key = commit.Record.Key;
         var (json, stored) = commit.IsCreate ? ForCreate(commit.Record) : ForUpdate(commit.Record, commit.ExpectedVersion);
         var eventJson = A2AJson.Serialize(commit.Event);
@@ -106,9 +111,15 @@ public sealed class PostgresTaskStore : TaskStore
             stored = stored with { CreatedAt = new DateTimeOffset(createdTicks, TimeSpan.Zero) };
         }
 
-        var seq = await AppendEventAsync(conn, tx, _eventTables, key, eventJson, Math.Max(1, _streaming.ReplayBufferSize),
-            _time.GetUtcNow().UtcTicks, ct).ConfigureAwait(false);
-        await tx.CommitAsync(ct).ConfigureAwait(false);
+        var now = _time.GetUtcNow().UtcTicks;
+        var seq = await AppendEventAsync(conn, tx, _eventTables, key, eventJson, Math.Max(1, _streaming.ReplayBufferSize), now, ct).ConfigureAwait(false);
+        if (commit.Deliveries.Count > 0)
+        {
+            await using var batch = new NpgsqlBatch(conn, tx);
+            foreach (var d in commit.Deliveries) batch.BatchCommands.Add(PostgresPushOutbox.InsertCommand(_outbox, d, seq, now));
+            await batch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+        await tx.CommitAsync(CancellationToken.None).ConfigureAwait(false);
         return new CommitResult(stored, seq);
     }
 

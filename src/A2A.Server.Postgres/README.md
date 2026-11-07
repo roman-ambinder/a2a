@@ -1,6 +1,6 @@
 # RomanAmbinder.A2A.Server.Postgres
 
-PostgreSQL stores for an A2A (Agent2Agent) server: tasks, the per-task event log, push configs and idempotency keys. Plain Npgsql, no EF.
+PostgreSQL stores for an A2A (Agent2Agent) server: tasks, the per-task event log, push configs, the push outbox and idempotency keys. Plain Npgsql, no EF.
 With these stores (and a shared event bus such as `RomanAmbinder.A2A.Server.Redis`) the server can run as more than one instance.
 
 ```csharp
@@ -27,6 +27,8 @@ To manage the schema yourself, set `CreateSchemaOnStartup = false` and apply `Po
 | `a2a_event_logs` | `(tenant, owner, task_id)` | Last sequence, and when a terminal task's log expires (`purge_ticks`). |
 | `a2a_events` | `(tenant, owner, task_id, seq)` | The retained events (last `Streaming.ReplayBufferSize`). |
 | `a2a_push_configs` | `(tenant, owner, task_id, config_id)` | Push config JSON with protected secrets. |
+| `a2a_push_outbox` | `(tenant, owner, task_id, config_id, seq)` | Push deliveries waiting to be sent: delivery id, attempt, due time, lease, last error. Index on `due_ticks`. |
+| `a2a_push_dead_letters` | `(tenant, owner, task_id, config_id, seq)` | Push deliveries that failed for good, until re-driven. Index `(tenant, dead_ticks)`. |
 | `a2a_idempotency` | `(tenant, principal, key)` | Request hash, running claim, outcome and expiry. |
 
 Times are UTC ticks (`bigint`), JSON is `text`, and keys use the `"C"` collation, so values round-trip exactly and sort like the in-memory stores.
@@ -35,12 +37,13 @@ Times are UTC ticks (`bigint`), JSON is `text`, and keys use the `"C"` collation
 
 Same contract as the in-memory stores (the same test suite runs against both): owner and tenant scoping, optimistic concurrency on versions,
 ListTasks newest first with keyset paging, per-task event sequences from 1, trimming to the replay buffer, terminal retention, and idempotency retention.
-A task change and its event are written in one transaction (`TaskStore.CommitAsync`), so the event log follows the order of task versions, also across instances.
+A task change, its event and its push deliveries are written in one transaction (`TaskStore.CommitAsync`), so the event log follows the order of task versions, also across instances, and no event loses its webhooks.
 
 Differences, because the store is shared by several instances:
 - A request that waits on an idempotency key held by another instance polls every `IdempotencyPollInterval` (200 ms).
 - A running idempotency claim older than `IdempotencyClaimTimeout` (1 hour) counts as abandoned, so a crashed instance does not hold its keys forever.
 - There is no `Idempotency.MaxEntries` cap; rows live until their retention ends.
+- Every instance's `PushDeliveryService` polls the shared outbox (`PushDelivery.PollInterval`, 1 s). A delivery is leased (`FOR UPDATE SKIP LOCKED`, then hidden for `PushDelivery.Lease`, 1 minute), so two instances never send it at the same time, and a crashed instance's deliveries are sent by another one after the lease.
 - Expired rows are hidden from reads at once and deleted by a background cleanup every `CleanupInterval` (5 minutes). `PostgresMaintenance.PurgeExpiredAsync()` runs it by hand.
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 8 and .NET 10.

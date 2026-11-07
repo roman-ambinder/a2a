@@ -11,6 +11,9 @@ internal static class Sql
 
     public static NpgsqlParameter<long> Long(long value) => new() { TypedValue = value };
 
+    public static NpgsqlParameter NullableText(string? value) =>
+        new() { Value = value is null ? DBNull.Value : value, NpgsqlDbType = NpgsqlDbType.Text };
+
     public static NpgsqlParameter NullableLong(long? value) =>
         new() { Value = value is { } v ? v : DBNull.Value, NpgsqlDbType = NpgsqlDbType.Bigint };
 

@@ -29,7 +29,7 @@ public sealed class A2ARequestHandler : IDisposable
     private readonly PushConfigStore _pushConfigs;
     private readonly A2AAuthorizationHandler _authorization;
     private readonly IPushSecretProtector _protector;
-    private readonly IPushNotificationSender _push;
+    private readonly PushOutbox _outbox;
     private readonly TaskEventBus _bus;
     private readonly A2AServerOptions _options;
     private readonly ILogger _logger;
@@ -51,7 +51,7 @@ public sealed class A2ARequestHandler : IDisposable
         PushConfigStore pushConfigs,
         A2AAuthorizationHandler authorization,
         IPushSecretProtector protector,
-        IPushNotificationSender push,
+        PushOutbox outbox,
         TaskEventBus bus,
         IOptions<A2AServerOptions> options,
         ILogger<A2ARequestHandler>? logger = null,
@@ -64,7 +64,7 @@ public sealed class A2ARequestHandler : IDisposable
         _pushConfigs = pushConfigs;
         _authorization = authorization;
         _protector = protector;
-        _push = push;
+        _outbox = outbox;
         _bus = bus;
         _options = options.Value;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
@@ -1307,11 +1307,23 @@ public sealed class A2ARequestHandler : IDisposable
                                 History = userMessage is null ? null : [WithTask(userMessage, taskId)],
                             },
                             Version: 0, CreatedAt: now, UpdatedAt: now);
-                        // The task and its first event (the snapshot) are stored together.
+                        // The task, its first event (the snapshot) and the snapshot's push delivery are stored together. The
+                        // push config is saved first, so the delivery service always finds the config of a queued delivery.
                         var snapshot = StreamResponse.Of(A2AJson.Clone(initial.Task));
-                        var committed = await _tasks.CommitAsync(new TaskCommit(initial, 0, snapshot, [])).ConfigureAwait(false);
-                        record = committed.Record;
+                        IReadOnlyList<PushDelivery> deliveries = push is null ? [] : [NewDelivery(key, push.Id!)];
                         if (push is not null) await SavePushConfigAsync(key, push, CancellationToken.None).ConfigureAwait(false);
+                        CommitResult committed;
+                        try
+                        {
+                            committed = await _tasks.CommitAsync(new TaskCommit(initial, 0, snapshot, deliveries)).ConfigureAwait(false);
+                        }
+                        catch when (push is not null)
+                        {
+                            await TryDeletePushConfigAsync(key, push.Id!).ConfigureAwait(false); // no task, so no config
+                            throw;
+                        }
+                        if (deliveries.Count > 0) _outbox.NotifyPending();
+                        record = committed.Record;
                         created = true;
                         Publish(exec, key, new SequencedEvent(committed.Sequence, snapshot));
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
@@ -1382,7 +1394,6 @@ public sealed class A2ARequestHandler : IDisposable
                 var failed = FailureEvent(key.TaskId, contextId, StoreFailureText);
                 if (await ApplyAndStoreAsync(key, record, failed).ConfigureAwait(false) is not { } stored) return;
                 _bus.Publish(scope, stored);
-                _push.Enqueue(key, stored);
                 await _events.MarkTerminalAsync(key).ConfigureAwait(false);
                 _bus.Complete(scope);
             }
@@ -1412,6 +1423,7 @@ public sealed class A2ARequestHandler : IDisposable
     /// </summary>
     private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt)
     {
+        var deliveries = await DeliveriesAsync(key).ConfigureAwait(false);
         for (var attempt = 0; ; attempt++)
         {
             if (!Apply(record.Task, evt))
@@ -1421,7 +1433,8 @@ public sealed class A2ARequestHandler : IDisposable
             }
             try
             {
-                var committed = await _tasks.CommitAsync(new TaskCommit(record, record.Version, evt, [])).ConfigureAwait(false);
+                var committed = await _tasks.CommitAsync(new TaskCommit(record, record.Version, evt, deliveries)).ConfigureAwait(false);
+                if (deliveries.Count > 0) _outbox.NotifyPending();
                 return new SequencedEvent(committed.Sequence, evt);
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
@@ -1437,11 +1450,40 @@ public sealed class A2ARequestHandler : IDisposable
         }
     }
 
+    /// <summary>Sends a stored event to the waiting request and to subscribers. Its webhooks were queued by its commit.</summary>
     private void Publish(Execution exec, TaskKey key, SequencedEvent evt)
     {
         exec.Emit(evt);
         _bus.Publish(ScopeKey(key.Tenant, key.TaskId), evt);
-        _push.Enqueue(key, evt);
+    }
+
+    /// <summary>One push delivery per push config of the task, for the event about to be committed.</summary>
+    private async ValueTask<IReadOnlyList<PushDelivery>> DeliveriesAsync(TaskKey key)
+    {
+        if (_options.AgentCard.Capabilities.PushNotifications != true) return []; // no config can exist
+        var configs = await _pushConfigs.ListAsync(key).ConfigureAwait(false);
+        return configs.Count == 0 ? [] : configs.Select(c => NewDelivery(key, c.Config.Id!)).ToList();
+    }
+
+    /// <summary>
+    /// A new delivery (the store sets its sequence) with a fresh delivery id, the same on every attempt, and the trace context
+    /// of the current agent run, so its delivery span joins that trace.
+    /// </summary>
+    private static PushDelivery NewDelivery(TaskKey key, string configId)
+    {
+        string? traceParent = null;
+        A2ATelemetry.InjectTraceContext(Activity.Current, (name, value) =>
+        {
+            if (name == A2ATelemetry.TraceParentHeader) traceParent = value;
+        });
+        return new PushDelivery(key, configId, 0, Guid.NewGuid().ToString("N")) { TraceParent = traceParent };
+    }
+
+    /// <summary>Best effort: removes the push config saved for a task whose creation failed.</summary>
+    private async Task TryDeletePushConfigAsync(TaskKey key, string configId)
+    {
+        try { await _pushConfigs.DeleteAsync(key, configId, CancellationToken.None).ConfigureAwait(false); }
+        catch (Exception ex) { _logger.LogError(ex, "Could not remove push config {ConfigId} of task {TaskId} that was not created", configId, key.TaskId); }
     }
 
     /// <summary>Applies an event to the task. Returns false if the event must be dropped (task already terminal).</summary>
