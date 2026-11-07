@@ -15,10 +15,13 @@
     <Project Path="src/A2A.Protocol/A2A.Protocol.csproj" />
     <Project Path="src/A2A.Server.AspNetCore/A2A.Server.AspNetCore.csproj" />
     <Project Path="src/A2A.Server.Grpc/A2A.Server.Grpc.csproj" />
+    <Project Path="src/A2A.Server.Postgres/A2A.Server.Postgres.csproj" />
+    <Project Path="src/A2A.Server.Redis/A2A.Server.Redis.csproj" />
     <Project Path="src/A2A.Server/A2A.Server.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj" />
+    <Project Path="tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj" />
     <Project Path="tests/A2A.Tests/A2A.Tests.csproj" />
   </Folder>
 </Solution>

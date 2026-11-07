@@ -21,6 +21,8 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | `A2A.Grpc` | Generated types/stubs for `lf.a2a.v1.A2AService` (from `docs/a2a.proto`) and model mapping |
 | `A2A.Server.Grpc` | `MapA2AGrpc()`: the gRPC binding on ASP.NET Core |
 | `A2A.Client.Grpc` | `GrpcTransport` and `A2AGrpcClientFactory` |
+| `A2A.Server.Postgres` | PostgreSQL stores (tasks, events, push configs, idempotency) via Npgsql |
+| `A2A.Server.Redis` | Redis pub/sub `TaskEventBus` for running several server instances |
 
 ## Server in 20 lines
 
@@ -135,10 +137,29 @@ These are places where the spec is loose or self-contradictory. Here is what thi
 - **Auth errors**: the HTTP layer answers 401/403 with `WWW-Authenticate`. Over JSON-RPC the body uses code `-32603` with an `ErrorInfo` reason of `UNAUTHENTICATED` / `PERMISSION_DENIED`, since the spec assigns no JSON-RPC number.
 - **Artifacts**: `append: true` concatenates parts onto the stored artifact; otherwise the artifact is replaced.
 
+## Durable stores and several instances
+
+The default stores are in memory: fine for dev and tests, lost on restart, and one instance only. For production:
+
+```csharp
+builder.Services.AddA2AServer(o => o.AgentCard = card)
+    .AddAgentExecutor<MyAgent>()
+    .AddPostgresStores(postgresConnectionString)   // RomanAmbinder.A2A.Server.Postgres
+    .AddRedisEventBus(redisConfiguration);         // RomanAmbinder.A2A.Server.Redis
+builder.Services.AddDataProtection();              // persist and share the key ring across instances
+builder.Services.AddA2ADataProtectionPushSecrets();
+```
+
+- `A2A.Server.Postgres` stores tasks, event logs, push configs and idempotency keys, and creates its tables at startup ([README](src/A2A.Server.Postgres/README.md)).
+- `A2A.Server.Redis` fans live events out to every instance ([README](src/A2A.Server.Redis/README.md)).
+- Push secrets need a protector with persisted, shared keys; the default one is per process.
+- The handler's per-task lock is per process. Across instances, the stores' version checks keep task writes consistent.
+- Both packages pass the same contract tests as the in-memory versions (`tests/A2A.Stores.Tests`, Docker via Testcontainers).
+
+For another database, implement `TaskStore`, `EventStore`, `PushConfigStore` and `IdempotencyStore`, and run the contract tests against it.
+
 ## Not included yet
 
-- Durable stores (implement `TaskStore` / `PushConfigStore`; the in-memory ones are for dev and tests)
-- A multi-instance event bus (`TaskEventBus` is process-local; subclass it over Redis or similar)
 - A webhook-receiver helper for clients
 
 ## Interop
@@ -150,6 +171,7 @@ Tested both ways against the official Python SDK (`a2a-sdk` 1.3.0) over JSON-RPC
 ```bash
 dotnet build A2A.slnx
 dotnet test tests/A2A.Tests
+dotnet test tests/A2A.Stores.Tests   # store contract tests; the Postgres/Redis ones need Docker and skip without it
 ```
 
 Run the sample:
