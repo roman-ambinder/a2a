@@ -130,7 +130,8 @@ public sealed class TestAgentHost : IAsyncDisposable
         Skills = [new AgentSkill { Id = "scenario", Name = "Scenario", Description = "Runs test scenarios", Tags = ["test"] }],
     };
 
-    public static async Task<TestAgentHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<A2AHttpOptions>? configureHttp = null)
+    public static async Task<TestAgentHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<A2AHttpOptions>? configureHttp = null,
+        Action<IServiceCollection>? services = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -152,6 +153,7 @@ public sealed class TestAgentHost : IAsyncDisposable
             };
             configure?.Invoke(o);
         });
+        services?.Invoke(builder.Services);
         var webhooks = new RecordingHandler();
         builder.Services.AddHttpClient(HttpPushNotificationSender.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => webhooks);
         if (configureHttp is not null) builder.Services.ConfigureA2AHttp(configureHttp);

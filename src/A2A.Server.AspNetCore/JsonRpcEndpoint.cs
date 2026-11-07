@@ -2,15 +2,18 @@ using System.Text.Json;
 using A2A.Json;
 using A2A.JsonRpc;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace A2A.Server.AspNetCore;
 
 /// <summary>JSON-RPC 2.0 binding (spec §9): one POST endpoint, SSE for streaming methods.</summary>
-internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOptions> httpOptions, ILogger<JsonRpcEndpoint> logger)
+internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOptions> httpOptions,
+    IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<JsonRpcEndpoint> logger)
 {
     private readonly A2AHttpOptions _http = httpOptions.Value;
+    private readonly bool _includeDetails = HttpPlumbing.ShouldIncludeDetails(serverOptions.Value, environment);
 
     public async Task HandleAsync(HttpContext http)
     {
@@ -20,7 +23,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
         try { call = HttpPlumbing.CreateCallContext(http); }
         catch (Exception ex)
         {
-            await WriteFailureAsync(http, ServerCallContext.Anonymous(), id, HttpPlumbing.Normalize(ex, logger)).ConfigureAwait(false);
+            await WriteFailureAsync(http, ServerCallContext.Anonymous(), id, HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
             return;
         }
         try
@@ -99,7 +102,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
                 logger.LogWarning(ex, "Error after JSON-RPC response started");
                 return;
             }
-            await WriteFailureAsync(http, call, id, HttpPlumbing.Normalize(ex, logger)).ConfigureAwait(false);
+            await WriteFailureAsync(http, call, id, HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
         }
     }
 
@@ -110,8 +113,10 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
         {
             A2AErrorCode.Unauthenticated => 401,
             A2AErrorCode.PermissionDenied => 403,
+            _ when a2a.HttpStatus is { } explicitStatus => explicitStatus,
             _ => 200, // JSON-RPC errors travel in a 200 response
         };
+        HttpPlumbing.SetRetryAfter(http, a2a);
         HttpPlumbing.WriteExtensionsHeader(http, call);
         await HttpPlumbing.WriteJsonAsync(http, JsonRpcResponse.Failure(id, a2a), A2AProtocol.JsonMediaType, status).ConfigureAwait(false);
     }
@@ -145,7 +150,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
         HttpPlumbing.StartEventStream(http);
         await HttpPlumbing.PumpAsync(http, e,
             evt => A2AJson.SerializeToUtf8Bytes(JsonRpcResponse.Success(id, A2AJson.SerializeToElement(evt))),
-            ex => A2AJson.SerializeToUtf8Bytes(JsonRpcResponse.Failure(id, HttpPlumbing.Normalize(ex, logger))),
+            ex => A2AJson.SerializeToUtf8Bytes(JsonRpcResponse.Failure(id, HttpPlumbing.Normalize(ex, logger, _includeDetails))),
             _http.StreamKeepAliveInterval, logger).ConfigureAwait(false);
     }
 }

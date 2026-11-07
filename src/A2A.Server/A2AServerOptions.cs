@@ -31,6 +31,12 @@ public sealed class A2AServerOptions
     /// <summary>How long CancelTask waits for a running execution to stop. Default 5 seconds.</summary>
     public TimeSpan CancelGracePeriod { get; set; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// Append the exception type and message to the text of unexpected (non-A2A) errors sent to callers.
+    /// Null (default) means true only when the host environment is Development. The ASP.NET Core layer resolves the null.
+    /// </summary>
+    public bool? IncludeExceptionDetails { get; set; }
+
     /// <summary>Upper bound on ListTasks page size. Default 100 (spec).</summary>
     public int MaxPageSize { get; set; } = 100;
 }

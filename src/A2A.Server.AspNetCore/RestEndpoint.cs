@@ -4,15 +4,18 @@ using A2A.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace A2A.Server.AspNetCore;
 
 /// <summary>HTTP+JSON/REST binding (spec §11). Errors use the google.rpc.Status shape (§11.6).</summary>
-internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOptions> httpOptions, ILogger<RestEndpoint> logger)
+internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOptions> httpOptions,
+    IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<RestEndpoint> logger)
 {
     private readonly A2AHttpOptions _http = httpOptions.Value;
+    private readonly bool _includeDetails = HttpPlumbing.ShouldIncludeDetails(serverOptions.Value, environment);
 
     public void Map(IEndpointRouteBuilder group)
     {
@@ -135,7 +138,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
         try { call = HttpPlumbing.CreateCallContext(http); }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
-            await WriteErrorAsync(http, ServerCallContext.Anonymous(), HttpPlumbing.Normalize(ex, logger)).ConfigureAwait(false);
+            await WriteErrorAsync(http, ServerCallContext.Anonymous(), HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
             return;
         }
         try
@@ -150,7 +153,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
         }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
-            await WriteErrorAsync(http, call, HttpPlumbing.Normalize(ex, logger)).ConfigureAwait(false);
+            await WriteErrorAsync(http, call, HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
         }
     }
 
@@ -160,7 +163,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
         try { call = HttpPlumbing.CreateCallContext(http); }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
-            await WriteErrorAsync(http, ServerCallContext.Anonymous(), HttpPlumbing.Normalize(ex, logger)).ConfigureAwait(false);
+            await WriteErrorAsync(http, ServerCallContext.Anonymous(), HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
             return;
         }
         try
@@ -172,7 +175,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
             HttpPlumbing.WriteExtensionsHeader(http, call);
             HttpPlumbing.StartEventStream(http);
             await HttpPlumbing.PumpAsync(http, e, A2AJson.SerializeToUtf8Bytes,
-                ex => A2AJson.SerializeToUtf8Bytes(StatusBody(HttpPlumbing.Normalize(ex, logger))),
+                ex => A2AJson.SerializeToUtf8Bytes(StatusBody(HttpPlumbing.Normalize(ex, logger, _includeDetails))),
                 _http.StreamKeepAliveInterval, logger).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
@@ -180,22 +183,23 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
         }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
-            await WriteErrorAsync(http, call, HttpPlumbing.Normalize(ex, logger)).ConfigureAwait(false);
+            await WriteErrorAsync(http, call, HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
         }
     }
 
     private Task WriteErrorAsync(HttpContext http, ServerCallContext call, A2AException ex)
     {
         HttpPlumbing.SetAuthChallenge(http, ex, handler.AgentCard);
+        HttpPlumbing.SetRetryAfter(http, ex);
         HttpPlumbing.WriteExtensionsHeader(http, call);
-        return HttpPlumbing.WriteJsonAsync(http, StatusBody(ex), A2AProtocol.MediaType, A2AErrors.HttpStatus(ex.Code));
+        return HttpPlumbing.WriteJsonAsync(http, StatusBody(ex), A2AProtocol.MediaType, HttpPlumbing.StatusFor(ex));
     }
 
     internal static object StatusBody(A2AException ex) => new
     {
         error = new
         {
-            code = A2AErrors.HttpStatus(ex.Code),
+            code = HttpPlumbing.StatusFor(ex),
             status = A2AErrors.GrpcStatus(ex.Code),
             message = ex.Message,
             details = A2AErrors.BuildDetails(ex),

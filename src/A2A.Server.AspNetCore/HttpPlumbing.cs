@@ -4,6 +4,7 @@ using A2A.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
 
@@ -54,7 +55,20 @@ internal static class HttpPlumbing
             http.Response.Headers[A2AProtocol.Headers.Extensions] = string.Join(",", call.ActivatedExtensions);
     }
 
-    public static A2AException Normalize(Exception ex, ILogger logger)
+    /// <summary>Resolves <see cref="A2AServerOptions.IncludeExceptionDetails"/>: null means Development only.</summary>
+    public static bool ShouldIncludeDetails(A2AServerOptions options, IHostEnvironment? environment) =>
+        options.IncludeExceptionDetails ?? environment?.IsDevelopment() ?? false;
+
+    /// <summary>The HTTP status for an error: an explicit <see cref="A2AException.HttpStatus"/> wins over the code's default.</summary>
+    public static int StatusFor(A2AException ex) => ex.HttpStatus ?? A2AErrors.HttpStatus(ex.Code);
+
+    public static void SetRetryAfter(HttpContext http, A2AException ex)
+    {
+        if (ex.RetryAfter is not { } after || http.Response.HasStarted) return;
+        http.Response.Headers.RetryAfter = ((long)Math.Ceiling(after.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    public static A2AException Normalize(Exception ex, ILogger logger, bool includeDetails)
     {
         switch (ex)
         {
@@ -66,7 +80,9 @@ internal static class HttpPlumbing
                 return new A2AException(A2AErrorCode.InvalidRequest, bad.Message);
             default:
                 logger.LogError(ex, "Unhandled error in A2A endpoint");
-                return new A2AException(A2AErrorCode.Internal);
+                return includeDetails
+                    ? new A2AException(A2AErrorCode.Internal, $"{A2AErrors.DefaultMessage(A2AErrorCode.Internal)}: {ex.GetType().Name}: {ex.Message}")
+                    : new A2AException(A2AErrorCode.Internal);
         }
     }
 
