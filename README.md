@@ -100,7 +100,8 @@ The gRPC service runs on the same `A2ARequestHandler` and call-context plumbing 
 (the request's `tenant` field), limits, idempotency and errors behave the same; the parity suite runs every method over all three bindings.
 Errors are `google.rpc.Status` with an `ErrorInfo` detail (`retryable`/`retryAfter` metadata, plus `RetryInfo` on rate limits).
 `A2A-Version`, `A2A-Extensions` and `Idempotency-Key` travel as `a2a-version` / `a2a-extensions` / `idempotency-key` metadata.
-A message larger than `Limits.MaxRequestBodyBytes` is refused by the gRPC layer with `RESOURCE_EXHAUSTED`.
+gRPC error responses do not carry the `a2a-extensions` (A2A-Extensions) response header; successful responses do.
+A message larger than `Limits.MaxRequestBodyBytes` is refused by the gRPC layer with `RESOURCE_EXHAUSTED` (the client reports it as `InvalidRequest` / `PAYLOAD_TOO_LARGE`, as over HTTP).
 `GrpcTransport` honours `A2ARequestOptions` (headers as metadata, per-attempt deadline, idempotency key, `MaxRetries` and the same retry rules)
 except `ConfigureRequest`, which throws `NotSupportedException`.
 **Stream resume is not supported over gRPC yet**: there is no event cursor on the wire, so after a lost stream call `SubscribeToTask` again.
