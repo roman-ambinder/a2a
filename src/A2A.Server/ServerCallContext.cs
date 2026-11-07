@@ -40,6 +40,12 @@ public sealed class ServerCallContext
     /// <summary>Value of the A2A-Version header, or null if absent.</summary>
     public string? ProtocolVersion { get; init; }
 
+    /// <summary>
+    /// Value of the <c>Idempotency-Key</c> header, or null if absent. SendMessage uses it to recognize a retry; without it the
+    /// message id is the key. Keys are scoped by <see cref="Tenant"/> and <see cref="Principal"/>.
+    /// </summary>
+    public string? IdempotencyKey { get; init; }
+
     /// <summary>Extension URIs from the A2A-Extensions header.</summary>
     public IReadOnlyList<string> RequestedExtensions { get; init; } = [];
 

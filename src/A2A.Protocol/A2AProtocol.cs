@@ -22,6 +22,9 @@ public static class A2AProtocol
         public const string Version = "A2A-Version";
         public const string Extensions = "A2A-Extensions";
 
+        /// <summary>SDK extension: lets a server recognize a retried SendMessage. Defaults to the message id.</summary>
+        public const string IdempotencyKey = "Idempotency-Key";
+
         /// <summary>Webhook header carrying <see cref="TaskPushNotificationConfig.Token"/>.</summary>
         public const string NotificationToken = "X-A2A-Notification-Token";
 

@@ -1,3 +1,4 @@
+using A2A.Server.Idempotency;
 using A2A.Server.Push;
 
 namespace A2A.Server;
@@ -57,6 +58,13 @@ public sealed class A2AServerOptions
 
     /// <summary>Event log retention and SSE keep-alive settings.</summary>
     public StreamingOptions Streaming { get; } = new();
+
+    /// <summary>
+    /// Idempotent SendMessage (retention and size of the in-memory store). A retried SendMessage with the same
+    /// <c>Idempotency-Key</c> header, or without one the same message id, from the same tenant and principal is answered with
+    /// the first request's task or reply instead of running again.
+    /// </summary>
+    public IdempotencyOptions Idempotency { get; } = new();
 
     /// <summary>
     /// Rate limit callers per tenant and principal (ASP.NET Core layer, policy <c>"a2a"</c>). Default true. When true the host

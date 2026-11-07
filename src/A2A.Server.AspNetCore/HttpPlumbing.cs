@@ -27,6 +27,8 @@ internal static class HttpPlumbing
         var tenantResolver = services.GetRequiredService<ITenantResolver>();
         var principalResolver = services.GetRequiredService<IPrincipalResolver>();
 
+        string? idempotencyKey = http.Request.Headers[A2AProtocol.Headers.IdempotencyKey];
+
         var tenant = tenantResolver.Resolve(http) ?? "";
         var user = http.User;
         var principal = ServerCallContext.AnonymousPrincipal;
@@ -42,6 +44,7 @@ internal static class HttpPlumbing
             Principal = principal,
             ProtocolVersion = string.IsNullOrWhiteSpace(version) ? null : version,
             RequestedExtensions = extensions,
+            IdempotencyKey = string.IsNullOrEmpty(idempotencyKey) ? null : idempotencyKey,
             Tenant = tenant,
             TenantFromRoute = http.GetRouteValue("tenant") is string { Length: > 0 },
         };
