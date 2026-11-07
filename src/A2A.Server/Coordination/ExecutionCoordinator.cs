@@ -35,13 +35,14 @@ public abstract class ExecutionCoordinator
     public abstract ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default);
 
     /// <summary>
-    /// Asks every instance to cancel its executions of <paramref name="task"/>. Instances read the request from
-    /// <see cref="CancelRequestsAsync"/>. Fire and forget: delivery is at most once, to the readers listening now.
+    /// Asks every other instance to cancel its executions of <paramref name="task"/>; the sender cancels its own directly.
+    /// Instances read the request from <see cref="CancelRequestsAsync"/>. Fire and forget: delivery is at most once, to the
+    /// readers listening now.
     /// </summary>
     public abstract ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default);
 
     /// <summary>
-    /// The cancel requests of every instance (this one included), from the moment the enumeration starts until
+    /// The cancel requests of the other instances (never this instance's own), from the moment the enumeration starts until
     /// <paramref name="ct"/> fires. Every reader gets every request. The reader is registered on the first
     /// <c>MoveNextAsync</c> call, before it first waits.
     /// </summary>

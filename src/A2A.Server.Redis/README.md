@@ -26,7 +26,7 @@ builder.Services.AddA2AServer(o => o.AgentCard = card)
 `AddRedisEventBus` also registers `RedisExecutionCoordinator` on the same connection and prefix (set `RegisterCoordinator = false` to keep the process-local one; `AddRedisExecutionCoordinator(...)` registers it on its own). It gives every instance:
 
 - a cluster-wide running check: each execution holds a lease (`{prefix}lease:{task}`, renewed every `Coordination.Heartbeat`, expiring after `Coordination.LeaseTtl`), so a blocking or retried SendMessage on one instance waits for an agent running on another;
-- cancel requests on the channel `{prefix}cancel`: CancelTask on any instance stops the agent wherever it runs;
+- cancel requests on the channel `{prefix}cancel`, tagged with the sender, which ignores its own echo: CancelTask on any instance stops the agent wherever it runs;
 - the leases of dead instances (`{prefix}leases`, a sorted set by expiry) for the retention sweep, and named sweep leases (`{prefix}sweep:{name}`).
 
 Lease expiry uses Redis `TIME` inside Lua scripts, never the instance clock, so skewed clocks do not expire live executions. The heartbeat also renews the request's idempotency claim, so a long direct reply keeps its key. On Redis Cluster, keep the prefix in one hash slot (for example `{a2a}:`).

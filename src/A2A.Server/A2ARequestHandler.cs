@@ -681,7 +681,8 @@ public sealed class A2ARequestHandler : IDisposable
                     }
                     catch (ConcurrencyException) when (attempt < MaxConflictRetries)
                     {
-                        // The task changed under us: reload, re-check the state, and append again.
+                        // The task changed under us: wait a moment, reload, re-check the state, and append again.
+                        await ConflictBackoffAsync(attempt, ct).ConfigureAwait(false);
                     }
                 }
             }
@@ -815,7 +816,7 @@ public sealed class A2ARequestHandler : IDisposable
         if (record.Task.Status.State.IsTerminal()) throw NotCancelable(request.Id);
 
         // Executions here stop at once; the other instances stop theirs when the request reaches them.
-        foreach (var r in _running.Snapshot(ScopeKey(call.Tenant, request.Id))) r.Cancel();
+        CancelAll(_running.Snapshot(ScopeKey(call.Tenant, request.Id)));
         try
         {
             await _coordinator.RequestCancelAsync(key, cancellationToken).ConfigureAwait(false);
@@ -839,7 +840,8 @@ public sealed class A2ARequestHandler : IDisposable
 
     /// <summary>
     /// Waits until no execution of the task runs on any instance (the cancelled ones and the CancelTask execution), or
-    /// <paramref name="grace"/> has passed.
+    /// <paramref name="grace"/> has passed. When the coordinator fails, waits out the grace period (logged), so CancelTask
+    /// still answers.
     /// </summary>
     private async Task WaitUntilStoppedAsync(TaskKey key, TimeSpan grace, CancellationToken ct)
     {
@@ -853,6 +855,13 @@ public sealed class A2ARequestHandler : IDisposable
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             // The grace period is over: answer with the task as it is.
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The coordinator failed: other instances cannot be checked, so give them the whole grace period.
+            _logger.LogWarning(ex, "Could not check whether task {TaskId} still runs on other instances; waiting out the cancel grace period", key.TaskId);
+            try { await Task.Delay(Timeout.Infinite, timeout.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
         }
     }
 
@@ -1241,9 +1250,11 @@ public sealed class A2ARequestHandler : IDisposable
         try
         {
             await _coordinator.RegisterAsync(key, exec.Id, CancellationToken.None).ConfigureAwait(false);
+            exec.Registered = true;
         }
         catch (Exception ex)
         {
+            // The next heartbeat registers it instead.
             _logger.LogWarning(ex, "Could not register the execution of task {TaskId} with the execution coordinator", taskId);
         }
         var heartbeat = _time.CreateTimer(_ => _ = HeartbeatAsync(exec, claim), null, _options.Coordination.Heartbeat, _options.Coordination.Heartbeat);
@@ -1298,6 +1309,8 @@ public sealed class A2ARequestHandler : IDisposable
             try { await Task.WhenAll(producer, consumer).ConfigureAwait(false); }
             catch (Exception ex) { _logger.LogError(ex, "The execution of task {TaskId} ended with an error", taskId); }
             await heartbeat.DisposeAsync().ConfigureAwait(false);
+            // Waits for a heartbeat still under way and keeps later ones out, so a late register cannot outlive the unregister.
+            await exec.HeartbeatGate.WaitAsync().ConfigureAwait(false);
             try
             {
                 // Fenced by the execution id: never ends a newer execution's lease.
@@ -1314,17 +1327,27 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     /// <summary>
-    /// Renews the execution's lease and its idempotency claim. Runs on the heartbeat timer; skips a beat while the previous one
-    /// is still running. Failures are logged and the execution goes on.
+    /// Renews the execution's lease, or registers it when the register at start failed, and renews its idempotency claim.
+    /// Runs on the heartbeat timer; skips a beat while the previous one is still running. Failures are logged and the
+    /// execution goes on.
     /// </summary>
     private async Task HeartbeatAsync(Execution exec, IdempotencyClaim claim)
     {
-        if (!exec.TryBeginHeartbeat()) return;
+        if (!exec.HeartbeatGate.Wait(0)) return;
         try
         {
             try
             {
-                await _coordinator.HeartbeatAsync(exec.Key, exec.Id, CancellationToken.None).ConfigureAwait(false);
+                if (exec.Registered)
+                {
+                    await _coordinator.HeartbeatAsync(exec.Key, exec.Id, CancellationToken.None).ConfigureAwait(false);
+                }
+                else
+                {
+                    // A first registration, not a resurrection: this execution never had a lease.
+                    await _coordinator.RegisterAsync(exec.Key, exec.Id, CancellationToken.None).ConfigureAwait(false);
+                    exec.Registered = true;
+                }
             }
             catch (Exception ex)
             {
@@ -1341,7 +1364,7 @@ public sealed class A2ARequestHandler : IDisposable
         }
         finally
         {
-            exec.EndHeartbeat();
+            exec.HeartbeatGate.Release();
         }
     }
 
@@ -1366,7 +1389,7 @@ public sealed class A2ARequestHandler : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not read cancel requests from the execution coordinator; trying again shortly");
+            LogCancelReadFailure(ex);
             return (null, default);
         }
     }
@@ -1381,6 +1404,7 @@ public sealed class A2ARequestHandler : IDisposable
                 {
                     while (await next.ConfigureAwait(false))
                     {
+                        _cancelReadFailures = 0; // reading works again
                         CancelHere(requests.Current);
                         next = requests.MoveNextAsync();
                     }
@@ -1390,7 +1414,7 @@ public sealed class A2ARequestHandler : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Stopped reading cancel requests from the execution coordinator; trying again shortly");
+                    LogCancelReadFailure(ex);
                 }
                 try { await requests.DisposeAsync().ConfigureAwait(false); }
                 catch (Exception ex) { _logger.LogDebug(ex, "Could not dispose the cancel request reader"); }
@@ -1402,14 +1426,33 @@ public sealed class A2ARequestHandler : IDisposable
         }
     }
 
-    /// <summary>
-    /// Cancels this instance's executions of <paramref name="task"/>, except CancelTask runs (a request cannot tell whether
-    /// it came before or after the CancelTask run it would hit, and that run is what records the cancellation).
-    /// </summary>
-    private void CancelHere(TaskKey task)
+    /// <summary>Consecutive failures to read cancel requests. Only the listener loop touches it.</summary>
+    private int _cancelReadFailures;
+
+    /// <summary>The first of a run of failures is a warning; the retries that fail again are debug, until reading works.</summary>
+    private void LogCancelReadFailure(Exception ex)
     {
-        foreach (var exec in _running.Snapshot(ScopeKey(task.Tenant, task.TaskId)))
-            if (!exec.IsCancelRun && exec.Key == task) exec.Cancel();
+        if (_cancelReadFailures++ == 0)
+            _logger.LogWarning(ex, "Could not read cancel requests from the execution coordinator; trying again every {Interval}", _options.Coordination.RunningPollInterval);
+        else
+            _logger.LogDebug(ex, "Still cannot read cancel requests from the execution coordinator ({Failures} failures in a row)", _cancelReadFailures);
+    }
+
+    /// <summary>
+    /// Cancels this instance's executions of <paramref name="task"/> that another instance asked to cancel, except
+    /// CancelTask runs (they record the cancellation).
+    /// </summary>
+    private void CancelHere(TaskKey task) =>
+        CancelAll(_running.Snapshot(ScopeKey(task.Tenant, task.TaskId)).Where(exec => !exec.IsCancelRun && exec.Key == task));
+
+    /// <summary>Cancels each execution; a cancellation callback that throws is logged and does not stop the others.</summary>
+    private void CancelAll(IEnumerable<Execution> executions)
+    {
+        foreach (var exec in executions)
+        {
+            if (exec.Cancel() is { } error)
+                _logger.LogWarning(error, "A cancellation callback of the agent for task {TaskId} failed", exec.TaskId);
+        }
     }
 
     /// <summary>
@@ -1609,7 +1652,8 @@ public sealed class A2ARequestHandler : IDisposable
     /// <summary>
     /// Applies the event, then commits the task change and the event as one unit (<see cref="TaskStore.CommitAsync"/>), so
     /// the log holds only applied events, in the order their changes were stored, even across instances. After a version
-    /// conflict, reloads and re-applies, up to <see cref="MaxConflictRetries"/> times. Returns null when the event was
+    /// conflict, waits (<see cref="ConflictBackoffAsync"/>), reloads and re-applies, up to <see cref="MaxConflictRetries"/>
+    /// times: another instance writing the same task back to back can win the race several times in a row. Returns null when the event was
     /// dropped (for example the task is already terminal).
     /// </summary>
     private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt)
@@ -1630,6 +1674,7 @@ public sealed class A2ARequestHandler : IDisposable
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
             {
+                await ConflictBackoffAsync(attempt, CancellationToken.None).ConfigureAwait(false);
                 var fresh = await _tasks.GetAsync(key).ConfigureAwait(false);
                 if (fresh is null)
                 {
@@ -1821,8 +1866,23 @@ public sealed class A2ARequestHandler : IDisposable
     /// </summary>
     internal const int MaxIdempotencyKeyLength = 256;
 
-    /// <summary>Retries after a version conflict when applying one change to a task.</summary>
-    private const int MaxConflictRetries = 3;
+    /// <summary>
+    /// Retries after a version conflict when applying one change to a task. Conflicts come from other instances (writers here
+    /// share the task lock), and one that writes back to back can win several races in a row.
+    /// </summary>
+    private const int MaxConflictRetries = 10;
+
+    /// <summary>
+    /// Waits before retry number <paramref name="attempt"/> + 1 after a version conflict: 5 ms doubling per attempt, at most
+    /// 200 ms, ±20 % jitter, so writers on different instances stop colliding in lockstep. Real time on purpose (not the
+    /// injected <see cref="TimeProvider"/>): a manual test clock must not stall a store retry.
+    /// </summary>
+    private static Task ConflictBackoffAsync(int attempt, CancellationToken ct)
+    {
+        var baseMs = Math.Min(5.0 * Math.Pow(2, Math.Min(attempt, 16)), 200.0);
+        var jittered = baseMs * (0.8 + (0.4 * Random.Shared.NextDouble()));
+        return Task.Delay(TimeSpan.FromMilliseconds(jittered), ct);
+    }
 
     /// <summary>Task ids are unique per tenant only, so in-memory state (locks, running executions, bus topics) is keyed by both.</summary>
     private static string ScopeKey(string tenant, string taskId) => $"{tenant}\u001f{taskId}";
@@ -1854,7 +1914,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         private volatile bool _detached;
         private readonly TaskCompletionSource _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _heartbeating;
+        private volatile bool _registered;
 
         /// <summary>The task, owner-scoped.</summary>
         public TaskKey Key { get; } = key;
@@ -1869,10 +1929,11 @@ public sealed class A2ARequestHandler : IDisposable
 
         public CancellationTokenSource Cts { get; } = cts;
 
-        /// <summary>False while a heartbeat is still running.</summary>
-        public bool TryBeginHeartbeat() => Interlocked.Exchange(ref _heartbeating, 1) == 0;
+        /// <summary>True once the execution's lease is registered with the coordinator.</summary>
+        public bool Registered { get => _registered; set => _registered = value; }
 
-        public void EndHeartbeat() => Volatile.Write(ref _heartbeating, 0);
+        /// <summary>Held by a running heartbeat, and for good once the execution ends.</summary>
+        public SemaphoreSlim HeartbeatGate { get; } = new(1, 1);
 
         /// <summary>The run's span, or null when nobody listens.</summary>
         public Activity? Activity { get; init; }
@@ -1896,10 +1957,24 @@ public sealed class A2ARequestHandler : IDisposable
         public Channel<SequencedEvent> Outgoing { get; } = Channel.CreateUnbounded<SequencedEvent>(new UnboundedChannelOptions { SingleWriter = true, SingleReader = true });
         public Task Completion => _done.Task;
 
-        public void Cancel()
+        /// <summary>
+        /// Cancels the execution. Returns the error of a cancellation callback that threw (the token is cancelled anyway), or null.
+        /// </summary>
+        public Exception? Cancel()
         {
-            try { Cts.Cancel(); }
-            catch (ObjectDisposedException) { /* already finished */ }
+            try
+            {
+                Cts.Cancel();
+                return null;
+            }
+            catch (ObjectDisposedException)
+            {
+                return null; // already finished
+            }
+            catch (AggregateException ex)
+            {
+                return ex;
+            }
         }
 
         public void MarkDone()

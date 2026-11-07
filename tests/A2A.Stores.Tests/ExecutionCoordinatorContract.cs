@@ -186,8 +186,11 @@ public abstract class ExecutionCoordinatorContract
         await EventuallyAsync(() => ExpiredContainsAsync(b, odd, "e:1"), "the odd lease is listed as expired");
     }
 
+    /// <summary>True when <see cref="CreatePairAsync"/> returns two instances; false when it returns one instance twice.</summary>
+    protected abstract bool HasTwoInstances { get; }
+
     [SkippableFact]
-    public async Task Cancel_request_reaches_every_reader_of_every_instance()
+    public async Task Cancel_request_reaches_every_reader_of_the_other_instances_but_not_the_sender()
     {
         var (a, b) = await CreatePairAsync();
         using var cts = new CancellationTokenSource(Wait);
@@ -200,12 +203,26 @@ public abstract class ExecutionCoordinatorContract
 
         await a.RequestCancelAsync(Key("x", owner: "o\u001f1"));
 
+        if (!HasTwoInstances)
+        {
+            // One instance: nobody else to tell, and the sender cancels its own executions directly.
+            Assert.False(nextA.IsCompleted);
+            Assert.False(nextB.IsCompleted);
+            Assert.False(nextB2.IsCompleted);
+            cts.Cancel();
+            foreach (var pending in new[] { nextA, nextB, nextB2 })
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await pending);
+            return;
+        }
         Assert.True(await nextB);
         Assert.Equal(Key("x", owner: "o\u001f1"), onB.Current);
         Assert.True(await nextB2);
         Assert.Equal(Key("x", owner: "o\u001f1"), onB2.Current);
+
+        // A request from B reaches A after A's own one would have (B saw A's first): A's first request is B's.
+        await b.RequestCancelAsync(Key("y"));
         Assert.True(await nextA);
-        Assert.Equal(Key("x", owner: "o\u001f1"), onA.Current);
+        Assert.Equal(Key("y"), onA.Current);
         cts.Cancel();
     }
 
@@ -228,6 +245,8 @@ public abstract class ExecutionCoordinatorContract
 public sealed class InMemoryExecutionCoordinatorTests : ExecutionCoordinatorContract
 {
     private readonly FakeTimeProvider _clock = new();
+
+    protected override bool HasTwoInstances => false;
 
     protected override CoordinationOptions Options { get; } = new();
 
@@ -293,10 +312,13 @@ public sealed class RedisExecutionCoordinatorTests(RedisFixture redis) : Executi
 {
     private readonly List<IAsyncDisposable> _cleanup = [];
 
+    protected override bool HasTwoInstances => true;
+
+    // 5x slack between heartbeat and TTL, so a slow machine does not expire a lease that is being renewed.
     protected override CoordinationOptions Options { get; } = new()
     {
-        LeaseTtl = TimeSpan.FromMilliseconds(600),
-        Heartbeat = TimeSpan.FromMilliseconds(150),
+        LeaseTtl = TimeSpan.FromSeconds(1),
+        Heartbeat = TimeSpan.FromMilliseconds(200),
         RunningPollInterval = TimeSpan.FromMilliseconds(50),
     };
 
@@ -378,5 +400,20 @@ public sealed class RedisExecutionCoordinatorTests(RedisFixture redis) : Executi
     private sealed class SkewedClock(TimeSpan skew) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => System.GetUtcNow() + skew;
+    }
+}
+
+/// <summary>Registration checks of the Redis package that need no Redis server.</summary>
+public sealed class RedisRegistrationTests
+{
+    [Fact]
+    public void Second_registration_with_another_configuration_string_is_refused()
+    {
+        var services = new ServiceCollection();
+        services.AddA2ARedisEventBus("localhost:6379", o => o.RegisterCoordinator = false);
+        services.AddA2ARedisExecutionCoordinator("localhost:6379"); // the same connection: fine
+        var error = Assert.Throws<InvalidOperationException>(() => services.AddA2ARedisExecutionCoordinator("other-host:6379"));
+        Assert.Contains("other-host:6379", error.Message);
+        Assert.Contains("localhost:6379", error.Message);
     }
 }

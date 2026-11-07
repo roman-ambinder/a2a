@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Security.Claims;
+using System.Runtime.CompilerServices;
 using System.Text.Encodings.Web;
+using System.Threading.Channels;
 using A2A.Client;
 using A2A.Client.Transports;
 using A2A.Server;
@@ -14,6 +16,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
@@ -205,8 +208,10 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
         var text = $"reply {Guid.NewGuid():N}";
         var message = Message.FromUser(text);
         var first = Client(a).SendMessageAsync(message);
-        await GatedAgent.Started(text).Task.WaitAsync(Timeout);
+        var taskId = await GatedAgent.Started(text).Task.WaitAsync(Timeout);
         await Task.Delay(claimTimeout * 2.5); // without heartbeats the claim would now count as abandoned
+        // Past its TTL too: only the heartbeat keeps the execution's lease alive, seen from the other instance.
+        Assert.True(await b.Services.GetRequiredService<ExecutionCoordinator>().IsRunningAsync(new TaskKey("", "alice", taskId)));
 
         var retry = Client(b).SendMessageAsync(message);
         await Task.WhenAny(retry, Task.Delay(TimeSpan.FromMilliseconds(500)));
@@ -215,6 +220,50 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
         Assert.Equal("echo", Assert.IsType<MessageResponse>(await first.WaitAsync(Timeout)).Message.GetText());
         Assert.Equal("echo", Assert.IsType<MessageResponse>(await retry.WaitAsync(Timeout)).Message.GetText());
         Assert.Equal(1, GatedAgent.Runs(text));
+    }
+
+    /// <summary>
+    /// Review ruling R2: an instance ignores the echo of its own cancel request. A follow-up started on A right after A's
+    /// CancelTask is not cancelled by it, and a CancelTask from B still stops that follow-up on A.
+    /// </summary>
+    [SkippableFact]
+    public async Task Own_cancel_echo_does_not_cancel_a_later_follow_up_but_another_instance_still_can()
+    {
+        var schema = await db.NewSchemaAsync();
+        var redis = await redisFixture.ConnectAsync();
+        await using var _ = redis;
+        var prefix = $"mi:{Guid.NewGuid():N}:";
+        await using var a = await StartAsync(schema, redis, prefix, services: s => s.Replace(ServiceDescriptor.Singleton<ExecutionCoordinator>(
+            sp => new HoldingCoordinator(sp.GetRequiredService<RedisExecutionCoordinator>()))));
+        await using var b = await StartAsync(schema, redis, prefix);
+        var holding = Assert.IsType<HoldingCoordinator>(a.Services.GetRequiredService<ExecutionCoordinator>());
+
+        var text = $"refuse {Guid.NewGuid():N}";
+        var task = Assert.IsType<TaskResponse>(await Client(a).SendMessageAsync(Message.FromUser(text))).Task;
+        Assert.Equal(TaskState.InputRequired, task.Status.State);
+        var key = new TaskKey("", "alice", task.Id);
+
+        // The agent refuses to cancel, so the task stays open for a follow-up; A has sent its cancel request.
+        var refused = await Assert.ThrowsAsync<A2AException>(() => Client(a).CancelTaskAsync(task.Id));
+        Assert.Equal(A2AErrorCode.TaskNotCancelable, refused.Code);
+
+        var more = text + " more";
+        var followUp = new Message { MessageId = Message.NewId(), Role = Role.User, TaskId = task.Id, Parts = [Part.FromText(more)] };
+        await Client(a).SendMessageAsync(followUp, new SendMessageConfiguration { ReturnImmediately = true });
+        await GatedAgent.Started(more).Task.WaitAsync(Timeout);
+
+        // A request B sends now reaches A after A's own one would have: once A has B's, A's echo is not coming.
+        var marker = new TaskKey("", "alice", "marker-" + Guid.NewGuid().ToString("N"));
+        await b.Services.GetRequiredService<ExecutionCoordinator>().RequestCancelAsync(marker);
+        await EventuallyAsync(() => Task.FromResult(holding.Seen.Contains(marker)), "A received B's cancel request");
+        Assert.DoesNotContain(key, holding.Seen);
+
+        holding.Release();
+        Assert.False(GatedAgent.Cancelled(more).Task.IsCompleted);
+
+        var canceled = await Client(b).CancelTaskAsync(task.Id);
+        await GatedAgent.Cancelled(more).Task.WaitAsync(Timeout);
+        Assert.Equal(TaskState.Canceled, canceled.Status.State);
     }
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
@@ -247,7 +296,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     }
 
     private async Task<WebApplication> StartAsync(PostgresStoreOptions schema, IConnectionMultiplexer redis, string prefix,
-        Action<PostgresStoreOptions>? store = null)
+        Action<PostgresStoreOptions>? store = null, Action<IServiceCollection>? services = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -271,6 +320,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
             })
             .AddRedisEventBus(redis, o => o.ChannelPrefix = prefix);
         builder.Services.AddA2AServerAspNetCore();
+        services?.Invoke(builder.Services);
         var app = builder.Build();
         app.UseAuthentication();
         app.UseA2A();
@@ -305,12 +355,14 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     /// <list type="bullet">
     /// <item><c>observe</c>: starts work, then waits until cancelled and reports it.</item>
     /// <item><c>interleave</c>: starts work and asks for input, then keeps running: once the follow-up arrives (on any
-    /// instance), both executions add artifacts at the same time and the follow-up completes the task.</item>
+    /// instance), the first execution adds artifacts back to back; as soon as its first one is stored, the follow-up adds
+    /// its own back to back too, then completes the task.</item>
     /// <item><c>reply</c>: waits for its gate, then replies directly ("echo") without a task.</item>
+    /// <item><c>refuse</c>: asks for input and returns; refuses CancelTask. A follow-up starts work and waits until cancelled.</item>
     /// <item>anything else: starts work, waits for its gate, then completes.</item>
     /// </list>
     /// </summary>
-    private sealed class GatedAgent : IAgentExecutor
+    private sealed class GatedAgent(TaskStore tasks) : IAgentExecutor
     {
         private static readonly ConcurrentDictionary<string, TaskCompletionSource> Gates = new();
         private static readonly ConcurrentDictionary<string, TaskCompletionSource<string>> StartedSignals = new();
@@ -331,18 +383,17 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
         /// <summary>How many executions started for <paramref name="text"/>.</summary>
         public static int Runs(string text) => RunCounts.GetValueOrDefault(text);
 
-        /// <summary>
-        /// Ten artifacts, 20 ms apart: the two executions overlap for about 200 ms. Paced so that a writer does not lose the
-        /// version race more often than the handler's conflict retries allow (back-to-back writers on two instances can).
-        /// </summary>
-        private static async Task AddPacedArtifactsAsync(TaskUpdater updater, string name, CancellationToken ct)
+        /// <summary>Ten artifacts, back to back: on two instances the writers race for every task version.</summary>
+        private static async Task AddArtifactsAsync(TaskUpdater updater, string name, CancellationToken ct)
         {
-            for (var i = 0; i < 10; i++)
-            {
-                await updater.AddArtifactAsync([Part.FromText($"{name} {i}")], cancellationToken: ct);
-                await Task.Delay(20, ct);
-            }
+            for (var i = 0; i < 10; i++) await updater.AddArtifactAsync([Part.FromText($"{name} {i}")], cancellationToken: ct);
         }
+
+        /// <summary>Cancels, except a <c>refuse</c> task, which stays as it is.</summary>
+        public Task CancelAsync(AgentTask task, TaskUpdater updater, CancellationToken ct) =>
+            task.History?.FirstOrDefault()?.GetText().StartsWith("refuse ", StringComparison.Ordinal) == true
+                ? Task.CompletedTask
+                : updater.CancelAsync(cancellationToken: ct).AsTask();
 
         public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct)
         {
@@ -368,14 +419,34 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
                     await updater.RequireInputAsync("more?", ct);
                     Started(text).TrySetResult(updater.TaskId);
                     await Gate(text).Task.WaitAsync(ct);
-                    await AddPacedArtifactsAsync(updater, "first", ct);
+                    await AddArtifactsAsync(updater, "first", ct);
                     break;
                 case "interleave":
                     var original = text[..^" more".Length];
                     await updater.StartWorkAsync("continuing", ct);
                     Gate(original).TrySetResult();
-                    await AddPacedArtifactsAsync(updater, "second", ct);
+                    // Once the first execution's writes are landing, both write back to back and race for every version.
+                    var key = new TaskKey(context.Call.Tenant, context.Call.Principal, context.TaskId);
+                    while ((await tasks.GetAsync(key, ct))?.Task.Artifacts?.Any(a => a.Parts.Any(p => p is TextPart { Text: "first 0" })) != true)
+                        await Task.Delay(5, ct);
+                    await AddArtifactsAsync(updater, "second", ct);
                     await updater.CompleteAsync("done", ct);
+                    break;
+                case "refuse" when context.Task is null:
+                    await updater.RequireInputAsync("more?", ct);
+                    break;
+                case "refuse":
+                    await updater.StartWorkAsync("working", ct);
+                    Started(text).TrySetResult(updater.TaskId);
+                    try
+                    {
+                        await Task.Delay(System.Threading.Timeout.Infinite, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Cancelled(text).TrySetResult();
+                        throw;
+                    }
                     break;
                 case "reply":
                     Started(text).TrySetResult(updater.TaskId);
@@ -390,6 +461,54 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// Wraps a coordinator and holds the cancel requests it reads until <see cref="Release"/>, recording each one on arrival.
+    /// </summary>
+    private sealed class HoldingCoordinator(ExecutionCoordinator inner) : ExecutionCoordinator
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ConcurrentQueue<TaskKey> _seen = new();
+
+        public IReadOnlyCollection<TaskKey> Seen => _seen;
+
+        public void Release() => _release.TrySetResult();
+
+        public override async IAsyncEnumerable<TaskKey> CancelRequestsAsync([EnumeratorCancellation] CancellationToken ct)
+        {
+            var requests = inner.CancelRequestsAsync(ct).GetAsyncEnumerator(ct);
+            var next = requests.MoveNextAsync(); // registers the inner reader now
+            var held = Channel.CreateUnbounded<TaskKey>();
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    while (await next)
+                    {
+                        _seen.Enqueue(requests.Current);
+                        held.Writer.TryWrite(requests.Current);
+                        next = requests.MoveNextAsync();
+                    }
+                }
+                catch (OperationCanceledException) { }
+                finally
+                {
+                    held.Writer.TryComplete();
+                    await requests.DisposeAsync();
+                }
+            }, CancellationToken.None);
+            await _release.Task.WaitAsync(ct);
+            await foreach (var task in held.Reader.ReadAllAsync(ct)) yield return task;
+        }
+
+        public override ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken ct = default) => inner.RegisterAsync(task, executionId, ct);
+        public override ValueTask HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default) => inner.HeartbeatAsync(task, executionId, ct);
+        public override ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default) => inner.UnregisterAsync(task, executionId, ct);
+        public override ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default) => inner.IsRunningAsync(task, ct);
+        public override ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default) => inner.RequestCancelAsync(task, ct);
+        public override ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken ct = default) => inner.ListExpiredAsync(max, ct);
+        public override ValueTask<bool> TryAcquireSweepLeaseAsync(string name, TimeSpan duration, CancellationToken ct = default) => inner.TryAcquireSweepLeaseAsync(name, duration, ct);
     }
 
     private sealed class HeaderAuth(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)

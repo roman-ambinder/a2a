@@ -55,7 +55,8 @@ public static class A2ARedisServiceCollectionExtensions
     /// Uses <see cref="RedisExecutionCoordinator"/> as the <see cref="ExecutionCoordinator"/>, connecting with a
     /// StackExchange.Redis configuration string. Only <see cref="RedisEventBusOptions.ChannelPrefix"/> is used from the
     /// options; keep it equal to the bus's. Not needed after <c>AddRedisEventBus</c>, which registers the coordinator too.
-    /// A hosted service starts and stops the cancel subscription. Works before or after <c>AddA2AServer</c>.
+    /// A hosted service starts and stops the cancel subscription. Works before or after <c>AddA2AServer</c>. Throws
+    /// <see cref="InvalidOperationException"/> when an earlier bus or coordinator registration used another configuration string.
     /// </summary>
     public static IServiceCollection AddA2ARedisExecutionCoordinator(this IServiceCollection services, string configuration,
         Action<RedisEventBusOptions>? configure = null)
@@ -90,12 +91,31 @@ public static class A2ARedisServiceCollectionExtensions
 
     private const string ServiceKey = "A2A.Server.Redis";
 
-    /// <summary>One multiplexer per container for the configuration-string overloads, shared by the bus and the coordinator.</summary>
+    /// <summary>
+    /// One multiplexer per container for the configuration-string overloads, shared by the bus and the coordinator. A later
+    /// registration with a different configuration string would silently use the first one, so it throws instead.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">An earlier registration used another configuration string.</exception>
     private static Func<IServiceProvider, IConnectionMultiplexer> SharedConnection(this IServiceCollection services, string configuration)
     {
-        services.TryAddKeyedSingleton<IConnectionMultiplexer>(ServiceKey, (_, _) => ConnectionMultiplexer.Connect(configuration));
+        var earlier = services.FirstOrDefault(d => d.IsKeyedService && Equals(d.ServiceKey, ServiceKey) && d.ServiceType == typeof(SharedConfiguration))
+            ?.KeyedImplementationInstance as SharedConfiguration;
+        if (earlier is null)
+        {
+            services.AddKeyedSingleton(ServiceKey, new SharedConfiguration(configuration));
+            services.TryAddKeyedSingleton<IConnectionMultiplexer>(ServiceKey, (_, _) => ConnectionMultiplexer.Connect(configuration));
+        }
+        else if (!string.Equals(earlier.Value, configuration, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"The A2A Redis bus and coordinator share one connection, already registered with the configuration '{earlier.Value}'; " +
+                $"this registration passes '{configuration}'. Use the same configuration string, or pass an IConnectionMultiplexer.");
+        }
         return sp => sp.GetRequiredKeyedService<IConnectionMultiplexer>(ServiceKey);
     }
+
+    /// <summary>The configuration string of the shared connection (see <see cref="SharedConnection"/>).</summary>
+    private sealed record SharedConfiguration(string Value);
 
     private static RedisEventBusOptions Configure(Action<RedisEventBusOptions>? configure)
     {

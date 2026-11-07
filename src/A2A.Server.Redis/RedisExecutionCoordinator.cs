@@ -24,7 +24,8 @@ namespace A2A.Server.Redis;
 /// <item><c>{prefix}leases</c>: a sorted set of every lease (task + execution id), scored by expiry, for
 /// <see cref="ListExpiredAsync"/>. An entry stays until the execution unregisters.</item>
 /// <item><c>{prefix}sweep:{name}</c>: a sweep lease (<c>SET NX PX</c>).</item>
-/// <item>Channel <c>{prefix}cancel</c>: cancel requests (pub/sub, at most once).</item>
+/// <item>Channel <c>{prefix}cancel</c>: cancel requests (pub/sub, at most once), tagged with the sender's origin id so a
+/// coordinator never hands its own requests to its readers.</item>
 /// </list>
 /// <para>The scripts touch two keys at once, so a Redis Cluster deployment must keep the prefix in one hash slot (for
 /// example <c>{a2a}:</c>). Call <see cref="StartAsync"/> before serving (the DI extension registers a hosted service that
@@ -83,6 +84,7 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
     private readonly ILogger _logger;
     private readonly object _gate = new();
     private readonly List<Channel<TaskKey>> _cancelReaders = [];
+    private readonly string _origin = Guid.NewGuid().ToString("N");
     private ChannelMessageQueue? _queue;
 
     /// <summary>
@@ -152,8 +154,9 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
         (int)await EvaluateAsync(IsRunningScript, [LeaseKey(task)], [], ct).ConfigureAwait(false) == 1;
 
     /// <inheritdoc />
+    /// <remarks>The message carries this coordinator's origin id, so its own readers ignore the echo.</remarks>
     public override async ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default) =>
-        await _redis.GetSubscriber().PublishAsync(_cancelChannel, Encode(task, null)).WaitAsync(ct).ConfigureAwait(false);
+        await _redis.GetSubscriber().PublishAsync(_cancelChannel, Encode(task, _origin)).WaitAsync(ct).ConfigureAwait(false);
 
     /// <inheritdoc />
     public override async IAsyncEnumerable<TaskKey> CancelRequestsAsync([EnumeratorCancellation] CancellationToken ct)
@@ -207,11 +210,12 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
 
     private void OnCancelMessage(ChannelMessage message)
     {
-        if (!TryDecode(message.Message, out var task, out _))
+        if (!TryDecode(message.Message, out var task, out var origin))
         {
             _logger.LogWarning("Dropped a malformed A2A cancel request from Redis");
             return;
         }
+        if (origin == _origin) return; // our own request: the sender cancels its own executions directly
         lock (_gate)
         {
             foreach (var reader in _cancelReaders) reader.Writer.TryWrite(task);
@@ -219,10 +223,10 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
     }
 
     /// <summary>
-    /// <c>["tenant","owner","taskId"]</c>, plus the execution id for a lease entry. JSON, so any character in an id is safe,
-    /// and the same key always encodes to the same bytes.
+    /// <c>["tenant","owner","taskId"]</c>, plus a fourth string: the execution id of a lease entry, or the sender's origin id
+    /// of a cancel request. JSON, so any character in an id is safe, and the same key always encodes to the same bytes.
     /// </summary>
-    private static byte[] Encode(TaskKey task, string? executionId)
+    private static byte[] Encode(TaskKey task, string? extra)
     {
         var buffer = new ArrayBufferWriter<byte>(128);
         using (var w = new Utf8JsonWriter(buffer))
@@ -231,16 +235,16 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
             w.WriteStringValue(task.Tenant);
             w.WriteStringValue(task.Owner);
             w.WriteStringValue(task.TaskId);
-            if (executionId is not null) w.WriteStringValue(executionId);
+            if (extra is not null) w.WriteStringValue(extra);
             w.WriteEndArray();
         }
         return buffer.WrittenSpan.ToArray();
     }
 
-    private static bool TryDecode(RedisValue value, out TaskKey task, out string? executionId)
+    private static bool TryDecode(RedisValue value, out TaskKey task, out string? extra)
     {
         task = default;
-        executionId = null;
+        extra = null;
         try
         {
             var reader = new Utf8JsonReader(((ReadOnlyMemory<byte>)value).Span);
@@ -249,7 +253,7 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
             while (reader.Read() && reader.TokenType == JsonTokenType.String) parts.Add(reader.GetString()!);
             if (reader.TokenType != JsonTokenType.EndArray || parts.Count is < 3 or > 4) return false;
             task = new TaskKey(parts[0], parts[1], parts[2]);
-            executionId = parts.Count == 4 ? parts[3] : null;
+            extra = parts.Count == 4 ? parts[3] : null;
             return true;
         }
         catch (JsonException)

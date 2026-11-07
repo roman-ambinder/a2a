@@ -178,7 +178,7 @@ public class TaskLifecycleTests
         var client = host.Client(binding);
         var first = (await client.SendMessageAsync("input")).RequireTask();
         await host.WaitIdleAsync();
-        store.FailNextUpdates(12); // initial attempt + 3 server retries conflict, for each of the client's 3 attempts (Internal is retryable)
+        store.FailNextUpdates(33); // initial attempt + 10 server retries conflict, for each of the client's 3 attempts (Internal is retryable)
         var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync("more", first.ContextId, first.Id));
         Assert.Equal(A2AErrorCode.Internal, ex.Code);
         Assert.DoesNotContain("ConcurrencyException", ex.Message);

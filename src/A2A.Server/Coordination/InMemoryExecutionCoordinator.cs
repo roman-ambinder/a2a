@@ -1,11 +1,11 @@
 using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using A2A.Server.Storage;
 
 namespace A2A.Server.Coordination;
 
 /// <summary>
-/// A process-local <see cref="ExecutionCoordinator"/>: leases, cancel requests and sweep leases live in this process only.
+/// A process-local <see cref="ExecutionCoordinator"/>: leases and sweep leases live in this process only, and cancel
+/// requests go nowhere (there is no other instance to tell).
 /// Its clock is the <see cref="TimeProvider"/> it is given. The default; replace it (for example with the Redis coordinator)
 /// when several instances serve one agent.
 /// </summary>
@@ -14,7 +14,6 @@ public sealed class InMemoryExecutionCoordinator : ExecutionCoordinator
     private readonly object _gate = new();
     private readonly Dictionary<TaskKey, Dictionary<string, DateTimeOffset>> _leases = [];
     private readonly Dictionary<string, DateTimeOffset> _sweepLeases = new(StringComparer.Ordinal);
-    private readonly List<Channel<TaskKey>> _cancelReaders = [];
     private readonly TimeSpan _ttl;
     private readonly TimeProvider _time;
 
@@ -71,29 +70,14 @@ public sealed class InMemoryExecutionCoordinator : ExecutionCoordinator
         }
     }
 
-    /// <inheritdoc />
-    public override ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default)
-    {
-        lock (_gate)
-        {
-            foreach (var reader in _cancelReaders) reader.Writer.TryWrite(task);
-        }
-        return ValueTask.CompletedTask;
-    }
+    /// <summary>Does nothing: this process is the only instance, and the sender cancels its own executions directly.</summary>
+    public override ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default) => ValueTask.CompletedTask;
 
-    /// <inheritdoc />
+    /// <summary>Yields nothing (there are no other instances) and ends when <paramref name="ct"/> fires.</summary>
     public override async IAsyncEnumerable<TaskKey> CancelRequestsAsync([EnumeratorCancellation] CancellationToken ct)
     {
-        var channel = Channel.CreateUnbounded<TaskKey>(new UnboundedChannelOptions { SingleReader = true });
-        lock (_gate) _cancelReaders.Add(channel);
-        try
-        {
-            await foreach (var task in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false)) yield return task;
-        }
-        finally
-        {
-            lock (_gate) _cancelReaders.Remove(channel);
-        }
+        await Task.Delay(Timeout.Infinite, ct).ConfigureAwait(false);
+        yield break;
     }
 
     /// <inheritdoc />

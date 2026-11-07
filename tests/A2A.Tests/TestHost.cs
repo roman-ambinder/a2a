@@ -76,6 +76,11 @@ public sealed class ScenarioAgent : IAgentExecutor
                 await Gate(text).Task.WaitAsync(ct);
                 await updater.CompleteAsync("through the gate", ct);
                 break;
+            case "throw-on-cancel": // works until cancelled; its cancellation callback throws
+                await updater.StartWorkAsync(cancellationToken: ct);
+                using (ct.Register(() => throw new InvalidOperationException("cancellation callback failed")))
+                    await Task.Delay(Timeout.Infinite, ct);
+                break;
             case "halfway": // starts work, then returns without finishing the task
                 await updater.StartWorkAsync(cancellationToken: ct);
                 break;
