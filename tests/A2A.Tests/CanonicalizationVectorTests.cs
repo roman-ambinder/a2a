@@ -58,25 +58,41 @@ public class CanonicalizationVectorTests
         Assert.Equal(Read($"{name}.canonical.txt"), Canonical(AgentCardCanonicalizer.ToNode(card)));
     }
 
-    [Fact]
-    public void Signer_refuses_card_with_prunable_values()
+    private static AgentCard CardWithPrunableValues()
     {
         var card = SigningTests.SampleCard();
-        card.Skills[0].Description = "";
-        card.Skills[0].Examples = [];
+        card.SecuritySchemes = new() { ["bearer"] = SecurityScheme.Bearer() };
+        card.SecurityRequirements = [new SecurityRequirement { Schemes = { ["bearer"] = new StringList() } }];
+        card.Skills = [];
+        return card;
+    }
+
+    [Fact]
+    public async Task Signer_signs_card_with_prunable_values_and_it_verifies()
+    {
         var key = new AgentCardSigningKey(System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256), "k1", "ES256");
 
-        var ex = Assert.Throws<ArgumentException>(() => AgentCardSigner.Sign(card, key));
+        var signed = AgentCardSigner.Sign(CardWithPrunableValues(), key);
 
-        Assert.StartsWith("Card contains values that canonicalization would remove: ", ex.Message);
-        Assert.Contains("$.skills[0].description", ex.Message);
-        Assert.Contains("$.skills[0].examples", ex.Message);
+        var json = A2AJson.Serialize(signed);
+        Assert.Contains("\"skills\":[]", json);
+        var verifier = new AgentCardVerifier(new StaticKeyResolver([key.ToPublicJwk()]));
+        Assert.True((await verifier.VerifyAsync(json)).IsValid);
+    }
+
+    [Fact]
+    public void Pruned_paths_lists_values_the_signature_does_not_cover()
+    {
+        Assert.Equal(
+            ["$.securityRequirements[0].schemes.bearer.list", "$.skills"],
+            AgentCardCanonicalizer.PrunedPaths(AgentCardCanonicalizer.ToNode(CardWithPrunableValues())));
     }
 
     [Fact]
     public async Task Fully_populated_model_card_signs_and_loses_nothing_to_canonicalization()
     {
         // Guards against a model field the canonicalizer's schema does not know: such a field would be silently unsigned.
+        // PrunedPaths is empty only if every model member survives canonicalization.
         var card = A2AJson.Deserialize<AgentCard>(Read("full.input.json"))!;
         // The vector has scope-less requirements ("list": []), which a2a-python prunes; give them scopes.
         card.SecurityRequirements![1].Schemes["mtls"].List = ["client"];
@@ -99,6 +115,7 @@ public class CanonicalizationVectorTests
         var signed = AgentCardSigner.Sign(card, key);
 
         var node = AgentCardCanonicalizer.ToNode(card);
+        Assert.Empty(AgentCardCanonicalizer.PrunedPaths(node));
         Assert.Equal(JsonCanonicalizer.CanonicalizeToString(node.ToJsonString()), Canonical(node));
         var verifier = new AgentCardVerifier(new StaticKeyResolver([key.ToPublicJwk()]));
         Assert.True((await verifier.VerifyAsync(A2AJson.Serialize(signed))).IsValid);

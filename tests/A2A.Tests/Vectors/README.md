@@ -1,5 +1,11 @@
 # Agent Card signing vectors
 
+> **Security note.** The signed payload covers only the canonical form. Members outside the A2A v1.0 Agent Card
+> schema (including the v0.3 compatibility fields a2a-python serves) and every value the pruning rule removes
+> (`null`, `""`, `[]`, `{}`, `false` on `required`/`pkceRequired`, e.g. a security requirement with no scopes) are
+> **not covered by the signature and must not be trusted from a signed card**. This matches a2a-python 1.2.1 and
+> a2a-js 1.3.0. `AgentCardCanonicalizer.PrunedPaths` lists the pruned values of a card.
+
 Vectors in `card-signing/` were generated with **a2a-python (`a2a-sdk` on PyPI) 1.2.1** and are checked by
 `CanonicalizationVectorTests`. Python is not needed to run the tests. The a2a-js rule was compared by reading its
 source; no JS vectors were generated.
@@ -86,8 +92,9 @@ a2a-python, all on inputs a2a-python does not produce:
   `securitySchemes` by `type`) are not reproduced. They are not part of canonicalization and only matter for
   v0.3-only cards, which carry no v1.0 signature.
 
-`AgentCardSigner` refuses a card whose JSON contains anything step 1 to 4 would remove, and lists the JSON paths, so a
-card signed by this SDK has the same payload whether or not the verifier prunes.
+`AgentCardSigner` signs cards that contain prunable values (scope-less security requirements, empty `skills`, empty
+`capabilities`, empty OAuth `scopes`); those values stay in the served card but are not signed.
+`AgentCardEndpoint` logs one warning listing them (`AgentCardCanonicalizer.PrunedPaths`) the first time it signs the card.
 
 ## Regenerating
 

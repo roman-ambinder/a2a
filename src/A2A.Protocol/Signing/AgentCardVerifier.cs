@@ -131,9 +131,15 @@ public sealed class AgentCardVerifier(IAgentCardKeyResolver keyResolver, AgentCa
         VerifyAsync(AgentCardCanonicalizer.ToNode(card), source, cancellationToken);
 
     /// <summary>Verifies the card exactly as received.</summary>
+    /// <remarks>
+    /// <b>Security:</b> a <see cref="AgentCardVerificationStatus.Valid"/> result covers only the canonical form.
+    /// Members outside the A2A v1.0 Agent Card schema, and values listed by <see cref="AgentCardCanonicalizer.PrunedPaths"/>,
+    /// are not covered by the signature and must not be trusted from a signed card.
+    /// </remarks>
     public Task<AgentCardVerificationResult> VerifyAsync(string rawCardJson, Uri? source = null, CancellationToken cancellationToken = default) =>
         VerifyAsync(JsonNode.Parse(rawCardJson)?.AsObject() ?? throw new JsonException("Agent Card must be a JSON object."), source, cancellationToken);
 
+    /// <inheritdoc cref="VerifyAsync(string, Uri?, CancellationToken)"/>
     public async Task<AgentCardVerificationResult> VerifyAsync(JsonObject card, Uri? source = null, CancellationToken cancellationToken = default)
     {
         var errors = new List<string>();

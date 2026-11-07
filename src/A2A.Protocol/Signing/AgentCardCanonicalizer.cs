@@ -46,17 +46,30 @@ public static class AgentCardCanonicalizer
     /// Returns the RFC 8785 bytes that Agent Card signatures cover. Works on raw JSON so that a card is canonicalized
     /// exactly as received; <paramref name="card"/> is not modified.
     /// </summary>
-    public static byte[] Canonicalize(JsonObject card) => Canonicalize(card, out _);
+    /// <remarks>
+    /// <b>Security:</b> members outside the A2A v1.0 Agent Card schema are removed before signing, as a2a-python and
+    /// a2a-js do. They are not covered by the signature and must not be trusted from a signed card. The same holds for
+    /// every value <see cref="PrunedPaths"/> reports, e.g. a security requirement with no scopes.
+    /// </remarks>
+    public static byte[] Canonicalize(JsonObject card) => JsonCanonicalizer.Canonicalize(Prune(card, new List<string>()));
 
-    /// <summary>Canonicalizes and reports the JSON paths of the values the pruning rule removed.</summary>
-    internal static byte[] Canonicalize(JsonObject card, out IReadOnlyList<string> removedPaths)
+    /// <summary>
+    /// Returns the JSON paths (e.g. <c>$.skills[0].description</c>) of the values <see cref="Canonicalize"/> removes.
+    /// Those values are not covered by a signature. Containers emptied only by removing their children are not listed.
+    /// </summary>
+    public static IReadOnlyList<string> PrunedPaths(JsonObject card)
+    {
+        var removed = new List<string>();
+        Prune(card, removed);
+        return removed;
+    }
+
+    private static JsonObject Prune(JsonObject card, List<string> removed)
     {
         var copy = (JsonObject)card.DeepClone();
         copy.Remove("signatures");
-        var removed = new List<string>();
         PruneMembers(copy, AgentCardFields, "$", removed);
-        removedPaths = removed;
-        return JsonCanonicalizer.Canonicalize(copy);
+        return copy;
     }
 
     /// <summary>Serializes a card model to a JSON tree with the SDK's wire options.</summary>
