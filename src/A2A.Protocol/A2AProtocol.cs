@@ -22,6 +22,15 @@ public static class A2AProtocol
         public const string Version = "A2A-Version";
         public const string Extensions = "A2A-Extensions";
 
+        /// <summary>SDK extension: lets a server recognize a retried SendMessage. Defaults to the message id.</summary>
+        public const string IdempotencyKey = "Idempotency-Key";
+
+        /// <summary>Webhook header carrying a per-delivery id, identical across retries of one delivery. Lets receivers deduplicate.</summary>
+        public const string DeliveryId = "X-A2A-Delivery-Id";
+
+        /// <summary>Standard SSE resume header. Value is the last <c>id:</c> the client received (<c>{taskId}:{sequence}</c>).</summary>
+        public const string LastEventId = "Last-Event-ID";
+
         /// <summary>Webhook header carrying <see cref="TaskPushNotificationConfig.Token"/>.</summary>
         public const string NotificationToken = "X-A2A-Notification-Token";
 

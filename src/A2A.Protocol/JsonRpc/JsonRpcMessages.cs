@@ -1,4 +1,5 @@
 using System.Text.Json;
+using A2A.Json;
 using System.Text.Json.Serialization;
 
 namespace A2A.JsonRpc;
@@ -68,7 +69,7 @@ public sealed class JsonRpcError
     public List<JsonElement>? Data
     {
         get => DataRaw is { ValueKind: JsonValueKind.Array } a ? a.EnumerateArray().ToList() : null;
-        set => DataRaw = value is null ? null : JsonSerializer.SerializeToElement(value);
+        set => DataRaw = value is null ? null : A2AJson.SerializeToElement(value);
     }
 
     public A2AException ToException()

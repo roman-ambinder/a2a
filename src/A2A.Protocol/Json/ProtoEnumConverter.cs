@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -15,7 +16,8 @@ public sealed class ProtoNameAttribute(string name) : Attribute
 /// Serializes enums using their ProtoJSON names (spec §5.5). Unknown names read as the zero value
 /// (the <c>*_UNSPECIFIED</c> member) so that newer peers do not break older ones. Integer values are accepted on read.
 /// </summary>
-public sealed class ProtoEnumConverter<TEnum> : JsonConverter<TEnum> where TEnum : struct, Enum
+public sealed class ProtoEnumConverter<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields)] TEnum> : JsonConverter<TEnum>
+    where TEnum : struct, Enum
 {
     private static readonly Dictionary<TEnum, string> ToName = new();
     private static readonly Dictionary<string, TEnum> FromName = new(StringComparer.Ordinal);

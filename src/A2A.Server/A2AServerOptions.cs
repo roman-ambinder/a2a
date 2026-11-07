@@ -1,3 +1,4 @@
+using A2A.Server.Idempotency;
 using A2A.Server.Push;
 
 namespace A2A.Server;
@@ -5,7 +6,11 @@ namespace A2A.Server;
 public sealed class A2AServerOptions
 {
     /// <summary>The public Agent Card. Required.</summary>
-    public AgentCard AgentCard { get; set; } = new();
+    public AgentCard AgentCard { get; set; } = new()
+    {
+        Name = string.Empty, Description = string.Empty, SupportedInterfaces = [], Version = string.Empty,
+        Capabilities = new(), DefaultInputModes = [], DefaultOutputModes = [], Skills = [],
+    };
 
     /// <summary>Accepted protocol versions (Major.Minor). Default {"1.0"}.</summary>
     public ISet<string> SupportedVersions { get; } = new HashSet<string>(StringComparer.Ordinal) { A2AProtocol.Version };
@@ -17,8 +22,13 @@ public sealed class A2AServerOptions
     /// </summary>
     public bool TreatMissingVersionAsCurrent { get; set; }
 
-    /// <summary>Reject unauthenticated callers on every operation. Default false (use endpoint authorization instead).</summary>
-    public bool RequireAuthenticatedCaller { get; set; }
+    /// <summary>
+    /// Allow callers that are not authenticated. Default false: at startup the ASP.NET Core layer fails unless every A2A
+    /// endpoint has an authorization policy (<c>MapA2A(...).RequireAuthorization()</c>). Set true to opt in to anonymous
+    /// access. All anonymous callers then share one owner (<see cref="ServerCallContext.AnonymousPrincipal"/>) and can
+    /// read each other's tasks. A warning is logged once at startup.
+    /// </summary>
+    public bool AllowAnonymous { get; set; }
 
     /// <summary>
     /// Returns the extended card for an authenticated caller (spec §3.1.11). Requires
@@ -31,6 +41,47 @@ public sealed class A2AServerOptions
     /// <summary>How long CancelTask waits for a running execution to stop. Default 5 seconds.</summary>
     public TimeSpan CancelGracePeriod { get; set; } = TimeSpan.FromSeconds(5);
 
-    /// <summary>Upper bound on ListTasks page size. Default 100 (spec).</summary>
-    public int MaxPageSize { get; set; } = 100;
+    /// <summary>
+    /// Append the exception type and message to the text of unexpected (non-A2A) errors sent to callers.
+    /// Null (default) means true only when the host environment is Development. The ASP.NET Core layer resolves the null.
+    /// </summary>
+    public bool? IncludeExceptionDetails { get; set; }
+
+    /// <summary>Which task states accept follow-up messages. Default <see cref="Server.FollowUpPolicy.InterruptedOnly"/>.</summary>
+    public FollowUpPolicy FollowUpPolicy { get; set; } = FollowUpPolicy.InterruptedOnly;
+
+    /// <summary>How to treat an unknown client-supplied contextId on a new task. Default <see cref="Server.ClientContextIdPolicy.Reject"/>.</summary>
+    public ClientContextIdPolicy ClientContextIdPolicy { get; set; } = ClientContextIdPolicy.Reject;
+
+    /// <summary>Size, count and time limits (request body, parts, JSON depth, history, page size, streams, push configs).</summary>
+    public A2ALimits Limits { get; } = new();
+
+    /// <summary>Event log retention and SSE keep-alive settings.</summary>
+    public StreamingOptions Streaming { get; } = new();
+
+    /// <summary>
+    /// Idempotent SendMessage (retention and size of the in-memory store). A retried SendMessage with the same
+    /// <c>Idempotency-Key</c> header, or without one the same message id, from the same tenant and principal is answered with
+    /// the first request's task or reply instead of running again.
+    /// </summary>
+    public IdempotencyOptions Idempotency { get; } = new();
+
+    /// <summary>
+    /// Rate limit callers per tenant and principal (ASP.NET Core layer, policy <c>"a2a"</c>). Default true. When true the host
+    /// must call <c>app.UseA2A()</c> (it adds the rate limiter middleware) or startup fails. Set false to turn rate limiting off.
+    /// </summary>
+    public bool EnableRateLimiting { get; set; } = true;
+}
+
+/// <summary>Settings for the per-task event log and for SSE streams.</summary>
+public sealed class StreamingOptions
+{
+    /// <summary>Events kept per task for replay. Default 1000.</summary>
+    public int ReplayBufferSize { get; set; } = 1000;
+
+    /// <summary>How long a terminal task's events are kept after it finishes. Default 10 minutes.</summary>
+    public TimeSpan TerminalRetention { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>Interval for SSE keep-alive comments while a stream is idle. Default 15 seconds. Zero disables.</summary>
+    public TimeSpan KeepAliveInterval { get; set; } = TimeSpan.FromSeconds(15);
 }

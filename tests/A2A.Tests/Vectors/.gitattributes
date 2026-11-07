@@ -1,0 +1,2 @@
+# Vector bytes are signed: never convert line endings.
+* -text

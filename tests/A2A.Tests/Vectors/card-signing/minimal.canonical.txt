@@ -1,0 +1,1 @@
+{"defaultInputModes":["text/plain"],"defaultOutputModes":["text/plain"],"description":"Agent used for signing vectors.","name":"Vector Agent","skills":[{"description":"Echoes the input.","id":"echo","name":"Echo","tags":["echo"]}],"supportedInterfaces":[{"protocolBinding":"JSONRPC","protocolVersion":"1.0","url":"https://agent.example/a2a"}],"version":"1.0.0"}

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace A2A.Client;
@@ -23,7 +24,8 @@ public interface IA2AClientFactory
     ValueTask<A2AClient> GetClientAsync(string name, CancellationToken cancellationToken = default);
 }
 
-internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFactory, IOptionsMonitor<A2ANamedClientOptions> options) : IA2AClientFactory
+internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFactory, IOptionsMonitor<A2ANamedClientOptions> options,
+    ILoggerFactory? loggerFactory = null) : IA2AClientFactory
 {
     private readonly ConcurrentDictionary<string, Lazy<Task<A2AClient>>> _clients = new();
 
@@ -41,12 +43,14 @@ internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFacto
         }
     }
 
-    private Task<A2AClient> CreateAsync(string name)
+    private async Task<A2AClient> CreateAsync(string name)
     {
         var o = options.Get(name);
         if (o.AgentUrl is null) throw new InvalidOperationException($"A2A client '{name}' has no AgentUrl.");
         var http = httpClientFactory.CreateClient(HttpClientName(name));
-        return A2AClientFactory.CreateAsync(o.AgentUrl, http, o.Client, o.Resolver);
+        var resolver = new A2ACardResolver(http, o.Resolver, loggerFactory?.CreateLogger<A2ACardResolver>());
+        var card = await resolver.GetAgentCardAsync(o.AgentUrl).ConfigureAwait(false);
+        return A2AClientFactory.Create(card, http, o.Client);
     }
 
     internal static string HttpClientName(string name) => "A2A:" + name;
@@ -55,7 +59,7 @@ internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFacto
 public static class A2AClientServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers a named A2A client. Returns the <see cref="IHttpClientBuilder"/> so you can add auth handlers,
+    /// Registers a named A2A client with safe defaults (no cookies, no redirects, infinite HttpClient timeout). Returns the <see cref="IHttpClientBuilder"/> so you can add auth handlers,
     /// resilience, or a primary handler.
     /// </summary>
     public static IHttpClientBuilder AddA2AClient(this IServiceCollection services, string name, Action<A2ANamedClientOptions> configure)
@@ -63,7 +67,12 @@ public static class A2AClientServiceCollectionExtensions
         services.Configure(name, configure);
         services.AddHttpClient();
         services.AddSingleton<IA2AClientFactory, DefaultA2AClientFactory>();
-        return services.AddHttpClient(DefaultA2AClientFactory.HttpClientName(name));
+        return services.AddHttpClient(DefaultA2AClientFactory.HttpClientName(name))
+            // No cookies and no redirects: a redirect would carry credentials to another origin. Replace it with
+            // ConfigurePrimaryHttpMessageHandler on the returned builder if you need something else.
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { UseCookies = false, AllowAutoRedirect = false })
+            // The limit is per call (A2ARequestOptions.Timeout, default 100 s for unary calls, none for streams).
+            .ConfigureHttpClient(c => c.Timeout = Timeout.InfiniteTimeSpan);
     }
 
     /// <summary>Adds a bearer token to every request, fetched from <paramref name="tokenProvider"/> (cache inside it).</summary>
