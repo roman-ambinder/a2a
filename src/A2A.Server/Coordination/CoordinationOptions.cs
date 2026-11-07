@@ -10,7 +10,8 @@ public sealed class CoordinationOptions
     /// <summary>
     /// How long an execution's lease lasts without a heartbeat. An instance that dies mid-execution is noticed this long after
     /// its last heartbeat. Must be longer than 2 × <see cref="Heartbeat"/>, so one missed heartbeat does not expire a live
-    /// execution. Default 30 seconds.
+    /// execution. An execution whose heartbeats lapse past it (for example a long pause, or a coordinator outage) is treated as
+    /// dead: the retention sweep marks its task FAILED, and its later events are dropped. Default 30 seconds.
     /// </summary>
     public TimeSpan LeaseTtl { get; set; } = TimeSpan.FromSeconds(30);
 

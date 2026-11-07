@@ -54,6 +54,30 @@ public sealed class RetentionTests
         return ActivatorUtilities.CreateInstance<A2ARetentionService>(host.App.Services, Options.Create(options));
     }
 
+    /// <summary>
+    /// Two instances on <paramref name="clock"/> that share in-memory stores and a coordinator. Instance A reaches the
+    /// coordinator through a <see cref="DyingCoordinator"/>, so a test can stop its heartbeats as if A died.
+    /// </summary>
+    private static async Task<(TestAgentHost A, TestAgentHost B, InMemoryExecutionCoordinator Shared, DyingCoordinator Dying)> TwoInstancesAsync(FakeTimeProvider clock)
+    {
+        var events = new InMemoryEventStore(new StreamingOptions { TerminalRetention = TimeSpan.FromDays(30) }, clock);
+        var outbox = new InMemoryPushOutbox(clock);
+        var tasks = new InMemoryTaskStore(events, outbox);
+        var configs = new InMemoryPushConfigStore();
+        var shared = new InMemoryExecutionCoordinator(new CoordinationOptions(), clock);
+        var dying = new DyingCoordinator(shared);
+        void Shared(IServiceCollection s)
+        {
+            s.AddSingleton<TaskStore>(tasks);
+            s.AddSingleton<EventStore>(events);
+            s.AddSingleton<PushOutbox>(outbox);
+            s.AddSingleton<PushConfigStore>(configs);
+        }
+        var a = await StartAsync(clock, services: s => { Shared(s); s.AddSingleton<ExecutionCoordinator>(dying); });
+        var b = await StartAsync(clock, services: s => { Shared(s); s.AddSingleton<ExecutionCoordinator>(shared); });
+        return (a, b, shared, dying);
+    }
+
     private static async Task EventuallyAsync(Func<Task<bool>> condition, string what)
     {
         var deadline = DateTime.UtcNow + Wait;
@@ -227,21 +251,9 @@ public sealed class RetentionTests
     public async Task Dead_execution_marks_task_failed()
     {
         var clock = NewClock();
-        var events = new InMemoryEventStore(new StreamingOptions { TerminalRetention = TimeSpan.FromDays(30) }, clock);
-        var outbox = new InMemoryPushOutbox(clock);
-        var tasks = new InMemoryTaskStore(events, outbox);
-        var configs = new InMemoryPushConfigStore();
-        var shared = new InMemoryExecutionCoordinator(new CoordinationOptions(), clock);
-        var dying = new DyingCoordinator(shared);
-        void Shared(IServiceCollection s)
-        {
-            s.AddSingleton<TaskStore>(tasks);
-            s.AddSingleton<EventStore>(events);
-            s.AddSingleton<PushOutbox>(outbox);
-            s.AddSingleton<PushConfigStore>(configs);
-        }
-        await using var a = await StartAsync(clock, services: s => { Shared(s); s.AddSingleton<ExecutionCoordinator>(dying); });
-        await using var b = await StartAsync(clock, services: s => { Shared(s); s.AddSingleton<ExecutionCoordinator>(shared); });
+        var (a, b, shared, dying) = await TwoInstancesAsync(clock);
+        await using var _a = a;
+        await using var _b = b;
 
         var taskId = await SendAsync(a, "slow");
         var key = Key(taskId);
@@ -309,12 +321,114 @@ public sealed class RetentionTests
         var record = (await host.App.Services.GetRequiredService<TaskStore>().GetAsync(key))!;
 
         // Seen at an older version (a follow-up committed since): left alone.
-        Assert.False(await host.Handler.CommitSystemStatusAsync(key, TaskState.Canceled, "late", record.Version - 1));
+        Assert.False(await host.Handler.CommitSystemStatusAsync(key, TaskState.Canceled, "late", r => r.Version == record.Version - 1));
         Assert.Equal(TaskState.InputRequired, await StateAsync(host, key));
 
-        Assert.True(await host.Handler.CommitSystemStatusAsync(key, TaskState.Canceled, "now", record.Version));
+        Assert.True(await host.Handler.CommitSystemStatusAsync(key, TaskState.Canceled, "now", r => r.Version == record.Version));
         Assert.Equal(TaskState.Canceled, await StateAsync(host, key));
         Assert.False(await host.Handler.CommitSystemStatusAsync(key, TaskState.Failed, "terminal already"));
+    }
+
+    /// <summary>
+    /// A follow-up commits its message, then (outside the task lock) starts its execution. A sweep in between must not cancel
+    /// the task: the committed reply is activity, newer than the cut-off.
+    /// </summary>
+    [Fact]
+    public async Task Accepted_follow_up_is_not_cancelled_before_its_execution_starts()
+    {
+        var clock = NewClock();
+        await using var host = await StartAsync(clock);
+        var store = host.App.Services.GetRequiredService<TaskStore>();
+        var key = Key(await SendAsync(host, "input"));
+        await host.WaitIdleAsync();
+        var waiting = (await store.GetAsync(key))!;
+        var cutoff = waiting.UpdatedAt + TimeSpan.FromMilliseconds(1);
+        await EventuallyAsync(() => Task.FromResult(DateTimeOffset.UtcNow > cutoff + TimeSpan.FromMilliseconds(5)), "the real clock passed the cut-off");
+
+        // The follow-up's message is committed (still INPUT_REQUIRED, status timestamp unchanged); no execution yet.
+        (waiting.Task.History ??= []).Add(new Message { MessageId = Message.NewId(), Role = Role.User, TaskId = key.TaskId, Parts = [Part.FromText("reply")] });
+        await store.UpdateAsync(waiting, waiting.Version);
+
+        clock.Advance(cutoff + TimeSpan.FromHours(24) - clock.GetUtcNow()); // now - 24 h lies between the question and the reply
+        await Sweeper(host).RunOnceAsync(CancellationToken.None);
+        Assert.Equal(TaskState.InputRequired, await StateAsync(host, key));
+
+        clock.Advance(TimeSpan.FromHours(24)); // no execution ever started, and the reply is old now too
+        await Sweeper(host).RunOnceAsync(CancellationToken.None);
+        Assert.Equal(TaskState.Canceled, await StateAsync(host, key));
+    }
+
+    /// <summary>A follow-up's execution runs here but its RegisterAsync failed: the coordinator does not see it, the instance does.</summary>
+    [Fact]
+    public async Task Interrupted_task_with_an_unregistered_local_execution_is_not_cancelled()
+    {
+        var clock = NewClock();
+        var coordinator = new FaultyCoordinator(clock);
+        await using var host = await StartAsync(clock, services: s => s.AddSingleton<ExecutionCoordinator>(coordinator));
+        var key = Key(await SendAsync(host, "input"));
+        await host.WaitIdleAsync();
+
+        coordinator.FailNextRegisters(1000);
+        var text = $"gate {Guid.NewGuid():N}"; // waits at the gate without leaving INPUT_REQUIRED
+        await host.Handler.SendMessageAsync(new SendMessageRequest
+        {
+            Message = new Message { MessageId = Message.NewId(), Role = Role.User, TaskId = key.TaskId, Parts = [Part.FromText(text)] },
+            Configuration = new SendMessageConfiguration { ReturnImmediately = true },
+        }, Call());
+        clock.Advance(TimeSpan.FromHours(25)); // its heartbeat fires once and fails to register again
+        Assert.False(await coordinator.IsRegisteredAsync(key));
+
+        await Sweeper(host).RunOnceAsync(CancellationToken.None);
+        Assert.Equal(TaskState.InputRequired, await StateAsync(host, key));
+
+        ScenarioAgent.Gate(text).TrySetResult();
+        await host.Handler.WhenIdleAsync().WaitAsync(Wait);
+        Assert.Equal(TaskState.Completed, await StateAsync(host, key)); // the reply was processed
+    }
+
+    /// <summary>A dead execution fails only SUBMITTED or WORKING tasks; an interrupted task waits for the interrupted timeout.</summary>
+    [Fact]
+    public async Task Dead_execution_leaves_an_interrupted_task_to_the_interrupted_timeout()
+    {
+        var clock = NewClock();
+        var (a, b, shared, dying) = await TwoInstancesAsync(clock);
+        await using var _a = a;
+        await using var _b = b;
+        var key = Key(await SendAsync(a, "auth")); // AUTH_REQUIRED while the agent on A still runs
+        await EventuallyAsync(async () => await StateAsync(b, key) == TaskState.AuthRequired, "the task asks for authorization");
+
+        dying.Die();
+        clock.Advance(HeartbeatStep);
+        clock.Advance(new CoordinationOptions().LeaseTtl); // deliberate expiry
+        Assert.Single(await shared.ListExpiredAsync(10));
+        await Sweeper(b).RunOnceAsync(CancellationToken.None);
+
+        Assert.Equal(TaskState.AuthRequired, await StateAsync(b, key));
+        Assert.Empty(await shared.ListExpiredAsync(10)); // the stale lease is still removed
+    }
+
+    /// <summary>A cancelled execution that commits once more while the admin purge runs leaves no events or deliveries behind.</summary>
+    [Fact]
+    public async Task Admin_delete_removes_data_committed_during_the_purge()
+    {
+        var events = new InMemoryEventStore(new StreamingOptions());
+        var outbox = new InMemoryPushOutbox();
+        var inner = new InMemoryTaskStore(events, outbox);
+        var store = new LateCommitTaskStore(inner);
+        var admin = new A2ATaskAdmin(store, events, new InMemoryPushConfigStore(), outbox, new InMemoryExecutionCoordinator());
+        var key = new TaskKey("", "alice", "t1");
+        var created = new TaskRecord("", "alice", new AgentTask { Id = "t1", ContextId = "c1", Status = new AgentTaskStatus { State = TaskState.Working } },
+            0, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        await inner.CommitAsync(new TaskCommit(created, 0, StreamResponse.Of(A2AJson.Clone(created.Task)), []));
+
+        Assert.True(await admin.DeleteTaskAsync(key));
+
+        Assert.True(store.LateCommitted);
+        Assert.Null(await inner.GetAsync(key));
+        var left = new List<SequencedEvent>();
+        await foreach (var e in events.ReadAfterAsync(key, 0)) left.Add(e);
+        Assert.Empty(left);
+        Assert.Equal(0, outbox.Count);
     }
 
     [Fact]
@@ -486,6 +600,42 @@ public sealed class RetentionTests
         }
         public override ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken ct = default) => inner.ListExpiredAsync(max, ct);
         public override ValueTask<bool> TryAcquireSweepLeaseAsync(string name, TimeSpan duration, CancellationToken ct = default) => inner.TryAcquireSweepLeaseAsync(name, duration, ct);
+    }
+
+    /// <summary>
+    /// Wraps an in-memory task store. Its first <see cref="DeleteAsync"/> commits one more event (with a push delivery) just
+    /// before deleting, like a cancelled execution that still commits while the task is purged.
+    /// </summary>
+    private sealed class LateCommitTaskStore(TaskStore inner) : TaskStore
+    {
+        public bool LateCommitted { get; private set; }
+
+        public override async ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default)
+        {
+            if (!LateCommitted && await inner.GetAsync(key, ct) is { } record)
+            {
+                LateCommitted = true;
+                var evt = StreamResponse.Of(new TaskArtifactUpdateEvent
+                {
+                    TaskId = key.TaskId, ContextId = record.Task.ContextId,
+                    Artifact = new Artifact { ArtifactId = "late", Parts = [Part.FromText("late")] },
+                });
+                await inner.CommitAsync(new TaskCommit(record, record.Version, evt, [new PushDelivery(key, "c1", 0, "late-delivery")]), ct);
+            }
+            return await inner.DeleteAsync(key, ct);
+        }
+
+        public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) => inner.GetAsync(key, ct);
+        public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => inner.CreateAsync(record, ct);
+        public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default) => inner.UpdateAsync(record, expectedVersion, ct);
+        public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default) => inner.CommitAsync(commit, ct);
+        public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => inner.ListAsync(query, ct);
+        public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => inner.GetContextAsync(tenant, contextId, ct);
+        public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => inner.GetOrCreateContextAsync(record, ct);
+        public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default) => inner.ListExpiredAsync(terminalBefore, max, ct);
+        public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) => inner.ListInterruptedBeforeAsync(before, max, ct);
+        public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default) => inner.DeleteContextAsync(tenant, contextId, ct);
+        public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default) => inner.ListOrphanContextsAsync(createdBefore, max, ct);
     }
 
     /// <summary>An in-memory push config store whose next <see cref="DeleteAllAsync"/> fails when asked to.</summary>

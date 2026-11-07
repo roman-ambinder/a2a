@@ -11,11 +11,13 @@ namespace A2A.Server.Retention;
 /// The retention sweep. Every <see cref="A2ARetentionOptions.SweepInterval"/>, on one instance at a time (the cluster-wide
 /// sweep lease <see cref="SweepLeaseName"/> of the <see cref="ExecutionCoordinator"/>), it:
 /// <list type="number">
-/// <item>fails the tasks whose execution stopped without ending (its lease expired: its instance died) with the status text
-/// "The agent stopped unexpectedly.", unless another execution of the task still runs;</item>
+/// <item>fails the SUBMITTED or WORKING tasks whose execution stopped without ending (its lease expired: its instance died)
+/// with the status text "The agent stopped unexpectedly.", unless another execution of the task still runs. An execution
+/// whose heartbeats lapse past <see cref="CoordinationOptions.LeaseTtl"/> (for example a long pause, or a coordinator
+/// outage) is treated as dead: its task is marked FAILED and its later events are dropped;</item>
 /// <item>cancels the tasks that waited in <c>INPUT_REQUIRED</c> or <c>AUTH_REQUIRED</c> longer than
-/// <see cref="A2AServerOptions.InterruptedTimeout"/>, with no agent running, with the status text "The task waited too long
-/// for input.";</item>
+/// <see cref="A2AServerOptions.InterruptedTimeout"/>, with no agent running and no update (such as a committed reply) since,
+/// with the status text "The task waited too long for input.";</item>
 /// <item>deletes the terminal tasks older than <see cref="A2ARetentionOptions.TaskRetention"/> with all their data
 /// (<see cref="A2ATaskAdmin.DeleteTaskAsync"/>);</item>
 /// <item>deletes the contexts older than <see cref="A2ARetentionOptions.OrphanContextRetention"/> that no task uses.</item>
@@ -181,17 +183,19 @@ public sealed class A2ARetentionService : BackgroundService
         BatchesAsync("expired execution", c => _coordinator.ListExpiredAsync(_options.BatchSize, c), RecoverAsync, e => $"of task {e.Task.TaskId}", ct);
 
     /// <summary>
-    /// An execution's lease expired: its instance died. Unless another execution of the task runs, a task that is not terminal
-    /// becomes FAILED. The expired lease is always removed, so it is not listed again.
+    /// An execution's lease expired: its instance died. A task still SUBMITTED or WORKING becomes FAILED, unless another
+    /// execution of it runs or it changed since it was read (read first, so a follow-up that starts meanwhile is seen as a
+    /// change). An interrupted task is left to the interrupted timeout. The expired lease is always removed, so it is not
+    /// listed again.
     /// </summary>
     private async Task<bool> RecoverAsync((TaskKey Task, string ExecutionId) expired, CancellationToken ct)
     {
         var (key, executionId) = expired;
-        if (!await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false)
-            && await _tasks.GetAsync(key, ct).ConfigureAwait(false) is { } record
-            && !record.Task.Status.State.IsTerminal())
+        if (await _tasks.GetAsync(key, ct).ConfigureAwait(false) is { Task.Status.State: TaskState.Submitted or TaskState.Working } record
+            && !await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false))
         {
-            if (await _handler.CommitSystemStatusAsync(key, TaskState.Failed, StoppedUnexpectedlyText, record.Version, ct).ConfigureAwait(false))
+            var seen = record.Version;
+            if (await _handler.CommitSystemStatusAsync(key, TaskState.Failed, StoppedUnexpectedlyText, r => r.Version == seen, ct).ConfigureAwait(false))
                 _logger.LogWarning("Task {TaskId}: its execution stopped without ending (its instance died); the task failed", key.TaskId);
         }
         await _coordinator.UnregisterAsync(key, executionId, ct).ConfigureAwait(false);
@@ -206,19 +210,27 @@ public sealed class A2ARetentionService : BackgroundService
     }
 
     /// <summary>
-    /// Cancels a task that is still interrupted since before <paramref name="cutoff"/> and that no execution runs. A task
-    /// that changed meanwhile (a follow-up arrived) is skipped; the next sweep looks at it again.
+    /// Cancels a task that is still interrupted since before <paramref name="cutoff"/>, was not updated since then (a committed
+    /// follow-up counts as activity, even before its execution starts), and that no execution runs. The checks are repeated
+    /// on the record the commit reads under the task lock. Returns true when the task will not be listed again.
     /// </summary>
     private async Task<bool> CancelIfWaitingAsync(TaskKey key, DateTimeOffset cutoff, CancellationToken ct)
     {
         if (await _tasks.GetAsync(key, ct).ConfigureAwait(false) is not { } record) return true;
         var status = record.Task.Status;
-        if (!status.State.IsInterrupted() || (status.Timestamp ?? record.CreatedAt) >= cutoff) return true;
+        if (!status.State.IsInterrupted() || (status.Timestamp ?? record.CreatedAt) >= cutoff) return true; // no longer listed
+        if (record.UpdatedAt >= cutoff) return false; // a reply arrived; listed until its execution changes the status
         if (await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false)) return false;
-        if (!await _handler.CommitSystemStatusAsync(key, TaskState.Canceled, InterruptedTimeoutText, record.Version, ct).ConfigureAwait(false)) return false;
+        var seen = record.Version;
+        if (!await _handler.CommitSystemStatusAsync(key, TaskState.Canceled, InterruptedTimeoutText,
+                r => r.Version == seen && StillWaiting(r, cutoff), ct).ConfigureAwait(false)) return false;
         _logger.LogInformation("Task {TaskId} waited for input longer than {Timeout}; cancelled", key.TaskId, _interruptedTimeout);
         return true;
     }
+
+    /// <summary>Interrupted, with its status and its last update both older than <paramref name="cutoff"/>.</summary>
+    private static bool StillWaiting(TaskRecord r, DateTimeOffset cutoff) =>
+        r.Task.Status.State.IsInterrupted() && (r.Task.Status.Timestamp ?? r.CreatedAt) < cutoff && r.UpdatedAt < cutoff;
 
     private Task PurgeExpiredTasksAsync(CancellationToken ct)
     {

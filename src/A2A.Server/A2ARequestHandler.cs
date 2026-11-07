@@ -1598,7 +1598,7 @@ public sealed class A2ARequestHandler : IDisposable
             exec.Cancel();
             // Before the FAILED event is published: the waiting request must see the error, not that event.
             exec.Fail(new A2AException(A2AErrorCode.Internal));
-            await TryFailStoredTaskAsync(key, contextId, scope).ConfigureAwait(false);
+            await TryFailStoredTaskAsync(key).ConfigureAwait(false);
         }
         finally
         {
@@ -1615,26 +1615,12 @@ public sealed class A2ARequestHandler : IDisposable
     /// Best effort: if the store is still failing, the task stays as it is. Subscribers and webhooks are told; the request that
     /// was running gets the error instead.
     /// </summary>
-    private async Task TryFailStoredTaskAsync(TaskKey key, string contextId, string scope)
+    private async Task TryFailStoredTaskAsync(TaskKey key)
     {
         try
         {
-            var gate = LockFor(key.Tenant, key.TaskId);
-            await gate.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                var record = await _tasks.GetAsync(key).ConfigureAwait(false);
-                if (record is null || record.Task.Status.State.IsTerminal()) return;
-                var failed = FailureEvent(key.TaskId, contextId, StoreFailureText);
-                if (await ApplyAndStoreAsync(key, record, failed).ConfigureAwait(false) is not { } stored) return;
-                _bus.Publish(scope, stored);
-                await _events.MarkTerminalAsync(key).ConfigureAwait(false);
-                _bus.Complete(scope);
-            }
-            finally
-            {
-                gate.Release();
-            }
+            // Its own execution is still running here, so the commit must not wait for it to end.
+            await CommitSystemStatusCoreAsync(key, TaskState.Failed, StoreFailureText, precondition: null, evenIfRunningHere: true, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -1646,28 +1632,37 @@ public sealed class A2ARequestHandler : IDisposable
     /// Commits a status change that no agent made (the retention sweep: interrupted-state timeout, dead execution) through the
     /// normal path: under the task lock, applied and committed with its push deliveries, then published to subscribers; a
     /// terminal state also ends the task's streams. The status message is an agent message with <paramref name="text"/>.
+    /// Nothing is written while an execution of the task runs on this instance (it may not be registered with the
+    /// coordinator yet, or its registration failed).
     /// </summary>
     /// <param name="key">The task.</param>
     /// <param name="state">The new state. Must be a valid transition from the current one, or nothing is written.</param>
     /// <param name="text">The status message text.</param>
-    /// <param name="expectedVersion">
-    /// When set, the change applies only while the stored task still has this version: a task that changed since the caller
-    /// looked at it (a follow-up, another instance's sweep) is left alone, and a version conflict is not retried.
+    /// <param name="precondition">
+    /// When set, the change applies only while the stored record (read under the lock, and again after a version conflict)
+    /// satisfies it. Use it to require the version the caller looked at, so a task that changed since is left alone.
     /// </param>
     /// <param name="ct">Cancels waiting for the task lock and the first read.</param>
-    /// <returns>True when the change was committed; false when the task is missing, terminal, changed, or the transition is invalid.</returns>
-    internal async Task<bool> CommitSystemStatusAsync(TaskKey key, TaskState state, string text, long? expectedVersion = null, CancellationToken ct = default)
+    /// <returns>
+    /// True when the change was committed; false when the task is missing, terminal, runs here, fails the precondition, or the
+    /// transition is invalid.
+    /// </returns>
+    internal Task<bool> CommitSystemStatusAsync(TaskKey key, TaskState state, string text, Func<TaskRecord, bool>? precondition = null, CancellationToken ct = default) =>
+        CommitSystemStatusCoreAsync(key, state, text, precondition, evenIfRunningHere: false, ct);
+
+    private async Task<bool> CommitSystemStatusCoreAsync(TaskKey key, TaskState state, string text, Func<TaskRecord, bool>? precondition,
+        bool evenIfRunningHere, CancellationToken ct)
     {
+        var scope = ScopeKey(key.Tenant, key.TaskId);
         var gate = LockFor(key.Tenant, key.TaskId);
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            if (!evenIfRunningHere && _running.Snapshot(scope).Any(exec => exec.Key == key)) return false;
             var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false);
-            if (record is null) return false;
+            if (record is null || record.Task.Status.State.IsTerminal()) return false;
             var evt = StatusEvent(key.TaskId, record.Task.ContextId, state, text, _time.GetUtcNow());
-            Func<TaskRecord, bool>? unchanged = expectedVersion is { } v ? r => r.Version == v : null;
-            if (await ApplyAndStoreAsync(key, record, evt, unchanged).ConfigureAwait(false) is not { } stored) return false;
-            var scope = ScopeKey(key.Tenant, key.TaskId);
+            if (await ApplyAndStoreAsync(key, record, evt, precondition).ConfigureAwait(false) is not { } stored) return false;
             _bus.Publish(scope, stored);
             if (state.IsTerminal())
             {

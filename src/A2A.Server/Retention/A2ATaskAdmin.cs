@@ -47,7 +47,12 @@ public sealed class A2ATaskAdmin
             if (_handler is not null) await _handler.CancelExecutionsAsync(key, ct).ConfigureAwait(false);
             else await _coordinator.RequestCancelAsync(key, ct).ConfigureAwait(false);
         }
-        return await PurgeAsync(key, ct).ConfigureAwait(false);
+        var deleted = await PurgeAsync(key, ct).ConfigureAwait(false);
+        // A cancelled execution may have committed while the purge ran, after its deletes: delete again (idempotent). With
+        // the task row gone, no later commit can succeed.
+        await _outbox.DeleteAllAsync(key, ct).ConfigureAwait(false);
+        await _events.DeleteAsync(key, ct).ConfigureAwait(false);
+        return deleted;
     }
 
     /// <summary>

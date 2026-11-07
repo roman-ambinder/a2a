@@ -67,7 +67,8 @@ public sealed class A2AServerOptions
     /// long for input." (sent to streams and webhooks like any final event). Measured from the task's status timestamp, on the
     /// sweep's clock, so a task is cancelled up to one sweep interval late. Separate from <see cref="MaxTaskDuration"/>, which
     /// limits running executions. Null turns the timeout off; otherwise it must be positive (checked when the sweep starts).
-    /// Default 24 hours.
+    /// Default 24 hours. This timeout, dead-execution recovery and the retention purges run only when
+    /// <c>AddA2ARetention</c> is registered; without it this setting has no effect.
     /// </summary>
     public TimeSpan? InterruptedTimeout { get; set; } = TimeSpan.FromHours(24);
 
