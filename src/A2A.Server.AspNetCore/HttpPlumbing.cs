@@ -35,7 +35,9 @@ internal static class HttpPlumbing
         if (user.Identity?.IsAuthenticated == true)
         {
             principal = principalResolver.Resolve(user);
-            if (string.IsNullOrEmpty(principal)) throw new A2AException(A2AErrorCode.Unauthenticated);
+            // "anonymous" is reserved for unauthenticated callers, also when a custom resolver returns it.
+            if (string.IsNullOrEmpty(principal) || string.Equals(principal, ServerCallContext.AnonymousPrincipal, StringComparison.Ordinal))
+                throw new A2AException(A2AErrorCode.Unauthenticated);
         }
 
         return new ServerCallContext

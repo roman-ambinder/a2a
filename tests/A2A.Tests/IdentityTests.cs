@@ -19,6 +19,46 @@ public class IdentityTests
         Assert.Equal(ServerCallContext.AnonymousPrincipal, rec!.Owner);
     }
 
+    [Theory]
+    [InlineData(System.Security.Claims.ClaimTypes.NameIdentifier)]
+    [InlineData("sub")]
+    public void Default_resolver_refuses_the_anonymous_principal_id(string claim)
+    {
+        var user = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+            [new System.Security.Claims.Claim(claim, ServerCallContext.AnonymousPrincipal)], "Test"));
+
+        Assert.Null(new DefaultPrincipalResolver().Resolve(user));
+    }
+
+    /// <summary>An authenticated caller whose id is "anonymous" must not become the owner shared by anonymous callers.</summary>
+    [Theory]
+    [MemberData(nameof(BindingTests.Bindings), MemberType = typeof(BindingTests))]
+    public async Task Authenticated_caller_with_id_anonymous_is_unauthenticated_not_anonymous(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync(o => o.AllowAnonymous = true, requireAuth: false);
+        var anonymousTask = (await host.Client(binding, user: null).SendMessageAsync("input")).RequireTask();
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(binding, user: ServerCallContext.AnonymousPrincipal).GetTaskAsync(anonymousTask.Id));
+
+        Assert.Equal(A2AErrorCode.Unauthenticated, ex.Code);
+        Assert.Equal(401, ex.HttpStatus);
+    }
+
+    private sealed class FixedResolver(string id) : IPrincipalResolver
+    {
+        public string? Resolve(System.Security.Claims.ClaimsPrincipal user) => id;
+    }
+
+    [Fact]
+    public async Task Custom_resolver_returning_anonymous_is_rejected_too()
+    {
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<IPrincipalResolver>(new FixedResolver(ServerCallContext.AnonymousPrincipal)));
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(ProtocolBindings.HttpJson).GetTaskAsync("t1"));
+
+        Assert.Equal(A2AErrorCode.Unauthenticated, ex.Code);
+    }
+
     [Fact]
     public void Body_tenant_conflicting_with_route_tenant_is_rejected()
     {
