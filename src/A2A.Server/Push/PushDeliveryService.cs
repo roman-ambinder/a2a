@@ -68,8 +68,8 @@ public sealed class PushDeliveryService : BackgroundService
         _notifications = options.Value.PushNotifications;
         _slots = new SemaphoreSlim(Math.Max(1, _options.BatchSize));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
-        _sender = new PushWebhookSender(httpClientFactory, options.Value.PushNotifications, _logger);
         _time = time ?? TimeProvider.System;
+        _sender = new PushWebhookSender(httpClientFactory, options.Value.PushNotifications, _logger, _time);
     }
 
     /// <summary>Checks the options (<see cref="ValidateOptions"/>), then starts sending.</summary>
@@ -81,16 +81,22 @@ public sealed class PushDeliveryService : BackgroundService
     }
 
     /// <summary>
-    /// Throws <see cref="InvalidOperationException"/> unless <see cref="PushDeliveryOptions.Lease"/> is longer than twice
-    /// <see cref="PushNotificationOptions.Timeout"/> (DNS check plus POST) plus 5 seconds: a send must end before its lease
-    /// does, or another instance could lease and send the same delivery at the same time.
+    /// Throws <see cref="InvalidOperationException"/> unless <see cref="PushNotificationOptions.Timeout"/> is positive and
+    /// finite, <see cref="PushDeliveryOptions.PollInterval"/> is positive, and <see cref="PushDeliveryOptions.Lease"/> is longer
+    /// than twice the timeout (DNS check plus POST) plus 5 seconds: a send must end before its lease does, or another
+    /// instance could lease and send the same delivery at the same time.
     /// </summary>
     internal void ValidateOptions()
     {
-        var min = (2 * _notifications.Timeout) + TimeSpan.FromSeconds(5);
-        if (_options.Lease <= min)
+        var timeout = _notifications.Timeout;
+        if (timeout <= TimeSpan.Zero || timeout == Timeout.InfiniteTimeSpan)
+            throw new InvalidOperationException($"PushNotifications.Timeout ({timeout}) must be a positive, finite time span.");
+        if (_options.PollInterval <= TimeSpan.Zero)
+            throw new InvalidOperationException($"PushDelivery.PollInterval ({_options.PollInterval}) must be greater than zero.");
+        // In 128-bit ticks, so a huge timeout cannot overflow.
+        if ((Int128)_options.Lease.Ticks <= (2 * (Int128)timeout.Ticks) + TimeSpan.FromSeconds(5).Ticks)
             throw new InvalidOperationException(
-                $"PushDelivery.Lease ({_options.Lease}) must be longer than 2 x PushNotifications.Timeout + 5 s ({min}), " +
+                $"PushDelivery.Lease ({_options.Lease}) must be longer than 2 x PushNotifications.Timeout ({timeout}) + 5 s, " +
                 "so a webhook send (DNS check and POST) always ends before its lease.");
     }
 
@@ -223,8 +229,21 @@ public sealed class PushDeliveryService : BackgroundService
             switch (result.Outcome)
             {
                 case PushSendOutcome.Sent:
-                    Deliveries.Add(1, new KeyValuePair<string, object?>("outcome", "sent"));
-                    if (!await _outbox.CompleteAsync(entry, CancellationToken.None).ConfigureAwait(false)) LogLostLease(d);
+                    bool completed;
+                    try
+                    {
+                        completed = await _outbox.CompleteAsync(entry, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        // The receiver got the delivery. Do not count a failed attempt (that would reschedule and resend it
+                        // at once): the lease ends, and the delivery is sent again (at least once).
+                        _logger.LogWarning(ex, "Sent push delivery {Sequence} of task {TaskId} to webhook {ConfigId}, but could not record it; it is sent again when its lease ends",
+                            d.Sequence, d.Task.TaskId, d.ConfigId);
+                        return;
+                    }
+                    if (completed) Deliveries.Add(1, new KeyValuePair<string, object?>("outcome", "sent"));
+                    else LogLostLease(d);
                     break;
                 case PushSendOutcome.Retry:
                     await RetryOrDeadLetterAsync(entry, attempt, activity, result.Error!, result.ErrorType!).ConfigureAwait(false);

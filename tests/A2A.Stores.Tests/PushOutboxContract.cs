@@ -316,6 +316,27 @@ public abstract class PushOutboxContract
         Assert.IsType<TaskEvent>(A2AJson.Deserialize<StreamResponse>(Utf8(entry.Payload))); // the first event's body, not the second's
     }
 
+    [SkippableFact]
+    public async Task Redrive_on_a_key_collision_keeps_the_pending_entry_and_the_dead_letter()
+    {
+        var (tasks, events, outbox) = await CreateWithEventsAsync(_time);
+        var first = (await CommitAsync(tasks, Alice, "c1"))[0];
+        Assert.True(await outbox.DeadLetterAsync(Assert.Single(await outbox.LeaseDueAsync(10, Lease)), "HTTP 500"));
+        // The finished task's log expires, so the next event restarts at sequence 1: the key of the dead letter.
+        await events.MarkTerminalAsync(Alice);
+        _time.Advance(TimeSpan.FromDays(1));
+        var second = (await CommitAsync(tasks, Alice, "c1"))[0];
+        Assert.Equal(first.Sequence, second.Sequence);
+        var leased = Assert.Single(await outbox.LeaseDueAsync(10, Lease));
+        Assert.Equal(second.DeliveryId, leased.Delivery.DeliveryId);
+
+        Assert.False(await outbox.RedriveAsync(first));
+
+        Assert.Equal(first.DeliveryId, Assert.Single(await outbox.ListDeadLettersAsync("t", 10)).Delivery.DeliveryId); // not deleted
+        Assert.Empty(await outbox.LeaseDueAsync(10, Lease)); // the lease is untouched
+        Assert.True(await outbox.CompleteAsync(leased)); // and so is its token
+    }
+
     private static OutboxEntry Entry(IEnumerable<OutboxEntry> leased, PushDelivery d) => Assert.Single(leased, e => e.Delivery == d);
 
     [SkippableFact]

@@ -76,7 +76,7 @@ internal sealed class PushRig
         return deliveries.Select(d => d with { Sequence = committed.Sequence }).ToList();
     }
 
-    public PushDeliveryService NewService() => new(Outbox, Configs, Protector, new Factory(_hooks),
+    public PushDeliveryService NewService(PushOutbox? outbox = null) => new(outbox ?? Outbox, Configs, Protector, new Factory(_hooks),
         Microsoft.Extensions.Options.Options.Create(Options), logger: null, time: Time);
 
     /// <summary>Runs passes, moving the clock past every backoff, until the outbox is empty.</summary>
@@ -465,6 +465,112 @@ public class PushOutboxTests
         rig.Options.PushDelivery.Lease = TimeSpan.FromSeconds(66);
         using var valid = rig.NewService();
         valid.ValidateOptions();
+    }
+
+    [Fact]
+    public async Task Lease_check_rejects_infinite_and_non_positive_timeouts_without_overflow()
+    {
+        foreach (var timeout in new[] { Timeout.InfiniteTimeSpan, TimeSpan.Zero, TimeSpan.FromSeconds(-1), TimeSpan.MaxValue, TimeSpan.MinValue })
+        {
+            var rig = new PushRig(new ScriptedHooks());
+            rig.Options.PushNotifications.Timeout = timeout;
+            using var service = rig.NewService();
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartAsync(CancellationToken.None));
+            Assert.Contains("PushNotifications.Timeout", ex.Message);
+        }
+        var huge = new PushRig(new ScriptedHooks());
+        huge.Options.PushNotifications.Timeout = TimeSpan.MaxValue;
+        huge.Options.PushDelivery.Lease = TimeSpan.MaxValue;
+        using var hugeService = huge.NewService();
+        Assert.Contains("PushDelivery.Lease", Assert.Throws<InvalidOperationException>(hugeService.ValidateOptions).Message);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task Poll_interval_must_be_positive(int seconds)
+    {
+        var rig = new PushRig(new ScriptedHooks());
+        rig.Options.PushDelivery.PollInterval = seconds == 0 ? TimeSpan.Zero : Timeout.InfiniteTimeSpan;
+        using var service = rig.NewService();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartAsync(CancellationToken.None));
+        Assert.Contains("PushDelivery.PollInterval", ex.Message);
+    }
+
+    /// <summary>An outbox whose CompleteAsync fails once, then works. Everything else goes to the inner outbox.</summary>
+    private sealed class CompleteFailsOnce(InMemoryPushOutbox inner) : PushOutbox
+    {
+        private int _failed;
+        public override ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken ct = default) => inner.LeaseDueAsync(max, lease, ct);
+        public override ValueTask<bool> CompleteAsync(OutboxEntry leased, CancellationToken ct = default) =>
+            Interlocked.Exchange(ref _failed, 1) == 0 ? throw new InvalidOperationException("outbox is down") : inner.CompleteAsync(leased, ct);
+        public override ValueTask<bool> RescheduleAsync(OutboxEntry leased, int attempt, DateTimeOffset dueAt, string error, CancellationToken ct = default) => inner.RescheduleAsync(leased, attempt, dueAt, error, ct);
+        public override ValueTask<bool> DeadLetterAsync(OutboxEntry leased, string error, CancellationToken ct = default) => inner.DeadLetterAsync(leased, error, ct);
+        public override ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken ct = default) => inner.ListDeadLettersAsync(tenant, max, ct);
+        public override ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken ct = default) => inner.RedriveAsync(d, ct);
+        public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default) => inner.DeleteAllAsync(task, ct);
+    }
+
+    [Fact]
+    public async Task Failed_complete_after_a_send_waits_for_the_lease_and_does_not_count_a_failed_attempt()
+    {
+        var hooks = new ScriptedHooks(HttpStatusCode.OK);
+        var rig = new PushRig(hooks);
+        await rig.SaveConfigAsync(Hook());
+        await rig.CommitAsync("c1");
+        var flaky = new CompleteFailsOnce(rig.Outbox);
+        using var service = rig.NewService(flaky);
+
+        long sent = 0, retried = 0;
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, l) =>
+        {
+            if (instrument.Meter.Name == "A2A" && instrument.Name == PushDeliveryService.DeliveriesCounterName) l.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, value, tags, _) =>
+        {
+            foreach (var tag in tags)
+            {
+                if (tag.Key != "outcome") continue;
+                if ((string?)tag.Value == "sent") Interlocked.Add(ref sent, value);
+                if ((string?)tag.Value == "retried") Interlocked.Add(ref retried, value);
+            }
+        });
+        listener.Start();
+
+        Assert.Equal(1, await service.RunOnceAsync(CancellationToken.None));
+        Assert.Single(hooks.Requests);
+        Assert.Equal(0, Interlocked.Read(ref sent)); // not recorded: the outbox still holds the delivery
+        Assert.Equal(0, Interlocked.Read(ref retried));
+
+        rig.Time.Advance(TimeSpan.FromSeconds(30)); // past any backoff, inside the lease
+        Assert.Equal(0, await service.RunOnceAsync(CancellationToken.None)); // still leased, not rescheduled
+        Assert.Single(hooks.Requests);
+
+        rig.Time.Advance(rig.Options.PushDelivery.Lease); // the lease ends: at-least-once sends it again, as attempt 1
+        Assert.Equal(1, await service.RunOnceAsync(CancellationToken.None));
+        Assert.Equal(2, hooks.Requests.Count);
+        Assert.Equal(0, rig.Outbox.Count);
+        Assert.Equal(1, Interlocked.Read(ref sent));
+        Assert.Empty(await rig.Outbox.ListDeadLettersAsync("", 10));
+    }
+
+    [Fact]
+    public async Task Redrive_on_a_key_collision_keeps_the_pending_entry_and_the_dead_letter()
+    {
+        var rig = new PushRig(new ScriptedHooks());
+        await rig.SaveConfigAsync(Hook());
+        var d = (await rig.CommitAsync("c1")).Single();
+        var dead = Assert.Single(await rig.Outbox.LeaseDueAsync(10, TimeSpan.FromMinutes(1)));
+        Assert.True(await rig.Outbox.DeadLetterAsync(dead, "HTTP 500"));
+        rig.Outbox.Add([d], dead.Payload); // a new entry with the dead letter's key (a task log that restarted at this sequence)
+        var leased = Assert.Single(await rig.Outbox.LeaseDueAsync(10, TimeSpan.FromMinutes(1)));
+
+        Assert.False(await rig.Outbox.RedriveAsync(d));
+
+        Assert.Single(await rig.Outbox.ListDeadLettersAsync("", 10));
+        Assert.Empty(await rig.Outbox.LeaseDueAsync(10, TimeSpan.FromMinutes(1)));
+        Assert.True(await rig.Outbox.CompleteAsync(leased));
     }
 
     [Fact]

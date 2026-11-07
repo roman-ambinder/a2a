@@ -109,8 +109,10 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
     {
         lock (_gate)
         {
-            if (!_dead.Remove((d.Task, d.ConfigId, d.Sequence), out var dead)) return ValueTask.FromResult(false);
-            Group(d, create: true)![d.Sequence] = new Entry(dead.Delivery, dead.Payload, _time.GetUtcNow());
+            if (!_dead.TryGetValue((d.Task, d.ConfigId, d.Sequence), out var dead)) return ValueTask.FromResult(false);
+            // An entry with this key is pending already: leave it (and its lease) alone, and keep the dead letter.
+            if (!Group(d, create: true)!.TryAdd(d.Sequence, new Entry(dead.Delivery, dead.Payload, _time.GetUtcNow()))) return ValueTask.FromResult(false);
+            _dead.Remove((d.Task, d.ConfigId, d.Sequence));
         }
         NotifyPending();
         return ValueTask.FromResult(true);

@@ -145,17 +145,28 @@ public sealed class PostgresPushOutbox : PushOutbox
     public override async ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(d);
+        // An entry with the same key (a task log that restarted at this sequence) is never touched: its lease and token stay,
+        // and the dead letter is kept. The NOT EXISTS leaves the dead letter in place; a racing insert of the same key makes
+        // the statement fail on the unique key, which rolls the delete back too.
         await using var cmd = _db.CreateCommand(
             $"""
-            WITH moved AS (DELETE FROM {_dead} WHERE {KeyFilter} RETURNING {Columns})
+            WITH moved AS (
+                DELETE FROM {_dead} WHERE {KeyFilter}
+                  AND NOT EXISTS (SELECT 1 FROM {_outbox} o WHERE o.tenant = $1 AND o.owner = $2 AND o.task_id = $3 AND o.config_id = $4 AND o.seq = $5)
+                RETURNING {Columns})
             INSERT INTO {_outbox} ({Columns}, due_ticks, lease_ticks, last_error)
             SELECT tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, 0, payload, $6, NULL, NULL FROM moved
-            ON CONFLICT (tenant, owner, task_id, config_id, seq) DO UPDATE SET
-                attempt = 0, due_ticks = EXCLUDED.due_ticks, lease_ticks = NULL, last_error = NULL
             """);
         AddEntryKey(cmd.Parameters, d);
         cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
-        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
+        try
+        {
+            return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            return false;
+        }
     }
 
     public override async ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default)
