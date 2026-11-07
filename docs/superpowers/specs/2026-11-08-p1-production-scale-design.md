@@ -47,10 +47,9 @@ P0 made a single process safe. P1 makes the SDK deployable for real: state survi
 P0 store contracts gain what retention, durability and multi-instance need:
 
 - `TaskStore`: `DeleteAsync(TaskKey)`, `ListExpiredAsync(DateTimeOffset terminalBefore, int max)` returning keys of terminal tasks whose last update is older than the cut-off, `DeleteContextAsync(tenant, contextId)` and `ListOrphanContextsAsync(...)` (contexts with no tasks and older than the cut-off).
-- `EventStore`: `AppendAsync` must allocate the sequence and persist the event atomically (a reader that sees sequence N can read every sequence < N that was not trimmed). `DeleteAsync(TaskKey)`; trimming of non-terminal logs by count (P0 deferred).
+- **Atomic commit (new, central):** `TaskStore.CommitAsync(TaskCommit)` performs, as one atomic unit: the task compare-and-set (expected version → version+1), the event append with its sequence allocated inside the same unit, and zero or more push-outbox entries. It returns the stored record and the event's sequence, or throws `ConcurrencyException` with nothing written. The handler's Apply → Update → Append → Enqueue path becomes Apply → `CommitAsync` → Publish. Consequences: the event log is always in apply order across instances (log order = CAS order), a crash can't leave an applied event out of the log or the outbox, and `IPushNotificationSender.Enqueue` is replaced by outbox entries in the commit (the in-memory outbox keeps the non-blocking behaviour). `EventStore` stays the read side (`ReadAfterAsync`, `LastSequenceAsync`, `OldestRetainedAsync`) plus `TrimAsync(TaskKey, keepLast)` and `DeleteAsync(TaskKey)` for durable stores (the in-memory store already trims by count). In-memory implements `CommitAsync` under its existing lock.
 - `PushConfigStore`: `DeleteAllAsync(TaskKey)`; `SaveIfUnderLimitAsync(record, limit)` so the per-task cap is atomic (P0 deferred race).
-- `IdempotencyStore`: `InProgress` across instances is expressed without a process-local `Task`: the result carries the outcome key, and callers wait through `WaitForOutcomeAsync(scope, ct)` which a provider implements by subscription or bounded polling. `DeleteExpiredAsync(now)`; per-principal entry cap (P0 deferred LRU flush).
-- `ICardPinStore`: `CompareAndSetAsync(origin, expected, pin)` (P0 deferred race).
+- `IdempotencyStore`: `InProgress` across instances no longer carries a process-local `Task`. Callers wait through `WaitForOutcomeAsync(scope, ct)` (provider: subscription or polling every 250 ms). An in-progress claim has a lease equal to the execution lease (30 s, renewed by the heartbeat); a claim whose lease expired without an outcome counts as abandoned, so the next `TryBeginAsync` returns `New`. `DeleteExpiredAsync(now)`; per-principal entry cap (P0 deferred LRU flush).
 - New: `PushOutbox` (6.4) and `ExecutionCoordinator` (6.3).
 
 All additions are abstract members with in-memory implementations; the contract tests cover them.
@@ -60,12 +59,14 @@ All additions are abstract members with in-memory implementations; the contract 
 - **EF Core** (`AddA2AEntityFrameworkStores<TDbContext>()` where the host's DbContext calls `modelBuilder.AddA2AModel()`): tables for tasks (tenant, owner, task id, version, JSON payload, timestamps, terminal flag), contexts, events (tenant, owner, task id, sequence, JSON), push configs (secrets stored protected, as in P0), idempotency entries, outbox. Optimistic concurrency via the version column (`UPDATE ... WHERE version = @expected`). Sequence allocation in the same transaction as the insert (`MAX(sequence)+1` under the task row lock, or a per-task counter row). Migrations: the package ships the model; hosts generate migrations (documented, with a sample).
 - **Redis** (`AddA2ARedis(options)`): tasks as hashes with a version field updated by a Lua compare-and-set script; events in a per-task stream or sorted set with an atomic `INCR`+write script; push configs, idempotency (with `SET NX` + TTL), contexts, card pins. Keys prefixed by a configurable namespace and include tenant and owner.
 - Owner scoping is part of every key/primary key, exactly as `TaskKey` in P0. No provider API fetches by task id alone.
+- Durable providers require a shared `IPushSecretProtector` (e.g. `AddA2ADataProtectionPushSecrets()` with a shared key ring): `AddA2AEntityFrameworkStores`/`AddA2ARedis` fail at startup if the per-process ephemeral protector is still registered, since another instance could not decrypt secrets it saved. Card pins are client-side and stay out of the server providers.
 
 ### 6.3 Multi-instance coordination
 
-- `TaskEventBus` gains a Redis implementation (pub/sub, one channel per tenant+task). Instances publish after the store write (P0 order: Apply → Update → Append → Publish). Live subscribers already de-duplicate and gap-fill from the event store (P0 T12), which, together with atomic sequence allocation (6.1), makes cross-instance delivery gap-free and in order.
+- `TaskEventBus` becomes an abstract class with an async `SubscribeAsync(TaskKey)` that returns only once the subscription is active (Redis SUBSCRIBE is async, and P0 correctness needs subscribe-before-read). `Publish`/`Complete` stay non-blocking: providers queue them to a per-instance ordered background publisher. Keys are `TaskKey`, not the internal composite string. Redis implementation: pub/sub, one channel per tenant+owner+task. Instances publish after `CommitAsync`. Live subscribers already de-duplicate and gap-fill from the event store (P0 T12); with the atomic commit (6.1) the log is in apply order, so cross-instance delivery is gap-free and in order.
 - `ExecutionCoordinator` (new, abstract; in-memory and Redis implementations):
-  - `RegisterRunningAsync(TaskKey, executionId)` / `UnregisterAsync` with a lease (TTL + heartbeat) so "is any execution running for this task" is answerable cluster-wide (replaces the per-process check used by blocking idempotent retries).
+  - `RegisterRunningAsync(TaskKey, executionId)` / `UnregisterAsync` with a lease (TTL 30 s, heartbeat every 10 s) so "is any execution running for this task" is answerable cluster-wide. Blocking waits (blocking send, idempotent replays) no longer await process-local `Task`s: they wait on the bus for status events and re-check `IsRunningAsync` every second.
+  - **Instance death:** when an execution's lease expires without unregistering, the retention service (6.8) commits FAILED with status text "The agent stopped unexpectedly." (normal commit path, so subscribers and webhooks see it). Executions are never re-run automatically.
   - `RequestCancelAsync(TaskKey)`: broadcasts a cancel signal; the instance running the execution cancels it. CancelTask waits for the CANCELED status via the bus, with the existing grace period.
 - Per-task mutual exclusion stays optimistic across instances (version CAS + retry, as P0 designed); the per-process lock remains an optimisation.
 - Stream admission limits stay per instance (documented).
@@ -75,7 +76,7 @@ All additions are abstract members with in-memory implementations; the contract 
 - `PushOutbox` (abstract; in-memory, EF Core, Redis): `EnqueueAsync(delivery)` is called inside the per-task lock after Append (non-blocking: a single store write); a `PushDeliveryService` (hosted service) leases due deliveries, sends them, and records the result.
 - Retry: exponential backoff with jitter (initial 1 s, max 5 min, max 10 attempts — options); delivery order per task+config is preserved (a delivery is not sent until the previous one for the same task+config succeeded or was dead-lettered).
 - Dead letter: after the last attempt the delivery moves to a dead-letter list, queryable and re-drivable through an admin API (`A2APushAdmin`), with a counter metric.
-- Signature: Standard Webhooks headers on every delivery: `webhook-id` (= the existing `X-A2A-Delivery-Id`), `webhook-timestamp` (unix seconds), `webhook-signature: v1,<base64(HMAC-SHA256(key, id + "." + timestamp + "." + body))>`. Key = the push config's `token` when it is at least 16 bytes; otherwise the delivery is unsigned (and the existing token header still sent). The P0 headers stay for compatibility.
+- Signature: Standard Webhooks headers on signed deliveries: `webhook-id` (= the existing `X-A2A-Delivery-Id`), `webhook-timestamp` (unix seconds), `webhook-signature: v1,<base64(HMAC-SHA256(secret, id + "." + timestamp + "." + body))>`. The signing secret is NOT the token (the token travels in plain on every delivery). The client supplies it through the existing v1.0 field `authentication` with `scheme = "webhook-signature"` and `credentials = "whsec_<base64>"` (≥ 16 bytes). That scheme is never sent as an `Authorization` header; it is stored protected like other secrets and redacted on read. Without it, deliveries are unsigned. The token header and other P0 headers stay unchanged for compatibility.
 - `PushNotificationReceiver` gains `VerifySignature(headers, body, key, tolerance = 5 min)` with constant-time compare and timestamp tolerance; replay protection through its existing delivery-id memory.
 - The P0 SSRF guard runs for every attempt (unchanged).
 
@@ -83,25 +84,26 @@ All additions are abstract members with in-memory implementations; the contract 
 
 - `AgentCardProvider` (abstract): `GetCardAsync(AgentRequestScope)` and `GetExtendedCardAsync(ServerCallContext)`, where `AgentRequestScope` carries tenant and route values. Default: the single configured card (P0 behaviour).
 - `AgentExecutorResolver` (abstract): resolves the `IAgentExecutor` for a call from tenant/route. Default: the single registered executor.
-- `MapA2A("/{tenant}/...")` plus a well-known card endpoint per tenant (`/{tenant}/.well-known/agent-card.json`) served by the provider; card signing per agent (the provider may return a signing key).
+- **Rule: one agent = one tenant.** A route-based host maps its agent route segment to the tenant through `ITenantResolver`. `TaskKey` and every store key stay (tenant, owner, task), so agents can never see each other's tasks, and background paths (retention, cross-instance cancel, outbox) resolve the executor and card from the tenant alone.
+- `MapA2A("/{tenant}/...")` and the `/{tenant}` sibling routes already exist (P0). New: a well-known card endpoint per tenant (`/{tenant}/.well-known/agent-card.json`) served by the provider, and card signing per agent (the provider may return a signing key). The existing `A2AServerOptions.ExtendedAgentCardProvider` becomes an adapter over `AgentCardProvider`. Every capability check (streaming, push, extensions, extended card) uses the card resolved for the call's tenant, not `_options.AgentCard`.
 - Tests: two tenants with different cards and executors on one host, over all three bindings; a tenant with no agent → 404 on its card and TaskNotFound-style refusal on operations.
 
 ### 6.6 Task lifecycle hardening
 
 - **Interrupted-state TTL**: `A2AServerOptions.InterruptedTimeout` (default 24 h, null disables). A task in INPUT_REQUIRED or AUTH_REQUIRED longer than that is moved to CANCELED with status text "The task waited too long for input." by the retention service; the transition goes through the normal Apply/Update/Append/Publish path so subscribers and webhooks see it.
-- **Approval binding** (S18, loopjacking): when an executor asks for authorization or confirmation it can attach a `PendingApproval` (operation id + SHA-256 of a canonical description). The status message carries the hash in metadata (`a2a.approval.hash`). A follow-up that approves must echo the hash; `TaskUpdater` exposes `ApprovalMatches(...)` and the handler rejects a follow-up whose echoed hash doesn't match the pending one with InvalidParams. The executor re-checks the hash before acting.
-- **Cancel-requested semantics**: when an execution does not stop within the grace period, CancelTask returns the task with `metadata["a2a.cancelRequested"] = true` (still WORKING) instead of TaskNotCancelable; the execution's later CANCELED arrives through the normal stream. TaskNotCancelable stays for terminal tasks.
+- **Approval binding** (S18, loopjacking): when an executor asks for authorization or confirmation it can attach a `PendingApproval` (operation id + SHA-256 of a canonical description of the exact action). The status message carries the hash in its metadata under `a2a.approval.hash`. A client that approves echoes it in the follow-up message's metadata under the same key. Handler rule: a follow-up carrying a hash that does not match the pending one → InvalidParams; a follow-up without a hash is accepted (plain v1.0 clients keep working) but reaches the executor with `AgentRequestContext.Approval = NotApproved`. `TaskUpdater`/context expose `Approval` ∈ {None (nothing pending), Approved (hash matched), NotApproved}; the SDK's helper `RequireApprovalAsync` re-asks when not approved. Executors must act only on `Approved`.
+- **Cancel-requested semantics**: only when an execution is running (anywhere in the cluster) and the task has not reached CANCELED within the grace period, CancelTask returns the current task with `metadata["a2a.cancelRequested"] = true` on the response (not persisted). The execution's later CANCELED arrives through the normal stream. TaskNotCancelable stays for terminal tasks and for an executor whose `CancelAsync` ends without cancelling while nothing is running (agent refusal).
 
 ### 6.7 Observability
 
 - `ActivitySource("A2A")`: server spans per operation (`a2a.server {method}`), client spans per call (`a2a.client {method}`), push delivery spans; attributes `rpc.system=a2a`, `rpc.method`, `a2a.task.id`, `a2a.context.id`, `a2a.tenant` (opt-in, may be sensitive), `a2a.binding`, error type. No message content in spans.
-- Trace context propagation: W3C `traceparent`/`tracestate` over HTTP and gRPC (ASP.NET Core and HttpClient do this when an ActivitySource listener is active); additionally copied into message and push-payload metadata under `traceparent` so asynchronous paths (push, follow-ups) keep the trace.
+- Trace context propagation: W3C `traceparent`/`tracestate` over HTTP and gRPC (ASP.NET Core and HttpClient do this when an ActivitySource listener is active); additionally copied into the SendMessage request-level metadata (`SendMessageRequest.metadata`, which `RequestHasher` does not hash, so idempotent retries still match) and into push-payload event metadata, both under `traceparent`, so asynchronous paths keep the trace. Never into message metadata (it is hashed and stored in history).
 - `Meter("A2A")`: `a2a.server.requests` (counter, by method/outcome), `a2a.server.request.duration` (histogram), `a2a.server.active_streams` (up-down counter), `a2a.push.deliveries` (by outcome), `a2a.push.dead_letters`, plus the P0 counters already defined. Names follow OpenTelemetry RPC semantic conventions where they fit; GenAI conventions are not applicable to transport-level spans and are left to agent code.
 - A sample shows wiring to OpenTelemetry in a host (sample only; no dependency in the libraries).
 
 ### 6.8 Retention
 
-- `A2ARetentionOptions`: `TerminalRetention` (default 7 days), `EventLogRetention` (default = TerminalRetention), `IdempotencyRetention` (P0's 24 h), `OrphanContextRetention` (default 7 days), sweep interval (default 5 min), batch size.
+- `A2ARetentionOptions`: `TaskRetention` (default 7 days: terminal tasks with their event logs, push configs and outbox entries are deleted after this), `OrphanContextRetention` (default 7 days), `IdempotencyRetention` (P0's 24 h), sweep interval (default 5 min), batch size. The existing `StreamingOptions.TerminalRetention` (10 min) and `ReplayBufferSize` (1000) keep their meaning: the replay window for resume. The in-memory event store keeps evicting through `MarkTerminalAsync`; durable stores keep the full log until `TaskRetention` deletes it, but replay still serves only the last `ReplayBufferSize` events (older cursors get a snapshot, as in P0).
 - `A2ARetentionService` (hosted service): purges expired terminal tasks with their events, push configs and outbox entries; expired idempotency entries; orphan contexts; applies the interrupted-state TTL (6.6). Multi-instance safe (each delete is idempotent; Redis/EF use a short lease so only one instance sweeps at a time).
 - Admin API (`A2ATaskAdmin`, not exposed on the wire): `DeleteTaskAsync(TaskKey)`.
 
@@ -109,7 +111,7 @@ All additions are abstract members with in-memory implementations; the contract 
 
 - Remove the public `WithA2AStartupCheck` helper (make it internal or delete) before the first NuGet release.
 - `ResumableStream`: treat a snapshot whose sequence is below the client's cursor as a server reset (re-baseline instead of dropping events).
-- Follow-up `SavePushConfigAsync` after history append: make idempotent so an abandoned claim can't double-append (use `SaveIfUnderLimitAsync` before the append).
+- Follow-up double-append after an abandoned idempotency claim (any failure after the history commit): the follow-up append becomes idempotent by `messageId` — if the task history already contains that message id, the append is skipped and the original outcome is used.
 - Anonymous per-IP limits: group IPv6 by /64.
 - gRPC: add the tenant-resolver mismatch test.
 
@@ -147,3 +149,14 @@ Table and key layouts, Lua script details, EF configuration style, internal clas
 7. Interrupted-state TTL default 24 h → CANCELED; terminal retention default 7 days.
 8. Cancel that doesn't finish in the grace period returns the WORKING task flagged `a2a.cancelRequested` instead of an error.
 9. Client resilience (gap item 16) is already done in P0 and is not repeated.
+10. One atomic `TaskStore.CommitAsync` (task CAS + event append + outbox entries) instead of separate writes; sequence order = apply order across instances.
+11. One agent = one tenant; no agent id in `TaskKey`.
+12. Instance death: execution lease 30 s / heartbeat 10 s; expired lease → task FAILED; never auto re-run; idempotency claims share the lease.
+13. Approval hash in message metadata `a2a.approval.hash`; missing hash accepted as NotApproved, mismatched hash rejected.
+14. Webhook signing secret supplied via `authentication` scheme `webhook-signature` (whsec_…), never sent on the wire; token unchanged.
+15. `StreamingOptions.TerminalRetention`/`ReplayBufferSize` remain the resume window; new `TaskRetention` governs deletion.
+16. Cancel-requested flag only on the response and only while an execution runs somewhere.
+17. `traceparent` in request-level metadata (not hashed) and push event metadata, never message metadata.
+18. `TaskEventBus` becomes abstract with async `SubscribeAsync(TaskKey)`; non-blocking ordered publish.
+19. Durable providers refuse to start with the ephemeral push-secret protector.
+20. Follow-up append de-duplicated by messageId.
