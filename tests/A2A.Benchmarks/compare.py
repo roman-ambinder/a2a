@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Compare BenchmarkDotNet results with a committed baseline.
 
-usage: compare.py <results-dir> <baseline.json> [--threshold 0.10]
+usage: compare.py <results-dir> <baseline.json> [--threshold 0.10] [--time-threshold 0.25]
        compare.py <results-dir> <baseline.json> --write-baseline   (regenerate baseline.json)
 
 Reads *-report-full-compressed.json (or *-report-full.json) files. Benchmark key is Type.Method.
-Exits 1 when a mean or allocation exceeds the baseline by more than the threshold, or a benchmark is missing on either side.
+Exits 1 when allocation exceeds the baseline by more than --threshold (default 0.10), or a benchmark is missing on either side.
+Mean time is always printed but is informational: it only fails when --time-threshold is given (timings are noisy on shared runners).
 """
 import argparse
 import glob
@@ -44,6 +45,8 @@ def main():
     ap.add_argument("results_dir")
     ap.add_argument("baseline")
     ap.add_argument("--threshold", type=float, default=0.10)
+    ap.add_argument("--time-threshold", type=float, default=None,
+                    help="also fail when mean time exceeds baseline by this fraction (default: off, informational)")
     ap.add_argument("--write-baseline", action="store_true")
     args = ap.parse_args()
 
@@ -74,14 +77,20 @@ def main():
         for metric, label in (("meanNs", "mean ns"), ("allocatedBytes", "alloc B")):
             b, c = baseline[key][metric], current[key][metric]
             change = pct(c, b)
-            bad = change > limit
+            if metric == "meanNs":
+                if args.time_threshold is None:
+                    print(f"{key:<48} {label:<10} {b:>16,.0f} {c:>16,.0f} {change:>+8.1f}%  (informational)")
+                    continue
+                bad = change > args.time_threshold * 100.0
+            else:
+                bad = change > limit
             failed |= bad
             print(f"{key:<48} {label:<10} {b:>16,.0f} {c:>16,.0f} {change:>+8.1f}%{'  REGRESSION' if bad else ''}")
 
     if failed:
-        print(f"\nFAILED: regression above {limit:.0f}% or missing benchmark")
+        print("\nFAILED: allocation (or enabled time) regression, or missing benchmark")
         return 1
-    print(f"\nOK: all benchmarks within {limit:.0f}% of baseline")
+    print(f"\nOK: allocations within {limit:.0f}% of baseline" + ("" if args.time_threshold is not None else " (time informational)"))
     return 0
 
 
