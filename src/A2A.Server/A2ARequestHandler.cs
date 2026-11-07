@@ -8,6 +8,7 @@ using A2A.Server.Push;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
 using A2A.Validation;
+using A2A.Server.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;

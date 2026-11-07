@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using A2A.Server.Push;
+using A2A.Server.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;

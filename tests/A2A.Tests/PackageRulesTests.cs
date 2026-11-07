@@ -54,3 +54,76 @@ public sealed class PackageRulesTests
         Assert.Empty(offenders);
     }
 }
+
+/// <summary>Namespaces follow assemblies and folders.</summary>
+public sealed class NamespaceRulesTests
+{
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "A2A.slnx"))) dir = dir.Parent;
+        return dir?.FullName ?? throw new InvalidOperationException("A2A.slnx not found above " + AppContext.BaseDirectory);
+    }
+
+    private static bool Under(string ns, string root) =>
+        ns == root || ns.StartsWith(root + ".", StringComparison.Ordinal);
+
+    [Fact]
+    public void Every_public_type_lives_in_a_namespace_owned_by_its_assembly()
+    {
+        System.Reflection.Assembly[] assemblies =
+        [
+            typeof(A2A.AgentCard).Assembly,
+            typeof(A2A.Security.Http.GuardedJwksFetcher).Assembly,
+            typeof(A2A.Client.A2AClient).Assembly,
+            typeof(A2A.Client.A2AClientServiceCollectionExtensions).Assembly,
+            typeof(A2A.Server.A2ARequestHandler).Assembly,
+            typeof(A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions).Assembly,
+        ];
+        var offenders = new List<string>();
+        foreach (var asm in assemblies)
+        {
+            var name = asm.GetName().Name!;
+            var root = name == "A2A.Protocol" ? "A2A" : name;
+            foreach (var t in asm.GetExportedTypes())
+            {
+                var ns = t.Namespace ?? "";
+                var ok = Under(ns, root)
+                    || (name == "A2A.Client.DependencyInjection" && ns == "A2A.Client");
+                if (name == "A2A.Protocol" && (Under(ns, "A2A.Server") || Under(ns, "A2A.Client"))) ok = false;
+                if (!ok) offenders.Add($"{name}: {t.FullName}");
+            }
+        }
+        Assert.Empty(offenders);
+    }
+
+    [Fact]
+    public void Every_source_file_namespace_matches_its_folder()
+    {
+        var src = Path.Combine(RepoRoot(), "src");
+        var nsRegex = new System.Text.RegularExpressions.Regex(@"^\s*namespace\s+([\w.]+)", System.Text.RegularExpressions.RegexOptions.Multiline);
+        var offenders = new List<string>();
+        foreach (var projDir in Directory.GetDirectories(src))
+        {
+            var project = Path.GetFileName(projDir);
+            var root = project == "A2A.Protocol" ? "A2A" : project;
+            foreach (var file in Directory.EnumerateFiles(projDir, "*.cs", SearchOption.AllDirectories))
+            {
+                var rel = Path.GetRelativePath(projDir, file);
+                var parts = rel.Split(Path.DirectorySeparatorChar);
+                if (parts[0] is "bin" or "obj") continue;
+                var m = nsRegex.Match(File.ReadAllText(file));
+                if (!m.Success) continue;
+                string expected;
+                if (parts.Length == 1 || (project == "A2A.Protocol" && parts[0] is "Models" or "Errors"))
+                    expected = root;
+                else
+                    expected = root + "." + string.Join('.', parts[..^1]);
+                // Client.DependencyInjection keeps the A2A.Client namespace so AddA2AClient needs no new using.
+                if (project == "A2A.Client.DependencyInjection" && parts.Length == 1) expected = "A2A.Client";
+                if (m.Groups[1].Value != expected) offenders.Add($"{project}/{rel}: {m.Groups[1].Value} (expected {expected})");
+            }
+        }
+        Assert.Empty(offenders);
+    }
+}

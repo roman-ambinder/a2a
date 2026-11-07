@@ -1,4 +1,4 @@
-namespace A2A.Server;
+namespace A2A.Server.Authorization;
 
 /// <summary>
 /// Optional extra authorization on top of owner-keyed storage. Called at the top of every operation, on both bindings,

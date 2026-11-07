@@ -1,4 +1,4 @@
-namespace A2A.Server;
+namespace A2A.Server.Authorization;
 
 /// <summary>The A2A operations an <see cref="A2AAuthorizationHandler"/> is asked about. Same set on every binding.</summary>
 public enum A2AOperation

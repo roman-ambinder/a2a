@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using A2A.Server;
 using A2A.Server.AspNetCore;
+using A2A.Server.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;

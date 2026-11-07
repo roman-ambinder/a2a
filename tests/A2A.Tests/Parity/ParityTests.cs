@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using A2A.Client;
 using A2A.Server;
+using A2A.Server.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 

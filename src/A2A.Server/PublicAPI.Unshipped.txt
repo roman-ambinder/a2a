@@ -1,5 +1,5 @@
-A2A.Server.A2AAuthorizationHandler
-A2A.Server.A2AAuthorizationHandler.A2AAuthorizationHandler() -> void
+A2A.Server.Authorization.A2AAuthorizationHandler
+A2A.Server.Authorization.A2AAuthorizationHandler.A2AAuthorizationHandler() -> void
 A2A.Server.A2ALimits
 A2A.Server.A2ALimits.A2ALimits() -> void
 A2A.Server.A2ALimits.MaxConcurrentStreamsPerPrincipal.get -> int
@@ -26,20 +26,20 @@ A2A.Server.A2ALimits.MaxStreamDuration.get -> System.TimeSpan
 A2A.Server.A2ALimits.MaxStreamDuration.set -> void
 A2A.Server.A2ALimits.StreamReauthInterval.get -> System.TimeSpan
 A2A.Server.A2ALimits.StreamReauthInterval.set -> void
-A2A.Server.A2AOperation
-A2A.Server.A2AOperation.CancelTask = 4 -> A2A.Server.A2AOperation
-A2A.Server.A2AOperation.CreateTaskPushNotificationConfig = 6 -> A2A.Server.A2AOperation
-A2A.Server.A2AOperation.DeleteTaskPushNotificationConfig = 9 -> A2A.Server.A2AOperation
-A2A.Server.A2AOperation.GetExtendedAgentCard = 10 -> A2A.Server.A2AOperation
-A2A.Server.A2AOperation.GetTask = 2 -> A2A.Server.A2AOperation
-A2A.Server.A2AOperation.GetTaskPushNotificationConfig = 7 -> A2A.Server.A2AOperation
-A2A.Server.A2AOperation.ListTaskPushNotificationConfigs = 8 -> A2A.Server.A2AOperation
-A2A.Server.A2AOperation.ListTasks = 3 -> A2A.Server.A2AOperation
-A2A.Server.A2AOperation.SendMessage = 0 -> A2A.Server.A2AOperation
-A2A.Server.A2AOperation.SendStreamingMessage = 1 -> A2A.Server.A2AOperation
-A2A.Server.A2AOperation.SubscribeToTask = 5 -> A2A.Server.A2AOperation
+A2A.Server.Authorization.A2AOperation
+A2A.Server.Authorization.A2AOperation.CancelTask = 4 -> A2A.Server.Authorization.A2AOperation
+A2A.Server.Authorization.A2AOperation.CreateTaskPushNotificationConfig = 6 -> A2A.Server.Authorization.A2AOperation
+A2A.Server.Authorization.A2AOperation.DeleteTaskPushNotificationConfig = 9 -> A2A.Server.Authorization.A2AOperation
+A2A.Server.Authorization.A2AOperation.GetExtendedAgentCard = 10 -> A2A.Server.Authorization.A2AOperation
+A2A.Server.Authorization.A2AOperation.GetTask = 2 -> A2A.Server.Authorization.A2AOperation
+A2A.Server.Authorization.A2AOperation.GetTaskPushNotificationConfig = 7 -> A2A.Server.Authorization.A2AOperation
+A2A.Server.Authorization.A2AOperation.ListTaskPushNotificationConfigs = 8 -> A2A.Server.Authorization.A2AOperation
+A2A.Server.Authorization.A2AOperation.ListTasks = 3 -> A2A.Server.Authorization.A2AOperation
+A2A.Server.Authorization.A2AOperation.SendMessage = 0 -> A2A.Server.Authorization.A2AOperation
+A2A.Server.Authorization.A2AOperation.SendStreamingMessage = 1 -> A2A.Server.Authorization.A2AOperation
+A2A.Server.Authorization.A2AOperation.SubscribeToTask = 5 -> A2A.Server.Authorization.A2AOperation
 A2A.Server.A2ARequestHandler
-A2A.Server.A2ARequestHandler.A2ARequestHandler(Microsoft.Extensions.DependencyInjection.IServiceScopeFactory! scopeFactory, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyStore! idempotency, A2A.Server.Storage.PushConfigStore! pushConfigs, A2A.Server.A2AAuthorizationHandler! authorization, A2A.Server.Push.IPushSecretProtector! protector, A2A.Server.Push.IPushNotificationSender! push, A2A.Server.TaskEventBus! bus, Microsoft.Extensions.Options.IOptions<A2A.Server.A2AServerOptions!>! options, Microsoft.Extensions.Logging.ILogger<A2A.Server.A2ARequestHandler!>? logger = null) -> void
+A2A.Server.A2ARequestHandler.A2ARequestHandler(Microsoft.Extensions.DependencyInjection.IServiceScopeFactory! scopeFactory, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyStore! idempotency, A2A.Server.Storage.PushConfigStore! pushConfigs, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.Push.IPushSecretProtector! protector, A2A.Server.Push.IPushNotificationSender! push, A2A.Server.TaskEventBus! bus, Microsoft.Extensions.Options.IOptions<A2A.Server.A2AServerOptions!>! options, Microsoft.Extensions.Logging.ILogger<A2A.Server.A2ARequestHandler!>? logger = null) -> void
 A2A.Server.A2ARequestHandler.AgentCard.get -> A2A.AgentCard!
 A2A.Server.A2ARequestHandler.CancelTaskAsync(A2A.CancelTaskRequest! request, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
 A2A.Server.A2ARequestHandler.CreateTaskPushNotificationConfigAsync(A2A.TaskPushNotificationConfig! config, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TaskPushNotificationConfig!>!
@@ -410,7 +410,7 @@ static A2A.Server.Streaming.StreamCursor.Format(string! taskId, long seq) -> str
 static A2A.Server.Streaming.StreamCursor.TryParse(string? value, string! expectedTaskId, out long seq) -> bool
 static A2A.Server.TaskStateMachine.AcceptsFollowUp(A2A.TaskState state, A2A.Server.FollowUpPolicy policy) -> bool
 static A2A.Server.TaskStateMachine.CanTransition(A2A.TaskState from, A2A.TaskState to) -> bool
-virtual A2A.Server.A2AAuthorizationHandler.AuthorizeAsync(A2A.Server.ServerCallContext! call, A2A.Server.A2AOperation op, object! request, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<bool>
+virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeAsync(A2A.Server.ServerCallContext! call, A2A.Server.Authorization.A2AOperation op, object! request, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<bool>
 virtual A2A.Server.TaskEventBus.Complete(string! taskId) -> void
 virtual A2A.Server.TaskEventBus.Publish(string! taskId, A2A.Server.Streaming.SequencedEvent evt) -> void
 virtual A2A.Server.TaskEventBus.Subscribe(string! taskId) -> A2A.Server.TaskEventBus.Subscription!

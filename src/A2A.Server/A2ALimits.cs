@@ -1,3 +1,5 @@
+using A2A.Server.Authorization;
+
 namespace A2A.Server;
 
 /// <summary>

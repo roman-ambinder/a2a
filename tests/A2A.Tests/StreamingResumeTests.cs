@@ -7,6 +7,7 @@ using A2A.Json;
 using A2A.Server;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
+using A2A.Server.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
