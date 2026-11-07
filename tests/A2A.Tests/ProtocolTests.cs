@@ -104,7 +104,7 @@ public class CanonicalizationTests
          "skills":[{"id":"echo","name":"Echo","description":"Echoes the input.","tags":["echo"]}]}
         """;
         var expected = "{\"capabilities\":{\"pushNotifications\":false,\"streaming\":false},\"defaultInputModes\":[\"text/plain\"],\"defaultOutputModes\":[\"text/plain\"],\"description\":\"An example agent that echoes messages.\",\"name\":\"Example Agent\",\"skills\":[{\"description\":\"Echoes the input.\",\"id\":\"echo\",\"name\":\"Echo\",\"tags\":[\"echo\"]}],\"supportedInterfaces\":[{\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\",\"url\":\"https://example.com/a2a/v1\"}],\"version\":\"1.0.0\"}";
-        Assert.Equal(expected, System.Text.Encoding.UTF8.GetString(AgentCardCanonicalizer.Normalized(JsonNode.Parse(raw)!.AsObject())));
+        Assert.Equal(expected, System.Text.Encoding.UTF8.GetString(AgentCardCanonicalizer.Canonicalize(JsonNode.Parse(raw)!.AsObject())));
     }
 }
 
@@ -114,7 +114,7 @@ public class SigningTests
     {
         Name = "Signer", Description = "d", Version = "1.0.0",
         SupportedInterfaces = [new AgentInterface { Url = "https://agent.example/a2a", ProtocolBinding = ProtocolBindings.JsonRpc }],
-        Capabilities = new AgentCapabilities { Streaming = true, Extensions = [] },
+        Capabilities = new AgentCapabilities { Streaming = true },
         DefaultInputModes = ["text/plain"], DefaultOutputModes = ["text/plain"],
         Skills = [new AgentSkill { Id = "s", Name = "S", Description = "x", Tags = ["t"] }],
     };
@@ -170,8 +170,10 @@ public class SigningTests
     }
 
     [Fact]
-    public async Task Fields_unknown_to_this_sdk_still_verify_when_raw_json_is_used()
+    public async Task Fields_outside_the_v1_schema_are_not_covered_by_the_signature()
     {
+        // a2a-python 1.2.1 and a2a-js 1.3.0 parse the card into the v1.0 schema before canonicalizing, so unknown
+        // members (including the v0.3 compatibility fields a2a-python serves) never reach the signed payload.
         var key = NewKey("ES256");
         var node = AgentCardCanonicalizer.ToNode(SampleCard());
         node["futureField"] = new JsonObject { ["x"] = 1 };
@@ -181,14 +183,14 @@ public class SigningTests
 
         var verifier = new AgentCardVerifier(new StaticKeyResolver([key.ToPublicJwk()]));
         Assert.True((await verifier.VerifyAsync(raw)).IsValid);
-        // Round-tripping through the model drops the unknown field, which breaks the signature: always verify raw JSON.
-        Assert.False((await verifier.VerifyAsync(A2AJson.Deserialize<AgentCard>(raw))).IsValid);
+        Assert.True((await verifier.VerifyAsync(raw.Replace("\"x\":1", "\"x\":2"))).IsValid);
+        Assert.True((await verifier.VerifyAsync(A2AJson.Deserialize<AgentCard>(raw))).IsValid);
     }
 
     private static AgentCardSignature SignRaw(JsonObject card, AgentCardSigningKey key)
     {
         var header = Base64Url.Encode(JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, string> { ["alg"] = key.Algorithm, ["kid"] = key.KeyId }));
-        var input = System.Text.Encoding.ASCII.GetBytes(header + "." + Base64Url.Encode(AgentCardCanonicalizer.Normalized(card)));
+        var input = System.Text.Encoding.ASCII.GetBytes(header + "." + Base64Url.Encode(AgentCardCanonicalizer.Canonicalize(card)));
         return new AgentCardSignature { Protected = header, Signature = Base64Url.Encode(JwsAlgorithms.Sign(key.Algorithm, key.Key, input)) };
     }
 

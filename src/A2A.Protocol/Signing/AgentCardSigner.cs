@@ -31,6 +31,7 @@ public sealed class AgentCardSigningKey
 public static class AgentCardSigner
 {
     /// <summary>Returns a copy of <paramref name="card"/> with a new signature appended.</summary>
+    /// <exception cref="ArgumentException">The card contains values canonicalization would remove; see <see cref="CreateSignature"/>.</exception>
     public static AgentCard Sign(AgentCard card, AgentCardSigningKey key)
     {
         var signed = A2AJson.Clone(card);
@@ -39,12 +40,21 @@ public static class AgentCardSigner
         return signed;
     }
 
+    /// <summary>Creates a detached JWS signature over the canonical form of <paramref name="card"/>.</summary>
+    /// <exception cref="ArgumentException">
+    /// The card contains values canonicalization would remove (<c>null</c>, <c>""</c>, <c>[]</c>, <c>{}</c>, a <c>false</c>
+    /// proto default, or a member outside the v1.0 schema). Such values would not be covered by the signature, and
+    /// verifiers that do not prune would compute a different payload, so they must be removed before signing.
+    /// </exception>
     public static AgentCardSignature CreateSignature(AgentCard card, AgentCardSigningKey key)
     {
+        var payload = AgentCardCanonicalizer.Canonicalize(AgentCardCanonicalizer.ToNode(card), out var removed);
+        if (removed.Count > 0)
+            throw new ArgumentException($"Card contains values that canonicalization would remove: {string.Join(", ", removed)}", nameof(card));
+
         var header = new Dictionary<string, string> { ["alg"] = key.Algorithm, ["typ"] = "JOSE", ["kid"] = key.KeyId };
         if (key.JwksUrl is not null) header["jku"] = key.JwksUrl;
         var protectedB64 = Base64Url.Encode(JsonSerializer.SerializeToUtf8Bytes(header));
-        var payload = AgentCardCanonicalizer.Normalized(card);
         var signingInput = Encoding.ASCII.GetBytes(protectedB64 + "." + Base64Url.Encode(payload));
         var sig = JwsAlgorithms.Sign(key.Algorithm, key.Key, signingInput);
         return new AgentCardSignature { Protected = protectedB64, Signature = Base64Url.Encode(sig) };

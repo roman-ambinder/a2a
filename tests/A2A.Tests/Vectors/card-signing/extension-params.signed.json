@@ -1,0 +1,92 @@
+{
+  "name": "Vector Agent",
+  "description": "Agent used for signing vectors.",
+  "supportedInterfaces": [
+    {
+      "url": "https://agent.example/a2a",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "version": "1.0.0",
+  "capabilities": {
+    "extensions": [
+      {
+        "uri": "https://ext.example/params",
+        "description": "Params of every JSON type",
+        "params": {
+          "int": 1.0,
+          "list": [
+            {
+              "k": "v"
+            },
+            {
+              "k": ""
+            }
+          ],
+          "third": 0.1,
+          "emptyList": [],
+          "negative": -42.0,
+          "😀": "astral",
+          "é": "e-acute",
+          "zero": 0.0,
+          "required": false,
+          "emptyObject": {},
+          "Ａ": "fullwidth",
+          "small": 1e-07,
+          "nested": {
+            "c": [
+              1.0,
+              "",
+              null,
+              {},
+              [],
+              "x"
+            ],
+            "d": {
+              "e": false
+            },
+            "a": {
+              "b": ""
+            }
+          },
+          "false": false,
+          "float": 1.5,
+          "emptyString": "",
+          "null": null,
+          "true": true,
+          "large": 1e+20,
+          "negZero": -0.0,
+          "maxSafe": 9007199254740991.0
+        }
+      },
+      {
+        "uri": "https://ext.example/empty-params",
+        "required": true,
+        "params": {}
+      }
+    ]
+  },
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "text/plain"
+  ],
+  "skills": [
+    {
+      "id": "echo",
+      "name": "Echo",
+      "description": "Echoes the input.",
+      "tags": [
+        "echo"
+      ]
+    }
+  ],
+  "signatures": [
+    {
+      "protected": "eyJhbGciOiJFUzI1NiIsImtpZCI6InB5LWVzMjU2IiwidHlwIjoiSk9TRSJ9",
+      "signature": "8qRSIM8qNgOYwprw3r6H8G6xc7izIZdzbSMBn3d5VIuy65rh1W5gcKRuMga-K2-N3a-0vi0lxLNug8332O4NtQ"
+    }
+  ]
+}

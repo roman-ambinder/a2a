@@ -1,0 +1,61 @@
+{
+  "name": "Ünïcødé Agent 日本",
+  "description": "Tab\there, newline\nhere, quote \" backslash \\ slash / bell \u0007 unit-sep \u001f del  line-sep   euro € clef 𝄞 emoji 😀 </script>",
+  "supportedInterfaces": [
+    {
+      "url": "https://agent.example/a2a",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "version": "1.0.0",
+  "securitySchemes": {
+    "Ａ": {
+      "mtlsSecurityScheme": {
+        "description": "fullwidth A key"
+      }
+    },
+    "Z": {
+      "mtlsSecurityScheme": {
+        "description": "ascii key"
+      }
+    },
+    "é": {
+      "mtlsSecurityScheme": {
+        "description": "e-acute key"
+      }
+    },
+    "😀": {
+      "mtlsSecurityScheme": {
+        "description": "astral key"
+      }
+    }
+  },
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "text/plain"
+  ],
+  "skills": [
+    {
+      "id": "echo",
+      "name": "Echo",
+      "description": "Echoes the input.",
+      "tags": [
+        "echo"
+      ],
+      "examples": [
+        "¿Qué tal?",
+        "你好",
+        "a\u0000b"
+      ]
+    }
+  ],
+  "signatures": [
+    {
+      "protected": "eyJhbGciOiJFUzI1NiIsImtpZCI6InB5LWVzMjU2IiwidHlwIjoiSk9TRSJ9",
+      "signature": "DIk-GHnXEyZejlrsi3407OUq2rC2tKAssgANfrw1Krxggy7kSylCJgHRdlfWKxZpDwz1kCpwxs5ZqjZ_Ck5Qsg"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "keys": [
+    {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "CkKyzbXwEChSeLAGM-Tnum5UW0x5nhP2IFJhjF7tk2E",
+      "y": "gaZdf1R0cqj7eTG-mKBXM3b7LvsIVyaWRFkCPPqNUPI",
+      "kid": "py-es256",
+      "alg": "ES256",
+      "use": "sig"
+    },
+    {
+      "kty": "RSA",
+      "key_ops": [
+        "verify"
+      ],
+      "n": "4zlU9s3_HkyBvFRQJixx04CQ2fSIjNlB7VpPEpZ2kU4vqqG77H4LFF7YatrZdPdNzTwFSTHekijZdAevJwOArjaGSbKjEFg-g15mvLD6S4pukzg3TCGaoim37cFN1XxMVGntwIFR8Vfh0PwnnXZFi4Q3XC201BccyanXnEV-wtiPlvC8wW5a_ee6j9-IuywpM_OwtCc5b95up1KldxJurwueAje3EC0xKWxFIH2mjq55euS7QLvRz4xIpSNet5-A9aJh4og94yPhYyf6EehG0kDL-297hMbv_CpApN7ijLRYe3IGDDe8M1jbu5XcEBOBupOq0zsa9ixU1OmxmeaKKQ",
+      "e": "AQAB",
+      "kid": "py-rs256",
+      "alg": "RS256",
+      "use": "sig"
+    }
+  ]
+}

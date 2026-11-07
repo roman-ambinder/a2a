@@ -120,7 +120,8 @@ public sealed class AgentCardVerifierOptions
 /// <summary>
 /// Verifies Agent Card JWS signatures (spec §8.4.3), with stricter rules than the spec requires:
 /// algorithm allowlist (no "none"/HS*), rejection of unknown <c>crit</c> headers, key/algorithm matching,
-/// <c>jku</c> origin checks (via <see cref="JwksKeyResolver"/>), and unknown-field-preserving canonicalization.
+/// <c>jku</c> origin checks (via <see cref="JwksKeyResolver"/>). The payload is <see cref="AgentCardCanonicalizer.Canonicalize(JsonObject)"/>,
+/// which matches a2a-python and a2a-js.
 /// </summary>
 public sealed class AgentCardVerifier(IAgentCardKeyResolver keyResolver, AgentCardVerifierOptions? options = null)
 {
@@ -129,7 +130,7 @@ public sealed class AgentCardVerifier(IAgentCardKeyResolver keyResolver, AgentCa
     public Task<AgentCardVerificationResult> VerifyAsync(AgentCard card, Uri? source = null, CancellationToken cancellationToken = default) =>
         VerifyAsync(AgentCardCanonicalizer.ToNode(card), source, cancellationToken);
 
-    /// <summary>Verifies the card exactly as received. Prefer this overload: it keeps fields unknown to this SDK.</summary>
+    /// <summary>Verifies the card exactly as received.</summary>
     public Task<AgentCardVerificationResult> VerifyAsync(string rawCardJson, Uri? source = null, CancellationToken cancellationToken = default) =>
         VerifyAsync(JsonNode.Parse(rawCardJson)?.AsObject() ?? throw new JsonException("Agent Card must be a JSON object."), source, cancellationToken);
 
@@ -141,7 +142,7 @@ public sealed class AgentCardVerifier(IAgentCardKeyResolver keyResolver, AgentCa
         if (card["signatures"] is not JsonArray sigs || sigs.Count == 0)
             return new(AgentCardVerificationStatus.Unsigned, verified, errors);
 
-        byte[]? normalized = null, verbatim = null;
+        byte[]? payload = null;
 
         for (var i = 0; i < sigs.Count; i++)
         {
@@ -195,15 +196,14 @@ public sealed class AgentCardVerifier(IAgentCardKeyResolver keyResolver, AgentCa
                 continue;
             }
 
-            normalized ??= AgentCardCanonicalizer.Normalized(card);
-            verbatim ??= AgentCardCanonicalizer.Verbatim(card);
+            payload ??= AgentCardCanonicalizer.Canonicalize(card);
             var ok = false;
             foreach (var jwk in keys)
             {
                 if (!JwsAlgorithms.KeyMatches(alg, jwk)) continue;
                 if (jwk.Alg is not null && jwk.Alg != alg) continue;
                 using var pub = jwk.ToPublicKey();
-                if (Check(sig.Protected, normalized, alg, pub, sigBytes) || Check(sig.Protected, verbatim, alg, pub, sigBytes))
+                if (Check(sig.Protected, payload, alg, pub, sigBytes))
                 {
                     ok = true;
                     break;
