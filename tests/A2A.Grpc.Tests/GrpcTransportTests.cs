@@ -115,6 +115,26 @@ public class GrpcTransportTests
     }
 
     [Fact]
+    public async Task Read_calls_retry_on_io_failures()
+    {
+        var io = new RpcException(new Status(StatusCode.Unavailable, "connection reset", new System.IO.IOException("reset")));
+        var invoker = new ScriptedInvoker().ThenFail(io).ThenReturn(ATask());
+        Assert.Equal("t1", (await Transport(invoker).GetTaskAsync(new GetTaskRequest { Id = "t1" })).Id);
+        Assert.Equal(2, invoker.Calls.Count);
+    }
+
+    [Fact]
+    public async Task Client_side_failures_that_are_not_transport_failures_are_not_retried()
+    {
+        // Grpc.Net.Client reports a response it cannot parse as INTERNAL with the parse error as the debug exception.
+        var parse = new RpcException(new Status(StatusCode.Internal, "Failed to deserialize response message.", new InvalidOperationException("bad bytes")));
+        var invoker = new ScriptedInvoker().ThenFail(parse).ThenReturn(ATask());
+        var ex = await Assert.ThrowsAsync<A2AException>(() => Transport(invoker).GetTaskAsync(new GetTaskRequest { Id = "t1" }));
+        Assert.Equal(A2AErrorCode.Internal, ex.Code);
+        Assert.Single(invoker.Calls);
+    }
+
+    [Fact]
     public async Task Max_retries_bounds_the_attempts()
     {
         var invoker = new ScriptedInvoker().ThenFail(Retryable()).ThenFail(Retryable());

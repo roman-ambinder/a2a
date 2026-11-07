@@ -204,9 +204,11 @@ public sealed class GrpcTransport : IA2AClient, IDisposable
     }
 
     /// <summary>
-    /// The HTTP transports' retry rules applied to a gRPC failure: a client-side transport failure is judged like an
-    /// <see cref="HttpRequestException"/> (SendMessage only when it provably never reached the server); <c>UNAVAILABLE</c>
-    /// from the server is the gRPC form of HTTP 503; anything else only when the server marked it retryable.
+    /// The HTTP transports' retry rules applied to a gRPC failure: a client-side transport failure (an
+    /// <see cref="HttpRequestException"/> or <see cref="IOException"/> behind the status) is judged like an
+    /// <see cref="HttpRequestException"/> (SendMessage only when it provably never reached the server); other client-side
+    /// failures, such as a response that cannot be parsed, are not transport failures; <c>UNAVAILABLE</c> from the server is
+    /// the gRPC form of HTTP 503; anything else only when the server marked it retryable.
     /// </summary>
     private static bool ShouldRetry(RetryMode retry, RpcException ex, out TimeSpan? retryAfter)
     {
@@ -216,8 +218,10 @@ public sealed class GrpcTransport : IA2AClient, IDisposable
         {
             case HttpRequestException transport:
                 return RetryPolicy.ShouldRetry(retry, transport, out retryAfter);
-            case { } other:
-                return RetryPolicy.ShouldRetry(retry, new HttpRequestException(HttpRequestError.Unknown, other.Message, other), out retryAfter);
+            case IOException io:
+                return RetryPolicy.ShouldRetry(retry, new HttpRequestException(HttpRequestError.Unknown, io.Message, io), out retryAfter);
+            case not null:
+                return false;
         }
         var error = GrpcErrors.FromRpcException(ex);
         if (ex.StatusCode == StatusCode.Unavailable && error.Details is null)
