@@ -92,6 +92,12 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
         return ValueTask.CompletedTask;
     }
 
+    public override ValueTask DeleteAsync(TaskKey task, CancellationToken ct = default)
+    {
+        if (_logs.TryGetValue(task, out var log)) Evict(task, log);
+        return ValueTask.CompletedTask;
+    }
+
     private void Evict(TaskKey task, TaskLog log)
     {
         lock (log)

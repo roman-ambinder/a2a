@@ -41,7 +41,7 @@ A task change, its event and its push deliveries are written in one transaction 
 
 Differences, because the store is shared by several instances:
 - A request that waits on an idempotency key held by another instance polls every `IdempotencyPollInterval` (200 ms).
-- A running idempotency claim older than `IdempotencyClaimTimeout` (1 hour) counts as abandoned, so a crashed instance does not hold its keys forever.
+- A running idempotency claim older than `IdempotencyClaimTimeout` (2 minutes by default, a long-running holder extends it with `IdempotencyStore.RenewAsync`) counts as abandoned, so a crashed instance does not hold its keys forever.
 - There is no `Idempotency.MaxEntries` cap; rows live until their retention ends.
 - Every instance's `PushDeliveryService` polls the shared outbox (`PushDelivery.PollInterval`, 1 s). A delivery is leased (`FOR UPDATE SKIP LOCKED`, then hidden for `PushDelivery.Lease`, 1 minute), so two instances never send it at the same time, and a crashed instance's deliveries are sent by another one after the lease. Results are written with the lease's token, so an instance whose lease was taken over changes nothing. The lease must be longer than 2 × `PushNotifications.Timeout` + 5 s (checked at startup).
 - Expired rows are hidden from reads at once and deleted by a background cleanup every `CleanupInterval` (5 minutes). `PostgresMaintenance.PurgeExpiredAsync()` runs it by hand.

@@ -15,7 +15,7 @@ namespace A2A.Server.Postgres;
 /// <list type="bullet">
 /// <item>A request waiting on a key held elsewhere polls the row every <see cref="PostgresStoreOptions.IdempotencyPollInterval"/>.</item>
 /// <item>A running claim older than <see cref="PostgresStoreOptions.IdempotencyClaimTimeout"/> counts as abandoned, so a crashed
-/// instance does not hold its keys forever.</item>
+/// instance does not hold its keys forever. <see cref="RenewAsync"/> restarts that clock for a live request.</item>
 /// </list>
 /// There is no <see cref="IdempotencyOptions.MaxEntries"/> cap: rows live until their retention ends.
 /// </summary>
@@ -85,6 +85,15 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
     {
         await using var cmd = _db.CreateCommand($"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
         AddScope(cmd, scope);
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    public override async ValueTask RenewAsync(IdempotencyScope scope, CancellationToken ct = default)
+    {
+        await using var cmd = _db.CreateCommand(
+            $"UPDATE {_table} SET claimed_ticks = $4 WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
+        AddScope(cmd, scope);
+        cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 

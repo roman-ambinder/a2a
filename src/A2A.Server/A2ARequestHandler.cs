@@ -1060,8 +1060,11 @@ public sealed class A2ARequestHandler : IDisposable
         var stored = A2AJson.Clone(config);
         stored.Id = string.IsNullOrEmpty(stored.Id) ? TaskIds.New() : stored.Id;
         stored.Tenant = call.Tenant;
-        await EnsurePushCapacityAsync(key, stored.Id, cancellationToken).ConfigureAwait(false);
-        await SavePushConfigAsync(key, stored, cancellationToken).ConfigureAwait(false);
+        if (!await SavePushConfigIfUnderLimitAsync(key, stored, cancellationToken).ConfigureAwait(false))
+        {
+            var limit = _options.Limits.MaxPushConfigsPerTask;
+            throw new A2AException(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {limit}).");
+        }
         return Redact(stored);
     }
 
@@ -1558,7 +1561,11 @@ public sealed class A2ARequestHandler : IDisposable
     // Helpers
     // =====================================================================
 
-    /// <summary>Throws InvalidRequest when adding config <paramref name="configId"/> would exceed the per-task limit. Replacing an existing id is allowed.</summary>
+    /// <summary>
+    /// Early check for a follow-up message: throws InvalidRequest when adding config <paramref name="configId"/> would exceed the
+    /// per-task limit, before the message is committed. Replacing an existing id is allowed. Not atomic with the later save;
+    /// the create-config call uses <see cref="SavePushConfigIfUnderLimitAsync"/>.
+    /// </summary>
     private async ValueTask EnsurePushCapacityAsync(TaskKey key, string configId, CancellationToken ct)
     {
         if (await _pushConfigs.GetAsync(key, configId, ct).ConfigureAwait(false) is not null) return;
@@ -1568,12 +1575,22 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     /// <summary>Protects the secrets of <paramref name="config"/> and stores a copy. The caller's instance is not changed.</summary>
-    private ValueTask SavePushConfigAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct)
+    private ValueTask SavePushConfigAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct) =>
+        _pushConfigs.SaveAsync(ProtectedRecord(key, config), ct);
+
+    /// <summary>
+    /// Like <see cref="SavePushConfigAsync"/>, but atomically refuses (false) a new config id when the task already has
+    /// <see cref="A2ALimits.MaxPushConfigsPerTask"/> configs. Replacing an existing id is allowed.
+    /// </summary>
+    private ValueTask<bool> SavePushConfigIfUnderLimitAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct) =>
+        _pushConfigs.SaveIfUnderLimitAsync(ProtectedRecord(key, config), _options.Limits.MaxPushConfigsPerTask, ct);
+
+    private PushConfigRecord ProtectedRecord(TaskKey key, TaskPushNotificationConfig config)
     {
         var copy = A2AJson.Clone(config);
         if (!string.IsNullOrEmpty(copy.Token)) copy.Token = _protector.Protect(copy.Token);
         if (copy.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = _protector.Protect(auth.Credentials);
-        return _pushConfigs.SaveAsync(new PushConfigRecord(key, copy), ct);
+        return new PushConfigRecord(key, copy);
     }
 
     /// <summary>Returns a copy with the token and credentials blanked. Secrets never leave the server.</summary>

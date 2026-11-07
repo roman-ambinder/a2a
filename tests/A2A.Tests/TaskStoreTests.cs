@@ -59,6 +59,11 @@ public abstract class DelegatingTaskStore : TaskStore
     public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => Inner.ListAsync(query, ct);
     public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => Inner.GetContextAsync(tenant, contextId, ct);
     public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => Inner.GetOrCreateContextAsync(record, ct);
+    public override ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default) => Inner.DeleteAsync(key, ct);
+    public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default) => Inner.ListExpiredAsync(terminalBefore, max, ct);
+    public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) => Inner.ListInterruptedBeforeAsync(before, max, ct);
+    public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default) => Inner.DeleteContextAsync(tenant, contextId, ct);
+    public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default) => Inner.ListOrphanContextsAsync(createdBefore, max, ct);
 }
 
 public static class TestStoreExtensions

@@ -26,4 +26,10 @@ public abstract class EventStore
 
     /// <summary>Tells the store the task reached a terminal state, so it may drop the retained events after a retention time.</summary>
     public abstract ValueTask MarkTerminalAsync(TaskKey task, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes the task's whole log, retained events and the sequence counter included: a later append starts at 1 again.
+    /// Owner-scoped through <paramref name="task"/>; another owner's key, or a task without a log, deletes nothing.
+    /// </summary>
+    public abstract ValueTask DeleteAsync(TaskKey task, CancellationToken ct = default);
 }

@@ -314,6 +314,8 @@ public class IdempotencyTests
         public override ValueTask<long?> OldestRetainedAsync(Server.Storage.TaskKey task, CancellationToken ct = default) => _inner.OldestRetainedAsync(task, ct);
 
         public override ValueTask MarkTerminalAsync(Server.Storage.TaskKey task, CancellationToken ct = default) => _inner.MarkTerminalAsync(task, ct);
+
+        public override ValueTask DeleteAsync(Server.Storage.TaskKey task, CancellationToken ct = default) => _inner.DeleteAsync(task, ct);
     }
 
     /// <summary>

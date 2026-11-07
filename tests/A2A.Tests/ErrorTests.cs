@@ -18,6 +18,11 @@ public sealed class ThrowingTaskStore : TaskStore
     public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => throw Boom();
     public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => throw Boom();
     public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => throw Boom();
+    public override ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default) => throw Boom();
+    public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default) => throw Boom();
+    public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) => throw Boom();
+    public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default) => throw Boom();
+    public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default) => throw Boom();
 }
 
 public class ErrorTests
@@ -109,4 +114,9 @@ internal sealed class RateLimitedTaskStore : TaskStore
     public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => throw Limited();
     public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => throw Limited();
     public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => throw Limited();
+    public override ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default) => throw Limited();
+    public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default) => throw Limited();
+    public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) => throw Limited();
+    public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default) => throw Limited();
+    public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default) => throw Limited();
 }

@@ -415,6 +415,109 @@ public abstract class TaskStoreContract
                 Assert.IsType<StatusUpdateEvent>(e.Event).StatusUpdate.Metadata!["v"].GetString());
         Assert.Equal(writers + 1, (await s.GetAsync(key))!.Version);
     }
+
+    // ---- retention members
+
+    private static readonly DateTimeOffset T0 = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    [SkippableFact]
+    public async Task Delete_removes_only_the_task_and_only_for_its_owner()
+    {
+        var s = await CreateStoreAsync();
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "ctx", T0));
+        var r = await s.CreateAsync(NewRecord("t", "alice", "id1"));
+        Assert.False(await s.DeleteAsync(r.Key with { Owner = "bob" }));
+        Assert.False(await s.DeleteAsync(r.Key with { Tenant = "u" }));
+        Assert.NotNull(await s.GetAsync(r.Key));
+
+        Assert.True(await s.DeleteAsync(r.Key));
+        Assert.Null(await s.GetAsync(r.Key));
+        Assert.False(await s.DeleteAsync(r.Key));
+        Assert.NotNull(await s.GetContextAsync("t", "ctx")); // the context is deleted by DeleteContextAsync, not with the task
+    }
+
+    [SkippableFact]
+    public async Task Delete_does_not_touch_the_event_log()
+    {
+        var (s, events) = await CreateStoresAsync();
+        var r = NewRecord("t", "alice", "id1");
+        await s.CommitAsync(new TaskCommit(r, 0, StreamResponse.Of(r.Task), []));
+        Assert.True(await s.DeleteAsync(r.Key));
+        Assert.Equal(1, await events.LastSequenceAsync(r.Key));
+    }
+
+    [SkippableFact]
+    public async Task ListExpired_returns_terminal_tasks_older_than_the_cutoff_oldest_first_capped()
+    {
+        var s = await CreateStoreAsync();
+        async Task Add(string id, TaskState state, int days, string tenant = "t", string owner = "alice") =>
+            await s.CreateAsync(WithState(NewRecord(tenant, owner, id, T0.AddDays(days)), state));
+        await Add("done-3", TaskState.Completed, 3);
+        await Add("done-1", TaskState.Completed, 1);
+        await Add("failed-2", TaskState.Failed, 2, tenant: "u", owner: "bob"); // other tenant and owner: still listed
+        await Add("canceled-4", TaskState.Canceled, 4);
+        await Add("rejected-5", TaskState.Rejected, 5);
+        await Add("done-new", TaskState.Completed, 30); // too new
+        await Add("working", TaskState.Working, 0);
+        await Add("input", TaskState.InputRequired, 0);
+        await Add("auth", TaskState.AuthRequired, 0);
+        await Add("submitted", TaskState.Submitted, 0);
+
+        var all = await s.ListExpiredAsync(T0.AddDays(10), 100);
+        Assert.Equal(
+            [new TaskKey("t", "alice", "done-1"), new TaskKey("u", "bob", "failed-2"), new TaskKey("t", "alice", "done-3"),
+             new TaskKey("t", "alice", "canceled-4"), new TaskKey("t", "alice", "rejected-5")],
+            all);
+        Assert.Equal(all.Take(2), await s.ListExpiredAsync(T0.AddDays(10), 2));
+        Assert.Empty(await s.ListExpiredAsync(T0.AddDays(1), 100)); // strictly earlier than the cutoff
+    }
+
+    [SkippableFact]
+    public async Task ListInterruptedBefore_returns_only_waiting_tasks_older_than_the_cutoff()
+    {
+        var s = await CreateStoreAsync();
+        await s.CreateAsync(WithState(NewRecord("t", "alice", "input-old", T0.AddDays(2)), TaskState.InputRequired));
+        await s.CreateAsync(WithState(NewRecord("u", "bob", "auth-old", T0.AddDays(1)), TaskState.AuthRequired));
+        await s.CreateAsync(WithState(NewRecord("t", "alice", "input-new", T0.AddDays(30)), TaskState.InputRequired));
+        await s.CreateAsync(WithState(NewRecord("t", "alice", "done-old", T0), TaskState.Completed));
+        await s.CreateAsync(WithState(NewRecord("t", "alice", "working-old", T0), TaskState.Working));
+
+        var list = await s.ListInterruptedBeforeAsync(T0.AddDays(10), 100);
+        Assert.Equal([new TaskKey("u", "bob", "auth-old"), new TaskKey("t", "alice", "input-old")], list);
+        Assert.Equal([new TaskKey("u", "bob", "auth-old")], await s.ListInterruptedBeforeAsync(T0.AddDays(10), 1));
+    }
+
+    [SkippableFact]
+    public async Task Orphan_contexts_have_no_tasks_and_are_older_than_the_cutoff()
+    {
+        var s = await CreateStoreAsync();
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "orphan-old", T0.AddDays(2)));
+        await s.GetOrCreateContextAsync(new ContextRecord("u", "bob", "orphan-older", T0.AddDays(1)));
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "orphan-new", T0.AddDays(30)));
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "used", T0));
+        await s.CreateAsync(NewRecord("t", "alice", "id1", T0, contextId: "used"));
+
+        var list = await s.ListOrphanContextsAsync(T0.AddDays(10), 100);
+        Assert.Equal(["orphan-older", "orphan-old"], list.Select(c => c.ContextId));
+        Assert.Equal(new ContextRecord("u", "bob", "orphan-older", T0.AddDays(1)), list[0]);
+        Assert.Single(await s.ListOrphanContextsAsync(T0.AddDays(10), 1));
+
+        // Once its last task is gone the context is an orphan too.
+        await s.DeleteAsync(new TaskKey("t", "alice", "id1"));
+        Assert.Contains("used", (await s.ListOrphanContextsAsync(T0.AddDays(10), 100)).Select(c => c.ContextId));
+    }
+
+    [SkippableFact]
+    public async Task DeleteContext_removes_it_once_in_its_tenant_only()
+    {
+        var s = await CreateStoreAsync();
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "c1", T0));
+        Assert.False(await s.DeleteContextAsync("u", "c1"));
+        Assert.NotNull(await s.GetContextAsync("t", "c1"));
+        Assert.True(await s.DeleteContextAsync("t", "c1"));
+        Assert.Null(await s.GetContextAsync("t", "c1"));
+        Assert.False(await s.DeleteContextAsync("t", "c1"));
+    }
 }
 
 public sealed class InMemoryTaskStoreTests : TaskStoreContract

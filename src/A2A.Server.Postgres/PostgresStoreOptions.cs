@@ -39,9 +39,12 @@ public sealed partial class PostgresStoreOptions
     /// <summary>
     /// How long a running idempotent request may hold its key before another request may take it over. The in-memory store
     /// never expires a running entry, but a durable one would keep the key of a crashed instance forever, so this is bounded.
-    /// Default 1 hour. <see cref="Timeout.InfiniteTimeSpan"/> means never.
+    /// A caller that holds a claim for longer keeps it by calling <see cref="A2A.Server.Idempotency.IdempotencyStore.RenewAsync"/>
+    /// more often than this (the execution coordinator's lease heartbeat is meant to), so the timeout only has to cover a
+    /// missed heartbeat or two and a crashed instance releases its keys quickly. Default 2 minutes (it was 1 hour).
+    /// <see cref="Timeout.InfiniteTimeSpan"/> means never.
     /// </summary>
-    public TimeSpan IdempotencyClaimTimeout { get; set; } = TimeSpan.FromHours(1);
+    public TimeSpan IdempotencyClaimTimeout { get; set; } = TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// How often a request that waits on the same idempotency key (running elsewhere) checks whether it finished. Default 200 ms.

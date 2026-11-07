@@ -70,6 +70,9 @@ public static class PostgresSchema
         -- ListTasks: owner-scoped, newest first, keyset paging on (status_ticks, task_id).
         CREATE INDEX IF NOT EXISTS a2a_tasks_list_ix ON {s}.a2a_tasks (tenant, owner, status_ticks DESC, task_id);
         CREATE INDEX IF NOT EXISTS a2a_tasks_context_ix ON {s}.a2a_tasks (tenant, owner, context_id, status_ticks DESC, task_id);
+        -- Retention sweeps (all tenants and owners): tasks by state and age, and "does any task still use this context".
+        CREATE INDEX IF NOT EXISTS a2a_tasks_state_ix ON {s}.a2a_tasks (state, status_ticks);
+        CREATE INDEX IF NOT EXISTS a2a_tasks_tenant_context_ix ON {s}.a2a_tasks (tenant, context_id);
 
         CREATE TABLE IF NOT EXISTS {s}.a2a_contexts (
             tenant        text COLLATE "C" NOT NULL,

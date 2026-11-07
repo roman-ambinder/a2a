@@ -114,5 +114,47 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
     public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) =>
         ValueTask.FromResult(_contexts.GetOrAdd((record.Tenant, record.ContextId), record));
 
+    public override ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default)
+    {
+        // Remove only the exact record that is owned by the caller (a concurrent update may replace the entry).
+        while (_tasks.TryGetValue((key.Tenant, key.TaskId), out var current))
+        {
+            if (!string.Equals(current.Owner, key.Owner, StringComparison.Ordinal)) break;
+            if (_tasks.TryRemove(new KeyValuePair<(string, string), TaskRecord>((key.Tenant, key.TaskId), current))) return ValueTask.FromResult(true);
+        }
+        return ValueTask.FromResult(false);
+    }
+
+    public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default) =>
+        ValueTask.FromResult(ListByStatusTime(r => r.Task.Status.State.IsTerminal(), terminalBefore, max));
+
+    public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) =>
+        ValueTask.FromResult(ListByStatusTime(r => r.Task.Status.State.IsInterrupted(), before, max));
+
+    private IReadOnlyList<TaskKey> ListByStatusTime(Func<TaskRecord, bool> state, DateTimeOffset before, int max) => _tasks.Values
+        .Where(state)
+        .Select(r => (Ticks: (r.Task.Status.Timestamp ?? r.CreatedAt).UtcTicks, r.Key))
+        .Where(x => x.Ticks < before.UtcTicks)
+        .OrderBy(x => x.Ticks).ThenBy(x => x.Key.Tenant, StringComparer.Ordinal).ThenBy(x => x.Key.TaskId, StringComparer.Ordinal)
+        .Take(Math.Max(0, max))
+        .Select(x => x.Key)
+        .ToList();
+
+    public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default) =>
+        ValueTask.FromResult(_contexts.TryRemove((tenant, contextId), out _));
+
+    public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default)
+    {
+        var used = _tasks.Values
+            .Where(r => !string.IsNullOrEmpty(r.Task.ContextId))
+            .Select(r => (r.Tenant, r.Task.ContextId!))
+            .ToHashSet();
+        return ValueTask.FromResult<IReadOnlyList<ContextRecord>>(_contexts.Values
+            .Where(c => c.CreatedAt.UtcTicks < createdBefore.UtcTicks && !used.Contains((c.Tenant, c.ContextId)))
+            .OrderBy(c => c.CreatedAt.UtcTicks).ThenBy(c => c.Tenant, StringComparer.Ordinal).ThenBy(c => c.ContextId, StringComparer.Ordinal)
+            .Take(Math.Max(0, max))
+            .ToList());
+    }
+
     private static TaskRecord Copy(TaskRecord r) => r with { Task = A2AJson.Clone(r.Task) };
 }

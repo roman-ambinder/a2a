@@ -81,6 +81,37 @@ public abstract class TaskStore
 
     /// <summary>Atomic: stores <paramref name="record"/> unless the context exists, and returns whichever record is stored.</summary>
     public abstract ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default);
+
+    // Retention. DeleteAsync is owner-scoped through its key; the List* members and DeleteContextAsync are maintenance
+    // calls for the retention service and span all tenants and owners.
+
+    /// <summary>
+    /// Deletes the task row. Returns false when there is no such task for this tenant and owner (a foreign task looks missing).
+    /// Only the task goes: its events, push configs and outbox rows belong to <see cref="EventStore.DeleteAsync"/>,
+    /// <see cref="PushConfigStore.DeleteAllAsync"/> and the outbox, and the context stays (<see cref="DeleteContextAsync"/>).
+    /// </summary>
+    public abstract ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default);
+
+    /// <summary>
+    /// Maintenance, all tenants and owners: keys of tasks in a terminal state (completed, failed, canceled, rejected) whose
+    /// status timestamp (the creation time when there is none) is earlier than <paramref name="terminalBefore"/>, oldest first, at most <paramref name="max"/>.
+    /// </summary>
+    public abstract ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default);
+
+    /// <summary>
+    /// Maintenance, all tenants and owners: keys of tasks in INPUT_REQUIRED or AUTH_REQUIRED whose status timestamp is
+    /// earlier than <paramref name="before"/>, oldest first, at most <paramref name="max"/>.
+    /// </summary>
+    public abstract ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default);
+
+    /// <summary>Maintenance: deletes the context row. Returns false when it does not exist in <paramref name="tenant"/>. Tasks are not checked or touched.</summary>
+    public abstract ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Maintenance, all tenants and owners: contexts created before <paramref name="createdBefore"/> that no task refers to
+    /// any more, oldest first, at most <paramref name="max"/>.
+    /// </summary>
+    public abstract ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default);
 }
 
 /// <summary>Generates unguessable task ids.</summary>

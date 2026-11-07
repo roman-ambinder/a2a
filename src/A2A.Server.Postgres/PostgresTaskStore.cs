@@ -192,6 +192,71 @@ public sealed class PostgresTaskStore : TaskStore
                ?? throw new InvalidOperationException($"Context '{record.ContextId}' vanished while it was being created.");
     }
 
+    public override async ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default)
+    {
+        await using var cmd = _db.CreateCommand($"DELETE FROM {_tasks} WHERE tenant = $1 AND task_id = $2 AND owner = $3");
+        cmd.Parameters.Add(Text(key.Tenant));
+        cmd.Parameters.Add(Text(key.TaskId));
+        cmd.Parameters.Add(Text(key.Owner));
+        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
+    }
+
+    public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default) =>
+        ListByStateAsync(TerminalStates, terminalBefore, max, ct);
+
+    public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) =>
+        ListByStateAsync(InterruptedStates, before, max, ct);
+
+    // state is stored as the TaskState number; these are the SQL lists of the two groups.
+    private static readonly string TerminalStates = StateList(TaskState.Completed, TaskState.Failed, TaskState.Canceled, TaskState.Rejected);
+    private static readonly string InterruptedStates = StateList(TaskState.InputRequired, TaskState.AuthRequired);
+
+    private static string StateList(params TaskState[] states) => string.Join(", ", states.Select(s => ((int)s).ToString(System.Globalization.CultureInfo.InvariantCulture)));
+
+    private async ValueTask<IReadOnlyList<TaskKey>> ListByStateAsync(string states, DateTimeOffset before, int max, CancellationToken ct)
+    {
+        await using var cmd = _db.CreateCommand(
+            $"""
+            SELECT tenant, owner, task_id FROM {_tasks}
+             WHERE state IN ({states}) AND status_ticks < $1
+             ORDER BY status_ticks, tenant, task_id
+             LIMIT $2
+            """);
+        cmd.Parameters.Add(Long(before.UtcTicks));
+        cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = Math.Max(0, max) });
+        var keys = new List<TaskKey>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false)) keys.Add(new TaskKey(reader.GetString(0), reader.GetString(1), reader.GetString(2)));
+        return keys;
+    }
+
+    public override async ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default)
+    {
+        await using var cmd = _db.CreateCommand($"DELETE FROM {_contexts} WHERE tenant = $1 AND context_id = $2");
+        cmd.Parameters.Add(Text(tenant));
+        cmd.Parameters.Add(Text(contextId));
+        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
+    }
+
+    public override async ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default)
+    {
+        await using var cmd = _db.CreateCommand(
+            $"""
+            SELECT c.tenant, c.owner, c.context_id, c.created_ticks FROM {_contexts} c
+             WHERE c.created_ticks < $1
+               AND NOT EXISTS (SELECT 1 FROM {_tasks} t WHERE t.tenant = c.tenant AND t.context_id = c.context_id)
+             ORDER BY c.created_ticks, c.tenant, c.context_id
+             LIMIT $2
+            """);
+        cmd.Parameters.Add(Long(createdBefore.UtcTicks));
+        cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = Math.Max(0, max) });
+        var list = new List<ContextRecord>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            list.Add(new ContextRecord(reader.GetString(0), reader.GetString(1), reader.GetString(2), new DateTimeOffset(reader.GetInt64(3), TimeSpan.Zero)));
+        return list;
+    }
+
     private static (string Json, TaskRecord Stored) ForCreate(TaskRecord record)
     {
         ArgumentNullException.ThrowIfNull(record);

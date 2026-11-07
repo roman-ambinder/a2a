@@ -106,5 +106,23 @@ public sealed class PostgresEventStore : EventStore
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
+    public override async ValueTask DeleteAsync(TaskKey task, CancellationToken ct = default)
+    {
+        // Events and the log header go together: the sequence counter lives in the header, so a later append restarts at 1.
+        await using var conn = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
+        await using (var batch = new NpgsqlBatch(conn, tx))
+        {
+            var events = new NpgsqlBatchCommand($"DELETE FROM {_events} WHERE tenant = $1 AND owner = $2 AND task_id = $3");
+            Sql.AddKey(events.Parameters, task);
+            var logs = new NpgsqlBatchCommand($"DELETE FROM {_logs} WHERE tenant = $1 AND owner = $2 AND task_id = $3");
+            Sql.AddKey(logs.Parameters, task);
+            batch.BatchCommands.Add(events);
+            batch.BatchCommands.Add(logs);
+            await batch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+        await tx.CommitAsync(ct).ConfigureAwait(false);
+    }
+
     private static void AddKey(NpgsqlCommand cmd, TaskKey task) => Sql.AddKey(cmd.Parameters, task);
 }
