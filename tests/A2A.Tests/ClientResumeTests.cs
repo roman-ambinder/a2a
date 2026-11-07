@@ -454,6 +454,7 @@ public class ClientResumeTests
         async IAsyncEnumerable<StreamFrame> IResumableTransport.SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options, string? lastEventId, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
         {
             LastEventIds.Enqueue(lastEventId);
+            // The second run replays t1:3: the server replays the cursor frame, and the client must drop it.
             var frames = LastEventIds.Count == 1 ? Run.Take(3) : Run.Skip(2);
             foreach (var f in frames) yield return new StreamFrame(Parse(f), f.Id);
             if (LastEventIds.Count == 1) throw new IOException("connection reset");
