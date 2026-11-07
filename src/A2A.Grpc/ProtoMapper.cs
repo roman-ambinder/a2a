@@ -31,13 +31,32 @@ public static class ProtoMapper
         }
     }
 
-    /// <summary>Model → proto.</summary>
-    public static TProto ToProto<TProto>(object model) where TProto : IMessage<TProto>, new()
+    /// <summary>
+    /// Proto → model for an incoming request: nesting deeper than <paramref name="maxDepth"/> (the request depth limit of the
+    /// HTTP bindings, applied to the same JSON form) is InvalidParams.
+    /// </summary>
+    public static T ToModel<T>(IMessage proto, int maxDepth)
+    {
+        ArgumentNullException.ThrowIfNull(proto);
+        try
+        {
+            using var doc = JsonDocument.Parse(Formatter.Format(proto), new JsonDocumentOptions { MaxDepth = maxDepth });
+            return A2AJson.Deserialize<T>(doc.RootElement);
+        }
+        catch (JsonException ex)
+        {
+            throw A2AException.InvalidParams($"Cannot map {proto.Descriptor.Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>Model → proto. <typeparamref name="TModel"/> is the declared model type (for unions, the abstract base), so the
+    /// source-generated metadata for that type writes the wire form, including the union member name.</summary>
+    public static TProto ToProto<TProto, TModel>(TModel model) where TProto : IMessage<TProto>, new()
     {
         ArgumentNullException.ThrowIfNull(model);
         try
         {
-            return Parser.Parse<TProto>(JsonSerializer.Serialize(model, A2AJson.Options.GetTypeInfo(model.GetType())));
+            return Parser.Parse<TProto>(A2AJson.Serialize(model));
         }
         catch (InvalidProtocolBufferException ex)
         {

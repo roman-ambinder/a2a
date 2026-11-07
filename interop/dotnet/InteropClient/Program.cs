@@ -39,9 +39,9 @@ await Check("direct message reply", async () =>
 {
     var r = await client.SendMessageAsync("hello");
     Expect(r is MessageResponse, "a message, no task");
-    var m = ((MessageResponse)r).Message;
-    Expect(m.GetText() == "hi there", "text 'hi there'");
-    Expect(m.Role == Role.Agent, "agent role");
+    var message = ((MessageResponse)r).Message;
+    Expect(message.GetText() == "hi there", "text 'hi there'");
+    Expect(message.Role == Role.Agent, "agent role");
 });
 
 AgentTask? completed = null;
@@ -52,7 +52,8 @@ await Check("blocking send -> completed task with appended artifact", async () =
     Expect(completed!.Status.State == TaskState.Completed, $"COMPLETED, got {completed.Status.State}");
     var art = completed.Artifacts?.SingleOrDefault();
     Expect(art is not null, "one artifact");
-    Expect(string.Join(",", art!.Parts.OfType<TextPart>().Select(p => p.Text)) == "part1,part2", $"parts part1,part2, got {string.Join(",", art.Parts.OfType<TextPart>().Select(p => p.Text))}");
+    var texts = string.Join(",", art!.Parts.Select(p => (p as TextPart)?.Text));
+    Expect(texts == "part1,part2", $"parts part1,part2, got {texts}");
 });
 
 await Check("streaming send -> task first, ordered events, terminal last", async () =>
@@ -75,7 +76,7 @@ await Check("streaming direct message", async () =>
 {
     var events = new List<StreamResponse>();
     await foreach (var e in client.SendStreamingMessageAsync(Message.FromUser("hello"))) events.Add(e);
-    Expect(events.Count == 1 && events[0] is MessageEvent { Message: var hm } && hm.GetText() == "hi there", "exactly one message event");
+    Expect(events.Count == 1 && (events[0] as MessageEvent)?.Message.GetText() == "hi there", "exactly one message event");
 });
 
 await Check("multi-turn input-required", async () =>
@@ -128,12 +129,12 @@ await Check("return immediately, subscribe, cancel", async () =>
         await foreach (var e in client.SubscribeToTaskAsync(task.Id))
         {
             first.TrySetResult(e);
-            if (e is StatusUpdateEvent { StatusUpdate: var su }) states.Add(su.Status.State);
+            if (e is StatusUpdateEvent su) states.Add(su.StatusUpdate.Status.State);
             if (e is TaskEvent { Task: var t } && t.Status.State.IsTerminal()) states.Add(t.Status.State);
         }
     });
     var firstEvent = await first.Task.WaitAsync(TimeSpan.FromSeconds(10));
-    Expect(firstEvent is TaskEvent { Task: var snap } && snap.Id == task.Id, "subscription to start with the task snapshot");
+    Expect((firstEvent as TaskEvent)?.Task.Id == task.Id, "subscription to start with the task snapshot");
 
     var canceled = await client.CancelTaskAsync(task.Id);
     Expect(canceled.Status.State == TaskState.Canceled, $"CANCELED, got {canceled.Status.State}");
