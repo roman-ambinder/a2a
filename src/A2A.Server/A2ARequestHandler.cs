@@ -989,6 +989,7 @@ public sealed class A2ARequestHandler : IDisposable
         var taskId = key.TaskId;
         var scope = ScopeKey(key.Tenant, taskId);
         var created = !isNewTask;
+        Exception? failure = null;
         try
         {
             if (emitInitialSnapshot)
@@ -1015,7 +1016,7 @@ public sealed class A2ARequestHandler : IDisposable
                 {
                     // The event is never stored or sent: the task fails instead and the agent is stopped.
                     _logger.LogWarning("Task {TaskId}: the agent produced an event larger than {Limit} bytes; failing the task", taskId, _options.Limits.MaxEventBytes);
-                    evt = OversizedEventFailure(taskId, contextId);
+                    evt = FailureEvent(taskId, contextId);
                     exec.Cancel();
                 }
 
@@ -1082,13 +1083,49 @@ public sealed class A2ARequestHandler : IDisposable
         {
             _logger.LogError(ex, "Failed to apply events for task {TaskId}", taskId);
             exec.Cancel();
+            failure = ex;
+            await TryFailStoredTaskAsync(key, contextId, scope).ConfigureAwait(false);
         }
         finally
         {
             // No task and no reply (for example the agent produced nothing): retries may run the request again.
             try { await claim.AbandonAsync().ConfigureAwait(false); }
             catch (Exception ex) { _logger.LogError(ex, "Failed to abandon the idempotency entry for task {TaskId}", taskId); }
-            exec.Outgoing.Writer.TryComplete();
+            // A storage failure is an error for the request that is waiting, never a clean end of its stream.
+            exec.Outgoing.Writer.TryComplete(failure is null ? null : new A2AException(A2AErrorCode.Internal));
+        }
+    }
+
+    /// <summary>
+    /// After events could not be stored, marks the task FAILED so it is not left in a non-terminal state with no agent running.
+    /// Best effort: if the store is still failing, the task stays as it is. Subscribers and webhooks are told; the request that
+    /// was running gets the error instead.
+    /// </summary>
+    private async Task TryFailStoredTaskAsync(TaskKey key, string contextId, string scope)
+    {
+        try
+        {
+            var gate = LockFor(key.Tenant, key.TaskId);
+            await gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                var record = await _tasks.GetAsync(key).ConfigureAwait(false);
+                if (record is null || record.Task.Status.State.IsTerminal()) return;
+                var failed = FailureEvent(key.TaskId, contextId, StoreFailureText);
+                if (await ApplyAndStoreAsync(key, record, failed).ConfigureAwait(false) is not { } stored) return;
+                _bus.Publish(scope, stored);
+                _push.Enqueue(key, stored);
+                await _events.MarkTerminalAsync(key).ConfigureAwait(false);
+                _bus.Complete(scope);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not mark task {TaskId} as failed after a storage error", key.TaskId);
         }
     }
 
@@ -1176,9 +1213,11 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
+    private const string StoreFailureText = "The task failed because its updates could not be stored.";
+
     internal const string OversizedEventText = "The agent produced an event larger than the configured limit.";
 
-    private static StreamResponse OversizedEventFailure(string taskId, string contextId) => StreamResponse.Of(new TaskStatusUpdateEvent
+    private static StreamResponse FailureEvent(string taskId, string contextId, string text = OversizedEventText) => StreamResponse.Of(new TaskStatusUpdateEvent
     {
         TaskId = taskId,
         ContextId = contextId,
@@ -1188,7 +1227,7 @@ public sealed class A2ARequestHandler : IDisposable
             Timestamp = DateTimeOffset.UtcNow,
             Message = new Message
             {
-                MessageId = Message.NewId(), Role = Role.Agent, Parts = [Part.FromText(OversizedEventText)], TaskId = taskId, ContextId = contextId,
+                MessageId = Message.NewId(), Role = Role.Agent, Parts = [Part.FromText(text)], TaskId = taskId, ContextId = contextId,
             },
         },
     });
