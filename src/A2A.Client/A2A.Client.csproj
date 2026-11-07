@@ -13,5 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="A2A.Tests" />
+    <!-- The gRPC transport (separate package, released together) reuses the retry rules. -->
+    <InternalsVisibleTo Include="A2A.Client.Grpc" />
   </ItemGroup>
 </Project>
