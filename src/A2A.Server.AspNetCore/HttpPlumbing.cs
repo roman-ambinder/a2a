@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using A2A.Json;
+using A2A.Server.Streaming;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -106,13 +107,44 @@ internal static class HttpPlumbing
         http.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()?.DisableBuffering();
     }
 
+    private static readonly byte[] IdPrefix = "id: "u8.ToArray();
     private static readonly byte[] DataPrefix = "data: "u8.ToArray();
+    private static readonly byte[] LineEnd = "\n"u8.ToArray();
     private static readonly byte[] EventSuffix = "\n\n"u8.ToArray();
-    private static readonly byte[] KeepAlive = ": keep-alive\n\n"u8.ToArray();
+    private static readonly byte[] KeepAlive = ": ka\n\n"u8.ToArray();
 
-    public static async Task WriteEventAsync(HttpContext http, byte[] json)
+    /// <summary>The header a reconnecting SSE client sends with the id of the last event it saw.</summary>
+    public const string LastEventIdHeader = "Last-Event-ID";
+
+    /// <summary>Stand-in for a <c>Last-Event-ID</c> that is present but unusable: the handler answers with a snapshot.</summary>
+    private const long UnusableCursor = -1;
+
+    /// <summary>The raw <c>Last-Event-ID</c> header, or null when absent or empty.</summary>
+    public static string? LastEventId(HttpContext http)
+    {
+        string? value = http.Request.Headers[LastEventIdHeader];
+        return string.IsNullOrEmpty(value) ? null : value;
+    }
+
+    /// <summary>
+    /// The resume point for a stream of task <paramref name="taskId"/>: null without a <c>Last-Event-ID</c> header (a fresh
+    /// subscribe), its sequence when it is a cursor for this task, and a negative value (snapshot first) for any other value.
+    /// </summary>
+    public static long? ResumeAfter(HttpContext http, string taskId) =>
+        LastEventId(http) is not { } value ? null
+        : StreamCursor.TryParse(value, taskId, out var seq) ? seq
+        : UnusableCursor;
+
+    /// <summary>Writes one SSE frame. <paramref name="id"/> null writes no <c>id:</c> line.</summary>
+    public static async Task WriteEventAsync(HttpContext http, string? id, byte[] json)
     {
         var body = http.Response.Body;
+        if (id is not null)
+        {
+            await body.WriteAsync(IdPrefix, http.RequestAborted).ConfigureAwait(false);
+            await body.WriteAsync(Encoding.UTF8.GetBytes(id), http.RequestAborted).ConfigureAwait(false);
+            await body.WriteAsync(LineEnd, http.RequestAborted).ConfigureAwait(false);
+        }
         await body.WriteAsync(DataPrefix, http.RequestAborted).ConfigureAwait(false);
         await body.WriteAsync(json, http.RequestAborted).ConfigureAwait(false);
         await body.WriteAsync(EventSuffix, http.RequestAborted).ConfigureAwait(false);
@@ -125,36 +157,66 @@ internal static class HttpPlumbing
         await http.Response.Body.FlushAsync(http.RequestAborted).ConfigureAwait(false);
     }
 
+    /// <summary>The SSE id of a stored task event (<c>{taskId}:{sequence}</c>); null for events that are not stored (sequence 0).</summary>
+    public static string? EventId(SequencedEvent evt)
+    {
+        if (evt.Sequence <= 0) return null;
+        var taskId = evt.Event switch
+        {
+            TaskEvent t => t.Task.Id,
+            StatusUpdateEvent s => s.StatusUpdate.TaskId,
+            ArtifactUpdateEvent a => a.ArtifactUpdate.TaskId,
+            _ => null,
+        };
+        return string.IsNullOrEmpty(taskId) ? null : StreamCursor.Format(taskId, evt.Sequence);
+    }
+
+    /// <summary>A stream whose first element may still be on its way.</summary>
+    public sealed record PrimedStream(IAsyncEnumerator<SequencedEvent> Events, Task<bool> First);
+
     /// <summary>
-    /// Pulls the first element before the response starts, so validation errors become normal error responses
-    /// rather than broken streams. Returns null if the sequence is empty.
+    /// Asks for the first element before the response starts, so validation errors become normal error responses rather
+    /// than broken streams. Waits at most <paramref name="patience"/> (zero: no limit): a stream with nothing to send yet
+    /// (for example a resume with no missed events) still starts, and keep-alives flow. Returns null if the sequence is empty.
     /// </summary>
-    public static async Task<IAsyncEnumerator<StreamResponse>?> PrimeAsync(IAsyncEnumerable<StreamResponse> source, CancellationToken ct)
+    public static async Task<PrimedStream?> PrimeAsync(IAsyncEnumerable<SequencedEvent> source, TimeSpan patience, CancellationToken ct)
     {
         var e = source.GetAsyncEnumerator(ct);
+        Task<bool>? first = null;
         try
         {
-            if (await e.MoveNextAsync().ConfigureAwait(false)) return e;
+            first = e.MoveNextAsync().AsTask();
+            if (patience > TimeSpan.Zero && !first.IsCompleted)
+            {
+                using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                await Task.WhenAny(first, Task.Delay(patience, delayCts.Token)).ConfigureAwait(false);
+                delayCts.Cancel();
+            }
+            if (!first.IsCompleted) return new PrimedStream(e, first);
+            if (await first.ConfigureAwait(false)) return new PrimedStream(e, first);
             await e.DisposeAsync().ConfigureAwait(false);
             return null;
         }
         catch
         {
-            await e.DisposeAsync().ConfigureAwait(false);
+            await DrainAndDisposeAsync(e, first).ConfigureAwait(false);
             throw;
         }
     }
 
-    /// <summary>Writes the primed enumerator as SSE, emitting keep-alive comments when idle.</summary>
-    public static async Task PumpAsync(HttpContext http, IAsyncEnumerator<StreamResponse> e, Func<StreamResponse, byte[]> encode,
+    /// <summary>
+    /// Writes the primed stream as SSE, with an <c>id:</c> line on every stored task event and keep-alive comments when idle.
+    /// Always disposes the enumerator, which releases the stream's resources (for example its stream slot).
+    /// </summary>
+    public static async Task PumpAsync(HttpContext http, PrimedStream stream, Func<StreamResponse, byte[]> encode,
         Func<Exception, byte[]> encodeError, TimeSpan keepAlive, ILogger logger)
     {
+        var e = stream.Events;
+        var next = stream.First;
         try
         {
-            await WriteEventAsync(http, encode(e.Current)).ConfigureAwait(false);
             while (true)
             {
-                var next = e.MoveNextAsync().AsTask();
                 while (keepAlive > TimeSpan.Zero && !next.IsCompleted)
                 {
                     using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
@@ -168,7 +230,8 @@ internal static class HttpPlumbing
                     await WriteKeepAliveAsync(http).ConfigureAwait(false);
                 }
                 if (!await next.ConfigureAwait(false)) break;
-                await WriteEventAsync(http, encode(e.Current)).ConfigureAwait(false);
+                await WriteEventAsync(http, EventId(e.Current), encode(e.Current.Event)).ConfigureAwait(false);
+                next = e.MoveNextAsync().AsTask();
             }
         }
         catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
@@ -177,13 +240,27 @@ internal static class HttpPlumbing
         }
         catch (Exception ex)
         {
-            try { await WriteEventAsync(http, encodeError(ex)).ConfigureAwait(false); }
+            try { await WriteEventAsync(http, null, encodeError(ex)).ConfigureAwait(false); }
             catch (Exception writeEx) { logger.LogDebug(writeEx, "Could not write stream error event"); }
         }
         finally
         {
-            await e.DisposeAsync().ConfigureAwait(false);
+            await DrainAndDisposeAsync(e, next).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Disposes the enumerator. An async iterator cannot be disposed while a MoveNext is running, so a pending one is awaited
+    /// first; the enumerator was created with the request's abort token, so it ends once the client is gone.
+    /// </summary>
+    private static async Task DrainAndDisposeAsync(IAsyncEnumerator<SequencedEvent> e, Task<bool>? pending)
+    {
+        if (pending is { IsCompleted: false })
+        {
+            try { await pending.ConfigureAwait(false); }
+            catch (Exception) { /* the stream is ending anyway */ }
+        }
+        await e.DisposeAsync().ConfigureAwait(false);
     }
 
     /// <summary>Reads the request body. More than <paramref name="maxBytes"/> bytes is <see cref="A2AException.PayloadTooLarge"/> (HTTP 413).</summary>

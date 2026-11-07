@@ -30,19 +30,30 @@ public sealed class A2ALimits
     /// <summary>Upper bound on the ListTasks page size. Default 100.</summary>
     public int MaxListPageSize { get; set; } = 100;
 
-    /// <summary>Most concurrent streams (subscriptions) per task. Default 10.</summary>
+    /// <summary>
+    /// Most concurrent streams (SubscribeToTask and SendStreamingMessage) per task and caller. More is RATE_LIMITED. Default 10.
+    /// </summary>
     public int MaxConcurrentStreamsPerTask { get; set; } = 10;
 
-    /// <summary>Most concurrent streams per caller. Default 50.</summary>
+    /// <summary>Most concurrent streams per caller (tenant and principal). More is RATE_LIMITED. Default 50.</summary>
     public int MaxConcurrentStreamsPerPrincipal { get; set; } = 50;
 
-    /// <summary>Largest single stream event in bytes. Default 4 MB.</summary>
+    /// <summary>
+    /// Largest single agent event in bytes, measured as serialized JSON. A larger event is never stored or sent: the task
+    /// fails and the agent is stopped. Split large artifacts into chunks. Default 4 MB.
+    /// </summary>
     public int MaxEventBytes { get; set; } = 4 * 1024 * 1024;
 
-    /// <summary>Longest a stream may stay open. Default 1 hour.</summary>
+    /// <summary>
+    /// Longest a stream may stay open; then it ends normally and clients resume with <c>Last-Event-ID</c>. Zero or
+    /// <see cref="Timeout.InfiniteTimeSpan"/> turns it off. Default 1 hour.
+    /// </summary>
     public TimeSpan MaxStreamDuration { get; set; } = TimeSpan.FromHours(1);
 
-    /// <summary>How often an open stream re-checks the caller's authorization. Default 5 minutes.</summary>
+    /// <summary>
+    /// How often an open stream asks <see cref="A2AAuthorizationHandler"/> again; on denial the stream ends. Zero or
+    /// <see cref="Timeout.InfiniteTimeSpan"/> turns it off. Default 5 minutes.
+    /// </summary>
     public TimeSpan StreamReauthInterval { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>Most push notification configs per task. More is InvalidRequest. Default 10.</summary>

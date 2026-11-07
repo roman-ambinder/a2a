@@ -19,6 +19,8 @@ public static class A2AServerServiceCollectionExtensions
         if (configure is not null) options.Configure(configure);
         services.TryAddSingleton<Storage.TaskStore, Storage.InMemoryTaskStore>();
         services.TryAddSingleton<Storage.PushConfigStore, Storage.InMemoryPushConfigStore>();
+        services.TryAddSingleton<Storage.EventStore>(sp => new Storage.InMemoryEventStore(
+            sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, sp.GetService<TimeProvider>()));
         services.TryAddSingleton<IPushSecretProtector, EphemeralPushSecretProtector>();
         services.TryAddSingleton<IPrincipalResolver, DefaultPrincipalResolver>();
         services.TryAddSingleton<A2AAuthorizationHandler, AllowAllAuthorizationHandler>();
@@ -69,13 +71,15 @@ public sealed class A2AServerBuilder
     }
 
     /// <summary>
-    /// Uses the in-memory task and push config stores. They are already registered by default, so this changes nothing
+    /// Uses the in-memory task, push config and event stores. They are already registered by default, so this changes nothing
     /// unless you registered your own stores earlier (it does not replace them).
     /// </summary>
     public A2AServerBuilder AddInMemoryStores()
     {
         Services.TryAddSingleton<Storage.TaskStore, Storage.InMemoryTaskStore>();
         Services.TryAddSingleton<Storage.PushConfigStore, Storage.InMemoryPushConfigStore>();
+        Services.TryAddSingleton<Storage.EventStore>(sp => new Storage.InMemoryEventStore(
+            sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, sp.GetService<TimeProvider>()));
         return this;
     }
 }

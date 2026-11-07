@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using A2A.Json;
+using A2A.Server.Streaming;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -11,11 +12,11 @@ using Microsoft.Extensions.Options;
 namespace A2A.Server.AspNetCore;
 
 /// <summary>HTTP+JSON/REST binding (spec §11). Errors use the google.rpc.Status shape (§11.6).</summary>
-internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOptions> httpOptions,
+internal sealed class RestEndpoint(A2ARequestHandler handler,
     IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<RestEndpoint> logger)
 {
-    private readonly A2AHttpOptions _http = httpOptions.Value;
     private readonly A2ALimits _limits = serverOptions.Value.Limits;
+    private readonly TimeSpan _keepAlive = serverOptions.Value.Streaming.KeepAliveInterval;
     private readonly bool _includeDetails = HttpPlumbing.ShouldIncludeDetails(serverOptions.Value, environment);
 
     /// <summary>
@@ -53,7 +54,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
     private Task SendStreamingMessage(HttpContext http) => RunStream(http, async (call, ct) =>
     {
         var req = await Body<SendMessageRequest>(http).ConfigureAwait(false);
-        return handler.SendStreamingMessageAsync(req, call, ct);
+        return handler.SendStreamingMessageAsync(req, call, HttpPlumbing.LastEventId(http), ct);
     });
 
     private Task GetTask(HttpContext http) => Run(http, (call, ct) =>
@@ -103,7 +104,10 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
     });
 
     private Task Subscribe(HttpContext http) => RunStream(http, (call, ct) =>
-        Task.FromResult(handler.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = Route(http, "id"), Tenant = call.Tenant }, call, ct)));
+    {
+        var id = Route(http, "id");
+        return Task.FromResult(handler.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = id, Tenant = call.Tenant }, call, HttpPlumbing.ResumeAfter(http, id), ct));
+    });
 
     private Task CreatePushConfig(HttpContext http) => Run(http, async (call, ct) =>
     {
@@ -165,7 +169,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
         }
     }
 
-    private async Task RunStream(HttpContext http, Func<ServerCallContext, CancellationToken, Task<IAsyncEnumerable<StreamResponse>>> action)
+    private async Task RunStream(HttpContext http, Func<ServerCallContext, CancellationToken, Task<IAsyncEnumerable<SequencedEvent>>> action)
     {
         ServerCallContext call;
         try { call = HttpPlumbing.CreateCallContext(http); }
@@ -178,13 +182,13 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
         {
             handler.ValidateCall(call);
             var events = await action(call, http.RequestAborted).ConfigureAwait(false);
-            var e = await HttpPlumbing.PrimeAsync(events, http.RequestAborted).ConfigureAwait(false)
+            var e = await HttpPlumbing.PrimeAsync(events, _keepAlive, http.RequestAborted).ConfigureAwait(false)
                     ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "Empty stream");
             HttpPlumbing.WriteExtensionsHeader(http, call);
             HttpPlumbing.StartEventStream(http);
             await HttpPlumbing.PumpAsync(http, e, A2AJson.SerializeToUtf8Bytes,
                 ex => A2AJson.SerializeToUtf8Bytes(StatusBody(HttpPlumbing.Normalize(ex, logger, _includeDetails))),
-                _http.StreamKeepAliveInterval, logger).ConfigureAwait(false);
+                _keepAlive, logger).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
         {

@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using A2A.Json;
 using A2A.Net;
 using A2A.Server.Storage;
+using A2A.Server.Streaming;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -66,12 +67,17 @@ public static class PushUrlValidator
 /// <summary>Sends task events to registered webhooks.</summary>
 public interface IPushNotificationSender
 {
-    void Enqueue(TaskKey task, StreamResponse evt);
+    /// <summary>Queues delivery of a stored task event to the task's push configs.</summary>
+    /// <remarks>
+    /// Called while the handler holds the task's lock, once per event in sequence order. Implementations must return quickly:
+    /// they must not block, and must not call back into <see cref="A2ARequestHandler"/> for the same task (that would deadlock).
+    /// </remarks>
+    void Enqueue(TaskKey task, SequencedEvent evt);
 }
 
 /// <summary>
 /// Delivers notifications per task in order, at least once, with retries and exponential backoff (spec §4.3.3, §13.2).
-/// Adds <c>X-A2A-Notification-Token</c> and an <c>X-A2A-Notification-Sequence</c> number for deduplication and ordering.
+/// Adds <c>X-A2A-Notification-Token</c> and an <c>X-A2A-Notification-Sequence</c> number (the event store sequence) for deduplication and ordering.
 /// </summary>
 public sealed class HttpPushNotificationSender : IPushNotificationSender, IDisposable
 {
@@ -83,8 +89,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
     private readonly PushNotificationOptions _options;
     private readonly ILogger _logger;
     private readonly object _gate = new();
-    private readonly Dictionary<TaskKey, Queue<(long Seq, StreamResponse Evt)>> _queues = new();
-    private readonly ConcurrentDictionary<TaskKey, long> _sequence = new();
+    private readonly Dictionary<TaskKey, Queue<SequencedEvent>> _queues = new();
     private readonly ConcurrentDictionary<Task, byte> _workers = new();
     private readonly CancellationTokenSource _shutdown = new();
 
@@ -98,18 +103,17 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
         _logger = (ILogger?)logger ?? NullLogger.Instance;
     }
 
-    public void Enqueue(TaskKey task, StreamResponse evt)
+    public void Enqueue(TaskKey task, SequencedEvent evt)
     {
-        var seq = _sequence.AddOrUpdate(task, 1, (_, s) => s + 1);
         lock (_gate)
         {
             if (_queues.TryGetValue(task, out var q))
             {
-                q.Enqueue((seq, evt));
+                q.Enqueue(evt);
                 return;
             }
-            q = new Queue<(long, StreamResponse)>();
-            q.Enqueue((seq, evt));
+            q = new Queue<SequencedEvent>();
+            q.Enqueue(evt);
             _queues[task] = q;
         }
         var worker = Task.Run(() => DrainAsync(task));
@@ -127,7 +131,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
     {
         while (true)
         {
-            (long Seq, StreamResponse Evt) item;
+            SequencedEvent item;
             lock (_gate)
             {
                 var q = _queues[task];
@@ -154,7 +158,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
                         _logger.LogError(ex, "Cannot unprotect secrets of webhook {ConfigId} for task {TaskId}; skipping", record.Config.Id, task.TaskId);
                         continue;
                     }
-                    await DeliverAsync(config, item.Seq, item.Evt).ConfigureAwait(false);
+                    await DeliverAsync(config, item.Sequence, item.Event).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
@@ -165,8 +169,6 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
             {
                 _logger.LogError(ex, "Push notification processing failed for task {TaskId}", task.TaskId);
             }
-
-            if (item.Evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal()) _sequence.TryRemove(task, out _);
         }
     }
 
