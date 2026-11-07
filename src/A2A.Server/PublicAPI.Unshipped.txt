@@ -39,7 +39,7 @@ A2A.Server.Authorization.A2AOperation.SendMessage = 0 -> A2A.Server.Authorizatio
 A2A.Server.Authorization.A2AOperation.SendStreamingMessage = 1 -> A2A.Server.Authorization.A2AOperation
 A2A.Server.Authorization.A2AOperation.SubscribeToTask = 5 -> A2A.Server.Authorization.A2AOperation
 A2A.Server.A2ARequestHandler
-A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.IAgentExecutorFactory! executors, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyStore! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.Push.IPushNotificationSender! push, A2A.Server.TaskEventBus! bus, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, Microsoft.Extensions.Logging.ILogger<A2A.Server.A2ARequestHandler!>? logger = null) -> void
+A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.IAgentExecutorFactory! executors, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.Push.IPushNotificationSender! push, A2A.Server.TaskEventBus! bus, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, Microsoft.Extensions.Logging.ILogger<A2A.Server.A2ARequestHandler!>? logger = null) -> void
 A2A.Server.A2ARequestHandler.AgentCard.get -> A2A.AgentCard!
 A2A.Server.A2ARequestHandler.CancelTaskAsync(A2A.CancelTaskRequest! request, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
 A2A.Server.A2ARequestHandler.CreateTaskPushNotificationConfigAsync(A2A.TaskPushNotificationConfig! config, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TaskPushNotificationConfig!>!
@@ -436,3 +436,15 @@ A2A.Server.Push.PushConfigService.ListAsync(A2A.Server.Storage.TaskKey key, int 
 A2A.Server.Push.PushConfigService.PushConfigService(A2A.Server.Storage.PushConfigStore! store, A2A.Server.Push.IPushSecretProtector! protector, A2A.Server.A2AServerOptions! options) -> void
 A2A.Server.Push.PushConfigService.SaveInlineAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask
 A2A.Server.Push.PushConfigService.ValidateInlineAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask
+A2A.Server.Idempotency.IdempotencyCoordinator
+A2A.Server.Idempotency.IdempotencyCoordinator.IdempotencyCoordinator(A2A.Server.Idempotency.IdempotencyStore! store, A2A.Server.Storage.TaskStore! tasks, A2A.Server.A2AServerOptions! options, Microsoft.Extensions.Logging.ILogger<A2A.Server.Idempotency.IdempotencyCoordinator!>? logger = null) -> void
+A2A.Server.Idempotency.IdempotencyCoordinator.BeginAsync(A2A.SendMessageRequest! request, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<(A2A.Server.Idempotency.IdempotencyClaim! Claim, A2A.Server.Idempotency.IdempotencyOutcome? Replay)>
+A2A.Server.Idempotency.IdempotencyCoordinator.ReplayAsync(A2A.Server.Idempotency.IdempotencyOutcome! outcome, A2A.SendMessageRequest! request, A2A.Server.ServerCallContext! call, System.Func<A2A.Server.Storage.TaskKey, long, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<A2A.AgentTask!>>! waitUntilSettled, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.SendMessageResponse!>
+A2A.Server.Idempotency.IdempotencyCoordinator.RecordAsync(A2A.Server.Idempotency.IdempotencyClaim! claim, A2A.Server.Idempotency.IdempotencyOutcome! outcome, string! taskId) -> System.Threading.Tasks.ValueTask
+A2A.Server.Idempotency.IdempotencyCoordinator.AbandonAsync(A2A.Server.Idempotency.IdempotencyClaim! claim, string? taskId = null) -> System.Threading.Tasks.ValueTask
+A2A.Server.Idempotency.IdempotencyClaim
+A2A.Server.Idempotency.IdempotencyClaim.IdempotencyClaim(A2A.Server.Idempotency.IdempotencyStore? store, A2A.Server.Idempotency.IdempotencyScope scope) -> void
+A2A.Server.Idempotency.IdempotencyClaim.CompleteAsync(A2A.Server.Idempotency.IdempotencyOutcome! outcome) -> System.Threading.Tasks.ValueTask
+A2A.Server.Idempotency.IdempotencyClaim.AbandonAsync() -> System.Threading.Tasks.ValueTask
+static A2A.Server.Idempotency.IdempotencyClaim.None.get -> A2A.Server.Idempotency.IdempotencyClaim!
+const A2A.Server.Idempotency.IdempotencyCoordinator.MaxIdempotencyKeyLength = 256 -> int

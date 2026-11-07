@@ -25,7 +25,7 @@ public sealed class A2ARequestHandler : IDisposable
     private readonly IAgentExecutorFactory _executors;
     private readonly TaskStore _tasks;
     private readonly EventStore _events;
-    private readonly IdempotencyStore _idempotency;
+    private readonly IdempotencyCoordinator _idempotency;
     private readonly A2AAuthorizationHandler _authorization;
     private readonly IPushNotificationSender _push;
     private readonly TaskEventBus _bus;
@@ -43,7 +43,7 @@ public sealed class A2ARequestHandler : IDisposable
         IAgentExecutorFactory executors,
         TaskStore tasks,
         EventStore events,
-        IdempotencyStore idempotency,
+        IdempotencyCoordinator idempotency,
         A2AAuthorizationHandler authorization,
         IPushNotificationSender push,
         TaskEventBus bus,
@@ -107,8 +107,8 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SendMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
-        var (claim, replay) = await BeginIdempotentAsync(request, call, cancellationToken).ConfigureAwait(false);
-        if (replay is not null) return await ReplayAsync(replay, request, call, cancellationToken).ConfigureAwait(false);
+        var (claim, replay) = await _idempotency.BeginAsync(request, call, cancellationToken).ConfigureAwait(false);
+        if (replay is not null) return await _idempotency.ReplayAsync(replay, request, call, WaitUntilSettledAsync, cancellationToken).ConfigureAwait(false);
         var taskId = string.IsNullOrEmpty(request.Message?.TaskId) ? TaskIds.New() : request.Message.TaskId;
         var scope = ScopeKey(call.Tenant, taskId);
         // Subscribe before the agent starts, so no event of another execution is missed.
@@ -220,7 +220,7 @@ public sealed class A2ARequestHandler : IDisposable
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SendStreamingMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
         RequireStreaming();
-        var (claim, replay) = await BeginIdempotentAsync(request, call, cancellationToken).ConfigureAwait(false);
+        var (claim, replay) = await _idempotency.BeginAsync(request, call, cancellationToken).ConfigureAwait(false);
         if (replay is IdempotencyOutcome.DirectMessage direct)
         {
             // The stored outcome belongs to the idempotency store; the caller gets its own copy.
@@ -245,7 +245,7 @@ public sealed class A2ARequestHandler : IDisposable
         }
         catch
         {
-            await AbandonAsync(claim).ConfigureAwait(false);
+            await _idempotency.AbandonAsync(claim).ConfigureAwait(false);
             throw;
         }
         using var admitted = slot;
@@ -399,68 +399,6 @@ public sealed class A2ARequestHandler : IDisposable
     private sealed record Prepared(AgentRequestContext Context, TaskPushNotificationConfig? PushConfig, long LastSequence);
 
     /// <summary>
-    /// Begins idempotency for a SendMessage (spec design §7.3), after authorization and before the message is accepted. The
-    /// key is the <c>Idempotency-Key</c> header, else the message id, scoped by tenant and principal. Returns the claim of a
-    /// new request, or the outcome of the earlier request with the same key, waiting (up to the request's cancellation) while
-    /// it runs. A key reused with a different request is <see cref="A2AException.IdempotencyKeyMismatch"/>; a key longer than
-    /// <see cref="MaxIdempotencyKeyLength"/> characters is InvalidParams.
-    /// </summary>
-    private async Task<(IdempotencyClaim Claim, IdempotencyOutcome? Replay)> BeginIdempotentAsync(SendMessageRequest request,
-        ServerCallContext call, CancellationToken ct)
-    {
-        var key = call.IdempotencyKey ?? request.Message?.MessageId;
-        if (string.IsNullOrEmpty(key) || request.Message is null) return (IdempotencyClaim.None, null); // validation rejects it later
-        if (key.Length > MaxIdempotencyKeyLength) throw A2AException.InvalidParams("Idempotency key too long.");
-        var scope = new IdempotencyScope(call.Tenant, call.Principal, key);
-        var hash = RequestHasher.Hash(request);
-        while (true)
-        {
-            switch (await _idempotency.TryBeginAsync(scope, hash, ct).ConfigureAwait(false))
-            {
-                case IdempotencyResult.New:
-                    return (new IdempotencyClaim(_idempotency, scope), null);
-                case IdempotencyResult.Completed done:
-                    return (IdempotencyClaim.None, done.Outcome);
-                case IdempotencyResult.InProgress running:
-                    try
-                    {
-                        return (IdempotencyClaim.None, await running.Completion.WaitAsync(ct).ConfigureAwait(false));
-                    }
-                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-                    {
-                        break; // the first request failed before creating anything: try again, possibly as the new owner
-                    }
-                case IdempotencyResult.Mismatch:
-                    throw A2AException.IdempotencyKeyMismatch();
-                default:
-                    throw new UnreachableException();
-            }
-        }
-    }
-
-    /// <summary>
-    /// The answer to a retried SendMessage: the same direct reply, or the task. Like the first request, a blocking retry
-    /// returns the task once it is terminal or interrupted (or the request is cancelled); a <c>returnImmediately</c> retry
-    /// returns it as it is now.
-    /// </summary>
-    private async Task<SendMessageResponse> ReplayAsync(IdempotencyOutcome outcome, SendMessageRequest request, ServerCallContext call, CancellationToken ct)
-    {
-        switch (outcome)
-        {
-            case IdempotencyOutcome.DirectMessage direct:
-                return new MessageResponse(direct.Message.DeepCopy()); // the stored outcome stays with the idempotency store
-            case IdempotencyOutcome.TaskCreated created:
-                var key = Key(call, created.TaskId);
-                var task = request.Configuration?.ReturnImmediately == true
-                    ? (await _tasks.GetAsync(key, ct).ConfigureAwait(false))?.Task ?? throw A2AException.TaskNotFound(created.TaskId)
-                    : await WaitUntilSettledAsync(key, created.AfterSequence, ct).ConfigureAwait(false);
-                return new TaskResponse(Shape(task, request.Configuration?.HistoryLength));
-            default:
-                throw new UnreachableException();
-        }
-    }
-
-    /// <summary>
     /// Waits for the outcome of a blocking SendMessage, then returns the task, as the first request does:
     /// <list type="bullet">
     /// <item>a terminal state;</item>
@@ -472,7 +410,7 @@ public sealed class A2ARequestHandler : IDisposable
     /// </list>
     /// Subscribing before the first read, and checking for running executions before reading the task, means no change is missed.
     /// </summary>
-    private async Task<AgentTask> WaitUntilSettledAsync(TaskKey key, long afterSequence, CancellationToken ct)
+    private async ValueTask<AgentTask> WaitUntilSettledAsync(TaskKey key, long afterSequence, CancellationToken ct)
     {
         var scope = ScopeKey(key.Tenant, key.TaskId);
         using var sub = _bus.Subscribe(scope);
@@ -523,21 +461,14 @@ public sealed class A2ARequestHandler : IDisposable
             // Record after the execution is registered, so a blocking retry sees it running and waits for its outcome.
             var exec = StartExecution(prepared.Context, prepared.PushConfig, IdempotencyClaim.None);
             var taskId = prepared.Context.TaskId;
-            await RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId, prepared.LastSequence), taskId).ConfigureAwait(false);
+            await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId, prepared.LastSequence), taskId).ConfigureAwait(false);
             return (exec, prepared.LastSequence);
         }
         catch
         {
-            await AbandonAsync(claim).ConfigureAwait(false);
+            await _idempotency.AbandonAsync(claim).ConfigureAwait(false);
             throw;
         }
-    }
-
-    /// <summary>Abandons an idempotency claim on a failure path. A failing idempotency store is logged; the original error wins.</summary>
-    private async Task AbandonAsync(IdempotencyClaim claim)
-    {
-        try { await claim.AbandonAsync().ConfigureAwait(false); }
-        catch (Exception ex) { _logger.LogError(ex, "Failed to abandon an idempotency entry"); }
     }
 
     private async Task<Prepared> PrepareAsync(SendMessageRequest request, ServerCallContext call, CancellationToken ct, string? newTaskId = null)
@@ -1146,7 +1077,7 @@ public sealed class A2ARequestHandler : IDisposable
                 if (evt is MessageEvent reply)
                 {
                     // The idempotency store owns its copy; the reply itself goes to the waiting request.
-                    await RecordAsync(claim, new IdempotencyOutcome.DirectMessage(reply.Message.DeepCopy()), taskId).ConfigureAwait(false);
+                    await _idempotency.RecordAsync(claim, new IdempotencyOutcome.DirectMessage(reply.Message.DeepCopy()), taskId).ConfigureAwait(false);
                     exec.Emit(new SequencedEvent(0, evt)); // direct reply, no task, not stored
                     continue;
                 }
@@ -1176,7 +1107,7 @@ public sealed class A2ARequestHandler : IDisposable
                         var snapshot = StreamResponse.Of(record.Task);
                         Publish(exec, key, new SequencedEvent(await _events.AppendAsync(key, snapshot).ConfigureAwait(false), snapshot));
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
-                        await RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
+                        await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
                     }
                     else
                     {
@@ -1216,8 +1147,7 @@ public sealed class A2ARequestHandler : IDisposable
         finally
         {
             // No task and no reply (for example the agent produced nothing): retries may run the request again.
-            try { await claim.AbandonAsync().ConfigureAwait(false); }
-            catch (Exception ex) { _logger.LogError(ex, "Failed to abandon the idempotency entry for task {TaskId}", taskId); }
+            await _idempotency.AbandonAsync(claim, taskId).ConfigureAwait(false);
             // A storage failure (above) is an error for the request that is waiting, never a clean end of its stream.
             exec.Outgoing.Writer.TryComplete();
         }
@@ -1254,13 +1184,6 @@ public sealed class A2ARequestHandler : IDisposable
         {
             _logger.LogError(ex, "Could not mark task {TaskId} as failed after a storage error", key.TaskId);
         }
-    }
-
-    /// <summary>Records an idempotency outcome. A failing idempotency store is logged; it never stops the task.</summary>
-    private async Task RecordAsync(IdempotencyClaim claim, IdempotencyOutcome outcome, string taskId)
-    {
-        try { await claim.CompleteAsync(outcome).ConfigureAwait(false); }
-        catch (Exception ex) { _logger.LogError(ex, "Failed to record the idempotency outcome for task {TaskId}", taskId); }
     }
 
     /// <summary>
@@ -1385,32 +1308,8 @@ public sealed class A2ARequestHandler : IDisposable
 
     private static TaskKey Key(ServerCallContext call, string taskId) => new(call.Tenant, call.Principal, taskId);
 
-    /// <summary>
-    /// Applies historyLength (0 = none, n = last n) and artifact inclusion. The history is capped at
-    /// <see cref="A2ALimits.MaxHistoryLengthReturned"/> also when <paramref name="historyLength"/> is null or larger.
-    /// </summary>
-    /// <remarks>
-    /// Returns a new <see cref="AgentTask"/> that shares everything it does not change with <paramref name="task"/>, which the
-    /// store owns: the status, the metadata, the messages and artifacts, and the history and artifact lists when they are kept
-    /// whole (a new history list only when it is trimmed). That is safe because the result is serialized at once and never
-    /// kept or changed.
-    /// </remarks>
-    private AgentTask Shape(AgentTask task, int? historyLength, bool includeArtifacts = true)
-    {
-        var n = Math.Min(historyLength ?? int.MaxValue, _options.Limits.MaxHistoryLengthReturned);
-        var history = task.History;
-        if (n <= 0 || history is not { Count: > 0 }) history = null;
-        else if (history.Count > n) history = history.GetRange(history.Count - n, n);
-        return new AgentTask
-        {
-            Id = task.Id,
-            ContextId = task.ContextId,
-            Status = task.Status,
-            Artifacts = includeArtifacts ? task.Artifacts : null,
-            History = history,
-            Metadata = task.Metadata,
-        };
-    }
+    private AgentTask Shape(AgentTask task, int? historyLength, bool includeArtifacts = true) =>
+        TaskShaper.Shape(task, historyLength, _options.Limits, includeArtifacts);
 
     private void RequireStreaming()
     {
@@ -1426,12 +1325,6 @@ public sealed class A2ARequestHandler : IDisposable
 
     private static A2AException NotCancelable(string taskId) =>
         new(A2AErrorCode.TaskNotCancelable) { Metadata = new() { ["taskId"] = taskId } };
-
-    /// <summary>
-    /// Longest idempotency key (the <c>Idempotency-Key</c> header, else the message id), in characters. Keys are held in
-    /// memory per caller, so a longer one is InvalidParams.
-    /// </summary>
-    internal const int MaxIdempotencyKeyLength = 256;
 
     /// <summary>Retries after a version conflict when applying one change to a task.</summary>
     private const int MaxConflictRetries = 3;

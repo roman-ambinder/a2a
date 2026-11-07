@@ -40,6 +40,7 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<IPushNotificationSender>(sp => sp.GetRequiredService<HttpPushNotificationSender>());
         services.TryAddSingleton<Pipeline.CallValidator>();
         services.TryAddSingleton<PushConfigService>();
+        services.TryAddSingleton<Idempotency.IdempotencyCoordinator>();
         services.TryAddSingleton<A2ARequestHandler>();
         return new A2AServerBuilder(services);
     }
