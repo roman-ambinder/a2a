@@ -22,7 +22,6 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <IsAotCompatible>true</IsAotCompatible>
 
     <!-- NuGet identity: assembly names and namespaces stay A2A.*; package IDs are owner-prefixed so they never clash
          with the official "A2A" packages. -->
@@ -44,6 +43,8 @@
 
     <!-- Catch accidental API differences between target frameworks inside a package. -->
     <EnablePackageValidation>true</EnablePackageValidation>
+
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/tests/')) Or $(MSBuildProjectDirectory.Contains('\tests\'))">

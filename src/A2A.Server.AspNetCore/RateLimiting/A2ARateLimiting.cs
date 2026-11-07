@@ -96,7 +96,8 @@ internal sealed class A2ARateLimitMarker
 /// unauthenticated caller its remote IP address, so anonymous callers do not share one bucket. Every request also draws
 /// from a bucket per caller alone (same settings), so one caller cannot get more by spreading requests over tenants.
 /// </summary>
-internal sealed class A2ARateLimiterPolicy(IOptions<A2ARateLimitOptions> options, ITenantResolver tenants, IPrincipalResolver principals)
+internal sealed class A2ARateLimiterPolicy(IOptions<A2ARateLimitOptions> options, ITenantResolver tenants, IPrincipalResolver principals,
+    IEnumerable<IA2ARejectionWriter> writers)
     : IRateLimiterPolicy<string>, IDisposable
 {
     private readonly A2ARateLimitOptions _options = options.Value;
@@ -137,12 +138,27 @@ internal sealed class A2ARateLimiterPolicy(IOptions<A2ARateLimitOptions> options
         if (wait < TimeSpan.FromSeconds(1)) wait = TimeSpan.FromSeconds(1);
         var error = A2AException.RateLimited(wait);
 
+        foreach (var writer in writers)
+        {
+            if (writer.TryWriteAsync(http, error) is { } written) return new ValueTask(written);
+        }
+
         HttpPlumbing.SetRetryAfter(http, error);
         var isJsonRpc = http.GetEndpoint()?.DisplayName?.StartsWith(JsonRpcEndpoint.DisplayName, StringComparison.Ordinal) == true;
         return new ValueTask(isJsonRpc
             ? HttpPlumbing.WriteJsonAsync(http, JsonRpcResponse.Failure(null, error), A2AProtocol.JsonMediaType, 429)
             : HttpPlumbing.WriteJsonAsync(http, RestEndpoint.StatusBody(error), A2AProtocol.MediaType, 429));
     }
+}
+
+/// <summary>
+/// Writes an A2A error that is raised before the endpoint runs (the rate limit rejection) in a binding's own format.
+/// The HTTP bindings are built in; the gRPC binding registers one for its endpoints.
+/// </summary>
+internal interface IA2ARejectionWriter
+{
+    /// <summary>Writes <paramref name="error"/> and returns the write, or returns null when the request is not for this binding.</summary>
+    Task? TryWriteAsync(HttpContext http, A2AException error);
 }
 
 /// <summary>

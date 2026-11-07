@@ -9,17 +9,22 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace A2A.Tests.Parity;
 
 /// <summary>
-/// Transport parity (design §7.10): every method behaves the same over JSON-RPC and HTTP+JSON. Test names are
+/// Transport parity (design §7.10): every method behaves the same over JSON-RPC, HTTP+JSON and gRPC. Test names are
 /// <c>{Method}_{case}</c>. A case that cannot exist for a method is left out:
 /// metadata round-trips only where the request has metadata (SendMessage, SendStreamingMessage, CancelTask);
 /// historyLength only where a task is returned with history (SendMessage, GetTask, ListTasks);
 /// a tenant mismatch needs a body tenant, which REST requests without a body do not have.
+/// The tenant cases are HTTP only: they compare a route tenant with a body tenant, and gRPC has no route (its tenant is the
+/// request's <c>tenant</c> field alone; A2A.Grpc.Tests covers it).
 /// </summary>
 public class ParityTests
 {
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(30);
 
-    public static TheoryData<string> Bindings => BindingTests.Bindings;
+    public static TheoryData<string> Bindings => new() { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson, ProtocolBindings.Grpc };
+
+    /// <summary>The bindings with a route tenant.</summary>
+    public static TheoryData<string> HttpBindings => BindingTests.Bindings;
 
     /// <summary>JSON-RPC only: the REST form of the method has no body to carry a second tenant.</summary>
     public static TheoryData<string> JsonRpcOnly => new() { ProtocolBindings.JsonRpc };
@@ -100,7 +105,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task SendMessage_happy_path(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var client = host.Client(binding);
         var task = (await client.SendMessageAsync("task")).RequireTask();
         Assert.Equal(TaskState.Completed, task.Status.State);
@@ -111,7 +116,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task SendStreamingMessage_happy_path(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var events = new List<StreamResponse>();
         await foreach (var e in host.Client(binding).SendStreamingMessageAsync(Message.FromUser("task")).WithCancellation(new CancellationTokenSource(Wait).Token)) events.Add(e);
         Assert.IsType<TaskEvent>(events[0]);
@@ -122,7 +127,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task GetTask_happy_path(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var client = host.Client(binding);
         var sent = (await client.SendMessageAsync("task")).RequireTask();
         var got = await client.GetTaskAsync(sent.Id);
@@ -134,7 +139,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task ListTasks_happy_path(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var client = host.Client(binding);
         var sent = (await client.SendMessageAsync("task")).RequireTask();
         var list = await client.ListTasksAsync(new ListTasksRequest { ContextId = sent.ContextId });
@@ -145,7 +150,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task CancelTask_happy_path(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var client = host.Client(binding);
         var task = (await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).RequireTask();
         Assert.Equal(TaskState.Canceled, (await client.CancelTaskAsync(task.Id)).Status.State);
@@ -154,7 +159,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task SubscribeToTask_happy_path(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var client = host.Client(binding);
         var task = (await client.SendMessageAsync("input")).RequireTask();
         using var cts = new CancellationTokenSource(Wait);
@@ -166,7 +171,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task CreateTaskPushNotificationConfig_happy_path(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var client = host.Client(binding);
         var task = (await client.SendMessageAsync("input")).RequireTask();
         var created = await client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = task.Id, Url = "http://hooks.test/a" });
@@ -178,7 +183,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task GetTaskPushNotificationConfig_happy_path(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var client = host.Client(binding);
         var (task, configId) = await SeedAsync(client);
         var got = await client.GetTaskPushNotificationConfigAsync(new GetTaskPushNotificationConfigRequest { TaskId = task.Id, Id = configId });
@@ -189,7 +194,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task ListTaskPushNotificationConfigs_happy_path(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var client = host.Client(binding);
         var (task, configId) = await SeedAsync(client);
         var second = await client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = task.Id, Url = "http://hooks.test/second" });
@@ -200,7 +205,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task DeleteTaskPushNotificationConfig_happy_path(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var client = host.Client(binding);
         var (task, configId) = await SeedAsync(client);
         await client.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = task.Id, Id = configId });
@@ -212,7 +217,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task GetExtendedAgentCard_happy_path(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var card = await host.Client(binding).GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest());
         Assert.Equal("Extended card for alice", card.Description);
     }
@@ -229,7 +234,7 @@ public class ParityTests
         Assert.Equal(7, seen["n"].GetInt32());
     }
 
-    private static Task<TestAgentHost> StartRecordingAsync(MetadataRecorder recorder) => TestAgentHost.StartAsync(services: s =>
+    private static Task<TestAgentHost> StartRecordingAsync(MetadataRecorder recorder) => TestAgentHost.StartAsync(grpc: true, services: s =>
     {
         s.AddSingleton(recorder);
         s.AddScoped<IAgentExecutor, MetadataAgent>();
@@ -324,7 +329,7 @@ public class ParityTests
 
     private static async Task TenantAsync(Op op, string binding, string bodyTenant, bool expectOk)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         // Everything the method needs lives in tenant "acme".
         var acme = host.Client(binding, options: new A2AClientOptions { Tenant = "acme" });
         var (task, configId) = await SeedAsync(acme);
@@ -381,25 +386,25 @@ public class ParityTests
 
     private static Task Mismatch(Op op, string binding) => TenantAsync(op, binding, "other", expectOk: false);
 
-    [Theory, MemberData(nameof(Bindings))] public Task SendMessage_tenant_match(string b) => Match(Op.SendMessage, b);
-    [Theory, MemberData(nameof(Bindings))] public Task SendStreamingMessage_tenant_match(string b) => Match(Op.SendStreamingMessage, b);
-    [Theory, MemberData(nameof(Bindings))] public Task GetTask_tenant_match(string b) => Match(Op.GetTask, b);
-    [Theory, MemberData(nameof(Bindings))] public Task ListTasks_tenant_match(string b) => Match(Op.ListTasks, b);
-    [Theory, MemberData(nameof(Bindings))] public Task CancelTask_tenant_match(string b) => Match(Op.CancelTask, b);
-    [Theory, MemberData(nameof(Bindings))] public Task SubscribeToTask_tenant_match(string b) => Match(Op.SubscribeToTask, b);
-    [Theory, MemberData(nameof(Bindings))] public Task CreateTaskPushNotificationConfig_tenant_match(string b) => Match(Op.CreatePush, b);
-    [Theory, MemberData(nameof(Bindings))] public Task GetTaskPushNotificationConfig_tenant_match(string b) => Match(Op.GetPush, b);
-    [Theory, MemberData(nameof(Bindings))] public Task ListTaskPushNotificationConfigs_tenant_match(string b) => Match(Op.ListPush, b);
-    [Theory, MemberData(nameof(Bindings))] public Task DeleteTaskPushNotificationConfig_tenant_match(string b) => Match(Op.DeletePush, b);
-    [Theory, MemberData(nameof(Bindings))] public Task GetExtendedAgentCard_tenant_match(string b) => Match(Op.GetExtendedAgentCard, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task SendMessage_tenant_match(string b) => Match(Op.SendMessage, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task SendStreamingMessage_tenant_match(string b) => Match(Op.SendStreamingMessage, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task GetTask_tenant_match(string b) => Match(Op.GetTask, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task ListTasks_tenant_match(string b) => Match(Op.ListTasks, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task CancelTask_tenant_match(string b) => Match(Op.CancelTask, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task SubscribeToTask_tenant_match(string b) => Match(Op.SubscribeToTask, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task CreateTaskPushNotificationConfig_tenant_match(string b) => Match(Op.CreatePush, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task GetTaskPushNotificationConfig_tenant_match(string b) => Match(Op.GetPush, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task ListTaskPushNotificationConfigs_tenant_match(string b) => Match(Op.ListPush, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task DeleteTaskPushNotificationConfig_tenant_match(string b) => Match(Op.DeletePush, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task GetExtendedAgentCard_tenant_match(string b) => Match(Op.GetExtendedAgentCard, b);
 
-    [Theory, MemberData(nameof(Bindings))] public Task SendMessage_tenant_mismatch(string b) => Mismatch(Op.SendMessage, b);
-    [Theory, MemberData(nameof(Bindings))] public Task SendStreamingMessage_tenant_mismatch(string b) => Mismatch(Op.SendStreamingMessage, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task SendMessage_tenant_mismatch(string b) => Mismatch(Op.SendMessage, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task SendStreamingMessage_tenant_mismatch(string b) => Mismatch(Op.SendStreamingMessage, b);
     [Theory, MemberData(nameof(JsonRpcOnly))] public Task GetTask_tenant_mismatch(string b) => Mismatch(Op.GetTask, b);
     [Theory, MemberData(nameof(JsonRpcOnly))] public Task ListTasks_tenant_mismatch(string b) => Mismatch(Op.ListTasks, b);
-    [Theory, MemberData(nameof(Bindings))] public Task CancelTask_tenant_mismatch(string b) => Mismatch(Op.CancelTask, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task CancelTask_tenant_mismatch(string b) => Mismatch(Op.CancelTask, b);
     [Theory, MemberData(nameof(JsonRpcOnly))] public Task SubscribeToTask_tenant_mismatch(string b) => Mismatch(Op.SubscribeToTask, b);
-    [Theory, MemberData(nameof(Bindings))] public Task CreateTaskPushNotificationConfig_tenant_mismatch(string b) => Mismatch(Op.CreatePush, b);
+    [Theory, MemberData(nameof(HttpBindings))] public Task CreateTaskPushNotificationConfig_tenant_mismatch(string b) => Mismatch(Op.CreatePush, b);
     [Theory, MemberData(nameof(JsonRpcOnly))] public Task GetTaskPushNotificationConfig_tenant_mismatch(string b) => Mismatch(Op.GetPush, b);
     [Theory, MemberData(nameof(JsonRpcOnly))] public Task ListTaskPushNotificationConfigs_tenant_mismatch(string b) => Mismatch(Op.ListPush, b);
     [Theory, MemberData(nameof(JsonRpcOnly))] public Task DeleteTaskPushNotificationConfig_tenant_mismatch(string b) => Mismatch(Op.DeletePush, b);
@@ -410,7 +415,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task SendMessage_historyLength(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var client = host.Client(binding);
         async Task<AgentTask> Send(int? length) => (await client.SendMessageAsync(Message.FromUser("task"), new SendMessageConfiguration { HistoryLength = length })).RequireTask();
         Assert.Null((await Send(0)).History);
@@ -421,7 +426,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task GetTask_historyLength(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var client = host.Client(binding);
         var task = (await client.SendMessageAsync("task")).RequireTask();
         Assert.Null((await client.GetTaskAsync(task.Id, 0)).History);
@@ -432,7 +437,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task ListTasks_historyLength(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var client = host.Client(binding);
         await client.SendMessageAsync("task");
         Assert.Null(Assert.Single((await client.ListTasksAsync(new ListTasksRequest { HistoryLength = 0 })).Tasks).History);
@@ -444,7 +449,7 @@ public class ParityTests
 
     private static async Task ForeignAsync(Op op, string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var (task, configId) = await SeedAsync(host.Client(binding, "alice"));
         var bob = host.Client(binding, "bob");
         var ex = await Assert.ThrowsAsync<A2AException>(() => InvokeAsync(bob, op, task.Id, configId));
@@ -468,7 +473,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task ListTasks_foreign_owner(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var task = (await host.Client(binding, "alice").SendMessageAsync("task")).RequireTask();
         var bob = await host.Client(binding, "bob").ListTasksAsync(new ListTasksRequest { ContextId = task.ContextId });
         Assert.Empty(bob.Tasks);
@@ -478,7 +483,7 @@ public class ParityTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task GetExtendedAgentCard_foreign_owner(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync();
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
         var bob = await host.Client(binding, "bob").GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest());
         Assert.Equal("Extended card for bob", bob.Description); // never alice's card
     }
@@ -488,7 +493,7 @@ public class ParityTests
     private static async Task DeniedAsync(Op op, string binding, A2AErrorCode expected)
     {
         var auth = new Switchable();
-        await using var host = await TestAgentHost.StartAsync(services: s => s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler>(auth)));
+        await using var host = await TestAgentHost.StartAsync(grpc: true, services: s => s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler>(auth)));
         var client = host.Client(binding);
         var (task, configId) = await SeedAsync(client);
 
@@ -503,7 +508,7 @@ public class ParityTests
         // A follow-up names a task: denied like a missing one. A new conversation has no task to hide: permission denied.
         await DeniedAsync(Op.SendMessage, binding, A2AErrorCode.TaskNotFound);
         var auth = new Switchable { Allow = false };
-        await using var host = await TestAgentHost.StartAsync(services: s => s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler>(auth)));
+        await using var host = await TestAgentHost.StartAsync(grpc: true, services: s => s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler>(auth)));
         var ex = await Assert.ThrowsAsync<A2AException>(() => InvokeAsync(host.Client(binding), Op.SendMessage, null));
         Assert.Equal(A2AErrorCode.PermissionDenied, ex.Code);
     }
@@ -513,7 +518,7 @@ public class ParityTests
     {
         await DeniedAsync(Op.SendStreamingMessage, binding, A2AErrorCode.TaskNotFound);
         var auth = new Switchable { Allow = false };
-        await using var host = await TestAgentHost.StartAsync(services: s => s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler>(auth)));
+        await using var host = await TestAgentHost.StartAsync(grpc: true, services: s => s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler>(auth)));
         var ex = await Assert.ThrowsAsync<A2AException>(() => InvokeAsync(host.Client(binding), Op.SendStreamingMessage, null));
         Assert.Equal(A2AErrorCode.PermissionDenied, ex.Code);
     }
