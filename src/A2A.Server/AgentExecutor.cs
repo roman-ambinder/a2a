@@ -66,7 +66,9 @@ public sealed class AgentRequestContext
 /// Once emitted, an event belongs to the server: the stored task, the event log, streams and webhooks use the instances you
 /// pass, without copying them. Do not change a <see cref="Message"/>, <see cref="Artifact"/>, part list or metadata
 /// dictionary after you passed it to a method of this class (and do not dispose the <see cref="JsonDocument"/> behind a
-/// <see cref="JsonElement"/> in it). Build a new instance for the next event instead.
+/// <see cref="JsonElement"/> in it). Build a new instance for the next event instead. The <c>metadata</c> dictionaries passed
+/// to <see cref="UpdateStatusAsync"/> and <see cref="AddArtifactAsync(IEnumerable{Part}, string?, string?, string?, bool, bool, Dictionary{string, JsonElement}?, CancellationToken)"/>
+/// are copied, so those may be reused.
 /// </remarks>
 public sealed class TaskUpdater
 {
@@ -168,7 +170,7 @@ public sealed class TaskUpdater
             TaskId = TaskId,
             ContextId = ContextId,
             Status = new AgentTaskStatus { State = state, Message = message, Timestamp = DateTimeOffset.UtcNow },
-            Metadata = metadata,
+            Metadata = metadata is null ? null : new(metadata), // the stored event keeps its own: the caller may reuse the dictionary
         };
         return _writer.WriteAsync(StreamResponse.Of(evt), cancellationToken);
     }
@@ -184,7 +186,7 @@ public sealed class TaskUpdater
             Name = name,
             Description = description,
             Parts = parts.ToList(),
-            Metadata = metadata,
+            Metadata = metadata is null ? null : new(metadata), // the stored artifact keeps its own: the caller may reuse the dictionary
         };
         await AddArtifactAsync(artifact, append, lastChunk, cancellationToken).ConfigureAwait(false);
         return artifact.ArtifactId;

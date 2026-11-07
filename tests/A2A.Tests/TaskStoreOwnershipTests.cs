@@ -197,6 +197,37 @@ public class TaskStoreOwnershipTests
         Assert.Empty(store.Violations);
     }
 
+    /// <summary>
+    /// The stores keep the emitted instances, so <see cref="TaskUpdater"/> copies the metadata dictionaries it is given: an
+    /// executor that reuses one dictionary across calls does not rewrite what was already stored.
+    /// </summary>
+    [Fact]
+    public async Task Reused_metadata_dictionary_does_not_change_stored_artifacts()
+    {
+        static JsonElement J(string json)
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.Clone();
+        }
+
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<IAgentExecutor>(new DelegateAgentExecutor(async (_, updater, ct) =>
+        {
+            var metadata = new Dictionary<string, JsonElement> { ["v"] = J("1") };
+            await updater.AddArtifactAsync([Part.FromText("one")], artifactId: "a1", metadata: metadata, cancellationToken: ct);
+            metadata["v"] = J("2");
+            await updater.AddArtifactAsync([Part.FromText("two")], artifactId: "a2", metadata: metadata, cancellationToken: ct);
+            metadata["v"] = J("3");
+            await updater.CompleteAsync(cancellationToken: ct);
+        })));
+
+        var task = (await host.Handler.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, Call())).RequireTask();
+        var stored = await host.Handler.GetTaskAsync(new GetTaskRequest { Id = task.Id }, Call());
+        Assert.Equal(TaskState.Completed, stored.Status.State);
+        Assert.Equal(2, stored.Artifacts!.Count);
+        Assert.Equal(1, stored.Artifacts[0].Metadata!["v"].GetInt32());
+        Assert.Equal(2, stored.Artifacts[1].Metadata!["v"].GetInt32());
+    }
+
     [Fact]
     public void A2AJson_Clone_is_not_public()
     {
