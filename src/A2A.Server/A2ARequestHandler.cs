@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -35,7 +34,7 @@ public sealed class A2ARequestHandler : IDisposable
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim[] _locks = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<Execution, byte>> _running = new(StringComparer.Ordinal);
+    private readonly RunningRegistry<Execution> _running = new();
     private readonly StreamAdmission _admission;
 
     public A2ARequestHandler(
@@ -425,7 +424,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     /// <summary>Completions of the executions running for a task (in-memory scope key).</summary>
     private List<Task> RunningCompletions(string scope) =>
-        _running.TryGetValue(scope, out var set) ? set.Keys.Select(e => e.Completion).ToList() : [];
+        _running.Snapshot(scope).Select(e => e.Completion).ToList();
 
     /// <param name="Context">The request context for the agent.</param>
     /// <param name="PushConfig">The push config to save when a new task is created.</param>
@@ -740,7 +739,7 @@ public sealed class A2ARequestHandler : IDisposable
         var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         if (record.Task.Status.State.IsTerminal()) throw NotCancelable(request.Id);
 
-        var running = _running.TryGetValue(ScopeKey(call.Tenant, request.Id), out var set) ? set.Keys.ToList() : [];
+        var running = _running.Snapshot(ScopeKey(call.Tenant, request.Id));
         foreach (var r in running) r.Cancel();
 
         var snapshot = record.Task;
@@ -1103,7 +1102,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token));
         var scope = ScopeKey(call.Tenant, taskId);
-        _running.GetOrAdd(scope, _ => new())[exec] = 0;
+        _running.Add(scope, exec);
         var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
 
         var producer = Task.Run(async () =>
@@ -1134,11 +1133,7 @@ public sealed class A2ARequestHandler : IDisposable
         var consumer = Task.Run(() => ConsumeAsync(exec, key, contextId, isNewTask, userMessage, push, emitInitialSnapshot, claim ?? IdempotencyClaim.None));
         _ = Task.WhenAll(producer, consumer).ContinueWith(_t =>
         {
-            if (_running.TryGetValue(scope, out var set))
-            {
-                set.TryRemove(exec, out _);
-                if (set.IsEmpty) _running.TryRemove(new KeyValuePair<string, ConcurrentDictionary<Execution, byte>>(scope, set));
-            }
+            _running.Remove(scope, exec);
             exec.MarkDone();
         }, TaskScheduler.Default);
         return exec;
@@ -1488,7 +1483,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         while (true)
         {
-            var all = _running.Values.SelectMany(s => s.Keys).Select(e => e.Completion).Where(t => t is not null).ToList();
+            var all = _running.All().Select(e => e.Completion).ToList();
             if (all.Count == 0) return;
             await Task.WhenAll(all).ConfigureAwait(false);
         }
