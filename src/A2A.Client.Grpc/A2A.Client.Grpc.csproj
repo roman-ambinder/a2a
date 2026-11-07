@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>A2A.Client.Grpc</RootNamespace>
+    <Description>gRPC transport for the A2A (Agent2Agent) .NET client (spec §10).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\A2A.Grpc\A2A.Grpc.csproj" />
+    <ProjectReference Include="..\A2A.Client\A2A.Client.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Grpc.Net.Client" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="A2A.Grpc.Tests" />
+  </ItemGroup>
+</Project>

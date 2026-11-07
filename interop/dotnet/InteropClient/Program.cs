@@ -1,8 +1,9 @@
 // Drives any A2A v1.0 agent that implements the interop scenarios, using the .NET client.
-// Usage: dotnet run -- <agentBaseUrl> <JSONRPC|HTTP+JSON>
+// Usage: dotnet run -- <agentBaseUrl> <JSONRPC|HTTP+JSON|GRPC>
 // Exit code: number of failed checks.
 using A2A;
 using A2A.Client;
+using A2A.Client.Grpc;
 
 var agentUrl = new Uri(args.Length > 0 ? args[0] : "http://127.0.0.1:5200/");
 var binding = args.Length > 1 ? args[1] : ProtocolBindings.JsonRpc;
@@ -28,7 +29,9 @@ void Expect(bool condition, string what)
 }
 
 using var http = new HttpClient();
-var client = await A2AClientFactory.CreateAsync(agentUrl, http, new A2AClientOptions { SupportedBindings = [binding] });
+var client = binding == ProtocolBindings.Grpc
+    ? A2AGrpcClientFactory.Create(await new A2ACardResolver(http).GetAgentCardAsync(agentUrl))
+    : await A2AClientFactory.CreateAsync(agentUrl, http, new A2AClientOptions { SupportedBindings = [binding] });
 Console.WriteLine($"# .NET client -> {client.AgentCard!.Name} via {binding}");
 
 await Check("direct message reply", async () =>

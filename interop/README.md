@@ -1,15 +1,17 @@
 # Interop tests
 
-Checks that this SDK works with the official [Python A2A SDK](https://pypi.org/project/a2a-sdk/) (`a2a-sdk` 1.3.0, protocol 1.0), in both directions and over both bindings:
+Checks that this SDK works with the official [Python A2A SDK](https://pypi.org/project/a2a-sdk/) (`a2a-sdk` 1.3.0, protocol 1.0), in both directions and over all three bindings:
 
 | Client | Server | Bindings |
 |---|---|---|
-| .NET (`InteropClient`) | Python (`py_server.py`) | JSON-RPC, HTTP+JSON |
-| Python (`py_client.py`) | .NET (`InteropAgent`) | JSON-RPC, HTTP+JSON |
+| .NET (`InteropClient`) | Python (`py_server.py`) | JSON-RPC, HTTP+JSON, gRPC |
+| Python (`py_client.py`) | .NET (`InteropAgent`) | JSON-RPC, HTTP+JSON, gRPC |
 
 Both agents implement the same scenarios, picked by the first word of the message:
 `hello` (direct reply, no task), `task` (working → artifact → appended chunk → completed),
 `input` (input-required, then completes on the next message), `slow` (runs until canceled).
+
+Each agent serves HTTP on `<port>` and cleartext gRPC (HTTP/2) on `<port+1>`.
 
 Each client checks: direct reply, blocking send, streaming send, streaming direct reply, multi-turn,
 get task with `historyLength`, list tasks, unknown task → TaskNotFound, and return-immediately + subscribe + cancel.

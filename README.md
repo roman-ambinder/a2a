@@ -1,7 +1,7 @@
 # A2A .NET SDK
 
 A .NET SDK for the [Agent2Agent (A2A) protocol](https://a2a-protocol.org/latest/specification/) **v1.0**.
-Client and server. JSON-RPC and HTTP+JSON bindings. SSE streaming. Push notifications. Agent Card signing.
+Client and server. JSON-RPC, HTTP+JSON, and gRPC bindings. SSE streaming. Push notifications. Agent Card signing.
 
 Targets **.NET 8** and **.NET 10**. No third-party dependencies beyond `Microsoft.Extensions.*`.
 
@@ -11,6 +11,9 @@ Targets **.NET 8** and **.NET 10**. No third-party dependencies beyond `Microsof
 | `A2A.Client` | `A2AClient`, JSON-RPC + REST transports, SSE reader, card resolver with caching and signature policy, DI |
 | `A2A.Server` | Transport-agnostic server core: executor model, task lifecycle, stores, event bus, push sender |
 | `A2A.Server.AspNetCore` | Endpoints: JSON-RPC, REST, SSE, `/.well-known/agent-card.json`, JWKS |
+| `A2A.Grpc` | Generated types/stubs for `lf.a2a.v1.A2AService` (from `docs/a2a.proto`) and model mapping |
+| `A2A.Server.Grpc` | `MapA2AGrpc()`: the gRPC binding on ASP.NET Core |
+| `A2A.Client.Grpc` | `GrpcTransport` and `A2AGrpcClientFactory` |
 
 ## Server in 20 lines
 
@@ -59,6 +62,23 @@ DI: `services.AddA2AClient("weather", o => o.AgentUrl = ...).AddBearerToken(...)
 
 The factory picks the first interface **in the card's order** that the client supports (spec §8.3.2), and sets `tenant` from it.
 
+## gRPC
+
+```csharp
+// Server: gRPC needs HTTP/2 (Kestrel: HttpProtocols.Http2, or Http1AndHttp2 over TLS).
+builder.Services.AddA2AGrpc();
+app.MapA2AGrpc();
+// Card: new AgentInterface { Url = "https://agent.example.com:443", ProtocolBinding = ProtocolBindings.Grpc }
+
+// Client
+var client = A2AGrpcClientFactory.Create(card);
+```
+
+The gRPC service runs on the same `A2ARequestHandler` as the HTTP bindings, so auth scoping, validation, and errors behave the same.
+Errors are `google.rpc.Status` with an `ErrorInfo` detail. `A2A-Version` and `A2A-Extensions` travel as `a2a-version` / `a2a-extensions` metadata.
+Proto ↔ model conversion goes through ProtoJSON (the model's JSON form *is* ProtoJSON), so all three bindings share one mapping.
+`A2AClientFactory` still chooses between JSON-RPC and HTTP+JSON only; use `A2AGrpcClientFactory` for gRPC.
+
 ## Behavior and spec decisions
 
 These are places where the spec is loose or self-contradictory. Here is what this SDK does.
@@ -83,14 +103,13 @@ These are places where the spec is loose or self-contradictory. Here is what thi
 
 ## Not included yet
 
-- gRPC binding
 - Durable stores (implement `ITaskStore` / `IPushNotificationConfigStore`; the in-memory ones are for dev and tests)
 - A multi-instance event bus (`TaskEventBus` is process-local; subclass it over Redis or similar)
 - A webhook-receiver helper for clients
 
 ## Interop
 
-Tested both ways against the official Python SDK (`a2a-sdk` 1.3.0) over JSON-RPC and HTTP+JSON: .NET client → Python agent and Python client → .NET agent. See [interop/](interop/README.md). CI runs it on every push.
+Tested both ways against the official Python SDK (`a2a-sdk` 1.3.0) over JSON-RPC, HTTP+JSON, and gRPC: .NET client → Python agent and Python client → .NET agent. See [interop/](interop/README.md). CI runs it on every push.
 
 ## Build and test
 

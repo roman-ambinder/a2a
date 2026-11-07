@@ -9,6 +9,7 @@ import sys
 import traceback
 import uuid
 
+import grpc
 import httpx
 
 from a2a.client import ClientConfig, create_client
@@ -49,8 +50,14 @@ async def collect(aiter):
 async def main(url: str, binding: str) -> int:
     failures = 0
     http = httpx.AsyncClient(timeout=30)
-    blocking = await create_client(url, ClientConfig(streaming=False, supported_protocol_bindings=[binding], httpx_client=http))
-    streaming = await create_client(url, ClientConfig(streaming=True, supported_protocol_bindings=[binding], httpx_client=http))
+    def channel(target: str):
+        return grpc.aio.insecure_channel(target.split('://', 1)[-1].rstrip('/'))
+
+    def config(stream: bool) -> ClientConfig:
+        return ClientConfig(streaming=stream, supported_protocol_bindings=[binding], httpx_client=http, grpc_channel_factory=channel)
+
+    blocking = await create_client(url, config(False))
+    streaming = await create_client(url, config(True))
     print(f'# Python client -> {blocking._card.name} via {binding}')
 
     async def check(name, coro):

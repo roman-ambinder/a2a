@@ -6,5 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\A2A.Client\A2A.Client.csproj" />
+    <ProjectReference Include="..\..\..\src\A2A.Client.Grpc\A2A.Client.Grpc.csproj" />
   </ItemGroup>
 </Project>
