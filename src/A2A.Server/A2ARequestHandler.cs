@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Threading.Channels;
 using A2A.Json;
 using A2A.Server.Idempotency;
@@ -561,7 +562,7 @@ public sealed class A2ARequestHandler : IDisposable
 
         var snapshot = record.Task;
         var exec = StartRaw(snapshot.Id, snapshot.ContextId, isNewTask: false, userMessage: null, call, push: null, emitInitialSnapshot: false,
-            (executor, updater, ct) => executor.CancelAsync(snapshot, updater, ct));
+            (executor, updater, ct) => executor.CancelAsync(snapshot, updater, ct), requestMetadata: request.Metadata);
         exec.Detach();
 
         var waitAll = Task.WhenAll(running.Select(r => r.Completion).Append(exec.Completion));
@@ -922,7 +923,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     private Execution StartExecution(AgentRequestContext context, TaskPushNotificationConfig? push, IdempotencyClaim claim) =>
         StartRaw(context.TaskId, context.ContextId, context.IsNewTask, context.Message, context.Call, push, emitInitialSnapshot: !context.IsNewTask,
-            (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct), claim);
+            (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct), claim, context.Metadata);
 
     /// <summary>
     /// Runs the agent for a task. An idempotency <c>claim</c> is completed when the task is first stored or the agent replies
@@ -930,12 +931,12 @@ public sealed class A2ARequestHandler : IDisposable
     /// </summary>
     private Execution StartRaw(string taskId, string contextId, bool isNewTask, Message? userMessage, ServerCallContext call,
         TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run,
-        IdempotencyClaim? claim = null)
+        IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null)
     {
         var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token));
         var scope = ScopeKey(call.Tenant, taskId);
         _running.GetOrAdd(scope, _ => new())[exec] = 0;
-        var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer);
+        var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
 
         var producer = Task.Run(async () =>
         {

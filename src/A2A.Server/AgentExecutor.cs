@@ -59,16 +59,25 @@ public sealed class TaskUpdater
     private bool _replied;
     private bool _terminal;
 
-    internal TaskUpdater(string taskId, string contextId, bool isNewTask, ChannelWriter<StreamResponse> writer)
+    internal TaskUpdater(string taskId, string contextId, bool isNewTask, ChannelWriter<StreamResponse> writer,
+        Dictionary<string, JsonElement>? requestMetadata = null)
     {
         TaskId = taskId;
         ContextId = contextId;
         _isNewTask = isNewTask;
         _writer = writer;
+        RequestMetadata = requestMetadata;
     }
 
     public string TaskId { get; }
     public string ContextId { get; }
+
+    /// <summary>
+    /// The <c>metadata</c> of the request that started this run: the SendMessage metadata for
+    /// <see cref="IAgentExecutor.ExecuteAsync"/>, the CancelTask metadata for <see cref="IAgentExecutor.CancelAsync"/>.
+    /// Null when the request had none.
+    /// </summary>
+    public IReadOnlyDictionary<string, JsonElement>? RequestMetadata { get; }
 
     public bool IsTerminal { get { lock (_gate) return _terminal; } }
     public bool HasReplied { get { lock (_gate) return _replied; } }

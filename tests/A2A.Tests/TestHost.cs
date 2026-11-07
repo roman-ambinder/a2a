@@ -78,6 +78,9 @@ public sealed class ScenarioAgent : IAgentExecutor
                 break;
             case "fail":
                 throw new InvalidOperationException("boom");
+            case "stream-error": // fails after the first event, when a streaming response is already under way
+                await updater.StartWorkAsync("about to fail", ct);
+                throw new InvalidOperationException("boom");
             case "silent":
                 break;
             default:
