@@ -4,6 +4,19 @@ Date: 2026-11-08. Status: draft for review.
 Builds on: P0 (`docs/superpowers/specs/2026-11-07-p0-security-correctness-design.md`, rulings in `docs/superpowers/plans/2026-11-07-p0-rulings.md`), now on `main`.
 Source of items: `docs/2026-11-07-a2a-gap-analysis.md` Part 3, P1 items 11–18, plus P0 items deferred to P1.
 
+## 0. Re-scope (2026-11-08, after main moved) — this section overrides the rest
+
+While this design was being written, another session merged into `main`:
+- PR #10: `A2A.Server.Postgres` (Npgsql, no EF) implementing all four P0 store contracts with schema management and maintenance (event-log and idempotency expiry), and `A2A.Server.Redis` with a Redis pub/sub `TaskEventBus` subclass (one pattern subscription per instance, at-most-once, gap-fill from the shared event store). Shared contract suites and Docker-based multi-instance tests live in `tests/A2A.Stores.Tests` (Testcontainers; `A2A_REQUIRE_DOCKER=1` on CI).
+- PR #9: `MaxTaskDuration` (per execution) and `MaxTurnsPerTask`.
+- In progress elsewhere: tracing (`feat/tracing` worktree).
+
+Therefore:
+- **Dropped:** §6.7 observability (owned by the tracing work); the EF Core provider and the Redis stores from §6.2 (Postgres is the durable store; Redis is the bus and, new here, the coordinator). The bus API change in §6.3 (async `SubscribeAsync`) is dropped: main's Redis bus subscribes once per instance by pattern, so subscribe stays local and synchronous.
+- **Kept, now implemented for in-memory + Postgres (+ Redis for the coordinator):** the atomic commit (§6.1) — main's Postgres store still updates the task and appends the event in separate statements, so cross-instance log order can differ from apply order; the durable push outbox and signed webhooks (§6.4); the retention contract additions (§6.1, §6.8) for tasks, contexts and push configs (Postgres maintenance only purges event logs and idempotency today); the execution coordinator (§6.3) with an in-memory and a Redis implementation (cross-instance cancel, cluster-wide running check, dead-execution recovery); multi-agent hosting (§6.5); lifecycle hardening (§6.6) — the interrupted-state timeout is separate from `MaxTaskDuration`, which measures running executions only; P0 carry-overs (§6.9).
+- Idempotency claims: main's Postgres store abandons a running claim after `IdempotencyClaimTimeout` (1 h) and polls every 200 ms. The coordinator's lease (30 s TTL, 10 s heartbeat) also renews the request's idempotency claim, and the default `IdempotencyClaimTimeout` becomes 2 minutes, so a crashed instance releases keys quickly while a live one keeps them.
+- Tests extend `tests/A2A.Stores.Tests` (its contract classes and fixtures), not a new contract project.
+
 ## 1. Intent
 
 P0 made a single process safe. P1 makes the SDK deployable for real: state survives restarts, several server instances can serve the same agent, webhooks are delivered reliably and verifiably, one host can serve many agents, long-waiting tasks don't pile up forever, and operators can see what is happening. The official a2a-dotnet SDK leaves all of this to the host application (gap analysis D1, D3, D7–D9, D19, D31, S11, S32). This is the biggest practical differentiator.
