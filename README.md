@@ -88,6 +88,10 @@ These are places where the spec is loose or self-contradictory. Here is what thi
 - A multi-instance event bus (`TaskEventBus` is process-local; subclass it over Redis or similar)
 - A webhook-receiver helper for clients
 
+## Interop
+
+Tested both ways against the official Python SDK (`a2a-sdk` 1.3.0) over JSON-RPC and HTTP+JSON: .NET client → Python agent and Python client → .NET agent. See [interop/](interop/README.md). CI runs it on every push.
+
 ## Build and test
 
 ```bash
