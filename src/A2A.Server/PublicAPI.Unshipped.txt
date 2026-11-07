@@ -39,7 +39,7 @@ A2A.Server.Authorization.A2AOperation.SendMessage = 0 -> A2A.Server.Authorizatio
 A2A.Server.Authorization.A2AOperation.SendStreamingMessage = 1 -> A2A.Server.Authorization.A2AOperation
 A2A.Server.Authorization.A2AOperation.SubscribeToTask = 5 -> A2A.Server.Authorization.A2AOperation
 A2A.Server.A2ARequestHandler
-A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, Microsoft.Extensions.Logging.ILogger<A2A.Server.A2ARequestHandler!>? logger = null) -> void
+A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Streaming.TaskStreamer! streamer) -> void
 A2A.Server.A2ARequestHandler.AgentCard.get -> A2A.AgentCard!
 A2A.Server.A2ARequestHandler.CancelTaskAsync(A2A.CancelTaskRequest! request, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
 A2A.Server.A2ARequestHandler.CreateTaskPushNotificationConfigAsync(A2A.TaskPushNotificationConfig! config, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TaskPushNotificationConfig!>!
@@ -454,3 +454,5 @@ A2A.Server.Execution.TaskExecutionEngine.Dispose() -> void
 A2A.Server.Execution.TaskExecutionEngine.DisposeAsync() -> System.Threading.Tasks.ValueTask
 A2A.Server.Execution.TaskExecutionEngine.WaitUntilSettledAsync(A2A.Server.Storage.TaskKey key, long afterSequence, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.AgentTask!>
 A2A.Server.Execution.TaskExecutionEngine.WhenIdleAsync() -> System.Threading.Tasks.Task!
+A2A.Server.Streaming.TaskStreamer
+A2A.Server.Streaming.TaskStreamer.TaskStreamer(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options) -> void

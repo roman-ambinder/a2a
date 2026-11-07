@@ -42,6 +42,7 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<PushConfigService>();
         services.TryAddSingleton<Idempotency.IdempotencyCoordinator>();
         services.TryAddSingleton<Execution.TaskExecutionEngine>();
+        services.TryAddSingleton<Streaming.TaskStreamer>();
         services.TryAddSingleton<A2ARequestHandler>();
         return new A2AServerBuilder(services);
     }

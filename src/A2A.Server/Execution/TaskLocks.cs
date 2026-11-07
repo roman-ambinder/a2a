@@ -23,6 +23,7 @@ internal sealed class TaskLocks
     }
 
     /// <summary>Releases a held task lock when disposed.</summary>
+    /// <remarks>Use only in a using statement; do not copy — a copy disposed twice releases the semaphore twice.</remarks>
     public readonly struct Releaser(SemaphoreSlim gate) : IDisposable
     {
         /// <summary>Releases the lock.</summary>
