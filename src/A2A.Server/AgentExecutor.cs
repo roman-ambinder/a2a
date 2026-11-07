@@ -16,7 +16,10 @@ public interface IAgentExecutor
     /// </summary>
     Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken);
 
-    /// <summary>Called on CancelTask. Default: mark the task canceled.</summary>
+    /// <summary>
+    /// Called on CancelTask. Default: mark the task canceled. <paramref name="task"/> is a copy made for this execution:
+    /// changing it does not change the stored task.
+    /// </summary>
     Task CancelAsync(AgentTask task, TaskUpdater updater, CancellationToken cancellationToken) =>
         updater.CancelAsync(cancellationToken: cancellationToken).AsTask();
 }
@@ -33,7 +36,10 @@ public sealed class AgentRequestContext
     /// <summary>The context (conversation) id: the client's, or one the server assigned.</summary>
     public required string ContextId { get; init; }
 
-    /// <summary>The existing task (including this message in its history), or null for a new conversation turn.</summary>
+    /// <summary>
+    /// The existing task (including this message in its history), or null for a new conversation turn. A copy made for this
+    /// execution: changing it does not change the stored task.
+    /// </summary>
     public AgentTask? Task { get; init; }
 
     /// <summary>Options from the SendMessage request. Null when the client sent none.</summary>
@@ -56,6 +62,12 @@ public sealed class AgentRequestContext
 /// Emits task events. Events are applied to the store in order, then streamed to subscribers and sent to webhooks.
 /// After a terminal state, further task events are rejected.
 /// </summary>
+/// <remarks>
+/// Once emitted, an event belongs to the server: the stored task, the event log, streams and webhooks use the instances you
+/// pass, without copying them. Do not change a <see cref="Message"/>, <see cref="Artifact"/>, part list or metadata
+/// dictionary after you passed it to a method of this class (and do not dispose the <see cref="JsonDocument"/> behind a
+/// <see cref="JsonElement"/> in it). Build a new instance for the next event instead.
+/// </remarks>
 public sealed class TaskUpdater
 {
     private readonly ChannelWriter<StreamResponse> _writer;

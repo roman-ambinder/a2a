@@ -7,6 +7,10 @@ namespace A2A.Server.Storage;
 /// the ordering and deduplication key for streams (resume) and push notifications. Like the task store, the log is
 /// owner-scoped: it is addressed by <see cref="TaskKey"/>.
 /// </summary>
+/// <remarks>
+/// Ownership: an appended event belongs to the store, and the events it returns are never mutated by callers. The server
+/// stores an event before it publishes the same instance to streams and webhooks, and nobody changes it after that.
+/// </remarks>
 public abstract class EventStore
 {
     /// <summary>Appends an event and returns its sequence. The first event of a task gets 1.</summary>

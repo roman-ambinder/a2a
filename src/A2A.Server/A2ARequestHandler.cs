@@ -17,6 +17,7 @@ namespace A2A.Server;
 /// <summary>
 /// Transport-agnostic implementation of every A2A operation. Protocol bindings (JSON-RPC, REST) parse the wire format,
 /// build a <see cref="ServerCallContext"/>, and call these methods. Errors are thrown as <see cref="A2AException"/>.
+/// The tasks, messages and events these methods return may share instances with the stores: serialize them, never change them.
 /// </summary>
 public sealed class A2ARequestHandler : IDisposable
 {
@@ -258,7 +259,8 @@ public sealed class A2ARequestHandler : IDisposable
         var (claim, replay) = await BeginIdempotentAsync(request, call, cancellationToken).ConfigureAwait(false);
         if (replay is IdempotencyOutcome.DirectMessage direct)
         {
-            yield return new SequencedEvent(0, StreamResponse.Of(A2AJson.Clone(direct.Message)));
+            // The stored outcome belongs to the idempotency store; the caller gets its own copy.
+            yield return new SequencedEvent(0, StreamResponse.Of(direct.Message.DeepCopy()));
             yield break;
         }
         if (replay is IdempotencyOutcome.TaskCreated created)
@@ -482,7 +484,7 @@ public sealed class A2ARequestHandler : IDisposable
         switch (outcome)
         {
             case IdempotencyOutcome.DirectMessage direct:
-                return new MessageResponse(A2AJson.Clone(direct.Message));
+                return new MessageResponse(direct.Message.DeepCopy()); // the stored outcome stays with the idempotency store
             case IdempotencyOutcome.TaskCreated created:
                 var key = Key(call, created.TaskId);
                 var task = request.Configuration?.ReturnImmediately == true
@@ -579,9 +581,9 @@ public sealed class A2ARequestHandler : IDisposable
         call.BindTenant(request.Tenant);
         A2AValidator.ValidateIncoming(request);
         RequestLimitValidator.Validate(request.Message, _options.Limits);
-        // A copy: the caller's message is never changed (a retry with the same instance must hash the same), and the
-        // stored history does not alias it.
-        var message = A2AJson.Clone(request.Message);
+        // A copy: the caller's message is never changed (a retry with the same instance must hash the same). This copy goes to
+        // the executor; the stored history gets copies of its own.
+        var message = request.Message.DeepCopy();
         var isFollowUp = !string.IsNullOrEmpty(message.TaskId);
         var taskId = isFollowUp ? message.TaskId! : newTaskId ?? TaskIds.New();
         AgentTask? existing = null;
@@ -594,7 +596,7 @@ public sealed class A2ARequestHandler : IDisposable
         {
             RequirePush();
             await PushUrlValidator.ValidateAsync(p.Url, _options.PushNotifications, ct).ConfigureAwait(false);
-            push = A2AJson.Clone(p);
+            push = p.DeepCopy(); // the caller's config is never changed
             push.TaskId = taskId;
             push.Id = string.IsNullOrEmpty(push.Id) ? TaskIds.New() : push.Id;
             push.Tenant = call.Tenant;
@@ -626,11 +628,13 @@ public sealed class A2ARequestHandler : IDisposable
                     if (push is not null) await EnsurePushCapacityAsync(Key(call, taskId), push.Id!, ct).ConfigureAwait(false);
                     contextId = record.Task.ContextId;
                     message.ContextId = contextId;
-                    (record.Task.History ??= []).Add(message);
+                    // The stored record belongs to the store: append to a copy, with a copy of the message the executor gets.
+                    var next = record.Task.CopyForUpdate();
+                    (next.History ??= []).Add(message.DeepCopy());
                     try
                     {
-                        await _tasks.UpdateAsync(record, record.Version, ct).ConfigureAwait(false);
-                        existing = record.Task;
+                        await _tasks.UpdateAsync(record with { Task = next }, record.Version, ct).ConfigureAwait(false);
+                        existing = next;
                         // Still under the task lock. The message is committed: a cancelled request must not stop here, or
                         // the idempotency entry would be abandoned and a retry would append the message again.
                         lastSequence = await _events.LastSequenceAsync(Key(call, taskId), CancellationToken.None).ConfigureAwait(false);
@@ -662,7 +666,7 @@ public sealed class A2ARequestHandler : IDisposable
             Message = message,
             TaskId = taskId,
             ContextId = contextId,
-            Task = existing,
+            Task = existing?.DeepCopy(), // the executor's own view: changing it never changes the stored task
             Configuration = request.Configuration,
             Metadata = request.Metadata,
             Call = call,
@@ -751,7 +755,7 @@ public sealed class A2ARequestHandler : IDisposable
         var running = _running.Snapshot(ScopeKey(call.Tenant, request.Id));
         foreach (var r in running) r.Cancel();
 
-        var snapshot = record.Task;
+        var snapshot = record.Task.DeepCopy(); // the executor's own view: changing it never changes the stored task
         var exec = StartRaw(snapshot.Id, snapshot.ContextId, isNewTask: false, userMessage: null, call, push: null, emitInitialSnapshot: false,
             (executor, updater, ct) => executor.CancelAsync(snapshot, updater, ct), requestMetadata: request.Metadata);
         exec.Detach();
@@ -1020,7 +1024,7 @@ public sealed class A2ARequestHandler : IDisposable
         await PushUrlValidator.ValidateAsync(config.Url, _options.PushNotifications, cancellationToken).ConfigureAwait(false);
         var key = Key(call, config.TaskId!);
         _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(config.TaskId!);
-        var stored = A2AJson.Clone(config);
+        var stored = config.DeepCopy(); // the caller's config is never changed
         stored.Id = string.IsNullOrEmpty(stored.Id) ? TaskIds.New() : stored.Id;
         stored.Tenant = call.Tenant;
         await EnsurePushCapacityAsync(key, stored.Id, cancellationToken).ConfigureAwait(false);
@@ -1118,6 +1122,8 @@ public sealed class A2ARequestHandler : IDisposable
         var scope = ScopeKey(call.Tenant, taskId);
         _running.Add(scope, exec);
         var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
+        // The first history entry of a new task, copied before the executor starts: the executor may change its message.
+        var historyMessage = isNewTask && userMessage is not null ? WithTask(userMessage, taskId) : null;
 
         var producer = Task.Run(async () =>
         {
@@ -1143,7 +1149,7 @@ public sealed class A2ARequestHandler : IDisposable
 
         // Background writes outlive the request, so fix the owner scope now.
         var key = Key(call, taskId);
-        var consumer = Task.Run(() => ConsumeAsync(exec, key, contextId, isNewTask, userMessage, push, emitInitialSnapshot, claim ?? IdempotencyClaim.None));
+        var consumer = Task.Run(() => ConsumeAsync(exec, key, contextId, isNewTask, historyMessage, push, emitInitialSnapshot, claim ?? IdempotencyClaim.None));
         _ = Task.WhenAll(producer, consumer).ContinueWith(_t =>
         {
             _running.Remove(scope, exec);
@@ -1159,7 +1165,7 @@ public sealed class A2ARequestHandler : IDisposable
         catch (Exception) { /* channel closed or terminal already */ }
     }
 
-    private async Task ConsumeAsync(Execution exec, TaskKey key, string contextId, bool isNewTask, Message? userMessage,
+    private async Task ConsumeAsync(Execution exec, TaskKey key, string contextId, bool isNewTask, Message? historyMessage,
         TaskPushNotificationConfig? push, bool emitInitialSnapshot, IdempotencyClaim claim)
     {
         var taskId = key.TaskId;
@@ -1197,7 +1203,8 @@ public sealed class A2ARequestHandler : IDisposable
 
                 if (evt is MessageEvent reply)
                 {
-                    await RecordAsync(claim, new IdempotencyOutcome.DirectMessage(A2AJson.Clone(reply.Message)), taskId).ConfigureAwait(false);
+                    // The idempotency store owns its copy; the reply itself goes to the waiting request.
+                    await RecordAsync(claim, new IdempotencyOutcome.DirectMessage(reply.Message.DeepCopy()), taskId).ConfigureAwait(false);
                     exec.Emit(new SequencedEvent(0, evt)); // direct reply, no task, not stored
                     continue;
                 }
@@ -1217,12 +1224,14 @@ public sealed class A2ARequestHandler : IDisposable
                                 Id = taskId,
                                 ContextId = contextId,
                                 Status = new AgentTaskStatus { State = TaskState.Submitted, Timestamp = (evt as StatusUpdateEvent)?.StatusUpdate.Status.Timestamp ?? now },
-                                History = userMessage is null ? null : [WithTask(userMessage, taskId)],
+                                History = historyMessage is null ? null : [historyMessage],
                             },
                             Version: 0, CreatedAt: now, UpdatedAt: now)).ConfigureAwait(false);
                         if (push is not null) await SavePushConfigAsync(key, push, CancellationToken.None).ConfigureAwait(false);
                         created = true;
-                        var snapshot = StreamResponse.Of(A2AJson.Clone(record.Task));
+                        // The new task as the first event. It shares the stored instance: nobody changes either (the next
+                        // update stores a copy), and the event log owns the event from here on.
+                        var snapshot = StreamResponse.Of(record.Task);
                         Publish(exec, key, new SequencedEvent(await _events.AppendAsync(key, snapshot).ConfigureAwait(false), snapshot));
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
                         await RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
@@ -1313,15 +1322,16 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     /// <summary>
-    /// Applies the event, stores the task, then appends the event (the caller holds the task lock, so sequences follow
-    /// the apply order and the log holds only applied events). After a version conflict, reloads and re-applies, up to
-    /// <see cref="MaxConflictRetries"/> times. Returns null when the event was dropped (for example the task is already terminal).
+    /// Applies the event to a copy of the task, stores the copy, then appends the event (the caller holds the task lock, so
+    /// sequences follow the apply order and the log holds only applied events). After a version conflict, reloads and
+    /// re-applies, up to <see cref="MaxConflictRetries"/> times. Returns null when the event was dropped (for example the task
+    /// is already terminal). <paramref name="record"/> belongs to the store and is never changed.
     /// </summary>
     private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt)
     {
         for (var attempt = 0; ; attempt++)
         {
-            if (!Apply(record.Task, evt))
+            if (ApplyToCopy(record.Task, evt) is not { } next)
             {
                 if (_logger.IsEnabled(LogLevel.Debug))
                     _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, record.Task.Status.State);
@@ -1329,7 +1339,7 @@ public sealed class A2ARequestHandler : IDisposable
             }
             try
             {
-                await _tasks.UpdateAsync(record, record.Version).ConfigureAwait(false);
+                await _tasks.UpdateAsync(record with { Task = next }, record.Version).ConfigureAwait(false);
                 return new SequencedEvent(await _events.AppendAsync(key, evt).ConfigureAwait(false), evt);
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
@@ -1352,41 +1362,50 @@ public sealed class A2ARequestHandler : IDisposable
         _push.Enqueue(key, evt);
     }
 
-    /// <summary>Applies an event to the task. Returns false if the event must be dropped (task already terminal).</summary>
-    private static bool Apply(AgentTask task, StreamResponse evt)
+    /// <summary>
+    /// Returns a copy of <paramref name="current"/> (<see cref="ModelCopies.CopyForUpdate"/>) with the event applied, or null
+    /// when the event must be dropped: the task is terminal, the status transition is not allowed, or the event is not a
+    /// status or artifact update. Never changes <paramref name="current"/> or anything reachable from it; an appended artifact
+    /// is replaced in the copy by a new artifact. The event's status message and artifact go into the copy as they are: from
+    /// here on the event and the stored task share them, and the server owns both (see <see cref="TaskUpdater"/>).
+    /// </summary>
+    private static AgentTask? ApplyToCopy(AgentTask current, StreamResponse evt)
     {
-        if (task.Status.State.IsTerminal()) return false;
+        if (current.Status.State.IsTerminal()) return null;
         if (evt is StatusUpdateEvent { StatusUpdate: var su })
         {
-            if (!TaskStateMachine.CanTransition(task.Status.State, su.Status.State)) return false;
-            su.Status.Timestamp ??= DateTimeOffset.UtcNow;
-            task.Status = A2AJson.Clone(su.Status);
-            if (su.Status.Message is { } m) (task.History ??= []).Add(A2AJson.Clone(m));
-            return true;
+            if (!TaskStateMachine.CanTransition(current.Status.State, su.Status.State)) return null;
+            su.Status.Timestamp ??= DateTimeOffset.UtcNow; // the event is not stored yet
+            var next = current.CopyForUpdate();
+            next.Status = new AgentTaskStatus { State = su.Status.State, Message = su.Status.Message, Timestamp = su.Status.Timestamp };
+            if (su.Status.Message is { } m) (next.History ??= []).Add(m);
+            return next;
         }
         if (evt is ArtifactUpdateEvent { ArtifactUpdate: var au })
         {
             A2AValidator.ValidateArtifact(au.Artifact, "artifact");
-            var artifacts = task.Artifacts ??= [];
-            var idx = artifacts.FindIndex(a => a.ArtifactId == au.Artifact.ArtifactId);
-            var incoming = A2AJson.Clone(au.Artifact);
+            var incoming = au.Artifact;
+            var next = current.CopyForUpdate();
+            var artifacts = next.Artifacts ??= [];
+            var idx = artifacts.FindIndex(a => a.ArtifactId == incoming.ArtifactId);
             if (idx < 0) artifacts.Add(incoming);
             else if (au.Append)
             {
-                var existing = artifacts[idx];
-                existing.Parts.AddRange(incoming.Parts);
-                existing.Name ??= incoming.Name;
-                existing.Description ??= incoming.Description;
+                // A new artifact replaces the stored one in the copy; the stored one is never changed.
+                var merged = artifacts[idx].CopyWithParts(incoming.Parts);
+                merged.Name ??= incoming.Name;
+                merged.Description ??= incoming.Description;
                 if (incoming.Metadata is not null)
                 {
-                    existing.Metadata ??= new();
-                    foreach (var kv in incoming.Metadata) existing.Metadata[kv.Key] = kv.Value;
+                    merged.Metadata ??= new();
+                    foreach (var kv in incoming.Metadata) merged.Metadata[kv.Key] = kv.Value;
                 }
+                artifacts[idx] = merged;
             }
             else artifacts[idx] = incoming;
-            return true;
+            return next;
         }
-        return false;
+        return null;
     }
 
     /// <summary>Status text of a task failed because its updates could not be stored.</summary>
@@ -1410,9 +1429,10 @@ public sealed class A2ARequestHandler : IDisposable
         },
     };
 
+    /// <summary>A copy of <paramref name="m"/> bound to the task, for the stored history.</summary>
     private static Message WithTask(Message m, string taskId)
     {
-        var copy = A2AJson.Clone(m);
+        var copy = m.DeepCopy();
         copy.TaskId = taskId;
         return copy;
     }
@@ -1430,19 +1450,19 @@ public sealed class A2ARequestHandler : IDisposable
             throw new A2AException(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {limit}).");
     }
 
-    /// <summary>Protects the secrets of <paramref name="config"/> and stores a copy. The caller's instance is not changed.</summary>
+    /// <summary>Protects the secrets of <paramref name="config"/> and stores a copy, which the store then owns. The caller's instance is not changed.</summary>
     private ValueTask SavePushConfigAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct)
     {
-        var copy = A2AJson.Clone(config);
+        var copy = config.DeepCopy();
         if (!string.IsNullOrEmpty(copy.Token)) copy.Token = _protector.Protect(copy.Token);
         if (copy.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = _protector.Protect(auth.Credentials);
         return _pushConfigs.SaveAsync(new PushConfigRecord(key, copy), ct);
     }
 
-    /// <summary>Returns a copy with the token and credentials blanked. Secrets never leave the server.</summary>
+    /// <summary>Returns a copy with the token and credentials blanked; <paramref name="config"/> (often the stored one) is not changed. Secrets never leave the server.</summary>
     private static TaskPushNotificationConfig Redact(TaskPushNotificationConfig config)
     {
-        var copy = A2AJson.Clone(config);
+        var copy = config.DeepCopy();
         if (!string.IsNullOrEmpty(copy.Token)) copy.Token = "";
         if (copy.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = "";
         return copy;
@@ -1451,18 +1471,30 @@ public sealed class A2ARequestHandler : IDisposable
     private static TaskKey Key(ServerCallContext call, string taskId) => new(call.Tenant, call.Principal, taskId);
 
     /// <summary>
-    /// Applies historyLength (0 = none, n = last n) and artifact inclusion to a copy of the task. The history is capped at
+    /// Applies historyLength (0 = none, n = last n) and artifact inclusion. The history is capped at
     /// <see cref="A2ALimits.MaxHistoryLengthReturned"/> also when <paramref name="historyLength"/> is null or larger.
     /// </summary>
+    /// <remarks>
+    /// Returns a new <see cref="AgentTask"/> that shares everything it does not change with <paramref name="task"/>, which the
+    /// store owns: the status, the metadata, the messages and artifacts, and the history and artifact lists when they are kept
+    /// whole (a new history list only when it is trimmed). That is safe because the result is serialized at once and never
+    /// kept or changed.
+    /// </remarks>
     private AgentTask Shape(AgentTask task, int? historyLength, bool includeArtifacts = true)
     {
-        var copy = A2AJson.Clone(task);
         var n = Math.Min(historyLength ?? int.MaxValue, _options.Limits.MaxHistoryLengthReturned);
-        if (n <= 0) copy.History = null;
-        else if (copy.History is { } h && h.Count > n) copy.History = h.GetRange(h.Count - n, n);
-        if (copy.History is { Count: 0 }) copy.History = null;
-        if (!includeArtifacts) copy.Artifacts = null;
-        return copy;
+        var history = task.History;
+        if (n <= 0 || history is not { Count: > 0 }) history = null;
+        else if (history.Count > n) history = history.GetRange(history.Count - n, n);
+        return new AgentTask
+        {
+            Id = task.Id,
+            ContextId = task.ContextId,
+            Status = task.Status,
+            Artifacts = includeArtifacts ? task.Artifacts : null,
+            History = history,
+            Metadata = task.Metadata,
+        };
     }
 
     private void RequireStreaming()

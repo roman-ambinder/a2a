@@ -48,7 +48,7 @@ public class PushDeliveryTests
     {
         var protector = new EphemeralPushSecretProtector();
         var store = new InMemoryPushConfigStore();
-        var stored = A2A.Json.A2AJson.Clone(config);
+        var stored = config.DeepCopy();
         stored.Id = "c1";
         stored.TaskId = Key.TaskId;
         if (!string.IsNullOrEmpty(stored.Token)) stored.Token = protector.Protect(stored.Token);

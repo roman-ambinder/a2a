@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using A2A.Json;
 
 namespace A2A.Server.Storage;
 
@@ -8,8 +7,11 @@ public sealed record PushConfigRecord(TaskKey TaskKey, TaskPushNotificationConfi
 
 /// <summary>
 /// Webhook registrations, keyed by tenant, owner and task. A config owned by someone else looks like a missing one.
-/// Implementations must return copies, not shared instances.
 /// </summary>
+/// <remarks>
+/// Ownership: the store owns the config it is given and the instance it returns; callers never mutate them. A caller that
+/// needs different values (for example redacted or unprotected secrets) makes a copy with <see cref="ModelCopies.DeepCopy(TaskPushNotificationConfig)"/>.
+/// </remarks>
 public abstract class PushConfigStore
 {
     /// <summary>Stores a registration, replacing one with the same task and id.</summary>
@@ -28,7 +30,7 @@ public abstract class PushConfigStore
     public abstract ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken ct = default);
 }
 
-/// <summary>In-memory <see cref="PushConfigStore"/> for development and tests.</summary>
+/// <summary>In-memory <see cref="PushConfigStore"/> for development and tests. Keeps and returns the instances it is given, without copying.</summary>
 public sealed class InMemoryPushConfigStore : PushConfigStore
 {
     private readonly ConcurrentDictionary<(TaskKey Task, string Id), PushConfigRecord> _configs = new();
@@ -36,19 +38,19 @@ public sealed class InMemoryPushConfigStore : PushConfigStore
     /// <inheritdoc />
     public override ValueTask SaveAsync(PushConfigRecord record, CancellationToken ct = default)
     {
-        _configs[(record.TaskKey, record.Config.Id!)] = Copy(record);
+        _configs[(record.TaskKey, record.Config.Id!)] = record;
         return ValueTask.CompletedTask;
     }
 
     /// <inheritdoc />
     public override ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken ct = default) =>
-        ValueTask.FromResult(_configs.TryGetValue((task, configId), out var r) ? Copy(r) : null);
+        ValueTask.FromResult(_configs.TryGetValue((task, configId), out var r) ? r : null);
 
     /// <inheritdoc />
     public override ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken ct = default) =>
         ValueTask.FromResult<IReadOnlyList<PushConfigRecord>>(_configs
             .Where(kv => kv.Key.Task == task)
-            .Select(kv => Copy(kv.Value))
+            .Select(kv => kv.Value)
             .OrderBy(r => r.Config.Id, StringComparer.Ordinal)
             .ToList());
 
@@ -59,6 +61,4 @@ public sealed class InMemoryPushConfigStore : PushConfigStore
     /// <inheritdoc />
     public override ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken ct = default) =>
         ValueTask.FromResult(_configs.TryRemove((task, configId), out _));
-
-    private static PushConfigRecord Copy(PushConfigRecord r) => r with { Config = A2AJson.Clone(r.Config) };
 }

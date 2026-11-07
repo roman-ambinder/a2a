@@ -16,7 +16,7 @@ public class TaskStoreTests
 
     internal static TaskRecord WithState(TaskRecord r, TaskState s)
     {
-        var task = A2AJson.Clone(r.Task);
+        var task = r.Task.CopyForUpdate(); // a new status: the stored one is never changed
         task.Status.State = s;
         return r with { Task = task };
     }
@@ -78,22 +78,23 @@ public class TaskStoreTests
     }
 
     [Fact]
-    public async Task Mutating_returned_record_does_not_change_store()
+    public async Task Update_leaves_an_earlier_returned_record_unchanged()
     {
         var s = new InMemoryTaskStore();
         var r = await s.CreateAsync(NewRecord("t", "a", "id1"));
-        r.Task.Status.State = TaskState.Failed;
-        Assert.Equal(TaskState.Submitted, (await s.GetAsync(r.Key))!.Task.Status.State);
+        await s.UpdateAsync(WithState(r, TaskState.Failed), 1);
+        Assert.Equal(TaskState.Submitted, r.Task.Status.State);
+        Assert.Equal(TaskState.Failed, (await s.GetAsync(r.Key))!.Task.Status.State);
     }
 
     [Fact]
-    public async Task Mutating_input_record_after_write_does_not_change_store()
+    public async Task Store_owns_and_returns_the_instance_it_was_given()
     {
         var s = new InMemoryTaskStore();
         var input = NewRecord("t", "a", "id1");
-        await s.CreateAsync(input);
-        input.Task.Status.State = TaskState.Failed;
-        Assert.Equal(TaskState.Submitted, (await s.GetAsync(input.Key))!.Task.Status.State);
+        var created = await s.CreateAsync(input);
+        Assert.Same(input.Task, created.Task);
+        Assert.Same(input.Task, (await s.GetAsync(input.Key))!.Task);
     }
 
     [Fact]

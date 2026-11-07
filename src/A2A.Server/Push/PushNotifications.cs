@@ -235,10 +235,10 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
         }
     }
 
-    /// <summary>Returns a copy of the stored config with its secrets in plaintext. Used only at delivery time.</summary>
+    /// <summary>Returns a copy of the stored config with its secrets in plaintext; the stored config (owned by the store) is not changed. Used only at delivery time.</summary>
     private TaskPushNotificationConfig Unprotect(TaskPushNotificationConfig stored)
     {
-        var config = A2AJson.Clone(stored);
+        var config = stored.DeepCopy();
         if (!string.IsNullOrEmpty(config.Token)) config.Token = _protector.Unprotect(config.Token);
         if (config.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = _protector.Unprotect(auth.Credentials);
         return config;

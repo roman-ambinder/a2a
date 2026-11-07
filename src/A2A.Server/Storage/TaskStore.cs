@@ -24,8 +24,15 @@ public sealed record TaskPage(IReadOnlyList<TaskRecord> Records, string NextPage
 
 /// <summary>
 /// Task persistence. Reads are owner-scoped: a record owned by someone else looks like a missing one.
-/// Implementations must return copies, not shared instances.
 /// </summary>
+/// <remarks>
+/// Ownership: the store owns the instance it returns; callers never mutate it. The same holds for the task given to
+/// <see cref="CreateAsync"/> and <see cref="UpdateAsync"/>: from that call on it belongs to the store, and the caller does
+/// not change it again. To change a task, read it, build a new one (for example with <see cref="ModelCopies.CopyForUpdate"/>)
+/// and pass that to <see cref="UpdateAsync"/>. The store does not change those instances either: the server may still hold
+/// one (for example inside a published event). So an in-memory store can keep and return the instances it is given
+/// without copying them, and a store that serializes may return a fresh instance on every read; both meet the contract.
+/// </remarks>
 public abstract class TaskStore
 {
     /// <summary>Returns the task, or null when it does not exist or <see cref="TaskKey.Owner"/> is not its owner.</summary>

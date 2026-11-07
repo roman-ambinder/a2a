@@ -163,6 +163,56 @@ public class ModelCopyTests
         Assert.Equal("{\"k\":1}", ((DataPart)c.History[0].Parts[3]).Data.GetRawText());
     }
 
+    [Fact]
+    public void Message_DeepCopy_equals_json_clone()
+    {
+        foreach (var m in new[] { Msg("m"), BareMsg("b") })
+        {
+            Assert.Equal(A2AJson.Serialize(A2AJson.Clone(m)), A2AJson.Serialize(m.DeepCopy()));
+            Assert.Equal(A2AJson.Serialize(m), A2AJson.Serialize(m.DeepCopy()));
+        }
+    }
+
+    [Fact]
+    public void Message_DeepCopy_shares_nothing()
+    {
+        foreach (var m in new[] { Msg("m"), BareMsg("b") }) NotSameMessage(m, m.DeepCopy());
+    }
+
+    private static TaskPushNotificationConfig PushConfig() => new()
+    {
+        Tenant = "ten",
+        Id = "c1",
+        TaskId = "t",
+        Url = "https://hooks.test/x",
+        Token = "tok",
+        Authentication = new AuthenticationInfo { Scheme = "Basic", Credentials = "secret" },
+    };
+
+    [Fact]
+    public void PushConfig_DeepCopy_equals_json_clone()
+    {
+        foreach (var c in new[] { PushConfig(), new TaskPushNotificationConfig { Url = "https://hooks.test/bare" } })
+        {
+            Assert.Equal(A2AJson.Serialize(A2AJson.Clone(c)), A2AJson.Serialize(c.DeepCopy()));
+            Assert.Equal(A2AJson.Serialize(c), A2AJson.Serialize(c.DeepCopy()));
+        }
+    }
+
+    [Fact]
+    public void PushConfig_DeepCopy_shares_nothing()
+    {
+        var c = PushConfig();
+        var copy = c.DeepCopy();
+        NotSame(c, copy);
+        NotSame(c.Authentication, copy.Authentication);
+        copy.Token = "changed";
+        copy.Authentication!.Credentials = "changed";
+        Assert.Equal("tok", c.Token);
+        Assert.Equal("secret", c.Authentication!.Credentials);
+        Assert.Null(new TaskPushNotificationConfig { Url = "https://hooks.test/bare" }.DeepCopy().Authentication);
+    }
+
     private static void NotSame(object? a, object? b)
     {
         Assert.NotNull(a);

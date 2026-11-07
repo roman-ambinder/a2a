@@ -68,6 +68,37 @@ public static class ModelCopies
         };
     }
 
+    /// <summary>
+    /// Copies everything reachable from a message: the parts, lists and dictionaries are new, <see cref="JsonElement"/>
+    /// values are cloned and raw bytes are copied. Only immutable values are shared. Serializes to the same JSON as the
+    /// original. This is the copy <see cref="DeepCopy(AgentTask)"/> makes of each history message.
+    /// </summary>
+    public static Message DeepCopy(this Message message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        return DeepMessage(message);
+    }
+
+    /// <summary>
+    /// Copies a push notification config and its <see cref="TaskPushNotificationConfig.Authentication"/>. Every value is a
+    /// string, so the copy shares nothing mutable with the original. Serializes to the same JSON as the original.
+    /// </summary>
+    public static TaskPushNotificationConfig DeepCopy(this TaskPushNotificationConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        return new TaskPushNotificationConfig
+        {
+            Tenant = config.Tenant,
+            Id = config.Id,
+            TaskId = config.TaskId,
+            Url = config.Url,
+            Token = config.Token,
+            Authentication = config.Authentication is { } auth
+                ? new AuthenticationInfo { Scheme = auth.Scheme, Credentials = auth.Credentials }
+                : null,
+        };
+    }
+
     private static AgentTaskStatus CopyStatus(AgentTaskStatus s, bool deep) => new()
     {
         State = s.State,

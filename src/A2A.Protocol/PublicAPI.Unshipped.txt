@@ -718,7 +718,6 @@ static A2A.A2AException.InvalidParams(string! message) -> A2A.A2AException!
 static A2A.A2AException.PayloadTooLarge(long limit) -> A2A.A2AException!
 static A2A.A2AException.RateLimited(System.TimeSpan retryAfter) -> A2A.A2AException!
 static A2A.A2AException.TaskNotFound(string! taskId) -> A2A.A2AException!
-static A2A.Json.A2AJson.Clone<T>(T value) -> T
 static A2A.Json.A2AJson.CreateOptions() -> System.Text.Json.JsonSerializerOptions!
 static A2A.Json.A2AJson.Deserialize<T>(string! json) -> T
 static A2A.Json.A2AJson.Deserialize<T>(System.Text.Json.JsonElement element) -> T
@@ -789,3 +788,5 @@ A2A.ModelCopies
 static A2A.ModelCopies.CopyForUpdate(this A2A.AgentTask! task) -> A2A.AgentTask!
 static A2A.ModelCopies.CopyWithParts(this A2A.Artifact! artifact, System.Collections.Generic.IEnumerable<A2A.Part!>! extraParts) -> A2A.Artifact!
 static A2A.ModelCopies.DeepCopy(this A2A.AgentTask! task) -> A2A.AgentTask!
+static A2A.ModelCopies.DeepCopy(this A2A.Message! message) -> A2A.Message!
+static A2A.ModelCopies.DeepCopy(this A2A.TaskPushNotificationConfig! config) -> A2A.TaskPushNotificationConfig!

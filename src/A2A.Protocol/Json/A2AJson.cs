@@ -86,8 +86,11 @@ public static class A2AJson
     public static T Deserialize<T>(JsonElement element) =>
         element.Deserialize(GetTypeInfo<T>()) ?? throw new JsonException($"Null {typeof(T).Name} payload.");
 
-    /// <summary>Deep-copies a model through its wire form. Used by stores to avoid shared mutable state.</summary>
-    public static T Clone<T>(T value)
+    /// <summary>
+    /// Deep-copies a model through its wire form. Costs a full serialization; the server uses the structural copies of
+    /// <see cref="ModelCopies"/> instead. Kept for the card signer, which signs a detached copy of the card.
+    /// </summary>
+    internal static T Clone<T>(T value)
     {
         var info = GetTypeInfo<T>();
         return JsonSerializer.Deserialize(JsonSerializer.SerializeToUtf8Bytes(value, info), info)!;

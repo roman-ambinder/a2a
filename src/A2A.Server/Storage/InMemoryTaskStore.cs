@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
-using A2A.Json;
 
 namespace A2A.Server.Storage;
 
-/// <summary>Process-local task store. For development and tests; data is lost on restart.</summary>
+/// <summary>
+/// Process-local task store. For development and tests; data is lost on restart. It keeps the instances it is given and
+/// returns them without copying (see the ownership rule on <see cref="TaskStore"/>).
+/// </summary>
 public sealed class InMemoryTaskStore : TaskStore
 {
     private readonly ConcurrentDictionary<(string Tenant, string TaskId), TaskRecord> _tasks = new();
@@ -13,16 +15,16 @@ public sealed class InMemoryTaskStore : TaskStore
     public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) =>
         ValueTask.FromResult(
             _tasks.TryGetValue((key.Tenant, key.TaskId), out var r) && string.Equals(r.Owner, key.Owner, StringComparison.Ordinal)
-                ? Copy(r)
+                ? r
                 : null);
 
     /// <inheritdoc />
     public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default)
     {
         if (record.Version != 0) throw new ArgumentException("A new record must have Version 0.", nameof(record));
-        var stored = Copy(record with { Version = 1 });
+        var stored = record with { Version = 1 };
         if (!_tasks.TryAdd((stored.Tenant, stored.Task.Id), stored)) throw new DuplicateTaskException(record.Key);
-        return ValueTask.FromResult(Copy(stored));
+        return ValueTask.FromResult(stored);
     }
 
     /// <inheritdoc />
@@ -34,9 +36,9 @@ public sealed class InMemoryTaskStore : TaskStore
             || current.Version != expectedVersion)
             throw new ConcurrencyException(record.Key, expectedVersion);
 
-        var next = Copy(record with { Version = expectedVersion + 1, CreatedAt = current.CreatedAt, UpdatedAt = DateTimeOffset.UtcNow });
+        var next = record with { Version = expectedVersion + 1, CreatedAt = current.CreatedAt, UpdatedAt = DateTimeOffset.UtcNow };
         if (!_tasks.TryUpdate(id, next, current)) throw new ConcurrencyException(record.Key, expectedVersion);
-        return ValueTask.FromResult(Copy(next));
+        return ValueTask.FromResult(next);
     }
 
     /// <inheritdoc />
@@ -66,7 +68,7 @@ public sealed class InMemoryTaskStore : TaskStore
         var hasMore = page.Count > query.PageSize;
         if (hasMore) page.RemoveAt(page.Count - 1);
         var next = hasMore ? PageCursor.Encode(page[^1]) : string.Empty;
-        return ValueTask.FromResult(new TaskPage(page.Select(Copy).ToList(), next, matching.Count));
+        return ValueTask.FromResult(new TaskPage(page, next, matching.Count));
     }
 
     /// <inheritdoc />
@@ -76,6 +78,4 @@ public sealed class InMemoryTaskStore : TaskStore
     /// <inheritdoc />
     public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) =>
         ValueTask.FromResult(_contexts.GetOrAdd((record.Tenant, record.ContextId), record));
-
-    private static TaskRecord Copy(TaskRecord r) => r with { Task = A2AJson.Clone(r.Task) };
 }

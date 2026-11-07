@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
-using A2A.Json;
 using A2A.Server.Streaming;
 
 namespace A2A.Server.Storage;
@@ -8,6 +7,8 @@ namespace A2A.Server.Storage;
 /// <summary>
 /// Process-local event log. Keeps the last <see cref="StreamingOptions.ReplayBufferSize"/> events per task and drops the
 /// buffer of a terminal task <see cref="StreamingOptions.TerminalRetention"/> after <see cref="MarkTerminalAsync"/>.
+/// It stores the event instances it is given and returns them without copying: an appended event belongs to the store and
+/// nobody changes it.
 /// </summary>
 public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? time = null) : EventStore
 {
@@ -17,7 +18,6 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
     /// <inheritdoc />
     public override ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken ct = default)
     {
-        var copy = A2AJson.Clone(evt);
         var capacity = Math.Max(1, options.ReplayBufferSize);
         while (true)
         {
@@ -26,7 +26,7 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
             {
                 if (log.Evicted) continue; // lost a race with eviction; start a fresh log
                 var seq = ++log.Last;
-                log.Events.Add(new SequencedEvent(seq, copy));
+                log.Events.Add(new SequencedEvent(seq, evt));
                 if (log.Events.Count > capacity) log.Events.RemoveRange(0, log.Events.Count - capacity);
                 return ValueTask.FromResult(seq);
             }
@@ -45,7 +45,7 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
         foreach (var e in snapshot)
         {
             ct.ThrowIfCancellationRequested();
-            yield return e with { Event = A2AJson.Clone(e.Event) };
+            yield return e;
         }
         await Task.CompletedTask.ConfigureAwait(false);
     }
