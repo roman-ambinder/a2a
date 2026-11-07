@@ -110,6 +110,21 @@ public class ProtoMapperTests
         Assert.Equal(reason, back.ReasonOverride);
     }
 
+    [Fact]
+    public void Bare_resource_exhausted_is_payload_too_large_like_http_413()
+    {
+        // What the gRPC layer sends for a message over the size limit: no A2A ErrorInfo.
+        var rpc = new RpcException(new Status(StatusCode.ResourceExhausted, "Received message exceeds the maximum configured message size."));
+        var back = GrpcErrors.FromRpcException(rpc);
+        Assert.Equal(A2AErrorCode.InvalidRequest, back.Code);
+        Assert.Equal(A2AErrors.PayloadTooLargeReason, back.ReasonOverride);
+        Assert.Equal(413, back.HttpStatus);
+        Assert.False(back.IsRetryable);
+
+        // An A2A rate limit (RESOURCE_EXHAUSTED with ErrorInfo) keeps its own code.
+        Assert.Equal(A2AErrorCode.RateLimited, GrpcErrors.FromRpcException(GrpcErrors.ToRpcException(A2AException.RateLimited(TimeSpan.FromSeconds(1)))).Code);
+    }
+
     [Theory]
     [InlineData("grpc.example.com:50051", "https://grpc.example.com:50051/")]
     [InlineData("http://localhost:5000", "http://localhost:5000/")]
@@ -209,8 +224,10 @@ public class GrpcBindingTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Extended_card_is_per_principal()
+    public async Task Extended_card_requires_authentication()
     {
+        var anon = await Assert.ThrowsAsync<A2AException>(() => _host.Client(user: null).GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest()));
+        Assert.Equal(A2AErrorCode.Unauthenticated, anon.Code);
         Assert.Equal("Extended for dave", (await _host.Client("dave").GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest())).Description);
     }
 

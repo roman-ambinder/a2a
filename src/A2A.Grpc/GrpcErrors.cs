@@ -98,8 +98,18 @@ public static class GrpcErrors
         }
         var message = status?.Message ?? ex.Status.Detail;
         var reason = info?.Reason;
+        int? httpStatus = null;
+        if (info is null && ex.StatusCode == StatusCode.ResourceExhausted)
+        {
+            // A bare RESOURCE_EXHAUSTED comes from the gRPC layer itself: the message was over the size limit. Report it as
+            // the HTTP bindings report a body over the limit (InvalidRequest, PAYLOAD_TOO_LARGE, 413).
+            code = A2AErrorCode.InvalidRequest;
+            reason = A2AErrors.PayloadTooLargeReason;
+            httpStatus = 413;
+        }
         return new A2AException(code, string.IsNullOrEmpty(message) ? null : message, ex)
         {
+            HttpStatus = httpStatus,
             Metadata = info?.Metadata.Count > 0 ? info.Metadata.ToDictionary(kv => kv.Key, kv => kv.Value) : null,
             Details = info is null ? null : [ToJson(info)],
             RetryAfter = RetryAfterOf(status, info),
