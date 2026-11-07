@@ -3,12 +3,21 @@
 using A2A;
 using A2A.Server;
 using A2A.Server.AspNetCore;
+using A2A.Server.Grpc;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 var port = args.Length > 0 ? int.Parse(args[0]) : 5300;
 var baseUrl = $"http://127.0.0.1:{port}";
 
 var builder = WebApplication.CreateBuilder();
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
+// HTTP/1.1 for JSON-RPC + REST on <port>, cleartext HTTP/2 for gRPC on <port+1>.
+builder.WebHost.ConfigureKestrel(k =>
+{
+    k.ListenLocalhost(port, o => o.Protocols = HttpProtocols.Http1);
+    k.ListenLocalhost(port + 1, o => o.Protocols = HttpProtocols.Http2);
+});
+builder.Services.AddA2AGrpc();
 builder.Services.AddA2AServer<ScenarioAgent>(o => o.AgentCard = new AgentCard
 {
     Name = ".NET Scenario Agent",
@@ -18,6 +27,7 @@ builder.Services.AddA2AServer<ScenarioAgent>(o => o.AgentCard = new AgentCard
     [
         new AgentInterface { Url = $"{baseUrl}/a2a", ProtocolBinding = ProtocolBindings.JsonRpc },
         new AgentInterface { Url = $"{baseUrl}/a2a", ProtocolBinding = ProtocolBindings.HttpJson },
+        new AgentInterface { Url = $"http://127.0.0.1:{port + 1}", ProtocolBinding = ProtocolBindings.Grpc },
     ],
     Capabilities = new AgentCapabilities { Streaming = true, PushNotifications = false },
     DefaultInputModes = ["text/plain"],
@@ -28,7 +38,8 @@ builder.Services.AddA2AServer<ScenarioAgent>(o => o.AgentCard = new AgentCard
 var app = builder.Build();
 app.MapAgentCard();
 app.MapA2A("/a2a");
-app.Run(baseUrl);
+app.MapA2AGrpc();
+app.Run();
 
 internal sealed class ScenarioAgent : IAgentExecutor
 {

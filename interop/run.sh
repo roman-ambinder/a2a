@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Two-way interop: .NET client <-> official Python a2a-sdk agent, Python client <-> .NET agent,
-# over both JSON-RPC and HTTP+JSON. Exit code = number of failed client runs.
+# over JSON-RPC, HTTP+JSON, and gRPC. Exit code = number of failed client runs.
 #
 # Requires: .NET 10 SDK, a Python with interop/python/requirements.txt installed.
 #   PYTHON=/path/to/python interop/run.sh
@@ -33,7 +33,7 @@ wait_for "http://127.0.0.1:$PY_PORT" || exit 101
 wait_for "http://127.0.0.1:$NET_PORT" || exit 101
 
 fails=0
-for binding in JSONRPC HTTP+JSON; do
+for binding in JSONRPC HTTP+JSON GRPC; do
   dotnet run --no-build -c Release --project "$ROOT/interop/dotnet/InteropClient" -- "http://127.0.0.1:$PY_PORT/" "$binding" || fails=$((fails + 1))
   "$PY" "$ROOT/interop/python/py_client.py" "http://127.0.0.1:$NET_PORT" "$binding" || fails=$((fails + 1))
 done

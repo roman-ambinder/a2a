@@ -7,15 +7,17 @@ Serves JSON-RPC at POST /a2a and HTTP+JSON under /a2a, card at /.well-known/agen
 import asyncio
 import sys
 
+import grpc
 import uvicorn
 from starlette.applications import Starlette
 
 from a2a.helpers.proto_helpers import get_message_text, new_text_message, new_text_part
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
-from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.request_handlers import DefaultRequestHandler, GrpcHandler
 from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes, create_rest_routes
 from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
+from a2a.types import a2a_pb2_grpc
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
@@ -65,7 +67,7 @@ class ScenarioExecutor(AgentExecutor):
         await updater.cancel()
 
 
-def build_app(port: int) -> Starlette:
+def build(port: int):
     base = f'http://127.0.0.1:{port}/a2a'
     card = AgentCard(
         name='Python Scenario Agent',
@@ -74,6 +76,7 @@ def build_app(port: int) -> Starlette:
         supported_interfaces=[
             AgentInterface(url=base, protocol_binding='JSONRPC', protocol_version='1.0'),
             AgentInterface(url=base, protocol_binding='HTTP+JSON', protocol_version='1.0'),
+            AgentInterface(url=f'http://127.0.0.1:{port + 1}', protocol_binding='GRPC', protocol_version='1.0'),
         ],
         capabilities=AgentCapabilities(streaming=True, push_notifications=False),
         default_input_modes=['text/plain'],
@@ -86,9 +89,21 @@ def build_app(port: int) -> Starlette:
         *create_jsonrpc_routes(handler, rpc_url='/a2a'),
         *create_rest_routes(handler, path_prefix='/a2a'),
     ]
-    return Starlette(routes=routes)
+    return Starlette(routes=routes), handler
+
+
+async def serve(port: int) -> None:
+    app, handler = build(port)
+    grpc_server = grpc.aio.server()
+    a2a_pb2_grpc.add_A2AServiceServicer_to_server(GrpcHandler(handler), grpc_server)
+    grpc_server.add_insecure_port(f'127.0.0.1:{port + 1}')
+    await grpc_server.start()
+    http = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=port, log_level='warning'))
+    try:
+        await http.serve()
+    finally:
+        await grpc_server.stop(0)
 
 
 if __name__ == '__main__':
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5200
-    uvicorn.run(build_app(port), host='127.0.0.1', port=port, log_level='warning')
+    asyncio.run(serve(int(sys.argv[1]) if len(sys.argv) > 1 else 5200))
