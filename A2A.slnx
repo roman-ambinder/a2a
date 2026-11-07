@@ -18,6 +18,7 @@
     <Project Path="src/A2A.Server/A2A.Server.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/A2A.Benchmarks/A2A.Benchmarks.csproj" />
     <Project Path="tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj" />
     <Project Path="tests/A2A.Tests/A2A.Tests.csproj" />
   </Folder>

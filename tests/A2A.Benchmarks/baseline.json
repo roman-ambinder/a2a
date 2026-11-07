@@ -1,0 +1,18 @@
+{
+  "CardVerifyBenchmark.Verify": {
+    "allocatedBytes": 32779,
+    "meanNs": 145454.48803710938
+  },
+  "JsonRpcEnvelopeBenchmark.Encode": {
+    "allocatedBytes": 1640,
+    "meanNs": 1923.3627840677898
+  },
+  "SendMessageBenchmark.RoundTrip": {
+    "allocatedBytes": 58294,
+    "meanNs": 245572.35034179688
+  },
+  "StreamingTaskBenchmark.ThousandEvents": {
+    "allocatedBytes": 432619056,
+    "meanNs": 406726402.6666667
+  }
+}
