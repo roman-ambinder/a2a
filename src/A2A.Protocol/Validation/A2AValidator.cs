@@ -15,6 +15,14 @@ public static class A2AValidator
             ValidatePushConfig(push, "configuration.taskPushNotificationConfig", requireTaskId: false);
     }
 
+    /// <summary>Checks a request before the client sends it: <c>messageId</c> and <c>parts</c> must be present. Throws locally with InvalidParams.</summary>
+    public static void ValidateOutgoing(SendMessageRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Message is null) throw A2AException.InvalidParams("message is required");
+        ValidateMessage(request.Message, "message");
+    }
+
     public static void ValidateMessage(Message message, string path)
     {
         if (string.IsNullOrWhiteSpace(message.MessageId))

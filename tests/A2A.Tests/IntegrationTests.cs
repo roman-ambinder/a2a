@@ -23,10 +23,10 @@ public class BindingTests : IAsyncLifetime
     {
         var client = _host.Client(binding);
         var resp = await client.SendMessageAsync("hello");
-        Assert.Null(resp.Task);
-        Assert.Equal("hi there", resp.Message!.GetText());
-        Assert.Equal(Role.Agent, resp.Message.Role);
-        Assert.False(string.IsNullOrEmpty(resp.Message.ContextId));
+        var message = Assert.IsType<MessageResponse>(resp).Message;
+        Assert.Equal("hi there", message.GetText());
+        Assert.Equal(Role.Agent, message.Role);
+        Assert.False(string.IsNullOrEmpty(message.ContextId));
     }
 
     [Theory]
@@ -34,7 +34,7 @@ public class BindingTests : IAsyncLifetime
     public async Task Blocking_send_returns_completed_task_with_merged_artifact(string binding)
     {
         var client = _host.Client(binding);
-        var task = (await client.SendMessageAsync("task")).Task!;
+        var task = (await client.SendMessageAsync("task")).RequireTask();
         Assert.Equal(TaskState.Completed, task.Status.State);
         var artifact = Assert.Single(task.Artifacts!);
         Assert.Equal(["part1", "part2"], artifact.Parts.OfType<TextPart>().Select(p => p.Text));
@@ -51,13 +51,12 @@ public class BindingTests : IAsyncLifetime
         var events = new List<StreamResponse>();
         await foreach (var e in client.SendStreamingMessageAsync(Message.FromUser("task"))) events.Add(e);
 
-        Assert.NotNull(events[0].Task);
-        Assert.Equal(TaskState.Submitted, events[0].Task!.Status.State);
-        Assert.Equal(TaskState.Working, events[1].StatusUpdate!.Status.State);
-        Assert.False(events[2].ArtifactUpdate!.Append);
-        Assert.True(events[3].ArtifactUpdate!.Append);
-        Assert.True(events[3].ArtifactUpdate!.LastChunk);
-        Assert.Equal(TaskState.Completed, events[^1].StatusUpdate!.Status.State);
+        Assert.Equal(TaskState.Submitted, Assert.IsType<TaskEvent>(events[0]).Task.Status.State);
+        Assert.Equal(TaskState.Working, Assert.IsType<StatusUpdateEvent>(events[1]).StatusUpdate.Status.State);
+        Assert.False(Assert.IsType<ArtifactUpdateEvent>(events[2]).ArtifactUpdate.Append);
+        Assert.True(Assert.IsType<ArtifactUpdateEvent>(events[3]).ArtifactUpdate.Append);
+        Assert.True(Assert.IsType<ArtifactUpdateEvent>(events[3]).ArtifactUpdate.LastChunk);
+        Assert.Equal(TaskState.Completed, Assert.IsType<StatusUpdateEvent>(events[^1]).StatusUpdate.Status.State);
         Assert.Equal(5, events.Count);
     }
 
@@ -66,10 +65,10 @@ public class BindingTests : IAsyncLifetime
     public async Task Multi_turn_input_required_then_terminal_rejects_more_messages(string binding)
     {
         var client = _host.Client(binding);
-        var first = (await client.SendMessageAsync("input")).Task!;
+        var first = (await client.SendMessageAsync("input")).RequireTask();
         Assert.Equal(TaskState.InputRequired, first.Status.State);
 
-        var second = (await client.SendMessageAsync("more", first.ContextId, first.Id)).Task!;
+        var second = (await client.SendMessageAsync("more", first.ContextId, first.Id)).RequireTask();
         Assert.Equal(first.Id, second.Id);
         Assert.Equal(TaskState.Completed, second.Status.State);
         Assert.Equal("got: more", second.Status.Message!.GetText());
@@ -87,7 +86,7 @@ public class BindingTests : IAsyncLifetime
     public async Task Get_task_applies_history_length(string binding)
     {
         var client = _host.Client(binding);
-        var task = (await client.SendMessageAsync("task")).Task!;
+        var task = (await client.SendMessageAsync("task")).RequireTask();
         Assert.Null((await client.GetTaskAsync(task.Id, 0)).History);
         Assert.Single((await client.GetTaskAsync(task.Id, 1)).History!);
         var missing = await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync("nope"));
@@ -99,7 +98,7 @@ public class BindingTests : IAsyncLifetime
     public async Task Return_immediately_then_cancel_running_task(string binding)
     {
         var client = _host.Client(binding);
-        var task = (await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).Task!;
+        var task = (await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).RequireTask();
         Assert.False(task.Status.State.IsTerminal());
 
         var canceled = await client.CancelTaskAsync(task.Id);
@@ -114,7 +113,7 @@ public class BindingTests : IAsyncLifetime
     public async Task Subscribe_gets_snapshot_then_live_events_until_terminal(string binding)
     {
         var client = _host.Client(binding);
-        var task = (await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).Task!;
+        var task = (await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).RequireTask();
 
         var received = new List<StreamResponse>();
         var subscribed = new TaskCompletionSource();
@@ -130,8 +129,8 @@ public class BindingTests : IAsyncLifetime
         await client.CancelTaskAsync(task.Id);
         await reader.WaitAsync(TimeSpan.FromSeconds(10));
 
-        Assert.Equal(task.Id, received[0].Task!.Id);
-        Assert.Equal(TaskState.Canceled, received[^1].StatusUpdate!.Status.State);
+        Assert.Equal(task.Id, Assert.IsType<TaskEvent>(received[0]).Task.Id);
+        Assert.Equal(TaskState.Canceled, Assert.IsType<StatusUpdateEvent>(received[^1]).StatusUpdate.Status.State);
 
         var terminal = await Assert.ThrowsAsync<A2AException>(async () => { await foreach (var _ in client.SubscribeToTaskAsync(task.Id)) { } });
         Assert.Equal(A2AErrorCode.UnsupportedOperation, terminal.Code);
@@ -145,7 +144,7 @@ public class BindingTests : IAsyncLifetime
         var states = new List<TaskState>();
         await foreach (var e in client.SendStreamingMessageAsync(Message.FromUser("auth")))
         {
-            if (e.StatusUpdate is { } su)
+            if (e is StatusUpdateEvent { StatusUpdate: var su })
             {
                 states.Add(su.Status.State);
                 if (su.Status.State == TaskState.AuthRequired)
@@ -159,7 +158,7 @@ public class BindingTests : IAsyncLifetime
     [MemberData(nameof(Bindings))]
     public async Task Executor_exception_becomes_failed_task_without_leaking_details(string binding)
     {
-        var task = (await _host.Client(binding).SendMessageAsync("fail")).Task!;
+        var task = (await _host.Client(binding).SendMessageAsync("fail")).RequireTask();
         Assert.Equal(TaskState.Failed, task.Status.State);
         Assert.DoesNotContain("boom", task.Status.Message!.GetText());
     }
@@ -178,7 +177,7 @@ public class BindingTests : IAsyncLifetime
     {
         var alice = _host.Client(binding, "alice");
         var bob = _host.Client(binding, "bob");
-        var task = (await alice.SendMessageAsync("task")).Task!;
+        var task = (await alice.SendMessageAsync("task")).RequireTask();
 
         Assert.Equal(A2AErrorCode.TaskNotFound, (await Assert.ThrowsAsync<A2AException>(() => bob.GetTaskAsync(task.Id))).Code);
         Assert.Equal(A2AErrorCode.TaskNotFound, (await Assert.ThrowsAsync<A2AException>(() => bob.CancelTaskAsync(task.Id))).Code);
@@ -195,8 +194,8 @@ public class BindingTests : IAsyncLifetime
     {
         var client = _host.Client(binding, "pager-" + binding);
         var ids = new List<string>();
-        for (var i = 0; i < 5; i++) ids.Add((await client.SendMessageAsync("task")).Task!.Id);
-        var input = (await client.SendMessageAsync("input")).Task!;
+        for (var i = 0; i < 5; i++) ids.Add((await client.SendMessageAsync("task")).RequireTask().Id);
+        var input = (await client.SendMessageAsync("input")).RequireTask();
 
         var all = new List<AgentTask>();
         await foreach (var t in client.ListAllTasksAsync(new ListTasksRequest { PageSize = 2, IncludeArtifacts = true })) all.Add(t);
@@ -219,7 +218,7 @@ public class BindingTests : IAsyncLifetime
     public async Task Push_config_crud(string binding)
     {
         var client = _host.Client(binding, "carol");
-        var task = (await client.SendMessageAsync("input")).Task!;
+        var task = (await client.SendMessageAsync("input")).RequireTask();
         var created = await client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = task.Id, Url = "https://hooks.example/cb", Token = "t1" });
         Assert.False(string.IsNullOrEmpty(created.Id));
 
@@ -247,7 +246,7 @@ public class BindingTests : IAsyncLifetime
                 Authentication = new AuthenticationInfo { Scheme = "Bearer", Credentials = "hook-cred" },
             },
         };
-        var task = (await client.SendMessageAsync(Message.FromUser("task"), config)).Task!;
+        var task = (await client.SendMessageAsync(Message.FromUser("task"), config)).RequireTask();
         await _host.WaitIdleAsync();
 
         var calls = _host.Webhooks.Calls.Where(c => c.Request.RequestUri!.AbsolutePath == $"/{binding}").ToList();
@@ -260,9 +259,9 @@ public class BindingTests : IAsyncLifetime
         var seqs = calls.Select(c => long.Parse(c.Request.Headers.GetValues(A2AProtocol.Headers.NotificationSequence).Single())).ToList();
         Assert.Equal(seqs.OrderBy(s => s), seqs);
         var first = Json.A2AJson.Deserialize<StreamResponse>(calls[0].Body);
-        Assert.Equal(task.Id, first.Task!.Id);
+        Assert.Equal(task.Id, Assert.IsType<TaskEvent>(first).Task.Id);
         var last = Json.A2AJson.Deserialize<StreamResponse>(calls[^1].Body);
-        Assert.Equal(TaskState.Completed, last.StatusUpdate!.Status.State);
+        Assert.Equal(TaskState.Completed, Assert.IsType<StatusUpdateEvent>(last).StatusUpdate.Status.State);
     }
 
     [Theory]
@@ -345,17 +344,17 @@ public class BindingTests : IAsyncLifetime
     public async Task Rest_subscribe_accepts_get_as_in_proto()
     {
         var client = _host.Client(ProtocolBindings.HttpJson, options: new A2AClientOptions { RestSubscribeMethod = HttpMethod.Get });
-        var task = (await client.SendMessageAsync("input")).Task!;
+        var task = (await client.SendMessageAsync("input")).RequireTask();
         await using var e = client.SubscribeToTaskAsync(task.Id).GetAsyncEnumerator();
         Assert.True(await e.MoveNextAsync());
-        Assert.Equal(task.Id, e.Current.Task!.Id);
+        Assert.Equal(task.Id, Assert.IsType<TaskEvent>(e.Current).Task.Id);
     }
 
     [Fact]
     public async Task Rest_tenant_prefix_scopes_tasks()
     {
         var acme = _host.Client(ProtocolBindings.HttpJson, options: new A2AClientOptions { Tenant = "acme" });
-        var task = (await acme.SendMessageAsync("task")).Task!;
+        var task = (await acme.SendMessageAsync("task")).RequireTask();
         Assert.Equal(task.Id, (await acme.GetTaskAsync(task.Id)).Id);
         var noTenant = _host.Client(ProtocolBindings.HttpJson);
         Assert.Equal(A2AErrorCode.TaskNotFound, (await Assert.ThrowsAsync<A2AException>(() => noTenant.GetTaskAsync(task.Id))).Code);
@@ -373,7 +372,7 @@ public class HostConfigurationTests
         Assert.Equal(A2AErrorCode.ExtensionSupportRequired, ex.Code);
 
         var ok = host.Client(ProtocolBindings.JsonRpc, options: new A2AClientOptions { Extensions = ["urn:must"] });
-        Assert.NotNull((await ok.SendMessageAsync("hello")).Message);
+        Assert.IsType<MessageResponse>(await ok.SendMessageAsync("hello"));
     }
 
     [Fact]
@@ -381,7 +380,7 @@ public class HostConfigurationTests
     {
         await using var host = await TestAgentHost.StartAsync(o => o.PushNotifications.AllowPrivateNetworks = false);
         var client = host.Client(ProtocolBindings.JsonRpc);
-        var task = (await client.SendMessageAsync("input")).Task!;
+        var task = (await client.SendMessageAsync("input")).RequireTask();
         var ex = await Assert.ThrowsAsync<A2AException>(() =>
             client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = task.Id, Url = "http://169.254.169.254/latest/meta-data" }));
         Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
@@ -398,7 +397,7 @@ public class HostConfigurationTests
         var client = host.Client(ProtocolBindings.JsonRpc, options: new A2AClientOptions { ValidateCapabilities = false });
         var stream = await Assert.ThrowsAsync<A2AException>(async () => { await foreach (var _ in client.SendStreamingMessageAsync(Message.FromUser("task"))) { } });
         Assert.Equal(A2AErrorCode.UnsupportedOperation, stream.Code);
-        var task = (await client.SendMessageAsync("input")).Task!;
+        var task = (await client.SendMessageAsync("input")).RequireTask();
         var push = await Assert.ThrowsAsync<A2AException>(() => client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = task.Id, Url = "https://x.example/h" }));
         Assert.Equal(A2AErrorCode.PushNotificationNotSupported, push.Code);
     }
@@ -437,7 +436,7 @@ public class HostConfigurationTests
         await using var host = await TestAgentHost.StartAsync();
         var client = await A2AClientFactory.CreateAsync(new Uri("http://localhost/"), host.Http("alice"));
         Assert.Equal("Scenario Agent", client.AgentCard!.Name);
-        Assert.Equal(TaskState.Completed, (await client.SendMessageAsync("task")).Task!.Status.State);
+        Assert.Equal(TaskState.Completed, (await client.SendMessageAsync("task")).RequireTask().Status.State);
 
         var restOnly = A2AClientFactory.SelectInterface(client.AgentCard, new A2AClientOptions { SupportedBindings = [ProtocolBindings.HttpJson] });
         Assert.Equal(ProtocolBindings.HttpJson, restOnly!.ProtocolBinding);

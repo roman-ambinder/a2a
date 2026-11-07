@@ -209,3 +209,15 @@ public sealed class TestAgentHost : IAsyncDisposable
         await App.DisposeAsync();
     }
 }
+
+/// <summary>Test helpers to narrow the closed response unions.</summary>
+public static class UnionTestExtensions
+{
+    public static AgentTask RequireTask(this SendMessageResponse r) =>
+        (r as TaskResponse)?.Task ?? throw new Xunit.Sdk.XunitException($"Expected a task response but got {r.GetType().Name}");
+
+    public static Message RequireMessage(this SendMessageResponse r) =>
+        (r as MessageResponse)?.Message ?? throw new Xunit.Sdk.XunitException($"Expected a message response but got {r.GetType().Name}");
+
+    public static AgentTask? TryTask(this SendMessageResponse r) => (r as TaskResponse)?.Task;
+}

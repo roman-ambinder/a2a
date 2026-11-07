@@ -52,7 +52,7 @@ public class JsonTests
     {
         var json = A2AJson.Serialize(new AgentCapabilities { Streaming = false });
         Assert.Equal("{\"streaming\":false}", json);
-        Assert.DoesNotContain("append", A2AJson.Serialize(new TaskArtifactUpdateEvent()));
+        Assert.DoesNotContain("append", A2AJson.Serialize(new TaskArtifactUpdateEvent { Artifact = new Artifact { ArtifactId = "a", Parts = [] } }));
     }
 
     [Fact]

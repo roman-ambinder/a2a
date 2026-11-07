@@ -13,7 +13,7 @@ public class IdentityTests
     public async Task Anonymous_callers_get_anonymous_principal()
     {   // Anonymous access is opt-in: no endpoint authorization and AllowAnonymous = true.
         await using var host = await TestAgentHost.StartAsync(o => o.AllowAnonymous = true, requireAuth: false);
-        var task = (await host.Client(ProtocolBindings.JsonRpc, user: null).SendMessageAsync("task")).Task!;
+        var task = (await host.Client(ProtocolBindings.JsonRpc, user: null).SendMessageAsync("task")).RequireTask();
         var rec = await host.App.Services.GetRequiredService<TaskStore>()
             .GetAsync(new TaskKey("", ServerCallContext.AnonymousPrincipal, task.Id));
         Assert.Equal(ServerCallContext.AnonymousPrincipal, rec!.Owner);

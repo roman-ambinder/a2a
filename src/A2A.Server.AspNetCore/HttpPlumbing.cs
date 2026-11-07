@@ -93,7 +93,7 @@ internal static class HttpPlumbing
     public static void SetAuthChallenge(HttpContext http, A2AException ex, AgentCard card)
     {
         if (ex.Code != A2AErrorCode.Unauthenticated || http.Response.HasStarted) return;
-        var scheme = card.SecuritySchemes?.Values.Select(s => s.HttpAuthSecurityScheme?.Scheme).FirstOrDefault(s => s is not null) ?? "Bearer";
+        var scheme = card.SecuritySchemes?.Values.Select(s => (s as HttpAuthScheme)?.Value.Scheme).FirstOrDefault(s => s is not null) ?? "Bearer";
         http.Response.Headers.WWWAuthenticate = new StringValues(scheme);
     }
 

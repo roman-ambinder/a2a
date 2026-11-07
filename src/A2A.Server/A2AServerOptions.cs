@@ -5,7 +5,11 @@ namespace A2A.Server;
 public sealed class A2AServerOptions
 {
     /// <summary>The public Agent Card. Required.</summary>
-    public AgentCard AgentCard { get; set; } = new();
+    public AgentCard AgentCard { get; set; } = new()
+    {
+        Name = string.Empty, Description = string.Empty, SupportedInterfaces = [], Version = string.Empty,
+        Capabilities = new(), DefaultInputModes = [], DefaultOutputModes = [], Skills = [],
+    };
 
     /// <summary>Accepted protocol versions (Major.Minor). Default {"1.0"}.</summary>
     public ISet<string> SupportedVersions { get; } = new HashSet<string>(StringComparer.Ordinal) { A2AProtocol.Version };

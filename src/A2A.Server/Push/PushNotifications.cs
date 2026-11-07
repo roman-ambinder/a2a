@@ -219,7 +219,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
                 _logger.LogError(ex, "Push notification processing failed for task {TaskId}", task.TaskId);
             }
 
-            if (item.Evt.StatusUpdate?.Status.State.IsTerminal() == true) _sequence.TryRemove(task, out _);
+            if (item.Evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal()) _sequence.TryRemove(task, out _);
         }
     }
 

@@ -56,7 +56,7 @@ public class TaskLifecycleTests
     public async Task Unknown_client_context_id_adopted_when_policy_allows(string binding)
     {
         await using var host = await TestAgentHost.StartAsync(o => o.ClientContextIdPolicy = ClientContextIdPolicy.AdoptIfUnknown);
-        var task = (await host.Client(binding).SendMessageAsync("task", "c-client")).Task!;
+        var task = (await host.Client(binding).SendMessageAsync("task", "c-client")).RequireTask();
         Assert.Equal("c-client", task.ContextId);
     }
 
@@ -65,12 +65,12 @@ public class TaskLifecycleTests
     public async Task Foreign_context_is_reported_as_not_found(string binding)
     {
         await using var host = await TestAgentHost.StartAsync();
-        var task = (await host.Client(binding, "alice").SendMessageAsync("task")).Task!;
+        var task = (await host.Client(binding, "alice").SendMessageAsync("task")).RequireTask();
         var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(binding, "bob").SendMessageAsync("task", task.ContextId));
         Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
         Assert.Contains("contextId not found", ex.Message);
         // The owner can still use it.
-        Assert.NotNull((await host.Client(binding, "alice").SendMessageAsync("task", task.ContextId)).Task);
+        Assert.IsType<TaskResponse>(await host.Client(binding, "alice").SendMessageAsync("task", task.ContextId));
     }
 
     [Theory]
@@ -78,8 +78,8 @@ public class TaskLifecycleTests
     public async Task Direct_reply_creates_context_for_later_messages(string binding)
     {
         await using var host = await TestAgentHost.StartAsync();
-        var reply = (await host.Client(binding, "alice").SendMessageAsync("hello")).Message!;
-        Assert.NotNull((await host.Client(binding, "alice").SendMessageAsync("task", reply.ContextId)).Task);
+        var reply = (await host.Client(binding, "alice").SendMessageAsync("hello")).RequireMessage();
+        Assert.IsType<TaskResponse>(await host.Client(binding, "alice").SendMessageAsync("task", reply.ContextId));
         var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(binding, "bob").SendMessageAsync("task", reply.ContextId));
         Assert.Contains("contextId not found", ex.Message);
     }
@@ -90,7 +90,7 @@ public class TaskLifecycleTests
     {
         await using var host = await TestAgentHost.StartAsync();
         var client = host.Client(binding);
-        var task = (await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).Task!;
+        var task = (await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).RequireTask();
         var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync("more", null, task.Id));
         Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
         Assert.Contains("does not accept messages in state", ex.Message);
@@ -102,9 +102,9 @@ public class TaskLifecycleTests
     {
         await using var host = await TestAgentHost.StartAsync(o => o.FollowUpPolicy = FollowUpPolicy.AllowSteering);
         var client = host.Client(binding);
-        var task = (await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).Task!;
+        var task = (await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).RequireTask();
         var resp = await client.SendMessageAsync("more", null, task.Id);
-        Assert.NotNull(resp.Task);
+        Assert.IsType<TaskResponse>(resp);
     }
 
     [Theory]
@@ -113,12 +113,12 @@ public class TaskLifecycleTests
     {
         await using var host = await TestAgentHost.StartAsync();
         var client = host.Client(binding);
-        var task = (await client.SendMessageAsync("auth")).Task!;
+        var task = (await client.SendMessageAsync("auth")).RequireTask();
         Assert.Equal(TaskState.AuthRequired, task.Status.State);
         try
         {
             var resp = await client.SendMessageAsync("credentials", null, task.Id);
-            Assert.NotNull(resp.Task);
+            Assert.IsType<TaskResponse>(resp);
         }
         finally
         {
@@ -133,7 +133,7 @@ public class TaskLifecycleTests
     {
         await using var host = await TestAgentHost.StartAsync();
         var client = host.Client(binding);
-        var task = (await client.SendMessageAsync("task")).Task!;
+        var task = (await client.SendMessageAsync("task")).RequireTask();
         var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync("again", null, task.Id));
         Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
         Assert.Contains("referenceTaskIds", ex.Message);
@@ -146,7 +146,7 @@ public class TaskLifecycleTests
         var store = new FlakyTaskStore();
         await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(store));
         store.FailNextUpdates(3); // the first event's update conflicts three times, the last allowed retry lands
-        var task = (await host.Client(binding).SendMessageAsync("task")).Task!;
+        var task = (await host.Client(binding).SendMessageAsync("task")).RequireTask();
         Assert.Equal(TaskState.Completed, task.Status.State);
         Assert.Single(task.Artifacts!);
     }
@@ -158,10 +158,10 @@ public class TaskLifecycleTests
         var store = new FlakyTaskStore();
         await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(store));
         var client = host.Client(binding);
-        var first = (await client.SendMessageAsync("input")).Task!;
+        var first = (await client.SendMessageAsync("input")).RequireTask();
         await host.WaitIdleAsync();
         store.FailNextUpdates(2); // the follow-up append conflicts twice
-        var second = (await client.SendMessageAsync("more", first.ContextId, first.Id)).Task!;
+        var second = (await client.SendMessageAsync("more", first.ContextId, first.Id)).RequireTask();
         Assert.Equal(TaskState.Completed, second.Status.State);
         Assert.Equal("got: more", second.Status.Message!.GetText());
     }
@@ -173,7 +173,7 @@ public class TaskLifecycleTests
         var store = new FlakyTaskStore();
         await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(store));
         var client = host.Client(binding);
-        var first = (await client.SendMessageAsync("input")).Task!;
+        var first = (await client.SendMessageAsync("input")).RequireTask();
         await host.WaitIdleAsync();
         store.FailNextUpdates(4); // initial attempt + 3 retries all conflict
         var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync("more", first.ContextId, first.Id));
@@ -188,7 +188,7 @@ public class TaskLifecycleTests
         var store = new FlakyTaskStore();
         await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(store));
         store.CancelThenConflictOnNextUpdate();
-        var task = (await host.Client(binding).SendMessageAsync("task")).Task!;
+        var task = (await host.Client(binding).SendMessageAsync("task")).RequireTask();
         await host.WaitIdleAsync();
         var stored = await host.Client(binding).GetTaskAsync(task.Id);
         Assert.Equal(TaskState.Canceled, stored.Status.State);

@@ -91,7 +91,7 @@ public sealed class TaskUpdater
     }
 
     public ValueTask ReplyAsync(string text, CancellationToken cancellationToken = default) =>
-        ReplyAsync(new Message { Parts = [Part.FromText(text)] }, cancellationToken);
+        ReplyAsync(new Message { MessageId = Message.NewId(), Role = Role.Agent, Parts = [Part.FromText(text)] }, cancellationToken);
 
     public ValueTask SubmitAsync(CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(TaskState.Submitted, null, null, cancellationToken);
@@ -159,9 +159,9 @@ public sealed class TaskUpdater
     }
 
     /// <summary>Builds an agent message bound to this task.</summary>
-    public Message NewAgentMessage(string text) => Stamp(new Message { Parts = [Part.FromText(text)] });
+    public Message NewAgentMessage(string text) => Stamp(new Message { MessageId = Message.NewId(), Role = Role.Agent, Parts = [Part.FromText(text)] });
 
-    public Message NewAgentMessage(params Part[] parts) => Stamp(new Message { Parts = parts.ToList() });
+    public Message NewAgentMessage(params Part[] parts) => Stamp(new Message { MessageId = Message.NewId(), Role = Role.Agent, Parts = parts.ToList() });
 
     private Message Stamp(Message m)
     {

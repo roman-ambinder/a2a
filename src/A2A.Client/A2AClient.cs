@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using A2A.Validation;
 
 namespace A2A.Client;
 
@@ -87,6 +88,7 @@ public sealed class A2AClient : IA2AClient
 
     public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, CancellationToken cancellationToken = default)
     {
+        A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         if (request.Configuration?.TaskPushNotificationConfig is not null) RequireCapability(AgentCard?.Capabilities.PushNotifications, A2AErrorCode.PushNotificationNotSupported);
         return _transport.SendMessageAsync(request, cancellationToken);
@@ -94,6 +96,7 @@ public sealed class A2AClient : IA2AClient
 
     public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, CancellationToken cancellationToken = default)
     {
+        A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
         return _transport.SendStreamingMessageAsync(request, cancellationToken);

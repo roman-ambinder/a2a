@@ -27,7 +27,7 @@ public class PushConfigTests : IAsyncLifetime
     public async Task Get_and_list_redact_token_and_credentials(string binding)
     {
         var client = _host.Client(binding, "alice");
-        var task = (await client.SendMessageAsync("input")).Task!;
+        var task = (await client.SendMessageAsync("input")).RequireTask();
         var created = await client.CreateTaskPushNotificationConfigAsync(Secret(task.Id));
         Assert.Equal("", created.Token);
         Assert.Equal("", created.Authentication!.Credentials);
@@ -47,7 +47,7 @@ public class PushConfigTests : IAsyncLifetime
     public async Task Stored_secret_is_not_plaintext(string binding)
     {
         var client = _host.Client(binding, "alice");
-        var task = (await client.SendMessageAsync("input")).Task!;
+        var task = (await client.SendMessageAsync("input")).RequireTask();
         var created = await client.CreateTaskPushNotificationConfigAsync(Secret(task.Id));
 
         var rec = await _host.App.Services.GetRequiredService<PushConfigStore>()
@@ -63,7 +63,7 @@ public class PushConfigTests : IAsyncLifetime
     {
         var client = _host.Client(ProtocolBindings.JsonRpc, "alice");
         var task = (await client.SendMessageAsync(Message.FromUser("input"),
-            new SendMessageConfiguration { TaskPushNotificationConfig = Secret("") })).Task!;
+            new SendMessageConfiguration { TaskPushNotificationConfig = Secret("") })).RequireTask();
         var rec = Assert.Single(await _host.App.Services.GetRequiredService<PushConfigStore>().ListAsync(new TaskKey("", "alice", task.Id)));
         Assert.NotEqual("s3cret", rec.Config.Token);
         Assert.NotEqual("abc", rec.Config.Authentication!.Credentials);
@@ -74,7 +74,7 @@ public class PushConfigTests : IAsyncLifetime
     public async Task Foreign_owner_cannot_read_push_config(string binding)
     {
         var alice = _host.Client(binding, "alice");
-        var task = (await alice.SendMessageAsync("input")).Task!;
+        var task = (await alice.SendMessageAsync("input")).RequireTask();
         var created = await alice.CreateTaskPushNotificationConfigAsync(Secret(task.Id));
 
         var ex = await Assert.ThrowsAsync<A2AException>(() => _host.Client(binding, "bob")
@@ -102,9 +102,9 @@ public class PushConfigTests : IAsyncLifetime
     public async Task Push_configs_survive_terminal_state(string binding)
     {
         var client = _host.Client(binding, "alice");
-        var task = (await client.SendMessageAsync("input")).Task!;
+        var task = (await client.SendMessageAsync("input")).RequireTask();
         var created = await client.CreateTaskPushNotificationConfigAsync(Secret(task.Id));
-        var done = (await client.SendMessageAsync("finish", task.ContextId, task.Id)).Task!;
+        var done = (await client.SendMessageAsync("finish", task.ContextId, task.Id)).RequireTask();
         Assert.Equal(TaskState.Completed, done.Status.State);
         await _host.WaitIdleAsync();
 
@@ -117,7 +117,7 @@ public class PushConfigTests : IAsyncLifetime
     public async Task Create_beyond_MaxPushConfigsPerTask_fails(string binding)
     {
         var client = _host.Client(binding, "alice");
-        var task = (await client.SendMessageAsync("input")).Task!;
+        var task = (await client.SendMessageAsync("input")).RequireTask();
         for (var i = 0; i < 10; i++) await client.CreateTaskPushNotificationConfigAsync(Secret(task.Id));
 
         var ex = await Assert.ThrowsAsync<A2AException>(() => client.CreateTaskPushNotificationConfigAsync(Secret(task.Id)));
@@ -156,7 +156,7 @@ public class PushConfigTests : IAsyncLifetime
     public async Task Inline_config_on_existing_task_respects_MaxPushConfigsPerTask(string binding)
     {
         var client = _host.Client(binding, "alice");
-        var task = (await client.SendMessageAsync("input")).Task!;
+        var task = (await client.SendMessageAsync("input")).RequireTask();
         for (var i = 0; i < 10; i++) await client.CreateTaskPushNotificationConfigAsync(Secret(task.Id));
 
         var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(
@@ -175,7 +175,7 @@ public class PushConfigTests : IAsyncLifetime
         Assert.Equal("s3cret", protector.Unprotect(protector.Protect("s3cret")));
 
         var client = host.Client(ProtocolBindings.JsonRpc, "alice");
-        var task = (await client.SendMessageAsync("input")).Task!;
+        var task = (await client.SendMessageAsync("input")).RequireTask();
         var created = await client.CreateTaskPushNotificationConfigAsync(Secret(task.Id));
         var rec = await host.App.Services.GetRequiredService<PushConfigStore>().GetAsync(new TaskKey("", "alice", task.Id), created.Id!);
         Assert.False(rec!.Config.Token!.StartsWith("e1:", StringComparison.Ordinal));

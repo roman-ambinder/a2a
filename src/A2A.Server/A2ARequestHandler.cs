@@ -132,9 +132,9 @@ public sealed class A2ARequestHandler : IDisposable
         {
             await foreach (var evt in exec.Outgoing.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
-                if (evt.Message is not null) return new SendMessageResponse { Message = evt.Message };
+                if (evt is MessageEvent reply) return new MessageResponse(reply.Message);
                 if (returnImmediately) break;
-                if (evt.StatusUpdate is { } su && (su.Status.State.IsTerminal() || su.Status.State.IsInterrupted())) break;
+                if (evt is StatusUpdateEvent { StatusUpdate: var su } && (su.Status.State.IsTerminal() || su.Status.State.IsInterrupted())) break;
             }
         }
         finally
@@ -144,7 +144,7 @@ public sealed class A2ARequestHandler : IDisposable
 
         var record = await _tasks.GetAsync(Key(call, prepared.Context.TaskId), cancellationToken).ConfigureAwait(false)
             ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The agent finished without replying or creating a task.");
-        return new SendMessageResponse { Task = Shape(record.Task, request.Configuration?.HistoryLength) };
+        return new TaskResponse(Shape(record.Task, request.Configuration?.HistoryLength));
     }
 
     public async IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, ServerCallContext call,
@@ -162,8 +162,8 @@ public sealed class A2ARequestHandler : IDisposable
             {
                 any = true;
                 yield return evt;
-                if (evt.Message is not null) yield break;
-                if (evt.StatusUpdate?.Status.State.IsTerminal() == true) yield break;
+                if (evt is MessageEvent) yield break;
+                if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal()) yield break;
             }
         }
         finally
@@ -376,7 +376,7 @@ public sealed class A2ARequestHandler : IDisposable
         await foreach (var evt in sub.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
             yield return evt;
-            if (evt.StatusUpdate?.Status.State.IsTerminal() == true) yield break;
+            if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal()) yield break;
         }
     }
 
@@ -544,7 +544,7 @@ public sealed class A2ARequestHandler : IDisposable
 
             await foreach (var evt in exec.Incoming.Reader.ReadAllAsync().ConfigureAwait(false))
             {
-                if (evt.Message is not null)
+                if (evt is MessageEvent)
                 {
                     exec.Emit(evt); // direct reply, no task
                     continue;
@@ -564,7 +564,7 @@ public sealed class A2ARequestHandler : IDisposable
                             {
                                 Id = taskId,
                                 ContextId = contextId,
-                                Status = new AgentTaskStatus { State = TaskState.Submitted, Timestamp = evt.StatusUpdate?.Status.Timestamp ?? now },
+                                Status = new AgentTaskStatus { State = TaskState.Submitted, Timestamp = (evt as StatusUpdateEvent)?.StatusUpdate.Status.Timestamp ?? now },
                                 History = userMessage is null ? null : [WithTask(userMessage, taskId)],
                             },
                             Version: 0, CreatedAt: now, UpdatedAt: now)).ConfigureAwait(false);
@@ -590,7 +590,7 @@ public sealed class A2ARequestHandler : IDisposable
                 }
 
                 Publish(exec, key, evt);
-                if (evt.StatusUpdate?.Status.State.IsTerminal() == true) _bus.Complete(scope);
+                if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal()) _bus.Complete(scope);
             }
         }
         catch (Exception ex)
@@ -646,7 +646,7 @@ public sealed class A2ARequestHandler : IDisposable
     private static bool Apply(AgentTask task, StreamResponse evt)
     {
         if (task.Status.State.IsTerminal()) return false;
-        if (evt.StatusUpdate is { } su)
+        if (evt is StatusUpdateEvent { StatusUpdate: var su })
         {
             if (!TaskStateMachine.CanTransition(task.Status.State, su.Status.State)) return false;
             su.Status.Timestamp ??= DateTimeOffset.UtcNow;
@@ -654,7 +654,7 @@ public sealed class A2ARequestHandler : IDisposable
             if (su.Status.Message is { } m) (task.History ??= []).Add(A2AJson.Clone(m));
             return true;
         }
-        if (evt.ArtifactUpdate is { } au)
+        if (evt is ArtifactUpdateEvent { ArtifactUpdate: var au })
         {
             A2AValidator.ValidateArtifact(au.Artifact, "artifact");
             var artifacts = task.Artifacts ??= [];

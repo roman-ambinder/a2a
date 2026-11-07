@@ -61,7 +61,7 @@ var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.c
 var reply = await client.SendMessageAsync("hello");
 
 await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("stream this")))
-    Console.WriteLine(evt.StatusUpdate?.Status.State);
+    if (evt is StatusUpdateEvent { StatusUpdate: var s }) Console.WriteLine(s.Status.State);
 ```
 
 DI: `services.AddA2AClient("weather", o => o.AgentUrl = ...).AddBearerToken(...)`, then `IA2AClientFactory.GetClientAsync("weather")`.

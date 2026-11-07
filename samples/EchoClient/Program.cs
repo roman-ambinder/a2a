@@ -17,14 +17,14 @@ Console.WriteLine($"Connected to '{client.AgentCard!.Name}': {client.AgentCard.D
 
 // 1. Simple request/response.
 var pong = await client.SendMessageAsync("ping");
-Console.WriteLine($"ping -> {pong.Message?.GetText()}");
+Console.WriteLine($"ping -> {(pong as MessageResponse)?.Message.GetText()}");
 
 // 2. Streaming.
 Console.Write("stream -> ");
 await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser(text)))
 {
-    if (evt.ArtifactUpdate is { } a) Console.Write(string.Concat(a.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)));
-    if (evt.StatusUpdate is { } s && s.Status.State.IsTerminal()) Console.WriteLine($"  [{s.Status.State}]");
+    if (evt is ArtifactUpdateEvent { ArtifactUpdate: var a }) Console.Write(string.Concat(a.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)));
+    if (evt is StatusUpdateEvent { StatusUpdate: var s } && s.Status.State.IsTerminal()) Console.WriteLine($"  [{s.Status.State}]");
 }
 
 // 3. List my tasks.

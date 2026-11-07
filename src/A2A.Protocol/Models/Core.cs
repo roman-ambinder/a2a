@@ -42,11 +42,11 @@ public enum Role
 /// <summary>One unit of communication between client and agent (spec §4.1.4).</summary>
 public sealed class Message
 {
-    public string MessageId { get; set; } = string.Empty;
+    public required string MessageId { get; set; }
     public string? ContextId { get; set; }
     public string? TaskId { get; set; }
-    public Role Role { get; set; }
-    public List<Part> Parts { get; set; } = new();
+    public required Role Role { get; set; }
+    public required List<Part> Parts { get; set; }
     public Dictionary<string, JsonElement>? Metadata { get; set; }
     public List<string>? Extensions { get; set; }
     public List<string>? ReferenceTaskIds { get; set; }
@@ -66,10 +66,10 @@ public sealed class Message
 /// <summary>An output of a task (spec §4.1.7).</summary>
 public sealed class Artifact
 {
-    public string ArtifactId { get; set; } = string.Empty;
+    public required string ArtifactId { get; set; }
     public string? Name { get; set; }
     public string? Description { get; set; }
-    public List<Part> Parts { get; set; } = new();
+    public required List<Part> Parts { get; set; }
     public Dictionary<string, JsonElement>? Metadata { get; set; }
     public List<string>? Extensions { get; set; }
 }
@@ -85,9 +85,9 @@ public sealed class AgentTaskStatus
 /// <summary>The core unit of work (spec §4.1.1). Named to avoid clashing with <see cref="System.Threading.Tasks.Task"/>.</summary>
 public sealed class AgentTask
 {
-    public string Id { get; set; } = string.Empty;
+    public required string Id { get; set; }
     public string ContextId { get; set; } = string.Empty;
-    public AgentTaskStatus Status { get; set; } = new();
+    public required AgentTaskStatus Status { get; set; }
     public List<Artifact>? Artifacts { get; set; }
     public List<Message>? History { get; set; }
     public Dictionary<string, JsonElement>? Metadata { get; set; }
@@ -107,7 +107,7 @@ public sealed class TaskArtifactUpdateEvent
 {
     public string TaskId { get; set; } = string.Empty;
     public string ContextId { get; set; } = string.Empty;
-    public Artifact Artifact { get; set; } = new();
+    public required Artifact Artifact { get; set; }
 
     /// <summary>Append these parts to the previously sent artifact with the same id.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]

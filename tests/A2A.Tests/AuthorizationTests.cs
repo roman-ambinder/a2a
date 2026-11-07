@@ -72,7 +72,7 @@ public class AuthorizationTests
             e.Message == "A2A endpoints allow anonymous callers. All anonymous callers share one owner and can read each other's tasks.").ToList();
         Assert.Single(warnings);
         var reply = await host.Client(ProtocolBindings.JsonRpc, user: null).SendMessageAsync("hello");
-        Assert.NotNull(reply.Message);
+        Assert.IsType<MessageResponse>(reply);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class AuthorizationTests
     {
         await using var host = await TestAgentHost.StartAsync(services: Deny<DenyGetTask>());
         var client = host.Client(binding, "alice");
-        var task = (await client.SendMessageAsync("task")).Task!;
+        var task = (await client.SendMessageAsync("task")).RequireTask();
         var ex = await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync(new GetTaskRequest { Id = task.Id }));
         Assert.Equal(A2AErrorCode.TaskNotFound, ex.Code);
     }
