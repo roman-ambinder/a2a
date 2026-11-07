@@ -186,18 +186,71 @@ internal static class HttpPlumbing
         }
     }
 
+    /// <summary>Reads the request body. More than <paramref name="maxBytes"/> bytes is <see cref="A2AException.PayloadTooLarge"/> (HTTP 413).</summary>
     public static async Task<byte[]> ReadBodyAsync(HttpRequest request, long maxBytes)
     {
-        if (request.ContentLength > maxBytes) throw new A2AException(A2AErrorCode.InvalidRequest, "Request body too large");
+        if (request.ContentLength > maxBytes) throw A2AException.PayloadTooLarge(maxBytes);
         using var ms = new MemoryStream();
         var buffer = new byte[16 * 1024];
         int read;
         while ((read = await request.Body.ReadAsync(buffer, request.HttpContext.RequestAborted).ConfigureAwait(false)) > 0)
         {
-            if (ms.Length + read > maxBytes) throw new A2AException(A2AErrorCode.InvalidRequest, "Request body too large");
+            if (ms.Length + read > maxBytes) throw A2AException.PayloadTooLarge(maxBytes);
             ms.Write(buffer, 0, read);
         }
         return ms.ToArray();
+    }
+
+    /// <summary>
+    /// Rejects a body nested deeper than <paramref name="maxDepth"/> or with duplicate property names (InvalidParams).
+    /// On .NET 10 the JSON parser does both. On .NET 8 it has no duplicate check, so <see cref="ContainsDuplicateProperties"/> runs first.
+    /// </summary>
+    public static void EnforceJsonLimits(byte[] body, int maxDepth)
+    {
+        try
+        {
+#if NET10_0_OR_GREATER
+            using var doc = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = maxDepth, AllowDuplicateProperties = false });
+#else
+            if (ContainsDuplicateProperties(body, maxDepth))
+                throw A2AException.InvalidParams("Invalid request body: duplicate property names are not allowed");
+#endif
+        }
+        catch (JsonException ex)
+        {
+            throw A2AException.InvalidParams($"Invalid request body: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// True when any JSON object in <paramref name="json"/> repeats a property name (compared after unescaping, case sensitive).
+    /// Used on .NET 8, whose parser accepts duplicates and silently keeps the last value. Throws <see cref="JsonException"/>
+    /// for malformed JSON or nesting deeper than <paramref name="maxDepth"/>.
+    /// </summary>
+    internal static bool ContainsDuplicateProperties(ReadOnlySpan<byte> json, int maxDepth)
+    {
+        var reader = new Utf8JsonReader(json, new JsonReaderOptions { MaxDepth = maxDepth });
+        var scopes = new Stack<HashSet<string>?>(); // one entry per open container; null for arrays
+        while (reader.Read())
+        {
+            switch (reader.TokenType)
+            {
+                case JsonTokenType.StartObject:
+                    scopes.Push(new HashSet<string>(StringComparer.Ordinal));
+                    break;
+                case JsonTokenType.StartArray:
+                    scopes.Push(null);
+                    break;
+                case JsonTokenType.EndObject:
+                case JsonTokenType.EndArray:
+                    scopes.Pop();
+                    break;
+                case JsonTokenType.PropertyName:
+                    if (!scopes.Peek()!.Add(reader.GetString()!)) return true;
+                    break;
+            }
+        }
+        return false;
     }
 
     public static string Utf8(byte[] b) => Encoding.UTF8.GetString(b);

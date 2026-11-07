@@ -27,11 +27,17 @@ builder.Services.AddA2AServer(o => o.AgentCard = new AgentCard
     DefaultInputModes = ["text/plain"], DefaultOutputModes = ["text/plain"],
     Skills = [new() { Id = "x", Name = "X", Description = "...", Tags = ["x"] }],
 }).AddAgentExecutor<MyAgent>();
-builder.Services.AddA2AServerAspNetCore();   // registers the startup check (required by MapA2A)
+builder.Services.AddA2AServerAspNetCore();   // registers the startup check and the default rate limit (required by MapA2A)
+
+app.UseAuthentication();
+app.UseA2A();                               // rate limiter middleware; the app refuses to start without it (or o.EnableRateLimiting = false)
+app.UseAuthorization();
 
 app.MapAgentCard();                         // GET /.well-known/agent-card.json (anonymous, cacheable)
 app.MapA2A("/a2a").RequireAuthorization();  // JSON-RPC at POST /a2a, REST at /a2a/message:send, /a2a/tasks/...
 // Without RequireAuthorization() the app refuses to start, unless you set o.AllowAnonymous = true.
+// Limits (o.Limits): body 10 MB, 100 parts per message, JSON depth 32, history 100, page size 100. Rate limit per tenant and
+// principal: 20 burst, 60 per minute (services.AddA2ARateLimiting(o => ...) to change). Both answer 429/413 with the right headers.
 // Tenants: MapA2A("/{tenant}/a2a") or the default /a2a/{tenant} variants set ServerCallContext.Tenant.
 
 class MyAgent : IAgentExecutor

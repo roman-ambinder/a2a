@@ -48,6 +48,12 @@ public sealed class A2AServerOptions
     /// <summary>How to treat an unknown client-supplied contextId on a new task. Default <see cref="Server.ClientContextIdPolicy.Reject"/>.</summary>
     public ClientContextIdPolicy ClientContextIdPolicy { get; set; } = ClientContextIdPolicy.Reject;
 
-    /// <summary>Upper bound on ListTasks page size. Default 100 (spec).</summary>
-    public int MaxPageSize { get; set; } = 100;
+    /// <summary>Size, count and time limits (request body, parts, JSON depth, history, page size, streams, push configs).</summary>
+    public A2ALimits Limits { get; } = new();
+
+    /// <summary>
+    /// Rate limit callers per tenant and principal (ASP.NET Core layer, policy <c>"a2a"</c>). Default true. When true the host
+    /// must call <c>app.UseA2A()</c> (it adds the rate limiter middleware) or startup fails. Set false to turn rate limiting off.
+    /// </summary>
+    public bool EnableRateLimiting { get; set; } = true;
 }

@@ -15,6 +15,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
     IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<RestEndpoint> logger)
 {
     private readonly A2AHttpOptions _http = httpOptions.Value;
+    private readonly A2ALimits _limits = serverOptions.Value.Limits;
     private readonly bool _includeDetails = HttpPlumbing.ShouldIncludeDetails(serverOptions.Value, environment);
 
     /// <summary>
@@ -218,8 +219,9 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
 
     private async Task<T?> OptionalBody<T>(HttpContext http)
     {
-        var bytes = await HttpPlumbing.ReadBodyAsync(http.Request, _http.MaxRequestBodySize).ConfigureAwait(false);
+        var bytes = await HttpPlumbing.ReadBodyAsync(http.Request, _limits.MaxRequestBodyBytes).ConfigureAwait(false);
         if (bytes.Length == 0) return default;
+        HttpPlumbing.EnforceJsonLimits(bytes, _limits.MaxJsonDepth);
         try { return JsonSerializer.Deserialize<T>(bytes, A2AJson.Options); }
         catch (JsonException ex) { throw A2AException.InvalidParams($"Invalid request body: {ex.Message}"); }
     }

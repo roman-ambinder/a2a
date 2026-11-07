@@ -98,11 +98,14 @@ public sealed class A2ARequestHandler : IDisposable
     // =====================================================================
 
     /// <summary>
-    /// Asks the <see cref="A2AAuthorizationHandler"/> about an operation. A denial of a task-scoped operation looks like a
-    /// missing task; any other denial is <see cref="A2AErrorCode.PermissionDenied"/>.
+    /// Runs at the top of every operation. Refuses anonymous callers unless <see cref="A2AServerOptions.AllowAnonymous"/> is
+    /// set (so direct callers that skip <see cref="ValidateCall"/> are covered), then asks the <see cref="A2AAuthorizationHandler"/>
+    /// about the operation. A denial of a task-scoped operation looks like a missing task; any other denial is
+    /// <see cref="A2AErrorCode.PermissionDenied"/>.
     /// </summary>
     private async Task AuthorizeAsync(ServerCallContext call, A2AOperation op, object request, string? taskId, CancellationToken ct)
     {
+        if (!_options.AllowAnonymous && !call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated);
         if (await _authorization.AuthorizeAsync(call, op, request, ct).ConfigureAwait(false)) return;
         if (!string.IsNullOrEmpty(taskId)) throw A2AException.TaskNotFound(taskId);
         throw new A2AException(A2AErrorCode.PermissionDenied);
@@ -176,6 +179,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         A2AValidator.ValidateIncoming(request);
+        RequestLimitValidator.Validate(request.Message, _options.Limits);
         var message = request.Message;
         AgentTask? existing = null;
         string taskId, contextId;
@@ -307,7 +311,7 @@ public sealed class A2ARequestHandler : IDisposable
         await AuthorizeAsync(call, A2AOperation.ListTasks, request, null, cancellationToken).ConfigureAwait(false);
         if (request.PageSize is < 1) throw A2AException.InvalidParams("pageSize must be between 1 and 100");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
-        var pageSize = Math.Min(request.PageSize ?? 50, _options.MaxPageSize);
+        var pageSize = Math.Min(request.PageSize ?? 50, _options.Limits.MaxListPageSize);
 
         var result = await _tasks.ListAsync(new TaskQuery(
             call.Tenant,
@@ -686,15 +690,13 @@ public sealed class A2ARequestHandler : IDisposable
     // Helpers
     // =====================================================================
 
-    /// <summary>Hard-coded until Task 7 moves it to options.</summary>
-    private const int MaxPushConfigsPerTask = 10;
-
     /// <summary>Throws InvalidRequest when adding config <paramref name="configId"/> would exceed the per-task limit. Replacing an existing id is allowed.</summary>
     private async ValueTask EnsurePushCapacityAsync(TaskKey key, string configId, CancellationToken ct)
     {
         if (await _pushConfigs.GetAsync(key, configId, ct).ConfigureAwait(false) is not null) return;
-        if (await _pushConfigs.CountAsync(key, ct).ConfigureAwait(false) >= MaxPushConfigsPerTask)
-            throw new A2AException(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {MaxPushConfigsPerTask}).");
+        var limit = _options.Limits.MaxPushConfigsPerTask;
+        if (await _pushConfigs.CountAsync(key, ct).ConfigureAwait(false) >= limit)
+            throw new A2AException(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {limit}).");
     }
 
     /// <summary>Protects the secrets of <paramref name="config"/> and stores a copy. The caller's instance is not changed.</summary>
@@ -717,12 +719,16 @@ public sealed class A2ARequestHandler : IDisposable
 
     private static TaskKey Key(ServerCallContext call, string taskId) => new(call.Tenant, call.Principal, taskId);
 
-    /// <summary>Applies historyLength (0 = none, n = last n) and artifact inclusion to a copy of the task.</summary>
-    internal static AgentTask Shape(AgentTask task, int? historyLength, bool includeArtifacts = true)
+    /// <summary>
+    /// Applies historyLength (0 = none, n = last n) and artifact inclusion to a copy of the task. The history is capped at
+    /// <see cref="A2ALimits.MaxHistoryLengthReturned"/> also when <paramref name="historyLength"/> is null or larger.
+    /// </summary>
+    private AgentTask Shape(AgentTask task, int? historyLength, bool includeArtifacts = true)
     {
         var copy = A2AJson.Clone(task);
-        if (historyLength is 0) copy.History = null;
-        else if (historyLength is int n && copy.History is { } h && h.Count > n) copy.History = h.GetRange(h.Count - n, n);
+        var n = Math.Min(historyLength ?? int.MaxValue, _options.Limits.MaxHistoryLengthReturned);
+        if (n <= 0) copy.History = null;
+        else if (copy.History is { } h && h.Count > n) copy.History = h.GetRange(h.Count - n, n);
         if (copy.History is { Count: 0 }) copy.History = null;
         if (!includeArtifacts) copy.Artifacts = null;
         return copy;

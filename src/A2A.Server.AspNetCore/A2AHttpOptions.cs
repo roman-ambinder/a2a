@@ -15,7 +15,4 @@ public sealed class A2AHttpOptions
 
     /// <summary>Cache-Control max-age for the Agent Card. Default 5 minutes.</summary>
     public TimeSpan AgentCardMaxAge { get; set; } = TimeSpan.FromMinutes(5);
-
-    /// <summary>Maximum request body size in bytes for A2A endpoints. Default 10 MB.</summary>
-    public long MaxRequestBodySize { get; set; } = 10 * 1024 * 1024;
 }

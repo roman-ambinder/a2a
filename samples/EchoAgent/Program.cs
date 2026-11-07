@@ -44,6 +44,7 @@ builder.Services.AddA2AServerAspNetCore();
 
 var app = builder.Build();
 app.UseAuthentication();
+app.UseA2A();                                // per-caller rate limiting (adds UseRateLimiter)
 app.UseAuthorization();
 app.MapAgentCard();                          // public, anonymous
 app.MapA2A("/a2a").RequireAuthorization();   // needs a valid X-Api-Key

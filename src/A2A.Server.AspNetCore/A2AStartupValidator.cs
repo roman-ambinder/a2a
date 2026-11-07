@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -41,10 +42,11 @@ internal sealed class A2AEndpointRegistry
 /// must carry authorization metadata and no <see cref="IAllowAnonymous"/> metadata, unless
 /// <see cref="A2AServerOptions.AllowAnonymous"/> is true. When no endpoint is registered yet at start (Startup-style hosting
 /// maps endpoints while the web host starts), the check runs again on <c>ApplicationStarted</c> and stops the app on failure.
-/// <see cref="A2ARequestHandler"/> also rejects anonymous callers on its own as a backstop.
+/// <see cref="A2ARequestHandler"/> also rejects anonymous callers on its own as a backstop. The same check fails the start when
+/// A2A endpoints use the rate limit policy but <c>app.UseA2A()</c> (the rate limiter middleware) was not added.
 /// </summary>
 internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions<A2AServerOptions> options,
-    IHostApplicationLifetime lifetime, ILogger<A2AStartupValidator> logger) : IHostedService
+    IHostApplicationLifetime lifetime, ILogger<A2AStartupValidator> logger, A2ARateLimitMarker? rateLimit = null) : IHostedService
 {
     internal const string NoPolicyMessage =
         "A2A endpoints have no authorization policy. Call RequireAuthorization() on MapA2A(...) or set A2AServerOptions.AllowAnonymous = true.";
@@ -52,16 +54,15 @@ internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions
     internal const string AnonymousWarning =
         "A2A endpoints allow anonymous callers. All anonymous callers share one owner and can read each other's tasks.";
 
+    internal const string NoRateLimiterMessage =
+        "Call app.UseRateLimiter() or set A2AServerOptions.EnableRateLimiting = false.";
+
     private const string Prefix = "A2A ";
     private const string AgentCard = "A2A Agent Card";
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        if (options.Value.AllowAnonymous)
-        {
-            logger.LogWarning(AnonymousWarning);
-            return Task.CompletedTask;
-        }
+        if (options.Value.AllowAnonymous) logger.LogWarning(AnonymousWarning);
 
         if (!registry.HasSources)
         {
@@ -83,14 +84,20 @@ internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions
 
     private void Check()
     {
+        var needsRateLimiter = false;
         foreach (var endpoint in registry.Endpoints())
         {
             var name = endpoint.DisplayName;
             if (name is null || !name.StartsWith(Prefix, StringComparison.Ordinal)) continue;
             if (name.StartsWith(AgentCard, StringComparison.Ordinal)) continue; // card and JWKS stay anonymous
-            if (endpoint.Metadata.GetMetadata<IAuthorizeData>() is null || endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null)
+            if (!options.Value.AllowAnonymous
+                && (endpoint.Metadata.GetMetadata<IAuthorizeData>() is null || endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null))
                 throw new InvalidOperationException(NoPolicyMessage);
+            if (endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName == A2ARateLimitingExtensions.PolicyName)
+                needsRateLimiter = true;
         }
+        if (needsRateLimiter && rateLimit is { IsMiddlewareAdded: false })
+            throw new InvalidOperationException(NoRateLimiterMessage);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

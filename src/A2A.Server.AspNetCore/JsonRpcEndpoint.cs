@@ -12,7 +12,11 @@ namespace A2A.Server.AspNetCore;
 internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOptions> httpOptions,
     IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<JsonRpcEndpoint> logger)
 {
+    /// <summary>Display name of the JSON-RPC endpoints. The rate limiter uses it to pick the error format.</summary>
+    internal const string DisplayName = "A2A JSON-RPC";
+
     private readonly A2AHttpOptions _http = httpOptions.Value;
+    private readonly A2ALimits _limits = serverOptions.Value.Limits;
     private readonly bool _includeDetails = HttpPlumbing.ShouldIncludeDetails(serverOptions.Value, environment);
 
     public async Task HandleAsync(HttpContext http)
@@ -31,8 +35,9 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
             JsonRpcRequest rpc;
             try
             {
-                var body = await HttpPlumbing.ReadBodyAsync(http.Request, _http.MaxRequestBodySize).ConfigureAwait(false);
+                var body = await HttpPlumbing.ReadBodyAsync(http.Request, _limits.MaxRequestBodyBytes).ConfigureAwait(false);
                 using var doc = JsonDocument.Parse(body);
+                HttpPlumbing.EnforceJsonLimits(body, _limits.MaxJsonDepth);
                 if (doc.RootElement.ValueKind != JsonValueKind.Object)
                     throw new A2AException(A2AErrorCode.InvalidRequest, "Batch requests are not supported");
                 if (doc.RootElement.TryGetProperty("id", out var rawId)) id = rawId.Clone();

@@ -203,6 +203,7 @@ public class AuthorizationTests
         builder.Services.AddA2AServerAspNetCore();
         var app = builder.Build();
         app.UseAuthentication();
+        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/{tenant}/a2a").RequireAuthorization();
         await app.StartAsync();
@@ -238,6 +239,19 @@ public class AuthorizationTests
         await using var provider = services.BuildServiceProvider();
         var handler = provider.GetRequiredService<A2ARequestHandler>();
         var ex = Assert.Throws<A2AException>(() => handler.ValidateCall(ServerCallContext.Anonymous()));
+        Assert.Equal(A2AErrorCode.Unauthenticated, ex.Code);
+    }
+
+    [Fact]
+    public async Task Handler_operations_reject_anonymous_callers_even_when_ValidateCall_is_skipped()
+    {
+        // Direct callers of the handler never go through ValidateCall. The per-operation authorization step must still refuse.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddA2AServer(o => o.AgentCard = TestAgentHost.DefaultCard()).AddAgentExecutor<ScenarioAgent>();
+        await using var provider = services.BuildServiceProvider();
+        var handler = provider.GetRequiredService<A2ARequestHandler>();
+        var ex = await Assert.ThrowsAsync<A2AException>(() => handler.GetTaskAsync(new GetTaskRequest { Id = "t1" }, ServerCallContext.Anonymous()));
         Assert.Equal(A2AErrorCode.Unauthenticated, ex.Code);
     }
 

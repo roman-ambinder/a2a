@@ -139,7 +139,7 @@ public sealed class TestAgentHost : IAsyncDisposable
 
     public static async Task<TestAgentHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<A2AHttpOptions>? configureHttp = null,
         Action<IServiceCollection>? services = null, bool requireAuth = true,
-        Action<RouteGroupBuilder>? configureRoutes = null)
+        Action<RouteGroupBuilder>? configureRoutes = null, bool useA2A = true)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -169,6 +169,7 @@ public sealed class TestAgentHost : IAsyncDisposable
 
         var app = builder.Build();
         app.UseAuthentication();
+        if (useA2A) app.UseA2A();
         app.UseAuthorization();
         app.MapAgentCard();
         var a2a = app.MapA2A("/a2a");

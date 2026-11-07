@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using A2A.Server.Push;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,8 +14,9 @@ public static class A2AServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the ASP.NET Core side of the A2A server: the default <see cref="ITenantResolver"/> (<see cref="RouteTenantResolver"/>)
-    /// and the startup check that fails the app when A2A endpoints have no authorization policy (see
-    /// <see cref="A2AServerOptions.AllowAnonymous"/>). Call it once next to <c>AddA2AServer(...)</c>. <c>MapA2A</c> throws
+    /// the startup check that fails the app when A2A endpoints have no authorization policy (see
+    /// <see cref="A2AServerOptions.AllowAnonymous"/>), and the default rate limit policy (see <see cref="A2ARateLimitingExtensions.AddA2ARateLimiting"/>; the host
+    /// adds the middleware with <c>app.UseA2A()</c>). Call it once next to <c>AddA2AServer(...)</c>. <c>MapA2A</c> throws
     /// <see cref="InvalidOperationException"/> if it was not called, so the check cannot be skipped by mistake.
     /// </summary>
     public static IServiceCollection AddA2AServerAspNetCore(this IServiceCollection services)
@@ -22,6 +24,7 @@ public static class A2AServiceCollectionExtensions
         services.TryAddSingleton<A2AEndpointRegistry>();
         services.TryAddSingleton<ITenantResolver, RouteTenantResolver>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, A2AStartupValidator>());
+        services.AddA2ARateLimiting();
         return services;
     }
 
@@ -63,6 +66,7 @@ public static partial class A2AEndpointRouteBuilderExtensions
         var tenantInPattern = HasTenantSegment(pattern);
         MapJsonRpc(endpoints, group, tenantInPattern);
         ActivatorUtilities.CreateInstance<RestEndpoint>(endpoints.ServiceProvider).Map(group, tenantInPattern);
+        ApplyRateLimiting(endpoints, group);
         return group;
     }
 
@@ -75,6 +79,7 @@ public static partial class A2AEndpointRouteBuilderExtensions
         RequireRegistration(endpoints);
         var group = endpoints.MapGroup(pattern);
         MapJsonRpc(endpoints, group, HasTenantSegment(pattern));
+        ApplyRateLimiting(endpoints, group);
         return group;
     }
 
@@ -87,14 +92,24 @@ public static partial class A2AEndpointRouteBuilderExtensions
         RequireRegistration(endpoints);
         var group = endpoints.MapGroup(prefix);
         ActivatorUtilities.CreateInstance<RestEndpoint>(endpoints.ServiceProvider).Map(group, HasTenantSegment(prefix));
+        ApplyRateLimiting(endpoints, group);
         return group;
     }
 
     private static void MapJsonRpc(IEndpointRouteBuilder endpoints, RouteGroupBuilder group, bool tenantInPattern)
     {
         var rpc = ActivatorUtilities.CreateInstance<JsonRpcEndpoint>(endpoints.ServiceProvider);
-        group.MapPost("", rpc.HandleAsync).WithDisplayName("A2A JSON-RPC");
-        if (!tenantInPattern) group.MapPost("/{tenant}", rpc.HandleAsync).WithDisplayName("A2A JSON-RPC (tenant)");
+        group.MapPost("", rpc.HandleAsync).WithDisplayName(JsonRpcEndpoint.DisplayName);
+        if (!tenantInPattern) group.MapPost("/{tenant}", rpc.HandleAsync).WithDisplayName(JsonRpcEndpoint.DisplayName + " (tenant)");
+    }
+
+    /// <summary>Applies the <c>"a2a"</c> rate limit policy when it is registered and <see cref="A2AServerOptions.EnableRateLimiting"/> is true.</summary>
+    private static void ApplyRateLimiting(IEndpointRouteBuilder endpoints, RouteGroupBuilder group)
+    {
+        var services = endpoints.ServiceProvider;
+        if (services.GetService<A2ARateLimitMarker>() is null) return;
+        if (!services.GetRequiredService<Microsoft.Extensions.Options.IOptions<A2AServerOptions>>().Value.EnableRateLimiting) return;
+        group.RequireRateLimiting(A2ARateLimitingExtensions.PolicyName);
     }
 
     private static bool HasTenantSegment(string pattern) => TenantSegment().IsMatch(pattern);

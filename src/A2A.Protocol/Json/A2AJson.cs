@@ -7,7 +7,13 @@ namespace A2A.Json;
 /// <summary>Shared JSON settings for the A2A wire format (camelCase, ProtoJSON enums, UTC timestamps, nulls omitted).</summary>
 public static class A2AJson
 {
-    /// <summary>Options used for every A2A payload. Do not mutate.</summary>
+    /// <summary>Deepest JSON nesting the shared options accept (also the default of <c>A2ALimits.MaxJsonDepth</c>).</summary>
+    public const int MaxJsonDepth = 32;
+
+    /// <summary>
+    /// Options used for every A2A payload. Do not mutate. Nesting deeper than <see cref="MaxJsonDepth"/> is rejected. On .NET 10
+    /// duplicate property names are rejected too; on .NET 8 the ASP.NET Core layer checks request bodies before parsing.
+    /// </summary>
     public static JsonSerializerOptions Options { get; } = CreateOptions();
 
     public static JsonSerializerOptions CreateOptions()
@@ -19,7 +25,11 @@ public static class A2AJson
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
             ReadCommentHandling = JsonCommentHandling.Disallow,
             NumberHandling = JsonNumberHandling.Strict,
+            MaxDepth = MaxJsonDepth,
         };
+#if NET10_0_OR_GREATER
+        o.AllowDuplicateProperties = false;
+#endif
         o.Converters.Add(new TimestampConverter());
         o.MakeReadOnly(populateMissingResolver: true);
         return o;
