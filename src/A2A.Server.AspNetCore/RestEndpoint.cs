@@ -51,10 +51,10 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
         return await handler.SendMessageAsync(req, call, ct).ConfigureAwait(false);
     });
 
-    private Task SendStreamingMessage(HttpContext http) => RunStream(http, async (call, ct) =>
+    private Task SendStreamingMessage(HttpContext http) => RunStream(http, async (call, caughtUp, ct) =>
     {
         var req = await Body<SendMessageRequest>(http).ConfigureAwait(false);
-        return handler.SendStreamingMessageAsync(req, call, HttpPlumbing.LastEventId(http), ct);
+        return handler.SendStreamingMessageAsync(req, call, HttpPlumbing.LastEventId(http), caughtUp, ct);
     });
 
     private Task GetTask(HttpContext http) => Run(http, (call, ct) =>
@@ -103,10 +103,10 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
         return await handler.CancelTaskAsync(req, call, ct).ConfigureAwait(false);
     });
 
-    private Task Subscribe(HttpContext http) => RunStream(http, (call, ct) =>
+    private Task Subscribe(HttpContext http) => RunStream(http, (call, caughtUp, ct) =>
     {
         var id = Route(http, "id");
-        return Task.FromResult(handler.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = id, Tenant = call.Tenant }, call, HttpPlumbing.ResumeAfter(http, id), ct));
+        return Task.FromResult(handler.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = id, Tenant = call.Tenant }, call, HttpPlumbing.ResumeAfter(http, id), caughtUp, ct));
     });
 
     private Task CreatePushConfig(HttpContext http) => Run(http, async (call, ct) =>
@@ -169,7 +169,8 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
         }
     }
 
-    private async Task RunStream(HttpContext http, Func<ServerCallContext, CancellationToken, Task<IAsyncEnumerable<SequencedEvent>>> action)
+    /// <summary>Runs a streaming route. The action gets the caught-up signal to pass to the handler (see <see cref="HttpPlumbing.PrimeAsync"/>).</summary>
+    private async Task RunStream(HttpContext http, Func<ServerCallContext, Action, CancellationToken, Task<IAsyncEnumerable<SequencedEvent>>> action)
     {
         ServerCallContext call;
         try { call = HttpPlumbing.CreateCallContext(http); }
@@ -181,8 +182,9 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
         try
         {
             handler.ValidateCall(call);
-            var events = await action(call, http.RequestAborted).ConfigureAwait(false);
-            var e = await HttpPlumbing.PrimeAsync(events, _keepAlive, http.RequestAborted).ConfigureAwait(false)
+            var caughtUp = HttpPlumbing.CaughtUpSignal();
+            var events = await action(call, caughtUp.Signal, http.RequestAborted).ConfigureAwait(false);
+            var e = await HttpPlumbing.PrimeAsync(events, _keepAlive, caughtUp.Fired, http.RequestAborted).ConfigureAwait(false)
                     ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "Empty stream");
             HttpPlumbing.WriteExtensionsHeader(http, call);
             HttpPlumbing.StartEventStream(http);

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using A2A.Json;
@@ -166,13 +167,24 @@ public sealed class A2ARequestHandler : IDisposable
     /// Like <see cref="SendStreamingMessageAsync(SendMessageRequest, ServerCallContext, CancellationToken)"/>, but a valid
     /// <paramref name="lastEventId"/> (a <see cref="StreamCursor"/>, from the <c>Last-Event-ID</c> header) makes the call a
     /// reconnect: it resumes the task the cursor names, as a <see cref="SubscribeToTaskAsync(SubscribeToTaskRequest, ServerCallContext, long?, CancellationToken)"/>
-    /// of the caller's task, and the message is not sent again. A value that does not parse is ignored.
+    /// of the caller's task, and the message is not sent again. A resume is authorized as <see cref="A2AOperation.SubscribeToTask"/>
+    /// with a <see cref="SubscribeToTaskRequest"/>. The header is ignored, and the message sent normally, when it does not
+    /// parse or when the message names a different task than the cursor.
     /// </summary>
     public IAsyncEnumerable<SequencedEvent> SendStreamingMessageAsync(SendMessageRequest request, ServerCallContext call, string? lastEventId,
         CancellationToken cancellationToken = default) =>
-        StreamCursor.TryParse(lastEventId, out var taskId, out var sequence)
-            ? SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant }, call, sequence, cancellationToken)
+        SendStreamingMessageAsync(request, call, lastEventId, onCaughtUp: null, cancellationToken);
+
+    /// <summary>As the public overload; <paramref name="onCaughtUp"/> is passed to the resume (see <see cref="SubscribeCoreAsync"/>).</summary>
+    internal IAsyncEnumerable<SequencedEvent> SendStreamingMessageAsync(SendMessageRequest request, ServerCallContext call, string? lastEventId,
+        Action? onCaughtUp, CancellationToken cancellationToken)
+    {
+        var messageTaskId = request.Message?.TaskId;
+        return StreamCursor.TryParse(lastEventId, out var taskId, out var sequence)
+               && (string.IsNullOrEmpty(messageTaskId) || string.Equals(messageTaskId, taskId, StringComparison.Ordinal))
+            ? SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant }, call, sequence, onCaughtUp, cancellationToken)
             : SendStreamingMessageAsync(request, call, cancellationToken);
+    }
 
     private async IAsyncEnumerable<SequencedEvent> SendStreamingCoreAsync(SendMessageRequest request, ServerCallContext call,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -408,10 +420,20 @@ public sealed class A2ARequestHandler : IDisposable
     /// <param name="cancellationToken">Cancellation.</param>
     public IAsyncEnumerable<SequencedEvent> SubscribeToTaskAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
         CancellationToken cancellationToken = default) =>
-        LimitStreamAsync(SubscribeCoreAsync(request, call, resumeAfter), call, A2AOperation.SubscribeToTask, request, cancellationToken);
+        SubscribeToTaskAsync(request, call, resumeAfter, onCaughtUp: null, cancellationToken);
 
+    /// <summary>As the public overload; <paramref name="onCaughtUp"/> is described on <see cref="SubscribeCoreAsync"/>.</summary>
+    internal IAsyncEnumerable<SequencedEvent> SubscribeToTaskAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
+        Action? onCaughtUp, CancellationToken cancellationToken) =>
+        LimitStreamAsync(SubscribeCoreAsync(request, call, resumeAfter, onCaughtUp), call, A2AOperation.SubscribeToTask, request, cancellationToken);
+
+    /// <summary>
+    /// The subscribe and resume logic. <paramref name="onCaughtUp"/> runs once when a resume was accepted but has nothing to
+    /// send yet (the client already has every event): the HTTP layer then starts the response at once instead of holding
+    /// the headers until the next live event.
+    /// </summary>
     private async IAsyncEnumerable<SequencedEvent> SubscribeCoreAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        Action? onCaughtUp, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SubscribeToTask, request, request.Id, cancellationToken).ConfigureAwait(false);
@@ -429,11 +451,13 @@ public sealed class A2ARequestHandler : IDisposable
         var terminal = start.Task.Status.State.IsTerminal();
 
         long lastYielded;
+        var sentAny = false;
         if (resumeAfter is { } cursor && CanReplay(cursor, start, terminal))
         {
             lastYielded = cursor;
             await foreach (var stored in ReadContiguousAsync(key, cursor, long.MaxValue, cancellationToken).ConfigureAwait(false))
             {
+                sentAny = true;
                 yield return stored;
                 lastYielded = stored.Sequence;
                 if (IsFinal(stored.Event)) yield break;
@@ -442,6 +466,7 @@ public sealed class A2ARequestHandler : IDisposable
             {
                 // Events were trimmed while we read them. Never skip: send a snapshot instead.
                 var snapshot = await ReadSnapshotAsync(key, cancellationToken).ConfigureAwait(false);
+                sentAny = true;
                 yield return snapshot;
                 lastYielded = snapshot.Sequence;
                 if (IsFinal(snapshot.Event)) yield break;
@@ -450,10 +475,12 @@ public sealed class A2ARequestHandler : IDisposable
         }
         else
         {
+            sentAny = true;
             yield return new SequencedEvent(start.Last, StreamResponse.Of(Shape(start.Task, null)));
             if (terminal) yield break;
             lastYielded = start.Last;
         }
+        if (!sentAny) onCaughtUp?.Invoke();
 
         // Live events arrive in sequence order (they are published under the task lock). Drop what was already sent; fill
         // a gap from the store, or with a snapshot when the store no longer has the missing events.
@@ -551,22 +578,29 @@ public sealed class A2ARequestHandler : IDisposable
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (IsTimeLimit(limits.MaxStreamDuration)) stop.CancelAfter(limits.MaxStreamDuration);
         TimeSpan? reauthEvery = IsTimeLimit(limits.StreamReauthInterval) ? limits.StreamReauthInterval : null;
+        static long Ticks(TimeSpan t) => (long)(t.TotalSeconds * Stopwatch.Frequency);
 
         var events = source.GetAsyncEnumerator(stop.Token);
         Task<bool>? move = null;
-        Task? reauth = null;
+        var reauthAt = reauthEvery is { } first ? Stopwatch.GetTimestamp() + Ticks(first) : long.MaxValue;
         try
         {
             while (true)
             {
                 move = events.MoveNextAsync().AsTask();
-                while (reauthEvery is { } every && !move.IsCompleted)
+                // Idle stream: wake up at the re-check deadline while waiting for the next event.
+                while (reauthEvery is not null && !move.IsCompleted)
                 {
-                    reauth ??= Task.Delay(every, stop.Token);
-                    if (await Task.WhenAny(move, reauth).ConfigureAwait(false) == move || reauth.IsCanceled) break;
-                    reauth = null;
-                    if (!await _authorization.AuthorizeAsync(call, op, request, cancellationToken).ConfigureAwait(false))
-                        yield break; // the finally stops the source
+                    var wait = Stopwatch.GetElapsedTime(Stopwatch.GetTimestamp(), reauthAt);
+                    if (wait > TimeSpan.Zero)
+                    {
+                        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
+                        var delay = Task.Delay(wait, delayCts.Token);
+                        var winner = await Task.WhenAny(move, delay).ConfigureAwait(false);
+                        delayCts.Cancel();
+                        if (winner == move || stop.IsCancellationRequested) break;
+                    }
+                    if (!await StillAuthorizedAsync().ConfigureAwait(false)) yield break; // the finally stops the source
                 }
 
                 bool more;
@@ -579,6 +613,9 @@ public sealed class A2ARequestHandler : IDisposable
                     yield break; // MaxStreamDuration reached
                 }
                 if (!more) yield break;
+
+                // Busy stream: the next event may always be ready, so check the deadline before every event too.
+                if (Stopwatch.GetTimestamp() >= reauthAt && !await StillAuthorizedAsync().ConfigureAwait(false)) yield break;
                 yield return events.Current;
             }
         }
@@ -592,6 +629,14 @@ public sealed class A2ARequestHandler : IDisposable
                 catch (Exception) { /* the stream is stopping anyway */ }
             }
             await events.DisposeAsync().ConfigureAwait(false);
+        }
+
+        // Asks the authorization handler again and moves the deadline.
+        async ValueTask<bool> StillAuthorizedAsync()
+        {
+            var allowed = await _authorization.AuthorizeAsync(call, op, request, cancellationToken).ConfigureAwait(false);
+            reauthAt = Stopwatch.GetTimestamp() + Ticks(reauthEvery!.Value);
+            return allowed;
         }
     }
 

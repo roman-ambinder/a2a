@@ -171,25 +171,38 @@ internal static class HttpPlumbing
         return string.IsNullOrEmpty(taskId) ? null : StreamCursor.Format(taskId, evt.Sequence);
     }
 
+    /// <summary>A signal the handler fires when a resume is caught up; <see cref="PrimeAsync"/> then starts the response.</summary>
+    public static (Action Signal, Task Fired) CaughtUpSignal()
+    {
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        return (() => tcs.TrySetResult(), tcs.Task);
+    }
+
     /// <summary>A stream whose first element may still be on its way.</summary>
     public sealed record PrimedStream(IAsyncEnumerator<SequencedEvent> Events, Task<bool> First);
 
+    /// <summary>How long priming waits for the first element when keep-alives are off.</summary>
+    private static readonly TimeSpan DefaultPrimePatience = TimeSpan.FromSeconds(1);
+
     /// <summary>
     /// Asks for the first element before the response starts, so validation errors become normal error responses rather
-    /// than broken streams. Waits at most <paramref name="patience"/> (zero: no limit): a stream with nothing to send yet
-    /// (for example a resume with no missed events) still starts, and keep-alives flow. Returns null if the sequence is empty.
+    /// than broken streams. Stops waiting when <paramref name="startNow"/> completes (the handler accepted a resume that has
+    /// nothing to send yet) or after <paramref name="keepAlive"/> (1 second when keep-alives are off), so a quiet stream
+    /// still starts. Returns null if the sequence is empty.
     /// </summary>
-    public static async Task<PrimedStream?> PrimeAsync(IAsyncEnumerable<SequencedEvent> source, TimeSpan patience, CancellationToken ct)
+    public static async Task<PrimedStream?> PrimeAsync(IAsyncEnumerable<SequencedEvent> source, TimeSpan keepAlive, Task? startNow, CancellationToken ct)
     {
         var e = source.GetAsyncEnumerator(ct);
         Task<bool>? first = null;
         try
         {
             first = e.MoveNextAsync().AsTask();
-            if (patience > TimeSpan.Zero && !first.IsCompleted)
+            if (!first.IsCompleted)
             {
+                var patience = keepAlive > TimeSpan.Zero ? keepAlive : DefaultPrimePatience;
                 using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                await Task.WhenAny(first, Task.Delay(patience, delayCts.Token)).ConfigureAwait(false);
+                var delay = Task.Delay(patience, delayCts.Token);
+                await (startNow is null ? Task.WhenAny(first, delay) : Task.WhenAny(first, delay, startNow)).ConfigureAwait(false);
                 delayCts.Cancel();
             }
             if (!first.IsCompleted) return new PrimedStream(e, first);
@@ -215,6 +228,8 @@ internal static class HttpPlumbing
         var next = stream.First;
         try
         {
+            // Nothing to send yet (a caught-up resume, a quiet stream): send the headers now so the client sees the stream.
+            if (!next.IsCompleted) await http.Response.Body.FlushAsync(http.RequestAborted).ConfigureAwait(false);
             while (true)
             {
                 while (keepAlive > TimeSpan.Zero && !next.IsCompleted)
