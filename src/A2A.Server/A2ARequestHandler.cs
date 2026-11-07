@@ -9,10 +9,8 @@ using A2A.Server.Storage;
 using A2A.Server.Streaming;
 using A2A.Validation;
 using A2A.Server.Authorization;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 
 namespace A2A.Server;
 
@@ -22,7 +20,7 @@ namespace A2A.Server;
 /// </summary>
 public sealed class A2ARequestHandler : IDisposable
 {
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IAgentExecutorFactory _executors;
     private readonly TaskStore _tasks;
     private readonly EventStore _events;
     private readonly IdempotencyStore _idempotency;
@@ -40,7 +38,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     /// <summary>Creates the handler. In an ASP.NET Core app the DI container does this; the parameters are the registered services.</summary>
     public A2ARequestHandler(
-        IServiceScopeFactory scopeFactory,
+        IAgentExecutorFactory executors,
         TaskStore tasks,
         EventStore events,
         IdempotencyStore idempotency,
@@ -49,10 +47,10 @@ public sealed class A2ARequestHandler : IDisposable
         IPushSecretProtector protector,
         IPushNotificationSender push,
         TaskEventBus bus,
-        IOptions<A2AServerOptions> options,
+        A2AServerOptions options,
         ILogger<A2ARequestHandler>? logger = null)
     {
-        _scopeFactory = scopeFactory;
+        _executors = executors;
         _tasks = tasks;
         _events = events;
         _idempotency = idempotency;
@@ -61,7 +59,7 @@ public sealed class A2ARequestHandler : IDisposable
         _protector = protector;
         _push = push;
         _bus = bus;
-        _options = options.Value;
+        _options = options;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _admission = new StreamAdmission(_options.Limits);
     }
@@ -1125,9 +1123,8 @@ public sealed class A2ARequestHandler : IDisposable
         {
             try
             {
-                await using var scope = _scopeFactory.CreateAsyncScope();
-                var executor = scope.ServiceProvider.GetRequiredService<IAgentExecutor>();
-                await run(executor, updater, exec.Cts.Token).ConfigureAwait(false);
+                await using var lease = await _executors.RentAsync(exec.Cts.Token).ConfigureAwait(false);
+                await run(lease.Executor, updater, exec.Cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (exec.Cts.IsCancellationRequested)
             {

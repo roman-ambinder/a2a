@@ -7,7 +7,6 @@ using A2A.Server.Storage;
 using A2A.Server.Streaming;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 
 namespace A2A.Server.Push;
 
@@ -139,10 +138,7 @@ public interface IPushNotificationSender
 /// </summary>
 public sealed class HttpPushNotificationSender : IPushNotificationSender, IDisposable
 {
-    /// <summary>Name of the <see cref="System.Net.Http.HttpClient"/> registration used for webhook delivery.</summary>
-    public const string HttpClientName = "A2A.PushNotifications";
-
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly HttpMessageInvoker _http;
     private readonly PushConfigStore _store;
     private readonly IPushSecretProtector _protector;
     private readonly PushNotificationOptions _options;
@@ -153,13 +149,13 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
     private readonly CancellationTokenSource _shutdown = new();
 
     /// <summary>Creates the sender. In an ASP.NET Core app the DI container does this.</summary>
-    public HttpPushNotificationSender(IHttpClientFactory httpClientFactory, PushConfigStore store, IPushSecretProtector protector,
-        IOptions<A2AServerOptions> options, ILogger<HttpPushNotificationSender>? logger = null)
+    public HttpPushNotificationSender(HttpMessageInvoker http, PushConfigStore store, IPushSecretProtector protector,
+        A2AServerOptions options, ILogger<HttpPushNotificationSender>? logger = null)
     {
-        _httpClientFactory = httpClientFactory;
+        _http = http;
         _store = store;
         _protector = protector;
-        _options = options.Value.PushNotifications;
+        _options = options.PushNotifications;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
     }
 
@@ -247,7 +243,6 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
         var deliveryId = Guid.NewGuid().ToString("N");
         var body = A2AJson.SerializeToUtf8Bytes(evt);
         var delay = _options.InitialBackoff;
-        var http = _httpClientFactory.CreateClient(HttpClientName);
 
         for (var attempt = 1; attempt <= Math.Max(1, _options.MaxAttempts); attempt++)
         {
@@ -283,7 +278,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IDispo
 
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
                 cts.CancelAfter(_options.Timeout);
-                using var response = await http.SendAsync(request, cts.Token).ConfigureAwait(false);
+                using var response = await _http.SendAsync(request, cts.Token).ConfigureAwait(false);
                 if (response.IsSuccessStatusCode) return;
 
                 var status = (int)response.StatusCode;

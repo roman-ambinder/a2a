@@ -29,6 +29,9 @@ public sealed class PackageRulesTests
     [Fact]
     public void Security_Http_has_no_package_references() => Assert.Empty(RefsOf("A2A.Security.Http"));
 
+    [Fact]
+    public void Scanner_finds_projects() => Assert.NotEmpty(SrcProjects());
+
     private static void AssertOnlyAbstractions(string project, Func<string, bool> allowed) =>
         Assert.True(RefsOf(project).All(allowed), $"{project} references: {string.Join(", ", RefsOf(project))}");
 
@@ -36,7 +39,7 @@ public sealed class PackageRulesTests
     public void Client_references_only_logging_abstractions() =>
         AssertOnlyAbstractions("A2A.Client", r => r == "Microsoft.Extensions.Logging.Abstractions");
 
-    [Fact(Skip = "Task 8")]
+    [Fact]
     public void Server_references_only_extensions_abstractions() =>
         AssertOnlyAbstractions("A2A.Server", r => r.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal)
             && (r.EndsWith(".Abstractions", StringComparison.Ordinal) || r == "Microsoft.Extensions.Options"));
@@ -81,12 +84,14 @@ public sealed class NamespaceRulesTests
             typeof(A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions).Assembly,
         ];
         var offenders = new List<string>();
+        var inspected = 0;
         foreach (var asm in assemblies)
         {
             var name = asm.GetName().Name!;
             var root = name == "A2A.Protocol" ? "A2A" : name;
             foreach (var t in asm.GetExportedTypes())
             {
+                inspected++;
                 var ns = t.Namespace ?? "";
                 var ok = Under(ns, root)
                     || (name == "A2A.Client.DependencyInjection" && ns == "A2A.Client");
@@ -94,6 +99,8 @@ public sealed class NamespaceRulesTests
                 if (!ok) offenders.Add($"{name}: {t.FullName}");
             }
         }
+        Assert.NotEmpty(assemblies);
+        Assert.True(inspected > 0, "no exported types were inspected");
         Assert.Empty(offenders);
     }
 
@@ -103,6 +110,7 @@ public sealed class NamespaceRulesTests
         var src = Path.Combine(RepoRoot(), "src");
         var nsRegex = new System.Text.RegularExpressions.Regex(@"^\s*namespace\s+([\w.]+)", System.Text.RegularExpressions.RegexOptions.Multiline);
         var offenders = new List<string>();
+        var scanned = 0;
         foreach (var projDir in Directory.GetDirectories(src))
         {
             var project = Path.GetFileName(projDir);
@@ -112,6 +120,7 @@ public sealed class NamespaceRulesTests
                 var rel = Path.GetRelativePath(projDir, file);
                 var parts = rel.Split(Path.DirectorySeparatorChar);
                 if (parts[0] is "bin" or "obj") continue;
+                scanned++;
                 var m = nsRegex.Match(File.ReadAllText(file));
                 if (!m.Success) continue;
                 string expected;
@@ -124,6 +133,7 @@ public sealed class NamespaceRulesTests
                 if (m.Groups[1].Value != expected) offenders.Add($"{project}/{rel}: {m.Groups[1].Value} (expected {expected})");
             }
         }
+        Assert.True(scanned > 0, "no source files were scanned");
         Assert.Empty(offenders);
     }
 }

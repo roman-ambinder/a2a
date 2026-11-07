@@ -29,8 +29,10 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<IPrincipalResolver, DefaultPrincipalResolver>();
         services.TryAddSingleton<A2AAuthorizationHandler, AllowAllAuthorizationHandler>();
         services.TryAddSingleton<TaskEventBus>();
-        services.AddHttpClient(HttpPushNotificationSender.HttpClientName)
-            .ConfigurePrimaryHttpMessageHandler(sp => PushUrlValidator.CreateHandler(sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.PushNotifications));
+        services.TryAddSingleton(sp => sp.GetRequiredService<IOptions<A2AServerOptions>>().Value);
+        services.TryAddSingleton<IAgentExecutorFactory, ScopedAgentExecutorFactory>();
+        services.TryAddSingleton(sp => new HttpMessageInvoker(
+            PushUrlValidator.CreateHandler(sp.GetRequiredService<A2AServerOptions>().PushNotifications), disposeHandler: true));
         services.TryAddSingleton<HttpPushNotificationSender>();
         services.TryAddSingleton<IPushNotificationSender>(sp => sp.GetRequiredService<HttpPushNotificationSender>());
         services.TryAddSingleton<A2ARequestHandler>();

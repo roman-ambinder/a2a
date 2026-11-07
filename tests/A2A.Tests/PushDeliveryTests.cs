@@ -27,11 +27,6 @@ public class PushDeliveryTests
         }
     }
 
-    private sealed class Factory(HttpMessageHandler handler) : IHttpClientFactory
-    {
-        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
-    }
-
     private sealed class ManualClock : TimeProvider
     {
         private DateTimeOffset _now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
@@ -63,7 +58,7 @@ public class PushDeliveryTests
         var options = new A2AServerOptions();
         options.PushNotifications.InitialBackoff = TimeSpan.FromMilliseconds(5);
         configure(options.PushNotifications);
-        var sender = new HttpPushNotificationSender(new Factory(handler), store, protector, Options.Create(options));
+        var sender = new HttpPushNotificationSender(new HttpMessageInvoker(handler, disposeHandler: false), store, protector, options);
         sender.Enqueue(Key, new SequencedEvent(7, StreamResponse.Of(Message.FromUser("x"))));
         await sender.WhenIdleAsync();
         return sender;
