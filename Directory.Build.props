@@ -3,12 +3,17 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.1.0</Version>
-    <Authors>A2A .NET SDK contributors</Authors>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-    <PackageTags>a2a;agent2agent;agents;ai;protocol</PackageTags>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <IsPackable>false</IsPackable>
+
+    <!-- Default version for local builds. Release builds pass -p:Version=<tag> (see .github/workflows/release.yml). -->
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <!-- Reproducible builds on CI (normalized paths for SourceLink and PDBs). -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
   <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\'))">
@@ -17,5 +22,30 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- NuGet identity: assembly names and namespaces stay A2A.*; package IDs are owner-prefixed so they never clash
+         with the official "A2A" packages. -->
+    <PackageId>RomanAmbinder.$(MSBuildProjectName)</PackageId>
+    <Authors>Roman Ambinder</Authors>
+    <Copyright>Copyright (c) Roman Ambinder</Copyright>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageTags>a2a;agent2agent;agents;ai;protocol;json-rpc;grpc</PackageTags>
+    <PackageProjectUrl>https://github.com/roman-ambinder/a2a</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/roman-ambinder/a2a</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- SourceLink (built into the .NET SDK) + symbol packages. -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <!-- Catch accidental API differences between target frameworks inside a package. -->
+    <EnablePackageValidation>true</EnablePackageValidation>
   </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <None Include="$(MSBuildProjectDirectory)/README.md" Pack="true" PackagePath="/" Condition="Exists('$(MSBuildProjectDirectory)/README.md')" />
+  </ItemGroup>
 </Project>

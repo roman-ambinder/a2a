@@ -3,9 +3,16 @@
 A .NET SDK for the [Agent2Agent (A2A) protocol](https://a2a-protocol.org/latest/specification/) **v1.0**.
 Client and server. JSON-RPC, HTTP+JSON, and gRPC bindings. SSE streaming. Push notifications. Agent Card signing.
 
-Targets **.NET 8** and **.NET 10**. No third-party dependencies beyond `Microsoft.Extensions.*`.
+Targets **.NET 8** and **.NET 10**.
 
-| Package | What it is |
+```bash
+dotnet add package RomanAmbinder.A2A.Server.AspNetCore   # host an agent
+dotnet add package RomanAmbinder.A2A.Client              # call agents
+```
+
+NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the official `A2A` packages. Assemblies and namespaces are `A2A.*`. The core packages depend only on `Microsoft.Extensions.*`; the gRPC packages add `Google.Protobuf` and `Grpc.*`.
+
+| Package (NuGet ID: `RomanAmbinder.` + name) | What it is |
 |---|---|
 | `A2A.Protocol` | Data model (from `a2a.proto`), ProtoJSON serialization, errors, JCS (RFC 8785), JWS card signing/verification |
 | `A2A.Client` | `A2AClient`, JSON-RPC + REST transports, SSE reader, card resolver with caching and signature policy, DI |
@@ -126,3 +133,14 @@ dotnet run --project samples/EchoClient
 ```
 
 `docs/a2a.proto` is the normative proto this SDK was built against.
+
+## Releasing
+
+Push a version tag. The `Release` workflow builds, tests, packs all `src/` projects (with SourceLink and `.snupkg` symbols), pushes them to nuget.org, and creates a GitHub release. A tag with a suffix (`v0.2.0-preview.1`) publishes a prerelease.
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+One-time setup: add a nuget.org API key as the repository secret `NUGET_API_KEY`, scoped to push `RomanAmbinder.A2A.*`.

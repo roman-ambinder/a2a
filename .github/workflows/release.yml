@@ -1,0 +1,74 @@
+name: Release
+
+# Publishes all packages to nuget.org when a version tag is pushed:
+#   git tag v0.1.0 && git push origin v0.1.0
+# Tags with a suffix (v0.2.0-preview.1) publish prereleases.
+# Requires the repository secret NUGET_API_KEY (nuget.org API key scoped to "RomanAmbinder.A2A.*" push).
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+permissions:
+  contents: write # create the GitHub release
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Read version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          if [[ "$VERSION" == *-* ]]; then echo "PRERELEASE=--prerelease" >> "$GITHUB_ENV"; fi
+          echo "Releasing $VERSION"
+
+      - name: Check NuGet API key
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "::error::Repository secret NUGET_API_KEY is not set."
+            exit 1
+          fi
+
+      - name: Build
+        run: dotnet build A2A.slnx -c Release -p:Version="$VERSION"
+
+      - name: Test
+        run: |
+          dotnet test tests/A2A.Tests/A2A.Tests.csproj -c Release --no-build
+          dotnet test tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj -c Release --no-build
+
+      - name: Pack
+        run: |
+          for p in src/*/*.csproj; do
+            dotnet pack "$p" -c Release --no-build -p:Version="$VERSION" -o artifacts
+          done
+          ls -l artifacts
+
+      - name: Push to nuget.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: dotnet nuget push "artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" artifacts/* --title "$GITHUB_REF_NAME" --generate-notes $PRERELEASE
