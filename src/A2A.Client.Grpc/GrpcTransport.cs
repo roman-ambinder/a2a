@@ -319,6 +319,7 @@ public static class A2AGrpcClientFactory
             ValidateCapabilities = src.ValidateCapabilities,
             MaxRetries = src.MaxRetries,
             TimeProvider = src.TimeProvider,
+            OnMessageReceived = src.OnMessageReceived,
             SupportedBindings = new List<string>(),
         }.UseGrpc(channelOptions);
         if (A2AClientFactory.SelectInterface(card, grpcOnly) is null)
