@@ -16,7 +16,13 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
     {
         var ct = http.RequestAborted;
         JsonElement? id = null;
-        var call = HttpPlumbing.CreateCallContext(http, _http);
+        ServerCallContext call;
+        try { call = HttpPlumbing.CreateCallContext(http); }
+        catch (Exception ex)
+        {
+            await WriteFailureAsync(http, ServerCallContext.Anonymous(), id, HttpPlumbing.Normalize(ex, logger)).ConfigureAwait(false);
+            return;
+        }
         try
         {
             JsonRpcRequest rpc;
@@ -93,17 +99,21 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
                 logger.LogWarning(ex, "Error after JSON-RPC response started");
                 return;
             }
-            var a2a = HttpPlumbing.Normalize(ex, logger);
-            HttpPlumbing.SetAuthChallenge(http, a2a, handler.AgentCard);
-            var status = a2a.Code switch
-            {
-                A2AErrorCode.Unauthenticated => 401,
-                A2AErrorCode.PermissionDenied => 403,
-                _ => 200, // JSON-RPC errors travel in a 200 response
-            };
-            HttpPlumbing.WriteExtensionsHeader(http, call);
-            await HttpPlumbing.WriteJsonAsync(http, JsonRpcResponse.Failure(id, a2a), A2AProtocol.JsonMediaType, status).ConfigureAwait(false);
+            await WriteFailureAsync(http, call, id, HttpPlumbing.Normalize(ex, logger)).ConfigureAwait(false);
         }
+    }
+
+    private async Task WriteFailureAsync(HttpContext http, ServerCallContext call, JsonElement? id, A2AException a2a)
+    {
+        HttpPlumbing.SetAuthChallenge(http, a2a, handler.AgentCard);
+        var status = a2a.Code switch
+        {
+            A2AErrorCode.Unauthenticated => 401,
+            A2AErrorCode.PermissionDenied => 403,
+            _ => 200, // JSON-RPC errors travel in a 200 response
+        };
+        HttpPlumbing.WriteExtensionsHeader(http, call);
+        await HttpPlumbing.WriteJsonAsync(http, JsonRpcResponse.Failure(id, a2a), A2AProtocol.JsonMediaType, status).ConfigureAwait(false);
     }
 
     private static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement.Clone();

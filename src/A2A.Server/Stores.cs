@@ -10,7 +10,7 @@ public sealed class TaskRecord
 {
     public required AgentTask Task { get; set; }
 
-    /// <summary><see cref="ServerCallContext.CallerId"/> of the creator.</summary>
+    /// <summary><see cref="ServerCallContext.Principal"/> of the creator.</summary>
     public string? OwnerId { get; set; }
 
     public string? Tenant { get; set; }
@@ -166,6 +166,6 @@ public interface ITaskAccessPolicy
 public sealed class OwnerTenantAccessPolicy : ITaskAccessPolicy
 {
     public bool CanAccess(TaskRecord record, ServerCallContext call) =>
-        string.Equals(record.OwnerId, call.CallerId, StringComparison.Ordinal) &&
+        string.Equals(record.OwnerId, call.Principal, StringComparison.Ordinal) &&
         string.Equals(record.Tenant, call.Tenant, StringComparison.Ordinal);
 }

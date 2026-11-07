@@ -2,6 +2,8 @@ using System.Text;
 using System.Text.Json;
 using A2A.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
 
@@ -9,7 +11,10 @@ namespace A2A.Server.AspNetCore;
 
 internal static class HttpPlumbing
 {
-    public static ServerCallContext CreateCallContext(HttpContext http, A2AHttpOptions options, string? tenant = null)
+    private static readonly ITenantResolver RouteTenantResolver = new A2A.Server.AspNetCore.RouteTenantResolver();
+    private static readonly IPrincipalResolver PrincipalResolver = new DefaultPrincipalResolver();
+
+    public static ServerCallContext CreateCallContext(HttpContext http)
     {
         var extensions = http.Request.Headers[A2AProtocol.Headers.Extensions]
             .SelectMany(v => (v ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -19,13 +24,27 @@ internal static class HttpPlumbing
         string? version = http.Request.Headers[A2AProtocol.Headers.Version];
         if (string.IsNullOrWhiteSpace(version)) version = http.Request.Query[A2AProtocol.Headers.Version];
 
+        var services = http.RequestServices;
+        var tenantResolver = services.GetService<ITenantResolver>() ?? RouteTenantResolver;
+        var principalResolver = services.GetService<IPrincipalResolver>() ?? PrincipalResolver;
+
+        var tenant = tenantResolver.Resolve(http) ?? "";
+        var user = http.User;
+        var principal = ServerCallContext.AnonymousPrincipal;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            principal = principalResolver.Resolve(user);
+            if (string.IsNullOrEmpty(principal)) throw new A2AException(A2AErrorCode.Unauthenticated);
+        }
+
         return new ServerCallContext
         {
-            User = http.User,
-            CallerId = options.CallerIdResolver(http),
+            User = user,
+            Principal = principal,
             ProtocolVersion = string.IsNullOrWhiteSpace(version) ? null : version,
             RequestedExtensions = extensions,
-            Tenant = string.IsNullOrEmpty(tenant) ? null : tenant,
+            Tenant = tenant,
+            TenantFromRoute = http.GetRouteValue("tenant") is string { Length: > 0 },
         };
     }
 

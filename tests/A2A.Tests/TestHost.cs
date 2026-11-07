@@ -147,7 +147,7 @@ public sealed class TestAgentHost : IAsyncDisposable
             o.ExtendedAgentCardProvider = (call, _) =>
             {
                 var card = DefaultCard();
-                card.Description = $"Extended card for {call.CallerId}";
+                card.Description = $"Extended card for {call.Principal}";
                 return ValueTask.FromResult<AgentCard?>(card);
             };
             configure?.Invoke(o);

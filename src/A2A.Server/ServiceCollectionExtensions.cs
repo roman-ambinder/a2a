@@ -33,6 +33,7 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<ITaskStore, InMemoryTaskStore>();
         services.TryAddSingleton<IPushNotificationConfigStore, InMemoryPushNotificationConfigStore>();
         services.TryAddSingleton<ITaskAccessPolicy, OwnerTenantAccessPolicy>();
+        services.TryAddSingleton<IPrincipalResolver, DefaultPrincipalResolver>();
         services.TryAddSingleton<TaskEventBus>();
         services.AddHttpClient(HttpPushNotificationSender.HttpClientName)
             .ConfigurePrimaryHttpMessageHandler(sp => PushUrlValidator.CreateHandler(sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.PushNotifications));

@@ -150,7 +150,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     private async Task<Prepared> PrepareAsync(SendMessageRequest request, ServerCallContext call, CancellationToken ct)
     {
-        call.Tenant ??= request.Tenant;
+        call.BindTenant(request.Tenant);
         A2AValidator.ValidateIncoming(request);
         var message = request.Message;
         AgentTask? existing = null;
@@ -220,7 +220,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     public async Task<AgentTask> GetTaskAsync(GetTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
-        call.Tenant ??= request.Tenant;
+        call.BindTenant(request.Tenant);
         A2AValidator.RequireId(request.Id, "id");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var record = await GetAccessibleAsync(request.Id, call, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
@@ -229,14 +229,14 @@ public sealed class A2ARequestHandler : IDisposable
 
     public async Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
-        call.Tenant ??= request.Tenant;
+        call.BindTenant(request.Tenant);
         if (request.PageSize is < 1) throw A2AException.InvalidParams("pageSize must be between 1 and 100");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var pageSize = Math.Min(request.PageSize ?? 50, _options.MaxPageSize);
 
         var result = await _tasks.QueryAsync(new TaskQuery
         {
-            OwnerId = call.CallerId,
+            OwnerId = call.Principal,
             Tenant = call.Tenant,
             ContextId = string.IsNullOrEmpty(request.ContextId) ? null : request.ContextId,
             Status = request.Status is null or TaskState.Unspecified ? null : request.Status,
@@ -257,7 +257,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
-        call.Tenant ??= request.Tenant;
+        call.BindTenant(request.Tenant);
         A2AValidator.RequireId(request.Id, "id");
         var record = await GetAccessibleAsync(request.Id, call, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         if (record.Task.Status.State.IsTerminal()) throw NotCancelable(request.Id);
@@ -281,7 +281,7 @@ public sealed class A2ARequestHandler : IDisposable
     public async IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, ServerCallContext call,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        call.Tenant ??= request.Tenant;
+        call.BindTenant(request.Tenant);
         RequireStreaming();
         A2AValidator.RequireId(request.Id, "id");
         var record = await GetAccessibleAsync(request.Id, call, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
@@ -307,7 +307,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     public async Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken = default)
     {
-        call.Tenant ??= config.Tenant;
+        call.BindTenant(config.Tenant);
         RequirePush();
         A2AValidator.ValidatePushConfig(config, "config", requireTaskId: true);
         PushUrlValidator.Validate(config.Url, _options.PushNotifications);
@@ -321,7 +321,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     public async Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
-        call.Tenant ??= request.Tenant;
+        call.BindTenant(request.Tenant);
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
@@ -332,7 +332,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     public async Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
-        call.Tenant ??= request.Tenant;
+        call.BindTenant(request.Tenant);
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         _ = await GetAccessibleAsync(request.TaskId, call, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
@@ -354,7 +354,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     public async Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
-        call.Tenant ??= request.Tenant;
+        call.BindTenant(request.Tenant);
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
@@ -369,7 +369,7 @@ public sealed class A2ARequestHandler : IDisposable
 
     public async Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
-        call.Tenant ??= request.Tenant;
+        call.BindTenant(request.Tenant);
         if (_options.AgentCard.Capabilities.ExtendedAgentCard != true)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "This agent does not provide an extended agent card.");
         if (!call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated, "The extended agent card requires authentication.");
@@ -471,7 +471,7 @@ public sealed class A2ARequestHandler : IDisposable
                                 Status = new AgentTaskStatus { State = TaskState.Submitted, Timestamp = evt.StatusUpdate?.Status.Timestamp ?? DateTimeOffset.UtcNow },
                                 History = userMessage is null ? null : [WithTask(userMessage, taskId)],
                             },
-                            OwnerId = call.CallerId,
+                            OwnerId = call.Principal,
                             Tenant = call.Tenant,
                         };
                         await _tasks.SaveAsync(record).ConfigureAwait(false);

@@ -36,14 +36,12 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
     private Task SendMessage(HttpContext http) => Run(http, async (call, ct) =>
     {
         var req = await Body<SendMessageRequest>(http).ConfigureAwait(false);
-        req.Tenant = call.Tenant ?? req.Tenant;
         return await handler.SendMessageAsync(req, call, ct).ConfigureAwait(false);
     });
 
     private Task SendStreamingMessage(HttpContext http) => RunStream(http, async (call, ct) =>
     {
         var req = await Body<SendMessageRequest>(http).ConfigureAwait(false);
-        req.Tenant = call.Tenant ?? req.Tenant;
         return handler.SendStreamingMessageAsync(req, call, ct);
     });
 
@@ -90,7 +88,6 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
     {
         var req = await OptionalBody<CancelTaskRequest>(http).ConfigureAwait(false) ?? new CancelTaskRequest();
         req.Id = Route(http, "id");
-        req.Tenant = call.Tenant;
         return await handler.CancelTaskAsync(req, call, ct).ConfigureAwait(false);
     });
 
@@ -101,7 +98,6 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
     {
         var config = await Body<TaskPushNotificationConfig>(http).ConfigureAwait(false);
         config.TaskId = Route(http, "id");
-        config.Tenant = call.Tenant;
         return await handler.CreateTaskPushNotificationConfigAsync(config, call, ct).ConfigureAwait(false);
     });
 
@@ -135,7 +131,13 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
 
     private async Task Run(HttpContext http, Func<ServerCallContext, CancellationToken, Task<object?>> action)
     {
-        var call = HttpPlumbing.CreateCallContext(http, _http, http.GetRouteValue("tenant") as string);
+        ServerCallContext call;
+        try { call = HttpPlumbing.CreateCallContext(http); }
+        catch (Exception ex) when (!http.Response.HasStarted)
+        {
+            await WriteErrorAsync(http, ServerCallContext.Anonymous(), HttpPlumbing.Normalize(ex, logger)).ConfigureAwait(false);
+            return;
+        }
         try
         {
             handler.ValidateCall(call);
@@ -154,7 +156,13 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
 
     private async Task RunStream(HttpContext http, Func<ServerCallContext, CancellationToken, Task<IAsyncEnumerable<StreamResponse>>> action)
     {
-        var call = HttpPlumbing.CreateCallContext(http, _http, http.GetRouteValue("tenant") as string);
+        ServerCallContext call;
+        try { call = HttpPlumbing.CreateCallContext(http); }
+        catch (Exception ex) when (!http.Response.HasStarted)
+        {
+            await WriteErrorAsync(http, ServerCallContext.Anonymous(), HttpPlumbing.Normalize(ex, logger)).ConfigureAwait(false);
+            return;
+        }
         try
         {
             handler.ValidateCall(call);
