@@ -1,13 +1,14 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using A2A.Client.Sse;
+using A2A.Client.Streaming;
 using A2A.Json;
 using A2A.JsonRpc;
 
 namespace A2A.Client.Transports;
 
 /// <summary>JSON-RPC 2.0 over HTTP binding (spec §9).</summary>
-public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient
+public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumableTransport
 {
     private readonly Uri _endpoint;
 
@@ -23,7 +24,14 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient
     }
 
     public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
-        StreamAsync(A2AProtocol.Methods.SendStreamingMessage, request, options, PrepareSend(request, options), cancellationToken);
+        StreamAsync(A2AProtocol.Methods.SendStreamingMessage, request, options, PrepareSend(request, options), null, cancellationToken).Unframe(cancellationToken);
+
+    IAsyncEnumerable<StreamFrame> IResumableTransport.SendStreamingFramesAsync(SendMessageRequest request, A2ARequestOptions? options, CancellationToken cancellationToken) =>
+        StreamAsync(A2AProtocol.Methods.SendStreamingMessage, request, options, PrepareSend(request, options), null, cancellationToken);
+
+    /// <summary>Subscribes and sends <c>Last-Event-ID</c> when <paramref name="lastEventId"/> is set. Frames carry their SSE ids.</summary>
+    IAsyncEnumerable<StreamFrame> IResumableTransport.SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options, string? lastEventId, CancellationToken cancellationToken) =>
+        StreamAsync(A2AProtocol.Methods.SubscribeToTask, request, options, null, lastEventId, cancellationToken);
 
     public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         InvokeAsync<GetTaskRequest, AgentTask>(A2AProtocol.Methods.GetTask, request, retry: true, options, null, cancellationToken);
@@ -35,7 +43,7 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient
         InvokeAsync<CancelTaskRequest, AgentTask>(A2AProtocol.Methods.CancelTask, request, retry: true, options, null, cancellationToken);
 
     public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
-        StreamAsync(A2AProtocol.Methods.SubscribeToTask, request, options, null, cancellationToken);
+        StreamAsync(A2AProtocol.Methods.SubscribeToTask, request, options, null, null, cancellationToken).Unframe(cancellationToken);
 
     public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         InvokeAsync<TaskPushNotificationConfig, TaskPushNotificationConfig>(A2AProtocol.Methods.CreateTaskPushNotificationConfig, config, retry: false, options, null, cancellationToken);
@@ -75,9 +83,9 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient
             return rpc.Result;
         }, ct);
 
-    private async IAsyncEnumerable<StreamResponse> StreamAsync<TParams>(string method, TParams parameters, A2ARequestOptions? call, string? key, [EnumeratorCancellation] CancellationToken ct)
+    private async IAsyncEnumerable<StreamFrame> StreamAsync<TParams>(string method, TParams parameters, A2ARequestOptions? call, string? key, string? lastEventId, [EnumeratorCancellation] CancellationToken ct)
     {
-        using var request = await BuildRequestAsync(method, parameters, streaming: true, call, key, ct).ConfigureAwait(false);
+        using var request = await BuildRequestAsync(method, parameters, streaming: true, call, key, ct, lastEventId).ConfigureAwait(false);
         using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
 
         if (!IsEventStream(response))
@@ -95,11 +103,11 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient
             var rpc = TryParseResponse(evt.Data) ?? throw ProtocolError($"{method}: SSE event is not a JSON-RPC response.");
             if (rpc.Error is not null) throw rpc.Error.ToException();
             if (rpc.Result is not { } r) throw ProtocolError($"{method}: SSE event has no result.");
-            yield return Parse<StreamResponse>(r, "stream event");
+            yield return new StreamFrame(Parse<StreamResponse>(r, "stream event"), evt.FrameId);
         }
     }
 
-    private async Task<HttpRequestMessage> BuildRequestAsync<TParams>(string method, TParams parameters, bool streaming, A2ARequestOptions? call, string? key, CancellationToken ct)
+    private async Task<HttpRequestMessage> BuildRequestAsync<TParams>(string method, TParams parameters, bool streaming, A2ARequestOptions? call, string? key, CancellationToken ct, string? lastEventId = null)
     {
         var rpc = new JsonRpcRequest
         {
@@ -110,7 +118,7 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient
         var request = new HttpRequestMessage(HttpMethod.Post, _endpoint) { Content = JsonBody(rpc, A2AProtocol.JsonMediaType) };
         try
         {
-            await ApplyHeadersAsync(request, streaming, call, key, ct).ConfigureAwait(false);
+            await ApplyHeadersAsync(request, streaming, call, key, ct, lastEventId).ConfigureAwait(false);
         }
         catch
         {

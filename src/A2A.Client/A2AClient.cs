@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using A2A.Client.Streaming;
 using A2A.Validation;
 
 namespace A2A.Client;
@@ -101,7 +102,49 @@ public sealed class A2AClient : IA2AClient
         A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
-        return _transport.SendStreamingMessageAsync(request, options, cancellationToken);
+        return ResumableStream.RunAsync(
+            knownTaskId: null,
+            ct => _transport is IResumableTransport rt
+                ? rt.SendStreamingFramesAsync(request, options, ct)
+                : Frames(_transport.SendStreamingMessageAsync(request, options, ct)),
+            (taskId, cursor, ct) => Resubscribe(request.Tenant, taskId, cursor, options, ct),
+            (taskId, ct) => GetTaskForResume(request.Tenant, taskId, options, ct),
+            _options.TimeProvider, cancellationToken);
+    }
+
+    /// <summary>
+    /// Follows a task: subscribes, and when the connection drops reconnects with backoff (0.5 s, 1 s, 2 s, 4 s, 8 s; then
+    /// the error is thrown) and <c>Last-Event-ID</c>, so no event is lost or repeated. A task that has already finished
+    /// is answered with its final snapshot as a <see cref="TaskEvent"/>. The same <paramref name="options"/> (headers,
+    /// credentials) are used on every reconnect.
+    /// </summary>
+    public IAsyncEnumerable<StreamResponse> ObserveTaskAsync(string taskId, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(taskId);
+        RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
+        var tenant = _options.Tenant;
+        return ResumableStream.RunAsync(
+            knownTaskId: taskId,
+            ct => Resubscribe(tenant, taskId, null, options, ct),
+            (id, cursor, ct) => Resubscribe(tenant, id, cursor, options, ct),
+            (id, ct) => GetTaskForResume(tenant, id, options, ct),
+            _options.TimeProvider, cancellationToken);
+    }
+
+    private IAsyncEnumerable<StreamFrame> Resubscribe(string? tenant, string taskId, string? lastEventId, A2ARequestOptions? options, CancellationToken ct)
+    {
+        var request = new SubscribeToTaskRequest { Id = taskId, Tenant = tenant ?? _options.Tenant };
+        return _transport is IResumableTransport rt
+            ? rt.SubscribeToTaskAsync(request, options, lastEventId, ct)
+            : Frames(_transport.SubscribeToTaskAsync(request, options, ct));
+    }
+
+    private Task<AgentTask> GetTaskForResume(string? tenant, string taskId, A2ARequestOptions? options, CancellationToken ct) =>
+        _transport.GetTaskAsync(new GetTaskRequest { Id = taskId, Tenant = tenant ?? _options.Tenant }, options, ct);
+
+    private static async IAsyncEnumerable<StreamFrame> Frames(IAsyncEnumerable<StreamResponse> source, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await foreach (var item in source.WithCancellation(ct).ConfigureAwait(false)) yield return new StreamFrame(item, null);
     }
 
     public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)

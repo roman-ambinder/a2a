@@ -24,10 +24,10 @@ public abstract class HttpTransportBase
 
     /// <summary>
     /// Sets the request headers in this order: SDK headers (<c>A2A-Version</c>, <c>A2A-Extensions</c>, <c>Accept</c>,
-    /// <c>Idempotency-Key</c>), then <see cref="A2ARequestOptions.Headers"/>, then <see cref="A2ARequestOptions.ConfigureRequest"/>.
+    /// <c>Idempotency-Key</c>, and <c>Last-Event-ID</c> on a stream resume), then <see cref="A2ARequestOptions.Headers"/>, then <see cref="A2ARequestOptions.ConfigureRequest"/>.
     /// The later steps can replace or remove the earlier ones, including <c>A2A-Version</c>.
     /// </summary>
-    protected async Task ApplyHeadersAsync(HttpRequestMessage request, bool streaming, A2ARequestOptions? call, string? idempotencyKey, CancellationToken ct)
+    protected async Task ApplyHeadersAsync(HttpRequestMessage request, bool streaming, A2ARequestOptions? call, string? idempotencyKey, CancellationToken ct, string? lastEventId = null)
     {
         request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, Options.ProtocolVersion);
         var extensions = call?.Extensions is { Count: > 0 } perCall ? Options.Extensions.Concat(perCall).Distinct() : Options.Extensions;
@@ -37,6 +37,7 @@ public abstract class HttpTransportBase
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(streaming ? A2AProtocol.EventStreamMediaType : A2AProtocol.MediaType));
         if (!streaming) request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.JsonMediaType));
         if (!string.IsNullOrEmpty(idempotencyKey)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.IdempotencyKey, idempotencyKey);
+        if (!string.IsNullOrEmpty(lastEventId)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.LastEventId, lastEventId);
 
         if (call is null) return;
         foreach (var (name, value) in call.Headers)

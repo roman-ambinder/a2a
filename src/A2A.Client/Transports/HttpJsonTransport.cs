@@ -3,12 +3,13 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using A2A.Client.Sse;
+using A2A.Client.Streaming;
 using A2A.Json;
 
 namespace A2A.Client.Transports;
 
 /// <summary>HTTP+JSON/REST binding (spec §11).</summary>
-public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient
+public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumableTransport
 {
     private readonly string _baseUrl;
 
@@ -24,7 +25,10 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient
     }
 
     public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
-        StreamAsync(HttpMethod.Post, Path(request.Tenant, "/message:stream"), request, options, PrepareSend(request, options), cancellationToken);
+        StreamAsync(HttpMethod.Post, Path(request.Tenant, "/message:stream"), request, options, PrepareSend(request, options), null, cancellationToken).Unframe(cancellationToken);
+
+    IAsyncEnumerable<StreamFrame> IResumableTransport.SendStreamingFramesAsync(SendMessageRequest request, A2ARequestOptions? options, CancellationToken cancellationToken) =>
+        StreamAsync(HttpMethod.Post, Path(request.Tenant, "/message:stream"), request, options, PrepareSend(request, options), null, cancellationToken);
 
     public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -48,10 +52,14 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient
     public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendAsync<AgentTask>(HttpMethod.Post, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:cancel"), request, retry: true, options, null, cancellationToken);
 
-    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        ((IResumableTransport)this).SubscribeToTaskAsync(request, options, null, cancellationToken).Unframe(cancellationToken);
+
+    /// <summary>Subscribes and sends <c>Last-Event-ID</c> when <paramref name="lastEventId"/> is set. Frames carry their SSE ids.</summary>
+    IAsyncEnumerable<StreamFrame> IResumableTransport.SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options, string? lastEventId, CancellationToken cancellationToken)
     {
         var method = Options.RestSubscribeMethod;
-        return StreamAsync(method, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:subscribe"), method == HttpMethod.Get ? null : request, options, null, cancellationToken);
+        return StreamAsync(method, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:subscribe"), method == HttpMethod.Get ? null : request, options, null, lastEventId, cancellationToken);
     }
 
     public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
@@ -100,11 +108,11 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient
             catch (JsonException ex) { throw ProtocolError($"Malformed {typeof(T).Name} in agent response: {ex.Message}", ex); }
         }, ct);
 
-    private async IAsyncEnumerable<StreamResponse> StreamAsync(HttpMethod method, string url, object? body, A2ARequestOptions? call, string? key, [EnumeratorCancellation] CancellationToken ct)
+    private async IAsyncEnumerable<StreamFrame> StreamAsync(HttpMethod method, string url, object? body, A2ARequestOptions? call, string? key, string? lastEventId, [EnumeratorCancellation] CancellationToken ct)
     {
         using var req = new HttpRequestMessage(method, url);
         if (body is not null) req.Content = JsonBody(body, A2AProtocol.MediaType);
-        await ApplyHeadersAsync(req, streaming: true, call, key, ct).ConfigureAwait(false);
+        await ApplyHeadersAsync(req, streaming: true, call, key, ct, lastEventId).ConfigureAwait(false);
         using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, ct).ConfigureAwait(false);
         if (!IsEventStream(resp)) throw ProtocolError("Expected text/event-stream.");
@@ -121,7 +129,7 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient
             }
             catch (JsonException ex) { throw ProtocolError($"Malformed stream event: {ex.Message}", ex); }
             if (item is null) throw ProtocolError("Empty stream event.");
-            yield return item;
+            yield return new StreamFrame(item, evt.FrameId);
         }
     }
 
