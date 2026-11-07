@@ -115,7 +115,7 @@ internal sealed class JsonRpcEndpoint(IA2ARequestHandler handler,
         {
             if (http.Response.HasStarted)
             {
-                logger.LogWarning(ex, "Error after JSON-RPC response started");
+                AspNetCoreLog.ErrorAfterResponseStarted(logger, ex);
                 return;
             }
             await WriteFailureAsync(http, call, id, HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);

@@ -251,14 +251,13 @@ public sealed class A2ACardResolver
         {
             if (keyId is not null && keyId != pinned.KeyId)
             {
-                if (_logger.IsEnabled(LogLevel.Information))
-                    _logger.LogInformation("Agent Card from {Origin} is now signed with key {KeyId} (was {PreviousKeyId}); content unchanged", origin, keyId, pinned.KeyId);
+                ClientLog.CardKeyChanged(_logger, origin, keyId, pinned.KeyId);
                 await _options.PinStore.SetAsync(origin, pinned with { KeyId = keyId }, cancellationToken).ConfigureAwait(false);
             }
             return;
         }
 
-        _logger.LogWarning("Agent Card from {Origin} changed: pinned {OldHash}, received {NewHash}", origin, pinned.Hash, hash);
+        ClientLog.CardChanged(_logger, origin, pinned.Hash, hash);
         CardChangedCounter.Add(1, new KeyValuePair<string, object?>("origin", origin));
         CardChanged?.Invoke(this, new CardChangedEventArgs(origin, pinned.Hash, hash));
 

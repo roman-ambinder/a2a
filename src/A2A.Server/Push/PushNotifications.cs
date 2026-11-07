@@ -325,7 +325,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Push notification worker for task {TaskId} failed", worker.Key.TaskId);
+            ServerLog.PushWorkerFailed(_logger, ex, worker.Key.TaskId);
         }
         Abandon(worker);
     }
@@ -417,7 +417,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Push notification processing failed for task {TaskId}", worker.Key.TaskId);
+                    ServerLog.PushProcessingFailed(_logger, ex, worker.Key.TaskId);
                 }
                 finally
                 {
@@ -446,7 +446,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
             }
             catch (System.Security.Cryptography.CryptographicException ex)
             {
-                _logger.LogError(ex, "Cannot unprotect secrets of webhook {ConfigId} for task {TaskId}; skipping", record.Config.Id, task.TaskId);
+                ServerLog.PushUnprotectFailed(_logger, ex, record.Config.Id, task.TaskId);
             }
         }
         return configs;
@@ -480,12 +480,12 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
                 }
                 catch (A2AException ex)
                 {
-                    _logger.LogWarning("Skipping webhook {ConfigId} for task {TaskId}: {Reason}", config.Id, config.TaskId, ex.Message);
+                    ServerLog.PushWebhookSkipped(_logger, config.Id, config.TaskId, ex.Message);
                     return;
                 }
                 catch (BlockedAddressException ex)
                 {
-                    _logger.LogWarning("Skipping webhook {ConfigId} for task {TaskId}: {Reason}", config.Id, config.TaskId, ex.Message);
+                    ServerLog.PushWebhookSkipped(_logger, config.Id, config.TaskId, ex.Message);
                     return;
                 }
 
@@ -506,7 +506,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
 
                 var status = (int)response.StatusCode;
                 var retryable = status is 408 or 429 || status >= 500;
-                _logger.LogWarning("Webhook {ConfigId} for task {TaskId} returned {Status} (attempt {Attempt})", config.Id, config.TaskId, status, attempt);
+                ServerLog.PushWebhookStatus(_logger, config.Id, config.TaskId, status, attempt);
                 if (!retryable) return;
             }
             catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
@@ -515,12 +515,12 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
             }
             catch (HttpRequestException ex) when (ex is BlockedAddressException || ex.InnerException is BlockedAddressException)
             {
-                _logger.LogWarning("Skipping webhook {ConfigId} for task {TaskId}: target address is not allowed", config.Id, config.TaskId);
+                ServerLog.PushWebhookBlocked(_logger, config.Id, config.TaskId);
                 return;
             }
             catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
             {
-                _logger.LogWarning(ex, "Webhook {ConfigId} for task {TaskId} failed (attempt {Attempt})", config.Id, config.TaskId, attempt);
+                ServerLog.PushWebhookAttemptFailed(_logger, ex, config.Id, config.TaskId, attempt);
             }
 
             if (attempt < _options.MaxAttempts)
@@ -529,7 +529,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
                 delay = TimeSpan.FromTicks(delay.Ticks * 2);
             }
         }
-        _logger.LogError("Giving up on webhook {ConfigId} for task {TaskId} after {Attempts} attempts", config.Id, config.TaskId, _options.MaxAttempts);
+        ServerLog.PushWebhookGaveUp(_logger, config.Id, config.TaskId, _options.MaxAttempts);
     }
 
     private int _disposed;

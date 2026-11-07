@@ -91,7 +91,7 @@ public sealed class IdempotencyCoordinator(IdempotencyStore store, TaskStore tas
     public async ValueTask RecordAsync(IdempotencyClaim claim, IdempotencyOutcome outcome, string taskId)
     {
         try { await claim.CompleteAsync(outcome).ConfigureAwait(false); }
-        catch (Exception ex) { _logger.LogError(ex, "Failed to record the idempotency outcome for task {TaskId}", taskId); }
+        catch (Exception ex) { ServerLog.IdempotencyRecordFailed(_logger, ex, taskId); }
     }
 
     /// <summary>Abandons an idempotency claim on a failure path. A failing idempotency store is logged; the original error wins.</summary>
@@ -102,8 +102,8 @@ public sealed class IdempotencyCoordinator(IdempotencyStore store, TaskStore tas
         try { await claim.AbandonAsync().ConfigureAwait(false); }
         catch (Exception ex)
         {
-            if (taskId is null) _logger.LogError(ex, "Failed to abandon an idempotency entry");
-            else _logger.LogError(ex, "Failed to abandon the idempotency entry for task {TaskId}", taskId);
+            if (taskId is null) ServerLog.IdempotencyAbandonFailed(_logger, ex);
+            else ServerLog.IdempotencyAbandonFailedForTask(_logger, ex, taskId);
         }
     }
 }

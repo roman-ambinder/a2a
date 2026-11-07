@@ -145,7 +145,7 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
         };
         if (a2a is null)
         {
-            _logger.LogError(ex, "Unhandled error in A2A gRPC call {Method}", context.Method);
+            GrpcServerLog.UnhandledError(_logger, ex, context.Method);
             a2a = new A2AException(A2AErrorCode.Internal);
         }
         return GrpcErrors.ToRpcException(a2a);

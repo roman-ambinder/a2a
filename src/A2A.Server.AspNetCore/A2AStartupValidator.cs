@@ -62,7 +62,7 @@ internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        if (options.Value.AllowAnonymous) logger.LogWarning(AnonymousWarning);
+        if (options.Value.AllowAnonymous) AspNetCoreLog.AnonymousCallersAllowed(logger);
 
         if (!registry.HasSources)
         {
@@ -71,8 +71,7 @@ internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions
                 try { Check(); }
                 catch (InvalidOperationException ex)
                 {
-                    if (logger.IsEnabled(LogLevel.Critical))
-                        logger.LogCritical(ex, "Stopping the application: {Message}", ex.Message);
+                    AspNetCoreLog.StoppingApplication(logger, ex, ex.Message);
                     lifetime.StopApplication();
                 }
             });

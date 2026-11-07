@@ -83,7 +83,7 @@ internal static class HttpPlumbing
             case BadHttpRequestException bad:
                 return new A2AException(A2AErrorCode.InvalidRequest, bad.Message);
             default:
-                logger.LogError(ex, "Unhandled error in A2A endpoint");
+                AspNetCoreLog.UnhandledError(logger, ex);
                 return includeDetails
                     ? new A2AException(A2AErrorCode.Internal, $"{A2AErrors.DefaultMessage(A2AErrorCode.Internal)}: {ex.GetType().Name}: {ex.Message}")
                     : new A2AException(A2AErrorCode.Internal);
@@ -262,7 +262,7 @@ internal static class HttpPlumbing
         catch (Exception ex)
         {
             try { await WriteEventAsync(http, null, encodeError(ex)).ConfigureAwait(false); }
-            catch (Exception writeEx) { logger.LogDebug(writeEx, "Could not write stream error event"); }
+            catch (Exception writeEx) { AspNetCoreLog.StreamErrorWriteFailed(logger, writeEx); }
         }
         finally
         {

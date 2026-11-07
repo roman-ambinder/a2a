@@ -179,7 +179,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Agent executor failed for task {TaskId}", taskId);
+                ServerLog.ExecutorFailed(_logger, ex, taskId);
                 await TryFinishAsync(updater, TaskState.Failed, "The agent failed to process the request.").ConfigureAwait(false);
             }
             finally
@@ -236,7 +236,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 if (A2AJson.SerializeToUtf8Bytes(evt).Length > _options.Limits.MaxEventBytes)
                 {
                     // The event is never stored or sent: the task fails instead and the agent is stopped.
-                    _logger.LogWarning("Task {TaskId}: the agent produced an event larger than {Limit} bytes; failing the task", taskId, _options.Limits.MaxEventBytes);
+                    ServerLog.EventTooLarge(_logger, taskId, _options.Limits.MaxEventBytes);
                     evt = StreamResponse.Of(FailureEvent(taskId, contextId));
                     exec.Cancel();
                 }
@@ -281,7 +281,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         record = await _tasks.GetAsync(key).ConfigureAwait(false);
                         if (record is null)
                         {
-                            _logger.LogWarning("Task {TaskId} disappeared from the store; dropping event", taskId);
+                            ServerLog.TaskDisappeared(_logger, taskId);
                             continue;
                         }
                     }
@@ -305,7 +305,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to apply events for task {TaskId}", taskId);
+            ServerLog.ApplyEventsFailed(_logger, ex, taskId);
             exec.Cancel();
             // Before the FAILED event is published: the waiting request must see the error, not that event.
             exec.Fail(new A2AException(A2AErrorCode.Internal));
@@ -349,7 +349,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Could not mark task {TaskId} as failed after a storage error", key.TaskId);
+            ServerLog.MarkFailedFailed(_logger, ex, key.TaskId);
         }
     }
 
@@ -365,8 +365,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         {
             if (ApplyToCopy(record.Task, evt) is not { } next)
             {
-                if (_logger.IsEnabled(LogLevel.Debug))
-                    _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, record.Task.Status.State);
+                ServerLog.EventDropped(_logger, key.TaskId, record.Task.Status.State);
                 return null;
             }
             try
@@ -379,7 +378,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 var fresh = await _tasks.GetAsync(key).ConfigureAwait(false);
                 if (fresh is null)
                 {
-                    _logger.LogWarning("Task {TaskId} disappeared from the store; dropping event", key.TaskId);
+                    ServerLog.TaskDisappeared(_logger, key.TaskId);
                     return null;
                 }
                 record = fresh;

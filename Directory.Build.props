@@ -20,11 +20,10 @@
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <IsPackable>true</IsPackable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);RS0026;CA1000;CA1711;CA1716;CA1720;CA1848</NoWarn>
+    <NoWarn>$(NoWarn);RS0026;CA1000;CA1711;CA1716;CA1720</NoWarn>
     <!-- CA1000: ProtoEnumConverter<T> exposes static members; changing that alters public API. Revisit with the modular moves. -->
     <!-- CA1711, CA1716: public names (IdempotencyResult.New, AuthorizeAsync parameter names) would have to be renamed; that is a breaking API change. -->
     <!-- CA1720: AgentCardVerificationStatus.Unsigned is a public enum member name; renaming breaks API. -->
-    <!-- CA1848: logging performance; lifted when LoggerMessage is introduced (Task 18). -->
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsAotCompatible>true</IsAotCompatible>

@@ -45,8 +45,7 @@ internal sealed class AgentCardEndpoint(IOptions<A2AServerOptions> serverOptions
         {
             var pruned = AgentCardCanonicalizer.PrunedPaths(AgentCardCanonicalizer.ToNode(card));
             if (pruned.Count > 0)
-                logger.LogWarning("Agent Card signature does not cover these empty values, which a2a-python/a2a-js canonicalization removes: {PrunedPaths}",
-                    string.Join(", ", pruned));
+                AspNetCoreLog.CardSignatureSkipsPrunedValues(logger, string.Join(", ", pruned));
         }
         var served = key is null ? card : AgentCardSigner.Sign(card, key);
         var body = A2AJson.SerializeToUtf8Bytes(served);
