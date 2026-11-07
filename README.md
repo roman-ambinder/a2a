@@ -84,16 +84,26 @@ The factory picks the first interface **in the card's order** that the client su
 
 ```csharp
 // Server: gRPC needs HTTP/2 (Kestrel: HttpProtocols.Http2, or Http1AndHttp2 over TLS).
+builder.Services.AddA2AServerAspNetCore();   // required, as for MapA2A
 builder.Services.AddA2AGrpc();
-app.MapA2AGrpc();
+app.UseAuthentication();
+app.UseA2A();
+app.UseAuthorization();
+app.MapA2AGrpc().RequireAuthorization();   // same fail-closed startup check and "a2a" rate limit as MapA2A
 // Card: new AgentInterface { Url = "https://agent.example.com:443", ProtocolBinding = ProtocolBindings.Grpc }
 
 // Client
 var client = A2AGrpcClientFactory.Create(card);
 ```
 
-The gRPC service runs on the same `A2ARequestHandler` as the HTTP bindings, so auth scoping, validation, and errors behave the same.
-Errors are `google.rpc.Status` with an `ErrorInfo` detail. `A2A-Version` and `A2A-Extensions` travel as `a2a-version` / `a2a-extensions` metadata.
+The gRPC service runs on the same `A2ARequestHandler` and call-context plumbing as the HTTP bindings, so ownership, tenants
+(the request's `tenant` field), limits, idempotency and errors behave the same; the parity suite runs every method over all three bindings.
+Errors are `google.rpc.Status` with an `ErrorInfo` detail (`retryable`/`retryAfter` metadata, plus `RetryInfo` on rate limits).
+`A2A-Version`, `A2A-Extensions` and `Idempotency-Key` travel as `a2a-version` / `a2a-extensions` / `idempotency-key` metadata.
+A message larger than `Limits.MaxRequestBodyBytes` is refused by the gRPC layer with `RESOURCE_EXHAUSTED`.
+`GrpcTransport` honours `A2ARequestOptions` (headers as metadata, per-attempt deadline, idempotency key, `MaxRetries` and the same retry rules)
+except `ConfigureRequest`, which throws `NotSupportedException`.
+**Stream resume is not supported over gRPC yet**: there is no event cursor on the wire, so after a lost stream call `SubscribeToTask` again.
 Proto ↔ model conversion goes through ProtoJSON (the model's JSON form *is* ProtoJSON), so all three bindings share one mapping.
 `A2AClientFactory` still chooses between JSON-RPC and HTTP+JSON only; use `A2AGrpcClientFactory` for gRPC.
 
