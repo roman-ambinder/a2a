@@ -31,6 +31,31 @@ public sealed class A2ARequestOptions
     /// </summary>
     public TimeSpan? Timeout { get; set; }
 
+    /// <summary>
+    /// Automatic retries after the first attempt of this unary call. Default: <see cref="A2AClientOptions.MaxRetries"/>
+    /// (2, so 3 attempts in all); 0 disables retries. Streaming calls are never retried.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A retry happens only on HTTP 503 or 429, on an error the server marked <c>metadata.retryable</c> = "true", or on a
+    /// transport failure. <c>CreateTaskPushNotificationConfig</c> and <c>DeleteTaskPushNotificationConfig</c> are never retried.
+    /// </para>
+    /// <para>
+    /// For <c>SendMessage</c> a transport failure is retried only when the request provably never reached the server
+    /// (<see cref="HttpRequestException.HttpRequestError"/> is <see cref="HttpRequestError.ConnectionError"/>,
+    /// <see cref="HttpRequestError.NameResolutionError"/>, <see cref="HttpRequestError.ProxyTunnelError"/> or
+    /// <see cref="HttpRequestError.SecureConnectionError"/>). A failure after the request was sent, such as a connection reset
+    /// mid-response, is surfaced: a plain A2A v1.0 server without <c>Idempotency-Key</c> support could otherwise create the task twice.
+    /// </para>
+    /// </remarks>
+    public int? MaxRetries
+    {
+        get => _maxRetries;
+        set => _maxRetries = value is null or >= 0 ? value : throw new ArgumentOutOfRangeException(nameof(value), value, "MaxRetries cannot be negative.");
+    }
+
+    private int? _maxRetries;
+
     /// <summary>Extension URIs for this call. Added to <see cref="A2AClientOptions.Extensions"/>.</summary>
     public IList<string>? Extensions { get; set; }
 

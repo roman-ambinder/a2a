@@ -70,12 +70,14 @@ public abstract class HttpTransportBase
     }
 
     /// <summary>
-    /// Runs one unary operation: each attempt gets the call timeout, and when <paramref name="retry"/> is set failed attempts
-    /// are retried by <see cref="RetryPolicy"/>. <paramref name="attempt"/> builds and sends a fresh request every time.
+    /// Runs one unary operation: each attempt gets the call timeout, and failed attempts are retried by
+    /// <see cref="RetryPolicy"/> under <paramref name="retry"/>, at most <see cref="A2ARequestOptions.MaxRetries"/>
+    /// (else <see cref="A2AClientOptions.MaxRetries"/>) times. <paramref name="attempt"/> builds and sends a fresh request every time.
     /// </summary>
-    protected async Task<T> ExecuteUnaryAsync<T>(bool retry, A2ARequestOptions? call, Func<CancellationToken, Task<T>> attempt, CancellationToken ct)
+    private protected async Task<T> ExecuteUnaryAsync<T>(RetryMode retry, A2ARequestOptions? call, Func<CancellationToken, Task<T>> attempt, CancellationToken ct)
     {
         var timeout = call?.Timeout ?? DefaultUnaryTimeout;
+        var maxAttempts = 1 + (call?.MaxRetries ?? Options.MaxRetries);
         for (var n = 1; ; n++)
         {
             ct.ThrowIfCancellationRequested();
@@ -83,10 +85,9 @@ public abstract class HttpTransportBase
             {
                 return await WithTimeoutAsync(timeout, attempt, ct).ConfigureAwait(false);
             }
-            catch (Exception ex) when (retry && n < RetryPolicy.MaxAttempts && !ct.IsCancellationRequested
-                                       && RetryPolicy.ShouldRetry(ex, out _))
+            catch (Exception ex) when (n < maxAttempts && !ct.IsCancellationRequested && RetryPolicy.ShouldRetry(retry, ex, out _))
             {
-                RetryPolicy.ShouldRetry(ex, out var retryAfter);
+                RetryPolicy.ShouldRetry(retry, ex, out var retryAfter);
                 await Task.Delay(RetryPolicy.Delay(n + 1, retryAfter), Options.TimeProvider, ct).ConfigureAwait(false);
             }
         }

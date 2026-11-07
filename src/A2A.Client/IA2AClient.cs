@@ -56,6 +56,18 @@ public sealed class A2AClientOptions
     /// <summary>When a card is known, fail fast if a capability (streaming, push, extended card) is not declared. Default true.</summary>
     public bool ValidateCapabilities { get; set; } = true;
 
+    /// <summary>
+    /// Automatic retries after the first attempt of a unary call. Default 2 (3 attempts in all); 0 disables retries.
+    /// <see cref="A2ARequestOptions.MaxRetries"/> overrides it per call. See <see cref="A2ARequestOptions.MaxRetries"/> for what is retried.
+    /// </summary>
+    public int MaxRetries
+    {
+        get => _maxRetries;
+        set => _maxRetries = value >= 0 ? value : throw new ArgumentOutOfRangeException(nameof(value), value, "MaxRetries cannot be negative.");
+    }
+
+    private int _maxRetries = 2;
+
     /// <summary>Clock used for retry delays. Default <see cref="System.TimeProvider.System"/>. Replace it in tests.</summary>
     public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
 }

@@ -223,6 +223,195 @@ public class ClientDefaultsTests
         Assert.Equal(2, handler.Calls.Count);
     }
 
+    private static Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> SendOk(string binding) =>
+        binding == ProtocolBindings.JsonRpc ? RpcOk(SendResult) : Respond(HttpStatusCode.OK, SendResult);
+
+    /// <summary>A response whose body breaks after the first bytes: the server got the request and started to answer.</summary>
+    private static Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> ResetMidResponse() =>
+        (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new BreakingStream()) });
+
+    private sealed class BreakingStream : Stream
+    {
+        private bool _sent;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_sent) throw new IOException("Connection reset by peer.");
+            _sent = true;
+            buffer[offset] = (byte)'{';
+            return 1;
+        }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Theory]
+    [InlineData(ProtocolBindings.JsonRpc)]
+    [InlineData(ProtocolBindings.HttpJson)]
+    public async Task Send_is_not_retried_after_a_mid_response_reset(string binding)
+    {
+        var handler = new ScriptedHandler(ResetMidResponse(), SendOk(binding));
+        var client = NewClient(handler, new A2AClientOptions { TimeProvider = new FakeTimeProvider() }, binding);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.SendMessageAsync("hi"));
+
+        Assert.Single(handler.Calls);
+    }
+
+    [Theory]
+    [InlineData(ProtocolBindings.JsonRpc)]
+    [InlineData(ProtocolBindings.HttpJson)]
+    public async Task Send_is_not_retried_when_the_response_ended_early(string binding)
+    {
+        var handler = new ScriptedHandler((_, _) => throw new HttpRequestException(HttpRequestError.ResponseEnded, "ended"), SendOk(binding));
+        var client = NewClient(handler, new A2AClientOptions { TimeProvider = new FakeTimeProvider() }, binding);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.SendMessageAsync("hi"));
+
+        Assert.Single(handler.Calls);
+    }
+
+    [Theory]
+    [InlineData(ProtocolBindings.JsonRpc, HttpRequestError.ConnectionError)]
+    [InlineData(ProtocolBindings.HttpJson, HttpRequestError.ConnectionError)]
+    [InlineData(ProtocolBindings.JsonRpc, HttpRequestError.NameResolutionError)]
+    [InlineData(ProtocolBindings.HttpJson, HttpRequestError.SecureConnectionError)]
+    [InlineData(ProtocolBindings.JsonRpc, HttpRequestError.ProxyTunnelError)]
+    public async Task Send_is_retried_when_the_request_never_left(string binding, HttpRequestError error)
+    {
+        var handler = new ScriptedHandler((_, _) => throw new HttpRequestException(error, "not sent"), SendOk(binding));
+        var client = NewClient(handler, new A2AClientOptions { TimeProvider = new FakeTimeProvider() }, binding);
+
+        await client.SendMessageAsync("hi");
+
+        var calls = handler.Calls.ToArray();
+        Assert.Equal(2, calls.Length);
+        Assert.Equal(Header(calls[0], A2AProtocol.Headers.IdempotencyKey), Header(calls[1], A2AProtocol.Headers.IdempotencyKey));
+    }
+
+    [Fact]
+    public async Task Read_operations_still_retry_any_transport_failure()
+    {
+        var handler = new ScriptedHandler(ResetMidResponse(), RpcOk(TaskJson));
+        var client = NewClient(handler, new A2AClientOptions { TimeProvider = new FakeTimeProvider() });
+
+        await client.GetTaskAsync("t1");
+
+        Assert.Equal(2, handler.Calls.Count);
+    }
+
+    /// <summary>A real socket that sends response headers and part of the body, then closes the connection.</summary>
+    [Fact]
+    public async Task Send_over_a_real_socket_is_not_retried_after_the_response_started()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var accepted = 0;
+        using var stop = new CancellationTokenSource();
+        var server = Task.Run(async () =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                System.Net.Sockets.TcpClient socket;
+                try { socket = await listener.AcceptTcpClientAsync(stop.Token); }
+                catch (OperationCanceledException) { return; }
+                Interlocked.Increment(ref accepted);
+                using (socket)
+                {
+                    var stream = socket.GetStream();
+                    var buffer = new byte[8192];
+                    var head = new StringBuilder();
+                    while (!head.ToString().Contains("\r\n\r\n")) head.Append(Encoding.ASCII.GetString(buffer, 0, await stream.ReadAsync(buffer)));
+                    var partial = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{\"jsonrpc\":";
+                    await stream.WriteAsync(Encoding.ASCII.GetBytes(partial));
+                    await stream.FlushAsync();
+                    socket.Client.LingerState = new System.Net.Sockets.LingerOption(true, 0); // RST on close
+                }
+            }
+        });
+        var options = new A2AClientOptions { TimeProvider = new FakeTimeProvider() };
+        var client = new A2AClient(new JsonRpcTransport(new HttpClient(), new Uri($"http://127.0.0.1:{port}/a2a"), options), options);
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.SendMessageAsync("hi"));
+
+        stop.Cancel();
+        listener.Stop();
+        await server;
+        Assert.Equal(1, accepted);
+    }
+
+    private sealed class CountingHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+    {
+        public int Count;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref Count);
+            return base.SendAsync(request, cancellationToken);
+        }
+    }
+
+    /// <summary>A refused connection is a ConnectionError: nothing reached a server, so SendMessage is retried.</summary>
+    [Fact]
+    public async Task Send_over_a_real_socket_is_retried_when_the_connection_is_refused()
+    {
+        var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+        var counter = new CountingHandler(new SocketsHttpHandler());
+        var options = new A2AClientOptions { TimeProvider = new FakeTimeProvider() };
+        var client = new A2AClient(new JsonRpcTransport(new HttpClient(counter), new Uri($"http://127.0.0.1:{port}/a2a"), options), options);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => client.SendMessageAsync("hi"));
+
+        Assert.Equal(HttpRequestError.ConnectionError, ex.HttpRequestError);
+        Assert.Equal(3, counter.Count);
+    }
+
+    [Theory]
+    [InlineData(ProtocolBindings.JsonRpc)]
+    [InlineData(ProtocolBindings.HttpJson)]
+    public async Task Max_retries_zero_disables_retry(string binding)
+    {
+        var handler = new ScriptedHandler(Respond(HttpStatusCode.ServiceUnavailable), SendOk(binding));
+        var client = NewClient(handler, new A2AClientOptions { TimeProvider = new FakeTimeProvider(), MaxRetries = 0 }, binding);
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync("hi"));
+
+        Assert.Equal(503, ex.HttpStatus);
+        Assert.Single(handler.Calls);
+    }
+
+    [Fact]
+    public async Task Per_call_max_retries_overrides_the_client_default()
+    {
+        var handler = new ScriptedHandler(Respond(HttpStatusCode.ServiceUnavailable));
+        var client = NewClient(handler, new A2AClientOptions { TimeProvider = new FakeTimeProvider() });
+
+        await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync(new GetTaskRequest { Id = "t1" }, new A2ARequestOptions { MaxRetries = 0 }));
+        Assert.Single(handler.Calls);
+
+        var five = new ScriptedHandler(Respond(HttpStatusCode.ServiceUnavailable));
+        var fiveClient = NewClient(five, new A2AClientOptions { TimeProvider = new FakeTimeProvider(), MaxRetries = 0 });
+        await Assert.ThrowsAsync<A2AException>(() => fiveClient.GetTaskAsync(new GetTaskRequest { Id = "t1" }, new A2ARequestOptions { MaxRetries = 4 }));
+        Assert.Equal(5, five.Calls.Count);
+    }
+
+    [Fact]
+    public void Negative_max_retries_is_rejected()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new A2AClientOptions { MaxRetries = -1 });
+        Assert.Throws<ArgumentOutOfRangeException>(() => new A2ARequestOptions { MaxRetries = -1 });
+    }
+
     [Theory]
     [InlineData(ProtocolBindings.JsonRpc)]
     [InlineData(ProtocolBindings.HttpJson)]
