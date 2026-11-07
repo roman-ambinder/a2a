@@ -33,7 +33,7 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
 
     /// <summary>SendStreamingMessage (spec §3.1.2) over gRPC.</summary>
     public override Task SendStreamingMessage(Pb.SendMessageRequest request, IServerStreamWriter<Pb.StreamResponse> responseStream, GrpcContext context) =>
-        Stream(context, responseStream, (call, ct) => _handler.SendStreamingMessageAsync(ProtoMapper.ToModel<SendMessageRequest>(request), call, ct: ct));
+        Stream(context, responseStream, (call, ct) => _handler.SendStreamingMessageAsync(ProtoMapper.ToModel<SendMessageRequest>(request), call, cancellationToken: ct));
 
     /// <summary>GetTask (spec §3.1.3) over gRPC.</summary>
     public override Task<Pb.Task> GetTask(Pb.GetTaskRequest request, GrpcContext context) =>
@@ -52,7 +52,7 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
 
     /// <summary>SubscribeToTask (spec §3.1.6) over gRPC.</summary>
     public override Task SubscribeToTask(Pb.SubscribeToTaskRequest request, IServerStreamWriter<Pb.StreamResponse> responseStream, GrpcContext context) =>
-        Stream(context, responseStream, (call, ct) => _handler.SubscribeToTaskAsync(ProtoMapper.ToModel<SubscribeToTaskRequest>(request), call, ct: ct));
+        Stream(context, responseStream, (call, ct) => _handler.SubscribeToTaskAsync(ProtoMapper.ToModel<SubscribeToTaskRequest>(request), call, cancellationToken: ct));
 
     /// <summary>CreateTaskPushNotificationConfig (spec §3.1.7) over gRPC.</summary>
     public override Task<Pb.TaskPushNotificationConfig> CreateTaskPushNotificationConfig(Pb.TaskPushNotificationConfig request, GrpcContext context) =>

@@ -116,26 +116,26 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// </summary>
     /// <param name="key">The task.</param>
     /// <param name="afterSequence">The task's last event sequence before the message; 0 for a new task.</param>
-    /// <param name="ct">Cancellation.</param>
-    public async ValueTask<AgentTask> WaitUntilSettledAsync(TaskKey key, long afterSequence, CancellationToken ct)
+    /// <param name="cancellationToken">Cancellation.</param>
+    public async ValueTask<AgentTask> WaitUntilSettledAsync(TaskKey key, long afterSequence, CancellationToken cancellationToken)
     {
         using var sub = _bus.Subscribe(ScopeKey(key.Tenant, key.TaskId));
-        var statusAfter = afterSequence == 0 || await HasStatusEventAfterAsync(key, afterSequence, ct).ConfigureAwait(false);
+        var statusAfter = afterSequence == 0 || await HasStatusEventAfterAsync(key, afterSequence, cancellationToken).ConfigureAwait(false);
         Task<bool>? live = null; // one pending wait at a time: the subscription has a single reader
         while (true)
         {
             var running = RunningCompletions(key);
-            var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
+            var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
             var state = record.Task.Status.State;
             if (state.IsTerminal() || (state.IsInterrupted() && statusAfter) || running.Count == 0) return record.Task;
 
-            live ??= sub.Reader.WaitToReadAsync(ct).AsTask();
+            live ??= sub.Reader.WaitToReadAsync(cancellationToken).AsTask();
             await Task.WhenAny(running.Append(live)).ConfigureAwait(false);
             if (!live.IsCompleted) continue; // an execution ended: check again
             if (!await live.ConfigureAwait(false))
             {
                 // The bus ended the topic (the task finished): one last read.
-                return (await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId)).Task;
+                return (await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId)).Task;
             }
             live = null;
             while (sub.Reader.TryRead(out var evt))

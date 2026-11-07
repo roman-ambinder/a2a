@@ -14,17 +14,17 @@ namespace A2A.Server.Storage;
 public abstract class EventStore
 {
     /// <summary>Appends an event and returns its sequence. The first event of a task gets 1.</summary>
-    public abstract ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken ct = default);
+    public abstract ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken cancellationToken = default);
 
     /// <summary>Reads the retained events with a sequence greater than <paramref name="afterSequence"/>, in order.</summary>
-    public abstract IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence, CancellationToken ct = default);
+    public abstract IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence, CancellationToken cancellationToken = default);
 
     /// <summary>The lowest retained sequence, or null when no events are retained.</summary>
-    public abstract ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken ct = default);
+    public abstract ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken cancellationToken = default);
 
     /// <summary>The highest sequence ever appended for the task, or 0 when there is none.</summary>
-    public abstract ValueTask<long> LastSequenceAsync(TaskKey task, CancellationToken ct = default);
+    public abstract ValueTask<long> LastSequenceAsync(TaskKey task, CancellationToken cancellationToken = default);
 
     /// <summary>Tells the store the task reached a terminal state, so it may drop the retained events after a retention time.</summary>
-    public abstract ValueTask MarkTerminalAsync(TaskKey task, CancellationToken ct = default);
+    public abstract ValueTask MarkTerminalAsync(TaskKey task, CancellationToken cancellationToken = default);
 }

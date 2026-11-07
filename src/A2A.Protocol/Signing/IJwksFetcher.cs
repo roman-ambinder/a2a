@@ -10,9 +10,9 @@ public interface IJwksFetcher
 {
     /// <summary>Fetches and parses the key set at <paramref name="jku"/>.</summary>
     /// <param name="jku">The absolute HTTPS URL from the signature header.</param>
-    /// <param name="ct">Cancels the fetch.</param>
+    /// <param name="cancellationToken">Cancels the fetch.</param>
     /// <returns>The key set.</returns>
     /// <exception cref="HttpRequestException">The fetch failed or was refused.</exception>
     /// <exception cref="System.Text.Json.JsonException">The response is not a key set.</exception>
-    ValueTask<JwkSet> FetchAsync(Uri jku, CancellationToken ct);
+    ValueTask<JwkSet> FetchAsync(Uri jku, CancellationToken cancellationToken);
 }

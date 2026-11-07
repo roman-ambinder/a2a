@@ -32,6 +32,20 @@ public sealed class PackageRulesTests
     [Fact]
     public void Scanner_finds_projects() => Assert.NotEmpty(SrcProjects());
 
+    [Fact]
+    public void Public_cancellation_token_parameters_are_named_cancellationToken()
+    {
+        var src = Path.Combine(RepoRoot(), "src");
+        var files = Directory.GetFiles(src, "PublicAPI.*.txt", SearchOption.AllDirectories);
+        Assert.NotEmpty(files);
+        var offenders = files
+            .SelectMany(f => File.ReadLines(f).Select(l => (File: Path.GetRelativePath(src, f), Line: l)))
+            .Where(x => System.Text.RegularExpressions.Regex.IsMatch(x.Line, @"System\.Threading\.CancellationToken ct\b"))
+            .Select(x => $"{x.File}: {x.Line}")
+            .ToArray();
+        Assert.True(offenders.Length == 0, $"{offenders.Length} public members name the token 'ct':\n{string.Join("\n", offenders)}");
+    }
+
     private static void AssertOnlyAbstractions(string project, Func<string, bool> allowed) =>
         Assert.True(RefsOf(project).All(allowed), $"{project} references: {string.Join(", ", RefsOf(project))}");
 

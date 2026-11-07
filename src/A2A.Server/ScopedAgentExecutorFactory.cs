@@ -9,7 +9,7 @@ namespace A2A.Server;
 public sealed class ScopedAgentExecutorFactory(IServiceScopeFactory scopes) : IAgentExecutorFactory
 {
     /// <inheritdoc />
-    public async ValueTask<AgentExecutorLease> RentAsync(CancellationToken ct)
+    public async ValueTask<AgentExecutorLease> RentAsync(CancellationToken cancellationToken)
     {
         var scope = scopes.CreateAsyncScope();
         try

@@ -82,23 +82,23 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// terminal or interrupted, by an event of this execution or of any other execution of the task (for example CancelTask),
     /// or until no execution of the task is running any more.
     /// </summary>
-    public async Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, ServerCallContext call, CancellationToken ct = default)
+    public async Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.SendMessage, request, request.Message?.TaskId, ct).ConfigureAwait(false);
-        var (claim, replay) = await _idempotency.BeginAsync(request, call, ct).ConfigureAwait(false);
-        if (replay is not null) return await _idempotency.ReplayAsync(replay, request, call, _engine.WaitUntilSettledAsync, ct).ConfigureAwait(false);
+        await AuthorizeAsync(call, A2AOperation.SendMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
+        var (claim, replay) = await _idempotency.BeginAsync(request, call, cancellationToken).ConfigureAwait(false);
+        if (replay is not null) return await _idempotency.ReplayAsync(replay, request, call, _engine.WaitUntilSettledAsync, cancellationToken).ConfigureAwait(false);
         var taskId = string.IsNullOrEmpty(request.Message?.TaskId) ? TaskIds.New() : request.Message.TaskId;
         var key = Key(call, taskId);
         var scope = ScopeKey(call.Tenant, taskId);
         // Subscribe before the agent starts, so no event of another execution is missed.
         using var sub = _bus.Subscribe(scope);
-        var (exec, afterSequence) = await AcceptAsync(request, call, claim, taskId, ct).ConfigureAwait(false);
+        var (exec, afterSequence) = await AcceptAsync(request, call, claim, taskId, cancellationToken).ConfigureAwait(false);
         var reply = await _streamer.WaitForOutcomeAsync(exec, key, sub, afterSequence, request.Configuration?.ReturnImmediately == true,
-            ct).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
         if (reply is not null) return new MessageResponse(reply);
 
-        var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false)
+        var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false)
             ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The agent finished without replying or creating a task.");
         return new TaskResponse(Shape(record.Task, request.Configuration?.HistoryLength));
     }
@@ -120,15 +120,15 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// parse, or when the message names a different task than the cursor.
     /// </param>
     /// <param name="onCaughtUp">Passed to the resume (see <see cref="IA2ARequestHandler.SendStreamingMessageAsync"/>).</param>
-    /// <param name="ct">Cancellation.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
     public IAsyncEnumerable<SequencedEvent> SendStreamingMessageAsync(SendMessageRequest request, ServerCallContext call, string? lastEventId = null,
-        Action? onCaughtUp = null, CancellationToken ct = default)
+        Action? onCaughtUp = null, CancellationToken cancellationToken = default)
     {
         var messageTaskId = request.Message?.TaskId;
         return StreamCursor.TryParse(lastEventId, out var taskId, out var sequence)
                && (string.IsNullOrEmpty(messageTaskId) || string.Equals(messageTaskId, taskId, StringComparison.Ordinal))
-            ? SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant }, call, sequence, onCaughtUp, ct)
-            : _streamer.StreamExecutionAsync(request, call, _accept, ct);
+            ? SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant }, call, sequence, onCaughtUp, cancellationToken)
+            : _streamer.StreamExecutionAsync(request, call, _accept, cancellationToken);
     }
 
     /// <param name="Context">The request context for the agent.</param>
@@ -285,21 +285,21 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     // =====================================================================
 
     /// <summary>GetTask (spec §3.1.3). Throws TaskNotFound when the task does not exist or belongs to another caller.</summary>
-    public async Task<AgentTask> GetTaskAsync(GetTaskRequest request, ServerCallContext call, CancellationToken ct = default)
+    public async Task<AgentTask> GetTaskAsync(GetTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.GetTask, request, request.Id, ct).ConfigureAwait(false);
+        await AuthorizeAsync(call, A2AOperation.GetTask, request, request.Id, cancellationToken).ConfigureAwait(false);
         A2AValidator.RequireId(request.Id, "id");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
-        var record = await _tasks.GetAsync(Key(call, request.Id), ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         return Shape(record.Task, request.HistoryLength);
     }
 
     /// <summary>ListTasks (spec §3.1.4). Returns the caller's tasks, newest status first. The page size defaults to 50 and is capped by <see cref="A2ALimits.MaxListPageSize"/>.</summary>
-    public async Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, ServerCallContext call, CancellationToken ct = default)
+    public async Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.ListTasks, request, null, ct).ConfigureAwait(false);
+        await AuthorizeAsync(call, A2AOperation.ListTasks, request, null, cancellationToken).ConfigureAwait(false);
         if (request.PageSize is < 1) throw A2AException.InvalidParams("pageSize must be between 1 and 100");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var pageSize = Math.Min(request.PageSize ?? 50, _options.Limits.MaxListPageSize);
@@ -311,7 +311,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             request.Status is null or TaskState.Unspecified ? null : request.Status,
             request.StatusTimestampAfter,
             pageSize,
-            request.PageToken), ct).ConfigureAwait(false);
+            request.PageToken), cancellationToken).ConfigureAwait(false);
 
         var include = request.IncludeArtifacts == true;
         return new ListTasksResponse
@@ -324,12 +324,12 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     }
 
     /// <summary>CancelTask (spec §3.1.5). Asks the running agent to stop, waits up to <see cref="A2AServerOptions.CancelGracePeriod"/>, and returns the task. Throws TaskNotCancelable when the task is already terminal.</summary>
-    public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken ct = default)
+    public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.CancelTask, request, request.Id, ct).ConfigureAwait(false);
+        await AuthorizeAsync(call, A2AOperation.CancelTask, request, request.Id, cancellationToken).ConfigureAwait(false);
         A2AValidator.RequireId(request.Id, "id");
-        var record = await _tasks.GetAsync(Key(call, request.Id), ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         if (record.Task.Status.State.IsTerminal()) throw NotCancelable(request.Id);
 
         var running = _engine.CancelRunning(Key(call, request.Id));
@@ -337,9 +337,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         exec.Detach();
 
         var waitAll = Task.WhenAll(running.Select(r => r.Completion).Append(exec.Completion));
-        await Task.WhenAny(waitAll, Task.Delay(_options.CancelGracePeriod, ct)).ConfigureAwait(false);
+        await Task.WhenAny(waitAll, Task.Delay(_options.CancelGracePeriod, cancellationToken)).ConfigureAwait(false);
 
-        record = await _tasks.GetAsync(Key(call, request.Id), ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         if (record.Task.Status.State != TaskState.Canceled) throw NotCancelable(request.Id);
         return Shape(record.Task, null);
     }
@@ -360,10 +360,10 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// </list>
     /// </param>
     /// <param name="onCaughtUp">See <see cref="IA2ARequestHandler.SubscribeToTaskAsync"/>.</param>
-    /// <param name="ct">Cancellation.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
     public IAsyncEnumerable<SequencedEvent> SubscribeToTaskAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter = null,
-        Action? onCaughtUp = null, CancellationToken ct = default) =>
-        _streamer.SubscribeAsync(request, call, resumeAfter, onCaughtUp, ct);
+        Action? onCaughtUp = null, CancellationToken cancellationToken = default) =>
+        _streamer.SubscribeAsync(request, call, resumeAfter, onCaughtUp, cancellationToken);
 
     /// <summary>Open streams counted against the stream limits. For tests.</summary>
     internal int OpenStreams => _streamer.OpenStreams;
@@ -373,53 +373,53 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     // =====================================================================
 
     /// <summary>CreateTaskPushNotificationConfig (spec §3.1.7). Validates the webhook URL, stores the registration and returns it with secrets removed.</summary>
-    public async Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken ct = default)
+    public async Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(config.Tenant);
-        await AuthorizeAsync(call, A2AOperation.CreateTaskPushNotificationConfig, config, config.TaskId, ct).ConfigureAwait(false);
+        await AuthorizeAsync(call, A2AOperation.CreateTaskPushNotificationConfig, config, config.TaskId, cancellationToken).ConfigureAwait(false);
         RequirePush();
         A2AValidator.ValidatePushConfig(config, "config", requireTaskId: true);
         var key = Key(call, config.TaskId!);
-        _ = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(config.TaskId!);
-        return await _pushConfigs.CreateAsync(key, config, ct).ConfigureAwait(false);
+        _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(config.TaskId!);
+        return await _pushConfigs.CreateAsync(key, config, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>GetTaskPushNotificationConfig (spec §3.1.8). Returns one registration with secrets removed.</summary>
-    public async Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken ct = default)
+    public async Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.GetTaskPushNotificationConfig, request, request.TaskId, ct).ConfigureAwait(false);
+        await AuthorizeAsync(call, A2AOperation.GetTaskPushNotificationConfig, request, request.TaskId, cancellationToken).ConfigureAwait(false);
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.TaskId);
-        _ = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
-        return await _pushConfigs.GetAsync(key, request.Id, ct).ConfigureAwait(false);
+        _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
+        return await _pushConfigs.GetAsync(key, request.Id, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>ListTaskPushNotificationConfigs (spec §3.1.9). Returns the registrations of a task, 100 per page at most, with secrets removed.</summary>
-    public async Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, ServerCallContext call, CancellationToken ct = default)
+    public async Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.ListTaskPushNotificationConfigs, request, request.TaskId, ct).ConfigureAwait(false);
+        await AuthorizeAsync(call, A2AOperation.ListTaskPushNotificationConfigs, request, request.TaskId, cancellationToken).ConfigureAwait(false);
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         var key = Key(call, request.TaskId);
-        _ = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
-        return await _pushConfigs.ListAsync(key, request.PageSize ?? 0, request.PageToken, ct).ConfigureAwait(false);
+        _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
+        return await _pushConfigs.ListAsync(key, request.PageSize ?? 0, request.PageToken, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>DeleteTaskPushNotificationConfig (spec §3.1.10). Throws when the registration does not exist.</summary>
-    public async Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken ct = default)
+    public async Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.DeleteTaskPushNotificationConfig, request, request.TaskId, ct).ConfigureAwait(false);
+        await AuthorizeAsync(call, A2AOperation.DeleteTaskPushNotificationConfig, request, request.TaskId, cancellationToken).ConfigureAwait(false);
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.TaskId);
-        _ = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
-        await _pushConfigs.DeleteAsync(key, request.Id, ct).ConfigureAwait(false);
+        _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
+        await _pushConfigs.DeleteAsync(key, request.Id, cancellationToken).ConfigureAwait(false);
     }
 
     // =====================================================================
@@ -427,14 +427,14 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     // =====================================================================
 
     /// <summary>GetExtendedAgentCard (spec §3.1.11). Needs an authenticated caller and a card from <see cref="A2AServerOptions.ExtendedAgentCardProvider"/>.</summary>
-    public async Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken ct = default)
+    public async Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
-        await AuthorizeAsync(call, A2AOperation.GetExtendedAgentCard, request, null, ct).ConfigureAwait(false);
+        await AuthorizeAsync(call, A2AOperation.GetExtendedAgentCard, request, null, cancellationToken).ConfigureAwait(false);
         if (_options.AgentCard.Capabilities.ExtendedAgentCard != true)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "This agent does not provide an extended agent card.");
         if (!call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated, "The extended agent card requires authentication.");
-        var card = _options.ExtendedAgentCardProvider is null ? null : await _options.ExtendedAgentCardProvider(call, ct).ConfigureAwait(false);
+        var card = _options.ExtendedAgentCardProvider is null ? null : await _options.ExtendedAgentCardProvider(call, cancellationToken).ConfigureAwait(false);
         return card ?? throw new A2AException(A2AErrorCode.ExtendedAgentCardNotConfigured);
     }
 

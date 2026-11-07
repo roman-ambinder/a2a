@@ -55,13 +55,13 @@ public abstract class IdempotencyStore
     /// request with that key: <see cref="IdempotencyResult.InProgress"/>, <see cref="IdempotencyResult.Completed"/>, or
     /// <see cref="IdempotencyResult.Mismatch"/> when its hash differs.
     /// </summary>
-    public abstract ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash, CancellationToken ct = default);
+    public abstract ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash, CancellationToken cancellationToken = default);
 
     /// <summary>Records the outcome of the request that owns <paramref name="scope"/> and releases requests waiting on it.</summary>
-    public abstract ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken ct = default);
+    public abstract ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken cancellationToken = default);
 
     /// <summary>Forgets the claim of a request that failed before any task or message existed. Waiting requests try again.</summary>
-    public abstract ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken ct = default);
+    public abstract ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Settings for idempotent SendMessage.</summary>

@@ -15,8 +15,8 @@ public abstract class A2AAuthorizationHandler
     /// <param name="call">The caller, with its tenant.</param>
     /// <param name="op">The operation.</param>
     /// <param name="request">The request object (for example a <see cref="GetTaskRequest"/>).</param>
-    /// <param name="ct">Cancellation.</param>
-    public virtual ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperation op, object request, CancellationToken ct) =>
+    /// <param name="cancellationToken">Cancellation.</param>
+    public virtual ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperation op, object request, CancellationToken cancellationToken) =>
         ValueTask.FromResult(true);
 }
 

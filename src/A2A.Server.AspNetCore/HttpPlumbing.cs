@@ -196,9 +196,9 @@ internal static class HttpPlumbing
     /// nothing to send yet) or after <paramref name="keepAlive"/> (1 second when keep-alives are off), so a quiet stream
     /// still starts. Returns null if the sequence is empty.
     /// </summary>
-    public static async Task<PrimedStream?> PrimeAsync(IAsyncEnumerable<SequencedEvent> source, TimeSpan keepAlive, Task? startNow, CancellationToken ct)
+    public static async Task<PrimedStream?> PrimeAsync(IAsyncEnumerable<SequencedEvent> source, TimeSpan keepAlive, Task? startNow, CancellationToken cancellationToken)
     {
-        var e = source.GetAsyncEnumerator(ct);
+        var e = source.GetAsyncEnumerator(cancellationToken);
         Task<bool>? first = null;
         try
         {
@@ -206,7 +206,7 @@ internal static class HttpPlumbing
             if (!first.IsCompleted)
             {
                 var patience = keepAlive > TimeSpan.Zero ? keepAlive : DefaultPrimePatience;
-                using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var delay = Task.Delay(patience, delayCts.Token);
                 await (startNow is null ? Task.WhenAny(first, delay) : Task.WhenAny(first, delay, startNow)).ConfigureAwait(false);
                 delayCts.Cancel();

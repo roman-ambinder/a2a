@@ -15,10 +15,10 @@ internal sealed class TaskLocks
         _locks[(StringComparer.Ordinal.GetHashCode(TaskExecutionEngine.ScopeKey(tenant, taskId)) & 0x7fffffff) % _locks.Length];
 
     /// <summary>Waits for the task's lock; dispose the result to release it. Nothing is held when the wait is cancelled.</summary>
-    public async ValueTask<Releaser> AcquireAsync(TaskKey key, CancellationToken ct)
+    public async ValueTask<Releaser> AcquireAsync(TaskKey key, CancellationToken cancellationToken)
     {
         var gate = For(key.Tenant, key.TaskId);
-        await gate.WaitAsync(ct).ConfigureAwait(false);
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         return new Releaser(gate);
     }
 

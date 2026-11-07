@@ -28,7 +28,7 @@ public sealed class IdempotencyCoordinator(IdempotencyStore store, TaskStore tas
     /// <see cref="MaxIdempotencyKeyLength"/> characters is InvalidParams.
     /// </summary>
     public async ValueTask<(IdempotencyClaim Claim, IdempotencyOutcome? Replay)> BeginAsync(SendMessageRequest request,
-        ServerCallContext call, CancellationToken ct)
+        ServerCallContext call, CancellationToken cancellationToken)
     {
         var key = call.IdempotencyKey ?? request.Message?.MessageId;
         if (string.IsNullOrEmpty(key) || request.Message is null) return (IdempotencyClaim.None, null); // validation rejects it later
@@ -37,7 +37,7 @@ public sealed class IdempotencyCoordinator(IdempotencyStore store, TaskStore tas
         var hash = RequestHasher.Hash(request);
         while (true)
         {
-            switch (await store.TryBeginAsync(scope, hash, ct).ConfigureAwait(false))
+            switch (await store.TryBeginAsync(scope, hash, cancellationToken).ConfigureAwait(false))
             {
                 case IdempotencyResult.New:
                     return (new IdempotencyClaim(store, scope), null);
@@ -46,9 +46,9 @@ public sealed class IdempotencyCoordinator(IdempotencyStore store, TaskStore tas
                 case IdempotencyResult.InProgress running:
                     try
                     {
-                        return (IdempotencyClaim.None, await running.Completion.WaitAsync(ct).ConfigureAwait(false));
+                        return (IdempotencyClaim.None, await running.Completion.WaitAsync(cancellationToken).ConfigureAwait(false));
                     }
-                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                     {
                         break; // the first request failed before creating anything: try again, possibly as the new owner
                     }
@@ -67,7 +67,7 @@ public sealed class IdempotencyCoordinator(IdempotencyStore store, TaskStore tas
     /// sequence after which a status event counts) and returns the task.
     /// </summary>
     public async ValueTask<SendMessageResponse> ReplayAsync(IdempotencyOutcome outcome, SendMessageRequest request, ServerCallContext call,
-        Func<TaskKey, long, CancellationToken, ValueTask<AgentTask>> waitUntilSettled, CancellationToken ct)
+        Func<TaskKey, long, CancellationToken, ValueTask<AgentTask>> waitUntilSettled, CancellationToken cancellationToken)
     {
         switch (outcome)
         {
@@ -76,8 +76,8 @@ public sealed class IdempotencyCoordinator(IdempotencyStore store, TaskStore tas
             case IdempotencyOutcome.TaskCreated created:
                 var key = new TaskKey(call.Tenant, call.Principal, created.TaskId);
                 var task = request.Configuration?.ReturnImmediately == true
-                    ? (await tasks.GetAsync(key, ct).ConfigureAwait(false))?.Task ?? throw A2AException.TaskNotFound(created.TaskId)
-                    : await waitUntilSettled(key, created.AfterSequence, ct).ConfigureAwait(false);
+                    ? (await tasks.GetAsync(key, cancellationToken).ConfigureAwait(false))?.Task ?? throw A2AException.TaskNotFound(created.TaskId)
+                    : await waitUntilSettled(key, created.AfterSequence, cancellationToken).ConfigureAwait(false);
                 return new TaskResponse(TaskShaper.Shape(task, request.Configuration?.HistoryLength, options.Limits));
             default:
                 throw new UnreachableException();

@@ -4,7 +4,7 @@ namespace A2A.Server;
 public interface IAgentExecutorFactory
 {
     /// <summary>Gets an executor for one execution. Dispose the returned lease when the execution ends.</summary>
-    ValueTask<AgentExecutorLease> RentAsync(CancellationToken ct);
+    ValueTask<AgentExecutorLease> RentAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>An executor on loan for one execution. Disposing it releases whatever scope produced the executor.</summary>

@@ -81,7 +81,7 @@ public static class PrivateAddressGuard
     /// delivery attempt; the connect-time check in <see cref="CreateHandler"/> covers the actual connection.
     /// </summary>
     public static async ValueTask EnsureHostAllowedAsync(string host, bool allowPrivateNetworks,
-        IEnumerable<(IPAddress Network, int PrefixLength)>? allowedNetworks, string hostKind, CancellationToken ct)
+        IEnumerable<(IPAddress Network, int PrefixLength)>? allowedNetworks, string hostKind, CancellationToken cancellationToken)
     {
         if (allowPrivateNetworks) return;
         IPAddress[] addresses;
@@ -91,7 +91,7 @@ public static class PrivateAddressGuard
             try
             {
                 // WaitAsync: getaddrinfo is not cancellable on every platform, so the token must bound the wait itself.
-                addresses = await Resolve(host, ct).AsTask().WaitAsync(ct).ConfigureAwait(false);
+                addresses = await Resolve(host, cancellationToken).AsTask().WaitAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is SocketException or ArgumentException)
             {

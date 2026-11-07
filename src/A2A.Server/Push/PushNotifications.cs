@@ -91,16 +91,16 @@ public static class PushUrlValidator
     /// Registration check: <see cref="Validate"/> plus DNS resolution and the IP check (spec 7.6). Every DNS-based failure
     /// (private, unresolvable) throws the same <see cref="UrlNotAllowed"/> InvalidParams error.
     /// </summary>
-    public static async ValueTask ValidateAsync(string url, PushNotificationOptions options, CancellationToken ct = default)
+    public static async ValueTask ValidateAsync(string url, PushNotificationOptions options, CancellationToken cancellationToken = default)
     {
         Validate(url, options);
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(options.Timeout < DnsTimeout ? options.Timeout : DnsTimeout);
         try
         {
             await ValidateForDeliveryAsync(url, options, cts.Token).AsTask().WaitAsync(cts.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw A2AException.InvalidParams(UrlNotAllowed); // DNS too slow
         }

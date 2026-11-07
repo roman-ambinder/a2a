@@ -779,7 +779,7 @@ static A2A.Validation.A2AValidator.ValidatePushConfig(A2A.TaskPushNotificationCo
 static readonly A2A.Signing.JwsAlgorithms.All -> System.Collections.Generic.IReadOnlySet<string!>!
 A2A.Signing.AgentCardVerifier.AgentCardVerifier(A2A.Signing.CardTrustPolicy! policy, A2A.Signing.IJwksFetcher? jwksFetcher = null) -> void
 A2A.Signing.IJwksFetcher
-A2A.Signing.IJwksFetcher.FetchAsync(System.Uri! jku, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.Signing.JwkSet!>
+A2A.Signing.IJwksFetcher.FetchAsync(System.Uri! jku, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Signing.JwkSet!>
 A2A.Text.TextSanitizer
 const A2A.Text.TextSanitizer.MaxHeaderValueLength = 200 -> int
 static A2A.Text.TextSanitizer.ForMessage(string? value) -> string!

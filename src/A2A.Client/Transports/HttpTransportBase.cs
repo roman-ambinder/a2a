@@ -30,7 +30,7 @@ public abstract class HttpTransportBase
     /// <c>Idempotency-Key</c>, and <c>Last-Event-ID</c> on a stream resume), then <see cref="A2ARequestOptions.Headers"/>, then <see cref="A2ARequestOptions.ConfigureRequest"/>.
     /// The later steps can replace or remove the earlier ones, including <c>A2A-Version</c>.
     /// </summary>
-    protected async Task ApplyHeadersAsync(HttpRequestMessage request, bool streaming, A2ARequestOptions? call, string? idempotencyKey, CancellationToken ct, string? lastEventId = null)
+    protected async Task ApplyHeadersAsync(HttpRequestMessage request, bool streaming, A2ARequestOptions? call, string? idempotencyKey, CancellationToken cancellationToken, string? lastEventId = null)
     {
         request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, Options.ProtocolVersion);
         var extensions = call?.Extensions is { Count: > 0 } perCall ? Options.Extensions.Concat(perCall).Distinct() : Options.Extensions;
@@ -61,7 +61,7 @@ public abstract class HttpTransportBase
                 request.Content.Headers.TryAddWithoutValidation(name, value);
             }
         }
-        if (call.ConfigureRequest is { } configure) await configure(request, ct).ConfigureAwait(false);
+        if (call.ConfigureRequest is { } configure) await configure(request, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The key for <c>SendMessage</c>: the caller's, else the message id. Fills an empty message id first.</summary>

@@ -22,10 +22,10 @@ public sealed class GuardedJwksFetcher(HttpMessageInvoker? invoker = null) : IJw
     private readonly HttpMessageInvoker _invoker = invoker ?? Default.Value;
 
     /// <inheritdoc/>
-    public async ValueTask<JwkSet> FetchAsync(Uri jku, CancellationToken ct)
+    public async ValueTask<JwkSet> FetchAsync(Uri jku, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(jku);
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(Timeout);
         using var request = new HttpRequestMessage(HttpMethod.Get, jku);
         using var response = await _invoker.SendAsync(request, timeout.Token).ConfigureAwait(false);

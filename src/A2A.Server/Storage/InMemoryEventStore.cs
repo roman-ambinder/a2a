@@ -16,7 +16,7 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
     private readonly ConcurrentDictionary<TaskKey, TaskLog> _logs = new();
 
     /// <inheritdoc />
-    public override ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken ct = default)
+    public override ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken cancellationToken = default)
     {
         var capacity = Math.Max(1, options.ReplayBufferSize);
         while (true)
@@ -35,7 +35,7 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
 
     /// <inheritdoc />
     public override async IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence,
-        [EnumeratorCancellation] CancellationToken ct = default)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         SequencedEvent[] snapshot = [];
         if (_logs.TryGetValue(task, out var log))
@@ -44,28 +44,28 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
         }
         foreach (var e in snapshot)
         {
-            ct.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
             yield return e;
         }
         await Task.CompletedTask.ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public override ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken ct = default)
+    public override ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         if (!_logs.TryGetValue(task, out var log)) return ValueTask.FromResult<long?>(null);
         lock (log) return ValueTask.FromResult<long?>(log.Events.Count == 0 ? null : log.Events[0].Sequence);
     }
 
     /// <inheritdoc />
-    public override ValueTask<long> LastSequenceAsync(TaskKey task, CancellationToken ct = default)
+    public override ValueTask<long> LastSequenceAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         if (!_logs.TryGetValue(task, out var log)) return ValueTask.FromResult(0L);
         lock (log) return ValueTask.FromResult(log.Last);
     }
 
     /// <inheritdoc />
-    public override ValueTask MarkTerminalAsync(TaskKey task, CancellationToken ct = default)
+    public override ValueTask MarkTerminalAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         if (!_logs.TryGetValue(task, out var log)) return ValueTask.CompletedTask;
         lock (log)

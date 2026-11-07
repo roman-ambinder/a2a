@@ -36,27 +36,27 @@ public sealed record TaskPage(IReadOnlyList<TaskRecord> Records, string NextPage
 public abstract class TaskStore
 {
     /// <summary>Returns the task, or null when it does not exist or <see cref="TaskKey.Owner"/> is not its owner.</summary>
-    public abstract ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default);
+    public abstract ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken cancellationToken = default);
 
     /// <summary>Inserts a new task. <see cref="TaskRecord.Version"/> must be 0 on input; the stored record has version 1.</summary>
     /// <exception cref="DuplicateTaskException">A task with this tenant and id exists.</exception>
-    public abstract ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default);
+    public abstract ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken cancellationToken = default);
 
     /// <summary>Replaces the task if its stored version equals <paramref name="expectedVersion"/>. Returns the stored record with version expected + 1.</summary>
     /// <exception cref="ConcurrencyException">The stored version differs, or the task does not exist for this owner.</exception>
-    public abstract ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default);
+    public abstract ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns tasks matching the query, sorted by status timestamp descending (spec §3.1.4). Must filter by owner and tenant before counting or paging.
     /// Throws <see cref="A2AException"/> (InvalidParams) for a bad page token.
     /// </summary>
-    public abstract ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default);
+    public abstract ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken cancellationToken = default);
 
     /// <summary>Returns the context, or null when it does not exist in the tenant.</summary>
-    public abstract ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default);
+    public abstract ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken cancellationToken = default);
 
     /// <summary>Atomic: stores <paramref name="record"/> unless the context exists, and returns whichever record is stored.</summary>
-    public abstract ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default);
+    public abstract ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Generates unguessable task ids.</summary>

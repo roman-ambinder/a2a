@@ -9,10 +9,10 @@ internal static class OperationAuthorization
     /// A denial of a task-scoped operation looks like a missing task; any other denial is <see cref="A2AErrorCode.PermissionDenied"/>.
     /// </summary>
     public static async Task RequireAsync(this A2AAuthorizationHandler handler, A2AServerOptions options, ServerCallContext call,
-        A2AOperation op, object request, string? taskId, CancellationToken ct)
+        A2AOperation op, object request, string? taskId, CancellationToken cancellationToken)
     {
         if (!options.AllowAnonymous && !call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated);
-        if (await handler.AuthorizeAsync(call, op, request, ct).ConfigureAwait(false)) return;
+        if (await handler.AuthorizeAsync(call, op, request, cancellationToken).ConfigureAwait(false)) return;
         if (!string.IsNullOrEmpty(taskId)) throw A2AException.TaskNotFound(taskId);
         throw new A2AException(A2AErrorCode.PermissionDenied);
     }

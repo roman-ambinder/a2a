@@ -15,19 +15,19 @@ public sealed record PushConfigRecord(TaskKey TaskKey, TaskPushNotificationConfi
 public abstract class PushConfigStore
 {
     /// <summary>Stores a registration, replacing one with the same task and id.</summary>
-    public abstract ValueTask SaveAsync(PushConfigRecord record, CancellationToken ct = default);
+    public abstract ValueTask SaveAsync(PushConfigRecord record, CancellationToken cancellationToken = default);
 
     /// <summary>Returns one registration, or null when it does not exist for this owner.</summary>
-    public abstract ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken ct = default);
+    public abstract ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken cancellationToken = default);
 
     /// <summary>Returns the task's configs ordered by <see cref="TaskPushNotificationConfig.Id"/> (ordinal).</summary>
-    public abstract ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken ct = default);
+    public abstract ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken cancellationToken = default);
 
     /// <summary>Returns the number of registrations of the task.</summary>
-    public abstract ValueTask<int> CountAsync(TaskKey task, CancellationToken ct = default);
+    public abstract ValueTask<int> CountAsync(TaskKey task, CancellationToken cancellationToken = default);
 
     /// <summary>Deletes a registration. Returns false when it did not exist.</summary>
-    public abstract ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken ct = default);
+    public abstract ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>In-memory <see cref="PushConfigStore"/> for development and tests. Keeps and returns the instances it is given, without copying.</summary>
@@ -41,7 +41,7 @@ public sealed class InMemoryPushConfigStore : PushConfigStore
     private readonly ConcurrentDictionary<TaskKey, ConcurrentDictionary<string, PushConfigRecord>> _configs = new();
 
     /// <inheritdoc />
-    public override ValueTask SaveAsync(PushConfigRecord record, CancellationToken ct = default)
+    public override ValueTask SaveAsync(PushConfigRecord record, CancellationToken cancellationToken = default)
     {
         while (true)
         {
@@ -57,11 +57,11 @@ public sealed class InMemoryPushConfigStore : PushConfigStore
     }
 
     /// <inheritdoc />
-    public override ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken ct = default) =>
+    public override ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(_configs.TryGetValue(task, out var configs) && configs.TryGetValue(configId, out var r) ? r : null);
 
     /// <inheritdoc />
-    public override ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken ct = default)
+    public override ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         if (!_configs.TryGetValue(task, out var configs)) return ValueTask.FromResult<IReadOnlyList<PushConfigRecord>>([]);
         var list = configs.Values.ToArray();
@@ -70,11 +70,11 @@ public sealed class InMemoryPushConfigStore : PushConfigStore
     }
 
     /// <inheritdoc />
-    public override ValueTask<int> CountAsync(TaskKey task, CancellationToken ct = default) =>
+    public override ValueTask<int> CountAsync(TaskKey task, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(_configs.TryGetValue(task, out var configs) ? configs.Count : 0);
 
     /// <inheritdoc />
-    public override ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken ct = default)
+    public override ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken cancellationToken = default)
     {
         if (!_configs.TryGetValue(task, out var configs)) return ValueTask.FromResult(false);
         lock (configs)

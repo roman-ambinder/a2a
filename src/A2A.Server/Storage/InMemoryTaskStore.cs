@@ -12,14 +12,14 @@ public sealed class InMemoryTaskStore : TaskStore
     private readonly ConcurrentDictionary<(string Tenant, string ContextId), ContextRecord> _contexts = new();
 
     /// <inheritdoc />
-    public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) =>
+    public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(
             _tasks.TryGetValue((key.Tenant, key.TaskId), out var r) && string.Equals(r.Owner, key.Owner, StringComparison.Ordinal)
                 ? r
                 : null);
 
     /// <inheritdoc />
-    public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default)
+    public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken cancellationToken = default)
     {
         if (record.Version != 0) throw new ArgumentException("A new record must have Version 0.", nameof(record));
         var stored = record with { Version = 1 };
@@ -28,7 +28,7 @@ public sealed class InMemoryTaskStore : TaskStore
     }
 
     /// <inheritdoc />
-    public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default)
+    public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken cancellationToken = default)
     {
         var id = (record.Tenant, record.Task.Id);
         if (!_tasks.TryGetValue(id, out var current)
@@ -42,7 +42,7 @@ public sealed class InMemoryTaskStore : TaskStore
     }
 
     /// <inheritdoc />
-    public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default)
+    public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken cancellationToken = default)
     {
         var cursor = PageCursor.Decode(query.PageToken);
         var matching = _tasks.Values
@@ -72,10 +72,10 @@ public sealed class InMemoryTaskStore : TaskStore
     }
 
     /// <inheritdoc />
-    public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) =>
+    public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(_contexts.TryGetValue((tenant, contextId), out var c) ? c : null);
 
     /// <inheritdoc />
-    public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) =>
+    public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(_contexts.GetOrAdd((record.Tenant, record.ContextId), record));
 }
