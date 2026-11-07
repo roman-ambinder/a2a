@@ -128,3 +128,31 @@ jobs:
           name: benchmark-results
           path: BenchmarkDotNet.Artifacts/results
           if-no-files-found: warn
+
+  aot-publish:
+    name: AOT publish (samples)
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install native AOT prerequisites
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
+      - name: Publish EchoAgent (native AOT) and check for trim/AOT warnings
+        run: |
+          dotnet publish samples/EchoAgent -c Release -f net10.0 -r linux-x64 -p:PublishAot=true 2>&1 | tee publish-agent.log
+          grep -E 'warning IL(2|3)[0-9]{3}' publish-agent.log > warnings-agent.txt || true
+          cat warnings-agent.txt
+          test ! -s warnings-agent.txt
+
+      - name: Publish EchoClient (native AOT) and check for trim/AOT warnings
+        run: |
+          dotnet publish samples/EchoClient -c Release -f net10.0 -r linux-x64 -p:PublishAot=true 2>&1 | tee publish-client.log
+          grep -E 'warning IL(2|3)[0-9]{3}' publish-client.log > warnings-client.txt || true
+          cat warnings-client.txt
+          test ! -s warnings-client.txt
