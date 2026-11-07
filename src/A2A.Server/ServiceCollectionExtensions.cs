@@ -44,6 +44,7 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<Execution.TaskExecutionEngine>();
         services.TryAddSingleton<Streaming.TaskStreamer>();
         services.TryAddSingleton<A2ARequestHandler>();
+        services.TryAddSingleton<IA2ARequestHandler>(sp => sp.GetRequiredService<A2ARequestHandler>());
         return new A2AServerBuilder(services);
     }
 }

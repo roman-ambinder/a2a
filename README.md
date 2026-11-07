@@ -93,7 +93,7 @@ app.MapA2AGrpc();
 var client = A2AGrpcClientFactory.Create(card);
 ```
 
-The gRPC service runs on the same `A2ARequestHandler` as the HTTP bindings, so auth scoping, validation, and errors behave the same.
+The gRPC service runs on the same `IA2ARequestHandler` as the HTTP bindings, so auth scoping, validation, and errors behave the same. A binding of your own resolves `IA2ARequestHandler` from DI and gets the same operations.
 Errors are `google.rpc.Status` with an `ErrorInfo` detail. `A2A-Version` and `A2A-Extensions` travel as `a2a-version` / `a2a-extensions` metadata.
 Proto ↔ model conversion goes through ProtoJSON (the model's JSON form *is* ProtoJSON), so all three bindings share one mapping.
 `A2AClientFactory` still chooses between JSON-RPC and HTTP+JSON only; use `A2AGrpcClientFactory` for gRPC.

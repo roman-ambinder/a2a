@@ -1,6 +1,6 @@
 A2A.Server.Grpc.A2AGrpcExtensions
 A2A.Server.Grpc.A2AGrpcService
-A2A.Server.Grpc.A2AGrpcService.A2AGrpcService(A2A.Server.A2ARequestHandler! handler, Microsoft.Extensions.Logging.ILogger<A2A.Server.Grpc.A2AGrpcService!>! logger) -> void
+A2A.Server.Grpc.A2AGrpcService.A2AGrpcService(A2A.Server.IA2ARequestHandler! handler, Microsoft.Extensions.Logging.ILogger<A2A.Server.Grpc.A2AGrpcService!>! logger) -> void
 override A2A.Server.Grpc.A2AGrpcService.CancelTask(Lf.A2a.V1.CancelTaskRequest! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<Lf.A2a.V1.Task!>!
 override A2A.Server.Grpc.A2AGrpcService.CreateTaskPushNotificationConfig(Lf.A2a.V1.TaskPushNotificationConfig! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<Lf.A2a.V1.TaskPushNotificationConfig!>!
 override A2A.Server.Grpc.A2AGrpcService.DeleteTaskPushNotificationConfig(Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<Google.Protobuf.WellKnownTypes.Empty!>!

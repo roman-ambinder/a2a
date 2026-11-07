@@ -11,16 +11,16 @@ using GrpcContext = Grpc.Core.ServerCallContext;
 namespace A2A.Server.Grpc;
 
 /// <summary>
-/// gRPC binding (spec §10). Implements <c>lf.a2a.v1.A2AService</c> on top of <see cref="A2ARequestHandler"/>, so behavior,
+/// gRPC binding (spec §10). Implements <c>lf.a2a.v1.A2AService</c> on top of <see cref="IA2ARequestHandler"/>, so behavior,
 /// authorization scoping, and validation match the JSON-RPC and REST bindings exactly.
 /// </summary>
 public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
 {
-    private readonly A2ARequestHandler _handler;
+    private readonly IA2ARequestHandler _handler;
     private readonly ILogger<A2AGrpcService> _logger;
 
     /// <summary>Creates the service. The DI container does this.</summary>
-    public A2AGrpcService(A2ARequestHandler handler, ILogger<A2AGrpcService> logger)
+    public A2AGrpcService(IA2ARequestHandler handler, ILogger<A2AGrpcService> logger)
     {
         _handler = handler;
         _logger = logger;
@@ -33,7 +33,7 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
 
     /// <summary>SendStreamingMessage (spec §3.1.2) over gRPC.</summary>
     public override Task SendStreamingMessage(Pb.SendMessageRequest request, IServerStreamWriter<Pb.StreamResponse> responseStream, GrpcContext context) =>
-        Stream(context, responseStream, (call, ct) => _handler.SendStreamingMessageAsync(ProtoMapper.ToModel<SendMessageRequest>(request), call, ct));
+        Stream(context, responseStream, (call, ct) => _handler.SendStreamingMessageAsync(ProtoMapper.ToModel<SendMessageRequest>(request), call, ct: ct));
 
     /// <summary>GetTask (spec §3.1.3) over gRPC.</summary>
     public override Task<Pb.Task> GetTask(Pb.GetTaskRequest request, GrpcContext context) =>
@@ -52,7 +52,7 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
 
     /// <summary>SubscribeToTask (spec §3.1.6) over gRPC.</summary>
     public override Task SubscribeToTask(Pb.SubscribeToTaskRequest request, IServerStreamWriter<Pb.StreamResponse> responseStream, GrpcContext context) =>
-        Stream(context, responseStream, (call, ct) => _handler.SubscribeToTaskAsync(ProtoMapper.ToModel<SubscribeToTaskRequest>(request), call, ct));
+        Stream(context, responseStream, (call, ct) => _handler.SubscribeToTaskAsync(ProtoMapper.ToModel<SubscribeToTaskRequest>(request), call, ct: ct));
 
     /// <summary>CreateTaskPushNotificationConfig (spec §3.1.7) over gRPC.</summary>
     public override Task<Pb.TaskPushNotificationConfig> CreateTaskPushNotificationConfig(Pb.TaskPushNotificationConfig request, GrpcContext context) =>

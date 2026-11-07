@@ -59,7 +59,7 @@ public sealed class TaskStreamer
 
     /// <summary>
     /// SendStreamingMessage: authorizes, handles an idempotent retry, takes a stream slot, accepts the message with
-    /// <paramref name="accept"/>, then streams the task's events (see <see cref="A2ARequestHandler.SendStreamingMessageAsync(SendMessageRequest, ServerCallContext, CancellationToken)"/>).
+    /// <paramref name="accept"/>, then streams the task's events (see <see cref="A2ARequestHandler.SendStreamingMessageAsync"/>).
     /// Everything runs when the stream is enumerated, inside the stream limits.
     /// </summary>
     internal IAsyncEnumerable<SequencedEvent> StreamExecutionAsync(SendMessageRequest request, ServerCallContext call, AcceptMessage accept,
@@ -68,7 +68,7 @@ public sealed class TaskStreamer
         LimitStreamAsync(SendStreamingCoreAsync(request, call, accept, CancellationToken.None), call, A2AOperation.SendStreamingMessage, request, cancellationToken);
 
     /// <summary>
-    /// SubscribeToTask, fresh or resumed (see <see cref="A2ARequestHandler.SubscribeToTaskAsync(SubscribeToTaskRequest, ServerCallContext, long?, CancellationToken)"/>),
+    /// SubscribeToTask, fresh or resumed (see <see cref="A2ARequestHandler.SubscribeToTaskAsync"/>),
     /// inside the stream limits. <paramref name="onCaughtUp"/> is described on <see cref="SubscribeCoreAsync"/>.
     /// </summary>
     internal IAsyncEnumerable<SequencedEvent> SubscribeAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,

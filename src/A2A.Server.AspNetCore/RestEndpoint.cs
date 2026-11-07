@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 namespace A2A.Server.AspNetCore;
 
 /// <summary>HTTP+JSON/REST binding (spec §11). Errors use the google.rpc.Status shape (§11.6).</summary>
-internal sealed class RestEndpoint(A2ARequestHandler handler,
+internal sealed class RestEndpoint(IA2ARequestHandler handler,
     IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<RestEndpoint> logger)
 {
     private readonly A2ALimits _limits = serverOptions.Value.Limits;

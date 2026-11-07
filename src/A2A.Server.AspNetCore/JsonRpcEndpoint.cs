@@ -10,7 +10,7 @@ using Microsoft.Extensions.Options;
 namespace A2A.Server.AspNetCore;
 
 /// <summary>JSON-RPC 2.0 binding (spec §9): one POST endpoint, SSE for streaming methods.</summary>
-internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
+internal sealed class JsonRpcEndpoint(IA2ARequestHandler handler,
     IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<JsonRpcEndpoint> logger)
 {
     /// <summary>Display name of the JSON-RPC endpoints. The rate limiter uses it to pick the error format.</summary>
