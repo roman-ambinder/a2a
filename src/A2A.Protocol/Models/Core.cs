@@ -39,53 +39,6 @@ public enum Role
     [ProtoName("ROLE_AGENT")] Agent = 2,
 }
 
-/// <summary>Kind of content held by a <see cref="Part"/>.</summary>
-public enum PartKind { None, Text, Raw, Url, Data }
-
-/// <summary>A unit of content: text, raw bytes, a URL, or structured JSON data (spec §4.1.6). Exactly one content field is set.</summary>
-public sealed class Part
-{
-    public string? Text { get; set; }
-
-    /// <summary>Inline file bytes; base64 on the wire.</summary>
-    public byte[]? Raw { get; set; }
-
-    public string? Url { get; set; }
-
-    /// <summary>Arbitrary JSON value.</summary>
-    public JsonElement? Data { get; set; }
-
-    public Dictionary<string, JsonElement>? Metadata { get; set; }
-
-    public string? Filename { get; set; }
-
-    public string? MediaType { get; set; }
-
-    [JsonIgnore]
-    public PartKind Kind =>
-        Text is not null ? PartKind.Text :
-        Raw is not null ? PartKind.Raw :
-        Url is not null ? PartKind.Url :
-        Data is not null ? PartKind.Data : PartKind.None;
-
-    [JsonIgnore]
-    internal int ContentCount =>
-        (Text is null ? 0 : 1) + (Raw is null ? 0 : 1) + (Url is null ? 0 : 1) + (Data is null ? 0 : 1);
-
-    public static Part FromText(string text, string? mediaType = null) => new() { Text = text, MediaType = mediaType };
-
-    public static Part FromBytes(byte[] bytes, string mediaType, string? filename = null) =>
-        new() { Raw = bytes, MediaType = mediaType, Filename = filename };
-
-    public static Part FromUrl(string url, string? mediaType = null, string? filename = null) =>
-        new() { Url = url, MediaType = mediaType, Filename = filename };
-
-    public static Part FromData(JsonElement data, string? mediaType = "application/json") => new() { Data = data, MediaType = mediaType };
-
-    public static Part FromData<T>(T value, string? mediaType = "application/json") =>
-        FromData(JsonSerializer.SerializeToElement(value, A2AJson.Options), mediaType);
-}
-
 /// <summary>One unit of communication between client and agent (spec §4.1.4).</summary>
 public sealed class Message
 {
@@ -107,7 +60,7 @@ public sealed class Message
         new() { MessageId = NewId(), Role = Role.Agent, Parts = [Part.FromText(text)], ContextId = contextId, TaskId = taskId };
 
     /// <summary>Concatenated text of all text parts.</summary>
-    public string GetText() => string.Concat(Parts.Where(p => p.Text is not null).Select(p => p.Text));
+    public string GetText() => string.Concat(Parts.OfType<TextPart>().Select(p => p.Text));
 }
 
 /// <summary>An output of a task (spec §4.1.7).</summary>

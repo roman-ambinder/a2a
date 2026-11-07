@@ -114,7 +114,7 @@ public class LimitsTests
         var message = new Message
         {
             MessageId = "m1", Role = Role.User,
-            Parts = Enumerable.Range(0, 101).Select(i => Part.FromText($"p{i}")).ToList(),
+            Parts = Enumerable.Range(0, 101).Select(i => (Part)Part.FromText($"p{i}")).ToList(),
         };
         var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(binding).SendMessageAsync(message));
         Assert.Equal(A2AErrorCode.InvalidRequest, ex.Code);
@@ -124,7 +124,7 @@ public class LimitsTests
     [Fact]
     public void Exactly_the_part_limit_is_accepted()
     {
-        var message = new Message { MessageId = "m1", Role = Role.User, Parts = Enumerable.Range(0, 100).Select(i => Part.FromText("p")).ToList() };
+        var message = new Message { MessageId = "m1", Role = Role.User, Parts = Enumerable.Range(0, 100).Select(i => (Part)Part.FromText("p")).ToList() };
         RequestLimitValidator.Validate(message, new A2ALimits());
     }
 

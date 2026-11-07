@@ -15,7 +15,7 @@ public static class RequestLimitValidator
             throw new A2AException(A2AErrorCode.InvalidRequest, $"A message may have at most {limits.MaxPartsPerMessage} parts");
         foreach (var part in parts)
         {
-            if (part?.Raw is { } raw && raw.Length > limits.MaxRawPartBytes)
+            if (part is RawPart { Raw.Length: var length } && length > limits.MaxRawPartBytes)
                 throw A2AException.PayloadTooLarge(limits.MaxRawPartBytes);
         }
     }

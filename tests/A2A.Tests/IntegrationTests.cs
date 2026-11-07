@@ -37,7 +37,7 @@ public class BindingTests : IAsyncLifetime
         var task = (await client.SendMessageAsync("task")).Task!;
         Assert.Equal(TaskState.Completed, task.Status.State);
         var artifact = Assert.Single(task.Artifacts!);
-        Assert.Equal(["part1", "part2"], artifact.Parts.Select(p => p.Text));
+        Assert.Equal(["part1", "part2"], artifact.Parts.OfType<TextPart>().Select(p => p.Text));
         Assert.Equal("result", artifact.Name);
         Assert.Equal(Role.User, task.History![0].Role);
         Assert.Equal(task.Id, task.History[0].TaskId);

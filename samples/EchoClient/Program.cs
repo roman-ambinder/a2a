@@ -23,7 +23,7 @@ Console.WriteLine($"ping -> {pong.Message?.GetText()}");
 Console.Write("stream -> ");
 await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser(text)))
 {
-    if (evt.ArtifactUpdate is { } a) Console.Write(string.Concat(a.Artifact.Parts.Select(p => p.Text)));
+    if (evt.ArtifactUpdate is { } a) Console.Write(string.Concat(a.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)));
     if (evt.StatusUpdate is { } s && s.Status.State.IsTerminal()) Console.WriteLine($"  [{s.Status.State}]");
 }
 

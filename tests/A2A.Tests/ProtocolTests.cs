@@ -33,15 +33,18 @@ public class JsonTests
         {
             MessageId = "m1",
             Role = Role.User,
-            Parts = [Part.FromText("hi"), Part.FromBytes([1, 2, 3], "application/octet-stream", "a.bin"), Part.FromUrl("https://x/y.png", "image/png"), Part.FromData(new { a = 1 })],
+            Parts = [Part.FromText("hi"), Part.FromBytes(new byte[] { 1, 2, 3 }, "application/octet-stream", "a.bin"), Part.FromUrl(new Uri("https://x/y.png"), "image/png"), Part.FromData(JsonSerializer.SerializeToElement(new { a = 1 }))],
         };
         var json = A2AJson.Serialize(msg);
         Assert.DoesNotContain("null", json);
         Assert.Contains("\"raw\":\"AQID\"", json);
         Assert.Contains("\"role\":\"ROLE_USER\"", json);
         var back = A2AJson.Deserialize<Message>(json);
-        Assert.Equal([PartKind.Text, PartKind.Raw, PartKind.Url, PartKind.Data], back.Parts.Select(p => p.Kind));
-        Assert.Equal(1, back.Parts[3].Data!.Value.GetProperty("a").GetInt32());
+        Assert.IsType<TextPart>(back.Parts[0]);
+        Assert.IsType<RawPart>(back.Parts[1]);
+        Assert.IsType<UrlPart>(back.Parts[2]);
+        var data = Assert.IsType<DataPart>(back.Parts[3]);
+        Assert.Equal(1, data.Data.GetProperty("a").GetInt32());
     }
 
     [Fact]

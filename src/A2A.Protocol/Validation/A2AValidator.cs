@@ -27,8 +27,6 @@ public static class A2AValidator
     public static void ValidatePart(Part part, string path)
     {
         if (part is null) throw A2AException.InvalidParams($"{path} is null");
-        if (part.ContentCount != 1)
-            throw A2AException.InvalidParams($"{path} must set exactly one of text, raw, url, data");
     }
 
     public static void ValidateArtifact(Artifact artifact, string path)
@@ -39,8 +37,8 @@ public static class A2AValidator
             throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"{path}.parts must contain at least one part");
         foreach (var p in artifact.Parts)
         {
-            if (p.ContentCount != 1)
-                throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"{path} parts must set exactly one content field");
+            if (p is null)
+                throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"{path} contains a null part");
         }
     }
 
