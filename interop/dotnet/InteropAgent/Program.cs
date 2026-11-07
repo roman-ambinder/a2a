@@ -17,25 +17,38 @@ builder.WebHost.ConfigureKestrel(k =>
     k.ListenLocalhost(port, o => o.Protocols = HttpProtocols.Http1);
     k.ListenLocalhost(port + 1, o => o.Protocols = HttpProtocols.Http2);
 });
-builder.Services.AddA2AGrpc();
-builder.Services.AddA2AServer<ScenarioAgent>(o => o.AgentCard = new AgentCard
+builder.Services.AddA2AServer(o =>
 {
-    Name = ".NET Scenario Agent",
-    Description = "A2A .NET SDK agent for interop tests",
-    Version = "1.0.0",
-    SupportedInterfaces =
-    [
-        new AgentInterface { Url = $"{baseUrl}/a2a", ProtocolBinding = ProtocolBindings.JsonRpc },
-        new AgentInterface { Url = $"{baseUrl}/a2a", ProtocolBinding = ProtocolBindings.HttpJson },
-        new AgentInterface { Url = $"http://127.0.0.1:{port + 1}", ProtocolBinding = ProtocolBindings.Grpc },
-    ],
-    Capabilities = new AgentCapabilities { Streaming = true, PushNotifications = false },
-    DefaultInputModes = ["text/plain"],
-    DefaultOutputModes = ["text/plain"],
-    Skills = [new AgentSkill { Id = "scenario", Name = "Scenario", Description = "Interop scenarios", Tags = ["test"] }],
+    // The interop clients are anonymous; production agents call RequireAuthorization() instead.
+    o.AllowAnonymous = true;
+    o.AgentCard = new AgentCard
+    {
+        Name = ".NET Scenario Agent",
+        Description = "A2A .NET SDK agent for interop tests",
+        Version = "1.0.0",
+        SupportedInterfaces =
+        [
+            new AgentInterface { Url = $"{baseUrl}/a2a", ProtocolBinding = ProtocolBindings.JsonRpc },
+            new AgentInterface { Url = $"{baseUrl}/a2a", ProtocolBinding = ProtocolBindings.HttpJson },
+            new AgentInterface { Url = $"http://127.0.0.1:{port + 1}", ProtocolBinding = ProtocolBindings.Grpc },
+        ],
+        Capabilities = new AgentCapabilities { Streaming = true, PushNotifications = false },
+        DefaultInputModes = ["text/plain"],
+        DefaultOutputModes = ["text/plain"],
+        Skills = [new AgentSkill { Id = "scenario", Name = "Scenario", Description = "Interop scenarios", Tags = ["test"] }],
+    };
+}).AddAgentExecutor<ScenarioAgent>();
+builder.Services.AddA2AServerAspNetCore();
+// All interop clients share one address, so the default per-caller budget (20 burst, 60 per minute) is too small for a full run.
+builder.Services.AddA2ARateLimiting(o =>
+{
+    o.TokenLimit = 10_000;
+    o.TokensPerPeriod = 10_000;
 });
+builder.Services.AddA2AGrpc();
 
 var app = builder.Build();
+app.UseA2A();
 app.MapAgentCard();
 app.MapA2A("/a2a");
 app.MapA2AGrpc();

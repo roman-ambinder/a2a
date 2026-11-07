@@ -37,20 +37,22 @@ Console.WriteLine($"# .NET client -> {client.AgentCard!.Name} via {binding}");
 await Check("direct message reply", async () =>
 {
     var r = await client.SendMessageAsync("hello");
-    Expect(r.Message is not null && r.Task is null, "a message, no task");
-    Expect(r.Message!.GetText() == "hi there", "text 'hi there'");
-    Expect(r.Message.Role == Role.Agent, "agent role");
+    Expect(r is MessageResponse, "a message, no task");
+    var message = ((MessageResponse)r).Message;
+    Expect(message.GetText() == "hi there", "text 'hi there'");
+    Expect(message.Role == Role.Agent, "agent role");
 });
 
 AgentTask? completed = null;
 await Check("blocking send -> completed task with appended artifact", async () =>
 {
-    completed = (await client.SendMessageAsync("task")).Task;
+    completed = (await client.SendMessageAsync("task") as TaskResponse)?.Task;
     Expect(completed is not null, "a task");
     Expect(completed!.Status.State == TaskState.Completed, $"COMPLETED, got {completed.Status.State}");
     var art = completed.Artifacts?.SingleOrDefault();
     Expect(art is not null, "one artifact");
-    Expect(string.Join(",", art!.Parts.Select(p => p.Text)) == "part1,part2", $"parts part1,part2, got {string.Join(",", art.Parts.Select(p => p.Text))}");
+    var texts = string.Join(",", art!.Parts.Select(p => (p as TextPart)?.Text));
+    Expect(texts == "part1,part2", $"parts part1,part2, got {texts}");
 });
 
 await Check("streaming send -> task first, ordered events, terminal last", async () =>
@@ -58,10 +60,14 @@ await Check("streaming send -> task first, ordered events, terminal last", async
     var events = new List<StreamResponse>();
     await foreach (var e in client.SendStreamingMessageAsync(Message.FromUser("task"))) events.Add(e);
     Expect(events.Count >= 4, $">= 4 events, got {events.Count}");
-    Expect(events[0].Task is not null, "first event to be a Task");
-    Expect(events.Any(e => e.ArtifactUpdate?.Append == true), "an append artifact chunk");
-    var lastState = events.Last(e => e.StatusUpdate is not null || e.Task is not null);
-    var state = lastState.StatusUpdate?.Status.State ?? lastState.Task!.Status.State;
+    Expect(events[0] is TaskEvent, "first event to be a Task");
+    Expect(events.Any(e => e is ArtifactUpdateEvent { ArtifactUpdate.Append: true }), "an append artifact chunk");
+    var state = events.Last(e => e is StatusUpdateEvent or TaskEvent) switch
+    {
+        StatusUpdateEvent s => s.StatusUpdate.Status.State,
+        TaskEvent t => t.Task.Status.State,
+        _ => TaskState.Unspecified,
+    };
     Expect(state == TaskState.Completed, $"last state COMPLETED, got {state}");
 });
 
@@ -69,14 +75,14 @@ await Check("streaming direct message", async () =>
 {
     var events = new List<StreamResponse>();
     await foreach (var e in client.SendStreamingMessageAsync(Message.FromUser("hello"))) events.Add(e);
-    Expect(events.Count == 1 && events[0].Message?.GetText() == "hi there", "exactly one message event");
+    Expect(events.Count == 1 && (events[0] as MessageEvent)?.Message.GetText() == "hi there", "exactly one message event");
 });
 
 await Check("multi-turn input-required", async () =>
 {
-    var first = (await client.SendMessageAsync("input")).Task!;
+    var first = ((TaskResponse)await client.SendMessageAsync("input")).Task;
     Expect(first.Status.State == TaskState.InputRequired, $"INPUT_REQUIRED, got {first.Status.State}");
-    var second = (await client.SendMessageAsync("more", first.ContextId, first.Id)).Task!;
+    var second = ((TaskResponse)await client.SendMessageAsync("more", first.ContextId, first.Id)).Task;
     Expect(second.Id == first.Id, "same task id");
     Expect(second.Status.State == TaskState.Completed, $"COMPLETED, got {second.Status.State}");
     Expect(second.Status.Message?.GetText() == "got: more", $"'got: more', got '{second.Status.Message?.GetText()}'");
@@ -112,7 +118,7 @@ await Check("get unknown task -> TaskNotFound", async () =>
 
 await Check("return immediately, subscribe, cancel", async () =>
 {
-    var task = (await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).Task!;
+    var task = ((TaskResponse)await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).Task;
     Expect(!task.Status.State.IsTerminal(), $"non-terminal, got {task.Status.State}");
 
     var first = new TaskCompletionSource<StreamResponse>();
@@ -122,12 +128,12 @@ await Check("return immediately, subscribe, cancel", async () =>
         await foreach (var e in client.SubscribeToTaskAsync(task.Id))
         {
             first.TrySetResult(e);
-            if (e.StatusUpdate is { } su) states.Add(su.Status.State);
-            if (e.Task is { } t && t.Status.State.IsTerminal()) states.Add(t.Status.State);
+            if (e is StatusUpdateEvent su) states.Add(su.StatusUpdate.Status.State);
+            if (e is TaskEvent { Task: var t } && t.Status.State.IsTerminal()) states.Add(t.Status.State);
         }
     });
     var firstEvent = await first.Task.WaitAsync(TimeSpan.FromSeconds(10));
-    Expect(firstEvent.Task?.Id == task.Id, "subscription to start with the task snapshot");
+    Expect((firstEvent as TaskEvent)?.Task.Id == task.Id, "subscription to start with the task snapshot");
 
     var canceled = await client.CancelTaskAsync(task.Id);
     Expect(canceled.Status.State == TaskState.Canceled, $"CANCELED, got {canceled.Status.State}");
