@@ -269,7 +269,7 @@ public class BindingTests : IAsyncLifetime
     [MemberData(nameof(Bindings))]
     public async Task Extended_card_requires_authentication(string binding)
     {
-        var anon = await Assert.ThrowsAsync<A2AException>(() => _host.Client(binding).GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest()));
+        var anon = await Assert.ThrowsAsync<A2AException>(() => _host.Client(binding, user: null).GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest()));
         Assert.Equal(A2AErrorCode.Unauthenticated, anon.Code);
         Assert.Equal(401, anon.HttpStatus);
 
@@ -280,7 +280,7 @@ public class BindingTests : IAsyncLifetime
     [Fact]
     public async Task Rest_errors_use_google_rpc_status_with_errorinfo()
     {
-        var http = _host.Http();
+        var http = _host.Http("alice");
         using var req = new HttpRequestMessage(HttpMethod.Get, "/a2a/tasks/does-not-exist");
         req.Headers.Add(A2AProtocol.Headers.Version, "1.0");
         var resp = await http.SendAsync(req);
@@ -298,7 +298,7 @@ public class BindingTests : IAsyncLifetime
     [Fact]
     public async Task JsonRpc_protocol_errors()
     {
-        var http = _host.Http();
+        var http = _host.Http("alice");
         async Task<JsonElement> Post(string body)
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, "/a2a") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
@@ -320,7 +320,7 @@ public class BindingTests : IAsyncLifetime
     [Fact]
     public async Task Missing_version_header_is_treated_as_0_3_and_rejected()
     {
-        var http = _host.Http();
+        var http = _host.Http("alice");
         var resp = await http.PostAsync("/a2a", new StringContent("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"GetTask\",\"params\":{\"id\":\"x\"}}", Encoding.UTF8, "application/json"));
         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
         Assert.Equal(-32009, doc.RootElement.GetProperty("error").GetProperty("code").GetInt32());
@@ -330,7 +330,7 @@ public class BindingTests : IAsyncLifetime
     [MemberData(nameof(Bindings))]
     public async Task Activated_extensions_are_echoed(string binding)
     {
-        var http = _host.Http();
+        var http = _host.Http("alice");
         HttpRequestMessage req = binding == ProtocolBindings.JsonRpc
             ? new(HttpMethod.Post, "/a2a") { Content = new StringContent("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"SendMessage\",\"params\":{\"message\":{\"messageId\":\"m\",\"role\":\"ROLE_USER\",\"parts\":[{\"text\":\"hello\"}]}}}", Encoding.UTF8, "application/json") }
             : new(HttpMethod.Post, "/a2a/message:send") { Content = new StringContent("{\"message\":{\"messageId\":\"m\",\"role\":\"ROLE_USER\",\"parts\":[{\"text\":\"hello\"}]}}", Encoding.UTF8, "application/a2a+json") };
@@ -435,7 +435,7 @@ public class HostConfigurationTests
     public async Task Factory_resolves_card_and_selects_first_supported_interface()
     {
         await using var host = await TestAgentHost.StartAsync();
-        var client = await A2AClientFactory.CreateAsync(new Uri("http://localhost/"), host.Http());
+        var client = await A2AClientFactory.CreateAsync(new Uri("http://localhost/"), host.Http("alice"));
         Assert.Equal("Scenario Agent", client.AgentCard!.Name);
         Assert.Equal(TaskState.Completed, (await client.SendMessageAsync("task")).Task!.Status.State);
 

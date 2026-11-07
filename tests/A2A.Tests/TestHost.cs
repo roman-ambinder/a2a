@@ -65,7 +65,10 @@ public sealed class ScenarioAgent : IAgentExecutor
     }
 }
 
-/// <summary>Authenticates requests carrying <c>X-Test-User</c>.</summary>
+/// <summary>
+/// Authenticates requests carrying <c>X-Test-User</c>. With <c>X-Test-NoId</c> as well, the user is authenticated but has
+/// neither a NameIdentifier nor a <c>sub</c> claim.
+/// </summary>
 public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
@@ -75,7 +78,10 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
     {
         var user = Request.Headers["X-Test-User"].ToString();
         if (string.IsNullOrEmpty(user)) return Task.FromResult(AuthenticateResult.NoResult());
-        var identity = new ClaimsIdentity([new Claim("sub", user), new Claim(ClaimTypes.Name, user)], SchemeName);
+        var claims = Request.Headers.ContainsKey("X-Test-NoId")
+            ? new[] { new Claim(ClaimTypes.Name, user) }
+            : new[] { new Claim("sub", user), new Claim(ClaimTypes.Name, user) };
+        var identity = new ClaimsIdentity(claims, SchemeName);
         return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
     }
 }
@@ -131,14 +137,14 @@ public sealed class TestAgentHost : IAsyncDisposable
     };
 
     public static async Task<TestAgentHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<A2AHttpOptions>? configureHttp = null,
-        Action<IServiceCollection>? services = null)
+        Action<IServiceCollection>? services = null, bool requireAuth = true)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Services.AddAuthentication(TestAuthHandler.SchemeName).AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, null);
         builder.Services.AddAuthorization();
-        builder.Services.AddA2AServer<ScenarioAgent>(o =>
+        builder.Services.AddA2AServer(o =>
         {
             o.AgentCard = DefaultCard();
             o.PushNotifications.AllowInsecureUrls = true;
@@ -152,7 +158,8 @@ public sealed class TestAgentHost : IAsyncDisposable
                 return ValueTask.FromResult<AgentCard?>(card);
             };
             configure?.Invoke(o);
-        });
+        }).AddAgentExecutor<ScenarioAgent>();
+        builder.Services.AddA2AServerAspNetCore();
         services?.Invoke(builder.Services);
         var webhooks = new RecordingHandler();
         builder.Services.AddHttpClient(HttpPushNotificationSender.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => webhooks);
@@ -162,7 +169,8 @@ public sealed class TestAgentHost : IAsyncDisposable
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapAgentCard();
-        app.MapA2A("/a2a");
+        var a2a = app.MapA2A("/a2a");
+        if (requireAuth) a2a.RequireAuthorization();
         await app.StartAsync();
         return new TestAgentHost(app, webhooks);
     }
@@ -175,7 +183,7 @@ public sealed class TestAgentHost : IAsyncDisposable
         return client;
     }
 
-    public A2AClient Client(string binding, string? user = null, A2AClientOptions? options = null)
+    public A2AClient Client(string binding, string? user = "alice", A2AClientOptions? options = null)
     {
         options ??= new A2AClientOptions();
         var http = Http(user);

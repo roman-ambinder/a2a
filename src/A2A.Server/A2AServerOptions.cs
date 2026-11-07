@@ -17,8 +17,13 @@ public sealed class A2AServerOptions
     /// </summary>
     public bool TreatMissingVersionAsCurrent { get; set; }
 
-    /// <summary>Reject unauthenticated callers on every operation. Default false (use endpoint authorization instead).</summary>
-    public bool RequireAuthenticatedCaller { get; set; }
+    /// <summary>
+    /// Allow callers that are not authenticated. Default false: at startup the ASP.NET Core layer fails unless every A2A
+    /// endpoint has an authorization policy (<c>MapA2A(...).RequireAuthorization()</c>). Set true to opt in to anonymous
+    /// access. All anonymous callers then share one owner (<see cref="ServerCallContext.AnonymousPrincipal"/>) and can
+    /// read each other's tasks. A warning is logged once at startup.
+    /// </summary>
+    public bool AllowAnonymous { get; set; }
 
     /// <summary>
     /// Returns the extended card for an authenticated caller (spec §3.1.11). Requires

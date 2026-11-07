@@ -17,23 +17,30 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
     private readonly A2AHttpOptions _http = httpOptions.Value;
     private readonly bool _includeDetails = HttpPlumbing.ShouldIncludeDetails(serverOptions.Value, environment);
 
-    public void Map(IEndpointRouteBuilder group)
+    /// <summary>
+    /// Maps the routes under <paramref name="group"/>. Unless the group's own pattern already has a <c>{tenant}</c> segment
+    /// (<paramref name="tenantInPattern"/>), every route also gets a <c>/{tenant}</c> variant.
+    /// </summary>
+    public void Map(IEndpointRouteBuilder group, bool tenantInPattern = false)
     {
-        foreach (var prefix in new[] { "", "/{tenant}" })
+        foreach (var prefix in tenantInPattern ? new[] { "" } : new[] { "", "/{tenant}" })
         {
-            group.MapPost(prefix + "/message:send", SendMessage);
-            group.MapPost(prefix + "/message:stream", SendStreamingMessage);
-            group.MapGet(prefix + "/tasks", ListTasks);
-            group.MapGet(prefix + "/tasks/{id}", GetTask);
-            group.MapPost(prefix + "/tasks/{id}:cancel", CancelTask);
+            Add(group.MapPost(prefix + "/message:send", SendMessage), "POST", prefix + "/message:send");
+            Add(group.MapPost(prefix + "/message:stream", SendStreamingMessage), "POST", prefix + "/message:stream");
+            Add(group.MapGet(prefix + "/tasks", ListTasks), "GET", prefix + "/tasks");
+            Add(group.MapGet(prefix + "/tasks/{id}", GetTask), "GET", prefix + "/tasks/{id}");
+            Add(group.MapPost(prefix + "/tasks/{id}:cancel", CancelTask), "POST", prefix + "/tasks/{id}:cancel");
             // The spec text says POST, the normative proto says GET: accept both.
-            group.MapMethods(prefix + "/tasks/{id}:subscribe", ["GET", "POST"], Subscribe);
-            group.MapPost(prefix + "/tasks/{id}/pushNotificationConfigs", CreatePushConfig);
-            group.MapGet(prefix + "/tasks/{id}/pushNotificationConfigs", ListPushConfigs);
-            group.MapGet(prefix + "/tasks/{id}/pushNotificationConfigs/{configId}", GetPushConfig);
-            group.MapDelete(prefix + "/tasks/{id}/pushNotificationConfigs/{configId}", DeletePushConfig);
-            group.MapGet(prefix + "/extendedAgentCard", GetExtendedAgentCard);
+            Add(group.MapMethods(prefix + "/tasks/{id}:subscribe", ["GET", "POST"], Subscribe), "GET|POST", prefix + "/tasks/{id}:subscribe");
+            Add(group.MapPost(prefix + "/tasks/{id}/pushNotificationConfigs", CreatePushConfig), "POST", prefix + "/tasks/{id}/pushNotificationConfigs");
+            Add(group.MapGet(prefix + "/tasks/{id}/pushNotificationConfigs", ListPushConfigs), "GET", prefix + "/tasks/{id}/pushNotificationConfigs");
+            Add(group.MapGet(prefix + "/tasks/{id}/pushNotificationConfigs/{configId}", GetPushConfig), "GET", prefix + "/tasks/{id}/pushNotificationConfigs/{configId}");
+            Add(group.MapDelete(prefix + "/tasks/{id}/pushNotificationConfigs/{configId}", DeletePushConfig), "DELETE", prefix + "/tasks/{id}/pushNotificationConfigs/{configId}");
+            Add(group.MapGet(prefix + "/extendedAgentCard", GetExtendedAgentCard), "GET", prefix + "/extendedAgentCard");
         }
+
+        // The display name starts with "A2A " so the startup check can find every A2A endpoint.
+        static void Add(IEndpointConventionBuilder builder, string method, string route) => builder.WithDisplayName($"A2A HTTP+JSON {method} {route}");
     }
 
     private Task SendMessage(HttpContext http) => Run(http, async (call, ct) =>

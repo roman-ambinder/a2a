@@ -15,7 +15,7 @@ Targets **.NET 8** and **.NET 10**. No third-party dependencies beyond `Microsof
 ## Server in 20 lines
 
 ```csharp
-builder.Services.AddA2AServer<MyAgent>(o => o.AgentCard = new AgentCard
+builder.Services.AddA2AServer(o => o.AgentCard = new AgentCard
 {
     Name = "My Agent", Description = "...", Version = "1.0.0",
     SupportedInterfaces =
@@ -26,10 +26,13 @@ builder.Services.AddA2AServer<MyAgent>(o => o.AgentCard = new AgentCard
     Capabilities = new() { Streaming = true, PushNotifications = true },
     DefaultInputModes = ["text/plain"], DefaultOutputModes = ["text/plain"],
     Skills = [new() { Id = "x", Name = "X", Description = "...", Tags = ["x"] }],
-});
+}).AddAgentExecutor<MyAgent>();
+builder.Services.AddA2AServerAspNetCore();   // registers the startup check (required by MapA2A)
 
 app.MapAgentCard();                         // GET /.well-known/agent-card.json (anonymous, cacheable)
 app.MapA2A("/a2a").RequireAuthorization();  // JSON-RPC at POST /a2a, REST at /a2a/message:send, /a2a/tasks/...
+// Without RequireAuthorization() the app refuses to start, unless you set o.AllowAnonymous = true.
+// Tenants: MapA2A("/{tenant}/a2a") or the default /a2a/{tenant} variants set ServerCallContext.Tenant.
 
 class MyAgent : IAgentExecutor
 {

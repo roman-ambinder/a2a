@@ -21,6 +21,7 @@ public sealed class A2ARequestHandler : IDisposable
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TaskStore _tasks;
     private readonly PushConfigStore _pushConfigs;
+    private readonly A2AAuthorizationHandler _authorization;
     private readonly IPushSecretProtector _protector;
     private readonly IPushNotificationSender _push;
     private readonly TaskEventBus _bus;
@@ -34,6 +35,7 @@ public sealed class A2ARequestHandler : IDisposable
         IServiceScopeFactory scopeFactory,
         TaskStore tasks,
         PushConfigStore pushConfigs,
+        A2AAuthorizationHandler authorization,
         IPushSecretProtector protector,
         IPushNotificationSender push,
         TaskEventBus bus,
@@ -43,6 +45,7 @@ public sealed class A2ARequestHandler : IDisposable
         _scopeFactory = scopeFactory;
         _tasks = tasks;
         _pushConfigs = pushConfigs;
+        _authorization = authorization;
         _protector = protector;
         _push = push;
         _bus = bus;
@@ -71,9 +74,6 @@ public sealed class A2ARequestHandler : IDisposable
             };
         }
 
-        if (_options.RequireAuthenticatedCaller && !call.IsAuthenticated)
-            throw new A2AException(A2AErrorCode.Unauthenticated);
-
         var declared = _options.AgentCard.Capabilities.Extensions ?? [];
         foreach (var ext in declared.Where(e => e.Required))
         {
@@ -89,6 +89,21 @@ public sealed class A2ARequestHandler : IDisposable
         }
     }
 
+    // =====================================================================
+    // Authorization hook
+    // =====================================================================
+
+    /// <summary>
+    /// Asks the <see cref="A2AAuthorizationHandler"/> about an operation. A denial of a task-scoped operation looks like a
+    /// missing task; any other denial is <see cref="A2AErrorCode.PermissionDenied"/>.
+    /// </summary>
+    private async Task AuthorizeAsync(ServerCallContext call, A2AOperation op, object request, string? taskId, CancellationToken ct)
+    {
+        if (await _authorization.AuthorizeAsync(call, op, request, ct).ConfigureAwait(false)) return;
+        if (!string.IsNullOrEmpty(taskId)) throw A2AException.TaskNotFound(taskId);
+        throw new A2AException(A2AErrorCode.PermissionDenied);
+    }
+
     private static string MajorMinor(string v)
     {
         var parts = v.Trim().Split('.');
@@ -101,6 +116,8 @@ public sealed class A2ARequestHandler : IDisposable
 
     public async Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
+        call.BindTenant(request.Tenant);
+        await AuthorizeAsync(call, A2AOperation.SendMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
         var prepared = await PrepareAsync(request, call, cancellationToken).ConfigureAwait(false);
         var exec = StartExecution(prepared.Context, prepared.PushConfig);
         var returnImmediately = request.Configuration?.ReturnImmediately == true;
@@ -126,6 +143,8 @@ public sealed class A2ARequestHandler : IDisposable
     public async IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, ServerCallContext call,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        call.BindTenant(request.Tenant);
+        await AuthorizeAsync(call, A2AOperation.SendStreamingMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
         RequireStreaming();
         var prepared = await PrepareAsync(request, call, cancellationToken).ConfigureAwait(false);
         var exec = StartExecution(prepared.Context, prepared.PushConfig);
@@ -271,6 +290,7 @@ public sealed class A2ARequestHandler : IDisposable
     public async Task<AgentTask> GetTaskAsync(GetTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
+        await AuthorizeAsync(call, A2AOperation.GetTask, request, request.Id, cancellationToken).ConfigureAwait(false);
         A2AValidator.RequireId(request.Id, "id");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
@@ -280,6 +300,7 @@ public sealed class A2ARequestHandler : IDisposable
     public async Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
+        await AuthorizeAsync(call, A2AOperation.ListTasks, request, null, cancellationToken).ConfigureAwait(false);
         if (request.PageSize is < 1) throw A2AException.InvalidParams("pageSize must be between 1 and 100");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var pageSize = Math.Min(request.PageSize ?? 50, _options.MaxPageSize);
@@ -306,6 +327,7 @@ public sealed class A2ARequestHandler : IDisposable
     public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
+        await AuthorizeAsync(call, A2AOperation.CancelTask, request, request.Id, cancellationToken).ConfigureAwait(false);
         A2AValidator.RequireId(request.Id, "id");
         var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         if (record.Task.Status.State.IsTerminal()) throw NotCancelable(request.Id);
@@ -330,6 +352,7 @@ public sealed class A2ARequestHandler : IDisposable
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
+        await AuthorizeAsync(call, A2AOperation.SubscribeToTask, request, request.Id, cancellationToken).ConfigureAwait(false);
         RequireStreaming();
         A2AValidator.RequireId(request.Id, "id");
         var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
@@ -356,6 +379,7 @@ public sealed class A2ARequestHandler : IDisposable
     public async Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(config.Tenant);
+        await AuthorizeAsync(call, A2AOperation.CreateTaskPushNotificationConfig, config, config.TaskId, cancellationToken).ConfigureAwait(false);
         RequirePush();
         A2AValidator.ValidatePushConfig(config, "config", requireTaskId: true);
         PushUrlValidator.Validate(config.Url, _options.PushNotifications);
@@ -372,6 +396,7 @@ public sealed class A2ARequestHandler : IDisposable
     public async Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
+        await AuthorizeAsync(call, A2AOperation.GetTaskPushNotificationConfig, request, request.TaskId, cancellationToken).ConfigureAwait(false);
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
@@ -385,6 +410,7 @@ public sealed class A2ARequestHandler : IDisposable
     public async Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
+        await AuthorizeAsync(call, A2AOperation.ListTaskPushNotificationConfigs, request, request.TaskId, cancellationToken).ConfigureAwait(false);
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         var key = Key(call, request.TaskId);
@@ -408,6 +434,7 @@ public sealed class A2ARequestHandler : IDisposable
     public async Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
+        await AuthorizeAsync(call, A2AOperation.DeleteTaskPushNotificationConfig, request, request.TaskId, cancellationToken).ConfigureAwait(false);
         RequirePush();
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
@@ -424,6 +451,7 @@ public sealed class A2ARequestHandler : IDisposable
     public async Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
+        await AuthorizeAsync(call, A2AOperation.GetExtendedAgentCard, request, null, cancellationToken).ConfigureAwait(false);
         if (_options.AgentCard.Capabilities.ExtendedAgentCard != true)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "This agent does not provide an extended agent card.");
         if (!call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated, "The extended agent card requires authentication.");

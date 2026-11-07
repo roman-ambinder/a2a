@@ -12,9 +12,6 @@ namespace A2A.Server.AspNetCore;
 
 internal static class HttpPlumbing
 {
-    private static readonly ITenantResolver RouteTenantResolver = new A2A.Server.AspNetCore.RouteTenantResolver();
-    private static readonly IPrincipalResolver PrincipalResolver = new DefaultPrincipalResolver();
-
     public static ServerCallContext CreateCallContext(HttpContext http)
     {
         var extensions = http.Request.Headers[A2AProtocol.Headers.Extensions]
@@ -26,8 +23,8 @@ internal static class HttpPlumbing
         if (string.IsNullOrWhiteSpace(version)) version = http.Request.Query[A2AProtocol.Headers.Version];
 
         var services = http.RequestServices;
-        var tenantResolver = services.GetService<ITenantResolver>() ?? RouteTenantResolver;
-        var principalResolver = services.GetService<IPrincipalResolver>() ?? PrincipalResolver;
+        var tenantResolver = services.GetRequiredService<ITenantResolver>();
+        var principalResolver = services.GetRequiredService<IPrincipalResolver>();
 
         var tenant = tenantResolver.Resolve(http) ?? "";
         var user = http.User;
