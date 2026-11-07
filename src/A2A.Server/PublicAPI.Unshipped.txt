@@ -39,7 +39,7 @@ A2A.Server.Authorization.A2AOperation.SendMessage = 0 -> A2A.Server.Authorizatio
 A2A.Server.Authorization.A2AOperation.SendStreamingMessage = 1 -> A2A.Server.Authorization.A2AOperation
 A2A.Server.Authorization.A2AOperation.SubscribeToTask = 5 -> A2A.Server.Authorization.A2AOperation
 A2A.Server.A2ARequestHandler
-A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.IAgentExecutorFactory! executors, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyStore! idempotency, A2A.Server.Storage.PushConfigStore! pushConfigs, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.Push.IPushSecretProtector! protector, A2A.Server.Push.IPushNotificationSender! push, A2A.Server.TaskEventBus! bus, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, Microsoft.Extensions.Logging.ILogger<A2A.Server.A2ARequestHandler!>? logger = null) -> void
+A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.IAgentExecutorFactory! executors, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyStore! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.Push.IPushNotificationSender! push, A2A.Server.TaskEventBus! bus, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, Microsoft.Extensions.Logging.ILogger<A2A.Server.A2ARequestHandler!>? logger = null) -> void
 A2A.Server.A2ARequestHandler.AgentCard.get -> A2A.AgentCard!
 A2A.Server.A2ARequestHandler.CancelTaskAsync(A2A.CancelTaskRequest! request, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
 A2A.Server.A2ARequestHandler.CreateTaskPushNotificationConfigAsync(A2A.TaskPushNotificationConfig! config, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TaskPushNotificationConfig!>!
@@ -427,3 +427,11 @@ const A2A.Server.Push.HttpPushNotificationSender.InvokerServiceKey = "A2A.PushNo
 A2A.Server.Pipeline.CallValidator
 A2A.Server.Pipeline.CallValidator.CallValidator(A2A.Server.A2AServerOptions! options) -> void
 A2A.Server.Pipeline.CallValidator.Validate(A2A.Server.ServerCallContext! call) -> void
+A2A.Server.Push.PushConfigService
+A2A.Server.Push.PushConfigService.CreateAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.TaskPushNotificationConfig!>
+A2A.Server.Push.PushConfigService.DeleteAsync(A2A.Server.Storage.TaskKey key, string! configId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask
+A2A.Server.Push.PushConfigService.GetAsync(A2A.Server.Storage.TaskKey key, string! configId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.TaskPushNotificationConfig!>
+A2A.Server.Push.PushConfigService.ListAsync(A2A.Server.Storage.TaskKey key, int pageSize, string? pageToken, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.ListTaskPushNotificationConfigsResponse!>
+A2A.Server.Push.PushConfigService.PushConfigService(A2A.Server.Storage.PushConfigStore! store, A2A.Server.Push.IPushSecretProtector! protector, A2A.Server.A2AServerOptions! options) -> void
+A2A.Server.Push.PushConfigService.SaveInlineAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask
+A2A.Server.Push.PushConfigService.ValidateInlineAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask
