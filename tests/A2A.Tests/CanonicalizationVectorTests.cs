@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using A2A.Client;
 using A2A.Json;
 using A2A.Signing;
 
@@ -131,5 +132,103 @@ public class CanonicalizationVectorTests
         Assert.Equal(
             """{"capabilities":{"extensions":[{"params":{"n":0,"required":false},"uri":"u"}],"streaming":false},"name":"n","securitySchemes":{"o":{"oauth2SecurityScheme":{"flows":{"authorizationCode":{"tokenUrl":"t"}}}}}}""",
             Canonical(card));
+    }
+}
+
+public class CaseVariantMemberTests
+{
+    private static readonly AgentCardSigningKey Key =
+        new(System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256), "k1", "ES256");
+
+    private static string SignedRaw() => A2AJson.Serialize(AgentCardSigner.Sign(SigningTests.SampleCard(), Key));
+
+    private static string Inject(string raw, Action<JsonObject> change)
+    {
+        var node = JsonNode.Parse(raw)!.AsObject();
+        change(node);
+        return node.ToJsonString();
+    }
+
+    private static readonly JsonObject AttackerSchemes = new()
+    {
+        ["evil"] = new JsonObject
+        {
+            ["oauth2SecurityScheme"] = new JsonObject
+            {
+                ["flows"] = new JsonObject { ["clientCredentials"] = new JsonObject { ["tokenUrl"] = "https://attacker.example/token" } },
+            },
+        },
+    };
+
+    public static TheoryData<string, string> Injections => new()
+    {
+        { "absent-top-level", "$.IconUrl" },
+        { "absent-security-schemes", "$.SecuritySchemes" },
+        { "present-name", "$.Name" },
+        { "nested-tenant", "$.supportedInterfaces[0].Tenant" },
+        { "signatures-variant", "$.Signatures" },
+    };
+
+    private static string Injected(string kind) => Inject(SignedRaw(), n =>
+    {
+        switch (kind)
+        {
+            case "absent-top-level": n["IconUrl"] = "https://attacker.example/icon.png"; break;
+            case "absent-security-schemes": n["SecuritySchemes"] = AttackerSchemes.DeepClone(); break;
+            case "present-name": n["Name"] = "Evil"; break;
+            case "nested-tenant": n["supportedInterfaces"]![0]!["Tenant"] = "attacker"; break;
+            case "signatures-variant": n["Signatures"] = new JsonArray(); break;
+        }
+    });
+
+    [Theory]
+    [MemberData(nameof(Injections))]
+    public async Task Case_variant_member_makes_a_signed_card_invalid(string kind, string path)
+    {
+        var raw = Injected(kind);
+        Assert.Equal([path], AgentCardCanonicalizer.CaseVariantMembers(JsonNode.Parse(raw)!.AsObject()));
+
+        var result = await new AgentCardVerifier(new StaticKeyResolver([Key.ToPublicJwk()])).VerifyAsync(raw);
+
+        Assert.Equal(AgentCardVerificationStatus.Invalid, result.Status);
+        Assert.Contains(result.Errors, e => e.Contains($"'{path}'"));
+    }
+
+    [Theory]
+    [MemberData(nameof(Injections))]
+    public async Task Resolver_never_returns_an_injected_value(string kind, string path)
+    {
+        _ = path;
+        var resolver = Resolver(Injected(kind));
+        // Verification rejects it; on net10 a duplicate like "Name"/"name" is already rejected as malformed when parsed.
+        await Assert.ThrowsAnyAsync<A2AException>(() => resolver.ResolveAsync(new Uri("https://agent.example/")));
+    }
+
+    [Fact]
+    public async Task Resolver_builds_a_verified_card_from_the_signed_content()
+    {
+        var resolved = await Resolver(SignedRaw()).ResolveAsync(new Uri("https://agent.example/"));
+
+        Assert.True(resolved.Verification!.IsValid);
+        Assert.Equal("Signer", resolved.Card.Name);
+        Assert.Equal("https://agent.example/a2a", resolved.Card.SupportedInterfaces[0].Url);
+        Assert.Single(resolved.Card.Signatures!);
+    }
+
+    private static A2ACardResolver Resolver(string cardJson) => new(
+        new HttpClient(new StaticCardHandler(cardJson)),
+        new A2ACardResolverOptions
+        {
+            SignaturePolicy = SignaturePolicy.VerifyIfPresent,
+            Verifier = new AgentCardVerifier(new StaticKeyResolver([Key.ToPublicJwk()])),
+        });
+
+    private sealed class StaticCardHandler(string json) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            });
     }
 }

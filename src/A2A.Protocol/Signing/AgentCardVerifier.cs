@@ -134,7 +134,9 @@ public sealed class AgentCardVerifier(IAgentCardKeyResolver keyResolver, AgentCa
     /// <remarks>
     /// <b>Security:</b> a <see cref="AgentCardVerificationStatus.Valid"/> result covers only the canonical form.
     /// Members outside the A2A v1.0 Agent Card schema, and values listed by <see cref="AgentCardCanonicalizer.PrunedPaths"/>,
-    /// are not covered by the signature and must not be trusted from a signed card.
+    /// are not covered by the signature and must not be trusted from a signed card. A signed card with a member that
+    /// matches a v1.0 field only when case is ignored (<see cref="AgentCardCanonicalizer.CaseVariantMembers"/>) is
+    /// <see cref="AgentCardVerificationStatus.Invalid"/>.
     /// </remarks>
     public Task<AgentCardVerificationResult> VerifyAsync(string rawCardJson, Uri? source = null, CancellationToken cancellationToken = default) =>
         VerifyAsync(JsonNode.Parse(rawCardJson)?.AsObject() ?? throw new JsonException("Agent Card must be a JSON object."), source, cancellationToken);
@@ -147,6 +149,14 @@ public sealed class AgentCardVerifier(IAgentCardKeyResolver keyResolver, AgentCa
 
         if (card["signatures"] is not JsonArray sigs || sigs.Count == 0)
             return new(AgentCardVerificationStatus.Unsigned, verified, errors);
+
+        // A case-insensitive reader would bind these to model properties although the signature does not cover them.
+        var caseVariants = AgentCardCanonicalizer.CaseVariantMembers(card);
+        if (caseVariants.Count > 0)
+        {
+            errors.AddRange(caseVariants.Select(p => $"member '{p}' differs from a v1.0 Agent Card field only by case and is not signed"));
+            return new(AgentCardVerificationStatus.Invalid, verified, errors);
+        }
 
         byte[]? payload = null;
 

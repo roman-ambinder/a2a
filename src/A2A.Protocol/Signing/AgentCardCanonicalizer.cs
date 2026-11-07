@@ -51,7 +51,13 @@ public static class AgentCardCanonicalizer
     /// a2a-js do. They are not covered by the signature and must not be trusted from a signed card. The same holds for
     /// every value <see cref="PrunedPaths"/> reports, e.g. a security requirement with no scopes.
     /// </remarks>
-    public static byte[] Canonicalize(JsonObject card) => JsonCanonicalizer.Canonicalize(Prune(card, new List<string>()));
+    public static byte[] Canonicalize(JsonObject card) => JsonCanonicalizer.Canonicalize(SignedContent(card));
+
+    /// <summary>
+    /// Returns the tree that <see cref="Canonicalize"/> serializes: a pruned copy of <paramref name="card"/> holding only
+    /// v1.0 schema members, without <c>signatures</c>. Build trusted models from this tree, not from the raw card.
+    /// </summary>
+    public static JsonObject SignedContent(JsonObject card) => Prune(card, new PruneLog());
 
     /// <summary>
     /// Returns the JSON paths (e.g. <c>$.skills[0].description</c>) of the values <see cref="Canonicalize"/> removes.
@@ -59,16 +65,38 @@ public static class AgentCardCanonicalizer
     /// </summary>
     public static IReadOnlyList<string> PrunedPaths(JsonObject card)
     {
-        var removed = new List<string>();
-        Prune(card, removed);
-        return removed;
+        var log = new PruneLog();
+        Prune(card, log);
+        return log.Removed;
     }
 
-    private static JsonObject Prune(JsonObject card, List<string> removed)
+    /// <summary>
+    /// Returns the JSON paths of members whose name matches a v1.0 schema member only when case is ignored
+    /// (e.g. <c>$.IconUrl</c>, or <c>$.Name</c> next to <c>$.name</c>).
+    /// </summary>
+    /// <remarks>
+    /// Such members are outside the signed content, but a case-insensitive JSON reader (such as the SDK's own
+    /// <c>A2AJson</c> options) binds them to model properties. A signed card that contains one must be rejected.
+    /// a2a-python and a2a-js never emit them.
+    /// </remarks>
+    public static IReadOnlyList<string> CaseVariantMembers(JsonObject card)
+    {
+        var log = new PruneLog();
+        Prune(card, log);
+        return log.CaseVariants;
+    }
+
+    private sealed class PruneLog
+    {
+        public List<string> Removed { get; } = new();
+        public List<string> CaseVariants { get; } = new();
+    }
+
+    private static JsonObject Prune(JsonObject card, PruneLog log)
     {
         var copy = (JsonObject)card.DeepClone();
         copy.Remove("signatures");
-        PruneMembers(copy, AgentCardFields, "$", removed);
+        PruneMembers(copy, AgentCardFields, "$", log);
         return copy;
     }
 
@@ -123,27 +151,27 @@ public static class AgentCardCanonicalizer
 
     // The pruning rule. Returns true when the value must be removed from its parent.
     // Removals of values that were themselves prunable are recorded; containers emptied by their children are not.
-    private static bool PruneField(JsonNode? node, Field field, string path, List<string> removed) =>
+    private static bool PruneField(JsonNode? node, Field field, string path, PruneLog log) =>
         (field.Cardinality, node) switch
         {
-            (Cardinality.Repeated, JsonArray array) => PruneElements(array, field with { Cardinality = Cardinality.Single }, path, removed),
-            (Cardinality.Map, JsonObject map) => PruneMap(map, field with { Cardinality = Cardinality.Single }, path, removed),
-            _ => PruneValue(node, field, path, removed),
+            (Cardinality.Repeated, JsonArray array) => PruneElements(array, field with { Cardinality = Cardinality.Single }, path, log),
+            (Cardinality.Map, JsonObject map) => PruneMap(map, field with { Cardinality = Cardinality.Single }, path, log),
+            _ => PruneValue(node, field, path, log),
         };
 
-    private static bool PruneValue(JsonNode? node, Field field, string path, List<string> removed)
+    private static bool PruneValue(JsonNode? node, Field field, string path, PruneLog log)
     {
         switch (node)
         {
             case JsonObject obj when field is { Shape: Shape.Message, Fields: { } fields }:
-                return PruneMembers(obj, fields, path, removed);
+                return PruneMembers(obj, fields, path, log);
             case JsonObject obj:
-                return PruneMap(obj, Struct, path, removed);
+                return PruneMap(obj, Struct, path, log);
             case JsonArray array:
-                return PruneElements(array, Struct, path, removed);
+                return PruneElements(array, Struct, path, log);
             case JsonValue value when IsEmptyScalar(value, field.Shape):
             case null:
-                removed.Add(path);
+                log.Removed.Add(path);
                 return true;
             default:
                 return false;
@@ -158,7 +186,7 @@ public static class AgentCardCanonicalizer
         _ => false,
     };
 
-    private static bool PruneMembers(JsonObject obj, IReadOnlyDictionary<string, Field> fields, string path, List<string> removed)
+    private static bool PruneMembers(JsonObject obj, IReadOnlyDictionary<string, Field> fields, string path, PruneLog log)
     {
         var wasEmpty = obj.Count == 0;
         foreach (var (key, value) in obj.ToList())
@@ -166,43 +194,44 @@ public static class AgentCardCanonicalizer
             var memberPath = MemberPath(path, key);
             if (!fields.TryGetValue(key, out var field))
             {
-                removed.Add(memberPath);
+                log.Removed.Add(memberPath);
+                if (fields.Keys.Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase))) log.CaseVariants.Add(memberPath);
                 obj.Remove(key);
             }
-            else if (PruneField(value, field, memberPath, removed))
+            else if (PruneField(value, field, memberPath, log))
             {
                 obj.Remove(key);
             }
         }
-        return Emptied(obj.Count, wasEmpty, path, removed);
+        return Emptied(obj.Count, wasEmpty, path, log);
     }
 
-    private static bool PruneMap(JsonObject map, Field valueField, string path, List<string> removed)
+    private static bool PruneMap(JsonObject map, Field valueField, string path, PruneLog log)
     {
         var wasEmpty = map.Count == 0;
         foreach (var (key, value) in map.ToList())
         {
-            if (PruneField(value, valueField, MemberPath(path, key), removed)) map.Remove(key);
+            if (PruneField(value, valueField, MemberPath(path, key), log)) map.Remove(key);
         }
-        return Emptied(map.Count, wasEmpty, path, removed);
+        return Emptied(map.Count, wasEmpty, path, log);
     }
 
-    private static bool PruneElements(JsonArray array, Field elementField, string path, List<string> removed)
+    private static bool PruneElements(JsonArray array, Field elementField, string path, PruneLog log)
     {
         var wasEmpty = array.Count == 0;
         var drop = new List<int>();
         for (var i = 0; i < array.Count; i++)
         {
-            if (PruneField(array[i], elementField, $"{path}[{i}]", removed)) drop.Add(i);
+            if (PruneField(array[i], elementField, $"{path}[{i}]", log)) drop.Add(i);
         }
         for (var i = drop.Count - 1; i >= 0; i--) array.RemoveAt(drop[i]);
-        return Emptied(array.Count, wasEmpty, path, removed);
+        return Emptied(array.Count, wasEmpty, path, log);
     }
 
-    private static bool Emptied(int count, bool wasEmpty, string path, List<string> removed)
+    private static bool Emptied(int count, bool wasEmpty, string path, PruneLog log)
     {
         if (count > 0) return false;
-        if (wasEmpty) removed.Add(path);
+        if (wasEmpty) log.Removed.Add(path);
         return true;
     }
 

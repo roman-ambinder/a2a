@@ -5,6 +5,9 @@
 > (`null`, `""`, `[]`, `{}`, `false` on `required`/`pkceRequired`, e.g. a security requirement with no scopes) are
 > **not covered by the signature and must not be trusted from a signed card**. This matches a2a-python 1.2.1 and
 > a2a-js 1.3.0. `AgentCardCanonicalizer.PrunedPaths` lists the pruned values of a card.
+> A signed card with a member that matches a v1.0 field only when case is ignored (`IconUrl`, `Name` next to
+> `name`) is reported `Invalid` (`AgentCardCanonicalizer.CaseVariantMembers`). `A2ACardResolver` builds the model of
+> a verified card from `AgentCardCanonicalizer.SignedContent`, so unsigned members never reach it.
 
 Vectors in `card-signing/` were generated with **a2a-python (`a2a-sdk` on PyPI) 1.2.1** and are checked by
 `CanonicalizationVectorTests`. Python is not needed to run the tests. The a2a-js rule was compared by reading its

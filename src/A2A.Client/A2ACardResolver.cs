@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using A2A.Json;
 using A2A.Signing;
 
@@ -106,11 +107,23 @@ public sealed class A2ACardResolver
             };
             if (reject)
                 throw new AgentCardVerificationException(verification);
+            if (verification.Status == AgentCardVerificationStatus.Valid)
+                card = FromSignedContent(raw);
         }
 
         var result = new ResolvedAgentCard(card, raw, uri, verification);
         _cache[key] = new CacheEntry(result, response.Headers.ETag, Expiry(response));
         return result;
+    }
+
+    // Builds the model only from what the signature covers, so nothing outside the signed content reaches the caller.
+    // Signatures are carried over for information; they are not part of the signed content.
+    private static AgentCard FromSignedContent(string raw)
+    {
+        var received = JsonNode.Parse(raw)!.AsObject();
+        var signed = AgentCardCanonicalizer.SignedContent(received);
+        if (received["signatures"] is { } signatures) signed["signatures"] = signatures.DeepClone();
+        return signed.Deserialize<AgentCard>(A2AJson.Options)!;
     }
 
     private DateTimeOffset Expiry(HttpResponseMessage response)
