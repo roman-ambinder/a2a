@@ -64,17 +64,3 @@ public sealed class InMemoryPushNotificationConfigStore : IPushNotificationConfi
     public Task<bool> DeleteAsync(string taskId, string configId, CancellationToken cancellationToken = default) =>
         Task.FromResult(_configs.TryRemove((taskId, configId), out _));
 }
-
-/// <summary>Decides whether a caller may see a task.</summary>
-public interface ITaskAccessPolicy
-{
-    bool CanAccess(TaskRecord record, ServerCallContext call);
-}
-
-/// <summary>Default: a task is visible only to its creator, within the same tenant. Matches <see cref="TaskStore"/> scoping.</summary>
-public sealed class OwnerTenantAccessPolicy : ITaskAccessPolicy
-{
-    public bool CanAccess(TaskRecord record, ServerCallContext call) =>
-        string.Equals(record.Owner, call.Principal, StringComparison.Ordinal) &&
-        string.Equals(record.Tenant, call.Tenant, StringComparison.Ordinal);
-}

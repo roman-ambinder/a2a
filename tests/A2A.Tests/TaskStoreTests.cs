@@ -6,7 +6,7 @@ namespace A2A.Tests;
 
 public class TaskStoreTests
 {
-    private static TaskRecord NewRecord(string tenant, string owner, string id, DateTimeOffset? at = null, string contextId = "ctx")
+    internal static TaskRecord NewRecord(string tenant, string owner, string id, DateTimeOffset? at = null, string contextId = "ctx")
     {
         var now = at ?? DateTimeOffset.UtcNow;
         return new TaskRecord(tenant, owner,
@@ -170,5 +170,20 @@ public class TaskStoreTests
         var s = new InMemoryTaskStore();
         var ex = await Assert.ThrowsAsync<A2AException>(() => s.ListAsync(Query("t", "a", token: "garbage!")).AsTask());
         Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+    }
+
+    [Fact]
+    public async Task Parallel_updates_with_same_version_have_exactly_one_winner()
+    {
+        var s = new InMemoryTaskStore();
+        var r = await s.CreateAsync(NewRecord("t", "a", "id1"));
+        var results = await Task.WhenAll(Enumerable.Range(0, 10).Select(async _ =>
+        {
+            try { await s.UpdateAsync(WithState(r, TaskState.Working), 1); return true; }
+            catch (ConcurrencyException) { return false; }
+        }));
+        Assert.Equal(1, results.Count(ok => ok));
+        Assert.Equal(9, results.Count(ok => !ok));
+        Assert.Equal(2, (await s.GetAsync(r.Key))!.Version);
     }
 }

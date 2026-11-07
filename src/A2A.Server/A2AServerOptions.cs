@@ -37,6 +37,12 @@ public sealed class A2AServerOptions
     /// </summary>
     public bool? IncludeExceptionDetails { get; set; }
 
+    /// <summary>Which task states accept follow-up messages. Default <see cref="Server.FollowUpPolicy.InterruptedOnly"/>.</summary>
+    public FollowUpPolicy FollowUpPolicy { get; set; } = FollowUpPolicy.InterruptedOnly;
+
+    /// <summary>How to treat an unknown client-supplied contextId on a new task. Default <see cref="Server.ClientContextIdPolicy.Reject"/>.</summary>
+    public ClientContextIdPolicy ClientContextIdPolicy { get; set; } = ClientContextIdPolicy.Reject;
+
     /// <summary>Upper bound on ListTasks page size. Default 100 (spec).</summary>
     public int MaxPageSize { get; set; } = 100;
 }

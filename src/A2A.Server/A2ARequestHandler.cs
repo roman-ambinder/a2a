@@ -22,7 +22,6 @@ public sealed class A2ARequestHandler : IDisposable
     private readonly TaskStore _tasks;
     private readonly IPushNotificationConfigStore _pushConfigs;
     private readonly IPushNotificationSender _push;
-    private readonly ITaskAccessPolicy _access; // unused until the store scopes by owner end to end (removed with the policy)
     private readonly TaskEventBus _bus;
     private readonly A2AServerOptions _options;
     private readonly ILogger _logger;
@@ -35,7 +34,6 @@ public sealed class A2ARequestHandler : IDisposable
         TaskStore tasks,
         IPushNotificationConfigStore pushConfigs,
         IPushNotificationSender push,
-        ITaskAccessPolicy access,
         TaskEventBus bus,
         IOptions<A2AServerOptions> options,
         ILogger<A2ARequestHandler>? logger = null)
@@ -44,7 +42,6 @@ public sealed class A2ARequestHandler : IDisposable
         _tasks = tasks;
         _pushConfigs = pushConfigs;
         _push = push;
-        _access = access;
         _bus = bus;
         _options = options.Value;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
@@ -160,23 +157,41 @@ public sealed class A2ARequestHandler : IDisposable
         if (!string.IsNullOrEmpty(message.TaskId))
         {
             taskId = message.TaskId;
-            var gate = LockFor(taskId);
+            var gate = LockFor(call.Tenant, taskId);
             await gate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                var record = await _tasks.GetAsync(Key(call, taskId), ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
-                if (!string.IsNullOrEmpty(message.ContextId) && message.ContextId != record.Task.ContextId)
-                    throw A2AException.InvalidParams("message.contextId does not match the task's contextId");
-                if (record.Task.Status.State.IsTerminal())
-                    throw new A2AException(A2AErrorCode.UnsupportedOperation, "The task is in a terminal state and cannot accept further messages.")
+                for (var attempt = 0; ; attempt++)
+                {
+                    var record = await _tasks.GetAsync(Key(call, taskId), ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
+                    var state = record.Task.Status.State;
+                    if (!string.IsNullOrEmpty(message.ContextId) && message.ContextId != record.Task.ContextId)
+                        throw A2AException.InvalidParams("message.contextId does not match the task's contextId");
+                    if (state.IsTerminal())
+                        throw new A2AException(A2AErrorCode.UnsupportedOperation,
+                            "The task is in a terminal state. Start a new task and list this one in referenceTaskIds.")
+                        {
+                            Metadata = new() { ["taskId"] = taskId },
+                        };
+                    if (!TaskStateMachine.AcceptsFollowUp(state, _options.FollowUpPolicy))
+                        throw new A2AException(A2AErrorCode.UnsupportedOperation, $"The task does not accept messages in state {state}.")
+                        {
+                            Metadata = new() { ["taskId"] = taskId },
+                        };
+                    contextId = record.Task.ContextId;
+                    message.ContextId = contextId;
+                    (record.Task.History ??= []).Add(message);
+                    try
                     {
-                        Metadata = new() { ["taskId"] = taskId },
-                    };
-                contextId = record.Task.ContextId;
-                message.ContextId = contextId;
-                (record.Task.History ??= []).Add(message);
-                await _tasks.UpdateAsync(record, record.Version, ct).ConfigureAwait(false);
-                existing = record.Task;
+                        await _tasks.UpdateAsync(record, record.Version, ct).ConfigureAwait(false);
+                        existing = record.Task;
+                        break;
+                    }
+                    catch (ConcurrencyException) when (attempt < MaxConflictRetries)
+                    {
+                        // The task changed under us: reload, re-check the state, and append again.
+                    }
+                }
             }
             finally
             {
@@ -186,7 +201,7 @@ public sealed class A2ARequestHandler : IDisposable
         else
         {
             taskId = TaskIds.New();
-            contextId = string.IsNullOrEmpty(message.ContextId) ? Guid.NewGuid().ToString() : message.ContextId;
+            contextId = await ResolveContextAsync(message.ContextId, call, ct).ConfigureAwait(false);
             message.ContextId = contextId;
         }
 
@@ -213,6 +228,31 @@ public sealed class A2ARequestHandler : IDisposable
             Call = call,
         };
         return new Prepared(context, existing is null ? push : null);
+    }
+
+    /// <summary>
+    /// Returns the context id for a new task and makes sure the context belongs to the caller. A context owned by
+    /// someone else looks like a missing one.
+    /// </summary>
+    private async Task<string> ResolveContextAsync(string? requested, ServerCallContext call, CancellationToken ct)
+    {
+        const string NotFound = "contextId not found";
+        if (string.IsNullOrEmpty(requested))
+        {
+            var created = await _tasks.GetOrCreateContextAsync(
+                new ContextRecord(call.Tenant, call.Principal, Guid.NewGuid().ToString(), DateTimeOffset.UtcNow), ct).ConfigureAwait(false);
+            return created.ContextId;
+        }
+
+        var existing = await _tasks.GetContextAsync(call.Tenant, requested, ct).ConfigureAwait(false);
+        if (existing is null)
+        {
+            if (_options.ClientContextIdPolicy != ClientContextIdPolicy.AdoptIfUnknown) throw A2AException.InvalidParams(NotFound);
+            existing = await _tasks.GetOrCreateContextAsync(
+                new ContextRecord(call.Tenant, call.Principal, requested, DateTimeOffset.UtcNow), ct).ConfigureAwait(false);
+        }
+        if (!string.Equals(existing.Owner, call.Principal, StringComparison.Ordinal)) throw A2AException.InvalidParams(NotFound);
+        return existing.ContextId;
     }
 
     // =====================================================================
@@ -261,7 +301,7 @@ public sealed class A2ARequestHandler : IDisposable
         var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         if (record.Task.Status.State.IsTerminal()) throw NotCancelable(request.Id);
 
-        var running = _running.TryGetValue(request.Id, out var set) ? set.Keys.ToList() : [];
+        var running = _running.TryGetValue(ScopeKey(call.Tenant, request.Id), out var set) ? set.Keys.ToList() : [];
         foreach (var r in running) r.Cancel();
 
         var snapshot = record.Task;
@@ -287,7 +327,7 @@ public sealed class A2ARequestHandler : IDisposable
         if (record.Task.Status.State.IsTerminal())
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "Cannot subscribe to a task in a terminal state.") { Metadata = new() { ["taskId"] = request.Id } };
 
-        using var sub = _bus.Subscribe(request.Id);
+        using var sub = _bus.Subscribe(ScopeKey(call.Tenant, request.Id));
         // Snapshot after subscribing, so no event can fall between the snapshot and the live feed (spec §3.1.6).
         record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         yield return StreamResponse.Of(Shape(record.Task, null));
@@ -388,7 +428,8 @@ public sealed class A2ARequestHandler : IDisposable
         TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run)
     {
         var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token));
-        _running.GetOrAdd(taskId, _ => new())[exec] = 0;
+        var scope = ScopeKey(call.Tenant, taskId);
+        _running.GetOrAdd(scope, _ => new())[exec] = 0;
         var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer);
 
         var producer = Task.Run(async () =>
@@ -419,10 +460,10 @@ public sealed class A2ARequestHandler : IDisposable
         var consumer = Task.Run(() => ConsumeAsync(exec, key, contextId, isNewTask, userMessage, push, emitInitialSnapshot));
         _ = Task.WhenAll(producer, consumer).ContinueWith(_t =>
         {
-            if (_running.TryGetValue(taskId, out var set))
+            if (_running.TryGetValue(scope, out var set))
             {
                 set.TryRemove(exec, out _);
-                if (set.IsEmpty) _running.TryRemove(new KeyValuePair<string, ConcurrentDictionary<Execution, byte>>(taskId, set));
+                if (set.IsEmpty) _running.TryRemove(new KeyValuePair<string, ConcurrentDictionary<Execution, byte>>(scope, set));
             }
             exec.MarkDone();
         }, TaskScheduler.Default);
@@ -440,6 +481,7 @@ public sealed class A2ARequestHandler : IDisposable
         TaskPushNotificationConfig? push, bool emitInitialSnapshot)
     {
         var taskId = key.TaskId;
+        var scope = ScopeKey(key.Tenant, taskId);
         var created = !isNewTask;
         try
         {
@@ -457,7 +499,7 @@ public sealed class A2ARequestHandler : IDisposable
                     continue;
                 }
 
-                var gate = LockFor(taskId);
+                var gate = LockFor(key.Tenant, taskId);
                 await gate.WaitAsync().ConfigureAwait(false);
                 try
                 {
@@ -477,7 +519,7 @@ public sealed class A2ARequestHandler : IDisposable
                             Version: 0, CreatedAt: now, UpdatedAt: now)).ConfigureAwait(false);
                         if (push is not null) await _pushConfigs.SaveAsync(push).ConfigureAwait(false);
                         created = true;
-                        Publish(exec, taskId, StreamResponse.Of(A2AJson.Clone(record.Task)));
+                        Publish(exec, key, StreamResponse.Of(A2AJson.Clone(record.Task)));
                     }
                     else
                     {
@@ -496,8 +538,8 @@ public sealed class A2ARequestHandler : IDisposable
                     gate.Release();
                 }
 
-                Publish(exec, taskId, evt);
-                if (evt.StatusUpdate?.Status.State.IsTerminal() == true) _bus.Complete(taskId);
+                Publish(exec, key, evt);
+                if (evt.StatusUpdate?.Status.State.IsTerminal() == true) _bus.Complete(scope);
             }
         }
         catch (Exception ex)
@@ -511,42 +553,42 @@ public sealed class A2ARequestHandler : IDisposable
         }
     }
 
-    /// <summary>Applies the event and stores the result. After a version conflict, reloads once and re-applies. Returns false when the event was dropped.</summary>
+    /// <summary>
+    /// Applies the event and stores the result. After a version conflict, reloads and re-applies, up to
+    /// <see cref="MaxConflictRetries"/> times. Returns false when the event was dropped (for example the task is already terminal).
+    /// </summary>
     private async Task<bool> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt)
     {
-        if (!Apply(record.Task, evt))
+        for (var attempt = 0; ; attempt++)
         {
-            _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, record.Task.Status.State);
-            return false;
-        }
-        try
-        {
-            await _tasks.UpdateAsync(record, record.Version).ConfigureAwait(false);
-            return true;
-        }
-        catch (ConcurrencyException)
-        {
-            var fresh = await _tasks.GetAsync(key).ConfigureAwait(false);
-            if (fresh is null)
+            if (!Apply(record.Task, evt))
             {
-                _logger.LogWarning("Task {TaskId} disappeared from the store; dropping event", key.TaskId);
+                _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, record.Task.Status.State);
                 return false;
             }
-            if (!Apply(fresh.Task, evt))
+            try
             {
-                _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, fresh.Task.Status.State);
-                return false;
+                await _tasks.UpdateAsync(record, record.Version).ConfigureAwait(false);
+                return true;
             }
-            await _tasks.UpdateAsync(fresh, fresh.Version).ConfigureAwait(false);
-            return true;
+            catch (ConcurrencyException) when (attempt < MaxConflictRetries)
+            {
+                var fresh = await _tasks.GetAsync(key).ConfigureAwait(false);
+                if (fresh is null)
+                {
+                    _logger.LogWarning("Task {TaskId} disappeared from the store; dropping event", key.TaskId);
+                    return false;
+                }
+                record = fresh;
+            }
         }
     }
 
-    private void Publish(Execution exec, string taskId, StreamResponse evt)
+    private void Publish(Execution exec, TaskKey key, StreamResponse evt)
     {
         exec.Emit(evt);
-        _bus.Publish(taskId, evt);
-        _push.Enqueue(taskId, evt);
+        _bus.Publish(ScopeKey(key.Tenant, key.TaskId), evt);
+        _push.Enqueue(key.TaskId, evt);
     }
 
     /// <summary>Applies an event to the task. Returns false if the event must be dropped (task already terminal).</summary>
@@ -555,6 +597,7 @@ public sealed class A2ARequestHandler : IDisposable
         if (task.Status.State.IsTerminal()) return false;
         if (evt.StatusUpdate is { } su)
         {
+            if (!TaskStateMachine.CanTransition(task.Status.State, su.Status.State)) return false;
             su.Status.Timestamp ??= DateTimeOffset.UtcNow;
             task.Status = A2AJson.Clone(su.Status);
             if (su.Status.Message is { } m) (task.History ??= []).Add(A2AJson.Clone(m));
@@ -627,8 +670,14 @@ public sealed class A2ARequestHandler : IDisposable
     private static A2AException ConfigNotFound(string taskId, string id) =>
         new(A2AErrorCode.TaskNotFound, "Push notification config not found") { Metadata = new() { ["taskId"] = taskId, ["configId"] = id } };
 
-    private SemaphoreSlim LockFor(string taskId) =>
-        _locks[(StringComparer.Ordinal.GetHashCode(taskId) & 0x7fffffff) % _locks.Length];
+    /// <summary>Retries after a version conflict when applying one change to a task.</summary>
+    private const int MaxConflictRetries = 3;
+
+    /// <summary>Task ids are unique per tenant only, so in-memory state (locks, running executions, bus topics) is keyed by both.</summary>
+    private static string ScopeKey(string tenant, string taskId) => $"{tenant}\u001f{taskId}";
+
+    private SemaphoreSlim LockFor(string tenant, string taskId) =>
+        _locks[(StringComparer.Ordinal.GetHashCode(ScopeKey(tenant, taskId)) & 0x7fffffff) % _locks.Length];
 
     /// <summary>Waits for all running executions to finish. For tests and graceful shutdown.</summary>
     public async Task WhenIdleAsync()

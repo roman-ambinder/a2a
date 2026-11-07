@@ -64,7 +64,7 @@ The factory picks the first interface **in the card's order** that the client su
 These are places where the spec is loose or self-contradictory. Here is what this SDK does.
 
 **Security (stricter than the spec's SHOULDs)**
-- **Task ownership** (§13.1): each task is bound to the caller id (`sub` → NameIdentifier → Name) and tenant. Other callers get `TaskNotFound` and never learn the task exists. `ListTasks` filters before counting. Swap `ITaskAccessPolicy` for your own model. Anonymous callers share one scope, so put `RequireAuthorization()` on the endpoints in production.
+- **Task ownership** (§13.1): each task is bound to the caller id (`sub` → NameIdentifier → Name) and tenant. Other callers get `TaskNotFound` and never learn the task exists. `ListTasks` filters before counting. Anonymous callers share one scope, so put `RequireAuthorization()` on the endpoints in production.
 - **Push SSRF guard**: HTTPS required. Loopback, private, link-local (incl. cloud metadata 169.254/16), CGNAT, and ULA targets are rejected, both at registration and **at connect time against the resolved IP** (blocks DNS rebinding). Redirects are disabled.
 - **Card verification**: algorithm allowlist (ES256/384/512, RS*, PS*; never `none` or HS*). Unknown `crit` is rejected. Key type must match `alg`. `jku` is only followed over HTTPS to the card's own host (configurable). `SignaturePolicy.Require` rejects unsigned cards.
 - **Executor errors** become a `Failed` task with a generic message. Exception details are logged, not sent.
