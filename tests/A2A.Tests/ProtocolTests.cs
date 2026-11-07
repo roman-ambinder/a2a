@@ -160,27 +160,40 @@ public class SigningTests
         _ => new(System.Security.Cryptography.RSA.Create(2048), kid, alg, jku),
     };
 
+    internal const string Origin = "https://agent.example";
+    internal static readonly Uri CardUri = new(Origin + "/.well-known/agent-card.json");
+
+    /// <summary>A policy that trusts <paramref name="keys"/> for the origin of <see cref="CardUri"/>.</summary>
+    internal static CardTrustPolicy Trust(params Jwk[] keys)
+    {
+        var policy = new CardTrustPolicy();
+        policy.TrustedKeys[Origin] = new JwkSet { Keys = [.. keys] };
+        return policy;
+    }
+
     [Theory]
     [MemberData(nameof(Algorithms))]
     public async Task Sign_then_verify_succeeds_and_tampering_fails(string alg)
     {
         var key = NewKey(alg);
         var signed = AgentCardSigner.Sign(SampleCard(), key);
-        var verifier = new AgentCardVerifier(new StaticKeyResolver([key.ToPublicJwk()]));
+        var verifier = new AgentCardVerifier(Trust(key.ToPublicJwk()));
 
         var json = A2AJson.Serialize(signed);
-        Assert.True((await verifier.VerifyAsync(json)).IsValid);
+        var ok = await verifier.VerifyAsync(json, CardUri);
+        Assert.Equal(AgentCardVerificationStatus.Verified, ok.Status);
+        Assert.Equal("k1", ok.KeyId);
 
         var tampered = json.Replace("\"Signer\"", "\"Evil\"");
-        var result = await verifier.VerifyAsync(tampered);
-        Assert.Equal(AgentCardVerificationStatus.Invalid, result.Status);
+        var result = await verifier.VerifyAsync(tampered, CardUri);
+        Assert.Equal(AgentCardVerificationStatus.Failed, result.Status);
     }
 
     [Fact]
     public async Task Unsigned_card_reports_unsigned()
     {
-        var verifier = new AgentCardVerifier(new StaticKeyResolver());
-        Assert.Equal(AgentCardVerificationStatus.Unsigned, (await verifier.VerifyAsync(SampleCard())).Status);
+        var verifier = new AgentCardVerifier(new CardTrustPolicy());
+        Assert.Equal(AgentCardVerificationStatus.Unsigned, (await verifier.VerifyAsync(SampleCard(), CardUri)).Status);
     }
 
     [Fact]
@@ -188,16 +201,18 @@ public class SigningTests
     {
         var key = NewKey("ES256");
         var signed = AgentCardSigner.Sign(SampleCard(), key);
-        var noneHeader = Base64Url.Encode(JsonSerializer.SerializeToUtf8Bytes(new { alg = "none", kid = "k1" }));
+        var noneHeader = Base64Url.Encode(JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, string> { ["alg"] = "none", ["typ"] = "JOSE", ["kid"] = "k1" }, A2AJson.GetTypeInfo<Dictionary<string, string>>()));
         signed.Signatures![0].Protected = noneHeader;
         signed.Signatures[0].Signature = "AA";
-        var result = await new AgentCardVerifier(new StaticKeyResolver([key.ToPublicJwk()])).VerifyAsync(signed);
-        Assert.Equal(AgentCardVerificationStatus.Invalid, result.Status);
-        Assert.Contains(result.Errors, e => e.Contains("not allowed"));
+        var result = await new AgentCardVerifier(Trust(key.ToPublicJwk())).VerifyAsync(signed, CardUri);
+        Assert.Equal(AgentCardVerificationStatus.Failed, result.Status);
+        Assert.Contains("not allowed", result.Reason);
 
+        // An unknown kid means no trusted key applies: Unverified, not Failed.
         var other = AgentCardSigner.Sign(SampleCard(), key);
-        var r2 = await new AgentCardVerifier(new StaticKeyResolver()).VerifyAsync(other);
-        Assert.Contains(r2.Errors, e => e.Contains("no trusted key"));
+        var r2 = await new AgentCardVerifier(new CardTrustPolicy()).VerifyAsync(other, CardUri);
+        Assert.Equal(AgentCardVerificationStatus.Unverified, r2.Status);
+        Assert.Contains("no trusted key", r2.Reason);
     }
 
     [Fact]
@@ -212,15 +227,15 @@ public class SigningTests
         node["signatures"] = new JsonArray(JsonSerializer.SerializeToNode(sig, A2AJson.Options));
         var raw = node.ToJsonString();
 
-        var verifier = new AgentCardVerifier(new StaticKeyResolver([key.ToPublicJwk()]));
-        Assert.True((await verifier.VerifyAsync(raw)).IsValid);
-        Assert.True((await verifier.VerifyAsync(raw.Replace("\"x\":1", "\"x\":2"))).IsValid);
-        Assert.True((await verifier.VerifyAsync(A2AJson.Deserialize<AgentCard>(raw))).IsValid);
+        var verifier = new AgentCardVerifier(Trust(key.ToPublicJwk()));
+        Assert.Equal(AgentCardVerificationStatus.Verified, (await verifier.VerifyAsync(raw, CardUri)).Status);
+        Assert.Equal(AgentCardVerificationStatus.Verified, (await verifier.VerifyAsync(raw.Replace("\"x\":1", "\"x\":2"), CardUri)).Status);
+        Assert.Equal(AgentCardVerificationStatus.Verified, (await verifier.VerifyAsync(A2AJson.Deserialize<AgentCard>(raw), CardUri)).Status);
     }
 
     private static AgentCardSignature SignRaw(JsonObject card, AgentCardSigningKey key)
     {
-        var header = Base64Url.Encode(JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, string> { ["alg"] = key.Algorithm, ["kid"] = key.KeyId }));
+        var header = Base64Url.Encode(JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, string> { ["alg"] = key.Algorithm, ["typ"] = "JOSE", ["kid"] = key.KeyId }, A2AJson.GetTypeInfo<Dictionary<string, string>>()));
         var input = System.Text.Encoding.ASCII.GetBytes(header + "." + Base64Url.Encode(AgentCardCanonicalizer.Canonicalize(card)));
         return new AgentCardSignature { Protected = header, Signature = Base64Url.Encode(JwsAlgorithms.Sign(key.Algorithm, key.Key, input)) };
     }
@@ -228,10 +243,14 @@ public class SigningTests
     [Fact]
     public async Task Jwks_resolver_refuses_cross_host_and_insecure_jku()
     {
-        var resolver = new JwksKeyResolver(new HttpClient(new ThrowingHandler()));
-        var ctx = new KeyResolutionContext("k1", "ES256", "https://evil.example/jwks.json", new Uri("https://agent.example/.well-known/agent-card.json"));
-        Assert.Empty(await resolver.ResolveAsync(ctx));
-        Assert.Empty(await resolver.ResolveAsync(ctx with { JwksUrl = "http://agent.example/jwks.json" }));
+        var policy = new CardTrustPolicy();
+        policy.AllowedJkuHosts.Add("agent.example");
+        var verifier = new AgentCardVerifier(policy, new HttpClient(new ThrowingHandler()));
+
+        var crossHost = AgentCardSigner.Sign(SampleCard(), NewKey("ES256", jku: "https://evil.example/jwks.json"));
+        Assert.Equal(AgentCardVerificationStatus.Unverified, (await verifier.VerifyAsync(crossHost, CardUri)).Status);
+        var insecure = AgentCardSigner.Sign(SampleCard(), NewKey("ES256", jku: "http://agent.example/jwks.json"));
+        Assert.Equal(AgentCardVerificationStatus.Unverified, (await verifier.VerifyAsync(insecure, CardUri)).Status);
     }
 
     private sealed class ThrowingHandler : HttpMessageHandler

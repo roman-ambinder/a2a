@@ -1,8 +1,10 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using A2A.Client;
+using A2A.Json;
 using A2A.Signing;
 
 namespace A2A.Tests;
@@ -418,15 +420,19 @@ public class HostConfigurationTests
         conditional.Headers.IfNoneMatch.Add(etag);
         Assert.Equal(HttpStatusCode.NotModified, (await http.SendAsync(conditional)).StatusCode);
 
-        var verifier = new AgentCardVerifier(new JwksKeyResolver(http, new JwksKeyResolverOptions { RequireHttps = false }));
-        var resolver = new A2ACardResolver(http, new A2ACardResolverOptions { SignaturePolicy = SignaturePolicy.Require, Verifier = verifier });
+        // The jku here is http and not allowlisted, so it is ignored (spec §7.5); pin the published key for the origin instead.
+        var jwks = await http.GetFromJsonAsync("/.well-known/jwks.json", A2AJson.GetTypeInfo<JwkSet>());
+        var trusted = new A2ACardResolverOptions();
+        trusted.Trust.TrustedKeys["http://localhost"] = jwks!;
+        var resolver = new A2ACardResolver(http, trusted);
         var resolved = await resolver.ResolveAsync(new Uri("http://localhost/"));
-        Assert.True(resolved.Verification!.IsValid);
-        Assert.Equal(["card-key"], resolved.Verification.VerifiedKeyIds);
+        Assert.Equal(AgentCardVerificationStatus.Verified, resolved.Verification.Status);
+        Assert.Equal(("http://localhost", (string?)"card-key"), resolved.Identity);
 
-        // A different trusted key must not validate the card.
-        var wrong = new AgentCardVerifier(new StaticKeyResolver([Jwk.FromPublicKey(System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256), "card-key", "ES256")]));
-        var strict = new A2ACardResolver(http, new A2ACardResolverOptions { SignaturePolicy = SignaturePolicy.Require, Verifier = wrong });
+        // A different trusted key with the same kid must not validate the card.
+        var wrong = new A2ACardResolverOptions();
+        wrong.Trust.TrustedKeys["http://localhost"] = new JwkSet { Keys = [Jwk.FromPublicKey(System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256), "card-key", "ES256")] };
+        var strict = new A2ACardResolver(http, wrong);
         await Assert.ThrowsAsync<AgentCardVerificationException>(() => strict.ResolveAsync(new Uri("http://localhost/")));
     }
 

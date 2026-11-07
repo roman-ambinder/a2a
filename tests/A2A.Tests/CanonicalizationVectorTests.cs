@@ -38,16 +38,24 @@ public class CanonicalizationVectorTests
     [MemberData(nameof(VectorNames))]
     public async Task Python_signatures_verify(string name)
     {
-        var jwks = JsonSerializer.Deserialize<JwkSet>(Read("keys.jwks.json"))!;
-        var verifier = new AgentCardVerifier(new StaticKeyResolver(jwks.Keys));
-        var signed = Read($"{name}.signed.json");
+        // The vectors' keys are pinned for the origin the vectors were served from (their jku host).
+        var jwks = JsonSerializer.Deserialize(Read("keys.jwks.json"), A2AJson.GetTypeInfo<JwkSet>())!;
+        var verifier = new AgentCardVerifier(SigningTests.Trust([.. jwks.Keys]));
+        var signed = ReadObject($"{name}.signed.json");
 
-        var result = await verifier.VerifyAsync(signed);
+        var result = await verifier.VerifyAsync(signed, SigningTests.CardUri);
 
-        Assert.Equal(AgentCardVerificationStatus.Valid, result.Status);
-        Assert.Empty(result.Errors);
-        var signatureCount = JsonNode.Parse(signed)!["signatures"]!.AsArray().Count;
-        Assert.Equal(signatureCount, result.VerifiedKeyIds.Count);
+        Assert.Equal(AgentCardVerificationStatus.Verified, result.Status);
+        Assert.Equal(SigningTests.Origin, result.Issuer);
+        // Every signature verifies on its own.
+        foreach (var signature in signed["signatures"]!.AsArray())
+        {
+            var single = (JsonObject)signed.DeepClone();
+            single["signatures"] = new JsonArray(signature!.DeepClone());
+            var one = await verifier.VerifyAsync(single, SigningTests.CardUri);
+            Assert.Equal(AgentCardVerificationStatus.Verified, one.Status);
+            Assert.StartsWith("py-", one.KeyId);
+        }
     }
 
     [Theory]
@@ -77,8 +85,8 @@ public class CanonicalizationVectorTests
 
         var json = A2AJson.Serialize(signed);
         Assert.Contains("\"skills\":[]", json);
-        var verifier = new AgentCardVerifier(new StaticKeyResolver([key.ToPublicJwk()]));
-        Assert.True((await verifier.VerifyAsync(json)).IsValid);
+        var verifier = new AgentCardVerifier(SigningTests.Trust(key.ToPublicJwk()));
+        Assert.Equal(AgentCardVerificationStatus.Verified, (await verifier.VerifyAsync(json, SigningTests.CardUri)).Status);
     }
 
     [Fact]
@@ -116,8 +124,8 @@ public class CanonicalizationVectorTests
         var node = AgentCardCanonicalizer.ToNode(card);
         Assert.Empty(AgentCardCanonicalizer.PrunedPaths(node));
         Assert.Equal(JsonCanonicalizer.CanonicalizeToString(node.ToJsonString()), Canonical(node));
-        var verifier = new AgentCardVerifier(new StaticKeyResolver([key.ToPublicJwk()]));
-        Assert.True((await verifier.VerifyAsync(A2AJson.Serialize(signed))).IsValid);
+        var verifier = new AgentCardVerifier(SigningTests.Trust(key.ToPublicJwk()));
+        Assert.Equal(AgentCardVerificationStatus.Verified, (await verifier.VerifyAsync(A2AJson.Serialize(signed), SigningTests.CardUri)).Status);
     }
 
     [Fact]
@@ -186,10 +194,10 @@ public class CaseVariantMemberTests
         var raw = Injected(kind);
         Assert.Equal([path], AgentCardCanonicalizer.CaseVariantMembers(JsonNode.Parse(raw)!.AsObject()));
 
-        var result = await new AgentCardVerifier(new StaticKeyResolver([Key.ToPublicJwk()])).VerifyAsync(raw);
+        var result = await new AgentCardVerifier(SigningTests.Trust(Key.ToPublicJwk())).VerifyAsync(raw, SigningTests.CardUri);
 
-        Assert.Equal(AgentCardVerificationStatus.Invalid, result.Status);
-        Assert.Contains(result.Errors, e => e.Contains($"'{path}'"));
+        Assert.Equal(AgentCardVerificationStatus.Failed, result.Status);
+        Assert.Contains($"'{path}'", result.Reason);
     }
 
     [Theory]
@@ -207,7 +215,7 @@ public class CaseVariantMemberTests
     {
         var resolved = await Resolver(SignedRaw()).ResolveAsync(new Uri("https://agent.example/"));
 
-        Assert.True(resolved.Verification!.IsValid);
+        Assert.Equal(AgentCardVerificationStatus.Verified, resolved.Verification.Status);
         Assert.Equal("Signer", resolved.Card.Name);
         Assert.Equal("https://agent.example/a2a", resolved.Card.SupportedInterfaces[0].Url);
         Assert.Single(resolved.Card.Signatures!);
@@ -226,18 +234,14 @@ public class CaseVariantMemberTests
 
         var resolved = await Resolver(raw).ResolveAsync(new Uri("https://agent.example/"));
 
-        Assert.True(resolved.Verification!.IsValid);
+        Assert.Equal(AgentCardVerificationStatus.Verified, resolved.Verification.Status);
         Assert.Empty(resolved.Card.Skills);
         Assert.Empty(resolved.Card.DefaultInputModes);
     }
 
     private static A2ACardResolver Resolver(string cardJson) => new(
         new HttpClient(new StaticCardHandler(cardJson)),
-        new A2ACardResolverOptions
-        {
-            SignaturePolicy = SignaturePolicy.VerifyIfPresent,
-            Verifier = new AgentCardVerifier(new StaticKeyResolver([Key.ToPublicJwk()])),
-        });
+        new A2ACardResolverOptions { Trust = SigningTests.Trust(Key.ToPublicJwk()) });
 
     private sealed class StaticCardHandler(string json) : HttpMessageHandler
     {

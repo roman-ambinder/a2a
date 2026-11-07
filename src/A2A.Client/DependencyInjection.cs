@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace A2A.Client;
@@ -23,7 +24,8 @@ public interface IA2AClientFactory
     ValueTask<A2AClient> GetClientAsync(string name, CancellationToken cancellationToken = default);
 }
 
-internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFactory, IOptionsMonitor<A2ANamedClientOptions> options) : IA2AClientFactory
+internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFactory, IOptionsMonitor<A2ANamedClientOptions> options,
+    ILoggerFactory? loggerFactory = null) : IA2AClientFactory
 {
     private readonly ConcurrentDictionary<string, Lazy<Task<A2AClient>>> _clients = new();
 
@@ -41,12 +43,14 @@ internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFacto
         }
     }
 
-    private Task<A2AClient> CreateAsync(string name)
+    private async Task<A2AClient> CreateAsync(string name)
     {
         var o = options.Get(name);
         if (o.AgentUrl is null) throw new InvalidOperationException($"A2A client '{name}' has no AgentUrl.");
         var http = httpClientFactory.CreateClient(HttpClientName(name));
-        return A2AClientFactory.CreateAsync(o.AgentUrl, http, o.Client, o.Resolver);
+        var resolver = new A2ACardResolver(http, o.Resolver, loggerFactory?.CreateLogger<A2ACardResolver>());
+        var card = await resolver.GetAgentCardAsync(o.AgentUrl).ConfigureAwait(false);
+        return A2AClientFactory.Create(card, http, o.Client);
     }
 
     internal static string HttpClientName(string name) => "A2A:" + name;
