@@ -25,6 +25,7 @@ public static class A2AJson
     {
         var o = new JsonSerializerOptions(JsonSerializerDefaults.Web)
         {
+            PropertyNameCaseInsensitive = false, // ProtoJSON member names are exact; case variants must not bind.
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -36,15 +37,16 @@ public static class A2AJson
         o.AllowDuplicateProperties = false;
 #endif
         o.Converters.Add(new TimestampConverter());
-        o.TypeInfoResolver = new DefaultJsonTypeInfoResolver { Modifiers = { RelaxRequired } };
-        o.MakeReadOnly(populateMissingResolver: true);
+        // The generated context is the only metadata source: no reflection fallback, so unknown types throw NotSupportedException.
+        o.TypeInfoResolver = A2AJsonContext.Default.WithAddedModifier(RelaxRequired);
+        o.MakeReadOnly();
         return o;
     }
 
     /// <summary>
     /// Members that are C# <c>required</c> (construction-time safety) but that a ProtoJSON peer omits when empty, so they must not be
-    /// JSON-required on read. The property initializers supply the default. A source-generated context (Task 10) must apply the same
-    /// modifier or mark these properties not required.
+    /// JSON-required on read. The property initializers supply the default. <see cref="Options"/> applies the modifier on top of the
+    /// generated context.
     /// </summary>
     private static readonly Dictionary<Type, string[]> OptionalOnWire = new()
     {
@@ -60,18 +62,28 @@ public static class A2AJson
             if (Array.IndexOf(names, p.Name) >= 0) p.IsRequired = false;
     }
 
-    public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Options);
+    /// <summary>The generated metadata for <typeparamref name="T"/>. Throws <see cref="NotSupportedException"/> for a type outside the context.</summary>
+    public static JsonTypeInfo<T> GetTypeInfo<T>() => (JsonTypeInfo<T>)Options.GetTypeInfo(typeof(T));
 
-    public static byte[] SerializeToUtf8Bytes<T>(T value) => JsonSerializer.SerializeToUtf8Bytes(value, Options);
+    /// <summary>The empty JSON object <c>{}</c>, the result of operations that return nothing (for example delete).</summary>
+    public static JsonElement EmptyObject { get; } = JsonDocument.Parse("{}").RootElement.Clone();
 
-    public static JsonElement SerializeToElement<T>(T value) => JsonSerializer.SerializeToElement(value, Options);
+    public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, GetTypeInfo<T>());
+
+    public static byte[] SerializeToUtf8Bytes<T>(T value) => JsonSerializer.SerializeToUtf8Bytes(value, GetTypeInfo<T>());
+
+    public static JsonElement SerializeToElement<T>(T value) => JsonSerializer.SerializeToElement(value, GetTypeInfo<T>());
 
     public static T Deserialize<T>(string json) =>
-        JsonSerializer.Deserialize<T>(json, Options) ?? throw new JsonException($"Null {typeof(T).Name} payload.");
+        JsonSerializer.Deserialize(json, GetTypeInfo<T>()) ?? throw new JsonException($"Null {typeof(T).Name} payload.");
 
     public static T Deserialize<T>(JsonElement element) =>
-        element.Deserialize<T>(Options) ?? throw new JsonException($"Null {typeof(T).Name} payload.");
+        element.Deserialize(GetTypeInfo<T>()) ?? throw new JsonException($"Null {typeof(T).Name} payload.");
 
     /// <summary>Deep-copies a model through its wire form. Used by stores to avoid shared mutable state.</summary>
-    public static T Clone<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToUtf8Bytes(value, Options), Options)!;
+    public static T Clone<T>(T value)
+    {
+        var info = GetTypeInfo<T>();
+        return JsonSerializer.Deserialize(JsonSerializer.SerializeToUtf8Bytes(value, info), info)!;
+    }
 }

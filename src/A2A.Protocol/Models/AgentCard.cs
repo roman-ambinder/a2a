@@ -5,7 +5,7 @@ using A2A.Json;
 namespace A2A;
 
 /// <summary>Self-describing manifest of an agent (spec §4.4.1).</summary>
-public sealed class AgentCard
+public sealed class AgentCard : IJsonOnDeserialized
 {
     public required string Name { get; set; } = string.Empty;
     public required string Description { get; set; } = string.Empty;
@@ -24,6 +24,20 @@ public sealed class AgentCard
     public required List<AgentSkill> Skills { get; set; } = new();
     public List<AgentCardSignature>? Signatures { get; set; }
     public string? IconUrl { get; set; }
+
+    // The generated metadata builds objects from constructor arguments, so a member the peer omitted (see A2AJson.RelaxRequired)
+    // arrives as null instead of keeping its property initializer. Restore the defaults.
+    void IJsonOnDeserialized.OnDeserialized()
+    {
+        Name ??= string.Empty;
+        Description ??= string.Empty;
+        SupportedInterfaces ??= new();
+        Version ??= string.Empty;
+        Capabilities ??= new();
+        DefaultInputModes ??= new();
+        DefaultOutputModes ??= new();
+        Skills ??= new();
+    }
 }
 
 /// <summary>Well-known protocol binding identifiers.</summary>

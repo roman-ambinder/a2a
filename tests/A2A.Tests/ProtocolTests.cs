@@ -11,6 +11,34 @@ namespace A2A.Tests;
 public class JsonTests
 {
     [Fact]
+    public void Options_have_no_reflection_fallback()
+    {
+        var resolver = A2AJson.Options.TypeInfoResolver!;
+        Assert.IsNotType<System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver>(resolver);
+        // The generated context is the only source of metadata: it serves model types, and nothing else is served.
+        Assert.NotNull(A2AJsonContext.Default.GetTypeInfo(typeof(AgentCard)));
+        Assert.NotNull(resolver.GetTypeInfo(typeof(AgentCard), A2AJson.Options));
+        Assert.Null(resolver.GetTypeInfo(new { a = 1 }.GetType(), A2AJson.Options));
+        Assert.Throws<NotSupportedException>(() => A2AJson.Serialize(new { a = 1 }));
+    }
+
+    [Fact]
+    public void Relaxed_required_members_still_apply_to_the_generated_context()
+    {
+        var info = (System.Text.Json.Serialization.Metadata.JsonTypeInfo)A2AJson.Options.GetTypeInfo(typeof(AgentCard));
+        Assert.All(info.Properties.Where(p => p.Name is "name" or "description" or "version" or "supportedInterfaces" or "capabilities"
+            or "defaultInputModes" or "defaultOutputModes" or "skills"), p => Assert.False(p.IsRequired, p.Name));
+        Assert.NotNull(A2AJson.Deserialize<AgentCard>("{}"));
+    }
+
+    [Fact]
+    public void Member_names_are_case_sensitive()
+    {
+        Assert.Throws<JsonException>(() => A2AJson.Deserialize<Message>("{\"MessageId\":\"m1\",\"Parts\":[{\"text\":\"x\"}],\"role\":\"ROLE_USER\"}"));
+        Assert.Null(A2AJson.Deserialize<AgentCard>("{\"IconUrl\":\"https://x/i.png\"}").IconUrl);
+        Assert.Equal("https://x/i.png", A2AJson.Deserialize<AgentCard>("{\"iconUrl\":\"https://x/i.png\"}").IconUrl);
+    }
+    [Fact]
     public void Enums_use_protojson_names_and_unknown_values_read_as_unspecified()
     {
         var json = A2AJson.Serialize(new AgentTaskStatus { State = TaskState.InputRequired });

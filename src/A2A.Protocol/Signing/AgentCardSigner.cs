@@ -49,7 +49,7 @@ public static class AgentCardSigner
         var payload = AgentCardCanonicalizer.Canonicalize(AgentCardCanonicalizer.ToNode(card));
         var header = new Dictionary<string, string> { ["alg"] = key.Algorithm, ["typ"] = "JOSE", ["kid"] = key.KeyId };
         if (key.JwksUrl is not null) header["jku"] = key.JwksUrl;
-        var protectedB64 = Base64Url.Encode(JsonSerializer.SerializeToUtf8Bytes(header));
+        var protectedB64 = Base64Url.Encode(A2AJson.SerializeToUtf8Bytes(header));
         var signingInput = Encoding.ASCII.GetBytes(protectedB64 + "." + Base64Url.Encode(payload));
         var sig = JwsAlgorithms.Sign(key.Algorithm, key.Key, signingInput);
         return new AgentCardSignature { Protected = protectedB64, Signature = Base64Url.Encode(sig) };

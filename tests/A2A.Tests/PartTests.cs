@@ -12,7 +12,7 @@ public class PartTests
     {
         var data = JsonSerializer.SerializeToElement(new { a = 1 });
         var meta = new Dictionary<string, JsonElement> { ["k"] = JsonSerializer.SerializeToElement("v") };
-        Part[] parts =
+        List<Part> parts =
         [
             Part.FromText("hi") with { Metadata = meta },
             Part.FromBytes(new byte[] { 1, 2, 3 }, "application/octet-stream", "a.bin"),

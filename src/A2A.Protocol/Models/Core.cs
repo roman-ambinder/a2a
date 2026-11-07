@@ -64,7 +64,7 @@ public sealed class Message
 }
 
 /// <summary>An output of a task (spec §4.1.7).</summary>
-public sealed class Artifact
+public sealed class Artifact : IJsonOnDeserialized
 {
     public required string ArtifactId { get; set; }
     public string? Name { get; set; }
@@ -72,6 +72,9 @@ public sealed class Artifact
     public required List<Part> Parts { get; set; } = new();
     public Dictionary<string, JsonElement>? Metadata { get; set; }
     public List<string>? Extensions { get; set; }
+
+    // See AgentCard: omitted parts must read as an empty list, not null.
+    void IJsonOnDeserialized.OnDeserialized() => Parts ??= new();
 }
 
 /// <summary>Status of a task (spec §4.1.2). Named to avoid clashing with <see cref="System.Threading.Tasks.TaskStatus"/>.</summary>

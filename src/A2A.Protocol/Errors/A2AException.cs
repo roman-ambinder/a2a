@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using A2A.Json;
 
 namespace A2A;
 
@@ -201,18 +203,17 @@ public static class A2AErrors
     public static List<JsonElement> BuildDetails(A2AException ex)
     {
         var details = new List<JsonElement>();
-        var info = new Dictionary<string, object?>
-        {
-            ["@type"] = ErrorInfoType,
-            ["reason"] = ex.ReasonOverride ?? Reason(ex.Code),
-            ["domain"] = A2AProtocol.ErrorDomain,
-        };
         var metadata = ex.Metadata is null ? new Dictionary<string, string>() : new Dictionary<string, string>(ex.Metadata);
         metadata["retryable"] = ex.Retryable ? "true" : "false";
         if (ex.RetryAfter is { } after)
             metadata["retryAfter"] = ((long)Math.Ceiling(after.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
-        info["metadata"] = metadata;
-        details.Add(JsonSerializer.SerializeToElement(info));
+        var info = new ErrorInfoDetail
+        {
+            Reason = ex.ReasonOverride ?? Reason(ex.Code),
+            Domain = A2AProtocol.ErrorDomain,
+            Metadata = metadata,
+        };
+        details.Add(A2AJson.SerializeToElement(info));
         if (ex.Details is not null)
         {
             details.AddRange(ex.Details.Where(d =>
@@ -252,4 +253,30 @@ public static class A2AErrors
         }
         return false;
     }
+}
+
+/// <summary>Error body of the HTTP+JSON binding: <c>{"error": {...}}</c> (spec §11.6).</summary>
+public sealed class RestErrorBody
+{
+    public RestError Error { get; set; } = new();
+}
+
+/// <summary>The <c>error</c> object of <see cref="RestErrorBody"/>.</summary>
+public sealed class RestError
+{
+    public int Code { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public List<JsonElement> Details { get; set; } = new();
+}
+
+/// <summary>The <c>google.rpc.ErrorInfo</c> detail entry the SDK emits in every error (spec §9.5).</summary>
+internal sealed class ErrorInfoDetail
+{
+    [JsonPropertyName("@type")]
+    public string Type { get; init; } = A2AErrors.ErrorInfoType;
+
+    public string Reason { get; init; } = string.Empty;
+    public string Domain { get; init; } = string.Empty;
+    public Dictionary<string, string> Metadata { get; init; } = new();
 }

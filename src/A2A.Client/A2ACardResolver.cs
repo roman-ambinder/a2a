@@ -123,7 +123,7 @@ public sealed class A2ACardResolver
         var received = JsonNode.Parse(raw)!.AsObject();
         var signed = AgentCardCanonicalizer.SignedContent(received);
         if (received["signatures"] is { } signatures) signed["signatures"] = signatures.DeepClone();
-        return signed.Deserialize<AgentCard>(A2AJson.Options)!;
+        return A2AJson.Deserialize<AgentCard>(signed.ToJsonString());
     }
 
     private DateTimeOffset Expiry(HttpResponseMessage response)

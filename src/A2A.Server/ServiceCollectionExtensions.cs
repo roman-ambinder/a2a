@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using A2A.Server.Push;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -40,7 +41,7 @@ public sealed class A2AServerBuilder
     public IServiceCollection Services { get; }
 
     /// <summary>Uses <typeparamref name="T"/> as the agent. Scoped: one instance per execution. Replaces an earlier executor.</summary>
-    public A2AServerBuilder AddAgentExecutor<T>() where T : class, IAgentExecutor
+    public A2AServerBuilder AddAgentExecutor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() where T : class, IAgentExecutor
     {
         Services.Replace(ServiceDescriptor.Scoped<IAgentExecutor, T>());
         return this;
@@ -61,7 +62,7 @@ public sealed class A2AServerBuilder
     }
 
     /// <summary>Uses <typeparamref name="T"/> to authorize every operation. Replaces an earlier handler.</summary>
-    public A2AServerBuilder AddAuthorizationHandler<T>() where T : A2AAuthorizationHandler
+    public A2AServerBuilder AddAuthorizationHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() where T : A2AAuthorizationHandler
     {
         Services.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler, T>());
         return this;

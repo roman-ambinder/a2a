@@ -40,7 +40,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
                 if (doc.RootElement.ValueKind != JsonValueKind.Object)
                     throw new A2AException(A2AErrorCode.InvalidRequest, "Batch requests are not supported");
                 if (doc.RootElement.TryGetProperty("id", out var rawId)) id = rawId.Clone();
-                rpc = doc.RootElement.Deserialize<JsonRpcRequest>(A2AJson.Options)!;
+                rpc = doc.RootElement.Deserialize(A2AJson.GetTypeInfo<JsonRpcRequest>())!;
             }
             catch (JsonException)
             {
@@ -86,7 +86,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
                     break;
                 case A2AProtocol.Methods.DeleteTaskPushNotificationConfig:
                     await handler.DeleteTaskPushNotificationConfigAsync(Params<DeleteTaskPushNotificationConfigRequest>(p), call, ct).ConfigureAwait(false);
-                    await Ok(http, call, id, new { }).ConfigureAwait(false);
+                    await Ok(http, call, id, A2AJson.EmptyObject).ConfigureAwait(false);
                     break;
                 case A2AProtocol.Methods.GetExtendedAgentCard:
                     await Ok(http, call, id, await handler.GetExtendedAgentCardAsync(Params<GetExtendedAgentCardRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
@@ -132,7 +132,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler, IOptions<A2AHtt
         if (p.ValueKind != JsonValueKind.Object) throw A2AException.InvalidParams("params must be an object");
         try
         {
-            return p.Deserialize<T>(A2AJson.Options) ?? throw A2AException.InvalidParams("params are required");
+            return p.Deserialize(A2AJson.GetTypeInfo<T>()) ?? throw A2AException.InvalidParams("params are required");
         }
         catch (JsonException ex)
         {

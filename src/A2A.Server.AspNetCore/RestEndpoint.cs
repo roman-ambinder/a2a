@@ -130,7 +130,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
         {
             TaskId = Route(http, "id"), Id = Route(http, "configId"), Tenant = call.Tenant,
         }, call, ct).ConfigureAwait(false);
-        return new { };
+        return A2AJson.EmptyObject;
     });
 
     private Task GetExtendedAgentCard(HttpContext http) => Run(http, (call, ct) =>
@@ -203,14 +203,14 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
         return HttpPlumbing.WriteJsonAsync(http, StatusBody(ex), A2AProtocol.MediaType, HttpPlumbing.StatusFor(ex));
     }
 
-    internal static object StatusBody(A2AException ex) => new
+    internal static RestErrorBody StatusBody(A2AException ex) => new()
     {
-        error = new
+        Error = new RestError
         {
-            code = HttpPlumbing.StatusFor(ex),
-            status = A2AErrors.GrpcStatus(ex.Code),
-            message = ex.Message,
-            details = A2AErrors.BuildDetails(ex),
+            Code = HttpPlumbing.StatusFor(ex),
+            Status = A2AErrors.GrpcStatus(ex.Code),
+            Message = ex.Message,
+            Details = A2AErrors.BuildDetails(ex),
         },
     };
 
@@ -224,7 +224,7 @@ internal sealed class RestEndpoint(A2ARequestHandler handler, IOptions<A2AHttpOp
         try
         {
             using var doc = HttpPlumbing.ParseBody(bytes, _limits.MaxJsonDepth);
-            return doc.RootElement.Deserialize<T>(A2AJson.Options);
+            return doc.RootElement.Deserialize(A2AJson.GetTypeInfo<T>());
         }
         catch (JsonException ex) { throw A2AException.InvalidParams($"Invalid request body: {ex.Message}"); }
     }

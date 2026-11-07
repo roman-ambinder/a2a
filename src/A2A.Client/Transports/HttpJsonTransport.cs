@@ -111,7 +111,7 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient
             {
                 using var doc = JsonDocument.Parse(evt.Data);
                 if (doc.RootElement.TryGetProperty("error", out var err)) throw ParseStatus(err, null);
-                item = doc.RootElement.Deserialize<StreamResponse>(A2AJson.Options);
+                item = doc.RootElement.Deserialize(A2AJson.GetTypeInfo<StreamResponse>());
             }
             catch (JsonException ex) { throw ProtocolError($"Malformed stream event: {ex.Message}", ex); }
             if (item is null) throw ProtocolError("Empty stream event.");

@@ -86,7 +86,7 @@ public sealed class JwksKeyResolver(HttpClient httpClient, JwksKeyResolverOption
         var key = jku.AbsoluteUri;
         if (!_cache.TryGetValue(key, out var entry) || entry.Expires < DateTimeOffset.UtcNow)
         {
-            var set = await httpClient.GetFromJsonAsync<JwkSet>(jku, cancellationToken).ConfigureAwait(false) ?? new JwkSet();
+            var set = await httpClient.GetFromJsonAsync(jku, A2AJson.GetTypeInfo<JwkSet>(), cancellationToken).ConfigureAwait(false) ?? new JwkSet();
             entry = (DateTimeOffset.UtcNow + _options.CacheDuration, set);
             _cache[key] = entry;
         }
@@ -163,7 +163,7 @@ public sealed class AgentCardVerifier(IAgentCardKeyResolver keyResolver, AgentCa
         for (var i = 0; i < sigs.Count; i++)
         {
             AgentCardSignature? sig;
-            try { sig = sigs[i]?.Deserialize<AgentCardSignature>(A2AJson.Options); }
+            try { sig = sigs[i] is { } sigNode ? A2AJson.Deserialize<AgentCardSignature>(sigNode.ToJsonString()) : null; }
             catch (JsonException ex) { errors.Add($"signature[{i}]: malformed ({ex.Message})"); continue; }
             if (sig is null || string.IsNullOrEmpty(sig.Protected) || string.IsNullOrEmpty(sig.Signature))
             {
@@ -175,7 +175,7 @@ public sealed class AgentCardVerifier(IAgentCardKeyResolver keyResolver, AgentCa
             byte[] sigBytes;
             try
             {
-                header = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(Base64Url.Decode(sig.Protected));
+                header = JsonSerializer.Deserialize(Base64Url.Decode(sig.Protected), A2AJson.GetTypeInfo<Dictionary<string, JsonElement>>());
                 sigBytes = Base64Url.Decode(sig.Signature);
             }
             catch (Exception ex) when (ex is FormatException or JsonException)

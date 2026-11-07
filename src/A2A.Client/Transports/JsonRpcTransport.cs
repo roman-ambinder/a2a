@@ -99,7 +99,7 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient
     {
         var rpc = new JsonRpcRequest
         {
-            Id = JsonSerializer.SerializeToElement(Guid.NewGuid().ToString("N")),
+            Id = A2AJson.SerializeToElement(Guid.NewGuid().ToString("N")),
             Method = method,
             Params = A2AJson.SerializeToElement(parameters),
         };
@@ -118,7 +118,7 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient
             if (root.ValueKind != JsonValueKind.Object) return null;
             if (!root.TryGetProperty("jsonrpc", out var v) || v.GetString() != "2.0") return null;
             if (!root.TryGetProperty("result", out _) && !root.TryGetProperty("error", out _)) return null;
-            return root.Deserialize<JsonRpcResponse>(A2AJson.Options);
+            return root.Deserialize(A2AJson.GetTypeInfo<JsonRpcResponse>());
         }
         catch (JsonException)
         {

@@ -238,5 +238,5 @@ public static class AgentCardCanonicalizer
     private static string MemberPath(string parent, string key) =>
         key.Length > 0 && (char.IsAsciiLetter(key[0]) || key[0] == '_') && key.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')
             ? $"{parent}.{key}"
-            : $"{parent}[{JsonSerializer.Serialize(key)}]";
+            : $"{parent}[{JsonValue.Create(key)!.ToJsonString()}]";
 }

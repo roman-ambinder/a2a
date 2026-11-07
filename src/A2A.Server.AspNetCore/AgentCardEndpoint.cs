@@ -36,7 +36,7 @@ internal sealed class AgentCardEndpoint(IOptions<A2AServerOptions> serverOptions
         }
         http.Response.Headers.CacheControl = $"public, max-age={(int)httpOptions.Value.AgentCardMaxAge.TotalSeconds}";
         http.Response.ContentType = A2AProtocol.JsonMediaType;
-        return http.Response.Body.WriteAsync(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new JwkSet { Keys = [key.ToPublicJwk()] }), http.RequestAborted).AsTask();
+        return http.Response.Body.WriteAsync(A2AJson.SerializeToUtf8Bytes(new JwkSet { Keys = [key.ToPublicJwk()] }), http.RequestAborted).AsTask();
     }
 
     private static (byte[], string) Build(AgentCard card, AgentCardSigningKey? key, ILogger logger)
