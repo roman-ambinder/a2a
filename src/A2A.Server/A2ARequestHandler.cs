@@ -74,6 +74,10 @@ public sealed class A2ARequestHandler : IDisposable
             };
         }
 
+        // Backstop for hosts where the startup check could not run (or direct use of this class): anonymous is opt-in.
+        if (!_options.AllowAnonymous && !call.IsAuthenticated)
+            throw new A2AException(A2AErrorCode.Unauthenticated);
+
         var declared = _options.AgentCard.Capabilities.Extensions ?? [];
         foreach (var ext in declared.Where(e => e.Required))
         {

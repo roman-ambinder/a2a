@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -225,5 +226,60 @@ public class AuthorizationTests
             await app.StopAsync();
             await app.DisposeAsync();
         }
+    }
+
+    [Fact]
+    public async Task Handler_rejects_anonymous_callers_when_anonymous_is_not_allowed()
+    {
+        // The startup check is bypassed here: the handler is used directly. The core backstop still refuses.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddA2AServer(o => o.AgentCard = TestAgentHost.DefaultCard()).AddAgentExecutor<ScenarioAgent>();
+        await using var provider = services.BuildServiceProvider();
+        var handler = provider.GetRequiredService<A2ARequestHandler>();
+        var ex = Assert.Throws<A2AException>(() => handler.ValidateCall(ServerCallContext.Anonymous()));
+        Assert.Equal(A2AErrorCode.Unauthenticated, ex.Code);
+    }
+
+    [Fact]
+    public async Task Startup_style_hosting_without_authorization_is_refused_after_start()
+    {
+        // UseEndpoints runs inside GenericWebHostService.StartAsync, after the validator started with no endpoints.
+        using var host = new HostBuilder().ConfigureWebHost(web => web
+            .UseTestServer()
+            .ConfigureServices(s =>
+            {
+                s.AddAuthentication(TestAuthHandler.SchemeName)
+                    .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, null);
+                s.AddAuthorization();
+                s.AddRouting();
+                s.AddA2AServer(o => o.AgentCard = TestAgentHost.DefaultCard()).AddAgentExecutor<ScenarioAgent>();
+                s.AddA2AServerAspNetCore();
+            })
+            .Configure(app =>
+            {
+                app.UseRouting();
+                app.UseAuthentication();
+                app.UseAuthorization();
+                app.UseEndpoints(e => e.MapA2A("/a2a")); // no RequireAuthorization()
+            })).Build();
+        await host.StartAsync();
+        var lifetime = host.Services.GetRequiredService<Microsoft.Extensions.Hosting.IHostApplicationLifetime>();
+        Assert.True(lifetime.ApplicationStopping.IsCancellationRequested);
+
+        // And the backstop alone already rejects anonymous callers.
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/a2a/tasks");
+        req.Headers.Add("A2A-Version", "1.0");
+        var resp = await host.GetTestClient().SendAsync(req);
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+        await host.StopAsync();
+    }
+
+    [Fact]
+    public async Task Endpoint_with_RequireAuthorization_and_AllowAnonymous_fails_startup()
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            TestAgentHost.StartAsync(configureRoutes: g => g.AllowAnonymous()));
+        Assert.Contains("RequireAuthorization", ex.Message);
     }
 }

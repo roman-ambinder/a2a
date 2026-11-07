@@ -9,6 +9,7 @@ using A2A.Server.Push;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -137,7 +138,8 @@ public sealed class TestAgentHost : IAsyncDisposable
     };
 
     public static async Task<TestAgentHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<A2AHttpOptions>? configureHttp = null,
-        Action<IServiceCollection>? services = null, bool requireAuth = true)
+        Action<IServiceCollection>? services = null, bool requireAuth = true,
+        Action<RouteGroupBuilder>? configureRoutes = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -171,6 +173,7 @@ public sealed class TestAgentHost : IAsyncDisposable
         app.MapAgentCard();
         var a2a = app.MapA2A("/a2a");
         if (requireAuth) a2a.RequireAuthorization();
+        configureRoutes?.Invoke(a2a);
         await app.StartAsync();
         return new TestAgentHost(app, webhooks);
     }
