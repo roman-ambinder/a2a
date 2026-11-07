@@ -99,7 +99,6 @@ public sealed class NamespaceRulesTests
                 if (!ok) offenders.Add($"{name}: {t.FullName}");
             }
         }
-        Assert.NotEmpty(assemblies);
         Assert.True(inspected > 0, "no exported types were inspected");
         Assert.Empty(offenders);
     }

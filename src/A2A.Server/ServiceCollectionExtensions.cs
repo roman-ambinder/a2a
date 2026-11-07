@@ -31,9 +31,12 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<TaskEventBus>();
         services.TryAddSingleton(sp => sp.GetRequiredService<IOptions<A2AServerOptions>>().Value);
         services.TryAddSingleton<IAgentExecutorFactory, ScopedAgentExecutorFactory>();
-        services.TryAddSingleton(sp => new HttpMessageInvoker(
+        services.TryAddKeyedSingleton<HttpMessageInvoker>(HttpPushNotificationSender.InvokerServiceKey, (sp, _) => new HttpMessageInvoker(
             PushUrlValidator.CreateHandler(sp.GetRequiredService<A2AServerOptions>().PushNotifications), disposeHandler: true));
-        services.TryAddSingleton<HttpPushNotificationSender>();
+        services.TryAddSingleton(sp => new HttpPushNotificationSender(
+            sp.GetRequiredKeyedService<HttpMessageInvoker>(HttpPushNotificationSender.InvokerServiceKey),
+            sp.GetRequiredService<Storage.PushConfigStore>(), sp.GetRequiredService<IPushSecretProtector>(),
+            sp.GetRequiredService<A2AServerOptions>(), sp.GetService<Microsoft.Extensions.Logging.ILogger<HttpPushNotificationSender>>()));
         services.TryAddSingleton<IPushNotificationSender>(sp => sp.GetRequiredService<HttpPushNotificationSender>());
         services.TryAddSingleton<A2ARequestHandler>();
         return new A2AServerBuilder(services);

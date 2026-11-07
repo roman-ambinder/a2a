@@ -423,3 +423,4 @@ A2A.Server.AgentExecutorLease.Executor.get -> A2A.Server.IAgentExecutor!
 A2A.Server.ScopedAgentExecutorFactory
 A2A.Server.ScopedAgentExecutorFactory.RentAsync(System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.Server.AgentExecutorLease>
 A2A.Server.ScopedAgentExecutorFactory.ScopedAgentExecutorFactory(Microsoft.Extensions.DependencyInjection.IServiceScopeFactory! scopes) -> void
+const A2A.Server.Push.HttpPushNotificationSender.InvokerServiceKey = "A2A.PushNotifications" -> string!

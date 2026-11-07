@@ -188,7 +188,7 @@ public sealed class TestAgentHost : IAsyncDisposable
         builder.Services.AddA2AServerAspNetCore();
         services?.Invoke(builder.Services);
         var webhooks = new RecordingHandler();
-        builder.Services.AddSingleton(new HttpMessageInvoker(webhooks, disposeHandler: false));
+        builder.Services.AddKeyedSingleton(HttpPushNotificationSender.InvokerServiceKey, new HttpMessageInvoker(webhooks, disposeHandler: false));
         if (configureHttp is not null) builder.Services.ConfigureA2AHttp(configureHttp);
 
         var app = builder.Build();

@@ -138,6 +138,12 @@ public interface IPushNotificationSender
 /// </summary>
 public sealed class HttpPushNotificationSender : IPushNotificationSender, IDisposable
 {
+    /// <summary>
+    /// Service key under which <c>AddA2AServer</c> registers the <see cref="HttpMessageInvoker"/> used for webhook delivery (SSRF-guarded by default).
+    /// Register your own keyed singleton under this key to replace it deliberately; an unkeyed <see cref="HttpMessageInvoker"/> is never used.
+    /// </summary>
+    public const string InvokerServiceKey = "A2A.PushNotifications";
+
     private readonly HttpMessageInvoker _http;
     private readonly PushConfigStore _store;
     private readonly IPushSecretProtector _protector;
