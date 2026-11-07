@@ -5,7 +5,8 @@ namespace A2A.Client.Cards;
 /// <summary>
 /// Text from a peer's Agent Card (spec §7.5, S6). <see cref="ToString"/> returns a sanitized form safe to show or put in a
 /// prompt: C0/C1 control characters except <c>\n</c> and <c>\t</c> removed, Unicode bidi controls (U+202A–U+202E,
-/// U+2066–U+2069) removed, and the result capped at <see cref="MaxLength"/> characters ending with <c>…</c>.
+/// U+2066–U+2069), zero-width and invisible format characters (U+200B–U+200F, U+2060–U+2064, U+FEFF, U+061C, U+180E) and
+/// Unicode tag characters (U+E0000–U+E007F) removed, and the result capped at <see cref="MaxLength"/> characters ending with <c>…</c>.
 /// <see cref="Raw"/> gives the text as received; use it only deliberately.
 /// </summary>
 public readonly struct UntrustedText

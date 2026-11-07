@@ -282,6 +282,22 @@ public class CardTrustTests
     }
 
     [Fact]
+    public void Untrusted_text_strips_tag_zero_width_and_format_characters()
+    {
+        // Unicode tag characters (U+E0000-U+E007F) can hide an instruction ("ignore" spelled in tags) inside visible text.
+        var hidden = "ok\U000E0001\U000E0069\U000E0067\U000E006E\U000E006F\U000E0072\U000E0065\U000E007F!";
+        Assert.Equal("ok!", new UntrustedText(hidden).ToString());
+
+        var invisible = "a\u200Bb\u200Cc\u200Dd\u200Ee\u200Ff\u2060g\u2061h\u2062i\u2063j\u2064k\uFEFFl\u061Cm\u180En";
+        Assert.Equal("abcdefghijklmn", new UntrustedText(invisible).ToString());
+
+        // Neighbours of the stripped ranges, and other supplementary characters, stay.
+        var kept = "\u2010\u2065\uFEFE\U0001F600\U000E0080\U000DFFFF";
+        Assert.Equal(kept, new UntrustedText(kept).ToString());
+        Assert.Equal("x y", new UntrustedText("x\u200B \U000E0020y").ToString());
+    }
+
+    [Fact]
     public async Task Untrusted_text_strips_controls_and_truncates()
     {
         var text = new UntrustedText("a\u0007b\u202Ec");
