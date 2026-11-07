@@ -98,9 +98,8 @@ public class CanonicalizationVectorTests
         // The vector has scope-less requirements ("list": []), which a2a-python prunes; give them scopes.
         card.SecurityRequirements![1].Schemes["mtls"].List = ["client"];
         card.Skills[0].SecurityRequirements![0].Schemes["bearer"].List = ["read"];
-        card.SecuritySchemes!["client"] = new SecurityScheme
-        {
-            Oauth2SecurityScheme = new OAuth2SecurityScheme
+        card.SecuritySchemes!["client"] = new OAuth2Scheme(
+            new OAuth2SecurityScheme
             {
                 Flows = new OAuthFlows
                 {
@@ -109,8 +108,7 @@ public class CanonicalizationVectorTests
                         TokenUrl = "https://auth.example/token", RefreshUrl = "https://auth.example/refresh", Scopes = new() { ["read"] = "Read" },
                     },
                 },
-            },
-        };
+            });
         var key = new AgentCardSigningKey(System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256), "k1", "ES256");
 
         var signed = AgentCardSigner.Sign(card, key);
@@ -213,6 +211,24 @@ public class CaseVariantMemberTests
         Assert.Equal("Signer", resolved.Card.Name);
         Assert.Equal("https://agent.example/a2a", resolved.Card.SupportedInterfaces[0].Url);
         Assert.Single(resolved.Card.Signatures!);
+    }
+
+    [Fact]
+    public async Task Resolver_accepts_a_verified_card_whose_empty_required_lists_were_pruned()
+    {
+        var card = SigningTests.SampleCard();
+        card.Skills = [];
+        card.DefaultInputModes = [];
+        card.DefaultOutputModes = [];
+        var raw = A2AJson.Serialize(AgentCardSigner.Sign(card, Key));
+        // The signed (pruned) content omits the empty lists, so the model is built without them.
+        Assert.DoesNotContain("\"skills\"", AgentCardCanonicalizer.SignedContent(JsonNode.Parse(raw)!.AsObject()).ToJsonString());
+
+        var resolved = await Resolver(raw).ResolveAsync(new Uri("https://agent.example/"));
+
+        Assert.True(resolved.Verification!.IsValid);
+        Assert.Empty(resolved.Card.Skills);
+        Assert.Empty(resolved.Card.DefaultInputModes);
     }
 
     private static A2ACardResolver Resolver(string cardJson) => new(
