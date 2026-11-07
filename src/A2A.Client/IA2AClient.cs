@@ -48,6 +48,12 @@ public sealed class A2AClientOptions
     public IList<string> SupportedBindings { get; set; } = new List<string> { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson };
 
     /// <summary>
+    /// Transports for bindings beyond JSON-RPC and HTTP+JSON, used by <see cref="A2AClientFactory"/>. A factory's binding
+    /// must also be in <see cref="SupportedBindings"/> to be selected. A factory for JSONRPC or HTTP+JSON replaces the built-in one.
+    /// </summary>
+    public IList<IA2ATransportFactory> TransportFactories { get; set; } = new List<IA2ATransportFactory>();
+
+    /// <summary>
     /// HTTP method for REST SubscribeToTask. The spec text says POST, the normative proto says GET. Default POST;
     /// servers built with this SDK accept both.
     /// </summary>

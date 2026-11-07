@@ -20,13 +20,14 @@ public static class A2AClientFactory
         if (!string.IsNullOrEmpty(selected.Tenant)) options.Tenant = selected.Tenant;
         options.ProtocolVersion = selected.ProtocolVersion is { Length: > 0 } v && Major(v) == Major(options.ProtocolVersion) ? v : options.ProtocolVersion;
 
-        var url = new Uri(selected.Url, UriKind.Absolute);
-        IA2AClient transport = selected.ProtocolBinding switch
-        {
-            ProtocolBindings.JsonRpc => new JsonRpcTransport(httpClient, url, options),
-            ProtocolBindings.HttpJson => new HttpJsonTransport(httpClient, url, options),
-            _ => throw new A2AException(A2AErrorCode.UnsupportedOperation, $"Binding '{selected.ProtocolBinding}' is not implemented."),
-        };
+        IA2AClient transport = FactoryFor(options, selected.ProtocolBinding) is { } factory
+            ? factory.Create(selected, httpClient, options)
+            : selected.ProtocolBinding switch
+            {
+                ProtocolBindings.JsonRpc => new JsonRpcTransport(httpClient, new Uri(selected.Url, UriKind.Absolute), options),
+                ProtocolBindings.HttpJson => new HttpJsonTransport(httpClient, new Uri(selected.Url, UriKind.Absolute), options),
+                _ => throw new A2AException(A2AErrorCode.UnsupportedOperation, $"Binding '{selected.ProtocolBinding}' is not implemented."),
+            };
         return new A2AClient(transport, options, card);
     }
 
@@ -45,13 +46,21 @@ public static class A2AClientFactory
         foreach (var itf in card.SupportedInterfaces ?? [])
         {
             if (!options.SupportedBindings.Contains(itf.ProtocolBinding)) continue;
-            if (itf.ProtocolBinding is not (ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson)) continue;
             if (Major(itf.ProtocolVersion) != major) continue;
+            if (FactoryFor(options, itf.ProtocolBinding) is { } factory)
+            {
+                if (factory.CanCreate(itf)) return itf;
+                continue;
+            }
+            if (itf.ProtocolBinding is not (ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson)) continue;
             if (!Uri.TryCreate(itf.Url, UriKind.Absolute, out _)) continue;
             return itf;
         }
         return null;
     }
+
+    private static IA2ATransportFactory? FactoryFor(A2AClientOptions options, string binding) =>
+        options.TransportFactories.LastOrDefault(f => string.Equals(f.ProtocolBinding, binding, StringComparison.Ordinal));
 
     private static string Major(string? version) =>
         string.IsNullOrEmpty(version) ? "0" : version.Split('.')[0];
@@ -64,6 +73,8 @@ public static class A2AClientFactory
         SupportedBindings = new List<string>(o.SupportedBindings),
         RestSubscribeMethod = o.RestSubscribeMethod,
         ValidateCapabilities = o.ValidateCapabilities,
+        MaxRetries = o.MaxRetries,
         TimeProvider = o.TimeProvider,
+        TransportFactories = new List<IA2ATransportFactory>(o.TransportFactories),
     };
 }

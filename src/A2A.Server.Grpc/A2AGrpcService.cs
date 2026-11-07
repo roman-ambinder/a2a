@@ -1,10 +1,10 @@
 using System.Text.Json;
 using A2A.Grpc;
 using A2A.Server.AspNetCore;
+using A2A.Server.Streaming;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Pb = Lf.A2a.V1;
 using GrpcContext = Grpc.Core.ServerCallContext;
 
@@ -17,13 +17,11 @@ namespace A2A.Server.Grpc;
 public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
 {
     private readonly A2ARequestHandler _handler;
-    private readonly A2AHttpOptions _http;
     private readonly ILogger<A2AGrpcService> _logger;
 
-    public A2AGrpcService(A2ARequestHandler handler, IOptions<A2AHttpOptions> httpOptions, ILogger<A2AGrpcService> logger)
+    public A2AGrpcService(A2ARequestHandler handler, ILogger<A2AGrpcService> logger)
     {
         _handler = handler;
-        _http = httpOptions.Value;
         _logger = logger;
     }
 
@@ -74,29 +72,14 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
 
     // ---- plumbing ----
 
-    private ServerCallContext CreateCall(GrpcContext context)
-    {
-        var http = context.GetHttpContext();
-        var extensions = context.RequestHeaders
-            .Where(h => !h.IsBinary && string.Equals(h.Key, GrpcErrors.ExtensionsKey, StringComparison.OrdinalIgnoreCase))
-            .SelectMany(h => h.Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-        var version = context.RequestHeaders.GetValue(GrpcErrors.VersionKey);
-        return new ServerCallContext
-        {
-            User = http.User,
-            CallerId = _http.CallerIdResolver(http),
-            ProtocolVersion = string.IsNullOrWhiteSpace(version) ? null : version,
-            RequestedExtensions = extensions,
-        };
-    }
+    // Same principal, tenant, version, extensions and idempotency handling as the HTTP bindings.
+    private static ServerCallContext CreateCall(GrpcContext context) => context.GetHttpContext().CreateA2ACallContext();
 
     private async Task<T> Unary<T>(GrpcContext context, Func<ServerCallContext, CancellationToken, Task<T>> action)
     {
-        var call = CreateCall(context);
         try
         {
+            var call = CreateCall(context);
             _handler.ValidateCall(call);
             var result = await action(call, context.CancellationToken).ConfigureAwait(false);
             await WriteExtensionsHeaderAsync(context, call).ConfigureAwait(false);
@@ -109,11 +92,11 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
     }
 
     private async Task Stream(GrpcContext context, IServerStreamWriter<Pb.StreamResponse> writer,
-        Func<ServerCallContext, CancellationToken, IAsyncEnumerable<StreamResponse>> source)
+        Func<ServerCallContext, CancellationToken, IAsyncEnumerable<SequencedEvent>> source)
     {
-        var call = CreateCall(context);
         try
         {
+            var call = CreateCall(context);
             _handler.ValidateCall(call);
             var first = true;
             await foreach (var evt in source(call, context.CancellationToken).ConfigureAwait(false))
@@ -123,7 +106,7 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
                     await WriteExtensionsHeaderAsync(context, call).ConfigureAwait(false);
                     first = false;
                 }
-                await writer.WriteAsync(ProtoMapper.ToProto<Pb.StreamResponse>(evt)).ConfigureAwait(false);
+                await writer.WriteAsync(ProtoMapper.ToProto<Pb.StreamResponse>(evt.Event)).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is not RpcException)

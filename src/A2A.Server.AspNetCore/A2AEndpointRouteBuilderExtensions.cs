@@ -112,6 +112,22 @@ public static partial class A2AEndpointRouteBuilderExtensions
         group.RequireRateLimiting(A2ARateLimitingExtensions.PolicyName);
     }
 
+    /// <summary>
+    /// Puts endpoints of another binding (for example gRPC) under the same fail-closed startup check as <see cref="MapA2A"/>:
+    /// they must carry an authorization policy unless <see cref="A2AServerOptions.AllowAnonymous"/> is true. Their display
+    /// names get the prefix <c>"A2A {bindingName} "</c>. Requires <see cref="A2AServiceCollectionExtensions.AddA2AServerAspNetCore"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException"><c>services.AddA2AServerAspNetCore()</c> was not called.</exception>
+    public static TBuilder WithA2AStartupCheck<TBuilder>(this TBuilder builder, IEndpointRouteBuilder endpoints, string bindingName)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(bindingName);
+        RequireRegistration(endpoints);
+        builder.Add(b => b.DisplayName = $"A2A {bindingName} {b.DisplayName}");
+        return builder;
+    }
+
     private static bool HasTenantSegment(string pattern) => TenantSegment().IsMatch(pattern);
 
     [GeneratedRegex(@"\{\*?tenant[}:=?]")]

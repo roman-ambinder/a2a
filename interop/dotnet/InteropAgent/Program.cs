@@ -18,8 +18,13 @@ builder.WebHost.ConfigureKestrel(k =>
     k.ListenLocalhost(port + 1, o => o.Protocols = HttpProtocols.Http2);
 });
 builder.Services.AddA2AGrpc();
-builder.Services.AddA2AServer<ScenarioAgent>(o => o.AgentCard = new AgentCard
+builder.Services.AddA2AServer(o =>
 {
+    // Interop test peer: no authentication, and no per-caller rate limit (all checks come from one address).
+    o.AllowAnonymous = true;
+    o.EnableRateLimiting = false;
+    o.AgentCard = new AgentCard
+    {
     Name = ".NET Scenario Agent",
     Description = "A2A .NET SDK agent for interop tests",
     Version = "1.0.0",
@@ -33,7 +38,8 @@ builder.Services.AddA2AServer<ScenarioAgent>(o => o.AgentCard = new AgentCard
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
     Skills = [new AgentSkill { Id = "scenario", Name = "Scenario", Description = "Interop scenarios", Tags = ["test"] }],
-});
+    };
+}).AddAgentExecutor<ScenarioAgent>();
 
 var app = builder.Build();
 app.MapAgentCard();
