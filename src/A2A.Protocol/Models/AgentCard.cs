@@ -7,21 +7,21 @@ namespace A2A;
 /// <summary>Self-describing manifest of an agent (spec §4.4.1).</summary>
 public sealed class AgentCard
 {
-    public required string Name { get; set; }
-    public required string Description { get; set; }
+    public required string Name { get; set; } = string.Empty;
+    public required string Description { get; set; } = string.Empty;
 
     /// <summary>Ordered list of interfaces; the first entry is preferred.</summary>
-    public required List<AgentInterface> SupportedInterfaces { get; set; }
+    public required List<AgentInterface> SupportedInterfaces { get; set; } = new();
 
     public AgentProvider? Provider { get; set; }
-    public required string Version { get; set; }
+    public required string Version { get; set; } = string.Empty;
     public string? DocumentationUrl { get; set; }
-    public required AgentCapabilities Capabilities { get; set; }
+    public required AgentCapabilities Capabilities { get; set; } = new();
     public Dictionary<string, SecurityScheme>? SecuritySchemes { get; set; }
     public List<SecurityRequirement>? SecurityRequirements { get; set; }
-    public required List<string> DefaultInputModes { get; set; }
-    public required List<string> DefaultOutputModes { get; set; }
-    public required List<AgentSkill> Skills { get; set; }
+    public required List<string> DefaultInputModes { get; set; } = new();
+    public required List<string> DefaultOutputModes { get; set; } = new();
+    public required List<AgentSkill> Skills { get; set; } = new();
     public List<AgentCardSignature>? Signatures { get; set; }
     public string? IconUrl { get; set; }
 }

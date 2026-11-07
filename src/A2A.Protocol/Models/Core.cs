@@ -46,7 +46,7 @@ public sealed class Message
     public string? ContextId { get; set; }
     public string? TaskId { get; set; }
     public required Role Role { get; set; }
-    public required List<Part> Parts { get; set; }
+    public required List<Part> Parts { get; set; } = new();
     public Dictionary<string, JsonElement>? Metadata { get; set; }
     public List<string>? Extensions { get; set; }
     public List<string>? ReferenceTaskIds { get; set; }
@@ -69,7 +69,7 @@ public sealed class Artifact
     public required string ArtifactId { get; set; }
     public string? Name { get; set; }
     public string? Description { get; set; }
-    public required List<Part> Parts { get; set; }
+    public required List<Part> Parts { get; set; } = new();
     public Dictionary<string, JsonElement>? Metadata { get; set; }
     public List<string>? Extensions { get; set; }
 }

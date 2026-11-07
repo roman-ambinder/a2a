@@ -43,7 +43,7 @@ public class UnionTests
             var evt = A2AJson.Deserialize<StreamResponse>(json);
             Assert.IsType(type, evt);
             Assert.Equal(json, A2AJson.Serialize(evt));
-            Assert.Equal("t1", member == "message" ? "t1" : evt.TaskId);
+            if (member == "message") Assert.Null(evt.TaskId); else Assert.Equal("t1", evt.TaskId);
         }
     }
 
@@ -134,5 +134,61 @@ public class UnionTests
             await foreach (var _ in client.SendStreamingMessageAsync(bad)) { }
         });
         Assert.Empty(handler.Calls);
+    }
+
+    [Fact]
+    public void Agent_card_with_empty_proto_fields_omitted_deserializes_with_defaults()
+    {
+        var card = A2AJson.Deserialize<AgentCard>("""
+            {"name":"n","version":"1","supportedInterfaces":[{"url":"https://x","protocolBinding":"JSONRPC","protocolVersion":"1.0"}],"capabilities":{}}
+            """);
+        Assert.Equal("", card.Description);
+        Assert.Empty(card.Skills);
+        Assert.Empty(card.DefaultInputModes);
+        Assert.Empty(card.DefaultOutputModes);
+
+        var bare = A2AJson.Deserialize<AgentCard>("{}");
+        Assert.Equal("", bare.Name);
+        Assert.NotNull(bare.Capabilities);
+        Assert.Empty(bare.SupportedInterfaces);
+    }
+
+    [Fact]
+    public void Artifact_update_without_parts_key_deserializes()
+    {
+        var e = A2AJson.Deserialize<TaskArtifactUpdateEvent>(
+            """{"taskId":"t","contextId":"c","artifact":{"artifactId":"a"},"append":true,"lastChunk":true}""");
+        Assert.True(e.Append);
+        Assert.True(e.LastChunk);
+        Assert.Empty(e.Artifact.Parts);
+    }
+
+    [Theory]
+    [InlineData("JSONRPC", """{"messageId":"m1","role":"ROLE_USER"}""")]
+    [InlineData("JSONRPC", """{"role":"ROLE_USER","parts":[{"text":"x"}]}""")]
+    [InlineData("JSONRPC", """{"messageId":"m1","role":"ROLE_USER","parts":[]}""")]
+    [InlineData("HTTP+JSON", """{"messageId":"m1","role":"ROLE_USER"}""")]
+    [InlineData("HTTP+JSON", """{"role":"ROLE_USER","parts":[{"text":"x"}]}""")]
+    [InlineData("HTTP+JSON", """{"messageId":"m1","role":"ROLE_USER","parts":[]}""")]
+    public async Task Raw_send_message_with_missing_required_member_is_invalid_params(string binding, string message)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var http = host.Http("alice");
+        http.DefaultRequestHeaders.Add(A2AProtocol.Headers.Version, "1.0");
+        HttpResponseMessage resp;
+        if (binding == "JSONRPC")
+        {
+            var body = """{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":""" + message + "}}";
+            resp = await http.PostAsync(TestAgentHost.BaseUrl, new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+            Assert.Equal(-32602, doc.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+        }
+        else
+        {
+            var body = """{"message":""" + message + "}";
+            resp = await http.PostAsync(TestAgentHost.BaseUrl + "/message:send", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, resp.StatusCode);
+            Assert.Contains("INVALID_ARGUMENT", await resp.Content.ReadAsStringAsync());
+        }
     }
 }

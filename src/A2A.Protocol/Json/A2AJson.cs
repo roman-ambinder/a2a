@@ -1,6 +1,7 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace A2A.Json;
 
@@ -35,8 +36,28 @@ public static class A2AJson
         o.AllowDuplicateProperties = false;
 #endif
         o.Converters.Add(new TimestampConverter());
+        o.TypeInfoResolver = new DefaultJsonTypeInfoResolver { Modifiers = { RelaxRequired } };
         o.MakeReadOnly(populateMissingResolver: true);
         return o;
+    }
+
+    /// <summary>
+    /// Members that are C# <c>required</c> (construction-time safety) but that a ProtoJSON peer omits when empty, so they must not be
+    /// JSON-required on read. The property initializers supply the default. A source-generated context (Task 10) must apply the same
+    /// modifier or mark these properties not required.
+    /// </summary>
+    private static readonly Dictionary<Type, string[]> OptionalOnWire = new()
+    {
+        [typeof(AgentCard)] = ["name", "description", "version", "supportedInterfaces", "capabilities", "defaultInputModes", "defaultOutputModes", "skills"],
+        [typeof(Artifact)] = ["parts"],
+    };
+
+    /// <summary>A <see cref="JsonTypeInfo"/> modifier that clears <c>IsRequired</c> on <see cref="OptionalOnWire"/> members.</summary>
+    public static void RelaxRequired(JsonTypeInfo info)
+    {
+        if (info.Kind != JsonTypeInfoKind.Object || !OptionalOnWire.TryGetValue(info.Type, out var names)) return;
+        foreach (var p in info.Properties)
+            if (Array.IndexOf(names, p.Name) >= 0) p.IsRequired = false;
     }
 
     public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Options);
