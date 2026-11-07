@@ -589,6 +589,7 @@ public sealed class A2ARequestHandler : IDisposable
                         {
                             Metadata = new() { ["taskId"] = taskId },
                         };
+                    if (push is not null) await _pushConfigs.EnsureCapacityAsync(Key(call, taskId), push.Id!, ct).ConfigureAwait(false);
                     contextId = record.Task.ContextId;
                     message.ContextId = contextId;
                     // The stored record belongs to the store: append to a copy, with a copy of the message the executor gets.

@@ -429,6 +429,7 @@ A2A.Server.Pipeline.CallValidator.CallValidator(A2A.Server.A2AServerOptions! opt
 A2A.Server.Pipeline.CallValidator.Validate(A2A.Server.ServerCallContext! call) -> void
 A2A.Server.Push.PushConfigService
 A2A.Server.Push.PushConfigService.CreateAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.TaskPushNotificationConfig!>
+A2A.Server.Push.PushConfigService.EnsureCapacityAsync(A2A.Server.Storage.TaskKey key, string! configId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask
 A2A.Server.Push.PushConfigService.DeleteAsync(A2A.Server.Storage.TaskKey key, string! configId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask
 A2A.Server.Push.PushConfigService.GetAsync(A2A.Server.Storage.TaskKey key, string! configId, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.TaskPushNotificationConfig!>
 A2A.Server.Push.PushConfigService.ListAsync(A2A.Server.Storage.TaskKey key, int pageSize, string? pageToken, System.Threading.CancellationToken ct) -> System.Threading.Tasks.ValueTask<A2A.ListTaskPushNotificationConfigsResponse!>

@@ -53,29 +53,23 @@ public sealed class PushConfigService(PushConfigStore store, IPushSecretProtecto
             throw ConfigNotFound(key.TaskId, configId);
     }
 
-    /// <summary>
-    /// Checks the inline config of a SendMessage request before anything is committed: the webhook URL and the per-task limit
-    /// (replacing an existing id is allowed). <paramref name="config"/> must already carry its id.
-    /// </summary>
-    public async ValueTask ValidateInlineAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct)
-    {
-        await ValidateUrlAsync(config.Url, ct).ConfigureAwait(false);
-        await EnsureCapacityAsync(key, config.Id!, ct).ConfigureAwait(false);
-    }
-
-    /// <summary>Protects the secrets of the inline config and stores a copy. The caller's instance is not changed.</summary>
-    public ValueTask SaveInlineAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct) => SaveAsync(key, config, ct);
-
-    internal ValueTask ValidateUrlAsync(string url, CancellationToken ct) => PushUrlValidator.ValidateAsync(url, options.PushNotifications, ct);
+    /// <summary>Checks the webhook URL of the inline config of a SendMessage request, before anything is committed.</summary>
+    public ValueTask ValidateInlineAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct) =>
+        ValidateUrlAsync(config.Url, ct);
 
     /// <summary>Throws InvalidRequest when adding config <paramref name="configId"/> would exceed the per-task limit. Replacing an existing id is allowed.</summary>
-    private async ValueTask EnsureCapacityAsync(TaskKey key, string configId, CancellationToken ct)
+    public async ValueTask EnsureCapacityAsync(TaskKey key, string configId, CancellationToken ct)
     {
         if (await store.GetAsync(key, configId, ct).ConfigureAwait(false) is not null) return;
         var limit = options.Limits.MaxPushConfigsPerTask;
         if (await store.CountAsync(key, ct).ConfigureAwait(false) >= limit)
             throw new A2AException(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {limit}).");
     }
+
+    /// <summary>Protects the secrets of the inline config and stores a copy. The caller's instance is not changed.</summary>
+    public ValueTask SaveInlineAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct) => SaveAsync(key, config, ct);
+
+    internal ValueTask ValidateUrlAsync(string url, CancellationToken ct) => PushUrlValidator.ValidateAsync(url, options.PushNotifications, ct);
 
     /// <summary>Protects the secrets of <paramref name="config"/> and stores a copy, which the store then owns.</summary>
     private ValueTask SaveAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct)

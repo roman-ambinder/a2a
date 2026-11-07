@@ -166,6 +166,33 @@ public class PushConfigTests : IAsyncLifetime
         Assert.Equal(10, (await client.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest { TaskId = task.Id })).Configs.Count);
     }
 
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Follow_up_to_a_terminal_task_at_the_config_limit_gets_the_state_error(string binding)
+    {
+        var client = _host.Client(binding, "alice");
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+        for (var i = 0; i < 10; i++) await client.CreateTaskPushNotificationConfigAsync(Secret(task.Id));
+        var done = (await client.SendMessageAsync("finish", task.ContextId, task.Id)).RequireTask();
+        Assert.Equal(TaskState.Completed, done.Status.State);
+        await _host.WaitIdleAsync();
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(
+            Message.FromUser("more", task.ContextId, task.Id),
+            new SendMessageConfiguration { TaskPushNotificationConfig = Secret("") }));
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
+    }
+
+    [Fact]
+    public async Task Inline_config_on_new_task_is_accepted_when_the_limit_is_zero()
+    {
+        await using var host = await TestAgentHost.StartAsync(o => o.Limits.MaxPushConfigsPerTask = 0);
+        var client = host.Client(ProtocolBindings.JsonRpc, "alice");
+        var task = (await client.SendMessageAsync(Message.FromUser("input"),
+            new SendMessageConfiguration { TaskPushNotificationConfig = Secret("") })).RequireTask();
+        Assert.Single(await host.App.Services.GetRequiredService<PushConfigStore>().ListAsync(new TaskKey("", "alice", task.Id)));
+    }
+
     [Fact]
     public async Task Data_protection_protector_round_trips_and_is_used_by_the_store_path()
     {
