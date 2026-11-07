@@ -1,28 +1,43 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using A2A.Json;
 
 namespace A2A;
 
 /// <summary>Self-describing manifest of an agent (spec §4.4.1).</summary>
-public sealed class AgentCard
+public sealed class AgentCard : IJsonOnDeserialized
 {
-    public string Name { get; set; } = string.Empty;
-    public string Description { get; set; } = string.Empty;
+    public required string Name { get; set; } = string.Empty;
+    public required string Description { get; set; } = string.Empty;
 
     /// <summary>Ordered list of interfaces; the first entry is preferred.</summary>
-    public List<AgentInterface> SupportedInterfaces { get; set; } = new();
+    public required List<AgentInterface> SupportedInterfaces { get; set; } = new();
 
     public AgentProvider? Provider { get; set; }
-    public string Version { get; set; } = string.Empty;
+    public required string Version { get; set; } = string.Empty;
     public string? DocumentationUrl { get; set; }
-    public AgentCapabilities Capabilities { get; set; } = new();
+    public required AgentCapabilities Capabilities { get; set; } = new();
     public Dictionary<string, SecurityScheme>? SecuritySchemes { get; set; }
     public List<SecurityRequirement>? SecurityRequirements { get; set; }
-    public List<string> DefaultInputModes { get; set; } = new();
-    public List<string> DefaultOutputModes { get; set; } = new();
-    public List<AgentSkill> Skills { get; set; } = new();
+    public required List<string> DefaultInputModes { get; set; } = new();
+    public required List<string> DefaultOutputModes { get; set; } = new();
+    public required List<AgentSkill> Skills { get; set; } = new();
     public List<AgentCardSignature>? Signatures { get; set; }
     public string? IconUrl { get; set; }
+
+    // The generated metadata builds objects from constructor arguments, so a member the peer omitted (see A2AJson.RelaxRequired)
+    // arrives as null instead of keeping its property initializer. Restore the defaults.
+    void IJsonOnDeserialized.OnDeserialized()
+    {
+        Name ??= string.Empty;
+        Description ??= string.Empty;
+        SupportedInterfaces ??= new();
+        Version ??= string.Empty;
+        Capabilities ??= new();
+        DefaultInputModes ??= new();
+        DefaultOutputModes ??= new();
+        Skills ??= new();
+    }
 }
 
 /// <summary>Well-known protocol binding identifiers.</summary>
@@ -108,21 +123,38 @@ public sealed class SecurityRequirement
     public Dictionary<string, StringList> Schemes { get; set; } = new();
 }
 
-/// <summary>Discriminated union of security schemes (OpenAPI 3.2 style). Exactly one member is set.</summary>
-public sealed class SecurityScheme
+/// <summary>Discriminated union of security schemes (OpenAPI 3.2 style). A closed union; exactly one case.</summary>
+[JsonConverter(typeof(SecuritySchemeConverter))]
+public abstract record SecurityScheme
 {
-    public ApiKeySecurityScheme? ApiKeySecurityScheme { get; set; }
-    public HttpAuthSecurityScheme? HttpAuthSecurityScheme { get; set; }
-    public OAuth2SecurityScheme? Oauth2SecurityScheme { get; set; }
-    public OpenIdConnectSecurityScheme? OpenIdConnectSecurityScheme { get; set; }
-    public MutualTlsSecurityScheme? MtlsSecurityScheme { get; set; }
+    private protected SecurityScheme() { }
 
-    public static SecurityScheme Bearer(string? bearerFormat = "JWT", string? description = null) =>
-        new() { HttpAuthSecurityScheme = new HttpAuthSecurityScheme { Scheme = "Bearer", BearerFormat = bearerFormat, Description = description } };
+    public static HttpAuthScheme Bearer(string? bearerFormat = "JWT", string? description = null) =>
+        new(new HttpAuthSecurityScheme { Scheme = "Bearer", BearerFormat = bearerFormat, Description = description });
 
-    public static SecurityScheme ApiKey(string name, string location = "header", string? description = null) =>
-        new() { ApiKeySecurityScheme = new ApiKeySecurityScheme { Name = name, Location = location, Description = description } };
+    public static ApiKeyScheme ApiKey(string name, string location = "header", string? description = null) =>
+        new(new ApiKeySecurityScheme { Name = name, Location = location, Description = description });
 }
+
+/// <summary>API key scheme (wire member <c>apiKeySecurityScheme</c>).</summary>
+[JsonConverter(typeof(OneOfCaseConverter<SecurityScheme, ApiKeyScheme, SecuritySchemeConverter>))]
+public sealed record ApiKeyScheme(ApiKeySecurityScheme Value) : SecurityScheme;
+
+/// <summary>HTTP auth scheme (wire member <c>httpAuthSecurityScheme</c>).</summary>
+[JsonConverter(typeof(OneOfCaseConverter<SecurityScheme, HttpAuthScheme, SecuritySchemeConverter>))]
+public sealed record HttpAuthScheme(HttpAuthSecurityScheme Value) : SecurityScheme;
+
+/// <summary>OAuth 2.0 scheme (wire member <c>oauth2SecurityScheme</c>).</summary>
+[JsonConverter(typeof(OneOfCaseConverter<SecurityScheme, OAuth2Scheme, SecuritySchemeConverter>))]
+public sealed record OAuth2Scheme(OAuth2SecurityScheme Value) : SecurityScheme;
+
+/// <summary>OpenID Connect scheme (wire member <c>openIdConnectSecurityScheme</c>).</summary>
+[JsonConverter(typeof(OneOfCaseConverter<SecurityScheme, OpenIdConnectScheme, SecuritySchemeConverter>))]
+public sealed record OpenIdConnectScheme(OpenIdConnectSecurityScheme Value) : SecurityScheme;
+
+/// <summary>Mutual TLS scheme (wire member <c>mtlsSecurityScheme</c>).</summary>
+[JsonConverter(typeof(OneOfCaseConverter<SecurityScheme, MutualTlsScheme, SecuritySchemeConverter>))]
+public sealed record MutualTlsScheme(MutualTlsSecurityScheme Value) : SecurityScheme;
 
 public sealed class ApiKeySecurityScheme
 {

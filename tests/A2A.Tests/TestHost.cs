@@ -9,6 +9,7 @@ using A2A.Server.Push;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -21,11 +22,19 @@ public sealed class ScenarioAgent : IAgentExecutor
 {
     public static readonly ConcurrentDictionary<string, TaskCompletionSource> AuthSignals = new();
 
+    /// <summary>Signals for the <c>gate</c> scenario, keyed by the whole user text.</summary>
+    public static readonly ConcurrentDictionary<string, TaskCompletionSource> GateSignals = new();
+
+    /// <summary>The signal for <paramref name="text"/> (a <c>gate ...</c> message).</summary>
+    public static TaskCompletionSource Gate(string text) =>
+        GateSignals.GetOrAdd(text, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+
     public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct)
     {
         var text = context.UserText;
         if (context.Task is not null && context.Task.Status.State == TaskState.InputRequired)
         {
+            if (text.StartsWith("gate ", StringComparison.Ordinal)) await Gate(text).Task.WaitAsync(ct); // no WORKING first
             await updater.CompleteAsync($"got: {text}", ct);
             return;
         }
@@ -54,7 +63,23 @@ public sealed class ScenarioAgent : IAgentExecutor
                 await tcs.Task.WaitAsync(ct);
                 await updater.CompleteAsync("authorized", ct);
                 break;
+            case "gate":
+                await updater.StartWorkAsync("waiting at the gate", ct);
+                await Gate(text).Task.WaitAsync(ct);
+                await updater.CompleteAsync("through the gate", ct);
+                break;
+            case "halfway": // starts work, then returns without finishing the task
+                await updater.StartWorkAsync(cancellationToken: ct);
+                break;
+            case "big":
+                await updater.StartWorkAsync(cancellationToken: ct);
+                await updater.AddArtifactAsync([Part.FromText(new string('x', 2048))], name: "big", cancellationToken: ct);
+                await updater.CompleteAsync("done", ct);
+                break;
             case "fail":
+                throw new InvalidOperationException("boom");
+            case "stream-error": // fails after the first event, when a streaming response is already under way
+                await updater.StartWorkAsync("about to fail", ct);
                 throw new InvalidOperationException("boom");
             case "silent":
                 break;
@@ -65,7 +90,10 @@ public sealed class ScenarioAgent : IAgentExecutor
     }
 }
 
-/// <summary>Authenticates requests carrying <c>X-Test-User</c>.</summary>
+/// <summary>
+/// Authenticates requests carrying <c>X-Test-User</c>. With <c>X-Test-NoId</c> as well, the user is authenticated but has
+/// neither a NameIdentifier nor a <c>sub</c> claim.
+/// </summary>
 public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
@@ -75,7 +103,10 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
     {
         var user = Request.Headers["X-Test-User"].ToString();
         if (string.IsNullOrEmpty(user)) return Task.FromResult(AuthenticateResult.NoResult());
-        var identity = new ClaimsIdentity([new Claim("sub", user), new Claim(ClaimTypes.Name, user)], SchemeName);
+        var claims = Request.Headers.ContainsKey("X-Test-NoId")
+            ? new[] { new Claim(ClaimTypes.Name, user) }
+            : new[] { new Claim("sub", user), new Claim(ClaimTypes.Name, user) };
+        var identity = new ClaimsIdentity(claims, SchemeName);
         return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
     }
 }
@@ -130,14 +161,16 @@ public sealed class TestAgentHost : IAsyncDisposable
         Skills = [new AgentSkill { Id = "scenario", Name = "Scenario", Description = "Runs test scenarios", Tags = ["test"] }],
     };
 
-    public static async Task<TestAgentHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<A2AHttpOptions>? configureHttp = null)
+    public static async Task<TestAgentHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<A2AHttpOptions>? configureHttp = null,
+        Action<IServiceCollection>? services = null, bool requireAuth = true,
+        Action<RouteGroupBuilder>? configureRoutes = null, bool useA2A = true, Action<WebApplication>? configurePipeline = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Services.AddAuthentication(TestAuthHandler.SchemeName).AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, null);
         builder.Services.AddAuthorization();
-        builder.Services.AddA2AServer<ScenarioAgent>(o =>
+        builder.Services.AddA2AServer(o =>
         {
             o.AgentCard = DefaultCard();
             o.PushNotifications.AllowInsecureUrls = true;
@@ -147,20 +180,26 @@ public sealed class TestAgentHost : IAsyncDisposable
             o.ExtendedAgentCardProvider = (call, _) =>
             {
                 var card = DefaultCard();
-                card.Description = $"Extended card for {call.CallerId}";
+                card.Description = $"Extended card for {call.Principal}";
                 return ValueTask.FromResult<AgentCard?>(card);
             };
             configure?.Invoke(o);
-        });
+        }).AddAgentExecutor<ScenarioAgent>();
+        builder.Services.AddA2AServerAspNetCore();
+        services?.Invoke(builder.Services);
         var webhooks = new RecordingHandler();
         builder.Services.AddHttpClient(HttpPushNotificationSender.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => webhooks);
         if (configureHttp is not null) builder.Services.ConfigureA2AHttp(configureHttp);
 
         var app = builder.Build();
+        configurePipeline?.Invoke(app);
         app.UseAuthentication();
+        if (useA2A) app.UseA2A();
         app.UseAuthorization();
         app.MapAgentCard();
-        app.MapA2A("/a2a");
+        var a2a = app.MapA2A("/a2a");
+        if (requireAuth) a2a.RequireAuthorization();
+        configureRoutes?.Invoke(a2a);
         await app.StartAsync();
         return new TestAgentHost(app, webhooks);
     }
@@ -173,7 +212,7 @@ public sealed class TestAgentHost : IAsyncDisposable
         return client;
     }
 
-    public A2AClient Client(string binding, string? user = null, A2AClientOptions? options = null)
+    public A2AClient Client(string binding, string? user = "alice", A2AClientOptions? options = null)
     {
         options ??= new A2AClientOptions();
         var http = Http(user);
@@ -194,4 +233,16 @@ public sealed class TestAgentHost : IAsyncDisposable
         await App.StopAsync();
         await App.DisposeAsync();
     }
+}
+
+/// <summary>Test helpers to narrow the closed response unions.</summary>
+public static class UnionTestExtensions
+{
+    public static AgentTask RequireTask(this SendMessageResponse r) =>
+        (r as TaskResponse)?.Task ?? throw new Xunit.Sdk.XunitException($"Expected a task response but got {r.GetType().Name}");
+
+    public static Message RequireMessage(this SendMessageResponse r) =>
+        (r as MessageResponse)?.Message ?? throw new Xunit.Sdk.XunitException($"Expected a message response but got {r.GetType().Name}");
+
+    public static AgentTask? TryTask(this SendMessageResponse r) => (r as TaskResponse)?.Task;
 }

@@ -1,0 +1,53 @@
+{
+  "name": "Vector Agent",
+  "description": "Agent used for signing vectors.",
+  "version": "1.0.0",
+  "supportedInterfaces": [
+    {
+      "url": "https://agent.example/a2a",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "text/plain"
+  ],
+  "skills": [
+    {
+      "id": "echo",
+      "name": "Echo",
+      "description": "Echoes the input.",
+      "tags": [
+        "echo"
+      ]
+    }
+  ],
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "extendedAgentCard": false,
+    "extensions": [
+      {
+        "uri": "https://ext.example/opt",
+        "required": false
+      }
+    ]
+  },
+  "securitySchemes": {
+    "oauth": {
+      "oauth2SecurityScheme": {
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://auth.example/authorize",
+            "tokenUrl": "https://auth.example/token",
+            "scopes": {},
+            "pkceRequired": false
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using A2A.Server.Push;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -8,37 +9,81 @@ namespace A2A.Server;
 public static class A2AServerServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the A2A server core with <typeparamref name="TExecutor"/> as the agent (scoped: one instance per execution).
-    /// Defaults: in-memory stores, owner+tenant access policy, HTTP push sender with SSRF guard. Register your own
-    /// <see cref="ITaskStore"/>, <see cref="IPushNotificationConfigStore"/>, or <see cref="ITaskAccessPolicy"/> before or after to replace them.
+    /// Registers the A2A server core and returns a builder to add the agent, its card and extra services.
+    /// Defaults: in-memory stores (tasks, events, push configs, idempotency), HTTP push sender with SSRF guard, allow-all authorization handler. Register your own
+    /// <see cref="Storage.TaskStore"/>, <see cref="Storage.PushConfigStore"/> or <see cref="Idempotency.IdempotencyStore"/> before or after to replace them.
     /// </summary>
-    public static IServiceCollection AddA2AServer<TExecutor>(this IServiceCollection services, Action<A2AServerOptions> configure)
-        where TExecutor : class, IAgentExecutor
+    public static A2AServerBuilder AddA2AServer(this IServiceCollection services, Action<A2AServerOptions>? configure = null)
     {
-        services.TryAddScoped<IAgentExecutor, TExecutor>();
-        return services.AddA2AServerCore(configure);
-    }
-
-    /// <summary>Registers the A2A server core with a delegate as the agent.</summary>
-    public static IServiceCollection AddA2AServer(this IServiceCollection services, Action<A2AServerOptions> configure,
-        Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> execute)
-    {
-        services.TryAddSingleton<IAgentExecutor>(new DelegateAgentExecutor(execute));
-        return services.AddA2AServerCore(configure);
-    }
-
-    private static IServiceCollection AddA2AServerCore(this IServiceCollection services, Action<A2AServerOptions> configure)
-    {
-        services.AddOptions<A2AServerOptions>().Configure(configure);
-        services.TryAddSingleton<ITaskStore, InMemoryTaskStore>();
-        services.TryAddSingleton<IPushNotificationConfigStore, InMemoryPushNotificationConfigStore>();
-        services.TryAddSingleton<ITaskAccessPolicy, OwnerTenantAccessPolicy>();
+        var options = services.AddOptions<A2AServerOptions>();
+        if (configure is not null) options.Configure(configure);
+        services.TryAddSingleton<Storage.TaskStore, Storage.InMemoryTaskStore>();
+        services.TryAddSingleton<Storage.PushConfigStore, Storage.InMemoryPushConfigStore>();
+        services.TryAddSingleton<Storage.EventStore>(sp => new Storage.InMemoryEventStore(
+            sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, sp.GetService<TimeProvider>()));
+        services.TryAddSingleton<Idempotency.IdempotencyStore>(sp => new Idempotency.InMemoryIdempotencyStore(
+            sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Idempotency, sp.GetService<TimeProvider>()));
+        services.TryAddSingleton<IPushSecretProtector, EphemeralPushSecretProtector>();
+        services.TryAddSingleton<IPrincipalResolver, DefaultPrincipalResolver>();
+        services.TryAddSingleton<A2AAuthorizationHandler, AllowAllAuthorizationHandler>();
         services.TryAddSingleton<TaskEventBus>();
         services.AddHttpClient(HttpPushNotificationSender.HttpClientName)
             .ConfigurePrimaryHttpMessageHandler(sp => PushUrlValidator.CreateHandler(sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.PushNotifications));
         services.TryAddSingleton<HttpPushNotificationSender>();
         services.TryAddSingleton<IPushNotificationSender>(sp => sp.GetRequiredService<HttpPushNotificationSender>());
         services.TryAddSingleton<A2ARequestHandler>();
-        return services;
+        return new A2AServerBuilder(services);
+    }
+}
+
+/// <summary>Fluent setup for the A2A server. Created by <c>AddA2AServer</c>.</summary>
+public sealed class A2AServerBuilder
+{
+    internal A2AServerBuilder(IServiceCollection services) => Services = services;
+
+    /// <summary>The underlying service collection.</summary>
+    public IServiceCollection Services { get; }
+
+    /// <summary>Uses <typeparamref name="T"/> as the agent. Scoped: one instance per execution. Replaces an earlier executor.</summary>
+    public A2AServerBuilder AddAgentExecutor<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() where T : class, IAgentExecutor
+    {
+        Services.Replace(ServiceDescriptor.Scoped<IAgentExecutor, T>());
+        return this;
+    }
+
+    /// <summary>Uses a delegate as the agent. Replaces an earlier executor.</summary>
+    public A2AServerBuilder AddAgentExecutor(Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> execute)
+    {
+        Services.Replace(ServiceDescriptor.Singleton<IAgentExecutor>(new DelegateAgentExecutor(execute)));
+        return this;
+    }
+
+    /// <summary>Sets the public Agent Card (same as setting <see cref="A2AServerOptions.AgentCard"/>).</summary>
+    public A2AServerBuilder AddAgentCard(AgentCard card)
+    {
+        Services.Configure<A2AServerOptions>(o => o.AgentCard = card);
+        return this;
+    }
+
+    /// <summary>Uses <typeparamref name="T"/> to authorize every operation. Replaces an earlier handler.</summary>
+    public A2AServerBuilder AddAuthorizationHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() where T : A2AAuthorizationHandler
+    {
+        Services.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler, T>());
+        return this;
+    }
+
+    /// <summary>
+    /// Uses the in-memory task, push config, event and idempotency stores. They are already registered by default, so this changes nothing
+    /// unless you registered your own stores earlier (it does not replace them).
+    /// </summary>
+    public A2AServerBuilder AddInMemoryStores()
+    {
+        Services.TryAddSingleton<Storage.TaskStore, Storage.InMemoryTaskStore>();
+        Services.TryAddSingleton<Storage.PushConfigStore, Storage.InMemoryPushConfigStore>();
+        Services.TryAddSingleton<Storage.EventStore>(sp => new Storage.InMemoryEventStore(
+            sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, sp.GetService<TimeProvider>()));
+        Services.TryAddSingleton<Idempotency.IdempotencyStore>(sp => new Idempotency.InMemoryIdempotencyStore(
+            sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Idempotency, sp.GetService<TimeProvider>()));
+        return this;
     }
 }

@@ -39,61 +39,14 @@ public enum Role
     [ProtoName("ROLE_AGENT")] Agent = 2,
 }
 
-/// <summary>Kind of content held by a <see cref="Part"/>.</summary>
-public enum PartKind { None, Text, Raw, Url, Data }
-
-/// <summary>A unit of content: text, raw bytes, a URL, or structured JSON data (spec §4.1.6). Exactly one content field is set.</summary>
-public sealed class Part
-{
-    public string? Text { get; set; }
-
-    /// <summary>Inline file bytes; base64 on the wire.</summary>
-    public byte[]? Raw { get; set; }
-
-    public string? Url { get; set; }
-
-    /// <summary>Arbitrary JSON value.</summary>
-    public JsonElement? Data { get; set; }
-
-    public Dictionary<string, JsonElement>? Metadata { get; set; }
-
-    public string? Filename { get; set; }
-
-    public string? MediaType { get; set; }
-
-    [JsonIgnore]
-    public PartKind Kind =>
-        Text is not null ? PartKind.Text :
-        Raw is not null ? PartKind.Raw :
-        Url is not null ? PartKind.Url :
-        Data is not null ? PartKind.Data : PartKind.None;
-
-    [JsonIgnore]
-    internal int ContentCount =>
-        (Text is null ? 0 : 1) + (Raw is null ? 0 : 1) + (Url is null ? 0 : 1) + (Data is null ? 0 : 1);
-
-    public static Part FromText(string text, string? mediaType = null) => new() { Text = text, MediaType = mediaType };
-
-    public static Part FromBytes(byte[] bytes, string mediaType, string? filename = null) =>
-        new() { Raw = bytes, MediaType = mediaType, Filename = filename };
-
-    public static Part FromUrl(string url, string? mediaType = null, string? filename = null) =>
-        new() { Url = url, MediaType = mediaType, Filename = filename };
-
-    public static Part FromData(JsonElement data, string? mediaType = "application/json") => new() { Data = data, MediaType = mediaType };
-
-    public static Part FromData<T>(T value, string? mediaType = "application/json") =>
-        FromData(JsonSerializer.SerializeToElement(value, A2AJson.Options), mediaType);
-}
-
 /// <summary>One unit of communication between client and agent (spec §4.1.4).</summary>
 public sealed class Message
 {
-    public string MessageId { get; set; } = string.Empty;
+    public required string MessageId { get; set; }
     public string? ContextId { get; set; }
     public string? TaskId { get; set; }
-    public Role Role { get; set; }
-    public List<Part> Parts { get; set; } = new();
+    public required Role Role { get; set; }
+    public required List<Part> Parts { get; set; } = new();
     public Dictionary<string, JsonElement>? Metadata { get; set; }
     public List<string>? Extensions { get; set; }
     public List<string>? ReferenceTaskIds { get; set; }
@@ -107,18 +60,21 @@ public sealed class Message
         new() { MessageId = NewId(), Role = Role.Agent, Parts = [Part.FromText(text)], ContextId = contextId, TaskId = taskId };
 
     /// <summary>Concatenated text of all text parts.</summary>
-    public string GetText() => string.Concat(Parts.Where(p => p.Text is not null).Select(p => p.Text));
+    public string GetText() => string.Concat(Parts.OfType<TextPart>().Select(p => p.Text));
 }
 
 /// <summary>An output of a task (spec §4.1.7).</summary>
-public sealed class Artifact
+public sealed class Artifact : IJsonOnDeserialized
 {
-    public string ArtifactId { get; set; } = string.Empty;
+    public required string ArtifactId { get; set; }
     public string? Name { get; set; }
     public string? Description { get; set; }
-    public List<Part> Parts { get; set; } = new();
+    public required List<Part> Parts { get; set; } = new();
     public Dictionary<string, JsonElement>? Metadata { get; set; }
     public List<string>? Extensions { get; set; }
+
+    // See AgentCard: omitted parts must read as an empty list, not null.
+    void IJsonOnDeserialized.OnDeserialized() => Parts ??= new();
 }
 
 /// <summary>Status of a task (spec §4.1.2). Named to avoid clashing with <see cref="System.Threading.Tasks.TaskStatus"/>.</summary>
@@ -132,9 +88,9 @@ public sealed class AgentTaskStatus
 /// <summary>The core unit of work (spec §4.1.1). Named to avoid clashing with <see cref="System.Threading.Tasks.Task"/>.</summary>
 public sealed class AgentTask
 {
-    public string Id { get; set; } = string.Empty;
+    public required string Id { get; set; }
     public string ContextId { get; set; } = string.Empty;
-    public AgentTaskStatus Status { get; set; } = new();
+    public required AgentTaskStatus Status { get; set; }
     public List<Artifact>? Artifacts { get; set; }
     public List<Message>? History { get; set; }
     public Dictionary<string, JsonElement>? Metadata { get; set; }
@@ -154,7 +110,7 @@ public sealed class TaskArtifactUpdateEvent
 {
     public string TaskId { get; set; } = string.Empty;
     public string ContextId { get; set; } = string.Empty;
-    public Artifact Artifact { get; set; } = new();
+    public required Artifact Artifact { get; set; }
 
     /// <summary>Append these parts to the previously sent artifact with the same id.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
