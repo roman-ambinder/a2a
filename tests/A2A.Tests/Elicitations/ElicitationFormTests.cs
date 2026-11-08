@@ -640,6 +640,21 @@ public class ElicitationFormTests
     [InlineData("{\"id\":\"f\",\"action\":\"decline\",\"extra\":1}")]
     public void Answer_reading_is_strict(string json) => Assert.Null(WithForm(json).GetElicitationAnswer());
 
+    [Theory]
+    [InlineData("{\"id\":\"f\",\"action\":\"accept\",\"content\":{\"\\ud800\":1}}")]
+    [InlineData("{\"id\":\"f\",\"action\":\"decline\",\"\\ud800\":1}")]
+    [InlineData("{\"id\":\"f\",\"action\":\"\\ud800\"}")]
+    [InlineData("{\"id\":\"\\ud800\",\"action\":\"decline\"}")]
+    public void Answer_reading_returns_null_for_a_lone_surrogate_and_never_throws(string json) =>
+        Assert.Null(WithForm(json).GetElicitationAnswer());
+
+    [Fact]
+    public void Answer_with_a_repeated_id_key_uses_the_last_one()
+    {
+        var answer = WithForm("{\"id\":\"other\",\"id\":\"f1\",\"action\":\"decline\"}").GetElicitationAnswer();
+        Assert.Equal("f1", answer!.FormId);
+    }
+
     [Fact]
     public void Answer_reading_accepts_decline_and_cancel()
     {

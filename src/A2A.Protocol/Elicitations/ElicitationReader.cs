@@ -155,6 +155,12 @@ internal static class ElicitationReader
 
     public static ElicitationAnswer? ReadAnswer(JsonElement element)
     {
+        try { return ReadAnswerCore(element); }
+        catch (InvalidOperationException) { return null; } // a name or text that is not valid UTF-16
+    }
+
+    private static ElicitationAnswer? ReadAnswerCore(JsonElement element)
+    {
         if (element.ValueKind != JsonValueKind.Object) return null;
         string? id = null, action = null;
         JsonElement content = default;

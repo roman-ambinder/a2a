@@ -261,6 +261,32 @@ public class ElicitationServerTests
         Assert.Equal("nights", metadata.GetProperty("field").GetString());
     }
 
+    [Theory]
+    [InlineData(ProtocolBindings.JsonRpc, "{\"id\":\"f1\",\"action\":\"accept\",\"content\":{\"\\ud800\":1}}")]
+    [InlineData(ProtocolBindings.HttpJson, "{\"id\":\"f1\",\"action\":\"accept\",\"content\":{\"\\ud800\":1}}")]
+    [InlineData(ProtocolBindings.JsonRpc, "{\"id\":\"f1\",\"action\":\"decline\",\"\\ud800\":1}")]
+    [InlineData(ProtocolBindings.HttpJson, "{\"id\":\"f1\",\"action\":\"decline\",\"\\ud800\":1}")]
+    public async Task Lone_surrogate_key_in_an_answer_is_InvalidParams_and_nothing_is_stored(string binding, string answerJson)
+    {
+        var (host, agent) = await StartAsync();
+        await using var _ = host;
+        var client = ClientFor(host, binding);
+        var task = await AskAsync(client);
+        var before = await client.GetTaskAsync(task.Id);
+
+        using var req = RawSend(binding, task.Id, answerJson);
+        var resp = await host.Http("alice").SendAsync(req);
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.True(body.Contains("INVALID_PARAMS"), body);
+
+        await host.WaitIdleAsync();
+        Assert.Equal(1, agent.Calls);
+        var after = await client.GetTaskAsync(task.Id);
+        Assert.Equal(TaskState.InputRequired, after.Status.State);
+        Assert.Equal(before.History!.Count, after.History!.Count);
+        Assert.False(after.Metadata?.ContainsKey(Elicitation.AnsweredKey) ?? false);
+    }
+
     public static TheoryData<string, string> RefusalCases()
     {
         var data = new TheoryData<string, string>();

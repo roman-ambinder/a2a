@@ -34,13 +34,10 @@ internal static class ElicitationValidator
                 && used.ValueKind == JsonValueKind.String && string.Equals(used.GetString(), status.MessageId, StringComparison.Ordinal)))
             throw Refuse("The task has no form waiting for an answer.");
 
-        var raw = message.Metadata![Elicitation.MetadataKey];
-        if (raw.ValueKind == JsonValueKind.Object && raw.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
-            && !id.ValueEquals(form.Id))
-            throw Refuse("The answer is for another form.");
         var answer = message.GetElicitationAnswer()
             ?? throw Refuse("The answer is not well formed. It needs an id, an action (accept, decline or cancel), and content only for accept.");
 
+        if (!string.Equals(answer.FormId, form.Id, StringComparison.Ordinal)) throw Refuse("The answer is for another form.");
         if (answer.Action == ElicitationAction.Accept) form.Validate(answer.Content); // names the field and the rule, never the value
         answered = status.MessageId;
         return answer;
