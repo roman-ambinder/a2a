@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <IsPackable>false</IsPackable>
+    <!-- The Web SDK warns when a solution pack reaches a non-packable web project (samples, interop agent). -->
+    <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
 
     <!-- Default version for local builds. Release builds pass -p:Version=<tag> (see .github/workflows/release.yml). -->
     <VersionPrefix>0.1.0</VersionPrefix>
