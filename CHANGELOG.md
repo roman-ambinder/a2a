@@ -120,6 +120,16 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - Standard Webhooks signatures (`webhook-signature`) with replay protection, and `PushNotificationReceiver.VerifySignature`
   for receivers. (#12)
 - Webhook requests send `A2A-Version`. (#8)
+- `PushNotificationReceiver.HandleAsync` checks the token and/or signature, runs your handler, and counts the delivery id as done
+  only after the handler succeeds. It returns the status to answer: 200 (handled or duplicate), 503 (same id in progress,
+  retryable), 500 (handler failed, the retry reaches the handler again), 401 (bad token or signature), 400 (bad body).
+  `Validate` and `VerifySignature` mark the id as seen at once, so a failure after them lost the retry; their docs now say so.
+- `IPushDeliveryStore` (default `InMemoryPushDeliveryStore`, 10-minute window) keeps handled ids, so they can survive a restart.
+  With the in-memory store a restart can repeat a delivery, which is safe.
+- `PushTaskTracker` notices lost webhooks: it calls `GetTask` when a task's deadline passes without a final state, or when
+  `X-A2A-Notification-Sequence` skips a number, and reports the result to a callback. `IPushTaskStore` (default in memory), `TimeProvider` aware.
+- `A2AClient.RegisterPushAsync` registers the webhook first, then calls `GetTask` once, and returns both, so a caller sees a task that
+  already finished (servers of other SDKs send no catch-up delivery).
 
 ### Proactive continuation
 

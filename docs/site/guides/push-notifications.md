@@ -23,7 +23,7 @@ The server returns the config with `Token` and `Credentials` blanked. A task can
 ## How delivery works
 
 - Each event creates one delivery per push config. The body is the event as committed (a `StreamResponse`), so delivery does not depend on event log retention.
-- Delivery is at least once. Make your receiver idempotent.
+- Delivery is at least once. Make your receiver idempotent. A delivery that was acknowledged and then lost cannot be detected by the server: see [Detect lost webhooks](#detect-lost-webhooks).
 - Order holds per task and per config. A delivery waits until the one before it was sent or dead-lettered.
 - A delivery is leased while it is sent. If an instance dies, the lease ends and another instance sends it. Several instances can share one outbox.
 - If the config was deleted, the delivery is dropped.
@@ -89,9 +89,7 @@ Each POST then has:
 
 The secret is never sent as an `Authorization` header.
 
-On the receiver, use <xref:A2A.Client.Push.PushNotificationReceiver>. Keep one instance, because it remembers ids. Pass the raw body bytes, not re-serialized JSON.
-
-[!code-csharp[](../snippets/PushNotifications.cs#Receiver)]
+On the receiver, use <xref:A2A.Client.Push.PushNotificationReceiver>. See [Receiving deliveries](#receiving-deliveries).
 
 <xref:A2A.Client.Push.PushNotificationReceiver.VerifySignature*> returns a <xref:A2A.Client.Push.PushValidationResult>:
 
@@ -102,9 +100,73 @@ On the receiver, use <xref:A2A.Client.Push.PushNotificationReceiver>. Keep one i
 | `Stale` | The signature is valid, but the timestamp is outside the tolerance (default 5 minutes). |
 | `Duplicate` | This `webhook-id` was already accepted. |
 
-The receiver remembers each valid id for at least 10 minutes. A longer `tolerance` keeps ids longer, until the timestamp plus the tolerance, because a replay stays acceptable that long. The memory is in process, so a receiver on several instances needs its own shared check.
+A longer `tolerance` keeps ids longer, until the timestamp plus the tolerance, because a replay stays acceptable that long.
 
-If you use the token instead of a signature, `Validate` checks `X-A2A-Notification-Token` or a bearer `Authorization` header in constant time and drops a repeated `X-A2A-Delivery-Id`.
+If you use the token instead of a signature, `Validate` checks `X-A2A-Notification-Token` or a bearer `Authorization` header in constant time.
+
+> [!WARNING]
+> `Validate` and `VerifySignature` mark the delivery id as seen **at once**, before your code handles the event. If your code then fails and you answer 500, the server retries with the same id, the helper says `Duplicate`, and the event is lost. Prefer `HandleAsync`. If you use these two, nothing may fail after they return `Valid`.
+
+## Receiving deliveries
+
+Two rules for a receiver:
+
+1. **Save the event first, then answer 2xx.** The server treats 2xx as "done" and never sends that delivery again.
+2. **A webhook is a hint; the task is the truth.** A webhook can be lost after you acknowledged it, and the server cannot see that. Read the task with `GetTask` when it matters (see [the tracker](#detect-lost-webhooks)).
+
+<xref:A2A.Client.Push.PushNotificationReceiver.HandleAsync*> does the checks and calls your handler. The delivery id counts as done only after the handler succeeds. Keep one receiver instance. Pass the raw body bytes, not re-serialized JSON.
+
+[!code-csharp[](../snippets/PushNotifications.cs#Receiver)]
+
+You give the token (`expectedToken`), the decoded signing secret (`signingSecret`), or both. The handler gets a <xref:A2A.Client.Push.PushDelivery>: the parsed `StreamResponse`, the delivery id and the sequence. The result says what to answer:
+
+| Outcome | Status | Meaning |
+|---|---|---|
+| `Handled` | 200 | The handler ran and succeeded. |
+| `Duplicate` | 200 | This id was handled before. The handler did not run. Answer 2xx so the sender stops. |
+| `InProgress` | 503 | The same id is being handled by another call. The sender retries it later. |
+| `HandlerFailed` | 500 | The handler threw. The id is forgotten, so the retry reaches the handler again. |
+| `Unauthorized` | 401 | Bad token, bad signature, or stale timestamp. The handler did not run. |
+| `BadRequest` | 400 | The credentials are right, but the body is not a `StreamResponse`. |
+
+The server retries only 408, 429 and 5xx, and dead-letters other 4xx. That is why a call in progress gets 503 and never 409.
+
+An id claimed by a call that never finished (the process died) is free again after `ProcessingLease` (default 5 minutes).
+
+### Where handled ids are kept
+
+The receiver keeps handled ids for at least 10 minutes. By default they are in memory (<xref:A2A.Client.Push.InMemoryPushDeliveryStore>). To keep them across restarts, or share them between instances, implement <xref:A2A.Client.Push.IPushDeliveryStore> and pass it to the receiver.
+
+[!code-csharp[](../snippets/PushNotifications.cs#Stores)]
+
+With the in-memory store, a restart can repeat a delivery that was already handled. This is safe if your handler is idempotent, and it never loses an event.
+
+The low-level calls look like this. Use them only if you can guarantee nothing fails after `Valid`:
+
+[!code-csharp[](../snippets/PushNotifications.cs#ReceiverLowLevel)]
+
+## Register a webhook safely
+
+Register first, then read the task once. A task that finished before the webhook existed gets no callback from servers of other SDKs, and nothing tells you. <xref:A2A.Client.A2AClient.RegisterPushAsync*> does both in the right order and returns the config and the task.
+
+[!code-csharp[](../snippets/PushNotifications.cs#RegisterSafely)]
+
+If `GetTask` fails after the webhook was registered, the exception is thrown and the webhook stays registered.
+
+## Detect lost webhooks
+
+<xref:A2A.Client.Push.PushTaskTracker> watches tasks. Give it a task id and a deadline. If the deadline passes without a final state, it calls `GetTask` and gives the result to your callback. A gap in `X-A2A-Notification-Sequence` for a task triggers the same check at once (servers of other SDKs may not send the header; then only the deadline works).
+
+[!code-csharp[](../snippets/PushNotifications.cs#Tracker)]
+
+Report each notification from your handler:
+
+[!code-csharp[](../snippets/PushNotifications.cs#TrackerNotify)]
+
+- A final state (terminal, or interrupted such as `InputRequired`) removes the task from the tracker. A check that finds a final task removes it too.
+- A check that finds the task still running sets the next deadline to the same timeout from now. A failed `GetTask` is reported with `Error` and tried again after the timeout.
+- The tracker needs a timer sweep (default every 5 seconds), so a check can run a little after the deadline. Dispose the tracker to stop it.
+- Tracked tasks are in memory by default. Implement <xref:A2A.Client.Push.IPushTaskStore> to keep them across restarts. The tracker takes a `TimeProvider` like the rest of the client.
 
 ## The SSRF guard
 
@@ -158,6 +220,8 @@ Each attempt is also a span, `a2a.push.deliver`, a child of the agent run that m
 - Registration fails with `Push notification URL is not allowed.`: the host does not resolve, is too slow to resolve, or resolves to a private address. A host outside `AllowedHosts` fails with `Push notification host is not allowed`.
 - The receiver sees `Stale`: the receiver clock is off, or the delivery is old. Check the clock before you raise the tolerance.
 - The receiver sees `InvalidSignature` for good deliveries: it hashed re-serialized JSON, or used the wrong secret.
+- An event is missing after a failure in your code: you used `Validate` or `VerifySignature` and failed after them. Use `HandleAsync`.
+- A task finished but no callback came: the webhook was lost, or the task finished before it was registered. Use `RegisterPushAsync` and the tracker.
 - No deliveries at all: the card lacks `PushNotifications = true`, or the host does not run hosted services.
 
 ## See also

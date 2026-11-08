@@ -85,6 +85,28 @@ public sealed class A2AClient : IA2AClient
         }
     }
 
+    /// <summary>
+    /// Registers a webhook for an existing task safely: it registers FIRST, then calls GetTask once. A task that finishes after the
+    /// registration reaches the webhook; a task that finished before it is seen in the returned <see cref="A2A.Client.Push.PushRegistration.Task"/>
+    /// (check <see cref="A2A.Client.Push.PushRegistration.IsFinal"/>), so the caller does not wait for a callback that never comes.
+    /// Servers of other SDKs send no catch-up delivery, so this order matters. The webhook is a hint; the task is the truth.
+    /// </summary>
+    /// <remarks>
+    /// If GetTask fails, the exception is thrown and the webhook stays registered. <paramref name="config"/>.TaskId is set to
+    /// <paramref name="taskId"/> (a different non-empty value is refused).
+    /// </remarks>
+    public async Task<A2A.Client.Push.PushRegistration> RegisterPushAsync(string taskId, TaskPushNotificationConfig config, int? historyLength = 0, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(taskId)) throw new ArgumentException("The task id is required.", nameof(taskId));
+        ArgumentNullException.ThrowIfNull(config);
+        if (!string.IsNullOrEmpty(config.TaskId) && config.TaskId != taskId)
+            throw new ArgumentException("config.TaskId differs from taskId.", nameof(config));
+        config.TaskId = taskId;
+        var stored = await CreateTaskPushNotificationConfigAsync(config, options, cancellationToken).ConfigureAwait(false);
+        var task = await GetTaskAsync(taskId, historyLength, options, cancellationToken).ConfigureAwait(false);
+        return new A2A.Client.Push.PushRegistration(stored, task);
+    }
+
     /// <summary>Pages through all tasks matching <paramref name="request"/>.</summary>
     public async IAsyncEnumerable<AgentTask> ListAllTasksAsync(ListTasksRequest? request = null, A2ARequestOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
