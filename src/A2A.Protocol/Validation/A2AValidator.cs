@@ -1,7 +1,7 @@
 namespace A2A.Validation;
 
 /// <summary>Validates required fields and invariants (spec §5.7). Throws <see cref="A2AException"/> with InvalidParams.</summary>
-public static class A2AValidator
+public static partial class A2AValidator
 {
     /// <summary>Checks a SendMessage request a server received. Throws <see cref="A2AException"/> with InvalidParams when it is invalid.</summary>
     public static void ValidateIncoming(SendMessageRequest request)
@@ -16,14 +16,6 @@ public static class A2AValidator
             ValidatePushConfig(push, "configuration.taskPushNotificationConfig", requireTaskId: false);
     }
 
-    /// <summary>Checks a request before the client sends it: <c>messageId</c> and <c>parts</c> must be present. Throws locally with InvalidParams.</summary>
-    public static void ValidateOutgoing(SendMessageRequest request)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        if (request.Message is null) throw A2AException.InvalidParams("message is required");
-        ValidateMessage(request.Message, "message");
-    }
-
     /// <summary>Checks that a message has a <c>messageId</c> and at least one part. <paramref name="path"/> prefixes the field name in error messages.</summary>
     public static void ValidateMessage(Message message, string path)
     {
@@ -31,7 +23,10 @@ public static class A2AValidator
             throw A2AException.InvalidParams($"{path}.messageId is required");
         if (message.Parts is null || message.Parts.Count == 0)
             throw A2AException.InvalidParams($"{path}.parts must contain at least one part");
-        for (var i = 0; i < message.Parts.Count; i++) ValidatePart(message.Parts[i], $"{path}.parts[{i}]");
+        for (var i = 0; i < message.Parts.Count; i++)
+        {
+            if (message.Parts[i] is null) throw A2AException.InvalidParams($"{path}.parts[{i}] is null");
+        }
     }
 
     /// <summary>Checks that a part is not null. <paramref name="path"/> prefixes the field name in error messages.</summary>
