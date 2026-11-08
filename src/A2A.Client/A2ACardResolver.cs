@@ -27,7 +27,7 @@ public sealed class A2ACardResolverOptions
     /// (<see cref="AgentCardVerificationStatus.Unsigned"/> or <see cref="AgentCardVerificationStatus.Unverified"/>); once
     /// trusted keys or <c>jku</c> hosts are configured, only <see cref="AgentCardVerificationStatus.Verified"/> cards resolve
     /// unless <see cref="CardTrustPolicy.RequireSignature"/> is set to <see langword="false"/>.
-    /// <see cref="AgentCardVerificationStatus.Failed"/> always stops resolution.
+    /// <see cref="AgentCardVerificationStatus.Failed"/> always stops resolution. Changes apply to cached cards on the next resolve.
     /// </summary>
     public CardTrustPolicy Trust { get; set; } = new();
 
@@ -150,11 +150,19 @@ public sealed class A2ACardResolver
 
         var key = uri.AbsoluteUri;
         _cache.TryGetValue(key, out var cached);
-        if (cached is not null && cached.Expires > DateTimeOffset.UtcNow) return cached.Result;
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
         if (_options.Timeout != System.Threading.Timeout.InfiniteTimeSpan) timeoutCts.CancelAfter(_options.Timeout);
         var cancellationToken = timeoutCts.Token;
+
+        // The trust policy is mutable. A cached card is checked against it again, so a removed key stops working at once.
+        if (cached is not null && !await StillAcceptedAsync(cached.Result, uri, cancellationToken).ConfigureAwait(false))
+        {
+            _cache.TryRemove(key, out _);
+            cached = null;
+        }
+
+        if (cached is not null && cached.Expires > DateTimeOffset.UtcNow) return cached.Result;
 
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.JsonMediaType));
@@ -183,13 +191,7 @@ public sealed class A2ACardResolver
         }
 
         var verification = await _verifier.VerifyAsync(node, uri, cancellationToken).ConfigureAwait(false);
-        var reject = verification.Status switch
-        {
-            AgentCardVerificationStatus.Verified => false,
-            AgentCardVerificationStatus.Failed => true,
-            _ => _options.Trust.EffectiveRequireSignature,
-        };
-        if (reject) throw new AgentCardVerificationException(verification);
+        if (IsRejected(verification)) throw new AgentCardVerificationException(verification);
         if (verification.Status == AgentCardVerificationStatus.Verified) card = FromSignedContent(node);
 
         var origin = CardTrustPolicy.OriginOf(uri);
@@ -215,6 +217,20 @@ public sealed class A2ACardResolver
         };
         _cache[key] = new CacheEntry(result, response.Headers.ETag, Expiry(response));
         return result;
+    }
+
+    private bool IsRejected(AgentCardVerificationResult verification) => verification.Status switch
+    {
+        AgentCardVerificationStatus.Verified => false,
+        AgentCardVerificationStatus.Failed => true,
+        _ => _options.Trust.EffectiveRequireSignature,
+    };
+
+    private async Task<bool> StillAcceptedAsync(ResolvedAgentCard result, Uri uri, CancellationToken cancellationToken)
+    {
+        var node = ParseCard(Encoding.UTF8.GetBytes(result.RawJson));
+        var now = await _verifier.VerifyAsync(node, uri, cancellationToken).ConfigureAwait(false);
+        return now.Status == result.Verification.Status && now.KeyId == result.Verification.KeyId && !IsRejected(now);
     }
 
     // Parses the card into a fully materialized tree. JsonObject reads lazily and throws ArgumentException on a duplicate

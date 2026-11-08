@@ -1,4 +1,7 @@
+using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text;
 using A2A.Client;
 using A2A.Client.Cards;
 using A2A.Client.Peers;
@@ -157,6 +160,98 @@ public class PeerIdentityTests
         Assert.Equal(2, counting.Calls);
     }
 
+    private static (A2ACardResolver Resolver, A2ACardResolverOptions Options) Cached(EtagServer server, TimeSpan duration, params AgentCardSigningKey[] trusted)
+    {
+        var options = new A2ACardResolverOptions { DefaultCacheDuration = duration };
+        if (trusted.Length > 0) options.Trust.TrustedKeys[Origin] = Set(trusted);
+        return (new A2ACardResolver(new HttpClient(server), options), options);
+    }
+
+    [Fact]
+    public async Task Fresh_cache_keeps_identity_while_key_is_trusted()
+    {
+        var key = NewKey("k1");
+        var server = new EtagServer(Signed(key));
+        var (resolver, _) = Cached(server, TimeSpan.FromHours(1), key);
+
+        var first = await resolver.ResolveAsync(AgentUrl);
+        var second = await resolver.ResolveAsync(AgentUrl);
+
+        Assert.Single(server.IfNoneMatch);
+        Assert.Equal(first.Identity, second.Identity);
+        Assert.Equal(AgentCardVerificationStatus.Verified, second.Verification.Status);
+    }
+
+    [Fact]
+    public async Task Revoked_key_is_not_served_from_fresh_cache()
+    {
+        var k1 = NewKey("k1");
+        var k2 = NewKey("k2");
+        var (resolver, options) = Cached(new EtagServer(Signed(k1)), TimeSpan.FromHours(1), k1, k2);
+        await resolver.ResolveAsync(AgentUrl);
+
+        options.Trust.TrustedKeys[Origin] = Set(k2);
+
+        await Assert.ThrowsAsync<AgentCardVerificationException>(() => resolver.ResolveAsync(AgentUrl));
+    }
+
+    [Fact]
+    public async Task Revoked_key_is_not_served_after_304()
+    {
+        var k1 = NewKey("k1");
+        var k2 = NewKey("k2");
+        var server = new EtagServer(Signed(k1));
+        var (resolver, options) = Cached(server, TimeSpan.Zero, k1, k2);
+        await resolver.ResolveAsync(AgentUrl);
+
+        options.Trust.TrustedKeys[Origin] = Set(k2);
+
+        await Assert.ThrowsAsync<AgentCardVerificationException>(() => resolver.ResolveAsync(AgentUrl));
+        Assert.Equal(2, server.IfNoneMatch.Count);
+        Assert.False(server.IfNoneMatch[1]);
+    }
+
+    [Fact]
+    public async Task Removing_all_trust_downgrades_a_cached_card()
+    {
+        var key = NewKey("k1");
+        var (resolver, options) = Cached(new EtagServer(Signed(key)), TimeSpan.FromHours(1), key);
+        var first = await resolver.ResolveAsync(AgentUrl);
+        Assert.Equal("k1", first.Identity.KeyId);
+
+        options.Trust.TrustedKeys.Clear();
+        var second = await resolver.ResolveAsync(AgentUrl);
+
+        Assert.Equal(AgentCardVerificationStatus.Unverified, second.Verification.Status);
+        Assert.Equal(PeerIdentityAssurance.OriginOnly, second.Identity.Assurance);
+        Assert.Null(second.Identity.KeyId);
+    }
+
+    [Fact]
+    public async Task Trust_turned_on_rejects_a_cached_unsigned_card()
+    {
+        var server = new EtagServer(Unsigned());
+        var (resolver, options) = Cached(server, TimeSpan.FromHours(1));
+        await resolver.ResolveAsync(AgentUrl);
+
+        options.Trust.TrustedKeys[Origin] = Set(NewKey("k1"));
+
+        await Assert.ThrowsAsync<AgentCardVerificationException>(() => resolver.ResolveAsync(AgentUrl));
+    }
+
+    [Fact]
+    public async Task Custom_resolver_cannot_drop_the_key()
+    {
+        var key = NewKey("k1");
+        var resolver = Resolver(new CardTrustTests.CardServer(Signed(key)), o =>
+        {
+            o.Trust.TrustedKeys[Origin] = Set(key);
+            o.IdentityResolver = new CountingResolver(c => new PeerIdentity(c.Baseline.Origin));
+        });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(AgentUrl));
+    }
+
     [Fact]
     public async Task Resolver_is_not_called_for_a_rejected_card()
     {
@@ -226,6 +321,23 @@ public class PeerIdentityTests
             Calls++;
             onToken?.Invoke(cancellationToken);
             return ValueTask.FromResult(result(context));
+        }
+    }
+
+    // Serves a card with an ETag and answers 304 to a conditional request.
+    private sealed class EtagServer(string json) : HttpMessageHandler
+    {
+        public List<bool> IfNoneMatch { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var conditional = request.Headers.IfNoneMatch.Count > 0;
+            IfNoneMatch.Add(conditional);
+            var response = conditional
+                ? new HttpResponseMessage(HttpStatusCode.NotModified)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            response.Headers.ETag = new EntityTagHeaderValue("\"v1\"");
+            return Task.FromResult(response);
         }
     }
 }
