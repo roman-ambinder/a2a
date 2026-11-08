@@ -220,7 +220,7 @@ public class TokenExchangeServerTests
         var agent = new ProbeAgent(async (ctx, ct) =>
         {
             var result = await ctx.ExchangeTokenAsync("api://b", null, ct);
-            await CallDownstreamAsync(Downstream(downstream), new A2ARequestOptions().UseBearerToken(result), ct);
+            await CallDownstreamAsync(Downstream(downstream), new A2ARequestOptions().UseBearerToken(result, new Uri("http://downstream.test/a2a")), ct);
         });
         await using var host = await StartAsync(agent, new RecordingExchanger("exchanged-xyz"));
         await host.Client(binding).SendMessageAsync(Message.FromUser("hi"), options: Bearer("Bearer caller-secret"));

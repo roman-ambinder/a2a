@@ -121,13 +121,15 @@ Agent code never gets the caller's token. `ServerCallContext.InboundBearerToken`
 
 [!code-csharp[](../snippets/AuthAndOwnership.cs#Exchanger)]
 
-<xref:A2A.Client.Delegation.OAuthTokenExchanger> needs an `HttpClient` with `AllowAutoRedirect = false`. A redirect would re-send the subject token to another host.
+<xref:A2A.Client.Delegation.OAuthTokenExchanger> never follows redirects. A redirect (a 307 or 308 re-posts the form) would send the client secret and the subject token to another host. The constructor with only options uses a built-in handler that does not follow redirects. To use your own handler (a proxy, or `IHttpMessageHandlerFactory.CreateHandler`), pass it to `new OAuthTokenExchanger(handler, options)`. The constructor throws when a `SocketsHttpHandler` or `HttpClientHandler` in the chain has `AllowAutoRedirect = true`. It cannot check a custom terminal handler, so that one must not follow redirects.
 
 Warning: the server sends the caller's `Authorization: Bearer` value to the exchanger whenever any scheme authenticated the caller. Register an exchanger only when a Bearer handler validates that header on these endpoints. On a host that authenticates with cookies, API keys or mTLS, that header is not checked.
 
 ### Call the next agent
 
 [!code-csharp[](../snippets/AuthAndOwnership.cs#Delegate)]
+
+`UseBearerToken(token, workerUrl)` needs the URL of the agent the token was issued for. It throws before sending if the call goes to another origin. It cannot stop a redirect, so the client must not follow redirects: `A2AClientFactory.CreateAsync` with credential providers and `AddA2AClient` already guarantee that. If you build the `HttpClient` yourself, use `AllowAutoRedirect = false`.
 
 `AddBearerToken` on a DI client overwrites `Authorization`, so it replaces a token set with `UseBearerToken`. Do not combine them on one client.
 
