@@ -18,8 +18,8 @@ public sealed class HelloWorldGateTests
                 && !l.StartsWith("using ", StringComparison.Ordinal));
 
     [Theory]
-    [InlineData("EchoAgent", 6)]
-    [InlineData("EchoClient", 8)]
+    [InlineData("EchoAgent", 5)]
+    [InlineData("EchoClient", 4)]
     public void Sample_a2a_lines_within_budget(string sample, int budget) =>
         Assert.True(A2ALines(sample) <= budget, $"{sample} has {A2ALines(sample)} A2A lines; the budget is {budget}.");
 }
