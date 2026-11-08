@@ -725,7 +725,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 return null;
             }
             // A terminal state is exempt, so the failure event that replaces an oversized one can always be stored.
-            if (!next.Status.State.IsTerminal() && IsOverCap(next))
+            // An event with no message and no artifact adds no content, so the walk is skipped for it.
+            if (!next.Status.State.IsTerminal() && AddsContent(evt) && IsOverCap(next))
             {
                 ServerLog.TaskTooLarge(_logger, key.TaskId, _options.Limits.MaxTaskBytes, _options.Limits.MaxArtifactsPerTask);
                 encoded = Encode(StreamResponse.Of(FailureEvent(key.TaskId, record.Task.ContextId, OversizedTaskText)));
@@ -766,6 +767,9 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
         }
     }
+
+    private static bool AddsContent(StreamResponse evt) =>
+        evt is not StatusUpdateEvent { StatusUpdate.Status.Message: null };
 
     private bool IsOverCap(AgentTask task) =>
         task.Artifacts?.Count > _options.Limits.MaxArtifactsPerTask || TaskSize.Measure(task) > _options.Limits.MaxTaskBytes;

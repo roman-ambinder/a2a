@@ -20,6 +20,8 @@ public sealed class TaskSizeCapTests
     /// <summary>Acts on the user's text: ok, big, many, exact, input.</summary>
     private sealed class CapAgent : IAgentExecutor
     {
+        public TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public TaskCompletionSource Cancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct)
@@ -46,6 +48,11 @@ public sealed class TaskSizeCapTests
                         await updater.AddArtifactAsync([Part.FromText(new string('c', Cap - 5))], artifactId: "fill", cancellationToken: ct);
                         await updater.AddArtifactAsync([Part.FromText("d")], artifactId: "over", cancellationToken: ct);
                         await Task.Delay(Timeout.Infinite, ct);
+                        break;
+                    case "quiet-status":
+                        await updater.AddArtifactAsync([Part.FromText(new string('q', 3000))], artifactId: "fill", cancellationToken: ct);
+                        await Gate.Task.WaitAsync(ct);
+                        await updater.UpdateStatusAsync(TaskState.InputRequired, cancellationToken: ct); // no message: adds no content
                         break;
                     case "input":
                         await updater.RequireInputAsync("more?", ct);
@@ -155,6 +162,29 @@ public sealed class TaskSizeCapTests
         Assert.Equal(before.Version, after.Version);
         Assert.Equal(before.Task.History!.Count, after.Task.History!.Count);
         Assert.Equal(TaskState.InputRequired, after.Task.Status.State);
+    }
+
+    [Fact]
+    public async Task Status_event_without_message_does_not_fail_a_task_over_the_cap()
+    {
+        var agent = new CapAgent();
+        A2ALimits? limits = null;
+        await using var host = await StartAsync(agent, l => limits = l);
+        var send = host.Client(ProtocolBindings.JsonRpc).SendMessageAsync("quiet-status");
+        TaskRecord? record = null;
+        for (var i = 0; i < 500 && record is null; i++)
+        {
+            await Task.Delay(10);
+            var ids = await host.App.Services.GetRequiredService<TaskStore>().ListAsync(new TaskQuery("", "alice", null, null, null, 10, null));
+            record = ids.Records.FirstOrDefault(r => r.Task.Artifacts?.Count > 0);
+        }
+        Assert.NotNull(record);
+        limits!.MaxTaskBytes = 100; // the stored task is now over the cap
+        agent.Gate.SetResult();
+
+        var task = (await send).RequireTask();
+        await host.Handler.WhenIdleAsync();
+        Assert.Equal(TaskState.InputRequired, (await StoredAsync(host, task.Id)).Task.Status.State);
     }
 
     [Fact]
