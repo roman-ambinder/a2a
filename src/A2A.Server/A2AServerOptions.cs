@@ -117,6 +117,9 @@ public sealed class A2AServerOptions
     /// the first request's task or reply instead of running again.
     /// </summary>
     public IdempotencyOptions Idempotency { get; } = new();
+
+    /// <summary>Where large artifact bytes go, and the links to them. Used only when an <see cref="Storage.ArtifactObjectStore"/> is registered.</summary>
+    public ArtifactStorageOptions ArtifactStorage { get; } = new();
 }
 
 /// <summary>Settings for the per-task event log and for SSE streams.</summary>
