@@ -18,5 +18,17 @@ var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.c
 
 Tracing: spans on the `A2A.Client` `ActivitySource`, with W3C `traceparent` sent on every call; see [Observability](https://github.com/roman-ambinder/a2a#observability).
 
-Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 8 and .NET 10.
+Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets netstandard2.0, .NET 8 and .NET 10.
+
+## On netstandard2.0
+
+Works on .NET Framework 4.7.2 and later. Not available there:
+
+- `jku` key fetch. A signature that needs one is `Unverified`. Verification against trusted keys still works, and a configured trust policy refuses unverified cards.
+- `A2AMutualTls.CreateHandler`.
+- `ArtifactVerifier`. Use `ArtifactHash.Compute` on the whole artifact.
+- `JwsAlgorithms.All`. `IsSupported` still works.
+- `A2A.Security.Http` (SSRF guard).
+
+A connect failure is not retried automatically for non-idempotent requests.
 See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.

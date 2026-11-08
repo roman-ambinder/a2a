@@ -787,29 +787,26 @@ namespace System
         {
             public ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
             {
-                if (MemoryMarshal.TryGetArray<byte>(buffer, out var segment) && segment.Array is not null)
+                if (!cancellationToken.CanBeCanceled)
                 {
-                    return new ValueTask<int>(
-                        stream.ReadAsync(segment.Array, segment.Offset, segment.Count, cancellationToken).WaitAsync(cancellationToken));
+                    return MemoryMarshal.TryGetArray<byte>(buffer, out var segment) && segment.Array is not null
+                        ? new ValueTask<int>(stream.ReadAsync(segment.Array, segment.Offset, segment.Count, CancellationToken.None))
+                        : new ValueTask<int>(ReadViaCopyAsync(stream, buffer, cancellationToken));
                 }
 
-                return new ValueTask<int>(ReadRentedAsync(stream, buffer, cancellationToken));
+                return new ValueTask<int>(ReadViaCopyAsync(stream, buffer, cancellationToken));
             }
         }
 
-        private static async Task<int> ReadRentedAsync(Stream stream, Memory<byte> buffer, CancellationToken cancellationToken)
+        // A read that ignores the token can finish after we stop waiting, so it gets a private array, never a pooled
+        // or caller-owned one. Bytes are copied out only when the read finished before cancellation.
+        private static async Task<int> ReadViaCopyAsync(Stream stream, Memory<byte> buffer, CancellationToken cancellationToken)
         {
-            var rented = ArrayPool<byte>.Shared.Rent(buffer.Length);
-            try
-            {
-                var read = await stream.ReadAsync(rented, 0, buffer.Length, cancellationToken).WaitAsync(cancellationToken).ConfigureAwait(false);
-                rented.AsMemory(0, read).CopyTo(buffer);
-                return read;
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(rented);
-            }
+            var own = new byte[buffer.Length];
+            var read = await stream.ReadAsync(own, 0, own.Length, cancellationToken).WaitAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            own.AsMemory(0, read).CopyTo(buffer);
+            return read;
         }
 
         private static async Task WaitCore(Task task, CancellationToken cancellationToken)

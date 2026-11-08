@@ -3,7 +3,7 @@
 A .NET SDK for the [Agent2Agent (A2A) protocol](https://a2a-protocol.org/latest/specification/) **v1.0**.
 Client and server. JSON-RPC, HTTP+JSON, and gRPC bindings. SSE streaming. Push notifications. Agent Card signing.
 
-Targets **.NET 8** and **.NET 10**.
+Targets **.NET 8** and **.NET 10**. `A2A.Protocol` and `A2A.Client` also target **netstandard2.0** (.NET Framework 4.7.2+).
 
 ```bash
 dotnet add package RomanAmbinder.A2A.Server.AspNetCore   # host an agent
