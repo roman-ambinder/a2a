@@ -173,6 +173,24 @@ public class MultiAgentTests : IAsyncLifetime
             client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = key.TaskId, Url = "https://x.example/h" }))).Code);
         Assert.Equal(A2AErrorCode.TaskNotFound, (await Assert.ThrowsAsync<A2AException>(() =>
             client.GetTaskPushNotificationConfigAsync(new GetTaskPushNotificationConfigRequest { TaskId = key.TaskId, Id = "p" }))).Code);
+        Assert.Equal(A2AErrorCode.TaskNotFound, (await Assert.ThrowsAsync<A2AException>(() =>
+            client.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest { TaskId = key.TaskId }))).Code);
+        Assert.Equal(A2AErrorCode.TaskNotFound, (await Assert.ThrowsAsync<A2AException>(() =>
+            client.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = key.TaskId, Id = "p" }))).Code);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task An_inline_push_config_is_refused_where_the_tenant_has_no_push(string binding)
+    {
+        var globex = Client(binding, "globex");
+        var request = new SendMessageRequest
+        {
+            Message = Message.FromUser("work"),
+            Configuration = new SendMessageConfiguration { TaskPushNotificationConfig = new TaskPushNotificationConfig { Url = "https://x.example/h" } },
+        };
+        Assert.Equal(A2AErrorCode.PushNotificationNotSupported, (await Assert.ThrowsAsync<A2AException>(() => globex.SendMessageAsync(request))).Code);
+        Assert.Empty((await globex.ListTasksAsync(new ListTasksRequest())).Tasks);
     }
 
     [Theory]
@@ -212,15 +230,29 @@ public class MultiAgentTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Signed_tenant_card_keeps_a_stable_etag()
+    public async Task Signed_tenant_card_keeps_a_stable_weak_etag()
     {
         var http = _host.Http();
         var path = "/acme" + A2AProtocol.WellKnownAgentCardPath;
         var first = await http.GetAsync(path);
         first.EnsureSuccessStatusCode();
-        using var conditional = new HttpRequestMessage(HttpMethod.Get, path);
-        conditional.Headers.IfNoneMatch.Add(first.Headers.ETag!);
-        Assert.Equal(HttpStatusCode.NotModified, (await http.SendAsync(conditional)).StatusCode);
+        var etag = first.Headers.ETag!;
+        Assert.True(etag.IsWeak); // signed bodies may differ byte for byte
+        using var weak = new HttpRequestMessage(HttpMethod.Get, path);
+        weak.Headers.IfNoneMatch.Add(etag);
+        Assert.Equal(HttpStatusCode.NotModified, (await http.SendAsync(weak)).StatusCode);
+        using var strong = new HttpRequestMessage(HttpMethod.Get, path);
+        strong.Headers.IfNoneMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue(etag.Tag));
+        Assert.Equal(HttpStatusCode.NotModified, (await http.SendAsync(strong)).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_stable_card_is_signed_once()
+    {
+        var http = _host.Http();
+        var path = "/acme" + A2AProtocol.WellKnownAgentCardPath;
+        // ECDSA signatures differ on every signing, so equal bodies mean the signature was reused.
+        Assert.Equal(await http.GetStringAsync(path), await http.GetStringAsync(path));
     }
 }
 
@@ -272,6 +304,213 @@ public class MultiAgentCardDetailsTests
     }
 }
 
+/// <summary>A card provider whose behaviour tests change at runtime: counts calls, can block or throw for one tenant.</summary>
+public sealed class ControlledCards : AgentCardProvider
+{
+    private int _calls;
+    public int Calls => Volatile.Read(ref _calls);
+    public void ResetCalls() => Interlocked.Exchange(ref _calls, 0);
+
+    /// <summary>While set, card calls for <see cref="SlowTenant"/> wait for it.</summary>
+    public TaskCompletionSource? Block { get; set; }
+    public TaskCompletionSource Blocked { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public string SlowTenant { get; set; } = "slow";
+
+    /// <summary>Card calls for this tenant throw.</summary>
+    public string? FailingTenant { get; set; }
+
+    public override async ValueTask<AgentCard?> GetCardAsync(AgentRequestScope scope, CancellationToken cancellationToken)
+    {
+        Interlocked.Increment(ref _calls);
+        if (scope.Tenant == FailingTenant) throw new InvalidOperationException("card store down");
+        if (scope.Tenant == SlowTenant && Block is { } block)
+        {
+            Blocked.TrySetResult();
+            await block.Task.WaitAsync(cancellationToken);
+        }
+        return TestAgentHost.DefaultCard();
+    }
+}
+
+/// <summary>An executor resolver tests control: no agent for "noexec", a throwing resolve for "boom", counts resolves.</summary>
+public sealed class ControlledAgents : AgentExecutorResolver
+{
+    private int _resolves;
+    public int Resolves => Volatile.Read(ref _resolves);
+
+    public override IAgentExecutor? Resolve(string tenant, IServiceProvider services)
+    {
+        Interlocked.Increment(ref _resolves);
+        return tenant switch
+        {
+            "noexec" => null,
+            "boom" => throw new InvalidOperationException("agent registry down"),
+            _ => services.GetRequiredService<IAgentExecutor>(),
+        };
+    }
+}
+
+/// <summary>Executor resolution (ruling R) and push capability resolution (one card call per request, never under a task lock).</summary>
+public class MultiAgentResolutionTests : IAsyncLifetime
+{
+    private readonly ControlledCards _cards = new();
+    private readonly ControlledAgents _agents = new();
+    private TestAgentHost _host = null!;
+
+    public async Task InitializeAsync() => _host = await TestAgentHost.StartAsync(services: s =>
+    {
+        s.AddA2AServer();
+        s.AddSingleton<AgentCardProvider>(_cards);
+        s.AddSingleton<AgentExecutorResolver>(_agents);
+    }, grpc: true);
+
+    public async Task DisposeAsync() => await _host.DisposeAsync();
+
+    private A2AClient Client(string tenant) => _host.Client(ProtocolBindings.JsonRpc, options: new A2AClientOptions { Tenant = tenant });
+
+    private Server.Storage.TaskStore Tasks => _host.App.Services.GetRequiredService<Server.Storage.TaskStore>();
+
+    private int IdempotencyEntries => ((Server.Idempotency.InMemoryIdempotencyStore)_host.App.Services.GetRequiredService<Server.Idempotency.IdempotencyStore>()).Count;
+
+    private async Task<Server.Storage.TaskKey> StoreInterruptedTaskAsync(string tenant, string taskId)
+    {
+        var key = new Server.Storage.TaskKey(tenant, "alice", taskId);
+        var now = DateTimeOffset.UtcNow;
+        var task = new AgentTask
+        {
+            Id = taskId, ContextId = "c-" + taskId,
+            Status = new AgentTaskStatus { State = TaskState.InputRequired, Timestamp = now },
+            History = [new Message { MessageId = "m0-" + taskId, Role = Role.User, Parts = [Part.FromText("first")], TaskId = taskId, ContextId = "c-" + taskId }],
+        };
+        await Tasks.CreateAsync(new Server.Storage.TaskRecord(tenant, "alice", task, 0, now, now));
+        return key;
+    }
+
+    [Fact]
+    public async Task A_tenant_with_a_card_but_no_agent_refuses_a_new_task_before_anything_is_stored()
+    {
+        var client = Client("noexec");
+        var request = new SendMessageRequest
+        {
+            Message = Message.FromUser("work"),
+            Configuration = new SendMessageConfiguration { TaskPushNotificationConfig = new TaskPushNotificationConfig { Url = "https://x.example/h" } },
+        };
+        var send = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(request));
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, send.Code);
+        Assert.Equal("No agent is configured for this tenant.", send.Message);
+        var stream = await Assert.ThrowsAsync<A2AException>(async () => { await foreach (var _ in client.SendStreamingMessageAsync(Message.FromUser("work"))) { } });
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, stream.Code);
+        Assert.Equal("No agent is configured for this tenant.", stream.Message);
+
+        await _host.WaitIdleAsync();
+        Assert.Empty((await client.ListTasksAsync(new ListTasksRequest())).Tasks);
+        Assert.DoesNotContain(await Tasks.ListOrphanContextsAsync(DateTimeOffset.UtcNow.AddDays(1), 100), c => c.Tenant == "noexec");
+        Assert.Equal(0, IdempotencyEntries);
+    }
+
+    [Fact]
+    public async Task A_tenant_with_a_card_but_no_agent_refuses_a_follow_up_before_it_is_committed()
+    {
+        var key = await StoreInterruptedTaskAsync("noexec", "t-follow");
+        var version = (await Tasks.GetAsync(key))!.Version;
+        var client = Client("noexec");
+        var followUp = Message.FromUser("more", taskId: key.TaskId);
+        var send = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(new SendMessageRequest { Message = followUp }));
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, send.Code);
+        var streamed = Message.FromUser("more again", taskId: key.TaskId);
+        var stream = await Assert.ThrowsAsync<A2AException>(async () => { await foreach (var _ in client.SendStreamingMessageAsync(streamed)) { } });
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, stream.Code);
+
+        await _host.WaitIdleAsync();
+        var record = await Tasks.GetAsync(key);
+        Assert.Single(record!.Task.History!);
+        Assert.Equal(version, record.Version);
+        Assert.Equal(0, IdempotencyEntries);
+    }
+
+    [Fact]
+    public async Task A_throwing_resolver_fails_the_task_as_a_throwing_agent_does()
+    {
+        var task = (await Client("boom").SendMessageAsync("work")).RequireTask();
+        Assert.Equal(TaskState.Failed, task.Status.State);
+        Assert.Equal("The agent failed to process the request.", task.Status.Message!.GetText());
+    }
+
+    [Fact]
+    public async Task The_agent_is_resolved_once_per_execution()
+    {
+        var before = _agents.Resolves;
+        await Client("acme").SendMessageAsync("task");
+        await _host.WaitIdleAsync();
+        Assert.Equal(before + 1, _agents.Resolves);
+    }
+
+    [Fact]
+    public async Task Cancel_without_an_agent_still_cancels()
+    {
+        var key = await StoreInterruptedTaskAsync("noexec", "t-cancel");
+        var canceled = await Client("noexec").CancelTaskAsync(key.TaskId);
+        Assert.Equal(TaskState.Canceled, canceled.Status.State);
+    }
+
+    [Fact]
+    public async Task An_execution_asks_for_the_card_once_however_many_events_it_stores()
+    {
+        var client = Client("acme");
+        _cards.ResetCalls();
+        var request = new SendMessageRequest
+        {
+            Message = Message.FromUser("task"), // working, two artifact chunks, completed
+            Configuration = new SendMessageConfiguration { TaskPushNotificationConfig = new TaskPushNotificationConfig { Url = "https://hooks.example/cb" } },
+        };
+        Assert.Equal(TaskState.Completed, (await client.SendMessageAsync(request)).RequireTask().Status.State);
+        await _host.WaitIdleAsync();
+        Assert.True(_host.Webhooks.Calls.Count >= 4, $"expected a webhook per event, got {_host.Webhooks.Calls.Count}");
+        Assert.Equal(1, _cards.Calls);
+    }
+
+    [Fact]
+    public async Task A_slow_card_provider_holds_no_task_lock_during_a_system_commit()
+    {
+        var handler = _host.Handler;
+        var slowKey = await StoreInterruptedTaskAsync("slow", "t-slow");
+        // A task of another tenant on the same lock stripe.
+        var other = Enumerable.Range(0, 10_000).Select(i => "t-other-" + i)
+            .First(id => handler.LockStripe("acme", id) == handler.LockStripe("slow", slowKey.TaskId));
+        var otherKey = await StoreInterruptedTaskAsync("acme", other);
+
+        _cards.Block = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slow = handler.CommitSystemStatusAsync(slowKey, TaskState.Canceled, "timed out");
+        await _cards.Blocked.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        try
+        {
+            Assert.True(await handler.CommitSystemStatusAsync(otherKey, TaskState.Canceled, "timed out").WaitAsync(TimeSpan.FromSeconds(10)));
+        }
+        finally
+        {
+            _cards.Block.TrySetResult();
+        }
+        Assert.True(await slow.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    [Fact]
+    public async Task A_failing_card_provider_sends_no_webhooks_for_a_system_commit()
+    {
+        var client = Client("flaky");
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+        await client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = task.Id, Url = "https://hooks.example/cb" });
+        await _host.WaitIdleAsync();
+        var sent = _host.Webhooks.Calls.Count;
+
+        _cards.FailingTenant = "flaky";
+        Assert.True(await _host.Handler.CommitSystemStatusAsync(new Server.Storage.TaskKey("flaky", "alice", task.Id), TaskState.Canceled, "timed out"));
+        await _host.WaitIdleAsync();
+        Assert.Equal(sent, _host.Webhooks.Calls.Count);
+        _cards.FailingTenant = null;
+        Assert.Equal(TaskState.Canceled, (await client.GetTaskAsync(task.Id)).Status.State);
+    }
+}
+
 /// <summary>Without a provider or resolver, the single configured card and executor serve every tenant (P0 behaviour).</summary>
 public class SingleAgentDefaultsTests
 {
@@ -280,7 +519,9 @@ public class SingleAgentDefaultsTests
     {
         await using var host = await TestAgentHost.StartAsync();
         var http = host.Http();
-        var card = await http.GetFromJsonAsync("/acme" + A2AProtocol.WellKnownAgentCardPath, A2AJson.GetTypeInfo<AgentCard>());
+        var response = await http.GetAsync("/acme" + A2AProtocol.WellKnownAgentCardPath);
+        Assert.False(response.Headers.ETag!.IsWeak); // unsigned: the same bytes every time
+        var card = await response.Content.ReadFromJsonAsync(A2AJson.GetTypeInfo<AgentCard>());
         Assert.Equal("Scenario Agent", card!.Name);
         Assert.Equal("Scenario Agent", (await http.GetFromJsonAsync(A2AProtocol.WellKnownAgentCardPath, A2AJson.GetTypeInfo<AgentCard>()))!.Name);
 
