@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <IsPackable>false</IsPackable>
+    <!-- The Web SDK warns when a solution pack reaches a non-packable web project (samples, interop agent). -->
+    <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
 
     <!-- Default version for local builds. Release builds pass -p:Version=<tag> (see .github/workflows/release.yml). -->
     <VersionPrefix>0.1.0</VersionPrefix>
@@ -53,6 +55,10 @@
 
   <ItemGroup Condition="$(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\'))">
     <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Skipped for DocFX metadata (docs/site/docfx.json sets DocfxMetadata=true): DocFX lists these files twice and warns. -->
+  <ItemGroup Condition="($(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\'))) And '$(DocfxMetadata)' != 'true'">
     <AdditionalFiles Include="PublicAPI.Shipped.txt" />
     <AdditionalFiles Include="PublicAPI.Unshipped.txt" />
   </ItemGroup>

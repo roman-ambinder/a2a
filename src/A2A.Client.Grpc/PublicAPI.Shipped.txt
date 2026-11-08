@@ -1,1 +1,27 @@
 #nullable enable
+A2A.Client.Grpc.A2AGrpcClientFactory
+A2A.Client.Grpc.A2AGrpcClientOptionsExtensions
+A2A.Client.Grpc.GrpcTransport
+A2A.Client.Grpc.GrpcTransport.CancelTaskAsync(A2A.CancelTaskRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
+A2A.Client.Grpc.GrpcTransport.CreateTaskPushNotificationConfigAsync(A2A.TaskPushNotificationConfig! config, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TaskPushNotificationConfig!>!
+A2A.Client.Grpc.GrpcTransport.DeleteTaskPushNotificationConfigAsync(A2A.DeleteTaskPushNotificationConfigRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+A2A.Client.Grpc.GrpcTransport.Dispose() -> void
+A2A.Client.Grpc.GrpcTransport.GetExtendedAgentCardAsync(A2A.GetExtendedAgentCardRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentCard!>!
+A2A.Client.Grpc.GrpcTransport.GetTaskAsync(A2A.GetTaskRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
+A2A.Client.Grpc.GrpcTransport.GetTaskPushNotificationConfigAsync(A2A.GetTaskPushNotificationConfigRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TaskPushNotificationConfig!>!
+A2A.Client.Grpc.GrpcTransport.GrpcTransport(Grpc.Core.CallInvoker! callInvoker, A2A.Client.A2AClientOptions? options = null) -> void
+A2A.Client.Grpc.GrpcTransport.GrpcTransport(System.Uri! address, A2A.Client.A2AClientOptions? options = null, Grpc.Net.Client.GrpcChannelOptions? channelOptions = null) -> void
+A2A.Client.Grpc.GrpcTransport.ListTaskPushNotificationConfigsAsync(A2A.ListTaskPushNotificationConfigsRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.ListTaskPushNotificationConfigsResponse!>!
+A2A.Client.Grpc.GrpcTransport.ListTasksAsync(A2A.ListTasksRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.ListTasksResponse!>!
+A2A.Client.Grpc.GrpcTransport.SendMessageAsync(A2A.SendMessageRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.SendMessageResponse!>!
+A2A.Client.Grpc.GrpcTransport.SendStreamingMessageAsync(A2A.SendMessageRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.StreamResponse!>!
+A2A.Client.Grpc.GrpcTransport.SubscribeToTaskAsync(A2A.SubscribeToTaskRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.StreamResponse!>!
+A2A.Client.Grpc.GrpcTransportFactory
+A2A.Client.Grpc.GrpcTransportFactory.CanCreate(A2A.AgentInterface! agentInterface) -> bool
+A2A.Client.Grpc.GrpcTransportFactory.Create(A2A.AgentInterface! agentInterface, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions! options) -> A2A.Client.IA2AClient!
+A2A.Client.Grpc.GrpcTransportFactory.GrpcTransportFactory(Grpc.Net.Client.GrpcChannelOptions? channelOptions = null) -> void
+A2A.Client.Grpc.GrpcTransportFactory.ProtocolBinding.get -> string!
+static A2A.Client.Grpc.A2AGrpcClientFactory.Create(A2A.AgentCard! card, A2A.Client.A2AClientOptions? options = null, Grpc.Net.Client.GrpcChannelOptions? channelOptions = null) -> A2A.Client.A2AClient!
+static A2A.Client.Grpc.A2AGrpcClientOptionsExtensions.UseGrpc(this A2A.Client.A2AClientOptions! options, Grpc.Net.Client.GrpcChannelOptions? channelOptions = null) -> A2A.Client.A2AClientOptions!
+static A2A.Client.Grpc.GrpcTransport.ParseAddress(string! url) -> System.Uri!
+static A2A.Client.Grpc.A2AGrpcClientFactory.CreateAsync(System.Uri! agentUrl, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions? options = null, Grpc.Net.Client.GrpcChannelOptions? channelOptions = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.A2AClient!>!

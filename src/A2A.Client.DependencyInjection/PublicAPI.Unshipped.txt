@@ -1,19 +1,4 @@
-A2A.Client.A2AClientServiceCollectionExtensions
-static A2A.Client.A2AClientServiceCollectionExtensions.AddA2AClient(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, string! name, System.Action<A2A.Client.A2ANamedClientOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IHttpClientBuilder!
-static A2A.Client.A2AClientServiceCollectionExtensions.AddBearerToken(this Microsoft.Extensions.DependencyInjection.IHttpClientBuilder! builder, System.Func<System.IServiceProvider!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>! tokenProvider) -> Microsoft.Extensions.DependencyInjection.IHttpClientBuilder!
-A2A.Client.A2ANamedClientOptions
-A2A.Client.A2ANamedClientOptions.A2ANamedClientOptions() -> void
-A2A.Client.A2ANamedClientOptions.AgentUrl.get -> System.Uri?
-A2A.Client.A2ANamedClientOptions.AgentUrl.set -> void
-A2A.Client.A2ANamedClientOptions.Client.get -> A2A.Client.A2AClientOptions!
-A2A.Client.A2ANamedClientOptions.Resolver.get -> A2A.Client.A2ACardResolverOptions!
-A2A.Client.BearerTokenHandler
-A2A.Client.BearerTokenHandler.BearerTokenHandler(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>! tokenProvider) -> void
-A2A.Client.IA2AClientFactory
-A2A.Client.IA2AClientFactory.GetClientAsync(string! name, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Client.A2AClient!>
-const A2A.Client.A2ANamedClientOptions.DefaultMaxResponseContentBufferSize = 16777216 -> long
-A2A.Client.A2ANamedClientOptions.MaxResponseContentBufferSize.get -> long
-A2A.Client.A2ANamedClientOptions.MaxResponseContentBufferSize.set -> void
+#nullable enable
 A2A.Client.A2AClientCredentialExtensions
 static A2A.Client.A2AClientCredentialExtensions.AddApiKey(this Microsoft.Extensions.DependencyInjection.IHttpClientBuilder! builder, string! apiKey, string? schemeName = null) -> Microsoft.Extensions.DependencyInjection.IHttpClientBuilder!
 static A2A.Client.A2AClientCredentialExtensions.AddApiKey(this Microsoft.Extensions.DependencyInjection.IHttpClientBuilder! builder, System.Func<System.IServiceProvider!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>! apiKey, string? schemeName = null) -> Microsoft.Extensions.DependencyInjection.IHttpClientBuilder!

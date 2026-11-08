@@ -1,16 +1,1 @@
-A2A.Server.Grpc.A2AGrpcExtensions
-A2A.Server.Grpc.A2AGrpcService
-A2A.Server.Grpc.A2AGrpcService.A2AGrpcService(A2A.Server.IA2ARequestHandler! handler, Microsoft.Extensions.Options.IOptions<A2A.Server.A2AServerOptions!>! serverOptions, Microsoft.Extensions.Hosting.IHostEnvironment! environment, Microsoft.Extensions.Logging.ILogger<A2A.Server.Grpc.A2AGrpcService!>! logger) -> void
-override A2A.Server.Grpc.A2AGrpcService.CancelTask(Lf.A2a.V1.CancelTaskRequest! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<Lf.A2a.V1.Task!>!
-override A2A.Server.Grpc.A2AGrpcService.CreateTaskPushNotificationConfig(Lf.A2a.V1.TaskPushNotificationConfig! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<Lf.A2a.V1.TaskPushNotificationConfig!>!
-override A2A.Server.Grpc.A2AGrpcService.DeleteTaskPushNotificationConfig(Lf.A2a.V1.DeleteTaskPushNotificationConfigRequest! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<Google.Protobuf.WellKnownTypes.Empty!>!
-override A2A.Server.Grpc.A2AGrpcService.GetExtendedAgentCard(Lf.A2a.V1.GetExtendedAgentCardRequest! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<Lf.A2a.V1.AgentCard!>!
-override A2A.Server.Grpc.A2AGrpcService.GetTask(Lf.A2a.V1.GetTaskRequest! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<Lf.A2a.V1.Task!>!
-override A2A.Server.Grpc.A2AGrpcService.GetTaskPushNotificationConfig(Lf.A2a.V1.GetTaskPushNotificationConfigRequest! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<Lf.A2a.V1.TaskPushNotificationConfig!>!
-override A2A.Server.Grpc.A2AGrpcService.ListTaskPushNotificationConfigs(Lf.A2a.V1.ListTaskPushNotificationConfigsRequest! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<Lf.A2a.V1.ListTaskPushNotificationConfigsResponse!>!
-override A2A.Server.Grpc.A2AGrpcService.ListTasks(Lf.A2a.V1.ListTasksRequest! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<Lf.A2a.V1.ListTasksResponse!>!
-override A2A.Server.Grpc.A2AGrpcService.SendMessage(Lf.A2a.V1.SendMessageRequest! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<Lf.A2a.V1.SendMessageResponse!>!
-override A2A.Server.Grpc.A2AGrpcService.SendStreamingMessage(Lf.A2a.V1.SendMessageRequest! request, Grpc.Core.IServerStreamWriter<Lf.A2a.V1.StreamResponse!>! responseStream, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task!
-override A2A.Server.Grpc.A2AGrpcService.SubscribeToTask(Lf.A2a.V1.SubscribeToTaskRequest! request, Grpc.Core.IServerStreamWriter<Lf.A2a.V1.StreamResponse!>! responseStream, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task!
-static A2A.Server.Grpc.A2AGrpcExtensions.AddA2AGrpc(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<Grpc.AspNetCore.Server.GrpcServiceOptions!>? configure = null) -> Grpc.AspNetCore.Server.IGrpcServerBuilder!
-static A2A.Server.Grpc.A2AGrpcExtensions.MapA2AGrpc(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints) -> Microsoft.AspNetCore.Builder.GrpcServiceEndpointConventionBuilder!
+#nullable enable

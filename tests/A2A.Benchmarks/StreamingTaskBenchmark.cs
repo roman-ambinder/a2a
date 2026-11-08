@@ -10,8 +10,13 @@ public class StreamingTaskBenchmark
     private const int Events = 1000;
     private BenchHost _host = null!;
 
+    // The task has 1,002 events (the snapshot, WORKING, 999 artifact updates, COMPLETED). A stream that falls behind fills the
+    // gap from the replay buffer. With the default buffer (1,000) the first events can be gone by then, and a stream that stalled
+    // right after its first event gets a snapshot of the finished task and ends after 2 events: the run would measure that, and
+    // fail. A buffer larger than the task keeps every event, so a slow runner cannot change what is measured.
     [GlobalSetup]
-    public async Task Setup() => _host = await BenchHost.StartAsync<ManyEventsAgent>();
+    public async Task Setup() =>
+        _host = await BenchHost.StartAsync<ManyEventsAgent>(o => o.Streaming.ReplayBufferSize = Events * 2);
 
     [GlobalCleanup]
     public async Task Cleanup() => await _host.DisposeAsync();
