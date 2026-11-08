@@ -51,7 +51,7 @@ public sealed class PushNotificationReceiver(TimeProvider? time = null)
         if (!matched || expected.Length == 0) return PushValidationResult.InvalidToken;
 
         var id = Find(headers, A2AProtocol.Headers.DeliveryId);
-        return string.IsNullOrEmpty(id) ? PushValidationResult.Valid : Remember(id, null);
+        return id is null || id.Length == 0 ? PushValidationResult.Valid : Remember(id, null);
     }
 
     /// <summary>The longest age (and distance into the future) of a signed delivery accepted by default.</summary>
@@ -75,7 +75,7 @@ public sealed class PushNotificationReceiver(TimeProvider? time = null)
         var id = Find(headers, WebhookSignature.IdHeader);
         var timestamp = Find(headers, WebhookSignature.TimestampHeader);
         var signature = Find(headers, WebhookSignature.SignatureHeader);
-        if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(signature) || secret.IsEmpty
+        if (id is null || id.Length == 0 || signature is null || signature.Length == 0 || secret.IsEmpty
             || !long.TryParse(timestamp, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds)
             || !WebhookSignature.Matches(signature, secret, id, seconds, body))
             return PushValidationResult.InvalidSignature;
@@ -112,7 +112,7 @@ public sealed class PushNotificationReceiver(TimeProvider? time = null)
     private static IEnumerable<string> Candidates(IReadOnlyDictionary<string, string> headers)
     {
         var token = Find(headers, A2AProtocol.Headers.NotificationToken);
-        if (!string.IsNullOrEmpty(token)) yield return token;
+        if (token is { Length: > 0 }) yield return token;
         var auth = Find(headers, "Authorization");
         if (auth is not null && auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) yield return auth[7..].Trim();
     }

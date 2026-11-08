@@ -53,6 +53,29 @@ jobs:
       - name: Test Extensions.AI (net8.0 + net10.0)
         run: dotnet test tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=ai-results" --results-directory TestResults
 
+      # D25: the netstandard2.0 builds of A2A.Protocol and A2A.Client against a real EchoAgent process.
+      # net10.0 runs the netstandard2.0 DLLs on every OS; net48 runs them on .NET Framework (Windows only).
+      - name: Smoke test netstandard2.0 (net10.0, and net48 on Windows)
+        shell: bash
+        env:
+          SMOKE_URL: http://127.0.0.1:18741
+          SMOKE_KEY: smoke-test-key
+        run: |
+          set -eu
+          dotnet samples/EchoAgent/bin/Release/net10.0/EchoAgent.dll "--BaseUrl=$SMOKE_URL" "--EchoAgent:ApiKey=$SMOKE_KEY" > "$RUNNER_TEMP/echoagent.log" 2>&1 &
+          agent=$!
+          trap 'kill "$agent" 2>/dev/null || true' EXIT
+          up=0
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null "$SMOKE_URL/.well-known/agent-card.json"; then up=1; break; fi
+            sleep 1
+          done
+          if [ "$up" != 1 ]; then echo "EchoAgent did not answer within 60 s"; cat "$RUNNER_TEMP/echoagent.log"; exit 1; fi
+          dotnet run --no-build -c Release -f net10.0 --project tests/A2A.NetStandard.Smoke -- "$SMOKE_URL" "$SMOKE_KEY"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            tests/A2A.NetStandard.Smoke/bin/Release/net48/A2A.NetStandard.Smoke.exe "$SMOKE_URL" "$SMOKE_KEY"
+          fi
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

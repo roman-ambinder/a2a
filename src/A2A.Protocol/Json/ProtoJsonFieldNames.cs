@@ -48,7 +48,8 @@ public static class ProtoJsonFieldNames
         ArgumentNullException.ThrowIfNull(typeInfo);
         if (!MayHaveProtoNames(utf8Json)) return JsonSerializer.Deserialize(utf8Json, typeInfo);
         var reader = new Utf8JsonReader(utf8Json, new JsonReaderOptions { MaxDepth = 1024 });
-        return Normalize(JsonElement.ParseValue(ref reader)).Deserialize(typeInfo);
+        try { return Normalize(JsonElement.ParseValue(ref reader)).Deserialize(typeInfo); }
+        catch (InvalidOperationException e) { throw new JsonException("A property name is not valid text.", e); } // a lone surrogate escape
     }
 
     /// <summary>
@@ -70,7 +71,7 @@ public static class ProtoJsonFieldNames
             }
             return false;
         }
-        catch (JsonException)
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
         {
             return true; // let the slow path report the error as it always did
         }

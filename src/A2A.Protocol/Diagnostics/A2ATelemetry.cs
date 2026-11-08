@@ -188,7 +188,7 @@ public static class A2ATelemetry
         if (context.TraceId == default || context.SpanId == default) return;
         var flags = (context.TraceFlags & ActivityTraceFlags.Recorded) != 0 ? "01" : "00";
         setHeader(TraceParentHeader, $"00-{context.TraceId.ToHexString()}-{context.SpanId.ToHexString()}-{flags}");
-        if (!string.IsNullOrEmpty(context.TraceState)) setHeader(TraceStateHeader, context.TraceState);
+        if (context.TraceState is { Length: > 0 } traceState) setHeader(TraceStateHeader, traceState);
     }
 
     /// <summary>Writes the trace context of <paramref name="activity"/> (see <see cref="InjectTraceContext(ActivityContext, Action{string, string})"/>).</summary>
@@ -205,8 +205,8 @@ public static class A2ATelemetry
     public static bool TryExtractTraceContext(string? traceParent, string? traceState, out ActivityContext context)
     {
         context = default;
-        if (string.IsNullOrWhiteSpace(traceParent)) return false;
-        return ActivityContext.TryParse(traceParent.Trim(), string.IsNullOrWhiteSpace(traceState) ? null : traceState.Trim(), isRemote: true, out context);
+        if (traceParent is null || string.IsNullOrWhiteSpace(traceParent)) return false;
+        return ActivityContext.TryParse(traceParent.Trim(), traceState is null || string.IsNullOrWhiteSpace(traceState) ? null : traceState.Trim(), isRemote: true, out context);
     }
 
     // ---- helpers shared by the SDK packages ----
