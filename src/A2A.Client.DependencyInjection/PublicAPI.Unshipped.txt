@@ -11,3 +11,6 @@ A2A.Client.BearerTokenHandler
 A2A.Client.BearerTokenHandler.BearerTokenHandler(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>! tokenProvider) -> void
 A2A.Client.IA2AClientFactory
 A2A.Client.IA2AClientFactory.GetClientAsync(string! name, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Client.A2AClient!>
+const A2A.Client.A2ANamedClientOptions.DefaultMaxResponseContentBufferSize = 16777216 -> long
+A2A.Client.A2ANamedClientOptions.MaxResponseContentBufferSize.get -> long
+A2A.Client.A2ANamedClientOptions.MaxResponseContentBufferSize.set -> void
