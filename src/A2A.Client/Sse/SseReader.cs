@@ -36,6 +36,7 @@ public static class SseReader
     {
         var buffer = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
         var parser = new LineParser();
+        var used = 0; // high-water mark of filled bytes, cleared before the buffer goes back to the pool
         try
         {
             int start = 0, end = 0;
@@ -86,17 +87,21 @@ public static class SseReader
                 {
                     var bigger = ArrayPool<byte>.Shared.Rent(buffer.Length * 2);
                     buffer.AsSpan(0, end).CopyTo(bigger);
+                    buffer.AsSpan(0, used).Clear();
                     ArrayPool<byte>.Shared.Return(buffer);
                     buffer = bigger;
+                    used = end;
                 }
                 cancellationToken.ThrowIfCancellationRequested();
                 var read = await stream.ReadAsync(buffer.AsMemory(end), cancellationToken).ConfigureAwait(false);
                 if (read == 0) eof = true;
                 else end += read;
+                if (end > used) used = end;
             }
         }
         finally
         {
+            buffer.AsSpan(0, used).Clear(); // event payloads can carry secrets; do not leave them in the shared pool
             ArrayPool<byte>.Shared.Return(buffer);
             parser.Dispose();
             stream.Dispose();
@@ -108,6 +113,7 @@ public static class SseReader
     {
         private byte[] _data = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
         private int _dataLength;
+        private int _dataUsed;      // high-water mark, cleared before the buffer goes back to the pool
         private bool _hasData;
         private string? _eventType;
         private string? _lastId;
@@ -118,6 +124,7 @@ public static class SseReader
         {
             if (line.IsEmpty)
             {
+                if (_dataLength > _dataUsed) _dataUsed = _dataLength;
                 SseEvent? evt = _hasData
                     ? new SseEvent(Encoding.UTF8.GetString(_data, 0, _dataLength), _eventType, _lastId) { FrameId = _frameId }
                     : null;
@@ -180,12 +187,15 @@ public static class SseReader
             if (_dataLength + more <= _data.Length) return;
             var bigger = ArrayPool<byte>.Shared.Rent(Math.Max(_data.Length * 2, _dataLength + more));
             _data.AsSpan(0, _dataLength).CopyTo(bigger);
+            _data.AsSpan(0, Math.Max(_dataUsed, _dataLength)).Clear();
             ArrayPool<byte>.Shared.Return(_data);
             _data = bigger;
+            _dataUsed = _dataLength;
         }
 
         public void Dispose()
         {
+            _data.AsSpan(0, Math.Max(_dataUsed, _dataLength)).Clear();
             ArrayPool<byte>.Shared.Return(_data);
             _data = [];
         }

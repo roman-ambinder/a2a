@@ -147,6 +147,140 @@ public class LimitsTests
         Assert.Equal(0, guard.Delivered);
     }
 
+    [Fact]
+    public async Task Declared_content_length_does_not_decide_the_up_front_allocation()
+    {
+        // A client declares a body at the 10 MB limit, sends 10 bytes, then stalls. Only bytes that arrive may grow the buffer.
+        const long limit = 10 * 1024 * 1024;
+        var pool = new RecordingPool();
+        var stream = new StallingStream(Encoding.UTF8.GetBytes("{\"a\":123}"));
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.Request.ContentLength = limit;
+        http.Request.Body = stream;
+
+        var reading = HttpPlumbing.ReadBodyAsync(http.Request, limit, pool);
+        await stream.Stalled.WaitAsync(TimeSpan.FromSeconds(10));        // the second read is waiting for bytes that never come
+        Assert.Equal([HttpPlumbing.MaxInitialBodyBuffer], pool.Requested);
+        Assert.All(pool.Rented, a => Assert.True(a <= HttpPlumbing.MaxInitialBodyBuffer, $"rented {a} bytes"));
+
+        stream.End();
+        using (var body = await reading) Assert.Equal("{\"a\":123}", Encoding.UTF8.GetString(body.Memory.Span));
+        Assert.Equal(pool.Rented.Count, pool.Returned);
+
+        // A body that does arrive grows the buffer by doubling, from the same small start.
+        var big = new byte[300 * 1024];
+        big.AsSpan().Fill((byte)' ');
+        var grown = new RecordingPool();
+        var http2 = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http2.Request.ContentLength = big.Length;
+        http2.Request.Body = new MemoryStream(big);
+        using (var body = await HttpPlumbing.ReadBodyAsync(http2.Request, limit, grown)) Assert.Equal(big.Length, body.Length);
+        Assert.Equal(HttpPlumbing.MaxInitialBodyBuffer, grown.Requested[0]);
+        Assert.Equal(grown.Rented.Count, grown.Returned);
+    }
+
+    [Theory]
+    [InlineData(null, "")]
+    [InlineData(null, "{\"a\":1}")]
+    [InlineData(7L, "{\"a\":1}")]
+    public async Task Unbounded_body_limit_does_not_overflow(long? contentLength, string body)
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.Request.ContentLength = contentLength;
+        http.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(body));
+        using var read = await HttpPlumbing.ReadBodyAsync(http.Request, long.MaxValue);
+        Assert.Equal(body, Encoding.UTF8.GetString(read.Memory.Span));
+
+        // and end to end
+        await using var host = await TestAgentHost.StartAsync(o => o.Limits.MaxRequestBodyBytes = long.MaxValue);
+        var (status, _) = await Send(host, SendRequest(ProtocolBindings.HttpJson, OneMessage));
+        Assert.Equal(HttpStatusCode.OK, status);
+    }
+
+    /// <summary>An <see cref="System.Buffers.ArrayPool{T}"/> over the shared pool that records what is rented and returned.</summary>
+    private sealed class RecordingPool : System.Buffers.ArrayPool<byte>
+    {
+        public List<int> Requested { get; } = [];
+        public List<int> Rented { get; } = [];
+        public int Returned { get; private set; }
+
+        public override byte[] Rent(int minimumLength)
+        {
+            Requested.Add(minimumLength);
+            var array = Shared.Rent(minimumLength);
+            Rented.Add(array.Length);
+            return array;
+        }
+
+        public override void Return(byte[] array, bool clearArray = false)
+        {
+            Returned++;
+            Shared.Return(array, clearArray);
+        }
+    }
+
+    /// <summary>Returns its bytes on the first read, then waits on the next read until <see cref="End"/>.</summary>
+    private sealed class StallingStream(byte[] first) : Stream
+    {
+        private readonly TaskCompletionSource _stalled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _end = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private bool _sent;
+        public Task Stalled => _stalled.Task;
+        public void End() => _end.TrySetResult();
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (!_sent)
+            {
+                _sent = true;
+                first.CopyTo(buffer);
+                return first.Length;
+            }
+            _stalled.TrySetResult();
+            await _end.Task.WaitAsync(cancellationToken);
+            return 0;
+        }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Json_kept_by_a_handler_outlives_the_pooled_body(string binding)
+    {
+        // A handler keeps the JsonElement of request A. Request B (same size, so it reuses the pooled array) must not change it,
+        // and neither may returning (and clearing) A's buffer.
+        var kept = new System.Collections.Concurrent.ConcurrentQueue<JsonElement>();
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2AServer().AddExtensionOperation("x.keep", "urn:test:x-keep",
+            (_, parameters, _) => { kept.Enqueue(parameters); return ValueTask.FromResult(A2A.Json.A2AJson.EmptyObject); }, null, true));
+
+        HttpRequestMessage Keep(char fill)
+        {
+            var json = "{\"v\":\"" + new string(fill, 4000) + "\",\"n\":{\"m\":[1,2,3]}}";
+            var req = binding == ProtocolBindings.JsonRpc
+                ? new HttpRequestMessage(HttpMethod.Post, "/a2a") { Content = new StringContent($$"""{"jsonrpc":"2.0","id":1,"method":"x.keep","params":{{json}}}""", Encoding.UTF8, "application/json") }
+                : new HttpRequestMessage(HttpMethod.Post, "/a2a/ext/x.keep") { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            req.Headers.Add(A2AProtocol.Headers.Version, A2AProtocol.Version);
+            req.Headers.Add("X-Test-User", "alice");
+            return req;
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await Send(host, Keep('A'))).Status);
+        for (var i = 0; i < 5; i++) Assert.Equal(HttpStatusCode.OK, (await Send(host, Keep('B'))).Status);
+
+        Assert.True(kept.TryDequeue(out var first));
+        Assert.Equal(new string('A', 4000), first.GetProperty("v").GetString());
+        Assert.Equal("[1,2,3]", first.GetProperty("n").GetProperty("m").GetRawText());
+        Assert.All(kept, e => Assert.Equal(new string('B', 4000), e.GetProperty("v").GetString()));
+    }
+
     /// <summary>An endless body of spaces, <c>chunk</c> bytes per read, that throws if read again after passing <c>limit</c>.</summary>
     private sealed class EndlessGuardStream(long limit, int chunk) : Stream
     {

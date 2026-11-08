@@ -12,11 +12,13 @@ namespace A2A.Server.AspNetCore;
 internal struct PooledBody : IDisposable
 {
     private byte[]? _array;
+    private readonly ArrayPool<byte> _pool;
 
-    public PooledBody(byte[] array, int length)
+    public PooledBody(byte[] array, int length, ArrayPool<byte> pool)
     {
         _array = array;
         Length = length;
+        _pool = pool;
     }
 
     /// <summary>Number of body bytes.</summary>
@@ -31,7 +33,7 @@ internal struct PooledBody : IDisposable
         if (array is null) return;
         _array = null;
         array.AsSpan(0, Length).Clear(); // request bodies can carry secrets; do not leave them in the shared pool
-        ArrayPool<byte>.Shared.Return(array);
+        _pool.Return(array);
     }
 }
 
@@ -48,17 +50,31 @@ internal static partial class HttpPlumbing
     private const int ChunkedBodyInitialBuffer = 16 * 1024;
 
     /// <summary>
+    /// Most bytes rented before any body byte arrives. A declared <c>Content-Length</c> is trusted only up to here, so a client
+    /// that announces a large body and sends it slowly cannot make every connection hold a limit-sized array; the buffer
+    /// doubles as bytes actually arrive.
+    /// </summary>
+    internal const int MaxInitialBodyBuffer = 64 * 1024;
+
+    /// <summary>
     /// Reads the request body into a pooled buffer. More than <paramref name="maxBytes"/> bytes is
     /// <see cref="A2AException.PayloadTooLarge"/> (HTTP 413): a larger <c>Content-Length</c> is refused before reading, and
     /// otherwise reading stops as soon as the running total passes the limit (at most <paramref name="maxBytes"/> + 1 bytes are read).
     /// </summary>
-    public static async Task<PooledBody> ReadBodyAsync(HttpRequest request, long maxBytes)
+    /// <param name="request">The request.</param>
+    /// <param name="maxBytes">The body limit.</param>
+    /// <param name="pool">The pool to rent from; <see cref="ArrayPool{T}.Shared"/> when null (tests pass their own).</param>
+    public static async Task<PooledBody> ReadBodyAsync(HttpRequest request, long maxBytes, ArrayPool<byte>? pool = null)
     {
         if (request.ContentLength > maxBytes) throw A2AException.PayloadTooLarge(maxBytes);
-        // One byte more than the limit proves the limit was passed; Array.MaxLength bounds a limit no array can hold.
-        var cap = (int)Math.Min(maxBytes + 1, Array.MaxLength);
-        var initial = request.ContentLength is { } declared ? (int)Math.Min(declared + 1, cap) : Math.Min(ChunkedBodyInitialBuffer, cap);
-        var buffer = ArrayPool<byte>.Shared.Rent(Math.Max(initial, 1));
+        pool ??= ArrayPool<byte>.Shared;
+        // One byte more than the limit proves the limit was passed. A limit no array can hold is capped at Array.MaxLength
+        // (computed without "maxBytes + 1", which would overflow for long.MaxValue).
+        var cap = maxBytes >= Array.MaxLength ? Array.MaxLength : (int)Math.Max(maxBytes, 0) + 1;
+        var initial = request.ContentLength is { } declared
+            ? (declared >= MaxInitialBodyBuffer ? MaxInitialBodyBuffer : (int)Math.Max(declared, 0) + 1)
+            : ChunkedBodyInitialBuffer;
+        var buffer = pool.Rent(Math.Min(initial, cap));
         var total = 0;
         try
         {
@@ -69,10 +85,10 @@ internal static partial class HttpPlumbing
                 if (total == room)
                 {
                     if (room == cap) throw A2AException.PayloadTooLarge(maxBytes);
-                    var bigger = ArrayPool<byte>.Shared.Rent((int)Math.Min((long)buffer.Length * 2, cap));
+                    var bigger = pool.Rent((int)Math.Min((long)buffer.Length * 2, cap));
                     buffer.AsSpan(0, total).CopyTo(bigger);
                     buffer.AsSpan(0, total).Clear();
-                    ArrayPool<byte>.Shared.Return(buffer);
+                    pool.Return(buffer);
                     buffer = bigger;
                     room = Math.Min(buffer.Length, cap);
                 }
@@ -81,12 +97,12 @@ internal static partial class HttpPlumbing
                 total += read;
                 if (total > maxBytes) throw A2AException.PayloadTooLarge(maxBytes);
             }
-            return new PooledBody(buffer, total);
+            return new PooledBody(buffer, total, pool);
         }
         catch
         {
             buffer.AsSpan(0, total).Clear();
-            ArrayPool<byte>.Shared.Return(buffer);
+            pool.Return(buffer);
             throw;
         }
     }
@@ -330,6 +346,7 @@ internal static partial class HttpPlumbing
                     if (_scratch is not null)
                     {
                         _scratch.AsSpan(0, _scratchUsed).CopyTo(bigger);
+                        _scratch.AsSpan(0, _scratchUsed).Clear();
                         ArrayPool<byte>.Shared.Return(_scratch);
                     }
                     _scratch = bigger;
@@ -392,7 +409,11 @@ internal static partial class HttpPlumbing
             ArrayPool<int>.Shared.Return(_nameStart);
             ArrayPool<int>.Shared.Return(_nameLength);
             ArrayPool<int>.Shared.Return(_frames);
-            if (_scratch is not null) ArrayPool<byte>.Shared.Return(_scratch);
+            if (_scratch is not null)
+            {
+                _scratch.AsSpan(0, _scratchUsed).Clear(); // unescaped property names from the body
+                ArrayPool<byte>.Shared.Return(_scratch);
+            }
         }
     }
 }

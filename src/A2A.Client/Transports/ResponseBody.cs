@@ -6,7 +6,8 @@ namespace A2A.Client.Transports;
 
 /// <summary>
 /// Response text as UTF-8 bytes in an <see cref="ArrayPool{T}"/> array, decoded as <see cref="HttpContent.ReadAsStringAsync()"/>
-/// would decode it (charset, then BOM, then UTF-8) and without a BOM. <see cref="Dispose"/> returns the array. A mutable struct:
+/// would decode it (charset, then BOM, then UTF-8) and without a BOM. <see cref="Dispose"/> clears the used bytes and returns
+/// the array. A mutable struct:
 /// keep it in one local and never copy it.
 /// </summary>
 internal struct PooledUtf8 : IDisposable
@@ -32,6 +33,7 @@ internal struct PooledUtf8 : IDisposable
         var array = _array;
         if (array is null) return;
         _array = null;
+        array.AsSpan(0, Start + _length).Clear(); // response bodies can carry secrets; do not leave them in the shared pool
         ArrayPool<byte>.Shared.Return(array);
     }
 }
@@ -76,6 +78,7 @@ internal static class ResponseBody
                     {
                         var bigger = ArrayPool<byte>.Shared.Rent(buffer.Length * 2);
                         buffer.AsSpan(0, length).CopyTo(bigger);
+                        buffer.AsSpan(0, length).Clear();
                         ArrayPool<byte>.Shared.Return(buffer);
                         buffer = bigger;
                     }
@@ -83,6 +86,7 @@ internal static class ResponseBody
             }
             catch
             {
+                buffer.AsSpan(0, length).Clear();
                 ArrayPool<byte>.Shared.Return(buffer);
                 throw;
             }
@@ -92,6 +96,7 @@ internal static class ResponseBody
                 var start = bytes.StartsWith(Utf8Bom) ? Utf8Bom.Length : 0;
                 return new PooledUtf8(buffer, start, length - start);
             }
+            bytes.Clear();
             ArrayPool<byte>.Shared.Return(buffer);
             // A UTF-16/32 BOM, or invalid UTF-8 (which the text form replaces with U+FFFD): decode as ReadAsStringAsync does.
             // The caller buffered the content, so it can be read again.
