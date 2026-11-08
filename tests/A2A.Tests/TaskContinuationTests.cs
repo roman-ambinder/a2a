@@ -893,6 +893,9 @@ public sealed class TaskContinuationTests
         Assert.True(result.Started);
         await entered.Task.WaitAsync(Wait);
         Assert.True(await shared.IsRunningAsync(key));
+        // "entered" fires when the agent has written its event, not when the engine has stored it. A store write that lands during
+        // the sweep changes the task version, and the sweep then leaves the task for the next one (by design), so wait for it.
+        await EventuallyAsync(async () => (await TaskAsync(b, key)).Status.Message?.GetText() == "resuming", "the continuation's status is stored");
 
         dying.Die();
         var sweeper = Sweeper(b);

@@ -558,7 +558,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         }
                     }
 
-                    if (await ApplyAndStoreAsync(key, record, encoded, exec.PushEnabled, onOverCap: () => CancelAll([exec])).ConfigureAwait(false) is not { } stored) continue;
+                    if (await ApplyAndStoreAsync(key, record, encoded, exec.PushEnabled, exec: exec).ConfigureAwait(false) is not { } stored) continue;
 
                     // Still under the task lock, so sinks see events in sequence order even with concurrent executions.
                     // Every sink is non-blocking.
@@ -712,7 +712,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// returned event, and every push delivery, carry its bytes.
     /// </summary>
     private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, SequencedEvent encoded, bool pushEnabled,
-        Func<TaskRecord, bool>? precondition = null, Action? onOverCap = null)
+        Func<TaskRecord, bool>? precondition = null, Execution? exec = null)
     {
         var evt = encoded.Event;
         var deliveries = await DeliveriesAsync(key, pushEnabled).ConfigureAwait(false);
@@ -737,12 +737,12 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
             // A terminal state is exempt, so the failure event that replaces an oversized one can always be stored.
             // An event with no message, no metadata and no artifact adds no content, so the walk is skipped for it.
-            if (!next.Status.State.IsTerminal() && AddsContent(evt) && IsOverCap(next))
+            if (!next.Status.State.IsTerminal() && IsOverCap(record.Task, next, evt, exec))
             {
                 ServerLog.TaskTooLarge(_logger, key.TaskId, _options.Limits.MaxTaskBytes, _options.Limits.MaxArtifactsPerTask);
                 encoded = Encode(StreamResponse.Of(FailureEvent(key.TaskId, record.Task.ContextId, OversizedTaskText)));
                 evt = encoded.Event;
-                onOverCap?.Invoke();
+                if (exec is not null) CancelAll([exec]);
                 if (ApplyToCopy(record.Task, evt) is not { } failed)
                 {
                     ServerLog.EventDropped(_logger, key.TaskId, record.Task.Status.State);
@@ -779,11 +779,28 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         }
     }
 
-    private static bool AddsContent(StreamResponse evt) =>
-        evt is not StatusUpdateEvent { StatusUpdate: { Status.Message: null, Metadata: null or { Count: 0 } } };
-
-    private bool IsOverCap(AgentTask task) =>
-        task.Artifacts?.Count > _options.Limits.MaxArtifactsPerTask || TaskSize.Measure(task) > _options.Limits.MaxTaskBytes;
+    /// <summary>
+    /// Whether <paramref name="next"/> (the task after <paramref name="evt"/>) is over a cap. An event with no message, no metadata and
+    /// no artifact adds no content, so it is not measured. With <paramref name="exec"/>, the size is carried from one stored task
+    /// to the next: an append of parts is the old size plus the parts, anything else walks the task.
+    /// </summary>
+    private bool IsOverCap(AgentTask previous, AgentTask next, StreamResponse evt, Execution? exec)
+    {
+        var known = exec is not null && ReferenceEquals(exec.MeasuredTask, previous);
+        if (evt is StatusUpdateEvent { StatusUpdate: { Status.Message: null, Metadata: null or { Count: 0 } } })
+        {
+            if (known) exec!.MeasuredTask = next; // nothing added: same size
+            return false;
+        }
+        if (next.Artifacts?.Count > _options.Limits.MaxArtifactsPerTask) return true;
+        var size = known && TaskSize.AppendedBytes(evt) is { } added ? exec!.MeasuredBytes + added : TaskSize.Measure(next);
+        if (exec is not null)
+        {
+            exec.MeasuredTask = next;
+            exec.MeasuredBytes = size;
+        }
+        return size > _options.Limits.MaxTaskBytes;
+    }
 
     /// <summary>
     /// Queues the catch-up delivery (the stored task at the commit's sequence) for each config that was saved after
