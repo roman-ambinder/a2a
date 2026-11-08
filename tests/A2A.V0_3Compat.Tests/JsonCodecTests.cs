@@ -95,6 +95,18 @@ public class JsonCodecTests
     }
 
     [Fact]
+    public void Absent_blocking_means_false_on_http_json()
+    {
+        var proto = V03ProtoJsonCodec.Instance;
+        var plain = proto.ReadSendRequest(Nodes.Parse("""{"message":{"messageId":"m","role":"ROLE_USER","content":[{"text":"x"}]}}"""));
+        Assert.True(plain.Configuration!.ReturnImmediately);
+        var withModes = proto.ReadSendRequest(Nodes.Parse("""{"message":{"messageId":"m","role":"ROLE_USER","content":[{"text":"x"}]},"configuration":{"acceptedOutputModes":["text/plain"]}}"""));
+        Assert.True(withModes.Configuration!.ReturnImmediately);
+        var blocking = proto.ReadSendRequest(Nodes.Parse("""{"message":{"messageId":"m","role":"ROLE_USER","content":[{"text":"x"}]},"configuration":{"blocking":true}}"""));
+        Assert.False(blocking.Configuration!.ReturnImmediately);
+    }
+
+    [Fact]
     public void Tenant_is_not_sent_and_is_reported()
     {
         using var recorder = new MeterRecorder();

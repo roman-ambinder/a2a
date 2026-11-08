@@ -113,7 +113,7 @@ A tenant named `v1` on a path-tenant host is shadowed by the literal `/v1/…` r
 | `agent/getAuthenticatedExtendedCard` | `GET /v1/card` | GetExtendedAgentCard |
 | `tasks/pushNotificationConfig/{set,get,list,delete}` | `/v1/tasks/{id}/pushNotificationConfigs…` | Refused: `-32003` |
 
-- `configuration.blocking == false` becomes `ReturnImmediately = true`. Absent means blocking.
+- `configuration.blocking == false` becomes `ReturnImmediately = true`. Absent means blocking on JSON-RPC. On HTTP+JSON (ProtoJSON drops a false bool, and the a2a-sdk 0.3 Python client sends none) absent means `false`.
 - `configuration.pushNotificationConfig` on a send is refused with `-32003`.
 - `/v1/card` returns the JSON-RPC-dialect card, not ProtoJSON. v0.3 servers do this; a2a-python #1418 is the bug from assuming otherwise.
 - `tasks/list` does not exist in v0.3: `-32601`.

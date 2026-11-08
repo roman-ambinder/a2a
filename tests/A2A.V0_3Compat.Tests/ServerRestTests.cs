@@ -44,21 +44,31 @@ public class ServerRestTests
     public async Task Message_send_returns_the_finished_task_when_blocking()
     {
         await using var host = await V03Host.StartAsync();
-        var (_, text) = await SendAsync(host.Http(), HttpMethod.Post, "/a2a/v1/message:send", V03Host.RestSendBody("task"));
+        var (_, text) = await SendAsync(host.Http(), HttpMethod.Post, "/a2a/v1/message:send", V03Host.RestSendBody("task", blocking: true));
         var task = Strict.Parse<P.SendMessageResponse>(text).Task;
         Assert.Equal(P.TaskState.Completed, task.Status.State);
         Assert.Equal(["part1", "part2"], task.Artifacts[0].Parts.Select(p => p.Text));
     }
 
     [Fact]
-    public async Task Absent_blocking_means_blocking_and_false_returns_at_once()
+    public async Task Absent_blocking_means_false_on_rest_like_the_a2a_sdk_0_3_python_client()
     {
+        // ProtoJSON drops false bools, so a2a-sdk 0.3.26 sends {"configuration":{"acceptedOutputModes":[...]}} for blocking=false
+        // (found by interop/v03). Absent must not mean blocking here, or a slow task hangs the call.
         await using var host = await V03Host.StartAsync();
         var http = host.Http();
-        var (_, blocking) = await SendAsync(http, HttpMethod.Post, "/a2a/v1/message:send", V03Host.RestSendBody("task", blocking: null));
+        var (_, blocking) = await SendAsync(http, HttpMethod.Post, "/a2a/v1/message:send", V03Host.RestSendBody("task", blocking: true));
         Assert.Equal(P.TaskState.Completed, Strict.Parse<P.SendMessageResponse>(blocking).Task.Status.State);
-        var (_, immediate) = await SendAsync(http, HttpMethod.Post, "/a2a/v1/message:send", V03Host.RestSendBody("slow", blocking: false));
-        Assert.NotEqual(P.TaskState.Completed, Strict.Parse<P.SendMessageResponse>(immediate).Task.Status.State);
+        foreach (var body in new[]
+        {
+            V03Host.RestSendBody("slow", blocking: null),
+            """{"message":{"messageId":"m1","role":"ROLE_USER","content":[{"text":"slow"}]},"configuration":{"acceptedOutputModes":["text/plain"]}}""",
+            V03Host.RestSendBody("slow", blocking: false),
+        })
+        {
+            var (_, immediate) = await SendAsync(http, HttpMethod.Post, "/a2a/v1/message:send", body).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.NotEqual(P.TaskState.Completed, Strict.Parse<P.SendMessageResponse>(immediate).Task.Status.State);
+        }
     }
 
     [Fact]

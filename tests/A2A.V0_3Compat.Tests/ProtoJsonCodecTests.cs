@@ -247,11 +247,13 @@ public class ProtoJsonCodecTests
         Assert.Equal("https://hooks.example/x", proto.Configuration.PushNotification.Url);
         Assert.Equal("Bearer", proto.Configuration.PushNotification.Authentication.Schemes[0]);
 
-        // ProtoJSON omits false, so a plain formatter loses "blocking": false and the request reads as blocking (absent means
-        // blocking). A formatter that prints defaults, and our own writer, keep it.
+        // ProtoJSON omits false, so a plain formatter drops "blocking": false. On HTTP+JSON absent means not blocking, so it still
+        // reads as ReturnImmediately, like the 0.3 Python client sends it.
         var explicitFalse = new JsonFormatter(JsonFormatter.Settings.Default.WithFormatDefaultValues(true));
         var back = C.ReadSendRequest(JsonNode.Parse(explicitFalse.Format(proto)));
         Assert.True(back.Configuration!.ReturnImmediately);
+        Assert.True(C.ReadSendRequest(JsonNode.Parse(JsonFormatter.Default.Format(proto))).Configuration!.ReturnImmediately);
+        proto.Configuration.Blocking = true;
         Assert.False(C.ReadSendRequest(JsonNode.Parse(JsonFormatter.Default.Format(proto))).Configuration!.ReturnImmediately);
         Assert.Equal("c1", back.Configuration.TaskPushNotificationConfig!.Id);
         Assert.Equal("hello", back.Message.GetText());

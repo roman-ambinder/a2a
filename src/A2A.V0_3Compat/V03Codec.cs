@@ -300,7 +300,7 @@ internal abstract class V03Codec
     }
 
     /// <summary>
-    /// Reads a v0.3 send request. <c>blocking: false</c> becomes <c>ReturnImmediately</c>; absent means blocking. A push config in
+    /// Reads a v0.3 send request. <c>blocking: false</c> becomes <c>ReturnImmediately</c>; absent means blocking (not on HTTP+JSON, see <see cref="BlockingWhenAbsent"/>). A push config in
     /// the request is carried in <c>Configuration.TaskPushNotificationConfig</c>: the server compat layer refuses it.
     /// </summary>
     public SendMessageRequest ReadSendRequest(JsonNode? node)
@@ -317,12 +317,19 @@ internal abstract class V03Codec
             {
                 AcceptedOutputModes = V03Json.StrList(c, "acceptedOutputModes"),
                 HistoryLength = V03Json.Int(c, "historyLength"),
-                ReturnImmediately = V03Json.Bool(c, "blocking") == false,
+                ReturnImmediately = (V03Json.Bool(c, "blocking") ?? BlockingWhenAbsent) == false,
                 TaskPushNotificationConfig = V03Json.OptObj(c, SendPushConfigName) is { } push ? ReadPushNotificationConfig(push) : null,
             };
         }
+        else if (!BlockingWhenAbsent) request.Configuration = new SendMessageConfiguration { ReturnImmediately = true };
         return request;
     }
+
+    /// <summary>
+    /// What a missing <c>blocking</c> means. JSON-RPC: blocking. HTTP+JSON is ProtoJSON, where a false bool is not written, so
+    /// missing means false, like the a2a-sdk 0.3 Python server and client (which never send <c>blocking: false</c>).
+    /// </summary>
+    protected virtual bool BlockingWhenAbsent => true;
 
     // ---- shared by the dialects ----
 

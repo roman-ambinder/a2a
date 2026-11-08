@@ -32,6 +32,7 @@ internal sealed class V03ProtoJsonCodec : V03Codec
     protected override bool Tagged => false;
     protected override string MessagePartsName => "content";
     protected override string SendPushConfigName => "pushNotification";
+    protected override bool BlockingWhenAbsent => false;
 
     protected override string StateName(TaskState state) => state switch
     {
