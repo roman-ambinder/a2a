@@ -1,4 +1,5 @@
 using A2A.Server.AspNetCore;
+using A2A.Server.AspNetCore.Operations;
 using A2A.V0_3Compat;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -13,7 +14,27 @@ internal sealed class V03ProtocolAdapter : IA2AProtocolAdapter
 
     public Func<ReadOnlyMemory<byte>, byte[]>? CardBodyTransform { get; } = V03CardBody.Blend;
 
-    public RequestDelegate WrapJsonRpc(IServiceProvider services, RequestDelegate core) => Surface(services).WrapJsonRpc(core);
+    public RequestDelegate WrapJsonRpc(IServiceProvider services, RequestDelegate core)
+    {
+        RejectExtensionNameCollisions(services);
+        return Surface(services).WrapJsonRpc(core);
+    }
+
+    /// <summary>
+    /// The wrapper takes every v0.3 method name before the core sees it, so an extension operation with such a name would
+    /// never run. Fail at startup instead. Names are compared ignoring case, like the table's own check for built-in names.
+    /// </summary>
+    private static void RejectExtensionNameCollisions(IServiceProvider services)
+    {
+        var table = services.GetService<A2AOperationTable>();
+        if (table is null) return;
+        foreach (var extension in table.Extensions)
+        {
+            if (V03Surface.IsV03Method(extension.Method))
+                throw new InvalidOperationException(
+                    $"The extension operation '{extension.Method}' has the name of a v0.3 method. With EnableV03Compat it would never run. Rename it, or do not enable v0.3 compat.");
+        }
+    }
 
     public void MapRoutes(IServiceProvider services, RouteGroupBuilder group, bool tenantInPattern) =>
         Surface(services).MapRest(group, tenantInPattern);

@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 using A2A.Server.AspNetCore;
+using A2A.Server.Pipeline;
 using A2A.Server.V0_3Compat;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -182,6 +183,28 @@ public class ServerSecurityAndCompatibilityTests
         var (offStatus, offBody) = await PostThrowingBodyAsync(off);
         Assert.Equal(offStatus, onStatus);
         Assert.Equal(offBody, onBody);
+    }
+
+    private static void AddRawExtension(IServiceCollection services, string method) =>
+        // Registered directly: AddExtensionOperation refuses names with a slash, but the record can be added by hand.
+        services.AddSingleton(new A2AExtensionOperation(method, "urn:test:collision", (_, p, _) => ValueTask.FromResult(p), Allow: true));
+
+    [Theory]
+    [InlineData("message/send")]
+    [InlineData("tasks/list")]
+    [InlineData("Tasks/Get")]
+    public async Task An_extension_operation_named_like_a_v03_method_fails_at_startup_with_compat(string method)
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => V03Host.StartAsync(services: s => AddRawExtension(s, method)));
+        Assert.Contains(method, ex.Message);
+    }
+
+    [Fact]
+    public async Task An_extension_operation_named_like_a_v03_method_still_works_without_compat()
+    {
+        await using var host = await V03Host.StartAsync(compat: false, services: s => AddRawExtension(s, "message/send"));
+        var (_, body) = await V03Host.RpcAsync(host.Http(), "message/send", new JsonObject { ["x"] = 1 }, version: "1.0");
+        Assert.Equal(1, body["result"]!["x"]!.GetValue<int>());
     }
 
     private sealed class ChunkedContent(byte[] bytes) : HttpContent

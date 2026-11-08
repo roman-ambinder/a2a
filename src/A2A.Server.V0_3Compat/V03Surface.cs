@@ -58,6 +58,10 @@ internal sealed partial class V03Surface
 
     private const string ListTasksMethod = "tasks/list";
 
+    /// <summary>True when the wrapper takes this JSON-RPC method (the v0.3 methods and <c>tasks/list</c>), ignoring case.</summary>
+    internal static bool IsV03Method(string method) =>
+        JsonRpcMethods.Contains(method) || JsonRpcMethods.Any(m => string.Equals(m, method, StringComparison.OrdinalIgnoreCase));
+
     // ======================================================================
     // JSON-RPC
     // ======================================================================
