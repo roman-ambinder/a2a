@@ -5,18 +5,18 @@ using BenchmarkDotNet.Attributes;
 
 namespace A2A.Benchmarks;
 
-/// <summary>Encodes one JSON-RPC success response carrying a status-update event, the way the SSE endpoint does today.</summary>
+/// <summary>Encodes one JSON-RPC success response carrying a status-update event, the way the SSE endpoint does: the stored event bytes are copied into the envelope by JsonRpcWriter.</summary>
 [MemoryDiagnoser]
 public class JsonRpcEnvelopeBenchmark
 {
     private JsonElement? _id;
-    private StreamResponse _event = null!;
+    private byte[] _eventJson = null!;
 
     [GlobalSetup]
     public void Setup()
     {
         _id = JsonDocument.Parse("1").RootElement.Clone();
-        _event = new StatusUpdateEvent(new TaskStatusUpdateEvent
+        var evt = new StatusUpdateEvent(new TaskStatusUpdateEvent
         {
             TaskId = "task-1", ContextId = "ctx-1",
             Status = new AgentTaskStatus
@@ -26,9 +26,10 @@ public class JsonRpcEnvelopeBenchmark
                 Timestamp = DateTimeOffset.UnixEpoch,
             },
         });
+        _eventJson = A2AJson.SerializeToUtf8Bytes<StreamResponse>(evt);
     }
 
     [Benchmark]
     public byte[] Encode() =>
-        A2AJson.SerializeToUtf8Bytes(JsonRpcResponse.Success(_id, A2AJson.SerializeToElement(_event)));
+        JsonRpcWriter.Success(_id, _eventJson);
 }

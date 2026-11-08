@@ -791,3 +791,9 @@ static A2A.ModelCopies.DeepCopy(this A2A.AgentTask! task) -> A2A.AgentTask!
 static A2A.ModelCopies.DeepCopy(this A2A.Message! message) -> A2A.Message!
 static A2A.ModelCopies.DeepCopy(this A2A.TaskPushNotificationConfig! config) -> A2A.TaskPushNotificationConfig!
 static A2A.ModelCopies.DeepCopy(this A2A.StreamResponse! response) -> A2A.StreamResponse!
+A2A.JsonRpc.JsonRpcWriter
+static A2A.JsonRpc.JsonRpcWriter.CreateWriterOptions() -> System.Text.Json.JsonWriterOptions
+static A2A.JsonRpc.JsonRpcWriter.Request<T>(string! id, string! method, T params, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! info) -> byte[]!
+static A2A.JsonRpc.JsonRpcWriter.Success<T>(System.Text.Json.JsonElement? id, T result, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! info) -> byte[]!
+static A2A.JsonRpc.JsonRpcWriter.Success(System.Text.Json.JsonElement? id, System.ReadOnlySpan<byte> resultJson) -> byte[]!
+static A2A.JsonRpc.JsonRpcWriter.WriteSuccess<T>(System.Text.Json.Utf8JsonWriter! w, System.Text.Json.JsonElement? id, T result, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! info) -> void

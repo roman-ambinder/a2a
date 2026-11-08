@@ -139,13 +139,10 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
 
     private async Task<HttpRequestMessage> BuildRequestAsync<TParams>(string method, TParams parameters, bool streaming, A2ARequestOptions? call, string? key, CancellationToken ct, string? lastEventId = null)
     {
-        var rpc = new JsonRpcRequest
-        {
-            Id = A2AJson.SerializeToElement(Guid.NewGuid().ToString("N")),
-            Method = method,
-            Params = A2AJson.SerializeToElement(parameters),
-        };
-        var request = new HttpRequestMessage(HttpMethod.Post, _endpoint) { Content = JsonBody(rpc, A2AProtocol.JsonMediaType) };
+        var body = JsonRpcWriter.Request(Guid.NewGuid().ToString("N"), method, parameters, A2AJson.GetTypeInfo<TParams>());
+        var content = new ByteArrayContent(body);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(A2AProtocol.JsonMediaType) { CharSet = "utf-8" };
+        var request = new HttpRequestMessage(HttpMethod.Post, _endpoint) { Content = content };
         try
         {
             await ApplyHeadersAsync(request, streaming, call, key, ct, lastEventId).ConfigureAwait(false);

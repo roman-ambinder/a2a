@@ -67,6 +67,25 @@ public sealed class PackageRulesTests
             .Where(x => srcNames.Contains(x.Friend));
         Assert.Empty(offenders);
     }
+
+    [Fact]
+    public void No_SerializeToElement_on_response_paths()
+    {
+        // JSON-RPC envelopes are written once (JsonRpcWriter); encoding a payload to a JsonElement first is a second encode.
+        // No exceptions: neither folder uses it after Task 22.
+        var offenders = new List<string>();
+        foreach (var folder in new[] { "src/A2A.Server.AspNetCore", "src/A2A.Client/Transports" })
+        {
+            var dir = Path.Combine(RepoRoot(), folder);
+            foreach (var file in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
+            {
+                var rel = Path.GetRelativePath(dir, file).Split(Path.DirectorySeparatorChar);
+                if (rel[0] is "bin" or "obj") continue;
+                if (File.ReadAllText(file).Contains("SerializeToElement", StringComparison.Ordinal)) offenders.Add(Path.GetRelativePath(RepoRoot(), file));
+            }
+        }
+        Assert.Empty(offenders);
+    }
 }
 
 /// <summary>Namespaces follow assemblies and folders.</summary>

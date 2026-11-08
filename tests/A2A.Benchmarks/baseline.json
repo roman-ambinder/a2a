@@ -4,8 +4,8 @@
     "meanNs": 145454.48803710938
   },
   "JsonRpcEnvelopeBenchmark.Encode": {
-    "allocatedBytes": 1640,
-    "meanNs": 1923.3627840677898
+    "allocatedBytes": 480,
+    "meanNs": 114.59396201372147
   },
   "SendMessageBenchmark.RoundTrip": {
     "allocatedBytes": 56132,

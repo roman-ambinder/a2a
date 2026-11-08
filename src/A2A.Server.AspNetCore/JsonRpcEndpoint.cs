@@ -178,20 +178,15 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
         }
     }
 
-    private static Task Ok<T>(HttpContext http, ServerCallContext call, JsonElement? id, T result)
+    private static async Task Ok<T>(HttpContext http, ServerCallContext call, JsonElement? id, T result)
     {
         HttpPlumbing.WriteExtensionsHeader(http, call);
-        return HttpPlumbing.WriteJsonAsync(http, JsonRpcResponse.Success(id, A2AJson.SerializeToElement(result)), A2AProtocol.JsonMediaType);
-    }
-
-    /// <summary>
-    /// A JSON-RPC success response whose result is the event's stored bytes, parsed in place (not encoded again). The output
-    /// is the same as serializing the event into the envelope.
-    /// </summary>
-    private static byte[] StreamFrame(JsonElement? id, ReadOnlyMemory<byte> json)
-    {
-        using var result = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = A2AJson.Options.MaxDepth });
-        return A2AJson.SerializeToUtf8Bytes(JsonRpcResponse.Success(id, result.RootElement));
+        // One pass: the result is encoded straight into the envelope, into a pooled buffer, then written once. It is not
+        // written to the response pipe while encoding, so an encoding failure still becomes a JSON-RPC error response.
+        var body = JsonRpcWriter.Success(id, result, A2AJson.GetTypeInfo<T>());
+        http.Response.StatusCode = 200;
+        http.Response.ContentType = A2AProtocol.JsonMediaType;
+        await http.Response.Body.WriteAsync(body, http.RequestAborted).ConfigureAwait(false);
     }
 
     private async Task StreamAsync(HttpContext http, ServerCallContext call, JsonElement? id, IAsyncEnumerable<SequencedEvent> events, Task startNow)
@@ -201,7 +196,7 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
         HttpPlumbing.WriteExtensionsHeader(http, call);
         HttpPlumbing.StartEventStream(http);
         await HttpPlumbing.PumpAsync(http, e,
-            evt => StreamFrame(id, EventEncoder.EnsureEncoded(evt).Json),
+            evt => JsonRpcWriter.Success(id, EventEncoder.EnsureEncoded(evt).Json.Span),
             ex => A2AJson.SerializeToUtf8Bytes(JsonRpcResponse.Failure(id, HttpPlumbing.Normalize(ex, logger, _includeDetails))),
             _keepAlive, logger).ConfigureAwait(false);
     }
