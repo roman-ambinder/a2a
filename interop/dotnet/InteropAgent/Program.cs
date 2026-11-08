@@ -22,7 +22,6 @@ builder.Services.AddA2AServer(o =>
 {
     // Interop test peer: no authentication, and no per-caller rate limit (all checks come from one address).
     o.AllowAnonymous = true;
-    o.EnableRateLimiting = false;
     o.AgentCard = new AgentCard
     {
     Name = ".NET Scenario Agent",
@@ -40,6 +39,7 @@ builder.Services.AddA2AServer(o =>
     Skills = [new AgentSkill { Id = "scenario", Name = "Scenario", Description = "Interop scenarios", Tags = ["test"] }],
     };
 }).AddAgentExecutor<ScenarioAgent>();
+builder.Services.AddA2ARateLimiting(o => o.Enabled = false);
 
 var app = builder.Build();
 app.MapAgentCard();

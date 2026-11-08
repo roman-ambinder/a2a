@@ -68,12 +68,6 @@ public sealed class A2AServerOptions
     /// the first request's task or reply instead of running again.
     /// </summary>
     public IdempotencyOptions Idempotency { get; } = new();
-
-    /// <summary>
-    /// Rate limit callers per tenant and principal (ASP.NET Core layer, policy <c>"a2a"</c>). Default true. When true the host
-    /// must call <c>app.UseA2A()</c> (it adds the rate limiter middleware) or startup fails. Set false to turn rate limiting off.
-    /// </summary>
-    public bool EnableRateLimiting { get; set; } = true;
 }
 
 /// <summary>Settings for the per-task event log and for SSE streams.</summary>

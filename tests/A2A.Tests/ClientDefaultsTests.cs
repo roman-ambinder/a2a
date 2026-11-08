@@ -98,6 +98,20 @@ public class ClientDefaultsTests
     }
 
     [Fact]
+    public async Task Request_tenant_wins_over_the_options_tenant()
+    {
+        var handler = new ScriptedHandler(RpcOk(SendResult), RpcOk(SendResult));
+        var client = NewClient(handler, new A2AClientOptions { Tenant = "from-options" });
+
+        await client.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("a"), Tenant = "from-request" });
+        await client.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("b") });
+
+        var calls = handler.Calls.ToArray();
+        Assert.Contains("\"tenant\":\"from-request\"", calls[0].Body);
+        Assert.Contains("\"tenant\":\"from-options\"", calls[1].Body);
+    }
+
+    [Fact]
     public async Task Explicit_idempotency_key_wins()
     {
         var handler = new ScriptedHandler(RpcOk(SendResult));

@@ -11,6 +11,8 @@ A2A.Server.AspNetCore.A2AHttpOptions.SigningKey.set -> void
 A2A.Server.AspNetCore.A2ARateLimitingExtensions
 A2A.Server.AspNetCore.A2ARateLimitOptions
 A2A.Server.AspNetCore.A2ARateLimitOptions.A2ARateLimitOptions() -> void
+A2A.Server.AspNetCore.A2ARateLimitOptions.Enabled.get -> bool
+A2A.Server.AspNetCore.A2ARateLimitOptions.Enabled.set -> void
 A2A.Server.AspNetCore.A2ARateLimitOptions.ReplenishmentPeriod.get -> System.TimeSpan
 A2A.Server.AspNetCore.A2ARateLimitOptions.ReplenishmentPeriod.set -> void
 A2A.Server.AspNetCore.A2ARateLimitOptions.TokenLimit.get -> int

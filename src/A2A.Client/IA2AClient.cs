@@ -50,8 +50,9 @@ public sealed class A2AClientOptions
     public IList<string> Extensions { get; set; } = new List<string>();
 
     /// <summary>
-    /// Tenant applied to every request that does not set one. Filled automatically from the selected
-    /// <see cref="AgentInterface.Tenant"/> by <see cref="A2AClientFactory"/>.
+    /// Tenant applied to every request that does not set one: a per-request <c>Tenant</c> always wins over this value.
+    /// <see cref="A2AClientFactory"/> replaces this value with the selected <see cref="AgentInterface.Tenant"/> when the
+    /// card gives one for that interface.
     /// </summary>
     public string? Tenant { get; set; }
 

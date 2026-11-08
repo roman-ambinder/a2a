@@ -162,7 +162,7 @@ public class SurfaceTests
         app.UseAuthorization(); // no UseA2A()
         app.MapA2A("/a2a").RequireAuthorization();
         var noLimiter = await Assert.ThrowsAsync<InvalidOperationException>(() => app.StartAsync());
-        Assert.Equal("Call app.UseA2A() before app.UseAuthorization(), or set A2AServerOptions.EnableRateLimiting = false.", noLimiter.Message);
+        Assert.Equal("Call app.UseA2A() before app.UseAuthorization(), or set A2ARateLimitOptions.Enabled = false (services.AddA2ARateLimiting(o => o.Enabled = false)).", noLimiter.Message);
         await app.DisposeAsync();
     }
 

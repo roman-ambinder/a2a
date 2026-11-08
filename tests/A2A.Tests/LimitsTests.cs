@@ -79,7 +79,7 @@ public class LimitsTests
         Assert.Equal(TimeSpan.FromMinutes(5), l.StreamReauthInterval);
         Assert.Equal(10, l.MaxPushConfigsPerTask);
         Assert.NotNull(new A2AServerOptions().Limits);
-        Assert.True(new A2AServerOptions().EnableRateLimiting);
+        Assert.True(new A2ARateLimitOptions().Enabled);
     }
 
     // ---- body size ----
@@ -669,8 +669,8 @@ public class LimitsTests
     [MemberData(nameof(Bindings))]
     public async Task Rate_limit_can_be_disabled(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync(o => o.EnableRateLimiting = false, useA2A: false,
-            services: s => s.AddA2ARateLimiting(o => { o.TokenLimit = 1; o.TokensPerPeriod = 1; o.ReplenishmentPeriod = TimeSpan.FromHours(1); }));
+        await using var host = await TestAgentHost.StartAsync(useA2A: false,
+            services: s => s.AddA2ARateLimiting(o => { o.Enabled = false; o.TokenLimit = 1; o.TokensPerPeriod = 1; o.ReplenishmentPeriod = TimeSpan.FromHours(1); }));
         for (var i = 0; i < 5; i++)
             Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Send(host, GetTaskRequest(binding))).Status);
     }
@@ -693,13 +693,13 @@ public class LimitsTests
     public async Task Startup_fails_without_the_rate_limiter_middleware()
     {
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => TestAgentHost.StartAsync(useA2A: false));
-        Assert.Equal("Call app.UseA2A() before app.UseAuthorization(), or set A2AServerOptions.EnableRateLimiting = false.", ex.Message);
+        Assert.Equal("Call app.UseA2A() before app.UseAuthorization(), or set A2ARateLimitOptions.Enabled = false (services.AddA2ARateLimiting(o => o.Enabled = false)).", ex.Message);
     }
 
     [Fact]
     public async Task Startup_succeeds_without_the_middleware_when_rate_limiting_is_disabled()
     {
-        await using var host = await TestAgentHost.StartAsync(o => o.EnableRateLimiting = false, useA2A: false);
+        await using var host = await TestAgentHost.StartAsync(useA2A: false, services: s => s.AddA2ARateLimiting(o => o.Enabled = false));
     }
 
     [Theory]

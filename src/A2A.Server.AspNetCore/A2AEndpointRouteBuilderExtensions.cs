@@ -139,12 +139,12 @@ public static partial class A2AEndpointRouteBuilderExtensions
         if (!tenantInPattern) group.MapPost("/{tenant}", rpc.HandleAsync).WithDisplayName(JsonRpcEndpoint.DisplayName + " (tenant)");
     }
 
-    /// <summary>Applies the <c>"a2a"</c> rate limit policy when it is registered and <see cref="A2AServerOptions.EnableRateLimiting"/> is true.</summary>
+    /// <summary>Applies the <c>"a2a"</c> rate limit policy when it is registered and <see cref="A2ARateLimitOptions.Enabled"/> is true.</summary>
     private static void ApplyRateLimiting(IEndpointRouteBuilder endpoints, RouteGroupBuilder group)
     {
         var services = endpoints.ServiceProvider;
         if (services.GetService<A2ARateLimitMarker>() is null) return;
-        if (!services.GetRequiredService<Microsoft.Extensions.Options.IOptions<A2AServerOptions>>().Value.EnableRateLimiting) return;
+        if (!services.GetRequiredService<Microsoft.Extensions.Options.IOptions<A2ARateLimitOptions>>().Value.Enabled) return;
         group.RequireRateLimiting(A2ARateLimitingExtensions.PolicyName);
     }
 

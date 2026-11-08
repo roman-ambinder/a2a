@@ -70,8 +70,6 @@ A2A.Server.A2AServerOptions.CancelGracePeriod.get -> System.TimeSpan
 A2A.Server.A2AServerOptions.CancelGracePeriod.set -> void
 A2A.Server.A2AServerOptions.ClientContextIdPolicy.get -> A2A.Server.ClientContextIdPolicy
 A2A.Server.A2AServerOptions.ClientContextIdPolicy.set -> void
-A2A.Server.A2AServerOptions.EnableRateLimiting.get -> bool
-A2A.Server.A2AServerOptions.EnableRateLimiting.set -> void
 A2A.Server.A2AServerOptions.ExtendedAgentCardProvider.get -> System.Func<A2A.Server.ServerCallContext!, A2A.AgentCard!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<A2A.AgentCard?>>?
 A2A.Server.A2AServerOptions.ExtendedAgentCardProvider.set -> void
 A2A.Server.A2AServerOptions.FollowUpPolicy.get -> A2A.Server.FollowUpPolicy

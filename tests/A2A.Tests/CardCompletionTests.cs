@@ -135,9 +135,9 @@ public sealed class CardCompletionTests
             o.AgentCard = TestAgentHost.DefaultCard();
             o.AgentCard.SupportedInterfaces = [];
             o.AllowAnonymous = true;
-            o.EnableRateLimiting = false;
         }).AddAgentExecutor<ScenarioAgent>();
         builder.Services.AddA2AServerAspNetCore();
+        builder.Services.AddA2ARateLimiting(o => o.Enabled = false);
         if (configureHttp is not null) builder.Services.ConfigureA2AHttp(configureHttp);
         var app = builder.Build();
         app.MapA2A("/a2a");
@@ -190,9 +190,9 @@ public sealed class CardCompletionTests
             o.AgentCard = TestAgentHost.DefaultCard();
             o.AgentCard.SupportedInterfaces = [];
             o.AllowAnonymous = true;
-            o.EnableRateLimiting = false;
         }).AddAgentExecutor<ScenarioAgent>();
         builder.Services.AddA2AServerAspNetCore();
+        builder.Services.AddA2ARateLimiting(o => o.Enabled = false);
         await using var app = builder.Build();
         app.MapA2A("/{tenant}/a2a");
         app.MapA2AJsonRpc("/rpc");
@@ -213,6 +213,7 @@ public sealed class CardCompletionTests
         builder.Services.AddA2AServer(o => { o.AgentCard = TestAgentHost.DefaultCard(); o.AgentCard.SupportedInterfaces = []; })
             .AddAgentExecutor<ScenarioAgent>();
         builder.Services.AddA2AServerAspNetCore();
+        builder.Services.AddA2ARateLimiting(o => o.Enabled = false);
         await using var app = builder.Build();
         app.MapAgentCard();
         await app.StartAsync();

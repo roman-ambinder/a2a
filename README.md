@@ -41,7 +41,7 @@ builder.Services.AddA2AServer(o => o.AgentCard = new AgentCard
 builder.Services.AddA2AServerAspNetCore();   // registers the startup check and the default rate limit (required by MapA2A)
 
 app.UseAuthentication();
-app.UseA2A();                               // rate limiter middleware; the app refuses to start without it (or o.EnableRateLimiting = false)
+app.UseA2A();                               // rate limiter middleware; the app refuses to start without it (or A2ARateLimitOptions.Enabled = false)
 app.UseAuthorization();
 
 app.MapAgentCard();                         // GET /.well-known/agent-card.json (anonymous, cacheable)

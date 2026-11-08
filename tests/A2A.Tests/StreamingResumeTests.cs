@@ -1,3 +1,4 @@
+using A2A.Server.AspNetCore;
 using System.Diagnostics;
 using System.Net;
 using System.Text;
@@ -374,8 +375,7 @@ public class StreamingResumeTests
         await using var host = await TestAgentHost.StartAsync(o =>
         {
             o.Limits.MaxConcurrentStreamsPerTask = 1;
-            o.EnableRateLimiting = false;
-        });
+        }, services: s => s.AddA2ARateLimiting(o => o.Enabled = false));
         var task = (await host.Client(binding).SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).RequireTask();
 
         var first = await RawSse.OpenAsync(host, Subscribe(binding, task.Id), binding);
@@ -405,8 +405,7 @@ public class StreamingResumeTests
         await using var host = await TestAgentHost.StartAsync(o =>
         {
             o.Limits.MaxConcurrentStreamsPerPrincipal = 1;
-            o.EnableRateLimiting = false;
-        });
+        }, services: s => s.AddA2ARateLimiting(o => o.Enabled = false));
         for (var i = 0; i < 3; i++)
         {
             await using var stream = await RawSse.OpenAsync(host, SendStream(binding, "task"), binding);
@@ -424,8 +423,7 @@ public class StreamingResumeTests
         await using var host = await TestAgentHost.StartAsync(o =>
         {
             o.Limits.MaxConcurrentStreamsPerPrincipal = 1;
-            o.EnableRateLimiting = false;
-        });
+        }, services: s => s.AddA2ARateLimiting(o => o.Enabled = false));
         await using var first = await RawSse.OpenAsync(host, SendStream(binding, "slow"), binding);
         Assert.IsType<TaskEvent>((await first.NextAsync(Timeout))!.Event);
 

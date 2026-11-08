@@ -20,6 +20,12 @@ public sealed class A2ARateLimitOptions
 
     /// <summary>How often tokens are added back. Default 1 minute.</summary>
     public TimeSpan ReplenishmentPeriod { get; set; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// Turns rate limiting on or off. Default true. When false, <c>MapA2A</c> adds no rate limit policy and the startup check
+    /// does not require <c>app.UseA2A()</c>.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
 }
 
 /// <summary>Registers the rate limit policy and adds the middleware for A2A endpoints.</summary>
@@ -32,7 +38,7 @@ public static class A2ARateLimitingExtensions
     /// Registers the ASP.NET Core rate limiter policy <c>"a2a"</c>: a token bucket per tenant and caller
     /// (20 requests burst, 60 per minute by default). The caller is the principal, or for an anonymous caller its remote IP
     /// address (<c>HttpContext.Connection.RemoteIpAddress</c>). <c>MapA2A</c> applies it unless
-    /// <see cref="A2AServerOptions.EnableRateLimiting"/> is false. A rejected request gets HTTP 429 with a <c>Retry-After</c>
+    /// <see cref="A2ARateLimitOptions.Enabled"/> is false. A rejected request gets HTTP 429 with a <c>Retry-After</c>
     /// header and the <c>RATE_LIMITED</c> error, in the format of the binding. <c>AddA2AServerAspNetCore</c> calls this with
     /// the defaults; call it again to change them. The host must add the middleware with <c>app.UseA2A()</c>.
     /// </summary>
@@ -45,7 +51,7 @@ public static class A2ARateLimitingExtensions
     /// To replace the policy, register your own under the same name, for example
     /// <c>services.AddRateLimiter(o =&gt; o.AddPolicy("a2a", ...))</c>. The default is then skipped (no duplicate-name exception,
     /// whatever the registration order) and yours is applied by <c>MapA2A</c>. To drop rate limiting, set
-    /// <see cref="A2AServerOptions.EnableRateLimiting"/> to false.
+    /// <see cref="A2ARateLimitOptions.Enabled"/> to false.
     /// </remarks>
     public static IServiceCollection AddA2ARateLimiting(this IServiceCollection services, Action<A2ARateLimitOptions>? configure = null)
     {

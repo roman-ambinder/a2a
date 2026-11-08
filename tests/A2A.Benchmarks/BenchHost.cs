@@ -43,10 +43,10 @@ internal sealed class BenchHost : IAsyncDisposable
         {
             o.AgentCard = card;
             o.AllowAnonymous = true;
-            o.EnableRateLimiting = false;
             configure?.Invoke(o);
         }).AddAgentExecutor<TExecutor>();
         builder.Services.AddA2AServerAspNetCore();
+        builder.Services.AddA2ARateLimiting(o => o.Enabled = false);
 
         var app = builder.Build();
         app.UseA2A();
