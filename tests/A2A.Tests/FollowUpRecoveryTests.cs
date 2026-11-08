@@ -55,6 +55,7 @@ public sealed class FollowUpRecoveryTests
         public required FailingTimers Clock { get; init; }
         public required FaultyTaskStore Store { get; init; }
         public int FollowUpsRun;
+        public volatile string? SeenText;
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public required TestAgentHost Host { get; init; }
         public ValueTask DisposeAsync() => Host.DisposeAsync();
@@ -73,6 +74,7 @@ public sealed class FollowUpRecoveryTests
                 {
                     if (context.IsNewTask) { await u.RequireInputAsync("more?", ct); return; }
                     Interlocked.Increment(ref self!.FollowUpsRun);
+                    self.SeenText = context.UserText;
                     await followUp(self, u, ct);
                 }));
             });
@@ -130,6 +132,21 @@ public sealed class FollowUpRecoveryTests
         Assert.Equal(TaskState.Completed, retry.Status.State);
         await f.Host.WaitIdleAsync();
         Assert.Equal(1, Volatile.Read(ref f.FollowUpsRun));
+    }
+
+    [Fact]
+    public async Task Recovery_runs_the_committed_message_not_the_retrys_text()
+    {
+        await using var f = await StartCompletingAsync();
+        var first = await NewTaskAsync(f);
+        var followUp = Message.FromUser("original", taskId: first.Id);
+        await CrashAfterCommitAsync(f, followUp);
+
+        await SendAsync(f, new Message { MessageId = followUp.MessageId, Role = Role.User, Parts = [Part.FromText("changed")], TaskId = first.Id });
+
+        await f.Host.WaitIdleAsync();
+        Assert.Equal(1, Volatile.Read(ref f.FollowUpsRun));
+        Assert.Equal("original", f.SeenText);
     }
 
     [Fact]

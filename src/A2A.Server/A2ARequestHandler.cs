@@ -440,11 +440,14 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                         message.ContextId = contextId;
                         // The earlier request committed the message but evidently never started the agent (it crashed, or its
                         // start failed and could not even fail the task): start it now, once.
-                        if (await PendingStartAsync(key, record.Task, message, answersForm, ct).ConfigureAwait(false) is { } pendingSequence
+                        if (await PendingStartAsync(key, record.Task, message, ct).ConfigureAwait(false) is { } pendingSequence
                             && await _engine.TryClaimStartAsync(key, ct).ConfigureAwait(false))
                         {
+                            // The agent gets the message that was committed, never the retry's content (same id, maybe other text).
+                            message = record.Task.History![^1].DeepCopy();
+                            message.ContextId = contextId;
                             approval = ResolveApproval(record.Task, message, out _, recovering: true);
-                            elicitation = answersForm ? message.GetElicitationAnswer() : null;
+                            elicitation = message.GetElicitationAnswer();
                             lastSequence = pendingSequence;
                             startPending = true;
                         }
@@ -557,7 +560,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// recorded sequence (an agent that ran and wrote anything, an artifact included, leaves one). The caller then checks that no
     /// execution runs and claims the start, under the task lock.
     /// </summary>
-    private async ValueTask<long?> PendingStartAsync(TaskKey key, AgentTask task, Message message, bool answersForm, CancellationToken ct)
+    private async ValueTask<long?> PendingStartAsync(TaskKey key, AgentTask task, Message message, CancellationToken ct)
     {
         var state = task.Status.State;
         if (state.IsTerminal() || !TaskStateMachine.AcceptsFollowUp(state, _options.FollowUpPolicy)) return null;
@@ -567,7 +570,6 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         var colon = text.IndexOf(':', StringComparison.Ordinal);
         if (colon <= 0 || !long.TryParse(text.AsSpan(0, colon), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var sequence)) return null;
         if (!string.Equals(text[(colon + 1)..], message.MessageId, StringComparison.Ordinal)) return null;
-        if (answersForm && message.GetElicitationAnswer() is null) return null;
         // A read that fails fails this retry: the client retries again (nothing is started on a guess).
         return await _events.LastSequenceAsync(key, ct).ConfigureAwait(false) == sequence ? sequence : null;
     }
