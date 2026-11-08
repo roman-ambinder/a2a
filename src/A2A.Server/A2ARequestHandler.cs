@@ -1559,8 +1559,8 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     /// <summary>
-    /// Renews the execution's lease, or registers it when it has none (the register at start failed, or the lease was lost),
-    /// and renews its idempotency claim. Runs on the heartbeat timer; skips a beat while the previous one is still running.
+    /// Renews the execution's lease, or registers it when it has none (the register at start failed, or the lease was lost;
+    /// then <see cref="CancelIfEndedAsync"/> checks the task after the register), and renews its idempotency claim. Runs on the heartbeat timer; skips a beat while the previous one is still running.
     /// Failures are logged and the execution goes on.
     /// </summary>
     private async Task HeartbeatAsync(Execution exec, IdempotencyClaim claim)
@@ -1580,6 +1580,8 @@ public sealed class A2ARequestHandler : IDisposable
                     // The execution still runs here, so registering it (again, under the same id) is not a resurrection:
                     // a finished execution holds the heartbeat gate for good and never gets here.
                     await _coordinator.RegisterAsync(exec.Key, exec.Id, CancellationToken.None).ConfigureAwait(false);
+                    // When the read fails, the execution stays unregistered: the next heartbeat registers and reads again.
+                    if (exec.LeaseLost) await CancelIfEndedAsync(exec).ConfigureAwait(false);
                     exec.Registered = true;
                 }
             }
@@ -1618,7 +1620,23 @@ public sealed class A2ARequestHandler : IDisposable
             return;
         }
         _logger.LogWarning("Task {TaskId}: the execution lost its lease (its heartbeats lapsed); registering it again", exec.TaskId);
+        exec.LeaseLost = true;
         exec.Registered = false;
+    }
+
+    /// <summary>
+    /// Called under the heartbeat gate right after the heartbeat registered an execution that had lost its lease. While it
+    /// had none, another instance may have ended the task (the retention sweep fails it as dead), and that instance's cancel
+    /// request may never have arrived; its unregister found nothing to end. So the task is read again, and when it is
+    /// terminal or gone the execution is cancelled. The lease stays until the execution ends and unregisters.
+    /// </summary>
+    private async Task CancelIfEndedAsync(Execution exec)
+    {
+        var record = await _tasks.GetAsync(exec.Key, CancellationToken.None).ConfigureAwait(false);
+        exec.LeaseLost = false;
+        if (record is not null && !record.Task.Status.State.IsTerminal()) return;
+        _logger.LogWarning("Task {TaskId}: the task ended while the execution had no lease; cancelling the agent", exec.TaskId);
+        CancelAll([exec]);
     }
 
     /// <summary>
@@ -1948,6 +1966,7 @@ public sealed class A2ARequestHandler : IDisposable
         if (exec is null) return false;
         if (exec.HeartbeatGate.Wait(0))
         {
+            exec.LeaseLost = true;
             exec.Registered = false;
             exec.HeartbeatGate.Release();
         }
@@ -2325,6 +2344,12 @@ public sealed class A2ARequestHandler : IDisposable
 
         /// <summary>True once the execution's lease is registered with the coordinator.</summary>
         public bool Registered { get => _registered; set => _registered = value; }
+
+        /// <summary>
+        /// True from a lost (or lapsed) lease until the heartbeat that registers the execution again has read the task.
+        /// Set and cleared under <see cref="HeartbeatGate"/>.
+        /// </summary>
+        public bool LeaseLost { get; set; }
 
         /// <summary>Held by a running heartbeat, and for good once the execution ends.</summary>
         public SemaphoreSlim HeartbeatGate { get; } = new(1, 1);

@@ -403,6 +403,43 @@ public sealed class RetentionTests
     }
 
     /// <summary>
+    /// Instance A's heartbeat finds its lease lost while the task still works, so A registers again with its next heartbeat.
+    /// Just before that register, instance B's sweep fails the task: its unregister finds nothing to end, and its cancel
+    /// request never reaches A. After registering, A reads the task again, finds it failed and cancels its agent.
+    /// </summary>
+    [Fact]
+    public async Task Register_after_a_lost_lease_cancels_the_agent_of_a_task_failed_meanwhile()
+    {
+        var clock = NewClock();
+        var shared = new InMemoryExecutionCoordinator(new CoordinationOptions(), clock);
+        var hooked = new RegisterHookCoordinator(shared);
+        var (a, b) = await TwoInstancesAsync(clock, hooked, shared);
+        await using var _a = a;
+        await using var _b = b;
+        var key = Key(await SendAsync(a, "slow"));
+        await EventuallyAsync(async () => await StateAsync(b, key) == TaskState.Working, "the agent on A is working");
+
+        var swept = false;
+        hooked.BeforeNextRegister = async () =>
+        {
+            Assert.Equal(TaskState.Working, await StateAsync(b, key)); // A saw a working task when it lost the lease
+            await Sweeper(b).RunOnceAsync(CancellationToken.None);
+            Volatile.Write(ref swept, true);
+        };
+        clock.Advance(HeartbeatStep + new CoordinationOptions().LeaseTtl); // one heartbeat, after the lease expired
+        await EventuallyAsync(() =>
+        {
+            clock.Advance(HeartbeatStep);
+            return Task.FromResult(Volatile.Read(ref swept));
+        }, "A registers again, and B's sweep runs just before");
+        Assert.Equal(TaskState.Failed, await StateAsync(b, key));
+
+        await a.Handler.WhenIdleAsync().WaitAsync(Wait); // A cancelled its agent without another heartbeat
+        Assert.True(await shared.IsRunningAsync(key) is false);
+        Assert.Equal(TaskState.Failed, await StateAsync(a, key)); // the agent's CANCELED came too late
+    }
+
+    /// <summary>
     /// The sweep on instance B fails the task of an execution whose lease expired, then asks every instance to cancel it.
     /// Instance A still runs the agent (its heartbeats never reach the coordinator), and stops it.
     /// </summary>
@@ -821,6 +858,37 @@ public sealed class RetentionTests
             {
                 lock (_readers) _readers.Remove(channel);
             }
+        }
+
+        public override ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken ct = default) => inner.ListExpiredAsync(max, ct);
+        public override ValueTask<bool> TryAcquireSweepLeaseAsync(string name, TimeSpan duration, CancellationToken ct = default) => inner.TryAcquireSweepLeaseAsync(name, duration, ct);
+    }
+
+    /// <summary>
+    /// Delegates to another coordinator, but never delivers cancel requests (they are lost on the way to this instance).
+    /// <see cref="BeforeNextRegister"/>, when set, runs once just before the next register reaches the coordinator.
+    /// </summary>
+    private sealed class RegisterHookCoordinator(ExecutionCoordinator inner) : ExecutionCoordinator
+    {
+        private Func<Task>? _beforeNextRegister;
+
+        public Func<Task>? BeforeNextRegister { set => Volatile.Write(ref _beforeNextRegister, value); }
+
+        public override async ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken ct = default)
+        {
+            if (Interlocked.Exchange(ref _beforeNextRegister, null) is { } hook) await hook();
+            await inner.RegisterAsync(task, executionId, ct);
+        }
+
+        public override ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default) => inner.HeartbeatAsync(task, executionId, ct);
+        public override ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default) => inner.UnregisterAsync(task, executionId, ct);
+        public override ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default) => inner.IsRunningAsync(task, ct);
+        public override ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default) => inner.RequestCancelAsync(task, ct);
+
+        public override async IAsyncEnumerable<TaskKey> CancelRequestsAsync([EnumeratorCancellation] CancellationToken ct)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            yield break;
         }
 
         public override ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken ct = default) => inner.ListExpiredAsync(max, ct);
