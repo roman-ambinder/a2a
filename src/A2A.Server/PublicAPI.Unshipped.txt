@@ -11,3 +11,5 @@ A2A.Server.A2AServerBuilder.AddTokenExchanger(A2A.Delegation.ITokenExchanger! ex
 A2A.Server.ServerCallContext.WireProtocolVersion.get -> string?
 A2A.Server.ServerCallContext.WireProtocolVersion.init -> void
 A2A.Server.AgentRequestContext.RequestedSkillId.get -> string?
+override A2A.Server.Coordination.InMemoryExecutionCoordinator.TryRegisterExclusiveAsync(A2A.Server.Storage.TaskKey task, string! executionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+virtual A2A.Server.Coordination.ExecutionCoordinator.TryRegisterExclusiveAsync(A2A.Server.Storage.TaskKey task, string! executionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>

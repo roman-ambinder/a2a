@@ -53,6 +53,13 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
 
     private const string RegisterScript = Now + "\n" + Lease;
 
+    // Writes the lease only when no lease of the task has an expiry in the future. 1 when written, 0 when refused.
+    private const string RegisterExclusiveScript = Now + "\n" + """
+        for _, expiry in ipairs(redis.call('HVALS', KEYS[1])) do
+          if tonumber(expiry) > now then return 0 end
+        end
+        """ + "\n" + Lease;
+
     // Renews only a lease that exists and has not expired: a late heartbeat never brings an expired lease back. 1 when renewed.
     private const string HeartbeatScript = Now + "\n" + """
         local current = redis.call('HGET', KEYS[1], ARGV[1])
@@ -135,6 +142,14 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
     {
         ArgumentNullException.ThrowIfNull(executionId);
         await EvaluateAsync(RegisterScript, LeaseKeys(task), LeaseArgs(task, executionId, withTtl: true), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Atomic across instances: one Lua script checks every lease of the task and writes the new one.</remarks>
+    public override async ValueTask<bool> TryRegisterExclusiveAsync(TaskKey task, string executionId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(executionId);
+        return (int)await EvaluateAsync(RegisterExclusiveScript, LeaseKeys(task), LeaseArgs(task, executionId, withTtl: true), cancellationToken).ConfigureAwait(false) == 1;
     }
 
     /// <inheritdoc />
