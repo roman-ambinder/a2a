@@ -5,6 +5,7 @@ using A2A.Integrity;
 namespace A2A.Client;
 
 /// <summary>The result of checking one artifact against its <c>sha256</c> metadata (<see cref="ArtifactVerifier"/>).</summary>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP003", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public enum ArtifactVerificationStatus
 {
     /// <summary>The metadata has no <c>sha256</c> value.</summary>
@@ -24,6 +25,7 @@ public enum ArtifactVerificationStatus
 }
 
 /// <summary>The outcome of checking one artifact, or one artifact chunk, against its <c>sha256</c> metadata.</summary>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP003", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public sealed class ArtifactVerification
 {
     /// <summary>Creates a result.</summary>
@@ -65,6 +67,7 @@ public sealed class ArtifactVerification
 /// </para>
 /// <para>This class is not thread safe.</para>
 /// </remarks>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP003", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public sealed class ArtifactVerifier : IDisposable
 {
     private const string Prefix = "sha256:";

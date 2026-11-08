@@ -15,7 +15,7 @@ public static class A2AGrpcExtensions
     internal const string DisplayNamePrefix = "A2A gRPC ";
 
     /// <summary>
-    /// Adds the gRPC services needed by <see cref="MapA2AGrpc"/>, and the ASP.NET Core A2A services
+    /// Adds the gRPC services needed by <see cref="MapA2AGrpc"/> and <see cref="MapA2AGrpcExtensions"/>, and the ASP.NET Core A2A services
     /// (<see cref="A2AServiceCollectionExtensions.AddA2AServerAspNetCore"/>: tenant resolver, startup check, rate limit policy).
     /// Call after <c>AddA2AServer</c>. The largest message the A2A service accepts is <see cref="A2ALimits.MaxRequestBodyBytes"/>
     /// (larger messages get <c>RESOURCE_EXHAUSTED</c> from the gRPC layer); <paramref name="configure"/> sets the other,
@@ -27,6 +27,8 @@ public static class A2AGrpcExtensions
         var grpc = configure is null ? services.AddGrpc() : services.AddGrpc(configure);
         // Per-service options run after the app-wide ones, so the A2A limit applies to this service whatever the app sets.
         services.AddOptions<GrpcServiceOptions<A2AGrpcService>>()
+            .Configure<IOptions<A2AServerOptions>>((o, a2a) => o.MaxReceiveMessageSize = (int)Math.Min(a2a.Value.Limits.MaxRequestBodyBytes, int.MaxValue));
+        services.AddOptions<GrpcServiceOptions<A2AGrpcExtensionService>>()
             .Configure<IOptions<A2AServerOptions>>((o, a2a) => o.MaxReceiveMessageSize = (int)Math.Min(a2a.Value.Limits.MaxRequestBodyBytes, int.MaxValue));
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IA2ARejectionWriter, GrpcRejectionWriter>());
         return grpc;
@@ -51,6 +53,29 @@ public static class A2AGrpcExtensions
         builder.WithA2AStartupCheck(endpoints, "gRPC");
         // A gRPC interface URL is the server address: the service path is part of the method name, not of the URL.
         endpoints.RegisterA2ABinding(ProtocolBindings.Grpc, "/");
+        return builder;
+    }
+
+    /// <summary>
+    /// Maps <c>a2a.extensions.v1.A2AExtensionService</c>, which serves the extension operations
+    /// (<see cref="A2AServerBuilder.AddExtensionOperation"/>) over gRPC with the same service definition as the official A2A .NET SDK.
+    /// Call it in addition to <see cref="MapA2AGrpc"/>, which it does not replace.
+    /// </summary>
+    /// <remarks>
+    /// A separate call, so <c>RequireAuthorization()</c> on the result applies to this service alone. As for <see cref="MapA2AGrpc"/>,
+    /// the app fails at startup unless the endpoints require authorization or <see cref="A2AServerOptions.AllowAnonymous"/> is set,
+    /// and the <c>"a2a"</c> rate limit policy applies. The unary <c>InvokeExtensionOperation</c> is served; the streaming RPC
+    /// answers UNIMPLEMENTED. The payload is UTF-8 JSON. See <see cref="A2AGrpcExtensionService"/>.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException"><c>services.AddA2AServerAspNetCore()</c> was not called.</exception>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP004", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public static GrpcServiceEndpointConventionBuilder MapA2AGrpcExtensions(this IEndpointRouteBuilder endpoints)
+    {
+        var builder = endpoints.MapGrpcService<A2AGrpcExtensionService>();
+        // As MapA2AGrpc: "A2A gRPC /a2a.extensions.v1.A2AExtensionService/InvokeExtensionOperation".
+        builder.Add(e => e.DisplayName = (e.DisplayName ?? "").Replace("gRPC - ", "", StringComparison.Ordinal));
+        builder.WithA2AStartupCheck(endpoints, "gRPC");
+        // The gRPC binding is registered once, by MapA2AGrpc.
         return builder;
     }
 }

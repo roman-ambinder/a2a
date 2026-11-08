@@ -2,6 +2,8 @@
 
 An agent can offer several skills. With skill selection, a client names the one it wants, and the agent can read the choice. It is an optional extension (A2A epic #1989), so plain v1.0 peers ignore it. Read this if your agent has more than one skill, or if you call such an agent.
 
+The skill-selection API is marked `[Experimental]` (`A2AEXP001`). To use it, add `<NoWarn>A2AEXP001</NoWarn>` to your project. See [Versioning](versioning.md#a2aexp001).
+
 ## How it works
 
 The client puts the skill id in `metadata["skillId"]` of the message. It also asks for the extension `SkillSelection.ExtensionUri` in the `A2A-Extensions` header. Nothing is added to the proto, so no field changes. A peer that does not know the extension ignores both.

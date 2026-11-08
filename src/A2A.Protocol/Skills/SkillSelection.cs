@@ -7,6 +7,7 @@ namespace A2A.Skills;
 /// Client-directed skill selection: a client names the skill it wants in <c>Message.metadata["skillId"]</c>
 /// (A2A epic #1989). The id is a hint from the caller, not an authorization decision.
 /// </summary>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP001", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public static class SkillSelection
 {
     /// <summary>Metadata key that holds the skill id.</summary>
@@ -47,6 +48,7 @@ public static class SkillSelection
 }
 
 /// <summary>Read and write the requested skill on messages.</summary>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP001", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public static class SkillSelectionMessageExtensions
 {
     /// <summary>

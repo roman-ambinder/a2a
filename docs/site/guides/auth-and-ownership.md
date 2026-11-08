@@ -103,6 +103,8 @@ A2A clients do not follow redirects. `AddA2AClient` turns off redirects and cook
 
 An agent often calls another agent for the caller. Two things help: the actor chain says who the agent acts for, and token exchange gives the next agent a narrow token. This follows [A2A#2028](https://github.com/a2aproject/A2A/issues/2028). The issue is open, so the shape may change. The types are in `A2A.Delegation`.
 
+The actor chain API (`ActorChain`, `GetActorChain`, `SetActorChain`, `MaxActorChainHops`) is marked `[Experimental]` (`A2AEXP002`). To use it, add `<NoWarn>A2AEXP002</NoWarn>` to your project. See [Versioning](versioning.md#a2aexp002). The token exchanger is not experimental.
+
 ### The actor chain
 
 `metadata["actorChain"]` on a message says who the agent acts for. It has the party the work is for (`origin`) and the agents that passed it on (`actors`, first hop first):

@@ -1,1 +1,4 @@
 #nullable enable
+A2A.Server.AspNetCore.Operations.A2AOperationTable.TryGetExtension(string! method, out A2A.Server.Pipeline.A2AExtensionOperation? operation) -> bool
+A2A.Server.AspNetCore.Operations.ExtensionPolicy
+static A2A.Server.AspNetCore.Operations.ExtensionPolicy.RequireAsync(Microsoft.AspNetCore.Http.HttpContext! http, A2A.Server.Pipeline.A2AExtensionOperation! operation, A2A.Server.ServerCallContext! call, bool allowAnonymous) -> System.Threading.Tasks.Task!
