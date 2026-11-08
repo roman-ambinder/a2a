@@ -198,7 +198,7 @@ public sealed class A2AClient : IA2AClient
     /// </remarks>
     public IAsyncEnumerable<StreamResponse> ObserveTaskAsync(string taskId, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrEmpty(taskId);
+        A2AValidator.RequireId(taskId, "id");
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
         var tenant = _options.Tenant;
         return ClientTelemetry.TraceStream(A2AProtocol.Methods.SubscribeToTask, _binding, tenant, taskId, Inspect(ResumableStream.RunAsync(
@@ -228,6 +228,7 @@ public sealed class A2AClient : IA2AClient
     /// <inheritdoc />
     public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
+        A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.GetTask, _binding, request.Tenant, request.Id, () =>
         {
@@ -247,6 +248,7 @@ public sealed class A2AClient : IA2AClient
     /// <inheritdoc />
     public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
+        A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.CancelTask, _binding, request.Tenant, request.Id, () =>
         {
@@ -258,6 +260,7 @@ public sealed class A2AClient : IA2AClient
     /// <inheritdoc />
     public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
+        A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
         return ClientTelemetry.TraceStream(A2AProtocol.Methods.SubscribeToTask, _binding, request.Tenant, request.Id,
@@ -267,6 +270,7 @@ public sealed class A2AClient : IA2AClient
     /// <inheritdoc />
     public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
+        A2AValidator.ValidateOutgoing(config);
         config.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.PushNotifications, A2AErrorCode.PushNotificationNotSupported);
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.CreateTaskPushNotificationConfig, _binding, config.Tenant, config.TaskId,
@@ -276,6 +280,7 @@ public sealed class A2AClient : IA2AClient
     /// <inheritdoc />
     public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
+        A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.GetTaskPushNotificationConfig, _binding, request.Tenant, request.TaskId,
             () => _transport.GetTaskPushNotificationConfigAsync(request, options, cancellationToken), cancellationToken);
@@ -284,6 +289,7 @@ public sealed class A2AClient : IA2AClient
     /// <inheritdoc />
     public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
+        A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.ListTaskPushNotificationConfigs, _binding, request.Tenant, request.TaskId,
             () => _transport.ListTaskPushNotificationConfigsAsync(request, options, cancellationToken), cancellationToken);
@@ -292,6 +298,7 @@ public sealed class A2AClient : IA2AClient
     /// <inheritdoc />
     public Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
+        A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.DeleteTaskPushNotificationConfig, _binding, request.Tenant, request.TaskId,
             () => _transport.DeleteTaskPushNotificationConfigAsync(request, options, cancellationToken), cancellationToken);
