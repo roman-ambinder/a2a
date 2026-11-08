@@ -500,6 +500,18 @@ namespace System
                 value = default;
                 return false;
             }
+
+            public bool TryAdd(TKey key, TValue value)
+            {
+                if (dictionary.ContainsKey(key)) return false;
+                dictionary.Add(key, value);
+                return true;
+            }
+        }
+
+        extension(double)
+        {
+            public static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
         extension(Enum)
@@ -507,6 +519,10 @@ namespace System
             public static TEnum[] GetValues<TEnum>()
                 where TEnum : struct, Enum
                 => (TEnum[])Enum.GetValues(typeof(TEnum));
+
+            public static bool IsDefined<TEnum>(TEnum value)
+                where TEnum : struct, Enum
+                => Enum.IsDefined(typeof(TEnum), value);
         }
 
         extension(string)

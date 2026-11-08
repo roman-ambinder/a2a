@@ -125,7 +125,8 @@ public sealed class ElicitationAnswer
     {
         ArgumentNullException.ThrowIfNull(form);
         ArgumentNullException.ThrowIfNull(values);
-        var content = new Dictionary<string, JsonElement>(values, StringComparer.Ordinal);
+        var content = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var (name, value) in values) content[name] = value;
         form.Validate(content);
         if (!allowSensitive)
         {

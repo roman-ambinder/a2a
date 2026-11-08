@@ -118,7 +118,7 @@ public sealed class ElicitationForm
     private static bool HasFormat(string text, ElicitationFormat format) => format switch
     {
         ElicitationFormat.Email => IsEmail(text),
-        ElicitationFormat.Date => DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
+        ElicitationFormat.Date => DateTime.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
         _ => DateTimeOffset.TryParseExact(text, ["yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz"],
             CultureInfo.InvariantCulture, DateTimeStyles.None, out _),
     };
