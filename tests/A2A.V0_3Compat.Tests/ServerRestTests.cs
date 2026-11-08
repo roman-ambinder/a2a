@@ -10,11 +10,12 @@ public class ServerRestTests
 {
     private static readonly JsonParser Strict = new(JsonParser.Settings.Default);
 
-    private static async Task<(HttpResponseMessage Response, string Text)> SendAsync(HttpClient http, HttpMethod method, string path, string? body = null, string? version = null)
+    private static async Task<(HttpResponseMessage Response, string Text)> SendAsync(HttpClient http, HttpMethod method, string path, string? body = null, string? version = null, string? traceParent = null)
     {
         using var request = new HttpRequestMessage(method, path);
         if (body is not null) request.Content = V03Host.Json(body);
         if (version is not null) request.Headers.Add("A2A-Version", version);
+        if (traceParent is not null) request.Headers.Add("traceparent", traceParent);
         var response = await http.SendAsync(request);
         return (response, await response.Content.ReadAsStringAsync());
     }
@@ -38,12 +39,14 @@ public class ServerRestTests
         System.Diagnostics.ActivitySource.AddActivityListener(listener);
         await using var host = await V03Host.StartAsync();
 
-        var (response, _) = await SendAsync(host.Http(), HttpMethod.Post, "/a2a/v1/message:send", V03Host.RestSendBody("hello"));
+        var traceId = System.Diagnostics.ActivityTraceId.CreateRandom();
+        var spanId = System.Diagnostics.ActivitySpanId.CreateRandom();
+        var (response, _) = await SendAsync(host.Http(), HttpMethod.Post, "/a2a/v1/message:send", V03Host.RestSendBody("hello"), traceParent: $"00-{traceId}-{spanId}-01");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var until = DateTime.UtcNow + TimeSpan.FromSeconds(30);
-        while (!stopped.Any(a => a.OperationName == "SendMessage") && DateTime.UtcNow < until) await Task.Delay(10);
-        var span = Assert.Single(stopped, a => a.OperationName == "SendMessage");
+        while (!stopped.Any(a => a.OperationName == "SendMessage" && a.TraceId == traceId) && DateTime.UtcNow < until) await Task.Delay(10);
+        var span = Assert.Single(stopped, a => a.OperationName == "SendMessage" && a.TraceId == traceId);
         Assert.Equal("0.3", span.GetTagItem("a2a.protocol.version"));
     }
 
