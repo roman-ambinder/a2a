@@ -283,6 +283,47 @@ public class GrpcBindingTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Repeated_extension_metadata_entries_are_read_like_a_comma_list()
+    {
+        var headers = new Metadata { { "a2a-version", "1.0" }, { "a2a-extensions", GrpcHost.Extension }, { "a2a-extensions", "urn:other" } };
+        var msg = new Pb.SendMessageRequest { Message = new Pb.Message { MessageId = "m", Role = Pb.Role.User, Parts = { new Pb.Part { Text = "hello" } } } };
+        using var call = _host.Raw().SendMessageAsync(msg, headers);
+        await call.ResponseAsync;
+        Assert.Equal(GrpcHost.Extension, (await call.ResponseHeadersAsync).GetValue("a2a-extensions"));
+    }
+
+    [Fact]
+    public async Task Streaming_call_echoes_extensions_in_initial_metadata()
+    {
+        var headers = new Metadata { { "a2a-version", "1.0" }, { "a2a-extensions", $"{GrpcHost.Extension},urn:other" } };
+        var msg = new Pb.SendMessageRequest { Message = new Pb.Message { MessageId = "m", Role = Pb.Role.User, Parts = { new Pb.Part { Text = "hello" } } } };
+        using var call = _host.Raw().SendStreamingMessage(msg, headers);
+        Assert.Equal(GrpcHost.Extension, (await call.ResponseHeadersAsync).GetValue("a2a-extensions"));
+        Assert.True(await call.ResponseStream.MoveNext(default));
+        while (await call.ResponseStream.MoveNext(default)) { }
+        Assert.Null(call.GetTrailers().GetValue("a2a-extensions"));
+    }
+
+    [Fact]
+    public async Task Failed_call_echoes_extensions_in_trailers()
+    {
+        var headers = new Metadata { { "a2a-version", "1.0" }, { "a2a-extensions", $"{GrpcHost.Extension},urn:other" } };
+        using var call = _host.Raw().GetTaskAsync(new Pb.GetTaskRequest { Id = "does-not-exist" }, headers);
+        var ex = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+        Assert.Equal(StatusCode.NotFound, ex.StatusCode);
+        Assert.Equal(GrpcHost.Extension, call.GetTrailers().GetValue("a2a-extensions"));
+        Assert.Equal(GrpcHost.Extension, ex.Trailers.GetValue("a2a-extensions"));
+    }
+
+    [Fact]
+    public async Task Failed_call_without_extensions_has_no_echo()
+    {
+        using var call = _host.Raw().GetTaskAsync(new Pb.GetTaskRequest { Id = "does-not-exist" }, new Metadata { { "a2a-version", "1.0" } });
+        await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
+        Assert.Null(call.GetTrailers().GetValue("a2a-extensions"));
+    }
+
+    [Fact]
     public async Task Invalid_request_maps_to_invalid_argument()
     {
         var bad = new Pb.SendMessageRequest { Message = new Pb.Message { MessageId = "m", Role = Pb.Role.User } };

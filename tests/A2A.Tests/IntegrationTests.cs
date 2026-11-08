@@ -343,6 +343,44 @@ public class BindingTests : IAsyncLifetime
         Assert.Equal(TestAgentHost.OptionalExtension, resp.Headers.GetValues(A2AProtocol.Headers.Extensions).Single());
     }
 
+    private static HttpRequestMessage SendRequest(string binding, bool stream)
+    {
+        const string rest = "{\"message\":{\"messageId\":\"m\",\"role\":\"ROLE_USER\",\"parts\":[{\"text\":\"hello\"}]}}";
+        var method = stream ? "SendStreamingMessage" : "SendMessage";
+        var req = binding == ProtocolBindings.JsonRpc
+            ? new HttpRequestMessage(HttpMethod.Post, "/a2a") { Content = new StringContent($"{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"{method}\",\"params\":{rest}}}", Encoding.UTF8, "application/json") }
+            : new HttpRequestMessage(HttpMethod.Post, stream ? "/a2a/message:stream" : "/a2a/message:send") { Content = new StringContent(rest, Encoding.UTF8, "application/a2a+json") };
+        req.Headers.Add(A2AProtocol.Headers.Version, "1.0");
+        return req;
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Repeated_extension_header_lines_are_read_like_a_comma_list(string binding)
+    {
+        var http = _host.Http("alice");
+        using var req = SendRequest(binding, stream: false);
+        // Two header lines (two values), one of them unknown.
+        req.Headers.Add(A2AProtocol.Headers.Extensions, TestAgentHost.OptionalExtension);
+        req.Headers.Add(A2AProtocol.Headers.Extensions, "urn:unknown");
+        var resp = await http.SendAsync(req);
+        resp.EnsureSuccessStatusCode();
+        Assert.Equal(TestAgentHost.OptionalExtension, resp.Headers.GetValues(A2AProtocol.Headers.Extensions).Single());
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Streaming_response_carries_the_extensions_header(string binding)
+    {
+        var http = _host.Http("alice");
+        using var req = SendRequest(binding, stream: true);
+        req.Headers.Add(A2AProtocol.Headers.Extensions, $"{TestAgentHost.OptionalExtension}, urn:unknown");
+        using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+        resp.EnsureSuccessStatusCode();
+        Assert.Equal("text/event-stream", resp.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(TestAgentHost.OptionalExtension, resp.Headers.GetValues(A2AProtocol.Headers.Extensions).Single());
+    }
+
     [Fact]
     public async Task Rest_subscribe_accepts_get_as_in_proto()
     {

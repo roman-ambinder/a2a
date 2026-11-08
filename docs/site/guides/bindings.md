@@ -78,7 +78,7 @@ To require gRPC, use <xref:A2A.Client.Grpc.A2AGrpcClientFactory>. It throws `Uns
 |---|---|---|
 | Errors | JSON-RPC error object (HTTP 200 for most errors), or a `google.rpc.Status` body over HTTP+JSON | `google.rpc.Status` with an `ErrorInfo` detail. `retryable` and `retryAfter` are in its metadata. `RetryInfo` is added on rate limits. |
 | Request headers | `A2A-Version`, `A2A-Extensions`, `Idempotency-Key` | `a2a-version`, `a2a-extensions`, `idempotency-key` metadata |
-| Extensions echo | `A2A-Extensions` response header, also on errors | Response header on success only. Not on errors. |
+| Extensions echo | `A2A-Extensions` response header, also on errors | `a2a-extensions` initial metadata on success; in the trailers when the call fails |
 | Tenant | Route segment, or the `tenant` field of the request | The `tenant` field of the request |
 | Stream resume | `Last-Event-ID` | Not supported. See [Streaming and resume](streaming.md). |
 | `ConfigureRequest` | Supported | Throws `NotSupportedException` |
