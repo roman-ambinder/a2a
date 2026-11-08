@@ -1,7 +1,6 @@
 # Changelog
 
-All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/).
-Before 1.0.0, a minor version may include breaking changes.
+All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/); see the [versioning guide](docs/site/guides/versioning.md) for what is covered and what is experimental.
 
 ## 0.1.0
 
