@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>A2A.Server.V0_3Compat</RootNamespace>
+    <!-- CA1707: the assembly name A2A.Server.V0_3Compat is fixed by the package plan. -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+    <Description>Serve A2A protocol v0.3 clients from an A2A v1.0 agent on ASP.NET Core: v0.3 JSON-RPC and HTTP+JSON endpoints and a blended Agent Card.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\A2A.V0_3Compat\A2A.V0_3Compat.csproj" />
+    <ProjectReference Include="..\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="A2A.V0_3Compat.Tests" />
+  </ItemGroup>
+</Project>

@@ -21,6 +21,7 @@
     <Project Path="src/A2A.Server.Grpc/A2A.Server.Grpc.csproj" />
     <Project Path="src/A2A.Server.Postgres/A2A.Server.Postgres.csproj" />
     <Project Path="src/A2A.Server.Redis/A2A.Server.Redis.csproj" />
+    <Project Path="src/A2A.Server.V0_3Compat/A2A.Server.V0_3Compat.csproj" />
     <Project Path="src/A2A.V0_3Compat/A2A.V0_3Compat.csproj" />
     <Project Path="src/A2A.Server/A2A.Server.csproj" />
   </Folder>
@@ -29,5 +30,6 @@
     <Project Path="tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj" />
     <Project Path="tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj" />
     <Project Path="tests/A2A.Tests/A2A.Tests.csproj" />
+    <Project Path="tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj" />
   </Folder>
 </Solution>
