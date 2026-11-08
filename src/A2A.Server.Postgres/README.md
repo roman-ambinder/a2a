@@ -15,6 +15,14 @@ builder.Services.AddA2ADataProtectionPushSecrets();  // from A2A.Server.AspNetCo
 
 `AddA2APostgresStores(connectionString | NpgsqlDataSource, configure)` does the same on an `IServiceCollection`, before or after `AddA2AServer`.
 
+## Execution coordinator
+
+`AddPostgresStores` also registers `PostgresExecutionCoordinator` (set `RegisterCoordinator = false` to keep the in-memory one; `AddPostgresExecutionCoordinator(...)` registers it alone). Its leases live in the database, so they survive a crash of the instance and then expire: the retention sweep (`AddA2ARetention`) finds them and fails the tasks that were running. With the in-memory coordinator the leases die with the process and those tasks stay `WORKING`. With several instances it also gives you the cluster-wide running check, cancel requests and sweep lease, without Redis.
+
+- Cancel requests are delivered by polling `a2a_cancel_requests` every `CancelPollInterval` (1 s), so it works through PgBouncer. Delivery is at most once.
+- A coordinator you register yourself (for example Redis's) is never replaced by this default, in any registration order.
+- Lease expiry uses the database clock.
+
 ## Schema
 
 At startup a hosted service creates the tables if they are missing (`CREATE ... IF NOT EXISTS`, under an advisory lock, so many instances can start at once).
@@ -30,10 +38,15 @@ To manage the schema yourself, set `CreateSchemaOnStartup = false` and apply `Po
 | `a2a_push_outbox` | `(tenant, owner, task_id, config_id, seq)` | Push deliveries waiting to be sent: delivery id, payload (the event JSON), attempt, due time, lease, last error. Index on `due_ticks`. |
 | `a2a_push_dead_letters` | `(tenant, owner, task_id, config_id, seq)` | Push deliveries that failed for good, with their payload, until re-driven. Index `(tenant, dead_ticks)`. |
 | `a2a_idempotency` | `(tenant, principal, key)` | Request hash, running claim, outcome and expiry. |
+| `a2a_execution_leases` | `(tenant, owner, task_id, execution_id)` | One lease per running execution (`expiry_ticks`), for `PostgresExecutionCoordinator`. Index on `expiry_ticks`. |
+| `a2a_sweep_leases` | `name` | Named cluster-wide leases of periodic jobs (the retention sweep). |
+| `a2a_cancel_requests` | `id` | Cancel requests between instances, with the sender's origin id. Old rows are deleted by the next request. |
 
 Times are UTC ticks (`bigint`), JSON is `text`, and keys use the `"C"` collation, so values round-trip exactly and sort like the in-memory stores.
 
 ## Upgrading
+
+- New tables `a2a_execution_leases`, `a2a_sweep_leases` and `a2a_cancel_requests`, created at startup like the others (apply `PostgresSchema.ScriptFor("<schema>")` yourself if `CreateSchemaOnStartup = false`). `AddPostgresStores` now registers the Postgres execution coordinator by default; set `RegisterCoordinator = false` to keep the in-memory one.
 
 - New tables `a2a_push_outbox` and `a2a_push_dead_letters` (plus indexes). They are created at startup; apply `PostgresSchema.ScriptFor("<schema>")` yourself if `CreateSchemaOnStartup = false`.
 - `IdempotencyClaimTimeout` default: 1 hour -> 2 minutes (see Behavior).

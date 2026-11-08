@@ -54,7 +54,7 @@ Each step reads `BatchSize` items at a time. An item a step skips stays listed, 
 
 ## One sweep per cluster
 
-Before each sweep the service takes a named lease, `a2a:retention`, from the <xref:A2A.Server.Coordination.ExecutionCoordinator> for one `SweepInterval`. An instance that does not get it skips that sweep. With the Redis coordinator the lease is shared by all instances. The in-memory coordinator is process-local, so with it every instance sweeps. Overlapping sweeps do no harm.
+Before each sweep the service takes a named lease, `a2a:retention`, from the <xref:A2A.Server.Coordination.ExecutionCoordinator> for one `SweepInterval`. An instance that does not get it skips that sweep. With the Postgres or Redis coordinator the lease is shared by all instances. The in-memory coordinator is process-local, so with it every instance sweeps, and a crashed instance leaves no lease behind for the sweep to recover. Overlapping sweeps do no harm.
 
 ## Delete one task: A2ATaskAdmin
 
