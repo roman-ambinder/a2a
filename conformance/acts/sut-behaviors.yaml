@@ -1,0 +1,53 @@
+# ACTS tck-* behaviors the conformance agent implements (a2a-itk ACTS spec section 11).
+# Code: conformance/dotnet/ConformanceAgent/Behaviors.cs. Passed to run_acts.py with --behaviors.
+# A prefix listed here but not implemented makes its tests FAIL, not skip.
+acts_version: "1.0"
+
+behaviors:
+  - prefix: "tck-complete-task"
+    response_type: task
+    terminal_state: TASK_STATE_COMPLETED
+  - prefix: "tck-message-response"
+    response_type: message
+  - prefix: "tck-long-running"
+    response_type: task
+    terminal_state: TASK_STATE_COMPLETED
+    delay_ms: 1000
+  - prefix: "tck-multi-turn"
+    response_type: task
+    terminal_state: TASK_STATE_COMPLETED
+  - prefix: "tck-cancel"
+    response_type: task
+    terminal_state: TASK_STATE_CANCELED
+  - prefix: "tck-task-failure"
+    response_type: task
+    terminal_state: TASK_STATE_FAILED
+  - prefix: "tck-reject-task"
+    response_type: task
+    terminal_state: TASK_STATE_REJECTED
+  - prefix: "tck-input-required"
+    response_type: task
+    terminal_state: TASK_STATE_INPUT_REQUIRED
+  - prefix: "tck-auth-required"
+    response_type: task
+    terminal_state: TASK_STATE_AUTH_REQUIRED
+  - prefix: "tck-stream-basic"
+    response_type: task
+    terminal_state: TASK_STATE_COMPLETED
+    streaming: true
+  - prefix: "tck-stream-chunked"
+    response_type: task
+    terminal_state: TASK_STATE_COMPLETED
+    streaming: true
+  - prefix: "tck-artifact-text"
+    response_type: task
+    terminal_state: TASK_STATE_COMPLETED
+  - prefix: "tck-artifact-data"
+    response_type: task
+    terminal_state: TASK_STATE_COMPLETED
+  - prefix: "tck-artifact-file"
+    response_type: task
+    terminal_state: TASK_STATE_COMPLETED
+  - prefix: "tck-artifact-file-url"
+    response_type: task
+    terminal_state: TASK_STATE_COMPLETED

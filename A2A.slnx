@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/conformance/" />
+  <Folder Name="/conformance/dotnet/">
+    <Project Path="conformance/dotnet/ConformanceAgent/ConformanceAgent.csproj" />
+  </Folder>
   <Folder Name="/docs/">
     <Project Path="docs/site/snippets/A2A.DocSnippets.csproj" />
   </Folder>

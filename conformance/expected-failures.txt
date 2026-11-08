@@ -1,0 +1,8 @@
+# Conformance failures that do not fail CI. One per line:
+#   <suite> <binding|*> <test-id>  # reason (with an issue link for suite bugs)
+# suite: tck | acts      binding: jsonrpc | rest | grpc | *  (TCK's http_json is written as rest)
+# conformance/check.py fails CI on any failure not listed here, and tells you when a listed one starts passing.
+tck rest HTTP_JSON-ERR-001  # a2a-tck test_error_handling.py requires application/json on errors, but spec 11.6 shows application/a2a+json and the TCK's own HTTP+JSON content-type check expects application/a2a+json
+tck * CORE-SEND-003  # a2a-tck bug: the requirement says the call must fail, but its registry entry has no expected_error, so the generic runner demands success. The SDK returns ContentTypeNotSupported; HTTP_JSON-STATUS-001 and ACTS CORE-SEND-004 check that and pass
+tck * CORE-MULTI-002  # SDK choice (MAY in spec 3.4.1): an unknown client contextId is rejected by default. ClientContextIdPolicy.AdoptIfUnknown accepts it
+tck * CORE-MULTI-002a  # a2a-tck bug: the requirement says an agent that cannot accept the contextId must reject it, which the SDK does, but the generic runner demands success

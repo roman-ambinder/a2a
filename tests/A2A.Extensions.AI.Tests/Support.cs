@@ -67,7 +67,7 @@ public sealed class AgentHost : IAsyncDisposable
             new AgentInterface { Url = BaseUrl, ProtocolBinding = ProtocolBindings.HttpJson },
         ],
         Capabilities = new AgentCapabilities { Streaming = true },
-        DefaultInputModes = ["text/plain"],
+        DefaultInputModes = ["text/plain", "application/json", "image/*"],
         DefaultOutputModes = ["text/plain"],
         Skills = [new AgentSkill { Id = "chat", Name = "Chat", Description = "Chats", Tags = ["test"] }],
     };
