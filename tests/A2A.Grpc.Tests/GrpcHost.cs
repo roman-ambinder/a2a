@@ -34,6 +34,20 @@ internal sealed class ScenarioAgent : IAgentExecutor
                 await updater.AddArtifactAsync([Part.FromText("part2")], artifactId: "a1", append: true, lastChunk: true, cancellationToken: ct);
                 await updater.CompleteAsync("done", ct);
                 break;
+            case "chunks": // hashed chunks, then a seal-only event with empty parts
+                await updater.StartWorkAsync(cancellationToken: ct);
+                await updater.AddHashedArtifactAsync([Part.FromText("hello ")], "chunked", name: "chunked", cancellationToken: ct);
+                await updater.AddHashedArtifactAsync([Part.FromText("w\u00f6rld")], "chunked", append: true, cancellationToken: ct);
+                await updater.AddHashedArtifactAsync([], "chunked", append: true, lastChunk: true, cancellationToken: ct);
+                await updater.CompleteAsync("done", ct);
+                break;
+            case "tampered": // a chunk whose hash is the hash of "hello", not of its content
+                await updater.StartWorkAsync(cancellationToken: ct);
+                await updater.AddArtifactAsync([Part.FromText("hellO")], "bad", lastChunk: true,
+                    metadata: new() { ["sha256"] = System.Text.Json.JsonSerializer.SerializeToElement("sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824") },
+                    cancellationToken: ct);
+                await updater.CompleteAsync("done", ct);
+                break;
             case "input": await updater.RequireInputAsync("need more", ct); break;
             case "slow":
                 await updater.StartWorkAsync(cancellationToken: ct);

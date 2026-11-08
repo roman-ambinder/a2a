@@ -178,7 +178,11 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     internal Task<Execution> StartAsync(AgentRequestContext context, TaskPushNotificationConfig? push, IdempotencyClaim claim, RentedAgent agent,
         bool pushEnabled) =>
         StartRawAsync(new TaskKey(context.Call.Tenant, context.Call.Principal, context.TaskId), context.ContextId, context.IsNewTask, context.Message,
-            push, emitInitialSnapshot: !context.IsNewTask, (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct), agent, pushEnabled,
+            push, emitInitialSnapshot: !context.IsNewTask, (executor, updater, ct) =>
+            {
+                updater.SeedArtifacts(context.Task?.Artifacts); // the artifacts earlier runs left
+                return executor.ExecuteAsync(context, updater, ct);
+            }, agent, pushEnabled,
             claim, context.Metadata, _options.MaxTaskDuration, ExecuteKind);
 
     /// <summary>Runs <see cref="IAgentExecutor.CancelAsync"/> for a task. The executor gets its own copy of <paramref name="task"/>.</summary>
@@ -186,7 +190,11 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     {
         var snapshot = task.DeepCopy(); // the executor's own view: changing it never changes the stored task
         return StartRawAsync(key, snapshot.ContextId, isNewTask: false, userMessage: null, push: null, emitInitialSnapshot: false,
-            (executor, updater, ct) => executor.CancelAsync(snapshot, updater, ct), agent, pushEnabled, requestMetadata: metadata, kind: CancelKind);
+            (executor, updater, ct) =>
+            {
+                updater.SeedArtifacts(snapshot.Artifacts);
+                return executor.CancelAsync(snapshot, updater, ct);
+            }, agent, pushEnabled, requestMetadata: metadata, kind: CancelKind);
     }
 
     private const string ExecuteKind = "execute";
@@ -379,6 +387,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
             finally
             {
+                updater.ReleaseHashState();
                 if (timer is not null) await timer.DisposeAsync().ConfigureAwait(false);
                 exec.Incoming.Writer.TryComplete();
             }
@@ -697,6 +706,13 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 ServerLog.EventDropped(_logger, key.TaskId, record.Task.Status.State);
                 return null;
             }
+            // Two executions of one task can race: only here, on the fresh record, is the order final.
+            if (evt is ArtifactUpdateEvent { ArtifactUpdate: { Append: true } sealedAppend } && !record.Task.Status.State.IsTerminal()
+                && ArtifactSeal.IsSealed(record.Task.Artifacts, sealedAppend.Artifact.ArtifactId))
+            {
+                ServerLog.ArtifactAppendAfterSeal(_logger, key.TaskId, sealedAppend.Artifact.ArtifactId);
+                return null;
+            }
             if (ApplyToCopy(record.Task, evt) is not { } next)
             {
                 ServerLog.EventDropped(_logger, key.TaskId, record.Task.Status.State);
@@ -791,26 +807,32 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         }
         if (evt is ArtifactUpdateEvent { ArtifactUpdate: var au })
         {
-            A2AValidator.ValidateArtifact(au.Artifact, "artifact");
             var incoming = au.Artifact;
+            var existing = current.Artifacts?.FindIndex(a => a.ArtifactId == incoming.ArtifactId) ?? -1;
+            // An empty part list is valid only to seal an artifact or update its metadata: an append to one that exists.
+            A2AValidator.ValidateArtifact(incoming, "artifact", allowEmptyParts: au.Append && existing >= 0);
             var next = current.CopyForUpdate();
             var artifacts = next.Artifacts ??= [];
-            var idx = artifacts.FindIndex(a => a.ArtifactId == incoming.ArtifactId);
-            if (idx < 0) artifacts.Add(incoming);
+            if (existing < 0) artifacts.Add(ArtifactSeal.Stamp(incoming, au.LastChunk));
             else if (au.Append)
             {
                 // A new artifact replaces the stored one in the copy; the stored one is never changed.
-                var merged = artifacts[idx].CopyWithParts(incoming.Parts);
+                var merged = artifacts[existing].CopyWithParts(incoming.Parts);
                 merged.Name ??= incoming.Name;
                 merged.Description ??= incoming.Description;
                 if (incoming.Metadata is not null)
                 {
                     merged.Metadata ??= new();
-                    foreach (var kv in incoming.Metadata) merged.Metadata[kv.Key] = kv.Value;
+                    foreach (var kv in incoming.Metadata)
+                    {
+                        if (kv.Key == A2AProtocol.ArtifactSealedKey) continue; // only the server sets it
+                        merged.Metadata[kv.Key] = kv.Value;
+                    }
                 }
-                artifacts[idx] = merged;
+                ArtifactSeal.Set(merged, au.LastChunk);
+                artifacts[existing] = merged;
             }
-            else artifacts[idx] = incoming;
+            else artifacts[existing] = ArtifactSeal.Stamp(incoming, au.LastChunk); // replaces, also a sealed artifact
             return next;
         }
         return null;

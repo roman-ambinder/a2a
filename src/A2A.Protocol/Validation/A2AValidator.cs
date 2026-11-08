@@ -36,11 +36,17 @@ public static partial class A2AValidator
     }
 
     /// <summary>Checks an artifact an agent produced. Throws InvalidAgentResponse when the id or the parts are missing.</summary>
-    public static void ValidateArtifact(Artifact artifact, string path)
+    public static void ValidateArtifact(Artifact artifact, string path) => ValidateArtifact(artifact, path, allowEmptyParts: false);
+
+    /// <summary>
+    /// Checks an artifact an agent produced. Throws InvalidAgentResponse when the id is missing, the parts are missing, or a part is null.
+    /// With <paramref name="allowEmptyParts"/>, an empty part list is valid (a chunk that only seals an artifact or updates its metadata).
+    /// </summary>
+    public static void ValidateArtifact(Artifact artifact, string path, bool allowEmptyParts)
     {
         if (string.IsNullOrWhiteSpace(artifact.ArtifactId))
             throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"{path}.artifactId is required");
-        if (artifact.Parts is null || artifact.Parts.Count == 0)
+        if (artifact.Parts is null || (artifact.Parts.Count == 0 && !allowEmptyParts))
             throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"{path}.parts must contain at least one part");
         foreach (var p in artifact.Parts)
         {

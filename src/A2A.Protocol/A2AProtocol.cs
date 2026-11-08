@@ -31,6 +31,12 @@ public static class A2AProtocol
     /// </summary>
     public const string ApprovalConsumedKey = "a2a.approval.consumed";
 
+    /// <summary>
+    /// Artifact metadata key, written only by the server: <c>true</c> on a stored artifact whose last chunk was sent. Further
+    /// chunks cannot be appended to a sealed artifact. Clients can use it to tell a finished artifact from a partial one in a snapshot.
+    /// </summary>
+    public const string ArtifactSealedKey = "a2a.artifact.sealed";
+
     /// <summary>Metadata key on a CancelTask response: the cancel was requested but the execution has not stopped yet. Never stored.</summary>
     public const string CancelRequestedKey = "a2a.cancelRequested";
 
