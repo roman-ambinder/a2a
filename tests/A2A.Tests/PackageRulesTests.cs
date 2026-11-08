@@ -75,7 +75,8 @@ public sealed class PackageRulesTests
         var srcNames = SrcProjects().Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
         var offenders = SrcProjects().SelectMany(p => p.Doc.Descendants("InternalsVisibleTo")
                 .Select(e => (Owner: p.Name, Friend: (string?)e.Attribute("Include") ?? "")))
-            .Where(x => srcNames.Contains(x.Friend));
+            // The v0.3 compat family (A2A.V0_3Compat, A2A.Server.V0_3Compat, A2A.Client.V0_3Compat) is built on core internals on purpose.
+            .Where(x => srcNames.Contains(x.Friend) && !x.Friend.Contains("V0_3Compat", StringComparison.Ordinal));
         Assert.Empty(offenders);
     }
 

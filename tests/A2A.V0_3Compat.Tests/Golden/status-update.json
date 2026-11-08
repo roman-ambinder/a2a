@@ -1,0 +1,8 @@
+{
+  "kind": "status-update",
+  "taskId": "task-1",
+  "contextId": "ctx-1",
+  "status": { "state": "completed", "timestamp": "2025-10-27T10:00:05.000Z" },
+  "final": true,
+  "metadata": { "n": 1 }
+}

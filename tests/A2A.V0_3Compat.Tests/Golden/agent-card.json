@@ -1,0 +1,60 @@
+{
+  "protocolVersion": "0.3.0",
+  "name": "Golden Agent",
+  "description": "Agent for golden tests",
+  "url": "https://agent.example/a2a",
+  "preferredTransport": "JSONRPC",
+  "additionalInterfaces": [
+    { "url": "https://agent.example/a2a", "transport": "JSONRPC" },
+    { "url": "https://agent.example/a2a", "transport": "HTTP+JSON" }
+  ],
+  "provider": { "organization": "Example", "url": "https://example.com" },
+  "version": "1.2.3",
+  "documentationUrl": "https://docs.example.com",
+  "iconUrl": "https://example.com/icon.png",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": false,
+    "extensions": [ { "uri": "urn:ext", "description": "An extension", "required": true, "params": { "a": 1 } } ]
+  },
+  "securitySchemes": {
+    "key": { "type": "apiKey", "in": "header", "name": "X-Key", "description": "API key" },
+    "bearer": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
+    "oauth": {
+      "type": "oauth2",
+      "description": "OAuth",
+      "oauth2MetadataUrl": "https://auth.example/.well-known/oauth-authorization-server",
+      "flows": {
+        "authorizationCode": {
+          "authorizationUrl": "https://auth.example/authorize",
+          "tokenUrl": "https://auth.example/token",
+          "refreshUrl": "https://auth.example/refresh",
+          "scopes": { "read": "Read" }
+        },
+        "clientCredentials": { "tokenUrl": "https://auth.example/token", "scopes": { "admin": "Admin" } },
+        "implicit": { "authorizationUrl": "https://auth.example/authorize", "scopes": { "imp": "Implicit" } },
+        "password": { "tokenUrl": "https://auth.example/token", "scopes": { "pw": "Password" } }
+      }
+    },
+    "oidc": { "type": "openIdConnect", "openIdConnectUrl": "https://auth.example/.well-known/openid-configuration" },
+    "mtls": { "type": "mutualTLS", "description": "Client certificate" }
+  },
+  "security": [ { "bearer": [] }, { "oauth": [ "read" ], "key": [] } ],
+  "defaultInputModes": [ "text/plain" ],
+  "defaultOutputModes": [ "text/plain", "application/json" ],
+  "skills": [
+    {
+      "id": "s1",
+      "name": "Skill",
+      "description": "Does it",
+      "tags": [ "a", "b" ],
+      "examples": [ "do it" ],
+      "inputModes": [ "text/plain" ],
+      "outputModes": [ "application/json" ],
+      "security": [ { "oauth": [ "read" ] } ]
+    }
+  ],
+  "supportsAuthenticatedExtendedCard": true,
+  "signatures": [ { "protected": "eyJhbGciOiJFUzI1NiJ9", "signature": "c2ln", "header": { "kid": "k" } } ]
+}

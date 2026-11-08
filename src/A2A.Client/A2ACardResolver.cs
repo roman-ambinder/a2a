@@ -53,6 +53,15 @@ public sealed class A2ACardResolverOptions
 
     /// <summary>Test seam: client for <c>jku</c> fetches instead of the SSRF-guarded default.</summary>
     internal HttpClient? JwksHttpClient { get; set; }
+
+    /// <summary>
+    /// Seam for the v0.3 compat package. Runs on the parsed card before the model is read and before the signature is
+    /// checked, and returns the card to use (it may change the object or return a new one). Null (the default): no change.
+    /// </summary>
+    internal Func<JsonObject, JsonObject>? CardNormalizer { get; set; }
+
+    /// <summary>A shallow copy of these options (the trust policy, pin store and other objects are shared).</summary>
+    internal A2ACardResolverOptions Clone() => (A2ACardResolverOptions)MemberwiseClone();
 }
 
 /// <summary>
@@ -169,7 +178,18 @@ public sealed class A2ACardResolver
         {
             raw = Encoding.UTF8.GetString(body.Span);
             node = ParseCard(body.Span);
-            try { card = JsonSerializer.Deserialize(body.Span, A2AJson.GetTypeInfo<AgentCard>()) ?? throw new JsonException("Null AgentCard payload."); }
+            var normalizer = _options.CardNormalizer;
+            if (normalizer is not null)
+            {
+                try { node = normalizer(node); }
+                catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex); }
+            }
+            try
+            {
+                card = normalizer is null
+                    ? JsonSerializer.Deserialize(body.Span, A2AJson.GetTypeInfo<AgentCard>()) ?? throw new JsonException("Null AgentCard payload.")
+                    : A2AJson.Deserialize<AgentCard>(node.ToJsonString());
+            }
             catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex); }
         }
 

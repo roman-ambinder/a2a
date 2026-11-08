@@ -1,0 +1,4 @@
+# The v0.3 SDK. Do not share a venv with interop/python (a2a-sdk 1.x).
+a2a-sdk[http-server]==0.3.26
+uvicorn
+httpx

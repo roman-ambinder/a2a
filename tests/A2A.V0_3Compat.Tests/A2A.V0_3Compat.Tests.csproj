@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- Generated protobuf code (the v0.3 proto, used to check the HTTP+JSON dialect) is nullable-oblivious. -->
+    <NoWarn>$(NoWarn);CA1707;CS8981</NoWarn>
+    <IncludeGoogleApiCommonProtos>true</IncludeGoogleApiCommonProtos>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Google.Api.CommonProtos" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\A2A.Protocol\A2A.Protocol.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server\A2A.Server.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\A2A.V0_3Compat\A2A.V0_3Compat.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.V0_3Compat\A2A.Server.V0_3Compat.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client.V0_3Compat\A2A.Client.V0_3Compat.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The v0.3 proto, as published (a2aproject/A2A tag v0.3.0). Messages only; the golden tests parse our HTTP+JSON bodies with it. -->
+    <Protobuf Include="Golden\proto\a2a_v03.proto" ProtoRoot="Golden\proto" GrpcServices="None" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Golden\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
