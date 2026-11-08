@@ -35,20 +35,20 @@ public sealed class GrpcTelemetryTests
         Assert.Equal(A2AErrorCode.TaskNotFound, ex.Code);
 
         // Client spans come from A2AClient (main's design: one span per A2AClient operation, retries included).
-        var send = Assert.Single(stopped, a => IsSpan(a, A2ATelemetry.ClientSourceName, "a2a.SendMessage"));
+        var send = Assert.Single(stopped, a => IsSpan(a, A2ATelemetry.ClientSourceName, "SendMessage"));
         Assert.Equal(ActivityKind.Client, send.Kind);
         Assert.Equal("SendMessage", send.GetTagItem(A2ATelemetry.Tags.Operation));
         Assert.Equal(ProtocolBindings.Grpc, send.GetTagItem(A2ATelemetry.Tags.Binding));
         Assert.NotEqual(ActivityStatusCode.Error, send.Status);
 
-        var get = Assert.Single(stopped, a => IsSpan(a, A2ATelemetry.ClientSourceName, "a2a.GetTask"));
+        var get = Assert.Single(stopped, a => IsSpan(a, A2ATelemetry.ClientSourceName, "GetTask"));
         Assert.Equal(nameof(A2AErrorCode.TaskNotFound), get.GetTagItem(A2ATelemetry.Tags.ErrorCode));
         Assert.Equal(ActivityStatusCode.Error, get.Status);
 
         // The server side of the same calls; the server reads the traceparent from the gRPC metadata.
-        var serverSend = Assert.Single(stopped, a => IsSpan(a, A2ATelemetry.ServerSourceName, "a2a.SendMessage"));
+        var serverSend = Assert.Single(stopped, a => IsSpan(a, A2ATelemetry.ServerSourceName, "SendMessage"));
         Assert.Equal(send.TraceId, serverSend.TraceId);
-        var serverGet = Assert.Single(stopped, a => IsSpan(a, A2ATelemetry.ServerSourceName, "a2a.GetTask"));
+        var serverGet = Assert.Single(stopped, a => IsSpan(a, A2ATelemetry.ServerSourceName, "GetTask"));
         Assert.Equal(nameof(A2AErrorCode.TaskNotFound), serverGet.GetTagItem(A2ATelemetry.Tags.ErrorCode));
         Assert.Equal(ActivityStatusCode.Error, serverGet.Status);
     }
@@ -71,7 +71,7 @@ public sealed class GrpcTelemetryTests
 
         await Assert.ThrowsAnyAsync<Exception>(() => client.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, cancellationToken: canceled.Token));
 
-        var get = Assert.Single(stopped, a => a.OperationName == "a2a.GetTask");
+        var get = Assert.Single(stopped, a => a.OperationName == "GetTask");
         Assert.Equal(true, get.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.NotEqual(ActivityStatusCode.Error, get.Status);
     }

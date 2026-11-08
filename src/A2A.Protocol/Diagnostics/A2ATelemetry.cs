@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using A2A.Json;
 
 namespace A2A.Diagnostics;
 
@@ -11,7 +12,7 @@ namespace A2A.Diagnostics;
 public static class A2ATelemetry
 {
     /// <summary>
-    /// Source of the server spans: one per operation (<see cref="SpanNames.Operation"/>), one per agent run
+    /// Source of the server spans: one per operation (named after the method, for example <c>GetTask</c>), one per agent run
     /// (<see cref="SpanNames.AgentExecution"/>) and one per webhook delivery (<see cref="SpanNames.PushDelivery"/>).
     /// </summary>
     public const string ServerSourceName = "A2A.Server";
@@ -30,15 +31,12 @@ public static class A2ATelemetry
     /// <summary>W3C trace context header with vendor trace state.</summary>
     public const string TraceStateHeader = "tracestate";
 
-    /// <summary>Span names.</summary>
+    /// <summary>
+    /// Span names. An operation span is named after its method (an <see cref="A2AProtocol.Methods"/> name such as
+    /// <c>SendMessage</c> or <c>GetTask</c>); client and server use the same names and the span kind tells them apart.
+    /// </summary>
     public static class SpanNames
     {
-        /// <summary>Prefix of operation spans: <c>a2a.SendMessage</c>, <c>a2a.GetTask</c>, ... (client and server use the same names; the kind tells them apart).</summary>
-        public const string OperationPrefix = "a2a.";
-
-        /// <summary>The name of the span of <paramref name="operation"/> (an <see cref="A2AProtocol.Methods"/> name).</summary>
-        public static string Operation(string operation) => OperationPrefix + operation;
-
         /// <summary>One run of the agent executor for a task (execute or cancel).</summary>
         public const string AgentExecution = "a2a.agent.execute";
 
@@ -49,11 +47,8 @@ public static class A2ATelemetry
     /// <summary>Span tag names.</summary>
     public static class Tags
     {
-        /// <summary>Always <c>a2a</c>.</summary>
-        public const string RpcSystem = "rpc.system";
-
         /// <summary>The operation (an <see cref="A2AProtocol.Methods"/> name).</summary>
-        public const string Operation = "rpc.method";
+        public const string Operation = "a2a.method.name";
 
         /// <summary>The protocol binding: <c>JSONRPC</c>, <c>HTTP+JSON</c> or <c>GRPC</c> (see <see cref="ProtocolBindings"/>).</summary>
         public const string Binding = "a2a.binding";
@@ -62,18 +57,18 @@ public static class A2ATelemetry
         public const string TaskId = "a2a.task.id";
 
         /// <summary>The context (conversation) id.</summary>
-        public const string ContextId = "a2a.context.id";
+        public const string ContextId = "gen_ai.conversation.id";
 
         /// <summary>The tenant; set only when not the default (empty) tenant.</summary>
         public const string Tenant = "a2a.tenant";
 
-        /// <summary>The task state after the operation or run (for example <c>Completed</c>).</summary>
+        /// <summary>The task state after the operation or run, as its proto name (for example <c>TASK_STATE_COMPLETED</c>).</summary>
         public const string TaskState = "a2a.task.state";
 
         /// <summary>The <see cref="A2AErrorCode"/> name of a failed operation (for example <c>TaskNotFound</c>).</summary>
         public const string ErrorCode = "a2a.error.code";
 
-        /// <summary>OpenTelemetry <c>error.type</c>: the error code name, or the exception type for a non-A2A error.</summary>
+        /// <summary>OpenTelemetry <c>error.type</c>: the A2A error reason (for example <c>TASK_NOT_FOUND</c>), or the exception type for a non-A2A error.</summary>
         public const string ErrorType = "error.type";
 
         /// <summary>Number of events a stream sent or received.</summary>
@@ -220,11 +215,24 @@ public static class A2ATelemetry
             activity.SetTag(ErrorTypeCanceledTag, true);
             return;
         }
-        var type = error is A2AException a2a ? a2a.Code.ToString() : error.GetType().FullName ?? error.GetType().Name;
+        var type = ErrorTypeOf(error);
         if (error is A2AException e) activity.SetTag(Tags.ErrorCode, e.Code.ToString());
         activity.SetTag(Tags.ErrorType, type);
         activity.SetStatus(ActivityStatusCode.Error, type);
     }
+
+    /// <summary>
+    /// The <see cref="Tags.ErrorType"/> of a failure: the A2A error reason of an <see cref="A2AException"/>, otherwise the
+    /// exception type name.
+    /// </summary>
+    public static string ErrorTypeOf(Exception error)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        return error is A2AException e ? e.ReasonOverride ?? A2AErrors.Reason(e.Code) : error.GetType().FullName ?? error.GetType().Name;
+    }
+
+    /// <summary>The <see cref="Tags.TaskState"/> value of <paramref name="state"/>: its proto name (for example <c>TASK_STATE_COMPLETED</c>).</summary>
+    public static string TaskStateValue(TaskState state) => ProtoEnumConverter<TaskState>.ToProtoName(state);
 
     /// <summary>Set (true) on a span whose operation the caller canceled. Not an error.</summary>
     public const string ErrorTypeCanceledTag = "a2a.canceled";
@@ -233,7 +241,6 @@ public static class A2ATelemetry
     public static void SetOperationTags(Activity? activity, string operation, string? binding, string? tenant, string? taskId = null, string? contextId = null)
     {
         if (activity is null) return;
-        activity.SetTag(Tags.RpcSystem, "a2a");
         activity.SetTag(Tags.Operation, operation);
         if (!string.IsNullOrEmpty(binding)) activity.SetTag(Tags.Binding, binding);
         if (!string.IsNullOrEmpty(tenant)) activity.SetTag(Tags.Tenant, tenant);
@@ -255,7 +262,7 @@ public static class A2ATelemetry
         {
             case AgentTask t:
                 SetTask(activity, t.Id, t.ContextId);
-                activity?.SetTag(Tags.TaskState, t.Status?.State.ToString());
+                if (t.Status is { } ts) activity?.SetTag(Tags.TaskState, TaskStateValue(ts.State));
                 break;
             case Message m:
                 SetTask(activity, m.TaskId, m.ContextId);
@@ -266,7 +273,7 @@ public static class A2ATelemetry
             case MessageEvent e: SetResult(activity, e.Message); break;
             case StatusUpdateEvent { StatusUpdate: var su }:
                 SetTask(activity, su.TaskId, su.ContextId);
-                activity?.SetTag(Tags.TaskState, su.Status?.State.ToString());
+                if (su.Status is { } ss) activity?.SetTag(Tags.TaskState, TaskStateValue(ss.State));
                 break;
             case ArtifactUpdateEvent { ArtifactUpdate: var au }:
                 SetTask(activity, au.TaskId, au.ContextId);
@@ -284,7 +291,7 @@ public static class A2ATelemetry
         if (activity is null || !activity.IsAllDataRequested) return;
         var tags = new ActivityTagsCollection { [Events.EventKind] = EventKindOf(evt) };
         if (sequence is { } s) tags[Events.EventSequence] = s;
-        if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var state }) tags[Tags.TaskState] = state.ToString();
+        if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var state }) tags[Tags.TaskState] = TaskStateValue(state);
         activity.AddEvent(new ActivityEvent(Events.StreamEvent, tags: tags));
     }
 }

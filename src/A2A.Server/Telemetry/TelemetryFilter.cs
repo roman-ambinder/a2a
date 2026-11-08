@@ -8,7 +8,7 @@ using A2A.Server.Streaming;
 namespace A2A.Server.Telemetry;
 
 /// <summary>
-/// The outermost built-in step of the operation pipeline: one <c>a2a.{Operation}</c> span (<see cref="A2ATelemetry"/>) and
+/// The outermost built-in step of the operation pipeline: one span named after the operation (<see cref="A2ATelemetry"/>) and
 /// one <c>a2a.server.requests</c> measurement per call, around the host filters, authorization and the operation. A refused
 /// call (unauthenticated, denied, or stopped by a filter) gets a span with its error.
 /// </summary>
@@ -30,8 +30,6 @@ namespace A2A.Server.Telemetry;
 internal sealed class TelemetryFilter : IA2AOperationFilter
 {
     public static readonly TelemetryFilter Instance = new();
-
-    private static readonly string[] SpanNames = CreateSpanNames();
 
     private TelemetryFilter() { }
 
@@ -146,7 +144,7 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
     /// <summary>Starts the span (null when nobody samples it) with the operation, binding, tenant and task id tags.</summary>
     private static Activity? Start(A2AOperationDescriptor operation, ServerCallContext call, object request) =>
         ServerTelemetry.Source.HasListeners()
-            ? ServerTelemetry.StartOperation(SpanName(operation), operation.Name, call, AuthorizationFilter.TaskIdOf(request))
+            ? ServerTelemetry.StartOperation(operation.Name, operation.Name, call, AuthorizationFilter.TaskIdOf(request))
             : null;
 
     /// <summary>Records the result (<paramref name="error"/> null) or the failure on the span and the requests counter, then stops the span.</summary>
@@ -183,23 +181,11 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
             ServerTelemetry.Requests.Add(1,
                 new KeyValuePair<string, object?>(A2ATelemetry.Tags.Operation, operation.Name),
                 new KeyValuePair<string, object?>(A2ATelemetry.Tags.Outcome, outcome),
-                new KeyValuePair<string, object?>(A2ATelemetry.Tags.ErrorType, ServerTelemetry.ErrorType(error)));
+                new KeyValuePair<string, object?>(A2ATelemetry.Tags.ErrorType, A2ATelemetry.ErrorTypeOf(error)));
             return;
         }
         ServerTelemetry.Requests.Add(1,
             new KeyValuePair<string, object?>(A2ATelemetry.Tags.Operation, operation.Name),
             new KeyValuePair<string, object?>(A2ATelemetry.Tags.Outcome, outcome));
-    }
-
-    private static string SpanName(A2AOperationDescriptor operation) =>
-        operation.Kind != A2AOperation.Extension && (uint)operation.Kind < (uint)SpanNames.Length
-            ? SpanNames[(int)operation.Kind]
-            : A2ATelemetry.SpanNames.Operation(operation.Name);
-
-    private static string[] CreateSpanNames()
-    {
-        var names = new string[(int)A2AOperation.Extension];
-        for (var i = 0; i < names.Length; i++) names[i] = A2ATelemetry.SpanNames.Operation(A2AOperationDescriptor.For((A2AOperation)i).Name);
-        return names;
     }
 }

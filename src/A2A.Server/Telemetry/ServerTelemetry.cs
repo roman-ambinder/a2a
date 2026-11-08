@@ -10,7 +10,7 @@ namespace A2A.Server.Telemetry;
 /// public constants of <see cref="A2ATelemetry"/>.
 /// </summary>
 /// <remarks>
-/// Spans: one per operation (<c>a2a.{Operation}</c>, by <see cref="TelemetryFilter"/>), one per agent run
+/// Spans: one per operation (named after the method, by <see cref="TelemetryFilter"/>), one per agent run
 /// (<see cref="A2ATelemetry.SpanNames.AgentExecution"/>) and one per webhook delivery (<see cref="A2ATelemetry.SpanNames.PushDelivery"/>).
 /// Counters (<see cref="A2ATelemetry.Metrics"/>): requests by operation and outcome, events stored, streams opened, push
 /// delivery attempts by outcome, dead letters. Nothing here allocates while nobody listens.
@@ -44,10 +44,6 @@ internal static class ServerTelemetry
         OperationCanceledException when cancellationToken.IsCancellationRequested => A2ATelemetry.Outcomes.Canceled,
         _ => A2ATelemetry.Outcomes.Error,
     };
-
-    /// <summary>The <see cref="A2ATelemetry.Tags.ErrorType"/> of a failure, as <see cref="A2ATelemetry.RecordError"/> records it.</summary>
-    public static string ErrorType(Exception error) =>
-        error is A2AException a2a ? a2a.Code.ToString() : error.GetType().FullName ?? error.GetType().Name;
 
     /// <summary>
     /// Starts the span of an operation, or returns null when nobody samples it. Its parent is the current activity (for example

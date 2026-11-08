@@ -23,9 +23,9 @@ namespace A2A.Tests.Telemetry;
 
 /// <summary>
 /// Activity and meter listeners are process-wide: these tests never run next to other tests. Names and tag semantics are
-/// main's tracing design (<see cref="A2ATelemetry"/>): <c>a2a.{Operation}</c> spans, <c>rpc.method</c>, <c>a2a.task.id</c>,
+/// main's tracing design (<see cref="A2ATelemetry"/>): spans named after the method, <c>a2a.method.name</c>, <c>a2a.task.id</c>,
 /// error status with <c>error.type</c>/<c>a2a.error.code</c>, <c>a2a.canceled</c> for a caller's cancellation; the counters
-/// carry <c>rpc.method</c> and <c>a2a.outcome</c>.
+/// carry <c>a2a.method.name</c> and <c>a2a.outcome</c>.
 /// </summary>
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class TelemetryCollection
@@ -137,6 +137,19 @@ public sealed class TelemetryTests
 
     // ---------------------------------------------------------------- server spans
 
+    [Theory]
+    [InlineData(TaskState.Completed, "TASK_STATE_COMPLETED")]
+    [InlineData(TaskState.InputRequired, "TASK_STATE_INPUT_REQUIRED")]
+    public void Task_state_value_is_the_proto_name(TaskState state, string expected) =>
+        Assert.Equal(expected, A2ATelemetry.TaskStateValue(state));
+
+    [Fact]
+    public void Error_type_is_the_a2a_reason()
+    {
+        Assert.Equal("TASK_NOT_FOUND", A2ATelemetry.ErrorTypeOf(A2AException.TaskNotFound("t")));
+        Assert.Equal(typeof(InvalidOperationException).FullName, A2ATelemetry.ErrorTypeOf(new InvalidOperationException()));
+    }
+
     [Fact]
     public async Task Server_span_per_operation_with_tags()
     {
@@ -148,16 +161,15 @@ public sealed class TelemetryTests
         var task = (await client.SendMessageAsync("input")).RequireTask();
         await client.GetTaskAsync(task.Id);
 
-        var get = Assert.Single(await spans.WaitForAsync("a2a.GetTask"));
+        var get = Assert.Single(await spans.WaitForAsync("GetTask"));
         Assert.Equal(A2ATelemetry.ServerSourceName, get.Source.Name);
-        Assert.Equal("a2a", get.GetTagItem(A2ATelemetry.Tags.RpcSystem));
         Assert.Equal("GetTask", get.GetTagItem(A2ATelemetry.Tags.Operation));
         Assert.Equal(ProtocolBindings.JsonRpc, get.GetTagItem(A2ATelemetry.Tags.Binding));
         Assert.Null(get.GetTagItem(A2ATelemetry.Tags.Tenant)); // set only for a non-default tenant
         Assert.Equal(task.Id, get.GetTagItem(A2ATelemetry.Tags.TaskId));
         Assert.NotEqual(ActivityStatusCode.Error, get.Status);
 
-        var send = Assert.Single(await spans.WaitForAsync("a2a.SendMessage"));
+        var send = Assert.Single(await spans.WaitForAsync("SendMessage"));
         Assert.Equal("SendMessage", send.GetTagItem(A2ATelemetry.Tags.Operation));
         Assert.Equal(task.Id, send.GetTagItem(A2ATelemetry.Tags.TaskId)); // from the result: a new task
         Assert.NotEqual(ActivityStatusCode.Error, send.Status);
@@ -165,8 +177,8 @@ public sealed class TelemetryTests
         // Privacy: no principal and no bodies on the span.
         Assert.DoesNotContain(get.TagObjects, t => Equals(t.Value, "alice") || Equals(t.Value, "input"));
 
-        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["rpc.method"], "GetTask") && Equals(t["a2a.outcome"], "ok")));
-        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["rpc.method"], "SendMessage") && Equals(t["a2a.outcome"], "ok")));
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.method.name"], "GetTask") && Equals(t["a2a.outcome"], "ok")));
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.method.name"], "SendMessage") && Equals(t["a2a.outcome"], "ok")));
     }
 
     [Fact]
@@ -179,12 +191,17 @@ public sealed class TelemetryTests
         var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(ProtocolBindings.JsonRpc).GetTaskAsync("t-denied"));
         Assert.Equal(A2AErrorCode.TaskNotFound, ex.Code);
 
-        var span = Assert.Single(await spans.WaitForAsync("a2a.GetTask"));
+        var span = Assert.Single(await spans.WaitForAsync("GetTask"));
         Assert.Equal(nameof(A2AErrorCode.TaskNotFound), span.GetTagItem(A2ATelemetry.Tags.ErrorCode));
+        Assert.Equal("TASK_NOT_FOUND", span.GetTagItem(A2ATelemetry.Tags.ErrorType));
+        Assert.Equal("GetTask", span.GetTagItem(A2ATelemetry.Tags.Operation));
+        Assert.Equal("a2a.method.name", A2ATelemetry.Tags.Operation);
+        Assert.Null(span.GetTagItem("rpc.method"));
+        Assert.Null(span.GetTagItem("rpc.system"));
         Assert.Equal(ActivityStatusCode.Error, span.Status);
         Assert.Equal("t-denied", span.GetTagItem(A2ATelemetry.Tags.TaskId));
-        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["rpc.method"], "GetTask") && Equals(t["a2a.outcome"], "error")
-            && Equals(t["error.type"], nameof(A2AErrorCode.TaskNotFound))));
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.method.name"], "GetTask") && Equals(t["a2a.outcome"], "error")
+            && Equals(t["error.type"], "TASK_NOT_FOUND")));
     }
 
     [Fact]
@@ -204,7 +221,7 @@ public sealed class TelemetryTests
         var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(ProtocolBindings.HttpJson).GetTaskAsync("t-1"));
         Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
 
-        var span = Assert.Single(await spans.WaitForAsync("a2a.GetTask"));
+        var span = Assert.Single(await spans.WaitForAsync("GetTask"));
         Assert.Equal(nameof(A2AErrorCode.InvalidParams), span.GetTagItem(A2ATelemetry.Tags.ErrorCode));
         Assert.Equal(ActivityStatusCode.Error, span.Status);
     }
@@ -224,18 +241,18 @@ public sealed class TelemetryTests
         {
             if (++events == 1)
             {
-                Assert.Contains(spans.Started, a => a.OperationName == "a2a.SendStreamingMessage");
-                Assert.Empty(spans.Named("a2a.SendStreamingMessage")); // still open while events flow
+                Assert.Contains(spans.Started, a => a.OperationName == "SendStreamingMessage");
+                Assert.Empty(spans.Named("SendStreamingMessage")); // still open while events flow
                 gate.TrySetResult();
             }
         }
 
-        var span = Assert.Single(await spans.WaitForAsync("a2a.SendStreamingMessage"));
+        var span = Assert.Single(await spans.WaitForAsync("SendStreamingMessage"));
         Assert.NotEqual(ActivityStatusCode.Error, span.Status);
         Assert.Equal(events, Convert.ToInt32(span.GetTagItem(A2ATelemetry.Tags.StreamEventCount)));
         Assert.Equal(events, span.Events.Count(e => e.Name == A2ATelemetry.Events.StreamEvent));
         Assert.Equal(1, counters.Sum("a2a.server.streams.opened"));
-        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["rpc.method"], "SendStreamingMessage") && Equals(t["a2a.outcome"], "ok")));
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.method.name"], "SendStreamingMessage") && Equals(t["a2a.outcome"], "ok")));
     }
 
     [Fact]
@@ -341,7 +358,7 @@ public sealed class TelemetryTests
         var got = await client.GetTaskAsync(new GetTaskRequest { Id = "t-1" });
         Assert.Equal("t-1", got.Id);
 
-        var span = Assert.Single(spans.Named("a2a.GetTask"));
+        var span = Assert.Single(spans.Named("GetTask"));
         Assert.Equal(ActivityKind.Client, span.Kind);
         Assert.Equal("GetTask", span.GetTagItem(A2ATelemetry.Tags.Operation));
         Assert.Equal(ProtocolBindings.JsonRpc, span.GetTagItem(A2ATelemetry.Tags.Binding));
@@ -358,13 +375,13 @@ public sealed class TelemetryTests
         var client = host.Client(ProtocolBindings.HttpJson);
 
         await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync("missing"));
-        var failed = Assert.Single(spans.Named("a2a.GetTask"));
+        var failed = Assert.Single(spans.Named("GetTask"));
         Assert.Equal(nameof(A2AErrorCode.TaskNotFound), failed.GetTagItem(A2ATelemetry.Tags.ErrorCode));
         Assert.Equal(ActivityStatusCode.Error, failed.Status);
 
         using var cts = new CancellationTokenSource(Timeout);
         await foreach (var _ in client.SendStreamingMessageAsync(Message.FromUser("task"), cancellationToken: cts.Token)) { }
-        var open = Assert.Single(spans.Named("a2a.SendStreamingMessage"));
+        var open = Assert.Single(spans.Named("SendStreamingMessage"));
         Assert.Equal(ActivityKind.Client, open.Kind);
         Assert.NotEqual(ActivityStatusCode.Error, open.Status);
     }
@@ -381,7 +398,7 @@ public sealed class TelemetryTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Handler.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, AliceCall()));
 
-        var span = Assert.Single(spans.Named("a2a.GetTask"));
+        var span = Assert.Single(spans.Named("GetTask"));
         Assert.Equal(typeof(OperationCanceledException).FullName, span.GetTagItem(A2ATelemetry.Tags.ErrorType));
         Assert.Null(span.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.Equal(ActivityStatusCode.Error, span.Status);
@@ -402,7 +419,7 @@ public sealed class TelemetryTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Handler.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, AliceCall(), caller.Token));
 
-        var span = Assert.Single(spans.Named("a2a.GetTask"));
+        var span = Assert.Single(spans.Named("GetTask"));
         Assert.Equal(true, span.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.NotEqual(ActivityStatusCode.Error, span.Status);
     }
@@ -426,10 +443,10 @@ public sealed class TelemetryTests
             gate.TrySetResult();
         }
 
-        var span = Assert.Single(spans.Named("a2a.SendStreamingMessage"));
+        var span = Assert.Single(spans.Named("SendStreamingMessage"));
         Assert.Equal(true, span.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.NotEqual(ActivityStatusCode.Error, span.Status);
-        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["rpc.method"], "SendStreamingMessage") && Equals(t["a2a.outcome"], "canceled")));
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.method.name"], "SendStreamingMessage") && Equals(t["a2a.outcome"], "canceled")));
     }
 
     [Fact]
@@ -449,7 +466,7 @@ public sealed class TelemetryTests
         using var cts = new CancellationTokenSource(Timeout);
         await foreach (var _ in host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("x") }, AliceCall(), cancellationToken: cts.Token)) { }
 
-        var server = Assert.Single(spans.Named("a2a.SendStreamingMessage"));
+        var server = Assert.Single(spans.Named("SendStreamingMessage"));
         Assert.Equal(server.TraceId, trace);
         Assert.Equal(server.SpanId, parent);
         Assert.Null(Activity.Current); // the reader's current activity is unchanged
@@ -465,7 +482,7 @@ public sealed class TelemetryTests
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => transport.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, cancellationToken: canceled.Token));
-        var get = Assert.Single(spans.Named("a2a.GetTask"));
+        var get = Assert.Single(spans.Named("GetTask"));
         Assert.Equal(true, get.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.NotEqual(ActivityStatusCode.Error, get.Status);
 
@@ -473,7 +490,7 @@ public sealed class TelemetryTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => transport.SendMessageAsync(
             new SendMessageRequest { Message = Message.FromUser("slow") },
             new A2ARequestOptions { Timeout = TimeSpan.FromMilliseconds(200), MaxRetries = 0 }));
-        var send = Assert.Single(spans.Named("a2a.SendMessage"));
+        var send = Assert.Single(spans.Named("SendMessage"));
         Assert.Null(send.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.Equal(ActivityStatusCode.Error, send.Status);
     }

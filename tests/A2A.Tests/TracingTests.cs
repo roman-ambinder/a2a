@@ -63,10 +63,10 @@ public class TracingTests
     public static TheoryData<string> Bindings => new() { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson, ProtocolBindings.Grpc };
 
     private static bool IsServerOp(Activity a, string op) =>
-        a.Source.Name == A2ATelemetry.ServerSourceName && a.OperationName == A2ATelemetry.SpanNames.Operation(op);
+        a.Source.Name == A2ATelemetry.ServerSourceName && a.OperationName == op;
 
     private static bool IsClientOp(Activity a, string op) =>
-        a.Source.Name == A2ATelemetry.ClientSourceName && a.OperationName == A2ATelemetry.SpanNames.Operation(op);
+        a.Source.Name == A2ATelemetry.ClientSourceName && a.OperationName == op;
 
     /// <summary>True when <paramref name="ancestor"/> is the parent of <paramref name="span"/> or of one of its in-process parents (for example ASP.NET Core's request activity).</summary>
     private static bool DescendsFrom(Activity span, Activity ancestor)
@@ -107,7 +107,6 @@ public class TracingTests
         Assert.Equal(ActivityKind.Client, client.Kind);
         Assert.Equal(binding, Tag(client, A2ATelemetry.Tags.Binding));
         Assert.Equal(binding, Tag(server, A2ATelemetry.Tags.Binding));
-        Assert.Equal("a2a", Tag(server, A2ATelemetry.Tags.RpcSystem));
         Assert.Equal(A2AProtocol.Methods.SendMessage, Tag(server, A2ATelemetry.Tags.Operation));
         Assert.True(DescendsFrom(client, trace.Root));
         Assert.True(DescendsFrom(server, client), "the server span joins the client's trace under the client span");
@@ -119,7 +118,7 @@ public class TracingTests
             Assert.Equal(task.ContextId, Tag(span, A2ATelemetry.Tags.ContextId));
             Assert.NotEqual(ActivityStatusCode.Error, span.Status);
         }
-        Assert.Equal(nameof(TaskState.Completed), Tag(run, A2ATelemetry.Tags.TaskState));
+        Assert.Equal("TASK_STATE_COMPLETED", Tag(run, A2ATelemetry.Tags.TaskState));
         Assert.Equal("execute", Tag(run, A2ATelemetry.Tags.ExecutionKind));
         AssertNoContent(trace.Spans(), "s3cr3t");
     }
@@ -147,7 +146,7 @@ public class TracingTests
         Assert.Equal(received, Convert.ToInt32(client.GetTagItem(A2ATelemetry.Tags.StreamEventCount)));
         Assert.Equal(received, server.Events.Count(e => e.Name == A2ATelemetry.Events.StreamEvent));
         Assert.Contains(server.Events, e => e.Tags.Any(t => t.Key == A2ATelemetry.Events.EventSequence));
-        Assert.Equal(nameof(TaskState.Completed), Tag(client, A2ATelemetry.Tags.TaskState));
+        Assert.Equal("TASK_STATE_COMPLETED", Tag(client, A2ATelemetry.Tags.TaskState));
         Assert.True(DescendsFrom(server, client));
         // Events are span events, not child spans: the only children of the stream span are the agent run.
         Assert.All(trace.Spans().Where(s => s.ParentSpanId == server.SpanId), s => Assert.Equal(A2ATelemetry.SpanNames.AgentExecution, s.OperationName));
@@ -216,7 +215,7 @@ public class TracingTests
         {
             Assert.Equal(ActivityStatusCode.Error, span.Status);
             Assert.Equal(nameof(A2AErrorCode.TaskNotFound), Tag(span, A2ATelemetry.Tags.ErrorCode));
-            Assert.Equal(nameof(A2AErrorCode.TaskNotFound), Tag(span, A2ATelemetry.Tags.ErrorType));
+            Assert.Equal("TASK_NOT_FOUND", Tag(span, A2ATelemetry.Tags.ErrorType));
             Assert.Equal("no-such-task", Tag(span, A2ATelemetry.Tags.TaskId));
         }
     }
@@ -234,7 +233,7 @@ public class TracingTests
         var run = await trace.WaitForAsync(a => a.OperationName == A2ATelemetry.SpanNames.AgentExecution);
         Assert.Equal(ActivityStatusCode.Error, run.Status);
         Assert.Equal(typeof(InvalidOperationException).FullName, Tag(run, A2ATelemetry.Tags.ErrorType));
-        Assert.Equal(nameof(TaskState.Failed), Tag(run, A2ATelemetry.Tags.TaskState));
+        Assert.Equal("TASK_STATE_FAILED", Tag(run, A2ATelemetry.Tags.TaskState));
         AssertNoContent(trace.Spans(), "boom"); // the exception message is not recorded
     }
 

@@ -67,3 +67,12 @@ override A2A.Delegation.TokenExchangeResult.ToString() -> string!
 A2A.Delegation.TokenExchangeException
 A2A.Delegation.TokenExchangeException.TokenExchangeException(string! message, string? error = null, System.Exception? inner = null) -> void
 A2A.Delegation.TokenExchangeException.Error.get -> string?
+*REMOVED*const A2A.Diagnostics.A2ATelemetry.SpanNames.OperationPrefix = "a2a." -> string!
+*REMOVED*static A2A.Diagnostics.A2ATelemetry.SpanNames.Operation(string! operation) -> string!
+*REMOVED*const A2A.Diagnostics.A2ATelemetry.Tags.RpcSystem = "rpc.system" -> string!
+*REMOVED*const A2A.Diagnostics.A2ATelemetry.Tags.Operation = "rpc.method" -> string!
+*REMOVED*const A2A.Diagnostics.A2ATelemetry.Tags.ContextId = "a2a.context.id" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.Operation = "a2a.method.name" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ContextId = "gen_ai.conversation.id" -> string!
+static A2A.Diagnostics.A2ATelemetry.TaskStateValue(A2A.TaskState state) -> string!
+static A2A.Diagnostics.A2ATelemetry.ErrorTypeOf(System.Exception! error) -> string!

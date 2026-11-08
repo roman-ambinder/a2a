@@ -12,7 +12,7 @@ internal static class ClientTelemetry
 
     private static Activity? Start(string operation, string? binding, string? tenant, string? taskId)
     {
-        var activity = Source.StartActivity(A2ATelemetry.SpanNames.Operation(operation), ActivityKind.Client);
+        var activity = Source.StartActivity(operation, ActivityKind.Client);
         A2ATelemetry.SetOperationTags(activity, operation, binding, tenant, taskId);
         return activity;
     }

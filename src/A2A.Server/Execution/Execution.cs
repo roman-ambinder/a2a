@@ -67,7 +67,7 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
     {
         if (Activity is not { } activity) return;
         if (activity.Status == ActivityStatusCode.Unset && activity.GetTagItem(A2ATelemetry.Tags.TaskState) is string state
-            && string.Equals(state, nameof(TaskState.Failed), StringComparison.Ordinal))
+            && string.Equals(state, A2ATelemetry.TaskStateValue(TaskState.Failed), StringComparison.Ordinal))
         {
             activity.SetTag(A2ATelemetry.Tags.ErrorType, "TaskFailed");
             activity.SetStatus(ActivityStatusCode.Error, "TaskFailed");
