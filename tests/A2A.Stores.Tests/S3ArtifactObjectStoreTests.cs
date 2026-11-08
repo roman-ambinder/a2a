@@ -141,17 +141,57 @@ public sealed class S3ArtifactObjectStoreTests(MinioFixture minio) : ArtifactObj
         }
     }
 
-    [Fact]
-    public async Task Created_at_of_a_multipart_object_is_when_the_write_finished()
+    private static async Task<List<ArtifactObjectEntry>> List(S3ArtifactObjectStore store)
     {
-        var (store, _, _) = await NewAsync();
+        var entries = new List<ArtifactObjectEntry>();
+        await foreach (var e in store.ListAsync(ArtifactObjectKey.TaskPrefix("t", "task"))) entries.Add(e);
+        return entries;
+    }
+
+    [Fact]
+    public async Task Multipart_put_writes_the_completion_stamp_after_the_upload()
+    {
+        var (store, client, bucket) = await NewAsync();
         var key = NewKey();
         var started = DateTimeOffset.UtcNow;
 
         await store.PutAsync(key, new SlowTailStream(Bytes(10 * 1024 * 1024), TimeSpan.FromSeconds(3)), Info, long.MaxValue);
 
-        await foreach (var e in store.ListAsync(ArtifactObjectKey.TaskPrefix("t", "task")))
-            Assert.True(e.CreatedAt >= started + TimeSpan.FromSeconds(2.5), $"CreatedAt {e.CreatedAt:O} is not after the upload ({started:O} + 3s).");
+        var tags = await client.GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = bucket, Key = key });
+        var stamp = DateTimeOffset.FromUnixTimeMilliseconds(long.Parse(Assert.Single(tags.Tagging, t => t.Key == "a2a-completed-at").Value));
+        Assert.True(stamp >= started + TimeSpan.FromSeconds(2.5), $"stamp {stamp:O} is before the end of the upload ({started:O} + 3s).");
+        Assert.Equal(stamp, Assert.Single(await List(store)).CreatedAt);
+    }
+
+    [Fact]
+    public async Task List_uses_the_completion_stamp_of_a_multipart_object()
+    {
+        var (store, client, bucket) = await NewAsync();
+        var key = NewKey();
+        await store.PutAsync(key, new MemoryStream(Bytes(9 * 1024 * 1024)), Info, long.MaxValue);
+        var known = new DateTimeOffset(2031, 5, 6, 7, 8, 9, 123, TimeSpan.Zero);
+        await client.PutObjectTaggingAsync(new PutObjectTaggingRequest
+        {
+            BucketName = bucket,
+            Key = key,
+            Tagging = new Tagging { TagSet = [new Tag { Key = "a2a-completed-at", Value = known.ToUnixTimeMilliseconds().ToString() }] },
+        });
+
+        Assert.Equal(known, Assert.Single(await List(store)).CreatedAt);
+    }
+
+    [Fact]
+    public async Task List_falls_back_to_the_s3_date_when_a_multipart_object_has_no_stamp()
+    {
+        var (store, client, bucket) = await NewAsync();
+        var key = NewKey();
+        await store.PutAsync(key, new MemoryStream(Bytes(9 * 1024 * 1024)), Info, long.MaxValue);
+        await client.DeleteObjectTaggingAsync(new DeleteObjectTaggingRequest { BucketName = bucket, Key = key });
+        var raw = Assert.Single((await client.ListObjectsV2Async(new ListObjectsV2Request { BucketName = bucket })).S3Objects!);
+
+        var entry = Assert.Single(await List(store));
+
+        Assert.Equal(new DateTimeOffset(DateTime.SpecifyKind(raw.LastModified!.Value, DateTimeKind.Utc)), entry.CreatedAt);
     }
 
     [Fact]

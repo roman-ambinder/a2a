@@ -123,7 +123,16 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
                 BucketName = _bucket, Key = fullKey, UploadId = uploadId, PartETags = parts,
             }, cancellationToken).ConfigureAwait(false);
             uploadId = null;
-            await StampCompletionAsync(fullKey).ConfigureAwait(false);
+            try
+            {
+                await StampCompletionAsync(fullKey).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Without its stamp the object would look as old as the upload start for ever, so it is not kept.
+                await DeleteQuietlyAsync(fullKey).ConfigureAwait(false);
+                throw;
+            }
             return new ArtifactObjectWriteResult(total, ArtifactHash.Format(hash.GetHashAndReset()));
         }
         catch
@@ -185,7 +194,7 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
             // The caller may have cancelled, so the abort must not use their token.
             await _client.AbortMultipartUploadAsync(new AbortMultipartUploadRequest { BucketName = _bucket, Key = fullKey, UploadId = uploadId }).ConfigureAwait(false);
         }
-        catch (AmazonServiceException)
+        catch (Exception)
         {
             // Nothing more to do; the original failure is the one to report. A bucket lifecycle rule for incomplete uploads cleans up.
         }
@@ -195,21 +204,25 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
     /// A completed multipart object has no write time of its own: S3 dates it from when the upload was initiated (its ETag ends
     /// in <c>-N</c>), which for a slow upload is long before the object exists, and the orphan sweep ages objects by that date.
     /// So the completion time is stored as an object tag, which does not change the object, and <see cref="ListAsync"/> uses it.
-    /// A failure here is not a failed upload: the listing then falls back to the S3 date.
+    /// A failure here fails the upload (the caller deletes the object), so every multipart object has its stamp.
     /// </summary>
-    private async Task StampCompletionAsync(string fullKey)
+    private async Task StampCompletionAsync(string fullKey) =>
+        await _client.PutObjectTaggingAsync(new PutObjectTaggingRequest
+        {
+            BucketName = _bucket,
+            Key = fullKey,
+            Tagging = new Tagging { TagSet = [new Tag { Key = CompletedAtTag, Value = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture) }] },
+        }).ConfigureAwait(false);
+
+    private async Task DeleteQuietlyAsync(string fullKey)
     {
         try
         {
-            await _client.PutObjectTaggingAsync(new PutObjectTaggingRequest
-            {
-                BucketName = _bucket,
-                Key = fullKey,
-                Tagging = new Tagging { TagSet = [new Tag { Key = CompletedAtTag, Value = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture) }] },
-            }).ConfigureAwait(false);
+            await _client.DeleteObjectAsync(new DeleteObjectRequest { BucketName = _bucket, Key = fullKey }).ConfigureAwait(false);
         }
-        catch (AmazonServiceException)
+        catch (Exception)
         {
+            // The stamp failure is the one to report.
         }
     }
 
@@ -328,9 +341,10 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
             if (stamp is not null && long.TryParse(stamp, NumberStyles.None, CultureInfo.InvariantCulture, out var ms))
                 return DateTimeOffset.FromUnixTimeMilliseconds(ms);
         }
-        catch (AmazonServiceException)
+        catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
-            // No stamp (or no permission to read tags): fall back to the S3 date.
+            // The object went away between the listing and now. Any other failure (throttling, network) is rethrown: a wrong
+            // date could make a live object look old, and the sweep retries.
         }
         return AsOffset(lastModified);
     }

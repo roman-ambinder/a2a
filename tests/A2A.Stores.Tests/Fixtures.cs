@@ -106,7 +106,8 @@ public sealed class MinioFixture : ContainerFixture
 
     protected override async Task StartAsync()
     {
-        _container = new MinioBuilder("cgr.dev/chainguard/minio:latest").WithUsername(AccessKey).WithPassword(SecretKey).Build();
+        _container = // Pinned by digest. Not minio/minio: that Docker Hub repository no longer serves images, and quay.io needs a login.
+        new MinioBuilder("cgr.dev/chainguard/minio@sha256:a1ac4589a5f8136b616e667b48a0bea9719bb10bd45799ea946f24bbedfafde4").WithUsername(AccessKey).WithPassword(SecretKey).Build();
         await _container.StartAsync();
         _endpoint = _container.GetConnectionString();
     }
