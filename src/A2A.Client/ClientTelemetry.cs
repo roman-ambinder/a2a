@@ -10,10 +10,12 @@ internal static class ClientTelemetry
     public static readonly ActivitySource Source = new(A2ATelemetry.ClientSourceName,
         typeof(ClientTelemetry).Assembly.GetName().Version?.ToString());
 
-    private static Activity? Start(string operation, string? binding, string? tenant, string? taskId)
+    private static Activity? Start(string operation, A2AClient client, string? tenant, string? taskId, Message? message)
     {
-        var activity = Source.StartActivity(A2ATelemetry.SpanNames.Operation(operation), ActivityKind.Client);
-        A2ATelemetry.SetOperationTags(activity, operation, binding, tenant, taskId);
+        var activity = Source.StartActivity(operation, ActivityKind.Client);
+        A2ATelemetry.SetOperationTags(activity, operation, client.TelemetryBinding, tenant, taskId, protocolVersion: client.TelemetryProtocolVersion);
+        A2ATelemetry.SetAgent(activity, client.TelemetryCard);
+        A2ATelemetry.SetMessage(activity, message);
         return activity;
     }
 
@@ -21,17 +23,17 @@ internal static class ClientTelemetry
     /// Runs a unary call in its span. The span is the current activity while the transport sends, so the request carries
     /// its <c>traceparent</c>.
     /// </summary>
-    public static Task<T> TraceAsync<T>(string operation, string? binding, string? tenant, string? taskId, Func<Task<T>> body, CancellationToken ct) =>
-        Source.HasListeners() ? TraceCoreAsync(operation, binding, tenant, taskId, body, ct) : body();
+    public static Task<T> TraceAsync<T>(string operation, A2AClient client, string? tenant, string? taskId, Func<Task<T>> body, CancellationToken ct, Message? message = null) =>
+        Source.HasListeners() ? TraceCoreAsync(operation, client, tenant, taskId, body, message, ct) : body();
 
-    public static Task TraceAsync(string operation, string? binding, string? tenant, string? taskId, Func<Task> body, CancellationToken ct) =>
+    public static Task TraceAsync(string operation, A2AClient client, string? tenant, string? taskId, Func<Task> body, CancellationToken ct) =>
         Source.HasListeners()
-            ? TraceCoreAsync<object?>(operation, binding, tenant, taskId, async () => { await body().ConfigureAwait(false); return null; }, ct)
+            ? TraceCoreAsync<object?>(operation, client, tenant, taskId, async () => { await body().ConfigureAwait(false); return null; }, null, ct)
             : body();
 
-    private static async Task<T> TraceCoreAsync<T>(string operation, string? binding, string? tenant, string? taskId, Func<Task<T>> body, CancellationToken ct)
+    private static async Task<T> TraceCoreAsync<T>(string operation, A2AClient client, string? tenant, string? taskId, Func<Task<T>> body, Message? message, CancellationToken ct)
     {
-        using var activity = Start(operation, binding, tenant, taskId);
+        using var activity = Start(operation, client, tenant, taskId, message);
         try
         {
             var result = await body().ConfigureAwait(false);
@@ -49,13 +51,13 @@ internal static class ClientTelemetry
     /// Runs a stream in one span that covers the whole stream, reconnects included; each event is a span event. The span is
     /// current while the source runs, never for the consumer.
     /// </summary>
-    public static IAsyncEnumerable<StreamResponse> TraceStream(string operation, string? binding, string? tenant, string? taskId, IAsyncEnumerable<StreamResponse> source) =>
-        Source.HasListeners() ? TraceStreamCoreAsync(operation, binding, tenant, taskId, source) : source;
+    public static IAsyncEnumerable<StreamResponse> TraceStream(string operation, A2AClient client, string? tenant, string? taskId, IAsyncEnumerable<StreamResponse> source, Message? message = null) =>
+        Source.HasListeners() ? TraceStreamCoreAsync(operation, client, tenant, taskId, source, message) : source;
 
-    private static async IAsyncEnumerable<StreamResponse> TraceStreamCoreAsync(string operation, string? binding, string? tenant, string? taskId,
-        IAsyncEnumerable<StreamResponse> source, [EnumeratorCancellation] CancellationToken ct = default)
+    private static async IAsyncEnumerable<StreamResponse> TraceStreamCoreAsync(string operation, A2AClient client, string? tenant, string? taskId,
+        IAsyncEnumerable<StreamResponse> source, Message? message, [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var activity = Start(operation, binding, tenant, taskId);
+        var activity = Start(operation, client, tenant, taskId, message);
         var count = 0;
         var events = source.GetAsyncEnumerator(ct);
         try
@@ -77,7 +79,7 @@ internal static class ClientTelemetry
                 count++;
                 if (activity is not null)
                 {
-                    A2ATelemetry.SetResult(activity, events.Current);
+                    A2ATelemetry.SetStreamResult(activity, events.Current);
                     A2ATelemetry.AddStreamEvent(activity, events.Current);
                 }
                 yield return events.Current;

@@ -8,4 +8,6 @@ A2A.Server.AgentRequestContext.CanExchangeToken.get -> bool
 A2A.Server.AgentRequestContext.ExchangeTokenAsync(string! audience, System.Collections.Generic.IReadOnlyList<string!>? scopes = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Delegation.TokenExchangeResult!>
 A2A.Server.A2AServerBuilder.AddTokenExchanger<T>() -> A2A.Server.A2AServerBuilder!
 A2A.Server.A2AServerBuilder.AddTokenExchanger(A2A.Delegation.ITokenExchanger! exchanger) -> A2A.Server.A2AServerBuilder!
+A2A.Server.ServerCallContext.WireProtocolVersion.get -> string?
+A2A.Server.ServerCallContext.WireProtocolVersion.init -> void
 A2A.Server.AgentRequestContext.RequestedSkillId.get -> string?

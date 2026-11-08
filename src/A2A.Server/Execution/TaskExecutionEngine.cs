@@ -539,7 +539,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                     // Every sink is non-blocking.
                     Publish(exec, key, stored);
                     if (exec.Activity is not null && evt is StatusUpdateEvent { StatusUpdate.Status.State: var recorded })
-                        exec.Activity.SetTag(A2ATelemetry.Tags.TaskState, recorded.ToString());
+                        exec.Activity.SetTag(A2ATelemetry.Tags.TaskState, A2ATelemetry.TaskStateValue(recorded));
                     if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal())
                     {
                         await _events.MarkTerminalAsync(key).ConfigureAwait(false);

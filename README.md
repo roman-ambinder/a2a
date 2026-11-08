@@ -177,20 +177,21 @@ builder.Services.AddOpenTelemetry().WithTracing(t => t
 
 | Source | Span | Kind | When |
 |---|---|---|---|
-| `A2A.Server` | `a2a.{Operation}` (`a2a.SendMessage`, `a2a.GetTask`, ...) | Server, or Internal under ASP.NET Core's request span | every `A2ARequestHandler` operation, all bindings |
+| `A2A.Server` | `{method}` (`SendMessage`, `GetTask`, ...) | Server, or Internal under ASP.NET Core's request span | every `A2ARequestHandler` operation, all bindings |
 | `A2A.Server` | `a2a.agent.execute` | Internal | one agent run (execute or cancel); child of the operation span |
 | `A2A.Server` | `a2a.push.deliver` | Client | one attempt to send one event to one webhook; child of the agent run (also after a retry or on another instance) |
-| `A2A.Client` | `a2a.{Operation}` | Client | every `A2AClient` operation, retries and stream reconnects included |
+| `A2A.Client` | `{method}` | Client | every `A2AClient` operation, retries and stream reconnects included |
 
 - **Propagation**: the client transports send the current span as W3C `traceparent`/`tracestate` on JSON-RPC, HTTP+JSON and gRPC (metadata). The server reads them on all three bindings (`ServerCallContext.TraceParent`), so client and server spans share one trace. Webhook POSTs carry the `traceparent` of their delivery span. A `traceparent` in `A2ARequestOptions.Headers` replaces the SDK's.
 - **Streams**: one span covers the whole stream; each event is a span event `a2a.stream.event` (tags `a2a.event.kind`, `a2a.event.sequence` on the server, `a2a.task.state`), not a child span. Client reconnects are `a2a.retry` events.
-- **Tags**: `rpc.system` (`a2a`), `rpc.method`, `a2a.binding` (`JSONRPC`, `HTTP+JSON`, `GRPC`), `a2a.task.id`, `a2a.context.id`, `a2a.tenant` (non-default tenants only), `a2a.task.state`, `a2a.stream.event_count`; on agent runs `a2a.execution.kind` and `a2a.execution.timed_out`; on deliveries `a2a.push.config.id`, `a2a.push.sequence`, `a2a.push.attempts`, `server.address` (host only) and `http.response.status_code`.
-- **Errors**: a failed operation gets status `Error`, `error.type` and, for A2A errors, `a2a.error.code` (the `A2AErrorCode` name, e.g. `TaskNotFound`). An agent run that throws, hits `MaxTaskDuration` (`error.type` `TimeLimit`) or leaves the task `FAILED` (`TaskFailed`) is an error too. A cancellation the caller asked for sets `a2a.canceled` and is not an error.
-- **No content**: tags never hold message text, parts, metadata, tokens, credentials, webhook URLs or exception messages.
+- **Tags**: `a2a.method.name`, `a2a.binding` (`JSONRPC`, `HTTP+JSON`, `GRPC`), `a2a.protocol.version`, `a2a.task.id`, `gen_ai.conversation.id`, `a2a.message.id` and `a2a.message.reference_task_ids` (message sends), `gen_ai.agent.name`, `gen_ai.agent.description` and `gen_ai.agent.version` (from the Agent Card), `a2a.tenant` (non-default tenants only), `a2a.task.state` (proto name, such as `TASK_STATE_COMPLETED`), `a2a.stream.event_count`; on agent runs `a2a.execution.kind` and `a2a.execution.timed_out`; on deliveries `a2a.push.config.id`, `a2a.push.sequence`, `a2a.push.attempts`, `server.address` (host only) and `http.response.status_code`.
+- **Errors**: a failed operation gets status `Error`, `error.type` (the A2A reason, e.g. `TASK_NOT_FOUND`) and, for A2A errors, `a2a.error.code` (the `A2AErrorCode` name, e.g. `TaskNotFound`). An agent run that throws, hits `MaxTaskDuration` (`error.type` `TimeLimit`) or leaves the task `FAILED` (`TaskFailed`) is an error too. A cancellation the caller asked for sets `a2a.canceled` and is not an error.
+- **Conventions**: names follow the OpenTelemetry A2A semantic conventions, which are in Development status and may change. See the [observability guide](docs/site/guides/observability.md).
+- **No content**: tags never hold message text, parts, metadata, tokens, credentials, webhook URLs or exception messages. They hold ids, states and versions, and can also hold the public Agent Card's name, description and version.
 
-**Metrics** (meter `A2A.Server`, `AddMeter("A2A.Server")`): `a2a.server.requests` (tags `rpc.method`, `a2a.outcome` = `ok`, `canceled` or `error`, and `error.type` on errors), `a2a.server.events` (events stored), `a2a.server.streams.opened` (streams admitted), `a2a.server.push.deliveries` (tag `a2a.outcome` = `sent`, `retried` or `dead_lettered`, one per attempt) and `a2a.server.push.dead_letters`. A stream the reader stops early counts as `canceled`.
+**Metrics** (meter `A2A.Server`, `AddMeter("A2A.Server")`): `a2a.server.requests` (tags `a2a.method.name`, `a2a.outcome` = `ok`, `canceled` or `error`, and `error.type` on errors), `a2a.server.events` (events stored), `a2a.server.streams.opened` (streams admitted), `a2a.server.push.deliveries` (tag `a2a.outcome` = `sent`, `retried` or `dead_lettered`, one per attempt) and `a2a.server.push.dead_letters`. A stream the reader stops early counts as `canceled`.
 
-The request span is the outermost step of the operation pipeline (around the host filters and authorization), so a refused or unauthenticated call still has a span with its error. Extension operations get `a2a.{method}` spans.
+The request span is the outermost step of the operation pipeline (around the host filters and authorization), so a refused or unauthenticated call still has a span with its error. Extension operations use their method name too.
 
 All names are constants on `A2A.Diagnostics.A2ATelemetry`.
 

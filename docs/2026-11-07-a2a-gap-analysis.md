@@ -132,7 +132,7 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 | D28 | Per-request headers: 16-month issue; "use DelegatingHandler". | Med | #107, PR #399 | `A2ARequestOptions` (headers, auth, timeout, extensions, idempotency key) on every client call. |
 | D29 | Required fields not enforced. | Med | #198 open | `required` members + runtime validator before send; Roslyn analyzer package optional. Done: runtime check before send; no new `required` members, see docs/superpowers/specs/2026-11-08-required-field-validation-design.md. |
 | D30 | `SubscribeToTask` on terminal task throws; no helper. | Low | #341 | Client `ObserveTaskAsync` returns snapshot then stream; handles terminal, reconnect, cursor (S22). |
-| D31 | Observability metric names SDK-specific, not OTel GenAI semconv. | Low | source | Follow OTel GenAI semconv; `ActivitySource` "A2A"; trace context propagation (S34). |
+| D31 | Observability metric names SDK-specific, not OTel GenAI semconv. | Low | source | Follow the OTel A2A conventions page (`docs/gen-ai/a2a.md`); trace context propagation (S34). |
 | D32 | Mandatory path param, surface noise, duplicated error maps, 5 copies of streaming lifecycle. | Low/Med | #186, #556 | Default `/` route; one error-code map in `A2A.Protocol`; one streaming pipeline. |
 | D33 | AF hosting: `ReferenceTaskIds` unsupported, message-only mode cannot cancel/resume, scoped lifetimes ignored, context memory lifecycle unresolved. | Med | AF #7733, #4876, #9481 | Not our bug, but: scoped DI per request, `referenceTaskIds` passed through to handler, context lifecycle policy hook. |
 
@@ -159,7 +159,7 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 14. Per-request card/handler resolution, tenant routes (D19, D20).
 15. Interrupted-state TTL, approval binding (loopjacking), cancel-requested semantics (S18, S19, S25).
 16. Client resilience: timeouts, retry on retryable, `ObserveTaskAsync` (D10, D30, S30).
-17. Trace context + OTel GenAI semconv (S34, D31).
+17. Trace context + OTel GenAI semconv (S34, D31). Done.
 18. Task retention sweeper (S32, D11).
 
 **P2: ecosystem**

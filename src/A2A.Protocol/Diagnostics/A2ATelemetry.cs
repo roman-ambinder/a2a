@@ -1,17 +1,19 @@
 using System.Diagnostics;
+using A2A.Json;
 
 namespace A2A.Diagnostics;
 
 /// <summary>
 /// Names used by the SDK's tracing and metrics. The SDK traces with <see cref="ActivitySource"/> and counts with
 /// <see cref="System.Diagnostics.Metrics.Meter"/> only, so it works with OpenTelemetry (<c>AddSource("A2A.Server", "A2A.Client")</c>,
-/// <c>AddMeter("A2A.Server")</c>) or any other listener, and costs almost nothing when nobody listens. Tags carry ids and
-/// outcomes only: never message content, tokens, credentials or webhook URLs.
+/// <c>AddMeter("A2A.Server")</c>) or any other listener, and costs almost nothing when nobody listens. Tags carry ids,
+/// states, versions and outcomes only, plus the public Agent Card's name, description and version: never message content,
+/// tokens, credentials or webhook URLs. Names follow the OpenTelemetry A2A semantic conventions (status: Development).
 /// </summary>
 public static class A2ATelemetry
 {
     /// <summary>
-    /// Source of the server spans: one per operation (<see cref="SpanNames.Operation"/>), one per agent run
+    /// Source of the server spans: one per operation (named after the method, for example <c>GetTask</c>), one per agent run
     /// (<see cref="SpanNames.AgentExecution"/>) and one per webhook delivery (<see cref="SpanNames.PushDelivery"/>).
     /// </summary>
     public const string ServerSourceName = "A2A.Server";
@@ -30,15 +32,12 @@ public static class A2ATelemetry
     /// <summary>W3C trace context header with vendor trace state.</summary>
     public const string TraceStateHeader = "tracestate";
 
-    /// <summary>Span names.</summary>
+    /// <summary>
+    /// Span names. An operation span is named after its method (an <see cref="A2AProtocol.Methods"/> name such as
+    /// <c>SendMessage</c> or <c>GetTask</c>); client and server use the same names and the span kind tells them apart.
+    /// </summary>
     public static class SpanNames
     {
-        /// <summary>Prefix of operation spans: <c>a2a.SendMessage</c>, <c>a2a.GetTask</c>, ... (client and server use the same names; the kind tells them apart).</summary>
-        public const string OperationPrefix = "a2a.";
-
-        /// <summary>The name of the span of <paramref name="operation"/> (an <see cref="A2AProtocol.Methods"/> name).</summary>
-        public static string Operation(string operation) => OperationPrefix + operation;
-
         /// <summary>One run of the agent executor for a task (execute or cancel).</summary>
         public const string AgentExecution = "a2a.agent.execute";
 
@@ -49,11 +48,8 @@ public static class A2ATelemetry
     /// <summary>Span tag names.</summary>
     public static class Tags
     {
-        /// <summary>Always <c>a2a</c>.</summary>
-        public const string RpcSystem = "rpc.system";
-
         /// <summary>The operation (an <see cref="A2AProtocol.Methods"/> name).</summary>
-        public const string Operation = "rpc.method";
+        public const string Operation = "a2a.method.name";
 
         /// <summary>The protocol binding: <c>JSONRPC</c>, <c>HTTP+JSON</c> or <c>GRPC</c> (see <see cref="ProtocolBindings"/>).</summary>
         public const string Binding = "a2a.binding";
@@ -62,18 +58,36 @@ public static class A2ATelemetry
         public const string TaskId = "a2a.task.id";
 
         /// <summary>The context (conversation) id.</summary>
-        public const string ContextId = "a2a.context.id";
+        public const string ContextId = "gen_ai.conversation.id";
+
+        /// <summary>The id of the message a call sends (<c>a2a.message.id</c>). Never its text, parts or metadata.</summary>
+        public const string MessageId = "a2a.message.id";
+
+        /// <summary>The ids of the tasks a message refers to (a string array); set only when there are any.</summary>
+        public const string ReferenceTaskIds = "a2a.message.reference_task_ids";
+
+        /// <summary>The A2A protocol version of the call (for example <c>1.0</c>).</summary>
+        public const string ProtocolVersion = "a2a.protocol.version";
+
+        /// <summary>The agent card's name (<c>gen_ai.agent.name</c>); not set when empty.</summary>
+        public const string AgentName = "gen_ai.agent.name";
+
+        /// <summary>The agent card's description (<c>gen_ai.agent.description</c>); not set when empty.</summary>
+        public const string AgentDescription = "gen_ai.agent.description";
+
+        /// <summary>The agent card's version (<c>gen_ai.agent.version</c>); not set when empty.</summary>
+        public const string AgentVersion = "gen_ai.agent.version";
 
         /// <summary>The tenant; set only when not the default (empty) tenant.</summary>
         public const string Tenant = "a2a.tenant";
 
-        /// <summary>The task state after the operation or run (for example <c>Completed</c>).</summary>
+        /// <summary>The task state after the operation or run, as its proto name (for example <c>TASK_STATE_COMPLETED</c>).</summary>
         public const string TaskState = "a2a.task.state";
 
         /// <summary>The <see cref="A2AErrorCode"/> name of a failed operation (for example <c>TaskNotFound</c>).</summary>
         public const string ErrorCode = "a2a.error.code";
 
-        /// <summary>OpenTelemetry <c>error.type</c>: the error code name, or the exception type for a non-A2A error.</summary>
+        /// <summary>OpenTelemetry <c>error.type</c>: the A2A error reason (for example <c>TASK_NOT_FOUND</c>), or the exception type for a non-A2A error.</summary>
         public const string ErrorType = "error.type";
 
         /// <summary>Number of events a stream sent or received.</summary>
@@ -151,7 +165,7 @@ public static class A2ATelemetry
     /// <summary>Span event names. Stream events are span events on the stream's span, not child spans.</summary>
     public static class Events
     {
-        /// <summary>One stream event. Tags: <c>a2a.event.kind</c>, <c>a2a.event.sequence</c> (server), <c>a2a.task.state</c> (status updates).</summary>
+        /// <summary>One stream event. Tags: <c>a2a.event.kind</c>, <c>a2a.event.sequence</c> (server), <c>a2a.task.state</c> (status updates, and tasks that have a status).</summary>
         public const string StreamEvent = "a2a.stream.event";
 
         /// <summary>A client stream reconnected (or a webhook delivery attempt failed and is retried).</summary>
@@ -220,60 +234,132 @@ public static class A2ATelemetry
             activity.SetTag(ErrorTypeCanceledTag, true);
             return;
         }
-        var type = error is A2AException a2a ? a2a.Code.ToString() : error.GetType().FullName ?? error.GetType().Name;
+        var type = ErrorTypeOf(error);
         if (error is A2AException e) activity.SetTag(Tags.ErrorCode, e.Code.ToString());
         activity.SetTag(Tags.ErrorType, type);
         activity.SetStatus(ActivityStatusCode.Error, type);
     }
 
+    /// <summary>
+    /// The <see cref="Tags.ErrorType"/> of a failure: the A2A error reason of an <see cref="A2AException"/>, otherwise the
+    /// exception type name.
+    /// </summary>
+    public static string ErrorTypeOf(Exception error)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        return error is A2AException e ? e.ReasonOverride ?? A2AErrors.Reason(e.Code) : error.GetType().FullName ?? error.GetType().Name;
+    }
+
+    /// <summary>The <see cref="Tags.TaskState"/> value of <paramref name="state"/>: its proto name (for example <c>TASK_STATE_COMPLETED</c>).</summary>
+    public static string TaskStateValue(TaskState state) => ProtoEnumConverter<TaskState>.ToProtoName(state);
+
     /// <summary>Set (true) on a span whose operation the caller canceled. Not an error.</summary>
     public const string ErrorTypeCanceledTag = "a2a.canceled";
 
-    /// <summary>Sets the common operation tags.</summary>
-    public static void SetOperationTags(Activity? activity, string operation, string? binding, string? tenant, string? taskId = null, string? contextId = null)
+    /// <summary>Sets the common operation tags (nothing on a span nobody samples).</summary>
+    public static void SetOperationTags(Activity? activity, string operation, string? binding, string? tenant, string? taskId = null, string? contextId = null, string? protocolVersion = null)
     {
-        if (activity is null) return;
-        activity.SetTag(Tags.RpcSystem, "a2a");
+        if (activity is not { IsAllDataRequested: true }) return;
         activity.SetTag(Tags.Operation, operation);
         if (!string.IsNullOrEmpty(binding)) activity.SetTag(Tags.Binding, binding);
         if (!string.IsNullOrEmpty(tenant)) activity.SetTag(Tags.Tenant, tenant);
+        if (!string.IsNullOrEmpty(protocolVersion)) activity.SetTag(Tags.ProtocolVersion, protocolVersion);
         SetTask(activity, taskId, contextId);
     }
 
     /// <summary>Sets <see cref="Tags.TaskId"/> and <see cref="Tags.ContextId"/> when known.</summary>
     public static void SetTask(Activity? activity, string? taskId, string? contextId = null)
     {
-        if (activity is null) return;
+        if (activity is not { IsAllDataRequested: true }) return;
         if (!string.IsNullOrEmpty(taskId)) activity.SetTag(Tags.TaskId, taskId);
         if (!string.IsNullOrEmpty(contextId)) activity.SetTag(Tags.ContextId, contextId);
+    }
+
+    /// <summary>
+    /// Sets the id tags of a message a call sends: <see cref="Tags.MessageId"/>, <see cref="Tags.ReferenceTaskIds"/>, and the task and
+    /// context ids. Never its text, parts or metadata.
+    /// </summary>
+    public static void SetMessage(Activity? activity, Message? message)
+    {
+        if (message is null || activity is not { IsAllDataRequested: true }) return;
+        if (!string.IsNullOrEmpty(message.MessageId)) activity.SetTag(Tags.MessageId, message.MessageId);
+        if (message.ReferenceTaskIds is { Count: > 0 } references) activity.SetTag(Tags.ReferenceTaskIds, references.ToArray());
+        SetTask(activity, message.TaskId, message.ContextId);
+    }
+
+    /// <summary>Sets the agent card's name, description and version (<c>gen_ai.agent.*</c>); an empty field is not tagged.</summary>
+    public static void SetAgent(Activity? activity, AgentCard? card)
+    {
+        if (card is null || activity is not { IsAllDataRequested: true }) return;
+        if (!string.IsNullOrEmpty(card.Name)) activity.SetTag(Tags.AgentName, card.Name);
+        if (!string.IsNullOrEmpty(card.Description)) activity.SetTag(Tags.AgentDescription, card.Description);
+        if (!string.IsNullOrEmpty(card.Version)) activity.SetTag(Tags.AgentVersion, card.Version);
     }
 
     /// <summary>Sets the task tags from an operation result (a task, a message, a stream event).</summary>
     public static void SetResult(Activity? activity, object? result)
     {
+        if (activity is not { IsAllDataRequested: true }) return;
+        ApplyResult(activity, result, stream: false);
+    }
+
+    /// <summary>
+    /// Like <see cref="SetResult"/> for each event of a stream, but a span covers many events: <see cref="Tags.TaskState"/> stays
+    /// only while every event of the stream reported the same state. Once two different states have been seen the tag is removed
+    /// and does not come back (each event still carries its own state).
+    /// </summary>
+    public static void SetStreamResult(Activity? activity, StreamResponse evt)
+    {
+        if (activity is not { IsAllDataRequested: true }) return;
+        ApplyResult(activity, evt, stream: true);
+    }
+
+    private static readonly object MixedStates = new();
+    private const string MixedStatesKey = "a2a.stream.mixed_states";
+
+    private static void SetState(Activity activity, TaskState state, bool stream)
+    {
+        var value = TaskStateValue(state);
+        if (!stream)
+        {
+            activity.SetTag(Tags.TaskState, value);
+            return;
+        }
+        if (activity.GetCustomProperty(MixedStatesKey) is not null) return;
+        var current = activity.GetTagItem(Tags.TaskState);
+        if (current is null) activity.SetTag(Tags.TaskState, value);
+        else if (!string.Equals(current as string, value, StringComparison.Ordinal))
+        {
+            activity.SetTag(Tags.TaskState, null);
+            activity.SetCustomProperty(MixedStatesKey, MixedStates);
+        }
+    }
+
+    private static void ApplyResult(Activity activity, object? result, bool stream)
+    {
         switch (result)
         {
             case AgentTask t:
                 SetTask(activity, t.Id, t.ContextId);
-                activity?.SetTag(Tags.TaskState, t.Status?.State.ToString());
+                if (t.Status is { } ts) SetState(activity, ts.State, stream);
                 break;
             case Message m:
                 SetTask(activity, m.TaskId, m.ContextId);
                 break;
-            case TaskResponse r: SetResult(activity, r.Task); break;
-            case MessageResponse r: SetResult(activity, r.Message); break;
-            case TaskEvent e: SetResult(activity, e.Task); break;
-            case MessageEvent e: SetResult(activity, e.Message); break;
+            case TaskResponse r: ApplyResult(activity, r.Task, stream); break;
+            case MessageResponse r: ApplyResult(activity, r.Message, stream); break;
+            case TaskEvent e: ApplyResult(activity, e.Task, stream); break;
+            case MessageEvent e: ApplyResult(activity, e.Message, stream); break;
             case StatusUpdateEvent { StatusUpdate: var su }:
                 SetTask(activity, su.TaskId, su.ContextId);
-                activity?.SetTag(Tags.TaskState, su.Status?.State.ToString());
+                if (su.Status is { } ss) SetState(activity, ss.State, stream);
                 break;
             case ArtifactUpdateEvent { ArtifactUpdate: var au }:
                 SetTask(activity, au.TaskId, au.ContextId);
                 break;
             case TaskPushNotificationConfig c:
                 SetTask(activity, c.TaskId);
-                activity?.SetTag(Tags.PushConfigId, c.Id);
+                activity.SetTag(Tags.PushConfigId, c.Id);
                 break;
         }
     }
@@ -284,7 +370,8 @@ public static class A2ATelemetry
         if (activity is null || !activity.IsAllDataRequested) return;
         var tags = new ActivityTagsCollection { [Events.EventKind] = EventKindOf(evt) };
         if (sequence is { } s) tags[Events.EventSequence] = s;
-        if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var state }) tags[Tags.TaskState] = state.ToString();
+        if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var updated }) tags[Tags.TaskState] = TaskStateValue(updated);
+        else if (evt is TaskEvent { Task.Status.State: var current }) tags[Tags.TaskState] = TaskStateValue(current);
         activity.AddEvent(new ActivityEvent(Events.StreamEvent, tags: tags));
     }
 }

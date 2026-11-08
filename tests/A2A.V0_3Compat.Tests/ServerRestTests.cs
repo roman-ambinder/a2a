@@ -10,11 +10,12 @@ public class ServerRestTests
 {
     private static readonly JsonParser Strict = new(JsonParser.Settings.Default);
 
-    private static async Task<(HttpResponseMessage Response, string Text)> SendAsync(HttpClient http, HttpMethod method, string path, string? body = null, string? version = null)
+    private static async Task<(HttpResponseMessage Response, string Text)> SendAsync(HttpClient http, HttpMethod method, string path, string? body = null, string? version = null, string? traceParent = null)
     {
         using var request = new HttpRequestMessage(method, path);
         if (body is not null) request.Content = V03Host.Json(body);
         if (version is not null) request.Headers.Add("A2A-Version", version);
+        if (traceParent is not null) request.Headers.Add("traceparent", traceParent);
         var response = await http.SendAsync(request);
         return (response, await response.Content.ReadAsStringAsync());
     }
@@ -23,6 +24,30 @@ public class ServerRestTests
     {
         var (_, body) = await SendAsync(http, HttpMethod.Post, prefix + "/v1/message:send", V03Host.RestSendBody(text, blocking: false));
         return Strict.Parse<P.SendMessageResponse>(body).Task.Id;
+    }
+
+    [Fact]
+    public async Task Operation_span_reports_the_wire_protocol_version_of_a_v03_caller()
+    {
+        var stopped = new System.Collections.Concurrent.ConcurrentQueue<System.Diagnostics.Activity>();
+        using var listener = new System.Diagnostics.ActivityListener
+        {
+            ShouldListenTo = s => s.Name == "A2A.Server",
+            Sample = (ref System.Diagnostics.ActivityCreationOptions<System.Diagnostics.ActivityContext> _) => System.Diagnostics.ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = stopped.Enqueue,
+        };
+        System.Diagnostics.ActivitySource.AddActivityListener(listener);
+        await using var host = await V03Host.StartAsync();
+
+        var traceId = System.Diagnostics.ActivityTraceId.CreateRandom();
+        var spanId = System.Diagnostics.ActivitySpanId.CreateRandom();
+        var (response, _) = await SendAsync(host.Http(), HttpMethod.Post, "/a2a/v1/message:send", V03Host.RestSendBody("hello"), traceParent: $"00-{traceId}-{spanId}-01");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var until = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (!stopped.Any(a => a.OperationName == "SendMessage" && a.TraceId == traceId) && DateTime.UtcNow < until) await Task.Delay(10);
+        var span = Assert.Single(stopped, a => a.OperationName == "SendMessage" && a.TraceId == traceId);
+        Assert.Equal("0.3", span.GetTagItem("a2a.protocol.version"));
     }
 
     [Fact]

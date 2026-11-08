@@ -307,8 +307,8 @@ public sealed class OperationTableTests
         Assert.Equal("was here", seenItem); // the handler gets the context the filters saw
 
         var until = DateTime.UtcNow + TimeSpan.FromSeconds(30);
-        while (!spans.Any(a => a.OperationName == A2ATelemetry.SpanNames.Operation(Echo)) && DateTime.UtcNow < until) await Task.Delay(10);
-        var span = Assert.Single(spans, a => a.OperationName == A2ATelemetry.SpanNames.Operation(Echo));
+        while (!spans.Any(a => a.OperationName == Echo) && DateTime.UtcNow < until) await Task.Delay(10);
+        var span = Assert.Single(spans, a => a.OperationName == Echo);
         Assert.Equal(Echo, span.GetTagItem(A2ATelemetry.Tags.Operation));
     }
 
@@ -328,8 +328,8 @@ public sealed class OperationTableTests
         var (status, _) = await SendAsync(host, JsonRpc(Echo));
         Assert.Equal(HttpStatusCode.Forbidden, status);
         var until = DateTime.UtcNow + TimeSpan.FromSeconds(30);
-        while (!spans.Any(a => a.OperationName == A2ATelemetry.SpanNames.Operation(Echo)) && DateTime.UtcNow < until) await Task.Delay(10);
-        var span = Assert.Single(spans, a => a.OperationName == A2ATelemetry.SpanNames.Operation(Echo));
+        while (!spans.Any(a => a.OperationName == Echo) && DateTime.UtcNow < until) await Task.Delay(10);
+        var span = Assert.Single(spans, a => a.OperationName == Echo);
         Assert.Equal(ActivityStatusCode.Error, span.Status);
     }
 
