@@ -69,7 +69,7 @@ public sealed class Jwk
                     Q = new ECPoint { X = Base64Url.Decode(X ?? throw new FormatException("Missing x")), Y = Base64Url.Decode(Y ?? throw new FormatException("Missing y")) },
                 });
             case "RSA":
-                var rsa = RSA.Create();
+                var rsa = CreateRsa();
                 rsa.ImportParameters(new RSAParameters
                 {
                     Modulus = Base64Url.Decode(N ?? throw new FormatException("Missing n")),
@@ -79,6 +79,26 @@ public sealed class Jwk
             default:
                 throw new NotSupportedException($"Unsupported key type '{Kty}'.");
         }
+    }
+
+    private static RSA CreateRsa()
+    {
+#if NETSTANDARD2_0
+        // On .NET Framework RSA.Create() returns RSACryptoServiceProvider, which cannot do PSS. RSACng can.
+        // If RSACng is missing, PSS verification fails closed (JwsAlgorithms.Verify catches the exception).
+        if (System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework", StringComparison.Ordinal))
+        {
+            try
+            {
+                var type = Type.GetType("System.Security.Cryptography.RSACng, System.Core, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089");
+                if (type is not null && Activator.CreateInstance(type) is RSA cng) return cng;
+            }
+            catch (Exception ex) when (ex is TypeLoadException or MissingMethodException or System.Reflection.TargetInvocationException or CryptographicException or PlatformNotSupportedException)
+            {
+            }
+        }
+#endif
+        return RSA.Create();
     }
 
     private static string CurveName(ECCurve curve) => curve.Oid.FriendlyName switch

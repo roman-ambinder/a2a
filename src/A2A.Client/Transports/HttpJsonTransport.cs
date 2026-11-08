@@ -135,7 +135,12 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
         if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, ct).ConfigureAwait(false);
         if (!IsEventStream(resp)) throw ProtocolError("Expected text/event-stream.");
 
+#if NETSTANDARD2_0
+        // Stream has no DisposeAsync on netstandard2.0.
+        using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+#else
         await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+#endif
         await foreach (var evt in SseReader.ReadAsync(stream, ct).ConfigureAwait(false))
         {
             StreamResponse? item = null;

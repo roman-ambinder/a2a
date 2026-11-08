@@ -64,14 +64,18 @@ public static class AgentCardSigner
 /// <summary>Supported JWS algorithms. Symmetric (HS*) and "none" are deliberately excluded.</summary>
 public static class JwsAlgorithms
 {
-    /// <summary>The algorithm names that are supported.</summary>
-    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    internal static readonly HashSet<string> Supported = new(StringComparer.Ordinal)
     {
         "ES256", "ES384", "ES512", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512",
     };
 
+#if !NETSTANDARD2_0
+    /// <summary>The algorithm names that are supported.</summary>
+    public static readonly IReadOnlySet<string> All = Supported;
+#endif
+
     /// <summary>Returns true if <paramref name="alg"/> is a supported algorithm.</summary>
-    public static bool IsSupported(string? alg) => alg is not null && All.Contains(alg);
+    public static bool IsSupported(string? alg) => alg is not null && Supported.Contains(alg);
 
     /// <summary>Returns the hash algorithm of a JWS algorithm name, for example SHA-256 for <c>ES256</c>.</summary>
     public static HashAlgorithmName Hash(string alg) => alg[2..] switch
@@ -82,10 +86,25 @@ public static class JwsAlgorithms
         _ => throw new NotSupportedException(alg),
     };
 
+    // JWS needs IEEE P1363 (r || s). On netstandard2.0 that is the only format ECDsa offers, so the overload without a format is the same call.
+    private static byte[] EcSign(ECDsa ec, byte[] data, string alg) =>
+#if NETSTANDARD2_0
+        ec.SignData(data, Hash(alg));
+#else
+        ec.SignData(data, Hash(alg), DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+#endif
+
+    private static bool EcVerify(ECDsa ec, byte[] data, byte[] signature, string alg) =>
+#if NETSTANDARD2_0
+        ec.VerifyData(data, signature, Hash(alg));
+#else
+        ec.VerifyData(data, signature, Hash(alg), DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+#endif
+
     /// <summary>Signs <paramref name="data"/>. Throws when the key type does not match the algorithm.</summary>
     public static byte[] Sign(string alg, AsymmetricAlgorithm key, byte[] data) => (alg[0], key) switch
     {
-        ('E', ECDsa ec) => ec.SignData(data, Hash(alg), DSASignatureFormat.IeeeP1363FixedFieldConcatenation),
+        ('E', ECDsa ec) => EcSign(ec, data, alg),
         ('R', RSA rsa) => rsa.SignData(data, Hash(alg), RSASignaturePadding.Pkcs1),
         ('P', RSA rsa) => rsa.SignData(data, Hash(alg), RSASignaturePadding.Pss),
         _ => throw new CryptographicException($"Key type {key.GetType().Name} does not match algorithm {alg}."),
@@ -98,7 +117,7 @@ public static class JwsAlgorithms
         {
             return (alg[0], key) switch
             {
-                ('E', ECDsa ec) => ec.VerifyData(data, signature, Hash(alg), DSASignatureFormat.IeeeP1363FixedFieldConcatenation),
+                ('E', ECDsa ec) => EcVerify(ec, data, signature, alg),
                 ('R', RSA rsa) => rsa.VerifyData(data, signature, Hash(alg), RSASignaturePadding.Pkcs1),
                 ('P', RSA rsa) => rsa.VerifyData(data, signature, Hash(alg), RSASignaturePadding.Pss),
                 _ => false,

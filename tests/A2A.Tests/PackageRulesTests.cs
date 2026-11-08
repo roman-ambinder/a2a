@@ -18,7 +18,10 @@ public sealed class PackageRulesTests
             .Select(p => (Path.GetFileNameWithoutExtension(p), XDocument.Load(p)));
 
     private static string[] PackageRefs(XDocument doc) =>
-        doc.Descendants("PackageReference").Select(e => (string?)e.Attribute("Include") ?? "").ToArray();
+        doc.Descendants("PackageReference")
+            // The rule covers the net8/net10 graph. netstandard2.0 groups hold its compatibility packages and a build-only polyfill generator.
+            .Where(e => !(((string?)e.Parent?.Attribute("Condition")) ?? "").Contains("netstandard2.0", StringComparison.Ordinal))
+            .Select(e => (string?)e.Attribute("Include") ?? "").ToArray();
 
     private static string[] RefsOf(string project) =>
         PackageRefs(SrcProjects().Single(p => p.Name == project).Doc);
@@ -186,6 +189,8 @@ public sealed class NamespaceRulesTests
         foreach (var projDir in Directory.GetDirectories(src))
         {
             var project = Path.GetFileName(projDir);
+            // Shared holds the netstandard2.0 polyfills, which live in System namespaces on purpose.
+            if (project == "Shared") continue;
             var root = project == "A2A.Protocol" ? "A2A" : project;
             foreach (var file in Directory.EnumerateFiles(projDir, "*.cs", SearchOption.AllDirectories))
             {

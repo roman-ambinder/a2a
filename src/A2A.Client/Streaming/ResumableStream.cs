@@ -188,7 +188,7 @@ internal static class ResumableStream
     {
         taskId = "";
         sequence = 0;
-        if (string.IsNullOrEmpty(id)) return false;
+        if (id is null || id.Length == 0) return false;
         var colon = id.LastIndexOf(':');
         if (colon <= 0) return false;
         if (!long.TryParse(id.AsSpan(colon + 1), NumberStyles.None, CultureInfo.InvariantCulture, out sequence) || sequence < 1) return false;

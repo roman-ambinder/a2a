@@ -35,7 +35,7 @@ public static class ArtifactHash
         ArgumentNullException.ThrowIfNull(parts);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         Update(hash, parts);
-        return Format(hash.GetCurrentHash());
+        return Format(hash.GetHashAndReset());
     }
 
     /// <summary>
