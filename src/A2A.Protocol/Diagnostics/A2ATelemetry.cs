@@ -7,7 +7,7 @@ namespace A2A.Diagnostics;
 /// Names used by the SDK's tracing and metrics. The SDK traces with <see cref="ActivitySource"/> and counts with
 /// <see cref="System.Diagnostics.Metrics.Meter"/> only, so it works with OpenTelemetry (<c>AddSource("A2A.Server", "A2A.Client")</c>,
 /// <c>AddMeter("A2A.Server")</c>) or any other listener, and costs almost nothing when nobody listens. Tags carry ids and
-/// outcomes only: never message content, tokens, credentials or webhook URLs.
+/// outcomes only: never message content, tokens, credentials or webhook URLs. Names follow the OpenTelemetry A2A semantic conventions (status: Development).
 /// </summary>
 public static class A2ATelemetry
 {

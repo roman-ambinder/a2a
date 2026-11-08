@@ -25,12 +25,12 @@ On a client process, listen to `A2A.Client`:
 
 | Source | Span | Kind | When |
 |---|---|---|---|
-| `A2A.Server` | `a2a.{Operation}` (`a2a.SendMessage`, `a2a.GetTask`, ...) | Server; Internal when it runs under another local span such as ASP.NET Core's request span | every operation, on all three bindings |
+| `A2A.Server` | `{method}` (`SendMessage`, `GetTask`, ...) | Server; Internal when it runs under another local span such as ASP.NET Core's request span | every operation, on all three bindings |
 | `A2A.Server` | `a2a.agent.execute` | Internal | one agent run (execute or cancel); child of the operation span |
 | `A2A.Server` | `a2a.push.deliver` | Client | one attempt to send one event to one webhook |
-| `A2A.Client` | `a2a.{Operation}` | Client | every `A2AClient` operation, with its retries and stream reconnects |
+| `A2A.Client` | `{method}` | Client | every `A2AClient` operation, with its retries and stream reconnects |
 
-The operation span is the outermost step of the operation pipeline. It wraps the host filters and authorization, so a refused or unauthenticated call still has a span with its error. Extension operations get `a2a.{method}` spans.
+The operation span is the outermost step of the operation pipeline. It wraps the host filters and authorization, so a refused or unauthenticated call still has a span with its error. Extension operations use their method name too.
 
 The delivery span continues the trace of the agent run that produced the event. The trace context is stored with the delivery, so a retry or another instance stays in the same trace.
 
@@ -51,13 +51,16 @@ A client reconnect adds an `a2a.retry` span event with `a2a.retry.attempt`. A fa
 
 | Tag | On | Notes |
 |---|---|---|
-| `rpc.system` | operation spans | always `a2a` |
-| `rpc.method` | operation spans | the operation name |
+| `a2a.method.name` | operation spans | the operation name (for example `SendMessage`) |
 | `a2a.binding` | operation spans | `JSONRPC`, `HTTP+JSON` or `GRPC` |
 | `a2a.task.id` | operation, run and delivery spans | when known |
-| `a2a.context.id` | operation and run spans | when known |
+| `gen_ai.conversation.id` | operation and run spans | the context id, when known |
+| `a2a.message.id` | `SendMessage` and `SendStreamingMessage` spans | the id of the message sent |
+| `a2a.message.reference_task_ids` | `SendMessage` and `SendStreamingMessage` spans | string array, only when the message refers to tasks |
+| `a2a.protocol.version` | operation spans | the protocol version of the call, for example `1.0`. On the client it comes from `A2AClientOptions.ProtocolVersion`. On the server it is set when the caller's version is known |
+| `gen_ai.agent.name`, `gen_ai.agent.description`, `gen_ai.agent.version` | operation spans | from the Agent Card, each only when not empty. On the client, only when the client has an Agent Card. On the server, when the operation resolved the tenant's card, so a call refused before that has none |
 | `a2a.tenant` | all server spans | only for a non-default tenant |
-| `a2a.task.state` | operation and run spans | the task state after the call or run |
+| `a2a.task.state` | operation and run spans | the task state after the call or run, as its proto name (`TASK_STATE_COMPLETED`). A stream span has it only when the stream saw one state |
 | `a2a.stream.event_count` | stream spans | events sent or received |
 | `a2a.execution.kind` | run spans | `execute` or `cancel` |
 | `a2a.execution.timed_out` | run spans | `true` when `MaxTaskDuration` ended the run |
@@ -67,13 +70,26 @@ A client reconnect adds an `a2a.retry` span event with `a2a.retry.attempt`. A fa
 
 ## Errors
 
-A failed operation gets status `Error`, the `error.type` tag and, for A2A errors, `a2a.error.code` (the <xref:A2A.A2AErrorCode> name, for example `TaskNotFound`). For a non-A2A exception, `error.type` is the exception type name.
+A failed operation gets status `Error`, the `error.type` tag and, for A2A errors, `a2a.error.code` (the <xref:A2A.A2AErrorCode> name, for example `TaskNotFound`). For an A2A error, `error.type` is the A2A reason (`TASK_NOT_FOUND`). For a non-A2A exception, it is the exception type name.
 
 A run span is an error when the agent throws, when it hits <xref:A2A.Server.A2AServerOptions.MaxTaskDuration> (`error.type` is `TimeLimit`), or when it leaves the task `FAILED` (`error.type` is `TaskFailed`). A cancellation the caller asked for sets `a2a.canceled` to `true` and is not an error.
 
 ## No content
 
-Tags never hold message text, parts, metadata, tokens, credentials, webhook URLs or exception messages. Ids and outcomes only.
+Tags never hold message text, parts, metadata, tokens, credentials, webhook URLs or exception messages. Ids and outcomes only. The `gen_ai.agent.*` fields come from the public Agent Card.
+
+## OpenTelemetry semantic conventions
+
+The SDK follows the A2A page of `open-telemetry/semantic-conventions-genai` (`docs/gen-ai/a2a.md`, commit `da2b5736d7a3`). Its status is Development, so names can change before it is stable.
+
+The SDK emits no `gen_ai.operation.name` and no `invoke_agent` span. The convention says A2A instrumentation reports A2A requests only. The agent framework reports the agent run.
+
+Differences from the convention:
+
+- The operation span is a separate span under the ASP.NET Core request span. It does not enrich that span.
+- `server.address` and `client.address` come from the transport spans.
+
+Some names have no convention, so they stay: the span names `a2a.agent.execute` and `a2a.push.deliver`, the `a2a.*` counters, and the tags `a2a.binding` and `a2a.error.code`.
 
 ## Metrics
 
@@ -81,7 +97,7 @@ All counters are `Counter<long>`.
 
 | Meter | Counter | Tags | Counts |
 |---|---|---|---|
-| `A2A.Server` | `a2a.server.requests` | `rpc.method`, `a2a.outcome` (`ok`, `canceled`, `error`), `error.type` on errors | operations handled |
+| `A2A.Server` | `a2a.server.requests` | `a2a.method.name`, `a2a.outcome` (`ok`, `canceled`, `error`), `error.type` on errors | operations handled |
 | `A2A.Server` | `a2a.server.events` | none | task events stored |
 | `A2A.Server` | `a2a.server.streams.opened` | none | streams admitted (`SendStreamingMessage`, `SubscribeToTask`) |
 | `A2A.Server` | `a2a.server.push.deliveries` | `a2a.outcome` (`sent`, `retried`, `dead_lettered`) | one per delivery attempt, counted when its result is recorded |
