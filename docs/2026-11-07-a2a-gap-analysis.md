@@ -55,7 +55,7 @@ Status: S17 is done (actorChain model and echo, `ITokenExchanger`, `OAuthTokenEx
 | S24 | Non-blocking `returnImmediately` ignored silently; no capability flag. | High | [discussion #2277](https://github.com/a2aproject/A2A/discussions/2277); Eon report | Server always honours it or returns `UnsupportedOperation`. Client: timeout ≥ deadline; auto-fallback to stream/poll; task ID captured before awaiting result. |
 | S25 | Cancel semantics: not-immediate cancel, stream behaviour. | Med | A2A#1684, #1680 | Cancel returns task with `metadata["cancelRequested"]=true` while still WORKING; CANCELED emitted on stream then stream closed; `CancellationToken` plumbed to executor. |
 | S26 | Terminal-task immutability / revival unspecified. | Med | A2A#1095 | Terminal tasks immutable; follow-up to terminal task → error + hint to create new task with `referenceTaskIds`. |
-| S27 | Artifact lifecycle: replace after `lastChunk`, `append=true` creating artifact, empty parts. Go errors, Python ignores. | Med | [A2A#1231](https://github.com/a2aproject/A2A/issues/1231) TSC Review | Enforce seal after `lastChunk`; `append=false` = replace; `append=true` on unknown artifact = create; optional `metadata.sha256` per chunk and final (Content Integrity Profile #1140). |
+| S27 | Artifact lifecycle: replace after `lastChunk`, `append=true` creating artifact, empty parts. Go errors, Python ignores. | Med | [A2A#1231](https://github.com/a2aproject/A2A/issues/1231) TSC Review | Enforce seal after `lastChunk`; `append=false` = replace; `append=true` on unknown artifact = create; optional `metadata.sha256` per chunk and final (Content Integrity Profile #1140). Status: implemented (replace after `lastChunk` is allowed, an append to a sealed artifact is rejected by `TaskUpdater` and dropped by the engine, the seal is stored as `a2a.artifact.sealed`, empty parts only for an append to an existing artifact; optional cumulative `metadata.sha256` through `TaskUpdater.AddHashedArtifactAsync` and `ArtifactVerifier`; design: `docs/superpowers/specs/2026-11-08-s27-artifact-lifecycle-integrity-design.md`). |
 | S28 | Event `metadata` merge semantics undefined. | Med | A2A#1374 | Document and implement shallow-merge, last-write-wins; expose raw event list. |
 | S29 | History: no timestamps, all-or-nothing `historyLength`, no paging; dev-1.1 moves to timeline. | Med | epic #1991 | Store server-side timestamps per message; `historyLength` applied consistently; internal timeline model that can serialize to 1.0 `history` now and 1.1 timeline later. |
 | S30 | Error codes don't signal retryable vs permanent. | Med | Eon report; PR #1689 | `ErrorInfo.metadata["retryable"]` + `retryAfter`; client `A2AException.IsRetryable`; Polly-friendly. |
@@ -167,7 +167,7 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 20. Extension registry, operation registry (S31, D23).
 21. netstandard2.0 for Protocol + Client (D25).
 22. 0.3 read-compat shim behind flag (S33, D24).
-23. Artifact chunk hashing (S27).
+23. Artifact chunk hashing (S27). Done.
 24. Skill-selection and elicitation extension packages (S35, S38). S35 done, in the existing packages.
 25. Analyzer package, PublicAPI baseline (D26, D29).
 
