@@ -289,7 +289,6 @@ public sealed class ArtifactOffloadTests
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<ArtifactObjectStore>(new InMemoryArtifactObjectStore()));
-            _ = host.Engine;
         });
     }
 

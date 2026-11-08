@@ -38,6 +38,8 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        // Not inside the try: an object store without a link base is a configuration error, and the host must not start with it.
+        RequireLinkBase();
         try
         {
             Check();
@@ -48,6 +50,14 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
             ServerLog.StartupDiagnosticsSkipped(logger, ex);
         }
         return Task.CompletedTask;
+    }
+
+    private void RequireLinkBase()
+    {
+        if (services.GetService<ArtifactObjectStore>() is null) return;
+        var storage = services.GetService<A2AServerOptions>()?.ArtifactStorage;
+        if (storage is { PublicBaseUrl: null, PublicBaseUrlResolver: null })
+            throw new InvalidOperationException("An ArtifactObjectStore is registered, but A2AServerOptions.ArtifactStorage.PublicBaseUrl (or PublicBaseUrlResolver) is not set. Artifact links need a base URL.");
     }
 
     private void Check()
