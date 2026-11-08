@@ -215,6 +215,16 @@ A2A.Client.Transports.JsonRpcTransport.SubscribeToTaskAsync(A2A.SubscribeToTaskR
 const A2A.Client.Cards.UntrustedText.DefaultMaxLength = 2000 -> int
 override A2A.Client.Cards.UntrustedText.ToString() -> string!
 override A2A.Client.Sse.SseEvent.GetHashCode() -> int
+A2A.Client.Credentials.A2AMutualTls
+A2A.Client.Credentials.ApiKeyCredentialProvider
+A2A.Client.Credentials.ApiKeyCredentialProvider.ApiKeyCredentialProvider(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>! apiKey, string? schemeName = null) -> void
+A2A.Client.Credentials.ApiKeyCredentialProvider.ApiKeyCredentialProvider(string! apiKey, string? schemeName = null) -> void
+A2A.Client.Credentials.ApiKeyCredentialProvider.ApplyAsync(System.Net.Http.HttpRequestMessage! request, A2A.Client.Credentials.A2ACredentialContext! context, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Client.Credentials.ApiKeyCredentialProvider.CanHandle(A2A.Client.Credentials.A2ACredentialContext! context) -> bool
+A2A.Client.Credentials.MutualTlsCredentialProvider
+A2A.Client.Credentials.MutualTlsCredentialProvider.ApplyAsync(System.Net.Http.HttpRequestMessage! request, A2A.Client.Credentials.A2ACredentialContext! context, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Client.Credentials.MutualTlsCredentialProvider.CanHandle(A2A.Client.Credentials.A2ACredentialContext! context) -> bool
+A2A.Client.Credentials.MutualTlsCredentialProvider.MutualTlsCredentialProvider(string? schemeName = null) -> void
 static A2A.Client.A2ACardResolver.GetCardUri(System.Uri! agentUrl) -> System.Uri!
 static A2A.Client.A2AClientFactory.Create(A2A.AgentCard! card, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions? options = null) -> A2A.Client.A2AClient!
 static A2A.Client.A2AClientFactory.CreateAsync(System.Uri! agentUrl, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions? options = null, A2A.Client.A2ACardResolverOptions? resolverOptions = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.A2AClient!>!
@@ -311,3 +321,4 @@ A2A.Client.Credentials.OAuth2ClientCredentialsProvider.Dispose() -> void
 A2A.Client.Credentials.OAuth2ClientCredentialsProvider.OAuth2ClientCredentialsProvider(A2A.Client.Credentials.OAuth2ClientCredentialsOptions! options) -> void
 static A2A.Client.Credentials.A2ACredentialBinding.Create(A2A.Client.ResolvedAgentCard! card, A2A.AgentInterface! selectedInterface, System.Collections.Generic.IEnumerable<A2A.Client.Credentials.IA2ACredentialProvider!>! providers, bool requireHttps = true) -> A2A.Client.Credentials.A2ACredentialBinding!
 static A2A.Client.Credentials.A2ACredentialHandler.EnsureNoAutoRedirect(System.Net.Http.HttpMessageHandler! handler) -> void
+static A2A.Client.Credentials.A2AMutualTls.CreateHandler(System.Security.Cryptography.X509Certificates.X509Certificate2! certificate, System.Uri! agentUrl) -> System.Net.Http.SocketsHttpHandler!
