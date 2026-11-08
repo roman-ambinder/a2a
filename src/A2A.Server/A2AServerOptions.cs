@@ -39,6 +39,8 @@ public sealed class A2AServerOptions
     /// Returns the extended card for an authenticated caller (spec §3.1.11). Requires
     /// <c>AgentCard.Capabilities.ExtendedAgentCard = true</c>. Return null when no card is configured. The second argument is the
     /// completed public card (<see cref="IAgentCardProvider.Get"/>, with its interfaces and extension entries): copy it, do not change it.
+    /// It can also run during a send, for a caller authorized for GetExtendedAgentCard, when the skill-selection extension
+    /// refuses unknown skills (<see cref="A2A.Skills.SkillSelection.CreateExtension"/> with <c>rejectUnknownSkills: true</c>).
     /// Used when one agent serves every tenant; with a <see cref="Agents.TenantCardProvider"/>, extended cards come from
     /// <see cref="Agents.TenantCardProvider.GetExtendedCardAsync"/> instead, and this delegate is not called.
     /// </summary>

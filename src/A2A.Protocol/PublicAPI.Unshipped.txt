@@ -74,3 +74,12 @@ static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.TaskPushNotificationConf
 static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.GetTaskPushNotificationConfigRequest! request) -> void
 static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.DeleteTaskPushNotificationConfigRequest! request) -> void
 static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.ListTaskPushNotificationConfigsRequest! request) -> void
+A2A.Skills.SkillSelection
+A2A.Skills.SkillSelectionMessageExtensions
+const A2A.Skills.SkillSelection.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/skill-selection/v1" -> string!
+const A2A.Skills.SkillSelection.MetadataKey = "skillId" -> string!
+const A2A.Skills.SkillSelection.RejectUnknownSkillsParam = "rejectUnknownSkills" -> string!
+static A2A.Skills.SkillSelection.CreateExtension(bool rejectUnknownSkills = false) -> A2A.AgentExtension!
+static A2A.Skills.SkillSelection.RejectsUnknownSkills(A2A.AgentCard! card) -> bool
+static A2A.Skills.SkillSelectionMessageExtensions.GetRequestedSkillId(this A2A.Message! message) -> string?
+static A2A.Skills.SkillSelectionMessageExtensions.SetRequestedSkillId(this A2A.Message! message, string! skillId) -> A2A.Message!
