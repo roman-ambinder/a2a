@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/conformance/" />
+  <Folder Name="/conformance/dotnet/">
+    <Project Path="conformance/dotnet/ConformanceAgent/ConformanceAgent.csproj" />
+  </Folder>
   <Folder Name="/interop/" />
   <Folder Name="/interop/dotnet/">
     <Project Path="interop/dotnet/InteropAgent/InteropAgent.csproj" />

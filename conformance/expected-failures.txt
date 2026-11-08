@@ -1,0 +1,4 @@
+# Conformance failures that do not fail CI. One per line:
+#   <suite> <binding|*> <test-id>  # reason (with an issue link for suite bugs)
+# suite: tck | acts      binding: jsonrpc | rest | grpc | *  (TCK's http_json is written as rest)
+# conformance/check.py fails CI on any failure not listed here, and tells you when a listed one starts passing.

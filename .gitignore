@@ -8,3 +8,4 @@ TestResults/
 .venv/
 __pycache__/
 BenchmarkDotNet.Artifacts/
+conformance/results/
