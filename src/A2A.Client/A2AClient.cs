@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using A2A.Client.Streaming;
+using A2A.Skills;
 using A2A.Validation;
 
 namespace A2A.Client;
@@ -18,6 +19,7 @@ public sealed class A2AClient : IA2AClient
     private readonly IA2AClient _transport;
     private readonly A2AClientOptions _options;
     private readonly string? _binding;
+    private volatile bool _extendedCardLoaded;
 
     /// <summary>Creates a client over <paramref name="transport"/>. <paramref name="options"/> defaults to a new <see cref="A2AClientOptions"/>. <paramref name="agentCard"/> enables capability checks when given.</summary>
     public A2AClient(IA2AClient transport, A2AClientOptions? options = null, AgentCard? agentCard = null)
@@ -95,7 +97,42 @@ public sealed class A2AClient : IA2AClient
     {
         var card = await GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest(), options, cancellationToken).ConfigureAwait(false);
         AgentCard = card;
+        _extendedCardLoaded = true;
         return card;
+    }
+
+    /// <summary>
+    /// Selects a skill for one send: writes <paramref name="skillId"/> to the message metadata and requests the skill-selection
+    /// extension. Pass the returned options to any send method.
+    /// </summary>
+    /// <param name="message">The message to send. It is changed and must be the one you send.</param>
+    /// <param name="skillId">The <see cref="AgentSkill.Id"/> of the skill. Not empty.</param>
+    /// <param name="options">Options for the call, or null for new ones. These options are changed and returned.</param>
+    /// <returns>The options to pass with <paramref name="message"/>.</returns>
+    /// <remarks>
+    /// When <see cref="A2AClientOptions.ValidateCapabilities"/> is on and the card is known, a skill that is not on the card fails here,
+    /// and nothing is sent. The check is skipped when the card declares an extended card that is not loaded yet
+    /// (<see cref="RefreshWithExtendedAgentCardAsync"/>), because the public list is then incomplete. A plain A2A peer ignores the
+    /// selection.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="skillId"/> is null or empty.</exception>
+    /// <exception cref="A2AException">InvalidParams: the card does not list the skill.</exception>
+    public A2ARequestOptions SelectSkill(Message message, string skillId, A2ARequestOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentException.ThrowIfNullOrEmpty(skillId);
+        if (_options.ValidateCapabilities && AgentCard is { } card
+            && (card.Capabilities.ExtendedAgentCard != true || _extendedCardLoaded)
+            && !(card.Skills?.Any(s => string.Equals(s.Id, skillId, StringComparison.Ordinal)) ?? false))
+        {
+            throw A2AException.InvalidParams($"The Agent Card has no skill '{skillId}'.");
+        }
+
+        message.SetRequestedSkillId(skillId);
+        options ??= new A2ARequestOptions();
+        if (options.Extensions is null or { IsReadOnly: true }) options.Extensions = new List<string>(options.Extensions ?? []);
+        if (!options.Extensions.Contains(SkillSelection.ExtensionUri)) options.Extensions.Add(SkillSelection.ExtensionUri);
+        return options;
     }
 
     // ---- IA2AClient ----
