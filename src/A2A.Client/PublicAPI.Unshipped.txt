@@ -1,1 +1,4 @@
 #nullable enable
+A2A.Client.A2AArtifactDownloader
+A2A.Client.A2AArtifactDownloader.A2AArtifactDownloader(System.Net.Http.HttpClient! agentHttpClient, System.Uri! agentOrigin, A2A.Security.Http.SafeHttpOptions? storageOptions = null) -> void
+A2A.Client.A2AArtifactDownloader.DownloadAsync(A2A.UrlPart! part, System.IO.Stream! destination, long maxBytes, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
