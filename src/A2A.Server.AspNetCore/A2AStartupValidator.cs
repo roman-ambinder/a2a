@@ -20,6 +20,9 @@ internal sealed class A2AEndpointRegistry
 {
     private readonly List<ICollection<EndpointDataSource>> _sources = [];
 
+    /// <summary>Rewrites the served Agent Card body (set by a protocol adapter). Null: the card is served as encoded.</summary>
+    public Func<ReadOnlyMemory<byte>, byte[]>? CardBodyTransform { get; set; }
+
     public void Add(ICollection<EndpointDataSource> source)
     {
         lock (_sources)

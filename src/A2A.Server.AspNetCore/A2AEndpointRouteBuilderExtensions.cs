@@ -96,8 +96,14 @@ public static partial class A2AEndpointRouteBuilderExtensions
         configure?.Invoke(options);
         var group = endpoints.MapGroup(pattern);
         var tenantInPattern = HasTenantSegment(pattern);
-        MapJsonRpc(endpoints, group, tenantInPattern);
+        var adapter = options.ProtocolAdapter;
+        MapJsonRpc(endpoints, group, tenantInPattern, adapter);
         ActivatorUtilities.CreateInstance<RestEndpoint>(endpoints.ServiceProvider).Map(group, tenantInPattern);
+        if (adapter is not null)
+        {
+            adapter.MapRoutes(endpoints.ServiceProvider, group, tenantInPattern);
+            if (adapter.CardBodyTransform is { } transform) endpoints.ServiceProvider.GetRequiredService<A2AEndpointRegistry>().CardBodyTransform = transform;
+        }
         Record(endpoints, ProtocolBindings.JsonRpc, pattern);
         Record(endpoints, ProtocolBindings.HttpJson, pattern);
         ApplyRateLimiting(endpoints, group);
@@ -134,11 +140,13 @@ public static partial class A2AEndpointRouteBuilderExtensions
         return group;
     }
 
-    private static void MapJsonRpc(IEndpointRouteBuilder endpoints, RouteGroupBuilder group, bool tenantInPattern)
+    private static void MapJsonRpc(IEndpointRouteBuilder endpoints, RouteGroupBuilder group, bool tenantInPattern, IA2AProtocolAdapter? adapter = null)
     {
         var rpc = ActivatorUtilities.CreateInstance<JsonRpcEndpoint>(endpoints.ServiceProvider);
-        group.MapPost("", rpc.HandleAsync).WithDisplayName(JsonRpcEndpoint.DisplayName);
-        if (!tenantInPattern) group.MapPost("/{tenant}", rpc.HandleAsync).WithDisplayName(JsonRpcEndpoint.DisplayName + " (tenant)");
+        RequestDelegate handle = rpc.HandleAsync;
+        if (adapter is not null) handle = adapter.WrapJsonRpc(endpoints.ServiceProvider, handle);
+        group.MapPost("", handle).WithDisplayName(JsonRpcEndpoint.DisplayName);
+        if (!tenantInPattern) group.MapPost("/{tenant}", handle).WithDisplayName(JsonRpcEndpoint.DisplayName + " (tenant)");
     }
 
     /// <summary>Applies the <c>"a2a"</c> rate limit policy when it is registered and <see cref="A2ARateLimitOptions.Enabled"/> is true.</summary>

@@ -15,7 +15,10 @@ namespace A2A.Server.AspNetCore;
 
 internal static partial class HttpPlumbing
 {
-    public static ServerCallContext CreateCallContext(HttpContext http, string? binding)
+    /// <param name="http">The request.</param>
+    /// <param name="binding">The binding for traces.</param>
+    /// <param name="versionOverride">When set, used as the protocol version instead of the A2A-Version header (the v0.3 compat surface sends "1.0": the converted request is a v1.0 call).</param>
+    public static ServerCallContext CreateCallContext(HttpContext http, string? binding, string? versionOverride = null)
     {
         var extensions = http.Request.Headers[A2AProtocol.Headers.Extensions]
             .SelectMany(v => (v ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -24,6 +27,7 @@ internal static partial class HttpPlumbing
 
         string? version = http.Request.Headers[A2AProtocol.Headers.Version];
         if (string.IsNullOrWhiteSpace(version)) version = http.Request.Query[A2AProtocol.Headers.Version];
+        if (versionOverride is not null) version = versionOverride;
 
         var services = http.RequestServices;
         var tenantResolver = services.GetRequiredService<ITenantResolver>();

@@ -19,7 +19,8 @@ namespace A2A.Server.AspNetCore;
 /// so the host's card (the same instance on every call) is encoded and signed once; a provider that returns a new card is
 /// encoded again, and signatures are also cached by the signed content and the key, so a stable card is signed once.
 /// </summary>
-internal sealed class AgentCardEndpoint(IAgentCardProvider cards, IOptions<A2AHttpOptions> httpOptions, ILogger<AgentCardEndpoint> logger)
+internal sealed class AgentCardEndpoint(IAgentCardProvider cards, IOptions<A2AHttpOptions> httpOptions, ILogger<AgentCardEndpoint> logger,
+    A2AEndpointRegistry? registry = null)
 {
     /// <summary>Most distinct pruned-path warnings remembered, so each is logged once and memory stays bounded.</summary>
     private const int MaxWarnings = 256;
@@ -65,9 +66,13 @@ internal sealed class AgentCardEndpoint(IAgentCardProvider cards, IOptions<A2AHt
                 "The Agent Card lists no SupportedInterfaces and none could be completed from the mapped bindings. Map a binding with MapA2A, "
                 + "MapA2AJsonRpc, MapA2AHttpJson or MapA2AGrpc at a pattern without a {tenant} segment (on the application root, not on a group), "
                 + "or list the interfaces in A2AServerOptions.AgentCard.");
+        // A protocol adapter (v0.3 compat) may add members to the body. The tag covers the transformed bytes.
+        var transform = registry?.CardBodyTransform;
         var unsigned = A2AJson.SerializeToUtf8Bytes(card);
+        if (transform is not null) unsigned = transform(unsigned);
         var tag = OpaqueTag(unsigned, key);
         var body = key is null ? unsigned : A2AJson.SerializeToUtf8Bytes(Sign(card, key));
+        if (key is not null && transform is not null) body = transform(body);
         // A signed card is equivalent, not byte-identical, across signings: a weak validator.
         var encoded = new Encoded(key, body, tag, key is null ? tag : "W/" + tag);
         _encoded.AddOrUpdate(card, encoded);
