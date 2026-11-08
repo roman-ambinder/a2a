@@ -75,7 +75,9 @@ public static partial class A2AEndpointRouteBuilderExtensions
     /// <see cref="A2AServerOptions.AllowAnonymous"/> is false, the app fails at startup. Unless
     /// <see cref="A2AEndpointOptions.MapAgentCard"/> is false, it also maps the public Agent Card (and JWKS) as
     /// <see cref="MapAgentCard"/> does, on <paramref name="endpoints"/> and outside the returned group, so authorization on the
-    /// group never applies to the card. The card is mapped once per route builder, however often this is called.
+    /// group never applies to the card. The card is mapped once per route builder, however often this is called. When
+    /// <paramref name="endpoints"/> is a <see cref="RouteGroupBuilder"/> (for example <c>app.MapGroup("/api")</c>) the card is not
+    /// mapped, because its path is relative to the origin: call <c>app.MapAgentCard()</c> on the application root.
     /// </summary>
     /// <remarks>
     /// Tenants: with a <c>{tenant}</c> segment in <paramref name="pattern"/> (for example <c>"/{tenant}/a2a"</c>) the route
@@ -95,7 +97,7 @@ public static partial class A2AEndpointRouteBuilderExtensions
         ActivatorUtilities.CreateInstance<RestEndpoint>(endpoints.ServiceProvider).Map(group, tenantInPattern);
         ApplyRateLimiting(endpoints, group);
         if (options.AuthorizationPolicy is { } policy) group.RequireAuthorization(policy);
-        if (options.MapAgentCard) MapAgentCard(endpoints);
+        if (options.MapAgentCard && endpoints is not RouteGroupBuilder) MapAgentCard(endpoints);
         return group;
     }
 
@@ -180,8 +182,11 @@ public static partial class A2AEndpointRouteBuilderExtensions
     /// <paramref name="endpoints"/> (by an earlier <see cref="MapA2A"/> or <c>MapAgentCard</c>), nothing is mapped and the result
     /// is a no-op builder whose conventions are ignored.
     /// </returns>
+    /// <exception cref="InvalidOperationException"><paramref name="endpoints"/> is a <see cref="RouteGroupBuilder"/>.</exception>
     public static IEndpointConventionBuilder MapAgentCard(this IEndpointRouteBuilder endpoints)
     {
+        if (endpoints is RouteGroupBuilder)
+            throw new InvalidOperationException("Map the Agent Card on the application root (app.MapAgentCard()); the /.well-known path is relative to the origin.");
         if (endpoints.ServiceProvider.GetService<A2AEndpointRegistry>() is { } registry && !registry.TryMarkCardMapped(endpoints.DataSources))
             return NoOpConventionBuilder.Instance;
         var card = ActivatorUtilities.CreateInstance<AgentCardEndpoint>(endpoints.ServiceProvider);

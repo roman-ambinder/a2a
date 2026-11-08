@@ -125,6 +125,32 @@ public class SurfaceTests
     }
 
     [Fact]
+    public async Task MapA2A_on_a_group_does_not_map_the_card()
+    {
+        await using var app = await StartAsync(NewBuilder(), a => a.MapGroup("/api").MapA2A("/a2a").RequireAuthorization());
+        var http = app.GetTestClient();
+        Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync("/api" + CardPath)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync(CardPath)).StatusCode);
+
+        await using var withRoot = await StartAsync(NewBuilder(), a =>
+        {
+            a.MapGroup("/api").MapA2A("/a2a").RequireAuthorization();
+            a.MapAgentCard();
+        });
+        Assert.Equal(HttpStatusCode.OK, (await withRoot.GetTestClient().GetAsync(CardPath)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await withRoot.GetTestClient().GetAsync("/api" + CardPath)).StatusCode);
+    }
+
+    [Fact]
+    public async Task MapAgentCard_on_a_group_throws()
+    {
+        var app = NewBuilder().Build();
+        var ex = Assert.Throws<InvalidOperationException>(() => app.MapGroup("/api").MapAgentCard());
+        Assert.Equal("Map the Agent Card on the application root (app.MapAgentCard()); the /.well-known path is relative to the origin.", ex.Message);
+        await app.DisposeAsync();
+    }
+
+    [Fact]
     public async Task Startup_error_names_the_fix()
     {
         var noAuth = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(NewBuilder(), a => a.MapA2A("/a2a")));
@@ -158,7 +184,7 @@ public class SurfaceTests
         app.MapA2A("/a2a", o => o.MapAgentCard = false);
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => app.StartAsync());
         await app.DisposeAsync();
-        Assert.Contains("Extension operation 'ext.op' names authorization policy 'agents', but no IAuthorizationService is registered.", ex.Message);
+        Assert.Equal("Extension operation 'ext.op' names authorization policy 'agents', but no IAuthorizationService is registered. Call services.AddAuthorization().", ex.Message);
     }
 
     [Fact]
