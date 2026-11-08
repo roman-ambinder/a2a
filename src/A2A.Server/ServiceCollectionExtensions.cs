@@ -59,7 +59,11 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<PushConfigService>();
         services.TryAddSingleton<Idempotency.IdempotencyCoordinator>();
         services.TryAddSingleton<Execution.TaskExecutionEngine>();
-        services.TryAddSingleton<Streaming.TaskStreamer>();
+        services.TryAddSingleton(sp => new Streaming.TaskStreamer(
+            sp.GetRequiredService<Storage.TaskStore>(), sp.GetRequiredService<Storage.EventStore>(),
+            sp.GetRequiredService<Execution.TaskExecutionEngine>(), sp.GetRequiredService<Idempotency.IdempotencyCoordinator>(),
+            sp.GetRequiredService<A2AAuthorizationHandler>(), sp.GetRequiredService<A2AServerOptions>(),
+            sp.GetRequiredService<IAgentCardProvider>()));
         services.TryAddSingleton<A2ARequestHandler>();
         services.TryAddSingleton<IA2ARequestHandler>(sp => sp.GetRequiredService<A2ARequestHandler>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, A2AStartupDiagnostics>());

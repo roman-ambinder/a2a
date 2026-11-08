@@ -293,7 +293,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             push.TaskId = taskId;
             push.Id = string.IsNullOrEmpty(push.Id) ? TaskIds.New() : push.Id;
             push.Tenant = call.Tenant;
-            await _pushConfigs.ValidateInlineAsync(Key(call, taskId), push, ct).ConfigureAwait(false);
+            await _pushConfigs.ValidateInlineAsync(push, ct).ConfigureAwait(false);
         }
 
         if (isFollowUp)
