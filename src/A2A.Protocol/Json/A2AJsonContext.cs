@@ -79,4 +79,5 @@ namespace A2A.Json;
 [JsonSerializable(typeof(Dictionary<string, JsonElement>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(string))]
+[JsonSerializable(typeof(bool))]
 internal sealed partial class A2AJsonContext : JsonSerializerContext;

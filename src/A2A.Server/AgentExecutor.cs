@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Threading.Channels;
 using A2A.Delegation;
+using A2A.Skills;
 
 namespace A2A.Server;
 
@@ -63,6 +64,18 @@ public sealed class AgentRequestContext
 
     /// <summary>Concatenated text of the incoming message.</summary>
     public string UserText => Message.GetText();
+
+    /// <summary>
+    /// The skill the client selected (<c>Message.metadata["skillId"]</c>). Null when the caller did not activate the
+    /// skill-selection extension, or sent no usable value. To read the value without that check, use
+    /// <c>Message.GetRequestedSkillId()</c>.
+    /// </summary>
+    /// <remarks>
+    /// This is a hint from the caller. Unless the card opts in with <see cref="SkillSelection.CreateExtension"/> (<c>rejectUnknownSkills: true</c>), it may name a skill
+    /// the agent does not have. Do not use it for authorization.
+    /// </remarks>
+    public string? RequestedSkillId =>
+        Call.ActivatedExtensions.Contains(SkillSelection.ExtensionUri) ? Message.GetRequestedSkillId() : null;
 
     /// <summary>The registered token exchanger, set by the server. Null when none is registered.</summary>
     internal ITokenExchanger? TokenExchanger { get; init; }
