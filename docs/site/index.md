@@ -18,6 +18,9 @@ dotnet add package RomanAmbinder.A2A.Server.Redis
 dotnet add package RomanAmbinder.A2A.Client.DependencyInjection
 dotnet add package RomanAmbinder.A2A.Client.Grpc
 dotnet add package RomanAmbinder.A2A.Security.Http
+dotnet add package RomanAmbinder.A2A.Extensions.AI
+dotnet add package RomanAmbinder.A2A.Server.V0_3Compat
+dotnet add package RomanAmbinder.A2A.Client.V0_3Compat
 ```
 
 ## Guides
@@ -25,9 +28,14 @@ dotnet add package RomanAmbinder.A2A.Security.Http
 - [Getting started](guides/getting-started.md)
 - [Bindings](guides/bindings.md)
 - [Authentication and ownership](guides/auth-and-ownership.md)
+- [Client credentials](guides/client-credentials.md)
 - [Streaming and resume](guides/streaming.md)
 - [Push notifications](guides/push-notifications.md)
 - [Agent card signing](guides/agent-card-signing.md)
+- [Peer identity and registry](guides/peer-identity.md)
+- [Skill selection](guides/skill-selection.md)
+- [Microsoft.Extensions.AI](guides/extensions-ai.md)
+- [v0.3 compatibility](guides/v03-compatibility.md)
 - [Multi-tenancy](guides/multi-tenancy.md)
 - [Durable stores](guides/durable-stores.md)
 - [Retention](guides/retention.md)

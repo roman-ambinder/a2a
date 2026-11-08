@@ -84,6 +84,98 @@ When a queue is full, the agent's next `TaskUpdater` write waits until the serve
 
 If a client resumes after the events were trimmed or purged, the server sends a task snapshot instead. The client yields the snapshot as a `TaskEvent`. If the snapshot has an id with a sequence below the client's cursor, the server lost its log and started over. The client then takes the snapshot and continues from its sequence. A snapshot of a terminal task ends the stream. Treat a `TaskEvent` in the middle of a stream as a state to replace what you know, not as one more step.
 
+## Artifact chunks
+
+An agent can send an artifact in chunks. Each chunk is an artifact update event with an `artifactId`. The flag `append` says if the parts go to an artifact that exists. The flag `lastChunk` says it is the final chunk.
+
+[!code-csharp[](../snippets/Streaming.cs#Chunks)]
+
+### The lifecycle
+
+The server applies each event to the artifact with the same id in the task. `lastChunk: true` seals the artifact that the event leaves behind.
+
+| Stored artifact | Event | Result |
+|---|---|---|
+| none | `append: false` | The artifact is created. |
+| none | `append: true` | The artifact is created. |
+| open | `append: false` | The artifact is replaced. |
+| open | `append: true` | The parts are added. Metadata is merged as before. |
+| sealed | `append: false` | The artifact is replaced. The new one is open, unless this event has `lastChunk: true`. |
+| sealed | `append: true` | Rejected. |
+
+Replacing is on purpose. It lets an agent correct an artifact it already finished. It is an explicit act, so it cannot hide a bug the way a stray append can.
+
+### Append to a sealed artifact
+
+`TaskUpdater.AddArtifactAsync` throws `InvalidOperationException` at the call. Nothing is queued. The message says what to do: send the artifact with `append: false` to replace it, or use a new artifact id.
+
+Your executor can catch the exception and go on. If it does not, the task ends as `FAILED` with the text "The agent failed to process the request.", and the error is logged. The updater also knows the artifacts of earlier runs. A follow-up message cannot append to an artifact that an earlier run sealed.
+
+Two runs of one task can race. The server checks again before it stores an event. An append to a sealed artifact is dropped: it is not stored, streamed or pushed. The server logs a warning (`ArtifactAppendAfterSeal`) and does not fail the task, because the other run may be healthy.
+
+### Where the seal is stored
+
+The server stores the seal in the artifact's metadata: `"a2a.artifact.sealed": true`. It is the constant `A2AProtocol.ArtifactSealedKey`. Only the server writes it. If an agent sets the key itself, the server removes it, unless the event has `lastChunk: true`. The events on the wire do not carry the key.
+
+You see the key in `GetTask` and in task snapshots. A snapshot has no `lastChunk`, so the key is how you tell a finished artifact from a partial one.
+
+### Empty parts
+
+- `parts: []` is allowed only with `append: true` on an artifact that exists. It seals the artifact or updates its metadata. The A2A text still says an artifact needs at least one part, so a strict peer may reject such an event. Send the last parts with `lastChunk: true` when you can.
+- `parts: []` in any other case is invalid. `AddArtifactAsync` throws `ArgumentException`.
+- A part with empty content, such as `text: ""`, is a normal part.
+- A null entry in `parts` is invalid.
+
+### The optional hash
+
+A producer can add a hash so that the consumer can check the content. It finds corruption and bad reassembly: lost, repeated or reordered chunks. It does not prove who wrote the content. Anyone who can change the content can change an unsigned hash. Nothing is hashed unless the producer asks for it.
+
+The hash is in `metadata["sha256"]`. The value is `sha256:` and 64 lowercase hex digits. The hash covers the content bytes of the parts, in order, with nothing between them:
+
+| Part | Bytes that are hashed |
+|---|---|
+| text | The UTF-8 bytes of `text`. No byte order mark. No Unicode normalization. |
+| raw | The decoded bytes, not the base64 text. |
+| url | The UTF-8 bytes of the URL string as it was sent. The content behind the URL is not fetched or hashed. |
+| data | The UTF-8 bytes of the data in canonical JSON form (RFC 8785). |
+
+These are not hashed: part `metadata`, `filename` and `mediaType`, and the artifact's `name`, `description`, `metadata` and `extensions`.
+
+Because nothing goes between the parts, a file sent as raw chunks has the plain SHA-256 of the file. Moving the border between two parts does not change the hash.
+
+The value on each event is the hash of the artifact so far: every part from the first chunk up to and including this event. The value on the last chunk is the hash of the final artifact. A seal-only event repeats it. `append: false` starts over. This way the stored artifact always has a hash that matches its stored parts, and the first chunk that does not match is the first bad one.
+
+A number outside the range of a double cannot be put in canonical JSON form. The producer then gets an `InvalidOperationException`, and the consumer reports `Unverifiable`.
+
+#### Producer
+
+Use `TaskUpdater.AddHashedArtifactAsync` for every chunk. It takes the same arguments as `AddArtifactAsync`, sets `sha256` for you, and overwrites any `sha256` in your metadata. It does not keep the content: the hash continues from chunk to chunk. For an append to an artifact that an earlier run stored, it first hashes the stored parts.
+
+[!code-csharp[](../snippets/Streaming.cs#HashedChunks)]
+
+Do not mix plain and hashed chunks for one artifact. A plain `AddArtifactAsync` with `append: true` on an artifact that is being hashed throws, because the hash would be wrong. A hashed append to an artifact that this run sent without the hash helper throws too.
+
+#### Consumer
+
+Give `ArtifactVerifier` each event of one task, in order. For an artifact update, it returns one result for the chunk. For a task snapshot, it starts over and returns one result per artifact.
+
+[!code-csharp[](../snippets/Streaming.cs#VerifyStream)]
+
+For a task from `GetTask`, check each artifact with `ArtifactVerifier.Verify`:
+
+[!code-csharp[](../snippets/Streaming.cs#VerifyTask)]
+
+Each result has one of these statuses:
+
+| Status | Meaning |
+|---|---|
+| `NoHash` | There is no `sha256` in the metadata. |
+| `Verified` | The hash matches. |
+| `Mismatch` | The hash is different. `Expected` and `Actual` tell you both values. |
+| `Unverifiable` | The value is not a string, or not `sha256:` and 64 lowercase hex digits (an unknown scheme is never trusted), or the parts could not be hashed. |
+
+The verifier never throws on bad content and never ends the stream. You decide what to do with a bad result. The client does not enforce the seal.
+
 ## Stream limits
 
 These are on <xref:A2A.Server.A2ALimits>. See also [Limits and rate limiting](limits-and-rate-limiting.md).

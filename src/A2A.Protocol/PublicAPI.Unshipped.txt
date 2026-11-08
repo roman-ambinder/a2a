@@ -177,3 +177,10 @@ static A2A.Elicitations.ElicitationMessageExtensions.GetElicitationAnswer(this A
 static A2A.Elicitations.ElicitationMessageExtensions.GetElicitationForm(this A2A.AgentTask! task) -> A2A.Elicitations.ElicitationForm?
 static A2A.Elicitations.ElicitationMessageExtensions.GetElicitationForm(this A2A.Message! message) -> A2A.Elicitations.ElicitationForm?
 static A2A.Elicitations.ElicitationMessageExtensions.SetElicitationForm(this A2A.Message! message, A2A.Elicitations.ElicitationForm! form) -> A2A.Message!
+const A2A.A2AProtocol.ArtifactSealedKey = "a2a.artifact.sealed" -> string!
+A2A.Integrity.ArtifactHash
+const A2A.Integrity.ArtifactHash.MetadataKey = "sha256" -> string!
+static A2A.Integrity.ArtifactHash.Compute(System.Collections.Generic.IEnumerable<A2A.Part!>! parts) -> string!
+static A2A.Integrity.ArtifactHash.Update(System.Security.Cryptography.IncrementalHash! hash, System.Collections.Generic.IEnumerable<A2A.Part!>! parts) -> void
+static A2A.Integrity.ArtifactHash.Format(System.ReadOnlySpan<byte> digest) -> string!
+static A2A.Validation.A2AValidator.ValidateArtifact(A2A.Artifact! artifact, string! path, bool allowEmptyParts) -> void

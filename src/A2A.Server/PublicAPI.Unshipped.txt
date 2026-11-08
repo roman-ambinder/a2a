@@ -15,3 +15,4 @@ A2A.Server.AgentRequestContext.CanElicit.get -> bool
 A2A.Server.AgentRequestContext.ElicitationAnswer.get -> A2A.Elicitations.ElicitationAnswer?
 A2A.Server.AgentRequestContext.ElicitationAnswer.init -> void
 A2A.Server.TaskUpdater.RequireInputAsync(A2A.Server.AgentRequestContext! context, A2A.Elicitations.ElicitationForm! form, string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+A2A.Server.TaskUpdater.AddHashedArtifactAsync(System.Collections.Generic.IEnumerable<A2A.Part!>! parts, string? artifactId = null, string? name = null, string? description = null, bool append = false, bool lastChunk = false, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<string!>

@@ -1,6 +1,6 @@
 # Interop and conformance
 
-This SDK is tested against the official Python SDK, over all three bindings, in both directions. Other tests check that every method behaves the same on each binding, and that Agent Card signing matches the Python and JavaScript SDKs byte for byte. Read this to see what is covered and to run it yourself.
+This SDK is tested against the official Python SDK, over all three bindings, in both directions. It also runs the official A2A conformance suites (the TCK and ACTS) on all three bindings. Other tests check that every method behaves the same on each binding, and that Agent Card signing matches the Python and JavaScript SDKs byte for byte. Read this to see what is covered and to run it yourself.
 
 ## Interop with the official Python SDK
 
@@ -87,6 +87,75 @@ dotnet test tests/A2A.Tests/A2A.Tests.csproj --filter "FullyQualifiedName~Parity
 
 gRPC-specific behavior, such as filters, security and telemetry, has its own project: `tests/A2A.Grpc.Tests`.
 
+## Conformance suites
+
+Two official suites run against `conformance/dotnet/ConformanceAgent`, on JSON-RPC, HTTP+JSON and gRPC. They are cloned at pinned commits.
+
+| Suite | Source | Pinned commit |
+|---|---|---|
+| TCK | [a2aproject/a2a-tck](https://github.com/a2aproject/a2a-tck) | `70f6f73` (after tag `1.0.0.alpha3`) |
+| ACTS | [a2aproject/a2a-itk](https://github.com/a2aproject/a2a-itk) (`run_acts.py`) | `d53108a` |
+
+The TCK pin is one commit behind its `main`. That commit only moves the TCK to Python 3.15, where `grpcio` has no prebuilt wheels and takes over 30 minutes to compile. The test code is the same. The ITK cross-SDK traversal suite in `a2a-itk` is not run. The interop tests above cover two-way interop with the official Python SDK.
+
+### Results
+
+Counts come from `conformance/check.py`: one per requirement (TCK) or test (ACTS), per binding.
+
+| Suite | Binding | Pass | Fail | Skip | MUST failures |
+|---|---|---|---|---|---|
+| ACTS | JSON-RPC | 101 | 0 | 0 | 0 |
+| ACTS | HTTP+JSON | 94 | 0 | 0 | 0 |
+| ACTS | gRPC | 88 | 0 | 0 | 0 |
+| TCK | JSON-RPC | 72 | 3 | 6 | 2 |
+| TCK | HTTP+JSON | 70 | 4 | 4 | 3 |
+| TCK | gRPC | 55 | 3 | 2 | 2 |
+| TCK | Agent card | 7 | 0 | 2 | 0 |
+
+Every TCK failure is explained below. None is an open SDK bug. Skips are capability tests that need an agent without the capability, or optional features. The TCK also lists some requirements as not tested or manual (for example in-task auth and client behavior). Those have no automated check.
+
+### Expected failures
+
+| TCK requirement | Bindings | Why |
+|---|---|---|
+| `CORE-SEND-003` | all | TCK bug ([#202](https://github.com/a2aproject/a2a-tck/issues/202), fix in [PR #203](https://github.com/a2aproject/a2a-tck/pull/203)). The requirement says the call must fail, but the entry has no `expected_error`, so the runner demands success. The SDK returns `ContentTypeNotSupported`. `HTTP_JSON-STATUS-001` and ACTS `CORE-SEND-004` check this and pass. |
+| `CORE-MULTI-002a` | all | TCK bug, same issue and fix. The requirement says to reject a `contextId` the agent cannot accept, and the SDK does. |
+| `CORE-MULTI-002` | all | SDK choice, `MAY` in spec 3.4.1. Unknown client `contextId`s are rejected by default. `ClientContextIdPolicy.AdoptIfUnknown` accepts them. |
+| `HTTP_JSON-ERR-001` | HTTP+JSON | TCK bug (fix in [PR #238](https://github.com/a2aproject/a2a-tck/pull/238)). One test wants `application/json` on errors. Spec 11.6 shows `application/a2a+json`, and another TCK check expects that too. |
+
+The list is `conformance/expected-failures.txt`. When the upstream fixes land and the pin moves, `check.py` reports which entries to remove.
+
+### How the agent differs from a default server
+
+Some settings of the system under test change the results:
+
+- **TCK pass: message-ID dedupe is off** (`SUT_DISABLE_MESSAGE_DEDUPE=1`). The TCK helpers reuse one `messageId` for every task they create ([a2a-tck #267](https://github.com/a2aproject/a2a-tck/issues/267)). The SDK treats `messageId` as an idempotency key (spec 3.3.1 allows this). With dedupe on, the TCK gets replays of old tasks or `IdempotencyKeyMismatch`, and about 30 requirements fail or go untested. A default server keeps dedupe on, and the ACTS pass runs with SDK defaults.
+- **Default pass: only the extended card reads the bearer token.** ACTS starts some tasks with a token and reads them without one, and the SDK scopes tasks to their owner. ACTS also runs two more agent instances: one where every operation needs a token, and one with reduced capabilities.
+- The gRPC interface URL is `host:port` with no scheme, because both suites pass it straight to a gRPC channel.
+- Webhooks to private addresses are allowed, because the suites' receivers run on `127.0.0.1`.
+
+### Run the suites
+
+You need the .NET 10 SDK, git, [uv](https://docs.astral.sh/uv/) and Python 3.
+
+```sh
+conformance/run.sh
+```
+
+To run only ACTS:
+
+```sh
+SUITES=acts conformance/run.sh
+```
+
+The script clones the suites into a cache folder outside the repo and runs them from there. It runs downloaded code, so treat it that way. Reports go to `conformance/results/`.
+
+### In CI
+
+The `conformance` job runs `conformance/run.sh` and uploads the reports as `conformance-results`. It fails on any failure that is not in `expected-failures.txt`. `check.py` also lists entries that now pass, so you can remove them.
+
+More detail is in the [conformance README](https://github.com/roman-ambinder/a2a/blob/main/conformance/README.md).
+
 ## Agent Card signing vectors
 
 `tests/A2A.Tests/Vectors/card-signing/` holds signed cards produced by a2a-python 1.2.1. For seven cards (`minimal`, `full`, `empty-optionals`, `false-capabilities`, `unicode`, `extension-params`, `mixed-version`) it has the raw input, the exact bytes a2a-python signs, the card as a2a-python serves it, and the public keys.
@@ -107,6 +176,8 @@ The [vectors README](https://github.com/roman-ambinder/a2a/blob/main/tests/A2A.T
 - `interop/run.sh` times out waiting for an agent. It waits 60 seconds for each card at `/.well-known/agent-card.json`. Check that the ports are free.
 - `interop/run.sh` fails with exit code 100 or 101. 100 is a failed .NET build. 101 is an agent that did not start.
 - Python imports fail. Run the script with the venv's Python, or set `PYTHON`.
+- The conformance job fails on a new failure. Fix the SDK, or, for a suite bug, add a line with an issue link to `conformance/expected-failures.txt`.
+- TCK requirements fail or go untested. Message-ID dedupe is on. The TCK needs it off; `conformance/run.sh` does that for its agent.
 
 ## See also
 
