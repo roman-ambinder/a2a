@@ -178,6 +178,10 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
         var key = new TaskKey("", "alice", taskId);
         var coordinator = b.Services.GetRequiredService<ExecutionCoordinator>();
         Assert.True(await coordinator.IsRunningAsync(key));
+        // The agent signals Started when its Working update is queued, not when it is stored: A would still be writing it.
+        // Kill A only once PostgreSQL holds Working, or A's death can swallow that write and leave the task Submitted.
+        await EventuallyAsync(async () => (await b.Services.GetRequiredService<TaskStore>().GetAsync(key))?.Task.Status.State == TaskState.Working,
+            "A stored the Working state");
         using var cts = new CancellationTokenSource(Timeout);
         var onB = Collect(Client(b), taskId, cts.Token);
         await onB.Subscribed;

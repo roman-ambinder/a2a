@@ -149,3 +149,4 @@ A2A.Client.Delegation.OAuthTokenExchanger.Dispose() -> void
 A2A.Client.Delegation.OAuthTokenExchanger.ExchangeAsync(A2A.Delegation.TokenExchangeRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Delegation.TokenExchangeResult!>
 A2A.Client.Delegation.DelegationRequestOptionsExtensions
 static A2A.Client.Delegation.DelegationRequestOptionsExtensions.UseBearerToken(this A2A.Client.A2ARequestOptions! options, A2A.Delegation.TokenExchangeResult! token, System.Uri! agentUrl) -> A2A.Client.A2ARequestOptions!
+A2A.Client.A2AClient.SelectSkill(A2A.Message! message, string! skillId, A2A.Client.A2ARequestOptions? options = null) -> A2A.Client.A2ARequestOptions!

@@ -10,3 +10,4 @@ A2A.Server.A2AServerBuilder.AddTokenExchanger<T>() -> A2A.Server.A2AServerBuilde
 A2A.Server.A2AServerBuilder.AddTokenExchanger(A2A.Delegation.ITokenExchanger! exchanger) -> A2A.Server.A2AServerBuilder!
 A2A.Server.ServerCallContext.WireProtocolVersion.get -> string?
 A2A.Server.ServerCallContext.WireProtocolVersion.init -> void
+A2A.Server.AgentRequestContext.RequestedSkillId.get -> string?
