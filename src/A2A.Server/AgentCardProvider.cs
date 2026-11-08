@@ -33,8 +33,9 @@ public class AgentCardProvider : IAgentCardProvider
     }
 
     /// <summary>
-    /// Whether the card just built may be kept. Checked after <see cref="Complete"/>, under a lock. When false, that call returns the
-    /// card but the next call builds again. Default true.
+    /// Whether the card about to be built may be kept. Checked under a lock before the card is built (so a value that turns true
+    /// while <see cref="Complete"/> runs does not keep a card completed with older data). When false, that call returns the card but
+    /// the next call builds again. Default true.
     /// </summary>
     protected virtual bool CanCache => true;
 
@@ -50,8 +51,9 @@ public class AgentCardProvider : IAgentCardProvider
         lock (_gate)
         {
             if (_card is { } again) return again;
+            var canCache = CanCache;
             var card = Build();
-            if (CanCache) Volatile.Write(ref _card, card);
+            if (canCache) Volatile.Write(ref _card, card);
             return card;
         }
     }

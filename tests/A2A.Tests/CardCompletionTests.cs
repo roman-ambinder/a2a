@@ -253,4 +253,30 @@ public sealed class CardCompletionTests
         options.AgentCard.Name = "Named";
         Assert.Equal("Named", provider.Get().Name);
     }
+
+    private sealed class TurnsCacheableWhileBuilding(A2AServerOptions options) : AgentCardProvider(options, [])
+    {
+        private bool _cacheable;
+        public int Builds { get; private set; }
+        protected override bool CanCache => _cacheable;
+
+        protected override void Complete(AgentCard copy)
+        {
+            Builds++;
+            _cacheable = true; // e.g. the host finished starting while this card was being completed
+        }
+    }
+
+    [Fact]
+    public void Card_is_cached_only_when_cacheable_before_it_was_built()
+    {
+        var options = new A2AServerOptions { AgentCard = TestAgentHost.DefaultCard() };
+        var provider = new TurnsCacheableWhileBuilding(options);
+        var first = provider.Get();
+        var second = provider.Get();
+        Assert.Equal(2, provider.Builds);
+        Assert.NotSame(first, second);
+        Assert.Same(second, provider.Get());
+        Assert.Equal(2, provider.Builds);
+    }
 }
