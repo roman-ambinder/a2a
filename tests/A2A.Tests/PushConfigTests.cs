@@ -256,4 +256,33 @@ public class PushConfigTests : IAsyncLifetime
         Assert.False(rec!.Config.Token!.StartsWith("e1:", StringComparison.Ordinal));
         Assert.Equal("s3cret", protector.Unprotect(rec.Config.Token!));
     }
+
+    [Fact]
+    public async Task Config_added_mid_task_receives_only_later_events()
+    {
+        // Deliveries are made when each event is committed, from the configs the task has then (they used to be cached per
+        // delivery batch, with a change listener): a config added while the agent runs gets the events committed after it.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var working = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<IAgentExecutor>(new DelegateAgentExecutor(async (_, u, ct) =>
+        {
+            await u.StartWorkAsync(cancellationToken: ct);
+            working.TrySetResult();
+            await gate.Task.WaitAsync(ct);
+            await u.AddArtifactAsync([Part.FromText("x")], cancellationToken: ct);
+            await u.CompleteAsync("done", ct);
+        })));
+        var client = host.Client(ProtocolBindings.JsonRpc, "alice");
+        var task = (await client.SendMessageAsync(Message.FromUser("go"), new SendMessageConfiguration { ReturnImmediately = true })).RequireTask();
+        await working.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await host.WaitForPushIdleAsync();
+
+        await client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = task.Id, Url = "https://hooks.example/late" });
+        gate.SetResult();
+        await host.WaitIdleAsync();
+
+        var late = host.Webhooks.Calls.Where(c => c.Request.RequestUri!.AbsolutePath == "/late").ToList();
+        Assert.Equal(2, late.Count); // the artifact and COMPLETED, not the task or WORKING committed before the config existed
+        Assert.Contains("TASK_STATE_COMPLETED", late[^1].Body);
+    }
 }
