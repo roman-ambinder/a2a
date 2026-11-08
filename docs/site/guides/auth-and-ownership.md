@@ -97,6 +97,40 @@ A2A clients do not follow redirects. `AddA2AClient` turns off redirects and cook
 
 [!code-csharp[](../snippets/AuthAndOwnership.cs#NoRedirects)]
 
+## Delegation
+
+An agent often calls another agent for the caller. Two things help: the actor chain says who the agent acts for, and token exchange gives the next agent a narrow token. This follows [A2A#2028](https://github.com/a2aproject/A2A/issues/2028). The issue is open, so the shape may change. The types are in `A2A.Delegation`.
+
+### The actor chain
+
+`metadata["actorChain"]` on a message says who the agent acts for. Read it with `GetActorChain()`, add your hop with `AppendHop`, and set it on the next message with `SetActorChain`.
+
+- The chain is audit, not authorization. The caller writes it, so it proves nothing. Do not grant access because of it.
+- The server refuses a chain with more than <xref:A2A.Server.A2ALimits.MaxActorChainHops> hops (default 8) with `InvalidRequest`, before the agent runs. This only stops loops of honest agents. It is a loop brake, not a security boundary: a caller can drop the chain.
+- A well-formed chain is echoed on `Task.metadata`.
+
+### The inbound token
+
+Agent code never gets the caller's token. `ServerCallContext.InboundBearerToken` can be read only inside `A2A.Server`. The server keeps the token only when an <xref:A2A.Delegation.ITokenExchanger> is registered and the caller is authenticated.
+
+- The token lives in memory for the agent run. The run can outlive the HTTP request, and the token can expire before the run ends.
+- To call the next agent, exchange the token and use the result. `ExchangeTokenAsync` on the agent context does this. `CanExchangeToken` tells you if it can run.
+- Do not copy the `Authorization` header from your own `HttpContext`. That forwards the caller's token to the next agent. `A2AClient` never adds one by itself.
+
+### Register an exchanger
+
+[!code-csharp[](../snippets/AuthAndOwnership.cs#Exchanger)]
+
+<xref:A2A.Client.Delegation.OAuthTokenExchanger> needs an `HttpClient` with `AllowAutoRedirect = false`. A redirect would re-send the subject token to another host.
+
+Warning: the server sends the caller's `Authorization: Bearer` value to the exchanger whenever any scheme authenticated the caller. Register an exchanger only when a Bearer handler validates that header on these endpoints. On a host that authenticates with cookies, API keys or mTLS, that header is not checked.
+
+### Call the next agent
+
+[!code-csharp[](../snippets/AuthAndOwnership.cs#Delegate)]
+
+`AddBearerToken` on a DI client overwrites `Authorization`, so it replaces a token set with `UseBearerToken`. Do not combine them on one client.
+
 ## What can go wrong
 
 - **The app does not start with "A2A endpoints have no authorization policy".** Add `RequireAuthorization()`, set a policy in `MapA2A`, or set `AllowAnonymous`.
