@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using A2A.Client;
+using A2A.Client.Peers;
 using A2A.Json;
 using A2A.Server;
 using A2A.Server.Agents;
@@ -216,7 +217,7 @@ public class MultiAgentTests : IAsyncLifetime
         var acme = await new A2ACardResolver(http, acmeTrust).ResolveAsync(new Uri("http://localhost/acme" + A2AProtocol.WellKnownAgentCardPath));
         Assert.Equal(AgentCardVerificationStatus.Verified, acme.Verification.Status);
         Assert.Equal("acme agent", acme.Card.Name);
-        Assert.Equal(("http://localhost", (string?)"acme-key"), acme.Identity);
+        Assert.Equal(new PeerIdentity("http://localhost", "acme-key"), acme.Identity);
 
         var globexTrust = new A2ACardResolverOptions();
         globexTrust.Trust.TrustedKeys["http://localhost"] = globexJwks;

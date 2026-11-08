@@ -152,6 +152,36 @@ public sealed class A2AServerBuilder
         return this;
     }
 
+    /// <summary>
+    /// Uses <typeparamref name="T"/> to exchange the caller's token for a token for another agent (see
+    /// <see cref="AgentRequestContext.ExchangeTokenAsync"/>). Singleton. Replaces an earlier exchanger. With one registered,
+    /// the server keeps the caller's bearer token in memory only, while the agent run lasts. The run can outlive the HTTP
+    /// request, and the token can expire before the run ends.
+    /// </summary>
+    /// <remarks>
+    /// Warning: the SDK sends the caller's <c>Authorization: Bearer</c> value to the exchanger whenever any scheme
+    /// authenticated the caller. Register an exchanger only when a Bearer handler validates that header on these endpoints.
+    /// On a host that authenticates with cookies, API keys or mTLS, that header is unchecked.
+    /// </remarks>
+    public A2AServerBuilder AddTokenExchanger<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() where T : class, A2A.Delegation.ITokenExchanger
+    {
+        Services.Replace(ServiceDescriptor.Singleton<A2A.Delegation.ITokenExchanger, T>());
+        return this;
+    }
+
+    /// <summary>Uses <paramref name="exchanger"/> to exchange tokens. Replaces an earlier exchanger. See <see cref="AddTokenExchanger{T}"/>.</summary>
+    /// <remarks>
+    /// Warning: the SDK sends the caller's <c>Authorization: Bearer</c> value to the exchanger whenever any scheme
+    /// authenticated the caller. Register an exchanger only when a Bearer handler validates that header on these endpoints.
+    /// On a host that authenticates with cookies, API keys or mTLS, that header is unchecked.
+    /// </remarks>
+    public A2AServerBuilder AddTokenExchanger(A2A.Delegation.ITokenExchanger exchanger)
+    {
+        ArgumentNullException.ThrowIfNull(exchanger);
+        Services.Replace(ServiceDescriptor.Singleton(exchanger));
+        return this;
+    }
+
     /// <summary>Uses <typeparamref name="T"/> to authorize every operation. Replaces an earlier handler.</summary>
     public A2AServerBuilder AddAuthorizationHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() where T : A2AAuthorizationHandler
     {

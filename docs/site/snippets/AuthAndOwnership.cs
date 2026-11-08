@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using A2A.Delegation;
 using A2A.Client;
+using A2A.Client.Delegation;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Authorization;
@@ -33,6 +35,27 @@ internal sealed class ScopeHandler : A2AAuthorizationHandler
         if (operation.Kind == A2AOperation.CancelTask)
             return ValueTask.FromResult(call.User?.HasClaim("scope", "a2a.cancel") == true);
         return base.AuthorizeAsync(call, operation, request, cancellationToken);
+    }
+}
+#endregion
+
+#region Delegate
+// An agent that hands part of its work to another agent.
+internal sealed class CoordinatorAgent(A2AClient worker) : IAgentExecutor
+{
+    public async Task ExecuteAsync(AgentRequestContext ctx, TaskUpdater updater, CancellationToken ct)
+    {
+        // Add this agent to the chain. Start a new chain if the caller sent none.
+        var me = new ActorChainEntry { Sub = "agent:coordinator" };
+        var chain = ctx.Message.GetActorChain()?.AppendHop(me)
+            ?? ActorChain.Start(new ActorChainEntry { Sub = ctx.Call.Principal }).AppendHop(me);
+        var next = Message.FromUser("rebase it").SetActorChain(chain);
+
+        // Swap the caller's token for a narrow one. CanExchangeToken tells you if this can run.
+        var token = await ctx.ExchangeTokenAsync("agent:rebase-worker", ["repo:read"], ct);
+
+        await worker.SendMessageAsync(next, options: new A2ARequestOptions().UseBearerToken(token), cancellationToken: ct);
+        await updater.CompleteAsync("done", ct);
     }
 }
 #endregion
@@ -92,5 +115,21 @@ internal static class Samples
         var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), http);
         #endregion
         _ = client;
+    }
+
+    public static void Exchanger()
+    {
+        var builder = WebApplication.CreateBuilder();
+        #region Exchanger
+        // Redirects stay off. A redirect would re-send the subject token.
+        var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+        builder.Services.AddA2AServer()
+            .AddTokenExchanger(new OAuthTokenExchanger(http, new OAuthTokenExchangerOptions
+            {
+                TokenEndpoint = new Uri("https://idp.example/token"),
+                ClientId = "my-agent",
+                ClientSecret = "my-secret",
+            }));
+        #endregion
     }
 }

@@ -11,7 +11,12 @@
     <Project Path="interop/dotnet/InteropAgent/InteropAgent.csproj" />
     <Project Path="interop/dotnet/InteropClient/InteropClient.csproj" />
   </Folder>
+  <Folder Name="/interop/v03/dotnet/">
+    <Project Path="interop/v03/dotnet/InteropV03Agent/InteropV03Agent.csproj" />
+    <Project Path="interop/v03/dotnet/InteropV03Client/InteropV03Client.csproj" />
+  </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/ChatAgent/ChatAgent.csproj" />
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
     <Project Path="samples/EchoClient/EchoClient.csproj" />
     <Project Path="samples/MultiInstance/Agent/MultiInstanceAgent.csproj" />
@@ -20,6 +25,8 @@
   <Folder Name="/src/">
     <Project Path="src/A2A.Client.Grpc/A2A.Client.Grpc.csproj" />
     <Project Path="src/A2A.Client.DependencyInjection/A2A.Client.DependencyInjection.csproj" />
+    <Project Path="src/A2A.Client.V0_3Compat/A2A.Client.V0_3Compat.csproj" />
+    <Project Path="src/A2A.Extensions.AI/A2A.Extensions.AI.csproj" />
     <Project Path="src/A2A.Client/A2A.Client.csproj" />
     <Project Path="src/A2A.Grpc/A2A.Grpc.csproj" />
     <Project Path="src/A2A.Protocol/A2A.Protocol.csproj" />
@@ -28,12 +35,16 @@
     <Project Path="src/A2A.Server.Grpc/A2A.Server.Grpc.csproj" />
     <Project Path="src/A2A.Server.Postgres/A2A.Server.Postgres.csproj" />
     <Project Path="src/A2A.Server.Redis/A2A.Server.Redis.csproj" />
+    <Project Path="src/A2A.Server.V0_3Compat/A2A.Server.V0_3Compat.csproj" />
+    <Project Path="src/A2A.V0_3Compat/A2A.V0_3Compat.csproj" />
     <Project Path="src/A2A.Server/A2A.Server.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/A2A.Benchmarks/A2A.Benchmarks.csproj" />
+    <Project Path="tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj" />
     <Project Path="tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj" />
     <Project Path="tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj" />
     <Project Path="tests/A2A.Tests/A2A.Tests.csproj" />
+    <Project Path="tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj" />
   </Folder>
 </Solution>

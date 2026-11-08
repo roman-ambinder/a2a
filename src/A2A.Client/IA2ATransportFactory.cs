@@ -8,6 +8,7 @@ namespace A2A.Client;
 /// <remarks>
 /// The transport a factory returns may also implement <see cref="Streaming.IResumableTransport"/>. When it does, the client
 /// resumes dropped streams with the last server event id; when it does not, a reconnect starts the stream again.
+/// A client built with credential providers hands the factory an <see cref="HttpClient"/> that carries the credentials, so a factory that ignores it sends none.
 /// </remarks>
 public interface IA2ATransportFactory
 {

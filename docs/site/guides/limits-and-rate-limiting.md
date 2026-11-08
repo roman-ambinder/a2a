@@ -22,6 +22,7 @@ All size, count and time limits are members of <xref:A2A.Server.A2ALimits>, reac
 | <xref:A2A.Server.A2ALimits.MaxStreamDuration> | 1 hour | The stream ends normally. Clients resume with `Last-Event-ID`. |
 | <xref:A2A.Server.A2ALimits.StreamReauthInterval> | 5 minutes | The authorization handler is asked again. On denial the stream ends. |
 | <xref:A2A.Server.A2ALimits.MaxPushConfigsPerTask> | 10 | `InvalidRequest` |
+| <xref:A2A.Server.A2ALimits.MaxActorChainHops> | 8 | `InvalidRequest`. See [delegation](auth-and-ownership.md#delegation). |
 
 Notes:
 

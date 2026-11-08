@@ -38,6 +38,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private readonly TaskStreamer _streamer;
     private readonly AcceptMessage _accept;
     private readonly OperationPipeline _pipeline;
+    private readonly A2A.Delegation.ITokenExchanger? _tokenExchanger;
 
     // One cached delegate per operation, so a call through the pipeline creates no closure for its operation.
     private readonly Func<SendMessageRequest, ServerCallContext, CancellationToken, ValueTask<SendMessageResponse>> _sendMessage;
@@ -75,8 +76,10 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         TaskExecutionEngine engine,
         IEnumerable<A2AOperationFilterRegistration> filters,
         IEnumerable<A2AExtensionOperation> extensionOperations,
-        IAgentCardProvider cards)
+        IAgentCardProvider cards,
+        A2A.Delegation.ITokenExchanger? tokenExchanger = null)
     {
+        _tokenExchanger = tokenExchanger;
         _cards = cards;
         _requestCards = new RequestCards(cards);
         ArgumentNullException.ThrowIfNull(extensionOperations);
@@ -293,6 +296,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         call.BindTenant(request.Tenant);
         A2AValidator.ValidateIncoming(request);
         RequestLimitValidator.Validate(request.Message, _options.Limits);
+        ActorChainValidator.Validate(request.Message, _options.Limits, call);
         // A copy: the caller's message is never changed (a retry with the same instance must hash the same). This copy goes to
         // the executor; the stored history gets copies of its own.
         var message = request.Message.DeepCopy();
@@ -366,6 +370,8 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     (next.History ??= []).Add(message.DeepCopy());
                     // Same update as the approving message: the approval cannot be used twice, also across instances (CAS).
                     if (consume is not null) (next.Metadata ??= [])[A2AProtocol.ApprovalConsumedKey] = StringElement(consume);
+                    // The latest well-formed chain wins; a follow-up without one leaves the echo as it is.
+                    if (ActorChainValidator.WellFormedChain(message) is { } chain) (next.Metadata ??= [])[A2A.Delegation.ActorChain.MetadataKey] = chain;
                     try
                     {
                         await _tasks.UpdateAsync(record with { Task = next }, record.Version, ct).ConfigureAwait(false);
@@ -410,6 +416,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             Metadata = request.Metadata,
             Call = call,
             Approval = approval,
+            TokenExchanger = _tokenExchanger,
         };
         return new Prepared(context, existing is null ? push : null, lastSequence, duplicate, isFollowUp ? existing?.Status : null);
     }

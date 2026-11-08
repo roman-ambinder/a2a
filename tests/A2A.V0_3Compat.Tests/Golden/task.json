@@ -1,0 +1,46 @@
+{
+  "kind": "task",
+  "id": "task-1",
+  "contextId": "ctx-1",
+  "status": {
+    "state": "input-required",
+    "message": {
+      "kind": "message",
+      "messageId": "m2",
+      "role": "agent",
+      "parts": [ { "kind": "text", "text": "Which city?" } ],
+      "taskId": "task-1",
+      "contextId": "ctx-1"
+    },
+    "timestamp": "2025-10-27T10:00:00.000Z"
+  },
+  "artifacts": [
+    {
+      "artifactId": "a1",
+      "name": "result",
+      "description": "The answer",
+      "parts": [
+        { "kind": "text", "text": "42", "metadata": { "lang": "en" } },
+        { "kind": "data", "data": { "answer": 42, "nested": { "ok": true } } },
+        { "kind": "file", "file": { "bytes": "aGVsbG8=", "mimeType": "text/plain", "name": "hello.txt" } },
+        { "kind": "file", "file": { "uri": "https://example.com/f.png", "mimeType": "image/png" } }
+      ],
+      "metadata": { "k": "v" },
+      "extensions": [ "urn:ext" ]
+    }
+  ],
+  "history": [
+    {
+      "kind": "message",
+      "messageId": "m1",
+      "role": "user",
+      "parts": [ { "kind": "text", "text": "Weather?" } ],
+      "contextId": "ctx-1",
+      "taskId": "task-1",
+      "metadata": { "x": 1 },
+      "extensions": [ "urn:ext" ],
+      "referenceTaskIds": [ "task-0" ]
+    }
+  ],
+  "metadata": { "source": "test" }
+}

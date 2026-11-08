@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using A2A.Delegation;
 using A2A.JsonRpc;
 using A2A.Signing;
 
@@ -71,6 +72,8 @@ namespace A2A.Json;
 [JsonSerializable(typeof(JwkSet))]
 [JsonSerializable(typeof(ErrorInfoDetail))]
 [JsonSerializable(typeof(RestErrorBody))]
+[JsonSerializable(typeof(ActorChain))]
+[JsonSerializable(typeof(ActorChainEntry))]
 [JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(List<JsonElement>))]
 [JsonSerializable(typeof(Dictionary<string, JsonElement>))]

@@ -1,12 +1,14 @@
 using System.Security.Cryptography;
 using A2A.Client;
 using A2A.Client.Cards;
+using A2A.Client.Peers;
 using A2A.Json;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Agents;
 using A2A.Signing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace A2A.DocSnippets.AgentCardSigning;
 
@@ -93,7 +95,7 @@ internal static class Snippets
             var resolved = await resolver.ResolveAsync(agentUrl);
 
             Console.WriteLine(resolved.Verification.Status);                // Verified
-            Console.WriteLine(resolved.Identity);                           // (origin, kid)
+            Console.WriteLine(resolved.Identity);                           // PeerIdentity: origin and signing kid
             Console.WriteLine(resolved.Description);                        // sanitized UntrustedText
             Console.WriteLine(resolved.Skills[0].Name.Raw);                 // as received: use with care
         }
@@ -114,6 +116,17 @@ internal static class Snippets
         // During a rotation, trust the old and the new key. Keys are matched by kid.
         var both = new JwkSet { Keys = [.. current.Keys, .. next.Keys] };
         options.Trust.TrustedKeys[CardTrustPolicy.OriginOf(agentUrl)] = both;
+        #endregion
+    }
+
+    public static async Task RegistryAsync(A2ACardResolver resolver, ILogger logger)
+    {
+        #region Registry
+        var registry = new AgentRegistry(logger: logger);
+        var resolved = await resolver.ResolveAsync(new Uri("https://agent.example.com/"));
+        var agent = registry.Register(resolved);          // throws AgentRegistrationException on a duplicate name
+        if (agent.LookalikeOf.Count > 0) { /* ask a human, or registry.Remove(agent.Identity) to fail closed */ }
+        registry.TryGet(resolved.Identity, out var same); // look up by identity, not by name
         #endregion
     }
 }

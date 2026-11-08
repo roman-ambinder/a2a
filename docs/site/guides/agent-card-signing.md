@@ -79,7 +79,7 @@ What the resolver does:
 
 [!code-csharp[](../snippets/AgentCardSigning.cs#Resolve)]
 
-<xref:A2A.Client.ResolvedAgentCard> holds the card, the raw JSON, the source, the verification result, and `Identity`, which is `(origin, kid)`. Use that as the peer identity, not the card's `name`.
+<xref:A2A.Client.ResolvedAgentCard> holds the card, the raw JSON, the source, the verification result, and `Identity`. `Identity` is a <xref:A2A.Client.Peers.PeerIdentity>: the origin and the signing kid, with `Assurance` marking how strong it is. `AgentRegistry` in `A2A.Client.Peers` is keyed by it. Use it as the peer identity, not the card's `name`.
 
 Text from a card is untrusted. `Description` and each skill's name, description and examples are <xref:A2A.Client.Cards.UntrustedText>. `ToString()` removes control, bidi, zero-width and tag characters and cuts the text to 2000 characters (<xref:A2A.Client.A2ACardResolverOptions.MaxCardTextLength>). `Raw` is the text as received. Use the sanitized form when you show it or put it in a prompt.
 

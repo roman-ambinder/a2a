@@ -12,4 +12,24 @@ public sealed class A2AEndpointOptions
 
     /// <summary>The name of an ASP.NET Core authorization policy to require on the A2A endpoints (not on the card). Null: none.</summary>
     public string? AuthorizationPolicy { get; set; }
+
+    /// <summary>Optional protocol adapter (v0.3 compatibility). Set by the compat package. Null: v1.0 only.</summary>
+    internal IA2AProtocolAdapter? ProtocolAdapter { get; set; }
+}
+
+/// <summary>
+/// Lets another package add a protocol surface to <c>MapA2A</c> without changing the v1.0 endpoints. Implemented by the
+/// v0.3 compat package. Everything it maps goes into the group <c>MapA2A</c> returns, so the group's authorization, rate limit
+/// and CORS cover it.
+/// </summary>
+internal interface IA2AProtocolAdapter
+{
+    /// <summary>Wraps the JSON-RPC endpoint delegate. The wrapper either handles the request or calls <paramref name="core"/>.</summary>
+    Microsoft.AspNetCore.Http.RequestDelegate WrapJsonRpc(IServiceProvider services, Microsoft.AspNetCore.Http.RequestDelegate core);
+
+    /// <summary>Maps extra routes into <paramref name="group"/>. <paramref name="tenantInPattern"/> as in <c>RestEndpoint.Map</c>.</summary>
+    void MapRoutes(IServiceProvider services, Microsoft.AspNetCore.Routing.RouteGroupBuilder group, bool tenantInPattern);
+
+    /// <summary>Rewrites the served Agent Card body (UTF-8 JSON). Null: serve the card as it is.</summary>
+    Func<ReadOnlyMemory<byte>, byte[]>? CardBodyTransform { get; }
 }
