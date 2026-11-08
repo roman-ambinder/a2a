@@ -1560,8 +1560,8 @@ public sealed class A2ARequestHandler : IDisposable
 
     /// <summary>
     /// Renews the execution's lease, or registers it when it has none (the register at start failed, or the lease was lost;
-    /// then <see cref="CancelIfEndedAsync"/> checks the task after the register), and renews its idempotency claim. Runs on the heartbeat timer; skips a beat while the previous one is still running.
-    /// Failures are logged and the execution goes on.
+    /// then <see cref="CancelIfEndedAsync"/> checks the task after the register), and renews its idempotency claim. Runs on
+    /// the heartbeat timer; skips a beat while the previous one is still running. Failures are logged and the execution goes on.
     /// </summary>
     private async Task HeartbeatAsync(Execution exec, IdempotencyClaim claim)
     {
