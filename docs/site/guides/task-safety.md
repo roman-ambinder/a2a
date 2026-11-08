@@ -40,6 +40,38 @@ What happens:
 
 A hash that does not match, or a hash when nothing is pending, is refused with `InvalidParams` before the agent runs. An approval works once. The server records it in the task metadata when the approving message is committed, so a second use of the same hash is `InvalidParams`, also across instances. Call `RequireApprovalAsync` again to ask anew.
 
+## Structured input (elicitation)
+
+An agent in `INPUT_REQUIRED` can ask for a small typed form instead of free text. This is an optional extension (`Elicitation.ExtensionUri`). The agent lists it on its card with `Elicitation.CreateExtension()`. The design is in `docs/superpowers/specs/2026-11-08-s38-elicitation-design.md`.
+
+On the server, build an <xref:A2A.Elicitations.ElicitationForm> and call `updater.RequireInputAsync(context, form, text)`. The answer arrives as `context.ElicitationAnswer`:
+
+[!code-csharp[](../snippets/TaskSafety.cs#ElicitServer)]
+
+On the client, activate the extension with `UseElicitation`, read the form with `GetElicitationForm`, and answer with `ElicitationAnswer.Accept`, `Decline` or `Cancel`:
+
+[!code-csharp[](../snippets/TaskSafety.cs#ElicitClient)]
+
+A runnable version is in `samples/ElicitationAgent`.
+
+**A client that does not activate the extension** sees the text part only. The form is not in the message. It answers in words, and the agent reads `context.UserText`. A client that activated it can also answer in words: `ElicitationAnswer` is then null. So `text` must always say what you need. Check `context.CanElicit` if the agent must behave differently.
+
+**Accept, decline, cancel.** `accept` carries the values. `decline` means the user refuses this request. `cancel` means the user dismissed it without a decision. The agent decides what each one means, for example `FailAsync`, a new form, or going on without the data. The server moves no state. It is not CancelTask.
+
+**Refused answers.** The server checks the answer against the form before the agent runs: the form id, the action, the field names, the types, the limits and the options. A bad answer gets `InvalidParams`, and the error names the field and the rule but never repeats the value. Nothing is stored and no turn is used, so the client can correct it and send again. An answer with no form waiting is `InvalidParams` too.
+
+**With the other guards.**
+
+- `OnMessageReceived` also sees the status message with the form, so a hook can call `GetElicitationForm()` and throw before the app shows it.
+- Every accepted answer, of any action, is one turn under `MaxTurnsPerTask`. A refused one is not. At the cap the answer is `UnsupportedOperation`, so an agent that may ask a form must leave one turn for the answer.
+
+**Safety.**
+
+- The form text is peer input. `title` and `description` are sanitized when read, and capped. Show the user which agent is asking, by card origin and not only by `name`.
+- Never let an LLM fill a form unattended. A hostile agent could use a form to pull data out of the model's context. A person fills it.
+- Secrets are refused by default. A field whose name, title or description looks like a password, token, key, card number and so on is refused when the server builds the form, and when the client answers (`allowSensitive: true` is the client's own choice and never goes on the wire). The check is by name and is best effort. It cannot catch every wording.
+- Answers are stored in the task history, sent to webhooks with the task, and readable by anyone who can read the task. Do not collect secrets in a form. Use the auth-required flow for credentials.
+
 ## Follow-up de-duplication
 
 A follow-up whose `messageId` is already in the task's history is not run again. The caller gets the task as it is: no new turn, no push config, no execution. The check runs before the state check, so a retry after the task has finished still gets its outcome.
@@ -76,6 +108,10 @@ A `UrlPart` in a message points to a URL the peer chose. Do not fetch it with a 
 - **A follow-up gets `UnsupportedOperation`.** The task is at `MaxTurnsPerTask`. Start a new task and list the old one in `referenceTaskIds`.
 - **Approval always `NotApproved`.** The client did not copy the hash into the follow-up's metadata.
 - **A hash is refused the second time.** Approvals work once.
+- **The form never reaches the client.** The client did not activate the extension (`UseElicitation`), or the agent card does not declare it. The client then sees the text only.
+- **An answer gets `InvalidParams`.** It does not match the form: a wrong id, a missing required field, a value out of range, or a form that was already answered. The error names the field. Fix it and send again.
+- **`ElicitationForm` throws for a field.** The field looks like a request for a secret. Use the auth-required flow instead.
+- **`UnsupportedOperation` on the answer.** The task is at `MaxTurnsPerTask`. Leave one turn for the answer.
 
 ## See also
 

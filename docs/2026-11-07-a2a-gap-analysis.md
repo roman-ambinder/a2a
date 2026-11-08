@@ -71,11 +71,12 @@ Status: S17 is done (actorChain model and echo, `ITokenExchanger`, `OAuthTokenEx
 | S35 | Client-directed skill selection. | Med | epic #1989 | Extension URI + `metadata["skillId"]`; helper on client. |
 | S36 | Discovery/registry undefined. | Med | #2276, #2240 | Out of SDK core. Provide `IAgentCardResolver` with cache + pinning only. |
 | S37 | Auth scheme declaration insufficient to obtain tokens. | Med | epic #1990 | `IA2ACredentialProvider` per scheme (OAuth2 client-credentials, API key, mTLS); never auto-follow redirects with credentials (CVE-2026-111763/5). Status: implemented (client credential providers, origin check, no redirects). |
-| S38 | Structured elicitation for input-required. | Med | PR #2149 closed → extension | Optional extension package later. |
+| S38 | Structured elicitation for input-required. | Med | PR #2149 closed → extension | Optional extension package later. Status: implemented (see below). |
 | S39 | Progress reporting, cost metadata, priorities, batch. | Low | PR #1448, #2121, #1029 | Not core. Metadata conventions documented, not enforced. |
 | S40 | File size limits / large binary streaming. | Med | inferred | Enforce caps (S20); prefer `url` parts for large files with signed URLs; SSRF guard on `url` part fetch. |
 
 Status: S35 is done (`SkillSelection`, `A2AClient.SelectSkill`, `AgentRequestContext.RequestedSkillId`; design: `docs/superpowers/specs/2026-11-08-s35-skill-selection-design.md`).
+Status: S38 is done (`Elicitation`, `TaskUpdater.RequireInputAsync(context, form, text)`, `AgentRequestContext.ElicitationAnswer`, `A2AClient` helpers `UseElicitation`, `GetElicitationForm`, `AnswerElicitationAsync`; design: `docs/superpowers/specs/2026-11-08-s38-elicitation-design.md`).
 
 ---
 
@@ -168,7 +169,7 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 21. netstandard2.0 for Protocol + Client (D25).
 22. 0.3 read-compat shim behind flag (S33, D24).
 23. Artifact chunk hashing (S27). Done.
-24. Skill-selection and elicitation extension packages (S35, S38). S35 done, in the existing packages.
+24. Skill-selection and elicitation extension packages (S35, S38). S35 and S38 done, in the existing packages.
 25. Analyzer package, PublicAPI baseline (D26, D29).
 
 ---
