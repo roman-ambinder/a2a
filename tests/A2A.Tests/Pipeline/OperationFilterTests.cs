@@ -261,12 +261,14 @@ public sealed class OperationFilterTests
         Assert.Equal("need more", stored!.Task.Status.Message!.Parts[0].TextOf());
     }
 
-    [Fact]
-    public async Task Streaming_host_filter_sees_detached_events()
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Streaming_host_filter_sees_detached_events(string binding)
     {
+        // The change reaches the client on both bindings: the copy carries no stored bytes, so the binding encodes the change.
         var filter = new Mutator();
         await using var host = await TestAgentHost.StartAsync(services: With(filter));
-        var client = host.Client(ProtocolBindings.JsonRpc);
+        var client = host.Client(binding);
 
         string? taskId = null;
         var changedTexts = new List<string?>();

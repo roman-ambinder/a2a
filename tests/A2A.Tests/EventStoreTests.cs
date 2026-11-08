@@ -65,10 +65,11 @@ public sealed class FakeTimeProvider : TimeProvider
 
 public class EventStoreTests
 {
-    private static StreamResponse Evt(string taskId) => StreamResponse.Of(new AgentTask
+    /// <summary>An encoded event; its sequence (0) is assigned by the store.</summary>
+    private static SequencedEvent Evt(string taskId) => EventEncoder.Encode(0, StreamResponse.Of(new AgentTask
     {
         Id = taskId, ContextId = "c", Status = new AgentTaskStatus { State = TaskState.Working },
-    });
+    }));
 
     private static async Task<List<SequencedEvent>> ReadAllAsync(EventStore store, TaskKey key, long after = 0)
     {
@@ -95,6 +96,22 @@ public class EventStoreTests
         Assert.Equal(3, await store.LastSequenceAsync(a));
         Assert.Equal(0, await store.LastSequenceAsync(new TaskKey("", "alice", "none")));
         Assert.Equal([2L, 3], (await ReadAllAsync(store, a, after: 1)).Select(e => e.Sequence));
+    }
+
+    [Fact]
+    public async Task Append_keeps_event_and_bytes_with_assigned_sequence()
+    {
+        var store = new InMemoryEventStore(new StreamingOptions());
+        var key = new TaskKey("", "alice", "t");
+        await store.AppendAsync(key, Evt("t"));
+        var appended = Evt("t") with { Sequence = 99 }; // the input sequence is ignored
+
+        Assert.Equal(2, await store.AppendAsync(key, appended));
+
+        var stored = (await ReadAllAsync(store, key, after: 1)).Single();
+        Assert.Equal(2, stored.Sequence);
+        Assert.Same(appended.Event, stored.Event);
+        Assert.True(appended.Json.Equals(stored.Json), "the store keeps the bytes it is given, not a new encoding");
     }
 
     [Fact]

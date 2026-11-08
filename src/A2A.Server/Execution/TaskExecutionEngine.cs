@@ -1,5 +1,4 @@
 using System.Text.Json;
-using A2A.Json;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
 using A2A.Server.Storage;
@@ -233,20 +232,22 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
 
             await foreach (var produced in exec.Incoming.Reader.ReadAllAsync().ConfigureAwait(false))
             {
-                var evt = produced;
-                if (A2AJson.SerializeToUtf8Bytes(evt).Length > _options.Limits.MaxEventBytes)
+                // Encoded once: the size check, the event store, streams and webhooks all use these bytes.
+                var encoded = Encode(produced);
+                if (encoded.Json.Length > _options.Limits.MaxEventBytes)
                 {
                     // The event is never stored or sent: the task fails instead and the agent is stopped.
                     ServerLog.EventTooLarge(_logger, taskId, _options.Limits.MaxEventBytes);
-                    evt = StreamResponse.Of(FailureEvent(taskId, contextId));
+                    encoded = Encode(StreamResponse.Of(FailureEvent(taskId, contextId)));
                     exec.Cancel();
                 }
+                var evt = encoded.Event;
 
                 if (evt is MessageEvent reply)
                 {
                     // The idempotency store owns its copy; the reply itself goes to the waiting request.
                     await _idempotency.RecordAsync(claim, new IdempotencyOutcome.DirectMessage(reply.Message.DeepCopy()), taskId).ConfigureAwait(false);
-                    exec.Emit(new SequencedEvent(0, evt)); // direct reply, no task, not stored
+                    exec.Emit(encoded); // direct reply (sequence 0), no task, not stored
                     continue;
                 }
 
@@ -272,10 +273,10 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         created = true;
                         // The new task as the first event. It shares the stored instance: nobody changes either (the next
                         // update stores a copy), and the event log owns the event from here on.
-                        var snapshot = StreamResponse.Of(record.Task);
+                        var snapshot = EventEncoder.Encode(0, StreamResponse.Of(record.Task));
                         var first = await _events.AppendAsync(key, snapshot).ConfigureAwait(false);
                         A2AServerTelemetry.Events.Add(1);
-                        Publish(exec, key, new SequencedEvent(first, snapshot));
+                        Publish(exec, key, snapshot with { Sequence = first });
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
                         await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
                     }
@@ -289,7 +290,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         }
                     }
 
-                    if (await ApplyAndStoreAsync(key, record, evt).ConfigureAwait(false) is not { } stored) continue;
+                    if (await ApplyAndStoreAsync(key, record, encoded).ConfigureAwait(false) is not { } stored) continue;
 
                     // Still under the task lock, so sinks see events in sequence order even with concurrent executions.
                     // Every sink is non-blocking.
@@ -338,7 +339,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
             {
                 var record = await _tasks.GetAsync(key).ConfigureAwait(false);
                 if (record is null || record.Task.Status.State.IsTerminal()) return;
-                var failed = StreamResponse.Of(FailureEvent(key.TaskId, contextId, StoreFailureText));
+                var failed = Encode(StreamResponse.Of(FailureEvent(key.TaskId, contextId, StoreFailureText)));
                 if (await ApplyAndStoreAsync(key, record, failed).ConfigureAwait(false) is not { } stored) return;
                 _bus.Publish(scope, stored);
                 _push.Enqueue(key, stored);
@@ -360,10 +361,12 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// Applies the event to a copy of the task, stores the copy, then appends the event (the caller holds the task lock, so
     /// sequences follow the apply order and the log holds only applied events). After a version conflict, reloads and
     /// re-applies, up to <see cref="MaxConflictRetries"/> times. Returns null when the event was dropped (for example the task
-    /// is already terminal). <paramref name="record"/> belongs to the store and is never changed.
+    /// is already terminal). <paramref name="record"/> belongs to the store and is never changed. <paramref name="encoded"/> comes
+    /// from <see cref="Encode"/>; the stored and returned event carries its bytes.
     /// </summary>
-    private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt)
+    private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, SequencedEvent encoded)
     {
+        var evt = encoded.Event;
         for (var attempt = 0; ; attempt++)
         {
             if (ApplyToCopy(record.Task, evt) is not { } next)
@@ -374,9 +377,9 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
             try
             {
                 await _tasks.UpdateAsync(record with { Task = next }, record.Version).ConfigureAwait(false);
-                var sequence = await _events.AppendAsync(key, evt).ConfigureAwait(false);
+                var sequence = await _events.AppendAsync(key, encoded).ConfigureAwait(false);
                 A2AServerTelemetry.Events.Add(1);
-                return new SequencedEvent(sequence, evt);
+                return encoded with { Sequence = sequence };
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
             {
@@ -389,6 +392,16 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 record = fresh;
             }
         }
+    }
+
+    /// <summary>
+    /// Encodes an event the agent produced (or a failure event), once. A status update without a timestamp gets one first: the
+    /// stored task, the stored event and its bytes then all carry the same time, and nothing changes the event afterwards.
+    /// </summary>
+    private static SequencedEvent Encode(StreamResponse evt)
+    {
+        if (evt is StatusUpdateEvent { StatusUpdate.Status: var status }) status.Timestamp ??= DateTimeOffset.UtcNow;
+        return EventEncoder.Encode(0, evt);
     }
 
     private void Publish(Execution exec, TaskKey key, SequencedEvent evt)
@@ -411,7 +424,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         if (evt is StatusUpdateEvent { StatusUpdate: var su })
         {
             if (!TaskStateMachine.CanTransition(current.Status.State, su.Status.State)) return null;
-            su.Status.Timestamp ??= DateTimeOffset.UtcNow; // the event is not stored yet
+            // su.Status.Timestamp was set before the event was encoded (Encode); the event is not changed here.
             var next = current.CopyForUpdate();
             next.Status = new AgentTaskStatus { State = su.Status.State, Message = su.Status.Message, Timestamp = su.Status.Timestamp };
             if (su.Status.Message is { } m) (next.History ??= []).Add(m);

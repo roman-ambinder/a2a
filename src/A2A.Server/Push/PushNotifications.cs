@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Threading.Channels;
-using A2A.Json;
 using A2A.Security.Http;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
@@ -137,6 +136,8 @@ public interface IPushNotificationSender
     /// <remarks>
     /// Called while the handler holds the task's lock, once per event in sequence order. Implementations must return quickly:
     /// they must not block, and must not call back into <see cref="A2ARequestHandler"/> for the same task (that would deadlock).
+    /// The event carries its encoded bytes in <see cref="SequencedEvent.Json"/> (the same bytes the event store keeps); send
+    /// them as they are, and encode with <see cref="EventEncoder.EnsureEncoded"/> only when they are empty.
     /// </remarks>
     void Enqueue(TaskKey task, SequencedEvent evt);
 }
@@ -300,7 +301,8 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
     private async Task RunAsync(Worker worker)
     {
         var reader = worker.Channel.Reader;
-        var batch = new List<SequencedEvent>(Math.Min(worker.Capacity, 64));
+        // Sized by the first batch, not up front: a task without configs gets a new worker for nearly every event.
+        List<SequencedEvent>? batch = null;
         var linger = true;
         try
         {
@@ -314,7 +316,8 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
                     continue; // an event arrived (or arrived as we tried to exit)
                 }
 
-                batch.Clear();
+                if (batch is null) batch = new List<SequencedEvent>(Math.Clamp(reader.Count, 1, worker.Capacity));
+                else batch.Clear();
                 while (batch.Count < worker.Capacity && reader.TryRead(out var evt)) batch.Add(evt);
                 Refill(worker);
                 linger = await DeliverBatchAsync(worker, batch).ConfigureAwait(false);
@@ -409,8 +412,11 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
                         configs = await ListConfigsAsync(worker.Key).ConfigureAwait(false);
                         listedVersion = version;
                     }
+                    if (configs.Count == 0) continue;
+                    // The event's stored bytes are the body for every config; encoded here only for an event made without them.
+                    var body = EventEncoder.EnsureEncoded(item).Json;
                     foreach (var config in configs)
-                        await DeliverAsync(config, item.Sequence, item.Event).ConfigureAwait(false);
+                        await DeliverAsync(config, item.Sequence, body).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
                 {
@@ -463,12 +469,12 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
     }
 
     /// <summary>Delivers one event to one webhook, with retries, and counts the final result (<c>a2a.server.push.deliveries</c>).</summary>
-    private async Task DeliverAsync(TaskPushNotificationConfig config, long seq, StreamResponse evt)
+    private async Task DeliverAsync(TaskPushNotificationConfig config, long seq, ReadOnlyMemory<byte> body)
     {
         bool delivered;
         try
         {
-            delivered = await DeliverCoreAsync(config, seq, evt).ConfigureAwait(false);
+            delivered = await DeliverCoreAsync(config, seq, body).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
         {
@@ -489,10 +495,9 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
     }
 
     /// <summary>The delivery with retries. True when the webhook accepted the event; false when it was skipped, refused, or every attempt failed.</summary>
-    private async Task<bool> DeliverCoreAsync(TaskPushNotificationConfig config, long seq, StreamResponse evt)
+    private async Task<bool> DeliverCoreAsync(TaskPushNotificationConfig config, long seq, ReadOnlyMemory<byte> body)
     {
         var deliveryId = Guid.NewGuid().ToString("N");
-        var body = A2AJson.SerializeToUtf8Bytes(evt);
         var delay = _options.InitialBackoff;
 
         for (var attempt = 1; attempt <= Math.Max(1, _options.MaxAttempts); attempt++)
@@ -517,7 +522,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
                     return false;
                 }
 
-                using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ByteArrayContent(body) };
+                using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ReadOnlyMemoryContent(body) };
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue(A2AProtocol.MediaType);
                 if (config.Authentication is { Scheme.Length: > 0 } auth)
                     request.Headers.TryAddWithoutValidation("Authorization", string.IsNullOrEmpty(auth.Credentials) ? auth.Scheme : $"{auth.Scheme} {auth.Credentials}");

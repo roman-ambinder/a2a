@@ -7,8 +7,8 @@ namespace A2A.Server.Storage;
 /// <summary>
 /// Process-local event log. Keeps the last <see cref="StreamingOptions.ReplayBufferSize"/> events per task and drops the
 /// buffer of a terminal task <see cref="StreamingOptions.TerminalRetention"/> after <see cref="MarkTerminalAsync"/>.
-/// It stores the event instances it is given and returns them without copying: an appended event belongs to the store and
-/// nobody changes it.
+/// It stores the event instances it is given, with their encoded bytes, and returns them without copying or encoding again:
+/// an appended event belongs to the store and nobody changes it.
 /// </summary>
 public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? time = null) : EventStore
 {
@@ -16,7 +16,7 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
     private readonly ConcurrentDictionary<TaskKey, TaskLog> _logs = new();
 
     /// <inheritdoc />
-    public override ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken cancellationToken = default)
+    public override ValueTask<long> AppendAsync(TaskKey task, SequencedEvent evt, CancellationToken cancellationToken = default)
     {
         var capacity = Math.Max(1, options.ReplayBufferSize);
         while (true)
@@ -26,7 +26,7 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
             {
                 if (log.Evicted) continue; // lost a race with eviction; start a fresh log
                 var seq = ++log.Last;
-                log.Events.Add(new SequencedEvent(seq, evt));
+                log.Events.Add(evt with { Sequence = seq });
                 if (log.Events.Count > capacity) log.Events.RemoveRange(0, log.Events.Count - capacity);
                 return ValueTask.FromResult(seq);
             }

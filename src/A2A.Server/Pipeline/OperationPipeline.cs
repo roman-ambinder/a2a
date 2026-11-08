@@ -200,11 +200,14 @@ internal static class ResponseDetacher
         _ => result, // null (DeleteTaskPushNotificationConfig)
     };
 
-    /// <summary>The same events, in the same order and with the same sequences, each <see cref="SequencedEvent.Event"/> copied.</summary>
+    /// <summary>
+    /// The same events, in the same order and with the same sequences, each <see cref="SequencedEvent.Event"/> copied. The copy
+    /// has no encoded bytes: a host filter may change it, so the binding encodes what the filter passes on.
+    /// </summary>
     private static async IAsyncEnumerable<SequencedEvent> DetachEvents(IAsyncEnumerable<SequencedEvent> events,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await foreach (var e in events.WithCancellation(cancellationToken).ConfigureAwait(false))
-            yield return e with { Event = e.Event.DeepCopy() };
+            yield return new SequencedEvent(e.Sequence, e.Event.DeepCopy());
     }
 }

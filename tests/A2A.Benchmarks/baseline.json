@@ -12,7 +12,7 @@
     "meanNs": 127629.5809733073
   },
   "StreamingTaskBenchmark.ThousandEvents": {
-    "allocatedBytes": 21765206,
-    "meanNs": 9387614.151041666
+    "allocatedBytes": 21493982,
+    "meanNs": 8801571.182291666
   }
 }

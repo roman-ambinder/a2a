@@ -222,7 +222,8 @@ public sealed class RestEndpoint(IA2ARequestHandler handler, A2AOperationTable t
                     ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "Empty stream");
             HttpPlumbing.WriteExtensionsHeader(http, call);
             HttpPlumbing.StartEventStream(http);
-            await HttpPlumbing.PumpAsync(http, e, A2AJson.SerializeToUtf8Bytes,
+            // The event's stored bytes, as they are (encoded here only for snapshots and other events made without them).
+            await HttpPlumbing.PumpAsync(http, e, evt => EventEncoder.EnsureEncoded(evt).Json,
                 ex => A2AJson.SerializeToUtf8Bytes(StatusBody(HttpPlumbing.Normalize(ex, logger, _includeDetails))),
                 _keepAlive, logger).ConfigureAwait(false);
         }

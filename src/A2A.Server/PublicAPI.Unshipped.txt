@@ -314,7 +314,14 @@ A2A.Server.Streaming.SequencedEvent.Event.init -> void
 A2A.Server.Streaming.SequencedEvent.Sequence.get -> long
 A2A.Server.Streaming.SequencedEvent.Sequence.init -> void
 A2A.Server.Streaming.SequencedEvent.SequencedEvent() -> void
-A2A.Server.Streaming.SequencedEvent.SequencedEvent(long Sequence, A2A.StreamResponse! Event) -> void
+A2A.Server.Streaming.SequencedEvent.Json.get -> System.ReadOnlyMemory<byte>
+A2A.Server.Streaming.SequencedEvent.Json.init -> void
+A2A.Server.Streaming.SequencedEvent.SequencedEvent(long Sequence, A2A.StreamResponse! Event, System.ReadOnlyMemory<byte> Json) -> void
+A2A.Server.Streaming.SequencedEvent.SequencedEvent(long sequence, A2A.StreamResponse! evt) -> void
+A2A.Server.Streaming.EventEncoder
+static A2A.Server.Streaming.EventEncoder.Encode(long sequence, A2A.StreamResponse! evt) -> A2A.Server.Streaming.SequencedEvent
+static A2A.Server.Streaming.EventEncoder.EnsureEncoded(A2A.Server.Streaming.SequencedEvent evt) -> A2A.Server.Streaming.SequencedEvent
+static A2A.Server.Streaming.EventEncoder.MeasureUtf8(A2A.StreamResponse! evt) -> int
 A2A.Server.Streaming.StreamCursor
 A2A.Server.StreamingOptions
 A2A.Server.StreamingOptions.ChannelCapacity.get -> int
@@ -357,7 +364,7 @@ A2A.Server.TaskUpdater.UpdateStatusAsync(A2A.TaskState state, A2A.Message? messa
 abstract A2A.Server.Idempotency.IdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 abstract A2A.Server.Idempotency.IdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 abstract A2A.Server.Idempotency.IdempotencyStore.TryBeginAsync(A2A.Server.Idempotency.IdempotencyScope scope, byte[]! requestHash, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Idempotency.IdempotencyResult!>
-abstract A2A.Server.Storage.EventStore.AppendAsync(A2A.Server.Storage.TaskKey task, A2A.StreamResponse! evt, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long>
+abstract A2A.Server.Storage.EventStore.AppendAsync(A2A.Server.Storage.TaskKey task, A2A.Server.Streaming.SequencedEvent evt, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long>
 abstract A2A.Server.Storage.EventStore.LastSequenceAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long>
 abstract A2A.Server.Storage.EventStore.MarkTerminalAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 abstract A2A.Server.Storage.EventStore.OldestRetainedAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long?>
@@ -380,7 +387,7 @@ const A2A.Server.ServerCallContext.AnonymousPrincipal = "anonymous" -> string!
 override A2A.Server.Idempotency.InMemoryIdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 override A2A.Server.Idempotency.InMemoryIdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 override A2A.Server.Idempotency.InMemoryIdempotencyStore.TryBeginAsync(A2A.Server.Idempotency.IdempotencyScope scope, byte[]! requestHash, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Idempotency.IdempotencyResult!>
-override A2A.Server.Storage.InMemoryEventStore.AppendAsync(A2A.Server.Storage.TaskKey task, A2A.StreamResponse! evt, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long>
+override A2A.Server.Storage.InMemoryEventStore.AppendAsync(A2A.Server.Storage.TaskKey task, A2A.Server.Streaming.SequencedEvent evt, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long>
 override A2A.Server.Storage.InMemoryEventStore.LastSequenceAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long>
 override A2A.Server.Storage.InMemoryEventStore.MarkTerminalAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 override A2A.Server.Storage.InMemoryEventStore.OldestRetainedAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long?>
