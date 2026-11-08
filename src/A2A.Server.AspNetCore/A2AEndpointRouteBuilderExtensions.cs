@@ -140,6 +140,29 @@ public static partial class A2AEndpointRouteBuilderExtensions
         return group;
     }
 
+    /// <summary>
+    /// Maps <c>GET {pattern}/artifacts/{artifactTenant}/{taskId}/{objectId}</c>, which serves the bytes behind the artifact links
+    /// made when an <see cref="Storage.ArtifactObjectStore"/> is registered. The caller needs the same credentials as for A2A calls: the
+    /// read is authorized as <c>GetTask</c> and the task is loaded with the caller's key, so another owner or tenant, a deleted
+    /// task or a wrong id all answer 404. Responses are <c>Content-Disposition: attachment</c> with <c>nosniff</c> and
+    /// <c>Cache-Control: private, no-store</c>. With <see cref="ArtifactDelivery.Redirect"/> the answer is a 302 to a presigned URL
+    /// when the store has one; otherwise the bytes stream through the server, which honours a single <c>Range</c>. Like
+    /// <see cref="MapA2A"/>, the route is covered by the startup authorization check and the <c>"a2a"</c> rate limit policy, so call
+    /// <c>RequireAuthorization()</c> on the returned group. Map it at the same <paramref name="pattern"/> as <see cref="MapA2A"/>,
+    /// and give the agent card the origin that the links use, so clients send credentials. Requires
+    /// <see cref="A2AServiceCollectionExtensions.AddA2AServerAspNetCore"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException"><c>services.AddA2AServerAspNetCore()</c> was not called.</exception>
+    public static RouteGroupBuilder MapA2AArtifacts(this IEndpointRouteBuilder endpoints, string pattern = "/")
+    {
+        RequireRegistration(endpoints);
+        var group = endpoints.MapGroup(pattern);
+        var artifacts = ActivatorUtilities.CreateInstance<ArtifactEndpoint>(endpoints.ServiceProvider);
+        group.MapGet("/artifacts/{artifactTenant}/{taskId}/{objectId}", artifacts.GetAsync).WithDisplayName(ArtifactEndpoint.DisplayName);
+        ApplyRateLimiting(endpoints, group);
+        return group;
+    }
+
     private static void MapJsonRpc(IEndpointRouteBuilder endpoints, RouteGroupBuilder group, bool tenantInPattern, IA2AProtocolAdapter? adapter = null)
     {
         var rpc = ActivatorUtilities.CreateInstance<JsonRpcEndpoint>(endpoints.ServiceProvider);

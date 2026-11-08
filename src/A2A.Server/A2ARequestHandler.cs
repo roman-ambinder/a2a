@@ -41,6 +41,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private readonly AcceptMessage _accept;
     private readonly OperationPipeline _pipeline;
     private readonly A2A.Delegation.ITokenExchanger? _tokenExchanger;
+    private readonly ArtifactObjectStore? _objects;
 
     // One cached delegate per operation, so a call through the pipeline creates no closure for its operation.
     private readonly Func<SendMessageRequest, ServerCallContext, CancellationToken, ValueTask<SendMessageResponse>> _sendMessage;
@@ -79,9 +80,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         IEnumerable<A2AOperationFilterRegistration> filters,
         IEnumerable<A2AExtensionOperation> extensionOperations,
         IAgentCardProvider cards,
-        A2A.Delegation.ITokenExchanger? tokenExchanger = null)
+        A2A.Delegation.ITokenExchanger? tokenExchanger = null,
+        ArtifactObjectStore? objects = null)
     {
         _tokenExchanger = tokenExchanger;
+        _objects = objects;
         _cards = cards;
         _authorization = authorization;
         _requestCards = new RequestCards(cards);
@@ -436,12 +439,6 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     // A refused answer throws here: nothing is stored and the agent does not run. Same for a retry after a conflict.
                     string? answeredForm = null;
                     elicitation = answersForm ? ElicitationValidator.Resolve(record.Task, message, out answeredForm) : null;
-                    if (push is not null && !pushSaved)
-                    {
-                        // Saved atomically under the limit before the message is committed, so a refused request leaves no message.
-                        pushIsNew = await _pushConfigs.SaveInlineUnderLimitAsync(key, push, ct).ConfigureAwait(false);
-                        pushSaved = true;
-                    }
                     contextId = record.Task.ContextId;
                     message.ContextId = contextId;
                     // The stored record belongs to the store: append to a copy, with a copy of the message the executor gets.
@@ -453,6 +450,13 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     if (answeredForm is not null) (next.Metadata ??= [])[Elicitation.AnsweredKey] = StringElement(answeredForm);
                     // The latest well-formed chain wins; a follow-up without one leaves the echo as it is.
                     if (ActorChainValidator.WellFormedChain(message) is { } chain) (next.Metadata ??= [])[A2A.Delegation.ActorChain.MetadataKey] = chain;
+                    EnsureTaskSizeCapacity(next);
+                    if (push is not null && !pushSaved)
+                    {
+                        // Saved atomically under the limit before the message is committed, so a refused request leaves no message.
+                        pushIsNew = await _pushConfigs.SaveInlineUnderLimitAsync(key, push, ct).ConfigureAwait(false);
+                        pushSaved = true;
+                    }
                     try
                     {
                         await _tasks.UpdateAsync(record with { Task = next }, record.Version, ct).ConfigureAwait(false);
@@ -570,6 +574,21 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         };
     }
 
+    /// <summary>
+    /// Throws UnsupportedOperation when the task, with the follow-up message already added, is larger than
+    /// <see cref="A2ALimits.MaxTaskBytes"/>. Nothing is stored then.
+    /// </summary>
+    private void EnsureTaskSizeCapacity(AgentTask next)
+    {
+        var max = _options.Limits.MaxTaskBytes;
+        if (TaskSize.Measure(next) <= max) return;
+        throw new A2AException(A2AErrorCode.UnsupportedOperation,
+            $"The task reached its size limit of {max} bytes. Start a new task and list this one in referenceTaskIds.")
+        {
+            Metadata = new() { ["taskId"] = next.Id, ["maxTaskBytes"] = max.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+        };
+    }
+
     private async Task<string> ResolveContextAsync(string? requested, ServerCallContext call, CancellationToken ct)
     {
         const string NotFound = "contextId not found";
@@ -610,6 +629,48 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         return Shape(record.Task, request.HistoryLength);
+    }
+
+    /// <summary>
+    /// Opens a stored artifact object for download. It runs through the pipeline as <see cref="A2AOperation.GetTask"/>: whoever may
+    /// not read the task may not read its bytes. The task is loaded with the caller's key, and the object key is built from the
+    /// call's tenant, <paramref name="taskId"/> and <paramref name="objectId"/>, so an id from another task finds nothing. Every
+    /// miss (no store, bad object id, no task, no object) is <c>TaskNotFound</c>. The caller disposes the result.
+    /// </summary>
+    /// <param name="taskId">The task the artifact belongs to.</param>
+    /// <param name="objectId">The object id from the artifact link.</param>
+    /// <param name="range">The bytes to read, or null for all. A range always streams through the server, also in <see cref="ArtifactDelivery.Redirect"/> mode.</param>
+    /// <param name="call">The caller, with its tenant bound.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <exception cref="A2AException">The call is refused, or the object cannot be found (<see cref="A2AErrorCode.TaskNotFound"/>).</exception>
+    public async ValueTask<ArtifactDownload> OpenArtifactAsync(string taskId, string objectId, ArtifactByteRange? range, ServerCallContext call,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(taskId);
+        ArgumentNullException.ThrowIfNull(objectId);
+        ArgumentNullException.ThrowIfNull(call);
+        var request = new GetTaskRequest { Id = taskId, Tenant = call.Tenant };
+        return await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.GetTask), call, request,
+            (_, c, ct) => OpenArtifactCoreAsync(taskId, objectId, range, c, ct), cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<ArtifactDownload> OpenArtifactCoreAsync(string taskId, string objectId, ArtifactByteRange? range, ServerCallContext call,
+        CancellationToken cancellationToken)
+    {
+        await _requestCards.RequireAgentForTaskAsync(call, taskId, cancellationToken).ConfigureAwait(false);
+        // "_" is the link spelling of the default tenant, so it is no tenant of its own and has no keys.
+        if (_objects is null || call.Tenant == "_" || !ArtifactObjectKey.IsValidObjectId(objectId)) throw A2AException.TaskNotFound(taskId);
+        _ = await _tasks.GetAsync(Key(call, taskId), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
+        var key = ArtifactObjectKey.Create(call.Tenant, taskId, objectId);
+        if (range is null && _options.ArtifactStorage.Delivery == ArtifactDelivery.Redirect)
+        {
+            // A presigned URL does not prove the object exists, so a miss must be found here to answer 404 instead of a redirect.
+            if (!await _objects.ExistsAsync(key, cancellationToken).ConfigureAwait(false)) throw A2AException.TaskNotFound(taskId);
+            if (await _objects.TryCreateDownloadUrlAsync(key, _options.ArtifactStorage.DownloadUrlLifetime, cancellationToken).ConfigureAwait(false) is { } url)
+                return new ArtifactDownload(url, null);
+        }
+        var content = await _objects.OpenReadAsync(key, range, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
+        return new ArtifactDownload(null, content);
     }
 
     /// <summary>ListTasks (spec §3.1.4). Returns the caller's tasks, newest status first. The page size defaults to 50 and is capped by <see cref="A2ALimits.MaxListPageSize"/>.</summary>

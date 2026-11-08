@@ -1,6 +1,7 @@
 using A2A.Server.Coordination;
 using A2A.Server.Execution;
 using A2A.Server.Storage;
+using A2A.Server.Telemetry;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -24,7 +25,10 @@ namespace A2A.Server.Retention;
 /// with the status text "The task waited too long for input.";</item>
 /// <item>deletes the terminal tasks older than <see cref="A2ARetentionOptions.TaskRetention"/> with all their data
 /// (<see cref="A2ATaskAdmin.DeleteTaskAsync"/>);</item>
-/// <item>deletes the contexts older than <see cref="A2ARetentionOptions.OrphanContextRetention"/> that no task uses.</item>
+/// <item>deletes the contexts older than <see cref="A2ARetentionOptions.OrphanContextRetention"/> that no task uses;</item>
+/// <item>when an <see cref="ArtifactObjectStore"/> is registered, deletes the artifact objects older than
+/// <see cref="ArtifactStorageOptions.OrphanGracePeriod"/> whose task no longer exists or does not refer to them. A task that
+/// cannot be read keeps its objects.</item>
 /// </list>
 /// Status changes go through the normal commit path, so subscribers and webhooks see them. Each step reads batches of
 /// <see cref="A2ARetentionOptions.BatchSize"/> new items (plus the items it skipped, which stay listed). A failing step or item is logged as a warning and the sweep goes on;
@@ -52,6 +56,10 @@ public sealed class A2ARetentionService : BackgroundService
     private readonly A2ATaskAdmin _admin;
     private readonly ILogger _logger;
     private readonly TimeProvider _time;
+    private readonly ArtifactObjectStore? _objects;
+    private readonly TimeSpan _orphanGracePeriod;
+    private readonly TimeSpan _orphanSweepInterval;
+    private DateTimeOffset? _lastOrphanStep;
 
     /// <summary>Creates the sweep. In an app the DI container does this (<c>AddA2ARetention</c>).</summary>
     /// <param name="options">The sweep settings.</param>
@@ -62,9 +70,10 @@ public sealed class A2ARetentionService : BackgroundService
     /// <param name="admin">Deletes expired tasks with their data.</param>
     /// <param name="logger">Optional logger.</param>
     /// <param name="time">The clock for the cut-offs and the sweep interval. Default <see cref="TimeProvider.System"/>.</param>
+    /// <param name="objects">The artifact object store. Without it there is no orphan object step.</param>
     public A2ARetentionService(IOptions<A2ARetentionOptions> options, A2AServerOptions serverOptions, TaskStore tasks,
         ExecutionCoordinator coordinator, TaskExecutionEngine engine, A2ATaskAdmin admin, ILogger<A2ARetentionService>? logger = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null, ArtifactObjectStore? objects = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(serverOptions);
@@ -77,6 +86,9 @@ public sealed class A2ARetentionService : BackgroundService
         _admin = admin ?? throw new ArgumentNullException(nameof(admin));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _time = time ?? TimeProvider.System;
+        _objects = objects;
+        _orphanGracePeriod = serverOptions.ArtifactStorage.OrphanGracePeriod;
+        _orphanSweepInterval = serverOptions.ArtifactStorage.OrphanSweepInterval;
     }
 
     /// <summary>Checks the options (<see cref="ValidateOptions"/>), then starts sweeping.</summary>
@@ -89,11 +101,18 @@ public sealed class A2ARetentionService : BackgroundService
 
     /// <summary>
     /// Throws <see cref="InvalidOperationException"/> when <see cref="A2ARetentionOptions.Validate"/> does, or when
-    /// <see cref="A2AServerOptions.InterruptedTimeout"/> is set and not positive.
+    /// <see cref="A2AServerOptions.InterruptedTimeout"/> is set and not positive, or when an artifact object store is registered and
+    /// <see cref="ArtifactStorageOptions.OrphanGracePeriod"/> or <see cref="ArtifactStorageOptions.OrphanSweepInterval"/> is not positive.
     /// </summary>
     internal void ValidateOptions()
     {
         _options.Validate();
+        // A grace period of zero or less puts the cut-off at now or later: an object written but not yet committed would be
+        // deleted, and the commit would then create a task that points at nothing.
+        if (_objects is not null && _orphanGracePeriod <= TimeSpan.Zero)
+            throw new InvalidOperationException($"ArtifactStorage.OrphanGracePeriod ({_orphanGracePeriod}) must be greater than zero.");
+        if (_objects is not null && _orphanSweepInterval <= TimeSpan.Zero)
+            throw new InvalidOperationException($"ArtifactStorage.OrphanSweepInterval ({_orphanSweepInterval}) must be greater than zero.");
         if (_interruptedTimeout is { } timeout && timeout <= TimeSpan.Zero)
             throw new InvalidOperationException($"InterruptedTimeout ({timeout}) must be greater than zero, or null to turn it off.");
     }
@@ -144,7 +163,16 @@ public sealed class A2ARetentionService : BackgroundService
         if (_interruptedTimeout is { } timeout) await StepAsync("interrupted timeout", c => CancelInterruptedAsync(timeout, c), cancellationToken).ConfigureAwait(false);
         await StepAsync("expired tasks", PurgeExpiredTasksAsync, cancellationToken).ConfigureAwait(false);
         await StepAsync("orphan contexts", DeleteOrphanContextsAsync, cancellationToken).ConfigureAwait(false);
+        if (_objects is { } objects && OrphanStepDue())
+            await StepAsync("orphan artifact objects", async c =>
+            {
+                // A failed step, or one that stopped at BatchSize, is not recorded: the next sweep runs it again, so a backlog drains.
+                if (!await DeleteOrphanObjectsAsync(objects, c).ConfigureAwait(false)) _lastOrphanStep = _time.GetUtcNow();
+            }, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>True when this instance has not run the orphan step, or the last run is at least <see cref="ArtifactStorageOptions.OrphanSweepInterval"/> ago.</summary>
+    private bool OrphanStepDue() => _lastOrphanStep is not { } last || _time.GetUtcNow() - last >= _orphanSweepInterval;
 
     private async Task StepAsync(string name, Func<CancellationToken, Task> step, CancellationToken cancellationToken)
     {
@@ -315,6 +343,66 @@ public sealed class A2ARetentionService : BackgroundService
         return BatchesAsync("orphan context", (max, c) => _tasks.ListOrphanContextsAsync(cutoff, max, c),
             async (context, c) => await _tasks.DeleteContextAsync(context.Tenant, context.ContextId, c).ConfigureAwait(false),
             context => context.ContextId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Deletes the objects older than the grace period whose task is gone or no longer refers to them, at most
+    /// <see cref="A2ARetentionOptions.BatchSize"/> per sweep. The task is read without its owner, so a live task of anyone counts. Any doubt keeps
+    /// the object: a key that is not one of ours, a task that cannot be read, a delete that fails. Younger objects are never
+    /// touched: their task may not be committed yet. Returns true when it stopped at the batch size, with more listed.
+    /// </summary>
+    private async Task<bool> DeleteOrphanObjectsAsync(ArtifactObjectStore objects, CancellationToken cancellationToken)
+    {
+        var cutoff = Before(_time.GetUtcNow(), _orphanGracePeriod);
+        // Only the current task is kept. Stores list in key order, so the objects of one task come together; any other order only costs more reads.
+        (string Tenant, string TaskId)? currentTask = null;
+        HashSet<string>? used = null;
+        var deleted = 0;
+        await foreach (var entry in objects.ListAsync(string.Empty, cancellationToken).ConfigureAwait(false))
+        {
+            if (deleted >= _options.BatchSize) return true;
+            if (entry.CreatedAt >= cutoff) continue;
+            if (!ArtifactObjectKey.TryParse(entry.Key, out var tenant, out var taskId, out var objectId)) continue;
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                if (currentTask != (tenant, taskId))
+                {
+                    var record = await _tasks.GetForMaintenanceAsync(tenant, taskId, cancellationToken).ConfigureAwait(false);
+                    used = record is null ? null : ReferencedObjectIds(record.Task);
+                    currentTask = (tenant, taskId);
+                }
+                if (used is not null && used.Contains(objectId)) continue; // a live task uses it
+                await objects.DeleteAsync(entry.Key, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                ServerLog.ArtifactObjectCheckFailed(_logger, ex, entry.Key);
+                continue;
+            }
+            deleted++;
+            ServerTelemetry.OrphanObjectsDeleted.Add(1);
+            ServerLog.ArtifactOrphanDeleted(_logger, entry.Key);
+        }
+        return false;
+    }
+
+    /// <summary>The object ids of every artifact link in the task's artifacts, history and status message.</summary>
+    private static HashSet<string> ReferencedObjectIds(AgentTask task)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        void Add(IEnumerable<Part>? parts)
+        {
+            if (parts is null) return;
+            foreach (var part in parts)
+                if (part is UrlPart url && ArtifactLink.TryGetObjectId(url.Url, out var id)) ids.Add(id);
+        }
+        if (task.Artifacts is { } artifacts)
+            foreach (var artifact in artifacts) Add(artifact.Parts);
+        if (task.History is { } history)
+            foreach (var message in history) Add(message.Parts);
+        Add(task.Status?.Message?.Parts);
+        return ids;
     }
 
     /// <summary><paramref name="now"/> minus <paramref name="age"/>, or the earliest time when that is out of range.</summary>

@@ -2,6 +2,8 @@ using A2A.Server.Coordination;
 using A2A.Server.Execution;
 using A2A.Server.Push;
 using A2A.Server.Storage;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace A2A.Server.Retention;
 
@@ -18,6 +20,8 @@ public sealed class A2ATaskAdmin
     private readonly PushOutbox _outbox;
     private readonly ExecutionCoordinator _coordinator;
     private readonly TaskExecutionEngine? _engine;
+    private readonly ArtifactObjectStore? _objects;
+    private readonly ILogger _logger;
 
     /// <summary>Creates the admin API. In an app the DI container does this.</summary>
     /// <param name="tasks">The task store.</param>
@@ -29,8 +33,10 @@ public sealed class A2ATaskAdmin
     /// Cancels executions of this instance directly; without it, a running task is cancelled only through
     /// <see cref="ExecutionCoordinator.RequestCancelAsync"/> (other instances).
     /// </param>
+    /// <param name="objects">The artifact object store. When set, a deleted task's objects are deleted with it.</param>
+    /// <param name="logger">Optional logger.</param>
     public A2ATaskAdmin(TaskStore tasks, EventStore events, PushConfigStore pushConfigs, PushOutbox outbox, ExecutionCoordinator coordinator,
-        TaskExecutionEngine? engine = null)
+        TaskExecutionEngine? engine = null, ArtifactObjectStore? objects = null, ILogger<A2ATaskAdmin>? logger = null)
     {
         _tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _events = events ?? throw new ArgumentNullException(nameof(events));
@@ -38,6 +44,8 @@ public sealed class A2ATaskAdmin
         _outbox = outbox ?? throw new ArgumentNullException(nameof(outbox));
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _engine = engine;
+        _objects = objects;
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
     }
 
     /// <summary>
@@ -62,14 +70,35 @@ public sealed class A2ATaskAdmin
 
     /// <summary>
     /// Deletes the task's data in an order that survives a crash part-way: pending push deliveries and dead letters, push
-    /// configs, the event log, and the task row last. Until the row is gone the task is still listed, so the next sweep (or
-    /// call) finishes the job; every step is idempotent. Returns whether the task row was deleted by this call.
+    /// configs, the event log, and the task row; then its artifact objects. Until the row is gone the task is still listed, so
+    /// the next sweep (or call) finishes the job; every step is idempotent. The objects go after the row: deleting them first
+    /// could leave a task that points at nothing. They are deleted only when this call deleted the row, and a failure is
+    /// logged and left to the orphan sweep. Returns whether the task row was deleted by this call.
     /// </summary>
     internal async ValueTask<bool> PurgeAsync(TaskKey key, CancellationToken cancellationToken)
     {
         await _outbox.DeleteAllAsync(key, cancellationToken).ConfigureAwait(false);
         await _pushConfigs.DeleteAllAsync(key, cancellationToken).ConfigureAwait(false);
         await _events.DeleteAsync(key, cancellationToken).ConfigureAwait(false);
-        return await _tasks.DeleteAsync(key, cancellationToken).ConfigureAwait(false);
+        var deleted = await _tasks.DeleteAsync(key, cancellationToken).ConfigureAwait(false);
+        if (deleted && _objects is not null) await DeleteObjectsAsync(_objects, key, cancellationToken).ConfigureAwait(false);
+        return deleted;
+    }
+
+    private async ValueTask DeleteObjectsAsync(ArtifactObjectStore objects, TaskKey key, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var prefix = ArtifactObjectKey.TaskPrefix(key.Tenant, key.TaskId);
+            // Collect first: a provider may not allow deleting while a listing is open.
+            var keys = new List<string>();
+            await foreach (var entry in objects.ListAsync(prefix, cancellationToken).ConfigureAwait(false))
+                if (entry.Key.StartsWith(prefix, StringComparison.Ordinal)) keys.Add(entry.Key);
+            foreach (var objectKey in keys) await objects.DeleteAsync(objectKey, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            ServerLog.ArtifactObjectsDeleteFailed(_logger, ex, key.TaskId);
+        }
     }
 }

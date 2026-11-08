@@ -1,6 +1,10 @@
 using A2A.Server.Postgres;
+using Amazon.S3;
+using Azure.Storage.Blobs;
 using Npgsql;
 using StackExchange.Redis;
+using Testcontainers.Azurite;
+using Testcontainers.Minio;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 
@@ -96,9 +100,79 @@ public sealed class RedisFixture : ContainerFixture
     }
 }
 
+public sealed class MinioFixture : ContainerFixture
+{
+    private MinioContainer? _container;
+    private const string AccessKey = "a2a-test", SecretKey = "a2a-test-secret";
+    private string _endpoint = "";
+
+    protected override async Task StartAsync()
+    {
+        _container = // Pinned by digest. Not minio/minio: that Docker Hub repository no longer serves images, and quay.io needs a login.
+        new MinioBuilder("cgr.dev/chainguard/minio@sha256:a1ac4589a5f8136b616e667b48a0bea9719bb10bd45799ea946f24bbedfafde4").WithUsername(AccessKey).WithPassword(SecretKey).Build();
+        await _container.StartAsync();
+        _endpoint = _container.GetConnectionString();
+    }
+
+    /// <summary>A client for the container. The caller disposes it.</summary>
+    public AmazonS3Client NewClient()
+    {
+        SkipIfUnavailable();
+        return new AmazonS3Client(new Amazon.Runtime.BasicAWSCredentials(AccessKey, SecretKey), new AmazonS3Config
+        {
+            ServiceURL = _endpoint,
+            ForcePathStyle = true,
+            // S3-compatible services do not all accept the newer default checksums.
+            RequestChecksumCalculation = Amazon.Runtime.RequestChecksumCalculation.WHEN_REQUIRED,
+            ResponseChecksumValidation = Amazon.Runtime.ResponseChecksumValidation.WHEN_REQUIRED,
+        });
+    }
+
+    /// <summary>A new, empty bucket, so every test starts empty.</summary>
+    public async Task<string> NewBucketAsync(AmazonS3Client client)
+    {
+        var name = "t-" + Guid.NewGuid().ToString("N");
+        await client.PutBucketAsync(name);
+        return name;
+    }
+
+    public override async Task DisposeAsync()
+    {
+        if (_container is not null) await _container.DisposeAsync();
+    }
+}
+
+public sealed class AzuriteFixture : ContainerFixture
+{
+    private AzuriteContainer? _container;
+
+    protected override async Task StartAsync()
+    {
+        // Pinned to a fixed tag. --skipApiVersionCheck: Azurite lags the newest REST version the SDK sends.
+        _container = new AzuriteBuilder("mcr.microsoft.com/azure-storage/azurite:3.35.0")
+            .WithCommand("--skipApiVersionCheck")
+            .Build();
+        await _container.StartAsync();
+    }
+
+    /// <summary>A new, empty container (with a shared-key client), so every test starts empty.</summary>
+    public async Task<BlobContainerClient> NewContainerAsync()
+    {
+        SkipIfUnavailable();
+        var client = new BlobContainerClient(_container!.GetConnectionString(), "t-" + Guid.NewGuid().ToString("N"));
+        await client.CreateAsync();
+        return client;
+    }
+
+    public override async Task DisposeAsync()
+    {
+        if (_container is not null) await _container.DisposeAsync();
+    }
+}
+
 /// <summary>Tests that need the containers. One collection, so each container starts once per run.</summary>
 [CollectionDefinition(Name)]
-public sealed class ContainersCollection : ICollectionFixture<PostgresFixture>, ICollectionFixture<RedisFixture>
+public sealed class ContainersCollection : ICollectionFixture<PostgresFixture>, ICollectionFixture<RedisFixture>, ICollectionFixture<MinioFixture>, ICollectionFixture<AzuriteFixture>
 {
     public const string Name = "containers";
 }

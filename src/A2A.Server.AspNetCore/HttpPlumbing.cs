@@ -18,8 +18,9 @@ internal static partial class HttpPlumbing
     /// <param name="http">The request.</param>
     /// <param name="binding">The binding for traces.</param>
     /// <param name="versionOverride">When set, used as the protocol version instead of the A2A-Version header (the v0.3 compat surface sends "1.0": the converted request is a v1.0 call).</param>
+    /// <param name="skipRequiredExtensions">True for a route a plain HTTP client calls (the artifact download): required extensions are not enforced (<see cref="ServerCallContext.SkipRequiredExtensions"/>).</param>
     /// <param name="wireVersion">The version the caller used on the wire, when it differs from the one the call carries (<see cref="ServerCallContext.WireProtocolVersion"/>).</param>
-    public static ServerCallContext CreateCallContext(HttpContext http, string? binding, string? versionOverride = null, string? wireVersion = null)
+    public static ServerCallContext CreateCallContext(HttpContext http, string? binding, string? versionOverride = null, string? wireVersion = null, bool skipRequiredExtensions = false)
     {
         var extensions = http.Request.Headers[A2AProtocol.Headers.Extensions]
             .SelectMany(v => (v ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -61,6 +62,7 @@ internal static partial class HttpPlumbing
             ProtocolVersion = string.IsNullOrWhiteSpace(version) ? null : version,
             WireProtocolVersion = wireVersion,
             RequestedExtensions = extensions,
+            SkipRequiredExtensions = skipRequiredExtensions,
             IdempotencyKey = string.IsNullOrEmpty(idempotencyKey) ? null : idempotencyKey,
             Tenant = tenant,
             TenantFromRoute = http.GetRouteValue("tenant") is string { Length: > 0 },

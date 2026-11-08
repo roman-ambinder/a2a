@@ -118,6 +118,14 @@ public abstract class TaskStore
     public abstract ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Maintenance: reads a task by tenant and id, whoever owns it. Unlike <see cref="GetAsync"/> it never hides a task behind
+    /// its owner, so a caller that decides by "is there a task?" (the orphan sweep of artifact objects) does not take a live
+    /// task of another owner for a missing one. Not for request handling. Returns null when the task does not exist in
+    /// <paramref name="tenant"/>.
+    /// </summary>
+    public abstract ValueTask<TaskRecord?> GetForMaintenanceAsync(string tenant, string taskId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Maintenance: atomically deletes the context row only if no task refers to it any more. Returns false when the context
     /// does not exist in <paramref name="tenant"/> or a task still uses it. Tasks are never touched.
     /// </summary>

@@ -1,1 +1,2 @@
 #nullable enable
+override A2A.Server.Postgres.PostgresTaskStore.GetForMaintenanceAsync(string! tenant, string! taskId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.TaskRecord?>

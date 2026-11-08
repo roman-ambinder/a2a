@@ -20,6 +20,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 201, Level = LogLevel.Warning, Message = "Task {TaskId}: the agent produced an event larger than {Limit} bytes; failing the task")]
     public static partial void EventTooLarge(ILogger logger, string taskId, int limit);
 
+    [LoggerMessage(EventId = 254, Level = LogLevel.Warning, Message = "Task {TaskId}: an event would take the task past {MaxTaskBytes} bytes or {MaxArtifacts} artifacts; failing the task")]
+    public static partial void TaskTooLarge(ILogger logger, string taskId, long maxTaskBytes, int maxArtifacts);
+
     [LoggerMessage(EventId = 202, Level = LogLevel.Warning, Message = "Task {TaskId} disappeared from the store; dropping event")]
     public static partial void TaskDisappeared(ILogger logger, string taskId);
 
@@ -151,6 +154,15 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 235, Level = LogLevel.Information, Message = "Task {TaskId} waited for input longer than {Timeout}; cancelled")]
     public static partial void SweepCancelledInterrupted(ILogger logger, string taskId, TimeSpan? timeout);
 
+    [LoggerMessage(EventId = 236, Level = LogLevel.Warning, Message = "Task {TaskId}: could not delete its artifact objects; the retention sweep removes them as orphans")]
+    public static partial void ArtifactObjectsDeleteFailed(ILogger logger, Exception exception, string taskId);
+
+    [LoggerMessage(EventId = 237, Level = LogLevel.Warning, Message = "Artifact object {Key}: could not tell whether its task still uses it, so it is kept; the next sweep tries again")]
+    public static partial void ArtifactObjectCheckFailed(ILogger logger, Exception exception, string key);
+
+    [LoggerMessage(EventId = 238, Level = LogLevel.Information, Message = "Deleted the orphan artifact object {Key}")]
+    public static partial void ArtifactOrphanDeleted(ILogger logger, string key);
+
     [LoggerMessage(EventId = 240, Level = LogLevel.Debug, Message = "Task {TaskId}: not continued ({Status})")]
     public static partial void ContinuationRefused(ILogger logger, string taskId, TaskContinuationStatus status);
 
@@ -171,6 +183,9 @@ internal static partial class ServerLog
 
     [LoggerMessage(EventId = 253, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.RetentionOffMessage)]
     public static partial void RetentionOffWithDurableStore(ILogger logger, string taskStore);
+
+    [LoggerMessage(EventId = 255, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.InMemoryObjectsMessage)]
+    public static partial void InMemoryObjectsWithDurableStore(ILogger logger, string taskStore);
 
     // IdempotencyCoordinator: 400-499
     [LoggerMessage(EventId = 400, Level = LogLevel.Error, Message = "Failed to record the idempotency outcome for task {TaskId}")]

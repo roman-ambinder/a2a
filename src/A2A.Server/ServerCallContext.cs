@@ -115,6 +115,15 @@ public sealed class ServerCallContext
     public IReadOnlyList<string> RequestedExtensions { get; init; } = [];
 
     /// <summary>
+    /// True for a call that comes from a plain HTTP client that cannot send the A2A-Extensions header (an artifact download by a
+    /// browser or a downloader): the Agent Card's required extensions are not enforced for it.
+    /// <b>Warning:</b> this turns off the required-extension check for every operation run with this context. Use it only in a
+    /// binding that serves a non-A2A resource, never for a call that reaches an agent. Requested extensions that the card
+    /// declares are still activated. Default false.
+    /// </summary>
+    public bool SkipRequiredExtensions { get; init; }
+
+    /// <summary>
     /// Extensions the server applied to this request. Starts as requested ∩ declared; executors may remove entries.
     /// Echoed back in the A2A-Extensions response header so clients know what was honored.
     /// </summary>

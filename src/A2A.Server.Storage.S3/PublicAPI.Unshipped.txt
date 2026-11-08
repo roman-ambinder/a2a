@@ -1,0 +1,24 @@
+#nullable enable
+A2A.Server.Storage.S3.A2AS3ServiceCollectionExtensions
+A2A.Server.Storage.S3.S3ArtifactObjectStore
+A2A.Server.Storage.S3.S3ArtifactObjectStore.Dispose() -> void
+A2A.Server.Storage.S3.S3ArtifactObjectStore.S3ArtifactObjectStore(A2A.Server.Storage.S3.S3ArtifactStoreOptions! options) -> void
+A2A.Server.Storage.S3.S3ArtifactStoreOptions
+A2A.Server.Storage.S3.S3ArtifactStoreOptions.BucketName.get -> string!
+A2A.Server.Storage.S3.S3ArtifactStoreOptions.BucketName.set -> void
+A2A.Server.Storage.S3.S3ArtifactStoreOptions.Client.get -> Amazon.S3.IAmazonS3?
+A2A.Server.Storage.S3.S3ArtifactStoreOptions.Client.set -> void
+A2A.Server.Storage.S3.S3ArtifactStoreOptions.ForcePathStyle.get -> bool
+A2A.Server.Storage.S3.S3ArtifactStoreOptions.ForcePathStyle.set -> void
+A2A.Server.Storage.S3.S3ArtifactStoreOptions.KeyPrefix.get -> string!
+A2A.Server.Storage.S3.S3ArtifactStoreOptions.KeyPrefix.set -> void
+A2A.Server.Storage.S3.S3ArtifactStoreOptions.S3ArtifactStoreOptions() -> void
+A2A.Server.Storage.S3.S3ArtifactStoreOptions.ServiceUrl.get -> string?
+A2A.Server.Storage.S3.S3ArtifactStoreOptions.ServiceUrl.set -> void
+override A2A.Server.Storage.S3.S3ArtifactObjectStore.DeleteAsync(string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Storage.S3.S3ArtifactObjectStore.ExistsAsync(string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Storage.S3.S3ArtifactObjectStore.ListAsync(string! prefix, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Storage.ArtifactObjectEntry!>!
+override A2A.Server.Storage.S3.S3ArtifactObjectStore.OpenReadAsync(string! key, A2A.Server.Storage.ArtifactByteRange? range = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectContent?>
+override A2A.Server.Storage.S3.S3ArtifactObjectStore.PutAsync(string! key, System.IO.Stream! content, A2A.Server.Storage.ArtifactObjectInfo! info, long maxBytes, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectWriteResult!>
+override A2A.Server.Storage.S3.S3ArtifactObjectStore.TryCreateDownloadUrlAsync(string! key, System.TimeSpan lifetime, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Uri?>
+static A2A.Server.Storage.S3.A2AS3ServiceCollectionExtensions.AddA2AS3ArtifactStore(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<A2A.Server.Storage.S3.S3ArtifactStoreOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

@@ -47,6 +47,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     private readonly IAgentCardProvider _cards;
     private readonly ILogger _logger;
     private readonly TimeProvider _time;
+    private readonly ArtifactObjectStore? _objects;
 
     /// <summary>The current time of the engine's clock, UTC. The request handler stamps accepted messages with it.</summary>
     internal DateTimeOffset UtcNow => _time.GetUtcNow();
@@ -73,7 +74,11 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// <param name="coordinator">
     /// Tracks running executions across instances. Default a process-local <see cref="InMemoryExecutionCoordinator"/>.
     /// </param>
-    /// <exception cref="InvalidOperationException"><see cref="A2AServerOptions.Coordination"/> is invalid.</exception>
+    /// <param name="objects">
+    /// Where large raw parts of artifacts go (<see cref="A2AServerOptions.ArtifactStorage"/>). Null keeps every part inline.
+    /// </param>
+    /// <exception cref="InvalidOperationException"><see cref="A2AServerOptions.Coordination"/> is invalid, or <paramref name="objects"/> is set and
+    /// neither <see cref="ArtifactStorageOptions.PublicBaseUrl"/> nor <see cref="ArtifactStorageOptions.PublicBaseUrlResolver"/> is.</exception>
     public TaskExecutionEngine(
         TaskStore tasks,
         EventStore events,
@@ -86,9 +91,13 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         IAgentCardProvider cards,
         ILogger<TaskExecutionEngine>? logger = null,
         TimeProvider? timeProvider = null,
-        ExecutionCoordinator? coordinator = null)
+        ExecutionCoordinator? coordinator = null,
+        ArtifactObjectStore? objects = null)
     {
         ArgumentNullException.ThrowIfNull(options);
+        if (objects is not null && options.ArtifactStorage.PublicBaseUrl is null && options.ArtifactStorage.PublicBaseUrlResolver is null)
+            throw new InvalidOperationException("An ArtifactObjectStore is registered, but A2AServerOptions.ArtifactStorage.PublicBaseUrl (or PublicBaseUrlResolver) is not set. Artifact links need a base URL.");
+        _objects = objects;
         _tasks = tasks;
         _events = events;
         _executors = executors;
@@ -133,6 +142,9 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
 
     /// <summary>Status text of a task failed because the execution of a follow-up could not start after its message was committed.</summary>
     internal const string StartFailureText = "The task failed because the agent could not be started for the message.";
+
+    /// <summary>Status text of a task failed because it grew past <see cref="A2ALimits.MaxTaskBytes"/> or <see cref="A2ALimits.MaxArtifactsPerTask"/>.</summary>
+    internal const string OversizedTaskText = "The task grew past the configured size limit.";
 
     /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
     internal const string OversizedEventText = "The agent produced an event larger than the configured limit.";
@@ -320,7 +332,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             TaskStored = !isNewTask,
         };
         var scope = ScopeKey(key.Tenant, taskId);
-        var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
+        var offload = _objects is null ? null : new ArtifactOffload(_objects, _options.ArtifactStorage, key.Tenant, taskId);
+        var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata, offload);
         // The first history entry of a new task, copied before the executor starts: the executor may change its message.
         var historyMessage = isNewTask && userMessage is not null ? WithTask(userMessage, taskId) : null;
         // Here first, then cluster-wide: whenever the coordinator lists the execution, this instance has it too.
@@ -545,14 +558,15 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         }
                     }
 
-                    if (await ApplyAndStoreAsync(key, record, encoded, exec.PushEnabled).ConfigureAwait(false) is not { } stored) continue;
+                    if (await ApplyAndStoreAsync(key, record, encoded, exec.PushEnabled, onOverCap: () => CancelAll([exec])).ConfigureAwait(false) is not { } stored) continue;
 
                     // Still under the task lock, so sinks see events in sequence order even with concurrent executions.
                     // Every sink is non-blocking.
                     Publish(exec, key, stored);
-                    if (exec.Activity is not null && evt is StatusUpdateEvent { StatusUpdate.Status.State: var recorded })
+                    // The stored event is not the produced one when the task grew past its cap.
+                    if (exec.Activity is not null && stored.Event is StatusUpdateEvent { StatusUpdate.Status.State: var recorded })
                         exec.Activity.SetTag(A2ATelemetry.Tags.TaskState, A2ATelemetry.TaskStateValue(recorded));
-                    if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal())
+                    if (stored.Event is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal())
                     {
                         await _events.MarkTerminalAsync(key).ConfigureAwait(false);
                         _bus.Complete(scope);
@@ -698,7 +712,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// returned event, and every push delivery, carry its bytes.
     /// </summary>
     private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, SequencedEvent encoded, bool pushEnabled,
-        Func<TaskRecord, bool>? precondition = null)
+        Func<TaskRecord, bool>? precondition = null, Action? onOverCap = null)
     {
         var evt = encoded.Event;
         var deliveries = await DeliveriesAsync(key, pushEnabled).ConfigureAwait(false);
@@ -720,6 +734,21 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             {
                 ServerLog.EventDropped(_logger, key.TaskId, record.Task.Status.State);
                 return null;
+            }
+            // A terminal state is exempt, so the failure event that replaces an oversized one can always be stored.
+            // An event with no message, no metadata and no artifact adds no content, so the walk is skipped for it.
+            if (!next.Status.State.IsTerminal() && AddsContent(evt) && IsOverCap(next))
+            {
+                ServerLog.TaskTooLarge(_logger, key.TaskId, _options.Limits.MaxTaskBytes, _options.Limits.MaxArtifactsPerTask);
+                encoded = Encode(StreamResponse.Of(FailureEvent(key.TaskId, record.Task.ContextId, OversizedTaskText)));
+                evt = encoded.Event;
+                onOverCap?.Invoke();
+                if (ApplyToCopy(record.Task, evt) is not { } failed)
+                {
+                    ServerLog.EventDropped(_logger, key.TaskId, record.Task.Status.State);
+                    return null;
+                }
+                next = failed;
             }
             try
             {
@@ -749,6 +778,12 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
         }
     }
+
+    private static bool AddsContent(StreamResponse evt) =>
+        evt is not StatusUpdateEvent { StatusUpdate: { Status.Message: null, Metadata: null or { Count: 0 } } };
+
+    private bool IsOverCap(AgentTask task) =>
+        task.Artifacts?.Count > _options.Limits.MaxArtifactsPerTask || TaskSize.Measure(task) > _options.Limits.MaxTaskBytes;
 
     /// <summary>
     /// Queues the catch-up delivery (the stored task at the commit's sequence) for each config that was saved after

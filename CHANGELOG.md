@@ -92,6 +92,9 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - `A2AClientOptions.OnMessageReceived` lets a client check every agent message, for example against the user's intent. (#9)
 - Single-use approval binding (`PendingApproval`). A follow-up with a `messageId` already in the task's history is not run
   again. (#12)
+- `A2ALimits.MaxTaskBytes` (default 64 MiB) and `A2ALimits.MaxArtifactsPerTask` (default 1024) cap what a stored task can hold.
+  An agent event past a cap fails the task and stops the agent. A follow-up past the byte cap is refused with
+  `UnsupportedOperation` and the task stays as it was.
 - A follow-up that was accepted but could not start fails its task, so the task does not wait forever. (#15)
 - The client refuses a request with a missing required field before sending it, on every operation and binding, and names the
   field in the error (`InvalidParams`). No member became C# `required`.
@@ -159,6 +162,31 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - `AddA2ARetention` deletes old tasks and contexts, times out tasks stuck waiting for input (24 hours by default), and fails
   tasks whose instance died. It is opt-in. (#12)
 - A sweep step no longer stalls behind items it has to skip. (#18)
+- With an artifact object store, the sweep also deletes objects that no task refers to, and `A2ATaskAdmin.DeleteTaskAsync`
+  deletes a task's objects after its row. See "Artifact storage".
+
+### Artifact storage
+
+- Large artifact bytes can live in an object store instead of the task row. Register an `ArtifactObjectStore` (abstract class, in
+  `A2A.Server.Storage`) and set `A2AServerOptions.ArtifactStorage.PublicBaseUrl`. `InMemoryArtifactObjectStore` is for tests and
+  development. With no store registered, nothing changes except the size caps.
+- New packages `A2A.Server.Storage.S3` (`AddA2AS3ArtifactStore`; Amazon S3 and S3-compatible services) and
+  `A2A.Server.Storage.AzureBlob` (`AddA2AAzureBlobArtifactStore`; block blobs). Uploads go in 8 MiB steps and a failed upload leaves
+  no object. Download links force `Content-Disposition: attachment`. S3 needs the tagging permissions
+  (`s3:PutObjectTagging`, `s3:GetObjectTagging`); Azure makes SAS links only from an account key.
+- A raw part over `InlineThresholdBytes` (256 KiB) is uploaded and replaced by a `url` part with `sha256` and `sizeBytes` in its
+  metadata. `TaskUpdater.AddArtifactFromStreamAsync` uploads a stream of up to `MaxObjectBytes` (5 GiB) without passing it
+  through an event. Appended chunks stay inline.
+- `MapA2AArtifacts()` serves `GET {pattern}/artifacts/{tenant}/{taskId}/{objectId}`. The caller needs the same credentials as
+  for A2A calls, and the read is authorized as `GetTask`. Every miss is 404, also an object that is missing in `Redirect` mode.
+  There are no signed links.
+- `A2AArtifactDownloader` (.NET 8 and later) downloads a `url` part. It takes the caller's `HttpMessageHandler`, which must
+  not follow redirects, and refuses a URL on another origin. It follows one redirect to a presigned URL without credentials,
+  and checks `sizeBytes` and `sha256`.
+- `TaskStore` has a new abstract member, `GetForMaintenanceAsync`, which reads a task without its owner. Custom task stores
+  must implement it.
+- Startup fails when a store has no link base, and warns (event 255) when a durable task store uses the in-memory object store.
+  Counters: `a2a.server.artifact.objects.written`, `.bytes.written`, `.bytes.served` and `.orphans.deleted`.
 
 ### Hosting several agents
 

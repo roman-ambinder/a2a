@@ -582,6 +582,32 @@ public abstract class TaskStoreContract
         Assert.Null(await s.GetContextAsync("t", "c1"));
         Assert.False(await s.DeleteContextAsync("t", "c1"));
     }
+
+    [SkippableFact]
+    public async Task GetForMaintenance_finds_a_task_whoever_owns_it()
+    {
+        var s = await CreateStoreAsync();
+        await s.CreateAsync(NewRecord("acme", "alice", "t1"));
+        await s.CreateAsync(NewRecord("", "bob", "t2"));
+
+        var first = await s.GetForMaintenanceAsync("acme", "t1");
+        var second = await s.GetForMaintenanceAsync("", "t2");
+
+        Assert.Equal("alice", first!.Owner);
+        Assert.Equal("t1", first.Task.Id);
+        Assert.Equal("bob", second!.Owner);
+        Assert.Null(await s.GetAsync(new TaskKey("", "alice", "t2"))); // the owner-scoped read still hides it
+    }
+
+    [SkippableFact]
+    public async Task GetForMaintenance_returns_null_when_missing()
+    {
+        var s = await CreateStoreAsync();
+        await s.CreateAsync(NewRecord("acme", "alice", "t1"));
+
+        Assert.Null(await s.GetForMaintenanceAsync("acme", "nope"));
+        Assert.Null(await s.GetForMaintenanceAsync("other", "t1")); // another tenant
+    }
 }
 
 public sealed class InMemoryTaskStoreTests : TaskStoreContract

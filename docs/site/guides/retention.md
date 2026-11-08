@@ -35,12 +35,13 @@ The first sweep runs after one `SweepInterval`, not at startup.
 
 ## What a sweep does
 
-A sweep runs four steps in this order. A failing step or item is logged as a warning (events 230 to 232), the other steps go on, and the next sweep tries again. Every change is idempotent.
+A sweep runs these steps in this order (the last one only with an artifact object store). A failing step or item is logged as a warning (events 230 to 232, and 237 for objects), the other steps go on, and the next sweep tries again. Every change is idempotent.
 
 1. **Dead executions.** An execution whose lease expired (its instance died) belongs to a task that is still `SUBMITTED` or `WORKING`. The sweep marks the task `FAILED` with the text "The agent stopped unexpectedly." and asks every instance to cancel it. It leaves the task alone when another execution of it still runs, when the task changed since it was read, or when it changed within the last `Coordination.LeaseTtl`. An execution that lapsed on the sweeping instance itself is not failed; it registers its lease again at its next heartbeat. An interrupted task is left to the next step. See [Durable stores](durable-stores.md#dead-executions).
 2. **Interrupted tasks.** A task in `INPUT_REQUIRED` or `AUTH_REQUIRED` for longer than `InterruptedTimeout` is cancelled with the text "The task waited too long for input." This happens only if no agent runs it and nothing updated it since, such as a committed reply. It can be up to one sweep interval late. Skipped when `InterruptedTimeout` is null.
-3. **Expired tasks.** A task in a terminal state (completed, failed, canceled, rejected) older than `TaskRetention` is deleted. Its events, push configs, pending push deliveries and dead letters go with it.
+3. **Expired tasks.** A task in a terminal state (completed, failed, canceled, rejected) older than `TaskRetention` is deleted. Its events, push configs, pending push deliveries and dead letters go with it, and so do its artifact objects.
 4. **Orphan contexts.** A context older than `OrphanContextRetention` that no task refers to is deleted. A context outlives its tasks until this step removes it.
+5. **Orphan artifact objects.** Only when an <xref:A2A.Server.Storage.ArtifactObjectStore> is registered. An object older than `ArtifactStorage.OrphanGracePeriod` (1 hour) whose task is gone, or whose task no longer refers to it, is deleted. The task is read without its owner, so a live task of anyone keeps its objects, and any doubt keeps the object. At most `BatchSize` objects go per sweep. Listing a bucket is slow, so an instance runs this step only once per `ArtifactStorage.OrphanSweepInterval` (6 hours). See [Artifact storage](artifact-storage.md).
 
 Status changes in steps 1 and 2 go through the normal commit path. Streams and webhooks see them like any other final event.
 
@@ -61,7 +62,7 @@ Before each sweep the service takes a named lease, `a2a:retention`, from the <xr
 
 [!code-csharp[](../snippets/Retention.cs#Admin)]
 
-`DeleteTaskAsync(TaskKey)` first cancels the task's executions on every instance, without waiting for them to stop. Then it deletes pending deliveries, dead letters, push configs and the event log, and the task row last, so a crash part way leaves a task that the next call or sweep finishes. The context stays until the sweep removes it as an orphan. It returns false when the task does not exist for that tenant and owner.
+`DeleteTaskAsync(TaskKey)` first cancels the task's executions on every instance, without waiting for them to stop. Then it deletes pending deliveries, dead letters, push configs and the event log, and the task row last, so a crash part way leaves a task that the next call or sweep finishes. The context stays until the sweep removes it as an orphan. With an artifact object store, the task's objects are deleted after the row; a failed object delete is logged (event 236) and left to the sweep. It returns false when the task does not exist for that tenant and owner.
 
 The <xref:A2A.Server.Storage.TaskKey> holds tenant, owner and task id. The caller of your endpoint supplies them, so decide who may.
 
@@ -83,6 +84,7 @@ The <xref:A2A.Server.Storage.TaskKey> holds tenant, owner and task id. The calle
 ## See also
 
 - [Durable stores](durable-stores.md)
+- [Artifact storage](artifact-storage.md)
 - [Task safety](task-safety.md)
 - [Push notifications](push-notifications.md)
 - [Auth and ownership](auth-and-ownership.md)

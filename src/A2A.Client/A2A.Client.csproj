@@ -23,6 +23,8 @@
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <!-- The streaming check needs IncrementalHash.GetCurrentHash, which netstandard2.0 does not have. -->
     <Compile Remove="ArtifactVerifier.cs" />
+    <!-- SafeHttp is not available on netstandard2.0. -->
+    <Compile Remove="A2AArtifactDownloader.cs" />
   </ItemGroup>
   <!-- netstandard2.0 surface is a subset of net8.0 by design; package validation proves it. CS1574/CS1580: doc crefs to SocketsHttpHandler. -->
   <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">

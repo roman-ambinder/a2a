@@ -51,6 +51,13 @@ internal sealed class OwnershipCheckingTaskStore : TaskStore
         return r is null ? null : Track(r);
     }
 
+    public override async ValueTask<TaskRecord?> GetForMaintenanceAsync(string tenant, string taskId, CancellationToken ct = default)
+    {
+        Verify();
+        var r = await _inner.GetForMaintenanceAsync(tenant, taskId, ct).ConfigureAwait(false);
+        return r is null ? null : Track(r);
+    }
+
     public override async ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default)
     {
         Verify();
