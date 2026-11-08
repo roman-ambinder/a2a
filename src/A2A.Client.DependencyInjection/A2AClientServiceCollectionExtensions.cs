@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net.Http.Headers;
+using A2A.Client.Credentials;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -29,6 +30,8 @@ public sealed class A2ANamedClientOptions
     /// <see cref="int.MaxValue"/>.
     /// </summary>
     public long MaxResponseContentBufferSize { get; set; } = DefaultMaxResponseContentBufferSize;
+
+    internal List<Func<IServiceProvider, IA2ACredentialProvider>> CredentialProviders { get; } = [];
 }
 
 /// <summary>Creates and caches A2A clients registered with <see cref="A2AClientServiceCollectionExtensions.AddA2AClient"/>.</summary>
@@ -39,7 +42,7 @@ public interface IA2AClientFactory
 }
 
 internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFactory, IOptionsMonitor<A2ANamedClientOptions> options,
-    ILoggerFactory? loggerFactory = null) : IA2AClientFactory
+    IServiceProvider services, IHttpMessageHandlerFactory handlerFactory, ILoggerFactory? loggerFactory = null) : IA2AClientFactory
 {
     private readonly ConcurrentDictionary<string, Lazy<Task<A2AClient>>> _clients = new();
 
@@ -63,11 +66,40 @@ internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFacto
         if (o.AgentUrl is null) throw new InvalidOperationException($"A2A client '{name}' has no AgentUrl.");
         var http = httpClientFactory.CreateClient(HttpClientName(name));
         var resolver = new A2ACardResolver(http, o.Resolver, loggerFactory?.CreateLogger<A2ACardResolver>());
-        var card = await resolver.GetAgentCardAsync(o.AgentUrl).ConfigureAwait(false);
-        return A2AClientFactory.Create(card, http, o.Client);
+        if (o.CredentialProviders.Count == 0)
+        {
+            var card = await resolver.GetAgentCardAsync(o.AgentUrl).ConfigureAwait(false);
+            return A2AClientFactory.Create(card, http, o.Client);
+        }
+
+        // Check the chain before any request: a redirecting chain must not even fetch the card when credentials are configured.
+        var chain = handlerFactory.CreateHandler(HttpClientName(name));
+        A2ACredentialHandler.EnsureNoAutoRedirect(chain);
+
+        // The card fetch carries no credentials (R3). Credentials go on a second client built over the same handler chain.
+        var resolved = await resolver.ResolveAsync(o.AgentUrl).ConfigureAwait(false);
+        var selected = A2AClientFactory.SelectInterface(resolved.Card, o.Client);
+        if (selected is null) return A2AClientFactory.Create(resolved.Card, http, o.Client); // throws the usual error
+
+        var providers = o.CredentialProviders.ConvertAll(f => f(services));
+        var binding = A2ACredentialBinding.Create(resolved, selected, providers, o.Resolver.RequireHttps);
+        // disposeHandler: false. The handler comes from IHttpMessageHandlerFactory, which owns its lifetime. The client is cached
+        // per name, so it is built once and not disposed.
+        var authed = new HttpClient(new A2ACredentialHandler(binding, chain), disposeHandler: false)
+        {
+            Timeout = http.Timeout,
+            MaxResponseContentBufferSize = http.MaxResponseContentBufferSize,
+            BaseAddress = http.BaseAddress,
+            DefaultRequestVersion = http.DefaultRequestVersion,
+            DefaultVersionPolicy = http.DefaultVersionPolicy,
+        };
+        foreach (var header in http.DefaultRequestHeaders) authed.DefaultRequestHeaders.TryAddWithoutValidation(header.Key, header.Value);
+        return A2AClientFactory.Create(resolved.Card, authed, o.Client);
     }
 
-    internal static string HttpClientName(string name) => "A2A:" + name;
+    internal const string HttpClientPrefix = "A2A:";
+
+    internal static string HttpClientName(string name) => HttpClientPrefix + name;
 }
 
 /// <summary>Dependency injection extensions for A2A clients.</summary>
@@ -91,6 +123,9 @@ public static class A2AClientServiceCollectionExtensions
             // No cookies and no redirects: a redirect would carry credentials to another origin. Replace it with
             // ConfigurePrimaryHttpMessageHandler on the returned builder if you need something else.
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { UseCookies = false, AllowAutoRedirect = false })
+            // The credential handler sits above the factory's logging handlers, and the card chooses the header name, so redact
+            // every header value: an API key or token must never reach a log line.
+            .RedactLoggedHeaders(_ => true)
             // The limit is per call (A2ARequestOptions.Timeout, default 100 s for unary calls, none for streams).
             .ConfigureHttpClient((sp, c) =>
             {
@@ -103,17 +138,64 @@ public static class A2AClientServiceCollectionExtensions
     }
 
     /// <summary>Adds a bearer token to every request, fetched from <paramref name="tokenProvider"/> (cache inside it).</summary>
-    public static IHttpClientBuilder AddBearerToken(this IHttpClientBuilder builder, Func<IServiceProvider, CancellationToken, ValueTask<string>> tokenProvider) =>
-        builder.AddHttpMessageHandler(sp => new BearerTokenHandler(ct => tokenProvider(sp, ct)));
+    /// <remarks>
+    /// On a builder returned by <see cref="AddA2AClient"/>, the handler refuses to send the token to any origin other than the
+    /// <see cref="A2ANamedClientOptions.AgentUrl"/> origin (it throws <see cref="A2AException"/> before it calls the token provider).
+    /// On another builder it adds the token to every request.
+    /// </remarks>
+    public static IHttpClientBuilder AddBearerToken(this IHttpClientBuilder builder, Func<IServiceProvider, CancellationToken, ValueTask<string>> tokenProvider)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(tokenProvider);
+        var clientName = TryGetA2AClientName(builder);
+        return builder.AddHttpMessageHandler(sp =>
+        {
+            Uri? origin = null;
+            if (clientName is not null)
+                origin = sp.GetRequiredService<IOptionsMonitor<A2ANamedClientOptions>>().Get(clientName).AgentUrl;
+            return new BearerTokenHandler(ct => tokenProvider(sp, ct), origin);
+        });
+    }
+
+    internal static string? TryGetA2AClientName(IHttpClientBuilder builder) =>
+        builder.Name is { } n && n.StartsWith(DefaultA2AClientFactory.HttpClientPrefix, StringComparison.Ordinal)
+            ? n[DefaultA2AClientFactory.HttpClientPrefix.Length..]
+            : null;
 }
 
 /// <summary>Sets <c>Authorization: Bearer</c> on each request.</summary>
-public sealed class BearerTokenHandler(Func<CancellationToken, ValueTask<string>> tokenProvider) : DelegatingHandler
+public sealed class BearerTokenHandler : DelegatingHandler
 {
+    private readonly Func<CancellationToken, ValueTask<string>> _tokenProvider;
+    private readonly Uri? _allowedOrigin;
+
+    /// <summary>
+    /// Creates a handler that adds the token to every request, whatever the request's origin. It is unguarded: to restrict the
+    /// token to the agent's origin, use <see cref="A2AClientServiceCollectionExtensions.AddBearerToken"/> on an
+    /// <see cref="A2AClientServiceCollectionExtensions.AddA2AClient"/> builder.
+    /// </summary>
+    public BearerTokenHandler(Func<CancellationToken, ValueTask<string>> tokenProvider) : this(tokenProvider, null) { }
+
+    internal BearerTokenHandler(Func<CancellationToken, ValueTask<string>> tokenProvider, Uri? allowedOrigin)
+    {
+        ArgumentNullException.ThrowIfNull(tokenProvider);
+        _tokenProvider = tokenProvider;
+        _allowedOrigin = allowedOrigin;
+    }
+
+    private static string Origin(Uri uri) => uri.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped);
+
     /// <summary>Sets the bearer token on the request and sends it.</summary>
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        var token = await tokenProvider(cancellationToken).ConfigureAwait(false);
+        if (_allowedOrigin is not null)
+        {
+            var uri = request.RequestUri;
+            if (uri is null || !A2ACredentialBinding.IsSameOrigin(uri, _allowedOrigin))
+                throw new A2AException(A2AErrorCode.InvalidAgentResponse,
+                    $"Refusing to send the bearer token to {(uri is { IsAbsoluteUri: true } ? Origin(uri) : "(no absolute URI)")}: not the agent origin {Origin(_allowedOrigin)}.");
+        }
+        var token = await _tokenProvider(cancellationToken).ConfigureAwait(false);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
     }

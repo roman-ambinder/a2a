@@ -1,4 +1,68 @@
 #nullable enable
+A2A.Client.Credentials.A2AMutualTls
+A2A.Client.Credentials.ApiKeyCredentialProvider
+A2A.Client.Credentials.ApiKeyCredentialProvider.ApiKeyCredentialProvider(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>! apiKey, string? schemeName = null) -> void
+A2A.Client.Credentials.ApiKeyCredentialProvider.ApiKeyCredentialProvider(string! apiKey, string? schemeName = null) -> void
+A2A.Client.Credentials.ApiKeyCredentialProvider.ApplyAsync(System.Net.Http.HttpRequestMessage! request, A2A.Client.Credentials.A2ACredentialContext! context, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Client.Credentials.ApiKeyCredentialProvider.CanHandle(A2A.Client.Credentials.A2ACredentialContext! context) -> bool
+A2A.Client.Credentials.MutualTlsCredentialProvider
+A2A.Client.Credentials.MutualTlsCredentialProvider.ApplyAsync(System.Net.Http.HttpRequestMessage! request, A2A.Client.Credentials.A2ACredentialContext! context, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Client.Credentials.MutualTlsCredentialProvider.CanHandle(A2A.Client.Credentials.A2ACredentialContext! context) -> bool
+A2A.Client.Credentials.MutualTlsCredentialProvider.MutualTlsCredentialProvider(string? schemeName = null) -> void
+static A2A.Client.A2AClientFactory.CreateAsync(System.Uri! agentUrl, System.Collections.Generic.IEnumerable<A2A.Client.Credentials.IA2ACredentialProvider!>! credentialProviders, System.Net.Http.HttpMessageHandler? handler = null, A2A.Client.A2AClientOptions? options = null, A2A.Client.A2ACardResolverOptions? resolverOptions = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.A2AClient!>!
+A2A.Client.Credentials.A2ACredentialBinding
+A2A.Client.Credentials.A2ACredentialBinding.CardOrigin.get -> System.Uri!
+A2A.Client.Credentials.A2ACredentialBinding.Schemes.get -> System.Collections.Generic.IReadOnlyList<A2A.Client.Credentials.A2ACredentialContext!>!
+A2A.Client.Credentials.A2ACredentialContext
+A2A.Client.Credentials.A2ACredentialContext.A2ACredentialContext(string! schemeName, A2A.SecurityScheme! scheme, System.Collections.Generic.IReadOnlyList<string!>! scopes, System.Uri! cardOrigin) -> void
+A2A.Client.Credentials.A2ACredentialContext.CardOrigin.get -> System.Uri!
+A2A.Client.Credentials.A2ACredentialContext.Scheme.get -> A2A.SecurityScheme!
+A2A.Client.Credentials.A2ACredentialContext.SchemeName.get -> string!
+A2A.Client.Credentials.A2ACredentialContext.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+A2A.Client.Credentials.A2ACredentialHandler
+A2A.Client.Credentials.A2ACredentialHandler.A2ACredentialHandler(A2A.Client.Credentials.A2ACredentialBinding! binding, System.Net.Http.HttpMessageHandler! innerHandler) -> void
+A2A.Client.Credentials.IA2ACredentialProvider
+A2A.Client.Credentials.IA2ACredentialProvider.ApplyAsync(System.Net.Http.HttpRequestMessage! request, A2A.Client.Credentials.A2ACredentialContext! context, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Client.Credentials.IA2ACredentialProvider.CanHandle(A2A.Client.Credentials.A2ACredentialContext! context) -> bool
+A2A.Client.Credentials.OAuth2ClientAuthentication
+A2A.Client.Credentials.OAuth2ClientAuthentication.ClientSecretBasic = 0 -> A2A.Client.Credentials.OAuth2ClientAuthentication
+A2A.Client.Credentials.OAuth2ClientAuthentication.ClientSecretPost = 1 -> A2A.Client.Credentials.OAuth2ClientAuthentication
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.AdditionalParameters.get -> System.Collections.Generic.IDictionary<string!, string!>!
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.ClientAuthentication.get -> A2A.Client.Credentials.OAuth2ClientAuthentication
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.ClientAuthentication.set -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.ClientId.get -> string!
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.ClientId.set -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.ClientSecret.get -> string!
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.ClientSecret.set -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.DefaultTokenLifetime.get -> System.TimeSpan
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.DefaultTokenLifetime.set -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.OAuth2ClientCredentialsOptions() -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.RefreshBeforeExpiry.get -> System.TimeSpan
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.RefreshBeforeExpiry.set -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.RequireHttps.get -> bool
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.RequireHttps.set -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.SchemeName.get -> string?
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.SchemeName.set -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.Scopes.get -> System.Collections.Generic.IList<string!>?
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.Scopes.set -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.TimeProvider.get -> System.TimeProvider!
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.TimeProvider.set -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.TokenEndpoint.get -> System.Uri?
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.TokenEndpoint.set -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.TokenHandler.get -> System.Net.Http.HttpMessageHandler?
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.TokenHandler.set -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.TokenRequestTimeout.get -> System.TimeSpan
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.TokenRequestTimeout.set -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsProvider
+A2A.Client.Credentials.OAuth2ClientCredentialsProvider.ApplyAsync(System.Net.Http.HttpRequestMessage! request, A2A.Client.Credentials.A2ACredentialContext! context, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Client.Credentials.OAuth2ClientCredentialsProvider.CanHandle(A2A.Client.Credentials.A2ACredentialContext! context) -> bool
+A2A.Client.Credentials.OAuth2ClientCredentialsProvider.Dispose() -> void
+A2A.Client.Credentials.OAuth2ClientCredentialsProvider.OAuth2ClientCredentialsProvider(A2A.Client.Credentials.OAuth2ClientCredentialsOptions! options) -> void
+static A2A.Client.Credentials.A2ACredentialBinding.Create(A2A.Client.ResolvedAgentCard! card, A2A.AgentInterface! selectedInterface, System.Collections.Generic.IEnumerable<A2A.Client.Credentials.IA2ACredentialProvider!>! providers, bool requireHttps = true, bool forGrpcChannel = false) -> A2A.Client.Credentials.A2ACredentialBinding!
+static A2A.Client.Credentials.A2ACredentialBinding.IsSameOrigin(System.Uri! a, System.Uri! b) -> bool
+static A2A.Client.Credentials.A2ACredentialHandler.EnsureNoAutoRedirect(System.Net.Http.HttpMessageHandler! handler) -> void
+static A2A.Client.Credentials.A2AMutualTls.CreateHandler(System.Security.Cryptography.X509Certificates.X509Certificate2! certificate, System.Uri! agentUrl) -> System.Net.Http.SocketsHttpHandler!
 A2A.Client.Delegation.OAuthTokenExchangerOptions
 A2A.Client.Delegation.OAuthTokenExchangerOptions.OAuthTokenExchangerOptions() -> void
 A2A.Client.Delegation.OAuthTokenExchangerOptions.TokenEndpoint.get -> System.Uri!
