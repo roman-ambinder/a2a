@@ -49,12 +49,12 @@ Skips are capability tests that need an agent without the capability, or optiona
 
 | TCK requirement | Bindings | Why |
 |---|---|---|
-| `CORE-SEND-003` | all | TCK bug. The requirement says the call must fail, but the entry has no `expected_error`, so the runner demands success. The SDK returns `ContentTypeNotSupported`. `HTTP_JSON-STATUS-001` and ACTS `CORE-SEND-004` check this and pass. |
-| `CORE-MULTI-002a` | all | TCK bug, same cause. The requirement says to reject a `contextId` the agent cannot accept, and the SDK does. |
+| `CORE-SEND-003` | all | TCK bug ([#202](https://github.com/a2aproject/a2a-tck/issues/202), fix in [PR #203](https://github.com/a2aproject/a2a-tck/pull/203)). The requirement says the call must fail, but the entry has no `expected_error`, so the runner demands success. The SDK returns `ContentTypeNotSupported`. `HTTP_JSON-STATUS-001` and ACTS `CORE-SEND-004` check this and pass. |
+| `CORE-MULTI-002a` | all | TCK bug, same issue and fix as above. The requirement says to reject a `contextId` the agent cannot accept, and the SDK does. |
 | `CORE-MULTI-002` | all | SDK choice, `MAY` in spec 3.4.1. Unknown client `contextId`s are rejected by default. `ClientContextIdPolicy.AdoptIfUnknown` accepts them. |
-| `HTTP_JSON-ERR-001` | HTTP+JSON | TCK bug. One test wants `application/json` on errors. Spec 11.6 shows `application/a2a+json`, and another TCK check expects that too. |
+| `HTTP_JSON-ERR-001` | HTTP+JSON | TCK bug (fix in [PR #238](https://github.com/a2aproject/a2a-tck/pull/238)). One test wants `application/json` on errors. Spec 11.6 shows `application/a2a+json`, and another TCK check expects that too. |
 
-No upstream issues are filed for these yet.
+When those fixes land and the pin moves, `check.py` will report which entries to remove.
 
 The false failures known from the TCK tracker (a2a-tck #141, #146, #201, #242, #244, #264) did not show up at this pin.
 
