@@ -1,4 +1,73 @@
 #nullable enable
+*REMOVED*A2A.Client.ResolvedAgentCard.Identity.get -> (string! Origin, string? KeyId)
+A2A.Client.A2ACardResolverOptions.IdentityResolver.get -> A2A.Client.Peers.IPeerIdentityResolver!
+A2A.Client.A2ACardResolverOptions.IdentityResolver.set -> void
+A2A.Client.Peers.AgentRegistration
+A2A.Client.Peers.AgentRegistration.AgentRegistration(A2A.Client.Peers.PeerIdentity! Identity, A2A.Client.Cards.UntrustedText Name, A2A.Client.ResolvedAgentCard! Resolved) -> void
+A2A.Client.Peers.AgentRegistration.Identity.get -> A2A.Client.Peers.PeerIdentity!
+A2A.Client.Peers.AgentRegistration.Identity.init -> void
+A2A.Client.Peers.AgentRegistration.LookalikeOf.get -> System.Collections.Generic.IReadOnlyList<A2A.Client.Peers.PeerIdentity!>!
+A2A.Client.Peers.AgentRegistration.LookalikeOf.init -> void
+A2A.Client.Peers.AgentRegistration.MixedScriptName.get -> bool
+A2A.Client.Peers.AgentRegistration.MixedScriptName.init -> void
+A2A.Client.Peers.AgentRegistration.Name.get -> A2A.Client.Cards.UntrustedText
+A2A.Client.Peers.AgentRegistration.Name.init -> void
+A2A.Client.Peers.AgentRegistration.PreviousIdentity.get -> A2A.Client.Peers.PeerIdentity?
+A2A.Client.Peers.AgentRegistration.PreviousIdentity.init -> void
+A2A.Client.Peers.AgentRegistration.Resolved.get -> A2A.Client.ResolvedAgentCard!
+A2A.Client.Peers.AgentRegistration.Resolved.init -> void
+A2A.Client.Peers.AgentRegistrationException
+A2A.Client.Peers.AgentRegistrationException.AgentRegistrationException(A2A.Client.Peers.AgentRegistrationRejection reason, A2A.Client.Peers.PeerIdentity! identity, A2A.Client.Peers.PeerIdentity? conflictingIdentity, string! message) -> void
+A2A.Client.Peers.AgentRegistrationException.ConflictingIdentity.get -> A2A.Client.Peers.PeerIdentity?
+A2A.Client.Peers.AgentRegistrationException.Identity.get -> A2A.Client.Peers.PeerIdentity!
+A2A.Client.Peers.AgentRegistrationException.Reason.get -> A2A.Client.Peers.AgentRegistrationRejection
+A2A.Client.Peers.AgentRegistrationRejection
+A2A.Client.Peers.AgentRegistrationRejection.DuplicateName = 0 -> A2A.Client.Peers.AgentRegistrationRejection
+A2A.Client.Peers.AgentRegistrationRejection.IdentityDowngrade = 3 -> A2A.Client.Peers.AgentRegistrationRejection
+A2A.Client.Peers.AgentRegistrationRejection.IdentityInUse = 2 -> A2A.Client.Peers.AgentRegistrationRejection
+A2A.Client.Peers.AgentRegistrationRejection.InvalidName = 1 -> A2A.Client.Peers.AgentRegistrationRejection
+A2A.Client.Peers.AgentRegistrationRejection.RegistryFull = 4 -> A2A.Client.Peers.AgentRegistrationRejection
+A2A.Client.Peers.AgentRegistry
+A2A.Client.Peers.AgentRegistry.AgentRegistry(A2A.Client.Peers.AgentRegistryOptions? options = null, Microsoft.Extensions.Logging.ILogger? logger = null) -> void
+A2A.Client.Peers.AgentRegistry.Agents.get -> System.Collections.Generic.IReadOnlyList<A2A.Client.Peers.AgentRegistration!>!
+A2A.Client.Peers.AgentRegistry.Count.get -> int
+A2A.Client.Peers.AgentRegistry.Register(A2A.Client.ResolvedAgentCard! resolved) -> A2A.Client.Peers.AgentRegistration!
+A2A.Client.Peers.AgentRegistry.Remove(A2A.Client.Peers.PeerIdentity! identity) -> bool
+A2A.Client.Peers.AgentRegistry.TryGet(A2A.Client.Peers.PeerIdentity! identity, out A2A.Client.Peers.AgentRegistration? registration) -> bool
+A2A.Client.Peers.AgentRegistry.TryGetByName(string! name, out A2A.Client.Peers.AgentRegistration? registration) -> bool
+A2A.Client.Peers.AgentRegistryOptions
+A2A.Client.Peers.AgentRegistryOptions.AgentRegistryOptions() -> void
+A2A.Client.Peers.AgentRegistryOptions.MaxAgents.get -> int
+A2A.Client.Peers.AgentRegistryOptions.MaxAgents.set -> void
+A2A.Client.Peers.AgentRegistryOptions.MaxNameLength.get -> int
+A2A.Client.Peers.AgentRegistryOptions.MaxNameLength.set -> void
+A2A.Client.Peers.CardPeerIdentityResolver
+A2A.Client.Peers.CardPeerIdentityResolver.ResolveAsync(A2A.Client.Peers.PeerIdentityContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Client.Peers.PeerIdentity!>
+A2A.Client.Peers.IPeerIdentityResolver
+A2A.Client.Peers.IPeerIdentityResolver.ResolveAsync(A2A.Client.Peers.PeerIdentityContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Client.Peers.PeerIdentity!>
+A2A.Client.Peers.PeerIdentity
+A2A.Client.Peers.PeerIdentity.Assurance.get -> A2A.Client.Peers.PeerIdentityAssurance
+A2A.Client.Peers.PeerIdentity.ExternalId.get -> string?
+A2A.Client.Peers.PeerIdentity.ExternalId.init -> void
+A2A.Client.Peers.PeerIdentity.KeyId.get -> string?
+A2A.Client.Peers.PeerIdentity.Origin.get -> string!
+A2A.Client.Peers.PeerIdentity.PeerIdentity(string! origin, string? keyId = null) -> void
+A2A.Client.Peers.PeerIdentityAssurance
+A2A.Client.Peers.PeerIdentityAssurance.OriginOnly = 0 -> A2A.Client.Peers.PeerIdentityAssurance
+A2A.Client.Peers.PeerIdentityAssurance.Verified = 1 -> A2A.Client.Peers.PeerIdentityAssurance
+A2A.Client.Peers.PeerIdentityContext
+A2A.Client.Peers.PeerIdentityContext.Baseline.get -> A2A.Client.Peers.PeerIdentity!
+A2A.Client.Peers.PeerIdentityContext.Baseline.init -> void
+A2A.Client.Peers.PeerIdentityContext.Card.get -> A2A.AgentCard!
+A2A.Client.Peers.PeerIdentityContext.Card.init -> void
+A2A.Client.Peers.PeerIdentityContext.PeerIdentityContext(A2A.AgentCard! Card, System.Uri! Source, A2A.Signing.AgentCardVerificationResult! Verification, A2A.Client.Peers.PeerIdentity! Baseline) -> void
+A2A.Client.Peers.PeerIdentityContext.Source.get -> System.Uri!
+A2A.Client.Peers.PeerIdentityContext.Source.init -> void
+A2A.Client.Peers.PeerIdentityContext.Verification.get -> A2A.Signing.AgentCardVerificationResult!
+A2A.Client.Peers.PeerIdentityContext.Verification.init -> void
+A2A.Client.ResolvedAgentCard.Identity.get -> A2A.Client.Peers.PeerIdentity!
+override A2A.Client.Peers.PeerIdentity.ToString() -> string!
+static A2A.Client.Peers.CardPeerIdentityResolver.Instance.get -> A2A.Client.Peers.CardPeerIdentityResolver!
 A2A.Client.Credentials.A2AMutualTls
 A2A.Client.Credentials.ApiKeyCredentialProvider
 A2A.Client.Credentials.ApiKeyCredentialProvider.ApiKeyCredentialProvider(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>! apiKey, string? schemeName = null) -> void

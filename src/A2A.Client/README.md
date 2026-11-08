@@ -7,6 +7,8 @@ var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.c
 var reply = await client.SendMessageAsync("hello");
 ```
 
+Peer identity: `ResolvedAgentCard.Identity` is a `PeerIdentity` (origin and key id), and `AgentRegistry` rejects duplicate agent names and warns on lookalikes; see [Security](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/spec-decisions.md).
+
 Credentials: pass providers (`OAuth2ClientCredentialsProvider`, `ApiKeyCredentialProvider`, `MutualTlsCredentialProvider`) instead of an `HttpClient`. They are chosen by the card's required schemes and sent only to the card's origin, never across a redirect.
 
 ```csharp
