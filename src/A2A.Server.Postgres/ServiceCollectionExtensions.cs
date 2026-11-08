@@ -1,3 +1,4 @@
+using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
 using A2A.Server.Storage;
@@ -13,7 +14,9 @@ namespace A2A.Server.Postgres;
 public static class A2APostgresServiceCollectionExtensions
 {
     /// <summary>
-    /// Uses PostgreSQL for the task, event, push config, push outbox and idempotency stores. Works before or after <c>AddA2AServer</c>
+    /// Uses PostgreSQL for the task, event, push config, push outbox and idempotency stores, and for the execution coordinator
+    /// (<see cref="PostgresExecutionCoordinator"/>) unless <see cref="PostgresStoreOptions.RegisterCoordinator"/> is false or you
+    /// registered another coordinator (for example the Redis one), in any order. Works before or after <c>AddA2AServer</c>
     /// (it replaces the in-memory defaults). Builds an <see cref="NpgsqlDataSource"/> from <paramref name="connectionString"/>
     /// and disposes it with the container.
     /// </summary>
@@ -49,14 +52,60 @@ public static class A2APostgresServiceCollectionExtensions
         return builder;
     }
 
+    /// <summary>
+    /// Uses <see cref="PostgresExecutionCoordinator"/> as the <see cref="ExecutionCoordinator"/>, whatever coordinator was
+    /// registered before: leases, running checks, cancel requests and the sweep lease live in PostgreSQL, so a crash does not
+    /// lose them. Not needed after <c>AddA2APostgresStores</c>, which registers it by default. A hosted service starts and stops
+    /// the cancel poll (and creates the tables when <see cref="PostgresStoreOptions.CreateSchemaOnStartup"/> is on). Builds an
+    /// <see cref="NpgsqlDataSource"/> from <paramref name="connectionString"/> (shared with <c>AddA2APostgresStores</c> when
+    /// both use the same one) and disposes it with the container.
+    /// </summary>
+    public static IServiceCollection AddA2APostgresExecutionCoordinator(this IServiceCollection services, string connectionString,
+        Action<PostgresStoreOptions>? configure = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(connectionString);
+        services.TryAddKeyedSingleton(ServiceKey, (_, _) => NpgsqlDataSource.Create(connectionString));
+        return services.AddCoordinatorCore(sp => sp.GetRequiredKeyedService<NpgsqlDataSource>(ServiceKey), Configure(configure), replace: true);
+    }
+
+    /// <summary>Uses <see cref="PostgresExecutionCoordinator"/> through a data source you own (it is not disposed by the container).</summary>
+    public static IServiceCollection AddA2APostgresExecutionCoordinator(this IServiceCollection services, NpgsqlDataSource dataSource,
+        Action<PostgresStoreOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(dataSource);
+        return services.AddCoordinatorCore(_ => dataSource, Configure(configure), replace: true);
+    }
+
+    /// <summary>Uses <see cref="PostgresExecutionCoordinator"/>. See <see cref="AddA2APostgresExecutionCoordinator(IServiceCollection, string, Action{PostgresStoreOptions}?)"/>.</summary>
+    public static A2AServerBuilder AddPostgresExecutionCoordinator(this A2AServerBuilder builder, string connectionString, Action<PostgresStoreOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.Services.AddA2APostgresExecutionCoordinator(connectionString, configure);
+        return builder;
+    }
+
+    /// <summary>Uses <see cref="PostgresExecutionCoordinator"/> through a data source you own.</summary>
+    public static A2AServerBuilder AddPostgresExecutionCoordinator(this A2AServerBuilder builder, NpgsqlDataSource dataSource, Action<PostgresStoreOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.Services.AddA2APostgresExecutionCoordinator(dataSource, configure);
+        return builder;
+    }
+
+    private static PostgresStoreOptions Configure(Action<PostgresStoreOptions>? configure)
+    {
+        var options = new PostgresStoreOptions();
+        configure?.Invoke(options);
+        return options;
+    }
+
     /// <summary>Key of the data source this package creates from a connection string.</summary>
     private const string ServiceKey = "A2A.Server.Postgres";
 
     private static IServiceCollection AddCore(this IServiceCollection services, Func<IServiceProvider, NpgsqlDataSource> db,
         Action<PostgresStoreOptions>? configure)
     {
-        var options = new PostgresStoreOptions();
-        configure?.Invoke(options);
+        var options = Configure(configure);
         services.AddOptions<A2AServerOptions>();
 
         services.Replace(ServiceDescriptor.Singleton<TaskStore>(sp => new PostgresTaskStore(
@@ -71,6 +120,53 @@ public static class A2APostgresServiceCollectionExtensions
         services.AddSingleton<IHostedService>(sp => new PostgresStoreHostedService(
             db(sp), options, sp.GetRequiredService<PostgresMaintenance>(), sp.GetService<TimeProvider>(),
             sp.GetService<Microsoft.Extensions.Logging.ILogger<PostgresStoreHostedService>>()));
+        // The default coordinator: it keeps its leases through a crash, so the retention sweep can recover the tasks that were
+        // running. Never over a coordinator the host chose (Redis, or its own), whatever the registration order.
+        if (options.RegisterCoordinator) services.AddCoordinatorCore(db, options, replace: false);
         return services;
     }
+
+    private static IServiceCollection AddCoordinatorCore(this IServiceCollection services, Func<IServiceProvider, NpgsqlDataSource> db,
+        PostgresStoreOptions options, bool replace)
+    {
+        if (!replace && services.LastOrDefault(d => d.ServiceType == typeof(ExecutionCoordinator) && !d.IsKeyedService) is { } existing
+            && !IsReplaceableDefault(existing))
+            return services;
+        services.Replace(ServiceDescriptor.Singleton(sp => new PostgresExecutionCoordinator(db(sp), options,
+            sp.GetService<IOptions<A2AServerOptions>>()?.Value.Coordination, sp.GetService<TimeProvider>(),
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<PostgresExecutionCoordinator>>())));
+        services.Replace(ServiceDescriptor.Singleton<ExecutionCoordinator>(sp => sp.GetRequiredService<PostgresExecutionCoordinator>()));
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PostgresCoordinatorHostedService>(
+            sp => new PostgresCoordinatorHostedService(sp, db(sp), options)));
+        return services;
+    }
+
+    /// <summary>
+    /// True for the registrations that stand for "no choice made": the in-memory default of <c>AddA2AServer</c> and an earlier
+    /// default of this package. Anything else (the Redis coordinator, a host's own) is a choice.
+    /// </summary>
+    private static bool IsReplaceableDefault(ServiceDescriptor descriptor)
+    {
+        var assembly = descriptor.ImplementationFactory?.Method.DeclaringType?.Assembly;
+        return assembly == typeof(A2AServerOptions).Assembly || assembly == typeof(PostgresExecutionCoordinator).Assembly;
+    }
+}
+
+/// <summary>Creates the tables if asked to, then starts the coordinator's cancel poll with the host and stops it on shutdown.</summary>
+internal sealed class PostgresCoordinatorHostedService(IServiceProvider services, NpgsqlDataSource dataSource, PostgresStoreOptions options) : IHostedService
+{
+    private PostgresExecutionCoordinator? _started;
+
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        // Another coordinator (for example Redis's, registered after the stores) took over: this one is not used, so it stays idle.
+        if (services.GetRequiredService<ExecutionCoordinator>() is not PostgresExecutionCoordinator coordinator) return;
+        _started = coordinator;
+        // Idempotent and serialized by an advisory lock, so it is safe next to the stores' own hosted service, in any order.
+        if (options.CreateSchemaOnStartup)
+            await PostgresSchema.EnsureSchemaAsync(dataSource, options.Schema, cancellationToken).ConfigureAwait(false);
+        await coordinator.StartAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => _started?.StopAsync() ?? Task.CompletedTask;
 }

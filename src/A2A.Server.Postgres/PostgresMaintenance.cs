@@ -106,4 +106,10 @@ internal static partial class PostgresLog
 
     [LoggerMessage(EventId = 1001, Level = LogLevel.Warning, Message = "A2A Postgres cleanup failed; will retry")]
     public static partial void CleanupFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 1010, Level = LogLevel.Warning, Message = "A2A Postgres coordinator could not read cancel requests; will retry")]
+    public static partial void CancelPollFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 1011, Level = LogLevel.Warning, Message = "A2A Postgres coordinator dropped a cancel request for task {TaskId}: a reader is {Capacity} requests behind")]
+    public static partial void CancelRequestDropped(ILogger logger, string taskId, int capacity);
 }

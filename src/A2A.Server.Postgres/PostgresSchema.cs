@@ -174,5 +174,36 @@ public static class PostgresSchema
             PRIMARY KEY (tenant, principal, key)
         );
         CREATE INDEX IF NOT EXISTS a2a_idempotency_expires_ix ON {s}.a2a_idempotency (expires_ticks) WHERE expires_ticks IS NOT NULL;
+
+        -- Execution leases (PostgresExecutionCoordinator): one row per running execution, renewed by its heartbeat. A row whose
+        -- expiry_ticks is in the past belongs to an execution whose instance died; it stays until its execution unregisters.
+        CREATE TABLE IF NOT EXISTS {s}.a2a_execution_leases (
+            tenant       text COLLATE "C" NOT NULL,
+            owner        text COLLATE "C" NOT NULL,
+            task_id      text COLLATE "C" NOT NULL,
+            execution_id text COLLATE "C" NOT NULL,
+            expiry_ticks bigint NOT NULL,
+            PRIMARY KEY (tenant, owner, task_id, execution_id)
+        );
+        -- ListExpiredAsync: longest expired first.
+        CREATE INDEX IF NOT EXISTS a2a_execution_leases_expiry_ix ON {s}.a2a_execution_leases (expiry_ticks);
+
+        -- Named cluster-wide leases of periodic jobs (the retention sweep).
+        CREATE TABLE IF NOT EXISTS {s}.a2a_sweep_leases (
+            name         text COLLATE "C" NOT NULL PRIMARY KEY,
+            expiry_ticks bigint NOT NULL
+        );
+
+        -- Cancel requests between instances. Every instance polls the table and skips its own origin; a row is deleted by a
+        -- later request once it is older than the retention (a few minutes), so the table stays small.
+        CREATE TABLE IF NOT EXISTS {s}.a2a_cancel_requests (
+            id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            tenant        text COLLATE "C" NOT NULL,
+            owner         text COLLATE "C" NOT NULL,
+            task_id       text COLLATE "C" NOT NULL,
+            origin        text   NOT NULL,
+            created_ticks bigint NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS a2a_cancel_requests_created_ix ON {s}.a2a_cancel_requests (created_ticks);
         """;
 }

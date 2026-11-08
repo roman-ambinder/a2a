@@ -1,5 +1,6 @@
 using A2A.Server;
 using A2A.Server.Coordination;
+using A2A.Server.Postgres;
 using A2A.Server.Redis;
 using A2A.Server.Storage;
 using A2A.Tests;
@@ -353,6 +354,101 @@ public sealed class InMemoryExecutionCoordinatorTests : ExecutionCoordinatorCont
         services.AddA2AServer();
         using var sp = services.BuildServiceProvider();
         Assert.IsType<InMemoryExecutionCoordinator>(sp.GetRequiredService<ExecutionCoordinator>());
+    }
+}
+
+/// <summary>
+/// Two Postgres coordinators on one schema stand for two instances. They run on one fake clock (leases are decided on the
+/// clock the test gives them, not on the database's), so expiry takes no real time; only the cancel poll runs on real time.
+/// </summary>
+[Collection(ContainersCollection.Name)]
+public sealed class PostgresExecutionCoordinatorTests(PostgresFixture db) : ExecutionCoordinatorContract, IAsyncLifetime
+{
+    private readonly FakeTimeProvider _clock = new();
+    private readonly List<PostgresExecutionCoordinator> _cleanup = [];
+
+    protected override bool HasTwoInstances => true;
+
+    protected override CoordinationOptions Options { get; } = new();
+
+    protected override async Task<(ExecutionCoordinator A, ExecutionCoordinator B)> CreatePairAsync()
+    {
+        var schema = await db.NewSchemaAsync(_clock);
+        schema.CancelPollInterval = TimeSpan.FromMilliseconds(20);
+        return (await NewAsync(schema), await NewAsync(schema));
+    }
+
+    protected override Task PassAsync(TimeSpan time)
+    {
+        _clock.Advance(time);
+        return Task.CompletedTask;
+    }
+
+    private async Task<PostgresExecutionCoordinator> NewAsync(PostgresStoreOptions schema)
+    {
+        var coordinator = new PostgresExecutionCoordinator(db.DataSource, schema, Options, _clock);
+        _cleanup.Add(coordinator);
+        await coordinator.StartAsync();
+        return coordinator;
+    }
+
+    [SkippableFact]
+    public async Task Lease_expiry_follows_the_injected_clock()
+    {
+        var (a, _) = await CreatePairAsync();
+        await a.RegisterAsync(Key(), "e1");
+        _clock.Advance(Options.LeaseTtl - TimeSpan.FromMilliseconds(1));
+        Assert.True(await a.IsRunningAsync(Key()));
+        _clock.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.False(await a.IsRunningAsync(Key()));
+    }
+
+    /// <summary>Stale rows are deleted by the next request, so the table cannot grow without bound.</summary>
+    [SkippableFact]
+    public async Task Old_cancel_requests_are_deleted_by_the_next_request()
+    {
+        var schema = await db.NewSchemaAsync(_clock);
+        var a = await NewAsync(schema);
+        for (var i = 0; i < 5; i++) await a.RequestCancelAsync(Key($"t{i}"));
+        Assert.Equal(5, await CancelRowsAsync(schema));
+
+        _clock.Advance(TimeSpan.FromMinutes(6));
+        await a.RequestCancelAsync(Key("fresh"));
+
+        Assert.Equal(1, await CancelRowsAsync(schema));
+    }
+
+    /// <summary>Only requests made after the coordinator started are delivered.</summary>
+    [SkippableFact]
+    public async Task Requests_made_before_the_coordinator_started_are_not_delivered()
+    {
+        var schema = await db.NewSchemaAsync(_clock);
+        schema.CancelPollInterval = TimeSpan.FromMilliseconds(20);
+        var a = await NewAsync(schema);
+        await a.RequestCancelAsync(Key("old"));
+        var b = await NewAsync(schema);
+        using var cts = new CancellationTokenSource(Wait);
+        await using var onB = b.CancelRequestsAsync(cts.Token).GetAsyncEnumerator(cts.Token);
+        var next = onB.MoveNextAsync();
+
+        await a.RequestCancelAsync(Key("new")); // delivered after "old" would have been
+
+        Assert.True(await next);
+        Assert.Equal(Key("new"), onB.Current);
+        cts.Cancel();
+    }
+
+    private async Task<long> CancelRowsAsync(PostgresStoreOptions schema)
+    {
+        await using var cmd = db.DataSource.CreateCommand($"SELECT count(*) FROM \"{schema.Schema}\".a2a_cancel_requests");
+        return (long)(await cmd.ExecuteScalarAsync())!;
+    }
+
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    public async Task DisposeAsync()
+    {
+        foreach (var c in _cleanup) await c.DisposeAsync();
     }
 }
 
