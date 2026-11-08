@@ -841,8 +841,9 @@ public sealed class A2ARequestHandler : IDisposable
     /// the commit of the approving message also records the status message's id in the task metadata
     /// (<see cref="A2AProtocol.ApprovalConsumedKey"/>), and a used approval is no longer pending. A follow-up without a hash is
     /// accepted (<see cref="ApprovalState.NotApproved"/> while an approval is pending); a hash that does not match the pending
-    /// one, or when none is pending, is InvalidParams. <paramref name="consume"/> is the status message id to record when the
-    /// result is <see cref="ApprovalState.Approved"/>.
+    /// one, or when none is pending or it was used, is InvalidParams. A pending approval whose status message has no id fails
+    /// closed (treated as used). <paramref name="consume"/> is the status message id to record when the result is
+    /// <see cref="ApprovalState.Approved"/>.
     /// </summary>
     private static ApprovalState ResolveApproval(AgentTask task, Message message, out string? consume)
     {
@@ -852,9 +853,12 @@ public sealed class A2ARequestHandler : IDisposable
         if (task.Status.State.IsInterrupted() && status?.Metadata is { } statusMetadata
             && statusMetadata.TryGetValue(A2AProtocol.ApprovalHashKey, out var p) && p.ValueKind == JsonValueKind.String)
             pending = p.GetString();
-        var used = pending is not null && task.Metadata is { } taskMetadata
-            && taskMetadata.TryGetValue(A2AProtocol.ApprovalConsumedKey, out var c) && c.ValueKind == JsonValueKind.String
-            && string.Equals(c.GetString(), status!.MessageId, StringComparison.Ordinal);
+        // A status message without an id could never be marked used: fail closed, as if it were.
+        var used = pending is not null
+            && (string.IsNullOrEmpty(status!.MessageId)
+                || (task.Metadata is { } taskMetadata
+                    && taskMetadata.TryGetValue(A2AProtocol.ApprovalConsumedKey, out var c) && c.ValueKind == JsonValueKind.String
+                    && string.Equals(c.GetString(), status.MessageId, StringComparison.Ordinal)));
 
         if (message.Metadata is null || !message.Metadata.TryGetValue(A2AProtocol.ApprovalHashKey, out var value))
             return pending is null ? ApprovalState.None : ApprovalState.NotApproved;
@@ -970,7 +974,7 @@ public sealed class A2ARequestHandler : IDisposable
         if (record.Task.Status.State.IsTerminal()) throw NotCancelable(request.Id);
 
         // Executions here stop at once; the other instances stop theirs when the request reaches them.
-        CancelAll(_running.Snapshot(ScopeKey(call.Tenant, request.Id)));
+        CancelAll(_running.Snapshot(ScopeKey(call.Tenant, request.Id)).Where(exec => exec.Key == key));
         try
         {
             await _coordinator.RequestCancelAsync(key, cancellationToken).ConfigureAwait(false);

@@ -63,6 +63,8 @@ public sealed class PushNotificationReceiver(TimeProvider? time = null)
     /// with <paramref name="secret"/> (the decoded key, see <see cref="WebhookSignature.TryParseSecret"/>), compared in constant
     /// time, and <c>webhook-timestamp</c> must be within <paramref name="tolerance"/> (default 5 minutes) of now. A delivery is
     /// remembered by its <c>webhook-id</c> only once it is valid, so a replay within the memory window is <see cref="PushValidationResult.Duplicate"/>.
+    /// The memory grows with the tolerance: each id is kept until its timestamp plus <paramref name="tolerance"/> (at least ten
+    /// minutes), so a longer tolerance keeps more ids in memory.
     /// <paramref name="body"/> must be the raw request body bytes. Header names are matched case-insensitively.
     /// </summary>
     public PushValidationResult VerifySignature(IReadOnlyDictionary<string, string> headers, ReadOnlySpan<byte> body, ReadOnlySpan<byte> secret, TimeSpan? tolerance = null)

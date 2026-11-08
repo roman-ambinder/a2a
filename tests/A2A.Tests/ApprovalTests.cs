@@ -88,6 +88,45 @@ public class ApprovalTests
     }
 
     [Theory]
+    [InlineData("op\n1")]
+    [InlineData("\n")]
+    public void Operation_id_with_a_line_feed_is_rejected(string operationId)
+    {
+        // The hash joins the two fields with "\n": ("a\nb", "c") and ("a", "b\nc") would share one hash.
+        Assert.Throws<ArgumentException>(() => new PendingApproval(operationId, "description"));
+        Assert.Throws<ArgumentException>(() => new PendingApproval("op", "description") with { OperationId = operationId });
+        Assert.Equal(new PendingApproval("op", "a\nb").Hash, new PendingApproval("op", "a\nb").Hash); // the description may hold one
+    }
+
+    /// <summary>
+    /// The pending status message has an empty message id (unreachable through the API: ids are stamped; a null id does not
+    /// even round-trip through the store, the JSON property is required). The approval could never be marked used, so it
+    /// fails closed: a hash is InvalidParams, no hash is NotApproved.
+    /// </summary>
+    [Fact]
+    public async Task Approval_whose_status_message_has_no_id_fails_closed()
+    {
+        var agent = new ApprovalAgent();
+        await using var host = await StartAsync(agent);
+        var client = host.Client(ProtocolBindings.JsonRpc, options: new A2AClientOptions { MaxRetries = 0 });
+        var asked = (await client.SendMessageAsync("approve")).RequireTask();
+        await host.WaitIdleAsync();
+        var store = host.App.Services.GetRequiredService<A2A.Server.Storage.TaskStore>();
+        var key = new A2A.Server.Storage.TaskKey("", "alice", asked.Id);
+        var record = (await store.GetAsync(key))!;
+        record.Task.Status.Message!.MessageId = "";
+        await store.UpdateAsync(record, record.Version);
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(FollowUp(asked, ApprovalAgent.Pending.Hash)));
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        Assert.Empty(agent.Seen);
+
+        var again = (await client.SendMessageAsync(FollowUp(asked, null))).RequireTask();
+        Assert.Equal([ApprovalState.NotApproved], agent.Seen);
+        Assert.Equal(TaskState.InputRequired, again.Status.State);
+    }
+
+    [Theory]
     [MemberData(nameof(Bindings))]
     public async Task Mismatched_hash_rejected(string binding)
     {

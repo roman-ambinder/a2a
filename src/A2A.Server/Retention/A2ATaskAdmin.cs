@@ -34,19 +34,17 @@ public sealed class A2ATaskAdmin
     }
 
     /// <summary>
-    /// Deletes the task with its pending push deliveries, dead letters, push configs and event log. A running task is
-    /// cancelled first, on every instance (without waiting for it to stop: its later events find no task and are dropped).
+    /// Deletes the task with its pending push deliveries, dead letters, push configs and event log. Its executions are
+    /// cancelled first, on every instance (without waiting for them to stop: their later events find no task and are dropped).
     /// Its context stays until the retention sweep removes it as an orphan. Owner-scoped through <paramref name="key"/>.
     /// </summary>
     /// <returns>True when the task was deleted; false when it does not exist for this tenant and owner.</returns>
     public async ValueTask<bool> DeleteTaskAsync(TaskKey key, CancellationToken ct = default)
     {
         if (await _tasks.GetAsync(key, ct).ConfigureAwait(false) is null) return false;
-        if (await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false))
-        {
-            if (_handler is not null) await _handler.CancelExecutionsAsync(key, ct).ConfigureAwait(false);
-            else await _coordinator.RequestCancelAsync(key, ct).ConfigureAwait(false);
-        }
+        // Always: an execution here whose register failed is invisible to the coordinator's running check.
+        if (_handler is not null) await _handler.CancelExecutionsAsync(key, ct).ConfigureAwait(false);
+        else await _coordinator.RequestCancelAsync(key, ct).ConfigureAwait(false);
         var deleted = await PurgeAsync(key, ct).ConfigureAwait(false);
         // A cancelled execution may have committed while the purge ran, after its deletes: delete again (idempotent). With
         // the task row gone, no later commit can succeed.

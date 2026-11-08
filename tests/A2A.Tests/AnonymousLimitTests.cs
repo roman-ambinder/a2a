@@ -73,6 +73,9 @@ public class AnonymousLimitTests
     [InlineData("2001:db8:1:3::1", "anon:2001:db8:1:3::/64")]
     [InlineData("::ffff:203.0.113.1", "anon:203.0.113.1")]
     [InlineData("203.0.113.1", "anon:203.0.113.1")]
+    [InlineData("::1", "anon:::/64")]
+    [InlineData("fe80::1%eth0", "anon:fe80::/64")] // the zone id is dropped with the host bits
+    [InlineData("::", "anon:::/64")]
     public void Limit_partition_groups_anonymous_ipv6_callers_by_slash_64(string address, string expected)
     {
         Assert.Equal(expected, ServerCallContext.LimitPartitionFor(ServerCallContext.AnonymousPrincipal, address));
@@ -80,7 +83,7 @@ public class AnonymousLimitTests
     }
 
     [Fact]
-    public void Limit_partition_does_not_parse_unparseable_addresses_into_one_bucket()
+    public void Limit_partition_keeps_an_unparseable_address_as_its_own_key()
     {
         Assert.Equal("anon:not-an-ip", ServerCallContext.LimitPartitionFor(ServerCallContext.AnonymousPrincipal, "not-an-ip"));
     }

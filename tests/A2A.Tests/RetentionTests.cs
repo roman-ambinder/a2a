@@ -653,6 +653,24 @@ public sealed class RetentionTests
         Assert.False(await host.App.Services.GetRequiredService<ExecutionCoordinator>().IsRunningAsync(key));
     }
 
+    /// <summary>The running execution's register failed, so the coordinator does not see it; the admin delete still cancels it.</summary>
+    [Fact]
+    public async Task Admin_delete_cancels_a_local_execution_the_coordinator_does_not_see()
+    {
+        var clock = NewClock();
+        var coordinator = new FaultyCoordinator(clock);
+        coordinator.FailNextRegisters(1000);
+        await using var host = await StartAsync(clock, services: s => s.AddSingleton<ExecutionCoordinator>(coordinator));
+        var key = Key(await SendAsync(host, "slow"));
+        await EventuallyAsync(async () => await StateAsync(host, key) == TaskState.Working, "the agent is working");
+        Assert.False(await coordinator.IsRegisteredAsync(key));
+
+        Assert.True(await host.App.Services.GetRequiredService<A2ATaskAdmin>().DeleteTaskAsync(key));
+
+        await host.Handler.WhenIdleAsync().WaitAsync(Wait); // the agent was cancelled
+        Assert.Null(await StateAsync(host, key));
+    }
+
     [Fact]
     public async Task Purge_stopped_midway_is_finished_by_the_next_sweep()
     {
