@@ -3,9 +3,11 @@ using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Client.Cards;
+using A2A.Client.Transports;
 using A2A.Json;
 using A2A.Security.Http;
 using A2A.Signing;
@@ -159,11 +161,17 @@ public sealed class A2ACardResolver
         if (!response.IsSuccessStatusCode)
             throw new A2AException(A2AErrorCode.Internal, $"Failed to fetch Agent Card from {uri}: HTTP {(int)response.StatusCode}") { HttpStatus = (int)response.StatusCode };
 
-        var raw = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        var node = ParseCard(raw);
+        // The card is parsed from its UTF-8 bytes (no string round trip); the text is decoded once, for ResolvedAgentCard.Raw.
+        string raw;
+        JsonObject node;
         AgentCard card;
-        try { card = A2AJson.Deserialize<AgentCard>(raw); }
-        catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex); }
+        using (var body = await ResponseBody.ReadUtf8Async(response.Content, cancellationToken).ConfigureAwait(false))
+        {
+            raw = Encoding.UTF8.GetString(body.Span);
+            node = ParseCard(body.Span);
+            try { card = JsonSerializer.Deserialize(body.Span, A2AJson.GetTypeInfo<AgentCard>()) ?? throw new JsonException("Null AgentCard payload."); }
+            catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex); }
+        }
 
         var verification = await _verifier.VerifyAsync(node, uri, cancellationToken).ConfigureAwait(false);
         var reject = verification.Status switch
@@ -197,7 +205,7 @@ public sealed class A2ACardResolver
 
     // Parses the card into a fully materialized tree. JsonObject reads lazily and throws ArgumentException on a duplicate
     // member when first touched, which on .NET 8 (no AllowDuplicateProperties) would otherwise escape from verification.
-    private static JsonObject ParseCard(string raw)
+    private static JsonObject ParseCard(ReadOnlySpan<byte> raw)
     {
         try
         {

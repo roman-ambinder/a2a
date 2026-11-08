@@ -86,11 +86,12 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
         {
             using var request = await BuildRequestAsync(method, parameters, streaming: false, call, key, attemptCt).ConfigureAwait(false);
             using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
-            var body = await response.Content.ReadAsStringAsync(attemptCt).ConfigureAwait(false);
-            var rpc = TryParseResponse(body);
+            JsonRpcResponse? rpc;
+            using (var body = await ResponseBody.ReadUtf8Async(response.Content, attemptCt).ConfigureAwait(false))
+                rpc = TryParseResponse(body.Span);
             if (rpc is null)
             {
-                if (!response.IsSuccessStatusCode) throw HttpError(response, body);
+                if (!response.IsSuccessStatusCode) throw HttpError(response, await response.Content.ReadAsStringAsync(attemptCt).ConfigureAwait(false));
                 throw ProtocolError($"{method}: response is not a JSON-RPC response.");
             }
             if (rpc.Error is not null) throw WithStatus(rpc.Error.ToException(), response);
@@ -109,10 +110,12 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
             opened = await Http.SendAsync(opening, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
             if (!IsEventStream(opened))
             {
-                var body = await opened.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                var error = TryParseResponse(body);
+                await ResponseBody.BufferAsync(opened.Content, ct).ConfigureAwait(false);
+                JsonRpcResponse? error;
+                using (var body = await ResponseBody.ReadUtf8Async(opened.Content, ct).ConfigureAwait(false))
+                    error = TryParseResponse(body.Span);
                 if (error?.Error is not null) throw WithStatus(error.Error.ToException(), opened);
-                if (!opened.IsSuccessStatusCode) throw HttpError(opened, body);
+                if (!opened.IsSuccessStatusCode) throw HttpError(opened, await opened.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
                 throw ProtocolError($"{method}: expected text/event-stream.");
             }
         }
@@ -130,7 +133,10 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         await foreach (var evt in SseReader.ReadAsync(stream, ct).ConfigureAwait(false))
         {
-            var rpc = TryParseResponse(evt.Data) ?? throw ProtocolError($"{method}: SSE event is not a JSON-RPC response.");
+            JsonRpcResponse? parsed;
+            using (var data = ResponseBody.FromString(evt.Data))
+                parsed = TryParseResponse(data.Span);
+            var rpc = parsed ?? throw ProtocolError($"{method}: SSE event is not a JSON-RPC response.");
             if (rpc.Error is not null) throw rpc.Error.ToException();
             if (rpc.Result is not { } r) throw ProtocolError($"{method}: SSE event has no result.");
             yield return new StreamFrame(Parse<StreamResponse>(r, "stream event"), evt.FrameId);
@@ -155,12 +161,42 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
         return request;
     }
 
-    private static JsonRpcResponse? TryParseResponse(string body)
+    private static readonly byte[][] EnvelopeNames = ["jsonrpc"u8.ToArray(), "result"u8.ToArray(), "error"u8.ToArray()];
+
+    /// <summary>
+    /// The JSON-RPC response in <paramref name="body"/>, or null when it is not one: not a JSON object, no <c>jsonrpc</c> of
+    /// "2.0", neither <c>result</c> nor <c>error</c>, or an envelope that does not bind. One reader pass locates the members,
+    /// then the envelope is bound from the same bytes (no <see cref="JsonDocument"/>). Bodies the pass does not settle take the
+    /// former <see cref="JsonDocument"/> path, so every answer is the one it always was.
+    /// </summary>
+    private static JsonRpcResponse? TryParseResponse(ReadOnlySpan<byte> body)
     {
-        if (string.IsNullOrWhiteSpace(body)) return null;
+        Span<(int Start, int End)> found = stackalloc (int, int)[3];
+        if (!JsonMembers.TryScan(body, EnvelopeNames, found, out var root, out var isObject)) return TryParseResponseSlow(body);
+        if (!isObject || found[0].Start < 0) return null;
+        var version = body[found[0].Start..found[0].End];
+        if (version[0] == (byte)'n') return null;                       // "jsonrpc": null
+        if (version[0] != (byte)'"') return TryParseResponseSlow(body); // not a string: the former path throws as it did
+        var reader = new Utf8JsonReader(version);
+        reader.Read();
+        if (!reader.ValueTextEquals("2.0"u8))
+            return reader.ValueIsEscaped || !System.Text.Unicode.Utf8.IsValid(reader.ValueSpan) ? TryParseResponseSlow(body) : null;
+        if (found[1].Start < 0 && found[2].Start < 0) return null;
         try
         {
-            using var doc = JsonDocument.Parse(body);
+            return JsonSerializer.Deserialize(body[root], A2AJson.GetTypeInfo<JsonRpcResponse>());
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static JsonRpcResponse? TryParseResponseSlow(ReadOnlySpan<byte> body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body.ToArray());
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return null;
             if (!root.TryGetProperty("jsonrpc", out var v) || v.GetString() != "2.0") return null;

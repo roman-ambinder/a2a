@@ -117,8 +117,11 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
             await ApplyHeadersAsync(req, streaming: false, call, key, attemptCt).ConfigureAwait(false);
             using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, attemptCt).ConfigureAwait(false);
-            var text = await resp.Content.ReadAsStringAsync(attemptCt).ConfigureAwait(false);
-            try { return A2AJson.Deserialize<T>(text); }
+            try
+            {
+                return await ResponseBody.DeserializeAsync<T>(resp.Content, attemptCt).ConfigureAwait(false)
+                    ?? throw new JsonException($"Null {typeof(T).Name} payload.");
+            }
             catch (JsonException ex) { throw ProtocolError($"Malformed {typeof(T).Name} in agent response: {ex.Message}", ex); }
         }, ct);
 
@@ -155,9 +158,7 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
             StreamResponse? item;
             try
             {
-                using var doc = JsonDocument.Parse(evt.Data);
-                if (doc.RootElement.TryGetProperty("error", out var err)) throw ParseStatus(err, null);
-                item = doc.RootElement.Deserialize(A2AJson.GetTypeInfo<StreamResponse>());
+                item = ParseStreamEvent(evt.Data);
             }
             catch (JsonException ex) { throw ProtocolError($"Malformed stream event: {ex.Message}", ex); }
             if (item is null) throw ProtocolError("Empty stream event.");
@@ -165,15 +166,36 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
         }
     }
 
-    /// <summary>Parses a google.rpc.Status error body (spec §11.6).</summary>
+    private static readonly byte[][] ErrorName = ["error"u8.ToArray()];
+
+    /// <summary>
+    /// One stream event: a google.rpc.Status <c>error</c> member is thrown, anything else binds as a <see cref="StreamResponse"/>.
+    /// The common case (an object without <c>error</c>) binds straight from the event's UTF-8 bytes; the rest takes the former
+    /// <see cref="JsonDocument"/> path, so malformed events fail exactly as before.
+    /// </summary>
+    private static StreamResponse? ParseStreamEvent(string data)
+    {
+        using (var bytes = ResponseBody.FromString(data))
+        {
+            Span<(int Start, int End)> found = stackalloc (int, int)[1];
+            if (JsonMembers.TryScan(bytes.Span, ErrorName, found, out var root, out var isObject) && isObject && found[0].Start < 0)
+                return JsonSerializer.Deserialize(bytes.Span[root], A2AJson.GetTypeInfo<StreamResponse>());
+        }
+        using var doc = JsonDocument.Parse(data);
+        if (doc.RootElement.TryGetProperty("error", out var err)) throw ParseStatus(err, null);
+        return doc.RootElement.Deserialize(A2AJson.GetTypeInfo<StreamResponse>());
+    }
+
+    /// <summary>Parses a google.rpc.Status error body (spec §11.6) from its bytes; the text is read only for a non-A2A error.</summary>
     private static async Task<A2AException> ReadErrorAsync(HttpResponseMessage resp, CancellationToken ct)
     {
-        var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        if (IsJson(resp) && !string.IsNullOrWhiteSpace(body))
+        await ResponseBody.BufferAsync(resp.Content, ct).ConfigureAwait(false);
+        if (IsJson(resp))
         {
+            using var body = await ResponseBody.ReadUtf8Async(resp.Content, ct).ConfigureAwait(false);
             try
             {
-                using var doc = JsonDocument.Parse(body);
+                using var doc = JsonDocument.Parse(body.Memory);
                 if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("error", out var err))
                     return ParseStatus(err, resp);
             }
@@ -182,7 +204,7 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
                 // fall through
             }
         }
-        return HttpError(resp, body);
+        return HttpError(resp, await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
     }
 
     private static A2AException ParseStatus(JsonElement err, HttpResponseMessage? resp)
