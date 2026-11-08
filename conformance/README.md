@@ -62,7 +62,7 @@ The false failures known from the TCK tracker (a2a-tck #141, #146, #201, #242, #
 
 `dotnet/ConformanceAgent` is the system under test. Differences that affect results:
 
-- **TCK pass only: message-ID dedupe is off** (`SUT_DISABLE_MESSAGE_DEDUPE=1`). The TCK helpers reuse one `messageId` for every task they create, and the SDK treats `messageId` as an idempotency key (spec 3.3.1 allows this). With dedupe on, the TCK gets replays of old tasks or `IdempotencyKeyMismatch`, and about 30 requirements fail or go untested. ACTS runs with SDK defaults.
+- **TCK pass only: message-ID dedupe is off** (`SUT_DISABLE_MESSAGE_DEDUPE=1`). The TCK helpers reuse one `messageId` for every task they create ([a2a-tck #267](https://github.com/a2aproject/a2a-tck/issues/267)), and the SDK treats `messageId` as an idempotency key (spec 3.3.1 allows this). With dedupe on, the TCK gets replays of old tasks or `IdempotencyKeyMismatch`, and about 30 requirements fail or go untested. ACTS runs with SDK defaults.
 - **Default pass: only the extended card reads the bearer token.** ACTS starts some tasks with a token and reads them without one, and the SDK scopes tasks to their owner.
 - ACTS also runs two more agent instances: `ITK_ACTS_AUTH=1` (every operation needs a token) and `ITK_ACTS_REDUCED_CAPABILITIES=1`.
 - The gRPC interface URL is `host:port` with no scheme, because both suites pass it straight to a gRPC channel.
