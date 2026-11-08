@@ -24,12 +24,12 @@ internal sealed class AgentCardEndpoint(IAgentCardProvider cards, IOptions<A2AHt
     /// <summary>Most distinct pruned-path warnings remembered, so each is logged once and memory stays bounded.</summary>
     private const int MaxWarnings = 256;
 
-    /// <summary>Most signatures cached. When full, the cache starts over (a simple size cap).</summary>
+    /// <summary>Most signatures cached. When full, the least recently used one is evicted.</summary>
     private const int MaxSignatures = 256;
 
     private readonly ConditionalWeakTable<AgentCard, Encoded> _encoded = new();
     private readonly ConcurrentDictionary<string, byte> _warned = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, AgentCardSignature> _signatures = new(StringComparer.Ordinal);
+    private readonly LruCache<string, AgentCardSignature> _signatures = new(MaxSignatures, StringComparer.Ordinal);
 
     /// <summary>The served bytes of one card with one key, and their entity tag.</summary>
     private sealed record Encoded(AgentCardSigningKey? Key, byte[] Body, string Tag, string ETag);
@@ -147,8 +147,7 @@ internal sealed class AgentCardEndpoint(IAgentCardProvider cards, IOptions<A2AHt
         {
             WarnPruned(card);
             signature = AgentCardSigner.CreateSignature(card, key);
-            if (_signatures.Count >= MaxSignatures) _signatures.Clear();
-            _signatures[cacheKey] = signature;
+            _signatures.Set(cacheKey, signature);
         }
         var signed = JsonSerializer.Deserialize(A2AJson.SerializeToUtf8Bytes(card), A2AJson.GetTypeInfo<AgentCard>())!; // a copy: the card is shared
         signed.Signatures = [.. card.Signatures ?? [], signature];
