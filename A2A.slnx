@@ -4,6 +4,10 @@
     <Project Path="interop/dotnet/InteropAgent/InteropAgent.csproj" />
     <Project Path="interop/dotnet/InteropClient/InteropClient.csproj" />
   </Folder>
+  <Folder Name="/interop/v03/dotnet/">
+    <Project Path="interop/v03/dotnet/InteropV03Agent/InteropV03Agent.csproj" />
+    <Project Path="interop/v03/dotnet/InteropV03Client/InteropV03Client.csproj" />
+  </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
     <Project Path="samples/EchoClient/EchoClient.csproj" />

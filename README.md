@@ -23,6 +23,9 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | `A2A.Grpc` | Generated types/stubs for `lf.a2a.v1.A2AService` (from `docs/a2a.proto`) and model mapping |
 | `A2A.Server.Grpc` | `MapA2AGrpc()`: the gRPC binding on ASP.NET Core |
 | `A2A.Client.Grpc` | `GrpcTransport` and `A2AGrpcClientFactory` |
+| `A2A.V0_3Compat` | Shared v0.3 JSON codecs and Agent Card conversion (used by the two packages below) |
+| `A2A.Server.V0_3Compat` | `EnableV03Compat()`: lets v0.3 clients call a v1.0 agent |
+| `A2A.Client.V0_3Compat` | `V03CompatClientFactory`: lets a client call v0.3 agents |
 | `A2A.Server.Postgres` | PostgreSQL stores (tasks, events, push configs, push outbox, idempotency) via Npgsql |
 | `A2A.Server.Redis` | Redis pub/sub `TaskEventBus` and execution coordinator for running several server instances |
 
@@ -309,6 +312,28 @@ Code written against the `main` branch needs these changes:
 - **Push metrics renamed.** The meter is `A2A.Server` (was `A2A`) and the counter is `a2a.server.push.deliveries` (was `a2a.push.deliveries`). It counts each attempt, with `a2a.outcome` = `sent`, `retried` or `dead_lettered` (was: final results, `delivered`/`failed`). `a2a.server.push.dead_letters` counts dead letters. Update dashboards and alerts.
 - **Per-tenant cards: `AgentCardProvider` (`A2A.Server.Agents`) is now `TenantCardProvider`**, and `AddAgentCardProvider<T>()` is now `AddTenantCardProvider<T>()`. The members are the same. Do not confuse it with the new `A2A.Server.AgentCardProvider`, the default `IAgentCardProvider` that completes each tenant's card; register a `TenantCardProvider`, not a replacement `IAgentCardProvider`.
 - **`IAgentExecutorFactory.RentAsync(string tenant, CancellationToken cancellationToken)`** rents the executor of one tenant. A lease with a null `Executor` means no agent serves the tenant. `AgentExecutorResolver` (`AddAgentExecutorResolver<T>()`) still picks the executor per tenant on top of the default factory.
+
+## v0.3 compatibility
+
+Opt in. Nothing changes if you do not.
+
+Server: your v1.0 agent also answers v0.3 clients (JSON-RPC and HTTP+JSON).
+
+```csharp
+// dotnet add package RomanAmbinder.A2A.Server.V0_3Compat
+app.MapA2A("/", o => o.EnableV03Compat()).RequireAuthorization();
+```
+
+Client: call a v0.3 agent. A card that offers v1.x is never downgraded.
+
+```csharp
+// dotnet add package RomanAmbinder.A2A.Client.V0_3Compat
+var client = await V03CompatClientFactory.CreateAsync(new Uri("https://old-agent.example.com/"), httpClient);
+```
+
+Not supported: gRPC on v0.3, push notifications on v0.3 (server and client; answered with an error), and v0.2. Fields v0.3 cannot carry are counted, not sent. All `RomanAmbinder.A2A.*` packages must have the same version.
+
+Tested against the official Python SDK 0.3 in both directions ([interop/v03](interop/v03/README.md)). Details: [design spec](docs/superpowers/specs/2026-11-08-v03-compat-design.md).
 
 ## Interop
 
