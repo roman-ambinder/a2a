@@ -157,7 +157,7 @@ An object lives and dies with its task. There are no separate retention periods.
 - It reads each task without its owner, so a live task of anyone keeps its objects.
 - Any doubt keeps the object: a task it cannot read, a key that is not the SDK's own.
 - At most `BatchSize` objects go per sweep.
-- Listing a bucket is slow and costs money, so one instance runs this step at most once per `OrphanSweepInterval` (6 hours by default), not on every sweep.
+- Listing a bucket is slow and costs money, so one instance runs this step at most once per `OrphanSweepInterval` (6 hours by default), not on every sweep. A run that stops at `BatchSize` does not count: the next sweep continues, so a backlog drains.
 
 The sweep runs only with `AddA2ARetention`. Without it, orphans stay. Keep `OrphanGracePeriod` longer than your slowest upload plus commit: a younger object may belong to a task that is not committed yet.
 

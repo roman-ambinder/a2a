@@ -166,8 +166,8 @@ public sealed class A2ARetentionService : BackgroundService
         if (_objects is { } objects && OrphanStepDue())
             await StepAsync("orphan artifact objects", async c =>
             {
-                await DeleteOrphanObjectsAsync(objects, c).ConfigureAwait(false);
-                _lastOrphanStep = _time.GetUtcNow(); // a failed step is tried again on the next sweep
+                // A failed step, or one that stopped at BatchSize, is not recorded: the next sweep runs it again, so a backlog drains.
+                if (!await DeleteOrphanObjectsAsync(objects, c).ConfigureAwait(false)) _lastOrphanStep = _time.GetUtcNow();
             }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -349,9 +349,9 @@ public sealed class A2ARetentionService : BackgroundService
     /// Deletes the objects older than the grace period whose task is gone or no longer refers to them, at most
     /// <see cref="A2ARetentionOptions.BatchSize"/> per sweep. The task is read without its owner, so a live task of anyone counts. Any doubt keeps
     /// the object: a key that is not one of ours, a task that cannot be read, a delete that fails. Younger objects are never
-    /// touched: their task may not be committed yet.
+    /// touched: their task may not be committed yet. Returns true when it stopped at the batch size, with more listed.
     /// </summary>
-    private async Task DeleteOrphanObjectsAsync(ArtifactObjectStore objects, CancellationToken cancellationToken)
+    private async Task<bool> DeleteOrphanObjectsAsync(ArtifactObjectStore objects, CancellationToken cancellationToken)
     {
         var cutoff = Before(_time.GetUtcNow(), _orphanGracePeriod);
         // Only the current task is kept. Stores list in key order, so the objects of one task come together; any other order only costs more reads.
@@ -360,7 +360,7 @@ public sealed class A2ARetentionService : BackgroundService
         var deleted = 0;
         await foreach (var entry in objects.ListAsync(string.Empty, cancellationToken).ConfigureAwait(false))
         {
-            if (deleted >= _options.BatchSize) break;
+            if (deleted >= _options.BatchSize) return true;
             if (entry.CreatedAt >= cutoff) continue;
             if (!ArtifactObjectKey.TryParse(entry.Key, out var tenant, out var taskId, out var objectId)) continue;
             cancellationToken.ThrowIfCancellationRequested();
@@ -384,6 +384,7 @@ public sealed class A2ARetentionService : BackgroundService
             ServerTelemetry.OrphanObjectsDeleted.Add(1);
             ServerLog.ArtifactOrphanDeleted(_logger, entry.Key);
         }
+        return false;
     }
 
     /// <summary>The object ids of every artifact link in the task's artifacts, history and status message.</summary>

@@ -374,6 +374,28 @@ public sealed class ArtifactCleanupTests
     }
 
     [Fact]
+    public async Task A_sweep_that_stops_at_the_batch_size_runs_the_step_again_on_the_next_sweep()
+    {
+        await using var rig = await StartAsync();
+        var ids = new List<string>();
+        for (var i = 0; i < 5; i++) ids.Add(await PutAsync(rig, "", "gone"));
+        rig.Clock.Advance(Grace + TimeSpan.FromMinutes(1));
+        var sweeper = rig.Sweeper(o => o.BatchSize = 2);
+
+        await sweeper.RunOnceAsync(CancellationToken.None); // stops at the batch size
+        Assert.Equal(3, await CountAsync(rig, ids));
+        await sweeper.RunOnceAsync(CancellationToken.None); // no interval needed: the backlog drains
+        Assert.Equal(1, await CountAsync(rig, ids));
+        await sweeper.RunOnceAsync(CancellationToken.None); // finishes
+        Assert.Equal(0, await CountAsync(rig, ids));
+
+        var late = await PutAsync(rig, "", "gone");
+        rig.Clock.Advance(Grace + TimeSpan.FromMinutes(1));
+        await sweeper.RunOnceAsync(CancellationToken.None); // finished before: waits for the interval
+        Assert.True(await ExistsAsync(rig, KeyOf("", "gone", late)));
+    }
+
+    [Fact]
     public async Task Zero_orphan_sweep_interval_is_rejected_at_start()
     {
         await using var rig = await StartAsync(interval: TimeSpan.Zero);

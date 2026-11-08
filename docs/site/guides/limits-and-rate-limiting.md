@@ -31,7 +31,7 @@ Notes:
 - `MaxRequestBodyBytes`: a larger `Content-Length` is refused before the body is read. Without one, reading stops once the limit is passed.
 - `MaxJsonDepth` applies to request bodies only. Values above 64 have no effect.
 - `MaxEventBytes` is measured on the serialized JSON. A direct reply that is too large is not sent. The request gets a `FAILED` task instead.
-- `MaxTaskBytes` counts the content of the parts in the history and in the artifacts: text as UTF-8 bytes, `raw` as base64 length, a URL as its length and data as its JSON text length. Names, ids and metadata are not counted. The final `FAILED` event is always stored, so a task at the cap can still end.
+- `MaxTaskBytes` counts the content of the parts in the history and in the artifacts: text as UTF-8 bytes, `raw` as base64 length, a URL as its length and data as its JSON text length. Metadata (key names and JSON values), artifact names and descriptions, and file names are counted too. Ids and media types are not. The few markers the server sets itself are not counted where it sets them. The final `FAILED` event is always stored, so a task at the cap can still end.
 - Zero or `Timeout.InfiniteTimeSpan` turns off `MaxStreamDuration` and `StreamReauthInterval`.
 - The history cap also applies when the caller asks for more, or sends no `historyLength`.
 

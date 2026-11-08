@@ -226,7 +226,75 @@ public sealed class TaskSizeCapTests
                 new Artifact { ArtifactId = "a", Name = "nm", Description = "desc", Parts = [part], Metadata = new() { ["k"] = blob } }, // 2 + 4 + 6
             ],
         };
-        Assert.Equal(1 + 6 + 6 + 2 + 4 + 6 + 4 + 5, TaskSize.Measure(task));
+        Assert.Equal(1 + 6 + 6 + 2 + 4 + 6 + 4 + 5 + 3, TaskSize.Measure(task)); // plus three one-character keys
+    }
+
+    private static Dictionary<string, JsonElement> Small(string key, bool huge) =>
+        new() { [key] = JsonSerializer.SerializeToElement(huge ? new string('m', Cap * 2) : "v") };
+
+    [Theory]
+    [InlineData("a2a.approval.consumed")]
+    [InlineData("a2a.cancelRequested")]
+    [InlineData("a2a.artifact.sealed")]
+    [InlineData("actorChain")]
+    [InlineData("a2a.elicitation.answered")]
+    public async Task Follow_up_with_huge_message_metadata_under_a_reserved_key_is_refused(string key)
+    {
+        await using var host = await StartAsync(new CapAgent());
+        var client = host.Client(ProtocolBindings.JsonRpc);
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+        await host.Handler.WhenIdleAsync();
+
+        var message = Message.FromUser("hi", task.ContextId, task.Id);
+        message.Metadata = Small(key, huge: true);
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(message, null));
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
+    }
+
+    [Fact]
+    public async Task Follow_up_with_a_huge_metadata_key_name_is_refused()
+    {
+        await using var host = await StartAsync(new CapAgent());
+        var client = host.Client(ProtocolBindings.JsonRpc);
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+        await host.Handler.WhenIdleAsync();
+
+        var message = Message.FromUser("hi", task.ContextId, task.Id);
+        message.Metadata = new() { [new string('k', Cap * 2)] = JsonSerializer.SerializeToElement(1) };
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(message, null));
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
+    }
+
+    [Fact]
+    public void Measure_skips_a_reserved_key_only_where_the_server_owns_it()
+    {
+        var big = JsonSerializer.SerializeToElement(new string('m', 100)); // 102 characters of JSON
+        Dictionary<string, JsonElement> With(string key) => new() { [key] = big };
+        var message = Message.FromUser("");
+        message.Metadata = With(A2AProtocol.MessageRecordedAtKey); // owned here: free
+        var other = Message.FromUser("");
+        other.Metadata = With(A2AProtocol.ApprovalConsumedKey); // not owned on a message: counted
+        var chain = Message.FromUser("");
+        chain.Metadata = With("actorChain"); // counted everywhere
+        var part = Part.FromText("");
+        var withMeta = new TextPart("") { Metadata = With(A2AProtocol.ArtifactSealedKey) }; // part metadata: all counted
+        var task = new AgentTask
+        {
+            Id = "t",
+            Status = new AgentTaskStatus(),
+            Metadata = With(A2AProtocol.ApprovalConsumedKey), // owned here: free
+            History = [message, other, chain],
+            Artifacts =
+            [
+                new Artifact { ArtifactId = "a", Parts = [withMeta], Metadata = With(A2AProtocol.ArtifactSealedKey) }, // owned here: free
+                new Artifact { ArtifactId = "b", Parts = [part], Metadata = With(A2AProtocol.MessageRecordedAtKey) }, // counted
+            ],
+        };
+        var one = 102 + "a2a.approval.consumed".Length;
+        var two = 102 + "actorChain".Length;
+        var three = 102 + A2AProtocol.ArtifactSealedKey.Length; // the part
+        var four = 102 + A2AProtocol.MessageRecordedAtKey.Length; // on an artifact
+        Assert.Equal(one + two + three + four, TaskSize.Measure(task));
     }
 
     [Fact]

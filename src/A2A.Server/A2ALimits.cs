@@ -75,7 +75,7 @@ public sealed class A2ALimits
 
     /// <summary>
     /// Largest stored task in bytes, counted over the content of the history and artifact parts (text as UTF-8, <c>raw</c> as
-    /// base64, URLs and data as their text length). An agent event that would take a running task past it is never stored:
+    /// base64, URLs and data as their text length), plus metadata (key names and JSON values), artifact names and descriptions, and file names. An agent event that would take a running task past it is never stored:
     /// the task fails and the agent is stopped. A follow-up message that would take the task past it is refused with
     /// UnsupportedOperation and the task stays as it is. Default 64 MiB.
     /// </summary>
