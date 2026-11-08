@@ -27,11 +27,6 @@ public class PushDeliveryTests
         }
     }
 
-    private sealed class Factory(HttpMessageHandler handler) : IHttpClientFactory
-    {
-        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
-    }
-
     private sealed class ManualClock : TimeProvider
     {
         private DateTimeOffset _now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
@@ -39,34 +34,26 @@ public class PushDeliveryTests
         public void Advance(TimeSpan by) => _now += by;
     }
 
-    private static readonly TaskKey Key = new("", "alice", "t1");
-
-    private static async Task<(HttpPushNotificationSender Sender, Scripted Handler)> SendOneAsync(
+    private static async Task<(PushDeliveryService Sender, Scripted Handler)> SendOneAsync(
         Action<PushNotificationOptions> configure, TaskPushNotificationConfig config, params HttpStatusCode[] codes)
     {
         var handler = new Scripted(codes.Length == 0 ? [HttpStatusCode.OK] : codes);
         return (await SendWithAsync(handler, configure, config), handler);
     }
 
-    private static async Task<HttpPushNotificationSender> SendWithAsync(HttpMessageHandler handler,
+    /// <summary>Delivers event 7 of a task to <paramref name="config"/> through the outbox, retries included.</summary>
+    private static async Task<PushDeliveryService> SendWithAsync(HttpMessageHandler handler,
         Action<PushNotificationOptions> configure, TaskPushNotificationConfig config)
     {
-        var protector = new EphemeralPushSecretProtector();
-        var store = new InMemoryPushConfigStore();
-        var stored = A2A.Json.A2AJson.Clone(config);
-        stored.Id = "c1";
-        stored.TaskId = Key.TaskId;
-        if (!string.IsNullOrEmpty(stored.Token)) stored.Token = protector.Protect(stored.Token);
-        if (stored.Authentication is { Credentials.Length: > 0 } a) a.Credentials = protector.Protect(a.Credentials);
-        await store.SaveAsync(new PushConfigRecord(Key, stored));
-
-        var options = new A2AServerOptions();
-        options.PushNotifications.InitialBackoff = TimeSpan.FromMilliseconds(5);
-        configure(options.PushNotifications);
-        var sender = new HttpPushNotificationSender(new Factory(handler), store, protector, Options.Create(options));
-        sender.Enqueue(Key, new SequencedEvent(7, StreamResponse.Of(Message.FromUser("x"))));
-        await sender.WhenIdleAsync();
-        return sender;
+        var rig = new PushRig(handler);
+        rig.Options.PushNotifications.AllowPrivateNetworks = false; // the defaults; tests opt out
+        configure(rig.Options.PushNotifications);
+        await rig.SaveConfigAsync(config);
+        for (var i = 1; i < 7; i++) await rig.CommitAsync();
+        await rig.CommitAsync("c1");
+        var service = rig.NewService();
+        await rig.DrainAsync(service);
+        return service;
     }
 
     private static TaskPushNotificationConfig Hook(string url = "https://hooks.example/cb", string? token = "s3cret") =>

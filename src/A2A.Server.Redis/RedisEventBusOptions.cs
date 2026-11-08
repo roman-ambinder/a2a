@@ -8,4 +8,11 @@ public sealed class RedisEventBusOptions
     /// subscribes to <c>{prefix}*</c>. Use a different prefix per deployment when several share one Redis. Default <c>a2a:events:</c>.
     /// </summary>
     public string ChannelPrefix { get; set; } = "a2a:events:";
+
+    /// <summary>
+    /// Whether <c>AddRedisEventBus</c> also registers the <see cref="RedisExecutionCoordinator"/> (running executions, cancel
+    /// requests and expired leases shared by every instance) over the same connection and prefix. Default true. Ignored by
+    /// <c>AddRedisExecutionCoordinator</c>.
+    /// </summary>
+    public bool RegisterCoordinator { get; set; } = true;
 }

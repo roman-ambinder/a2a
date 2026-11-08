@@ -1,9 +1,14 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 using A2A.Diagnostics;
 using A2A.Json;
+using A2A.Server.Agents;
+using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
 using A2A.Server.Storage;
@@ -29,7 +34,7 @@ public sealed class A2ARequestHandler : IDisposable
     private readonly PushConfigStore _pushConfigs;
     private readonly A2AAuthorizationHandler _authorization;
     private readonly IPushSecretProtector _protector;
-    private readonly IPushNotificationSender _push;
+    private readonly PushOutbox _outbox;
     private readonly TaskEventBus _bus;
     private readonly A2AServerOptions _options;
     private readonly ILogger _logger;
@@ -38,11 +43,21 @@ public sealed class A2ARequestHandler : IDisposable
     private readonly RunningRegistry<Execution> _running = new();
     private readonly StreamAdmission _admission;
     private readonly TimeProvider _time;
+    private readonly ExecutionCoordinator _coordinator;
+    private readonly AgentCardProvider _cards;
+    private readonly AgentExecutorResolver _executors;
+
+    /// <summary>The refusal text for a tenant that no agent serves (its card is null).</summary>
+    internal const string NoAgentText = "No agent is configured for this tenant.";
 
     /// <summary>
-    /// Created by DI. The optional <c>timeProvider</c> is the clock for <see cref="A2AServerOptions.MaxTaskDuration"/>
-    /// (default <see cref="TimeProvider.System"/>).
+    /// Created by DI. The optional <c>timeProvider</c> is the clock for <see cref="A2AServerOptions.MaxTaskDuration"/> and
+    /// the execution heartbeat (default <see cref="TimeProvider.System"/>). The optional <c>coordinator</c> tracks running
+    /// executions across instances (default a process-local <see cref="InMemoryExecutionCoordinator"/>). The optional
+    /// <c>cardProvider</c> and <c>executorResolver</c> pick each tenant's card and agent (default: the configured card and the
+    /// registered <see cref="IAgentExecutor"/> for every tenant).
     /// </summary>
+    /// <exception cref="InvalidOperationException"><see cref="A2AServerOptions.Coordination"/> is invalid.</exception>
     public A2ARequestHandler(
         IServiceScopeFactory scopeFactory,
         TaskStore tasks,
@@ -51,11 +66,14 @@ public sealed class A2ARequestHandler : IDisposable
         PushConfigStore pushConfigs,
         A2AAuthorizationHandler authorization,
         IPushSecretProtector protector,
-        IPushNotificationSender push,
+        PushOutbox outbox,
         TaskEventBus bus,
         IOptions<A2AServerOptions> options,
         ILogger<A2ARequestHandler>? logger = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ExecutionCoordinator? coordinator = null,
+        AgentCardProvider? cardProvider = null,
+        AgentExecutorResolver? executorResolver = null)
     {
         _scopeFactory = scopeFactory;
         _tasks = tasks;
@@ -64,21 +82,34 @@ public sealed class A2ARequestHandler : IDisposable
         _pushConfigs = pushConfigs;
         _authorization = authorization;
         _protector = protector;
-        _push = push;
+        _outbox = outbox;
         _bus = bus;
         _options = options.Value;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _admission = new StreamAdmission(_options.Limits);
         _time = timeProvider ?? TimeProvider.System;
+        _options.Coordination.Validate();
+        _coordinator = coordinator ?? new InMemoryExecutionCoordinator(_options.Coordination, _time);
+        _cards = cardProvider ?? new DefaultAgentCardProvider(options);
+        _executors = executorResolver ?? new DefaultAgentExecutorResolver();
+        StartCancelListener(_shutdown.Token);
     }
 
+    /// <summary>
+    /// The configured card (<see cref="A2AServerOptions.AgentCard"/>). With an <see cref="AgentCardProvider"/> each tenant has
+    /// its own card, and requests are checked against that one.
+    /// </summary>
     public AgentCard AgentCard => _options.AgentCard;
 
     // =====================================================================
-    // Call validation: version, extensions, authentication
+    // Call validation: version, authentication
     // =====================================================================
 
-    /// <summary>Checks protocol version, required extensions, and authentication; fills <see cref="ServerCallContext.ActivatedExtensions"/>.</summary>
+    /// <summary>
+    /// Checks protocol version and authentication. Extensions depend on the tenant's card, so each operation checks them once
+    /// its tenant is known (also from the request body): a missing required extension is
+    /// <see cref="A2AErrorCode.ExtensionSupportRequired"/>, and <see cref="ServerCallContext.ActivatedExtensions"/> is filled then.
+    /// </summary>
     public void ValidateCall(ServerCallContext call)
     {
         var version = string.IsNullOrWhiteSpace(call.ProtocolVersion)
@@ -96,8 +127,53 @@ public sealed class A2ARequestHandler : IDisposable
         // Backstop for hosts where the startup check could not run (or direct use of this class): anonymous is opt-in.
         if (!_options.AllowAnonymous && !call.IsAuthenticated)
             throw new A2AException(A2AErrorCode.Unauthenticated);
+    }
 
-        var declared = _options.AgentCard.Capabilities.Extensions ?? [];
+    // =====================================================================
+    // The tenant's agent: card, capabilities, extensions
+    // =====================================================================
+
+    /// <summary>
+    /// The card of the call's tenant from the <see cref="AgentCardProvider"/>, or null when no agent serves the tenant. Asked
+    /// once per request and tenant. The first time, checks the extensions against it: a required extension the caller did not
+    /// request is <see cref="A2AErrorCode.ExtensionSupportRequired"/>; requested and declared ones are activated.
+    /// </summary>
+    private async ValueTask<AgentCard?> ResolveCardAsync(ServerCallContext call, CancellationToken ct)
+    {
+        if (call.ResolvedCard is { } resolved && string.Equals(resolved.Tenant, call.Tenant, StringComparison.Ordinal)) return resolved.Card;
+        var card = await _cards.GetCardAsync(new AgentRequestScope(call.Tenant, call.RouteValues), ct).ConfigureAwait(false);
+        if (card is not null) ApplyExtensions(card, call);
+        call.ResolvedCard = (call.Tenant, card);
+        return card;
+    }
+
+    /// <summary>The tenant's card; a tenant no agent serves is <see cref="A2AErrorCode.UnsupportedOperation"/> (<see cref="NoAgentText"/>).</summary>
+    private async ValueTask<AgentCard> RequireAgentAsync(ServerCallContext call, CancellationToken ct) =>
+        await ResolveCardAsync(call, ct).ConfigureAwait(false) ?? throw new A2AException(A2AErrorCode.UnsupportedOperation, NoAgentText);
+
+    /// <summary>The tenant's card for an operation on task <paramref name="taskId"/>; a tenant no agent serves looks like a missing task.</summary>
+    private async ValueTask<AgentCard> RequireAgentForTaskAsync(ServerCallContext call, string? taskId, CancellationToken ct) =>
+        await ResolveCardAsync(call, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId ?? "");
+
+    /// <summary>
+    /// The card that names the authentication scheme of an Unauthenticated response: the tenant's card when it has one, else
+    /// <see cref="A2AServerOptions.AgentCard"/>. A failing or cancelled provider call falls back too (logged). Never throws.
+    /// </summary>
+    internal async ValueTask<AgentCard> ChallengeCardAsync(ServerCallContext call, CancellationToken ct)
+    {
+        if (call.ResolvedCard is { } resolved && string.Equals(resolved.Tenant, call.Tenant, StringComparison.Ordinal))
+            return resolved.Card ?? _options.AgentCard;
+        try { return await _cards.GetCardAsync(new AgentRequestScope(call.Tenant, call.RouteValues), ct).ConfigureAwait(false) ?? _options.AgentCard; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not resolve the Agent Card of the tenant for the authentication challenge");
+            return _options.AgentCard;
+        }
+    }
+
+    private static void ApplyExtensions(AgentCard card, ServerCallContext call)
+    {
+        var declared = card.Capabilities.Extensions ?? [];
         foreach (var ext in declared.Where(e => e.Required))
         {
             if (!call.RequestedExtensions.Contains(ext.Uri, StringComparer.Ordinal))
@@ -152,13 +228,26 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SendMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
+        await RequireAgentAsync(call, cancellationToken).ConfigureAwait(false);
+        // Before the idempotency claim and anything stored: a tenant without an agent leaves no trace.
+        await using var agent = await RequireExecutorAsync(call.Tenant).ConfigureAwait(false);
         var (claim, replay) = await BeginIdempotentAsync(request, call, cancellationToken).ConfigureAwait(false);
-        if (replay is not null) return await ReplayAsync(replay, request, call, cancellationToken).ConfigureAwait(false);
+        if (replay is not null)
+        {
+            await agent.DisposeAsync().ConfigureAwait(false); // nothing runs
+            return await ReplayAsync(replay, request, call, cancellationToken).ConfigureAwait(false);
+        }
         var taskId = string.IsNullOrEmpty(request.Message?.TaskId) ? TaskIds.New() : request.Message.TaskId;
         var scope = ScopeKey(call.Tenant, taskId);
         // Subscribe before the agent starts, so no event of another execution is missed.
         using var sub = _bus.Subscribe(scope);
-        var (exec, afterSequence) = await AcceptAsync(request, call, claim, taskId, cancellationToken).ConfigureAwait(false);
+        var (accepted, afterSequence) = await AcceptAsync(request, call, claim, taskId, agent, cancellationToken).ConfigureAwait(false);
+        if (accepted is not { } exec)
+        {
+            // A duplicate follow-up: nothing started, so there is nothing to wait for.
+            var current = await _tasks.GetAsync(Key(call, taskId), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
+            return new TaskResponse(Shape(current.Task, request.Configuration?.HistoryLength));
+        }
         var returnImmediately = request.Configuration?.ReturnImmediately == true;
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
@@ -190,9 +279,8 @@ public sealed class A2ARequestHandler : IDisposable
 
                 if (ownDone)
                 {
-                    // This execution ended. Nothing more will change the task once no execution of it is running.
-                    var running = RunningCompletions(scope);
-                    if (!started || running.Count == 0) break;
+                    // This execution ended. Nothing more will change the task once no execution of it runs, on any instance.
+                    if (!started || await RunningWaitsAsync(Key(call, exec.TaskId), stop.Token).ConfigureAwait(false) is not { } running) break;
                     busWait ??= sub.Reader.WaitToReadAsync(stop.Token).AsTask();
                     await Task.WhenAny(running.Append(busWait)).ConfigureAwait(false);
                 }
@@ -265,8 +353,11 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SendStreamingMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
-        RequireStreaming();
+        RequireStreaming(await RequireAgentAsync(call, cancellationToken).ConfigureAwait(false));
+        // Before the idempotency claim and anything stored: a tenant without an agent leaves no trace.
+        await using var agent = await RequireExecutorAsync(call.Tenant).ConfigureAwait(false);
         var (claim, replay) = await BeginIdempotentAsync(request, call, cancellationToken).ConfigureAwait(false);
+        if (replay is not null) await agent.DisposeAsync().ConfigureAwait(false); // nothing runs
         if (replay is IdempotencyOutcome.DirectMessage direct)
         {
             yield return new SequencedEvent(0, StreamResponse.Of(A2AJson.Clone(direct.Message)));
@@ -297,7 +388,17 @@ public sealed class A2ARequestHandler : IDisposable
         var scope = ScopeKey(call.Tenant, taskId);
         // Subscribe before the agent starts, so no event of another execution is missed.
         using var sub = _bus.Subscribe(scope);
-        var (exec, _) = await AcceptAsync(request, call, claim, taskId, cancellationToken).ConfigureAwait(false);
+        var (accepted, _) = await AcceptAsync(request, call, claim, taskId, agent, cancellationToken).ConfigureAwait(false);
+        if (accepted is not { } exec)
+        {
+            await agent.DisposeAsync().ConfigureAwait(false); // nothing runs
+            // A duplicate follow-up: nothing started. The same path as a retried request: the retained events from the start,
+            // then live events.
+            var resume = new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant };
+            await foreach (var replayed in SubscribeCoreAsync(resume, call, resumeAfter: 0, onCaughtUp: null, cancellationToken).ConfigureAwait(false))
+                yield return replayed;
+            yield break;
+        }
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
@@ -346,8 +447,8 @@ public sealed class A2ARequestHandler : IDisposable
 
                 if (ownDone)
                 {
-                    var running = RunningCompletions(scope);
-                    if (running.Count == 0) break; // nothing will change the task any more
+                    // Nothing will change the task any more once no execution of it runs, on any instance.
+                    if (await RunningWaitsAsync(key, stop.Token).ConfigureAwait(false) is not { } running) break;
                     busWait ??= sub.Reader.WaitToReadAsync(stop.Token).AsTask();
                     await Task.WhenAny(running.Append(busWait)).ConfigureAwait(false);
                 }
@@ -434,14 +535,28 @@ public sealed class A2ARequestHandler : IDisposable
         yield return live;
     }
 
-    /// <summary>Completions of the executions running for a task (in-memory scope key).</summary>
+    /// <summary>Completions of the executions running for a task on this instance (in-memory scope key).</summary>
     private List<Task> RunningCompletions(string scope) =>
         _running.Snapshot(scope).Select(e => e.Completion).ToList();
+
+    /// <summary>
+    /// Whether an execution of the task runs on any instance. Null when none does; otherwise what to wait on before asking
+    /// again: the completions of the executions on this instance, or, when only other instances run one, a
+    /// <see cref="CoordinationOptions.RunningPollInterval"/> delay. Executions here are checked first, without a coordinator round trip.
+    /// </summary>
+    private async ValueTask<List<Task>?> RunningWaitsAsync(TaskKey key, CancellationToken ct)
+    {
+        var local = RunningCompletions(ScopeKey(key.Tenant, key.TaskId));
+        if (local.Count > 0) return local;
+        if (!await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false)) return null;
+        return [Task.Delay(_options.Coordination.RunningPollInterval, ct)];
+    }
 
     /// <param name="Context">The request context for the agent.</param>
     /// <param name="PushConfig">The push config to save when a new task is created.</param>
     /// <param name="LastSequence">For a follow-up, the task's last event sequence right after the message was appended; 0 for a new task.</param>
-    private sealed record Prepared(AgentRequestContext Context, TaskPushNotificationConfig? PushConfig, long LastSequence);
+    /// <param name="Duplicate">The follow-up's message id was already in the task's history: nothing was appended and no agent must start.</param>
+    private sealed record Prepared(AgentRequestContext Context, TaskPushNotificationConfig? PushConfig, long LastSequence, bool Duplicate = false);
 
     /// <summary>
     /// Begins idempotency for a SendMessage (spec design §7.3), after authorization and before the message is accepted. The
@@ -511,28 +626,27 @@ public sealed class A2ARequestHandler : IDisposable
     /// <item>a terminal state;</item>
     /// <item>an interrupted state reached by a status event after <paramref name="afterSequence"/> (an interrupted state from
     /// before a follow-up is not its outcome); seen in the event store or on the live bus;</item>
-    /// <item>no execution running for the task any more (the agent returned without settling it, or the server restarted):
-    /// nothing will change it, so its current state;</item>
+    /// <item>no execution running for the task any more, on any instance (the agent returned without settling it, or its
+    /// instance stopped): nothing will change it, so its current state;</item>
     /// <item>or the request is cancelled.</item>
     /// </list>
     /// Subscribing before the first read, and checking for running executions before reading the task, means no change is missed.
     /// </summary>
     private async Task<AgentTask> WaitUntilSettledAsync(TaskKey key, long afterSequence, CancellationToken ct)
     {
-        var scope = ScopeKey(key.Tenant, key.TaskId);
-        using var sub = _bus.Subscribe(scope);
+        using var sub = _bus.Subscribe(ScopeKey(key.Tenant, key.TaskId));
         var statusAfter = afterSequence == 0 || await HasStatusEventAfterAsync(key, afterSequence, ct).ConfigureAwait(false);
         Task<bool>? live = null; // one pending wait at a time: the subscription has a single reader
         while (true)
         {
-            var running = RunningCompletions(scope);
+            var running = await RunningWaitsAsync(key, ct).ConfigureAwait(false);
             var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
             var state = record.Task.Status.State;
-            if (state.IsTerminal() || (state.IsInterrupted() && statusAfter) || running.Count == 0) return record.Task;
+            if (state.IsTerminal() || (state.IsInterrupted() && statusAfter) || running is null) return record.Task;
 
             live ??= sub.Reader.WaitToReadAsync(ct).AsTask();
             await Task.WhenAny(running.Append(live)).ConfigureAwait(false);
-            if (!live.IsCompleted) continue; // an execution ended: check again
+            if (!live.IsCompleted) continue; // an execution ended, or time to ask the coordinator again
             if (!await live.ConfigureAwait(false))
             {
                 // The bus ended the topic (the task finished): one last read.
@@ -557,16 +671,28 @@ public sealed class A2ARequestHandler : IDisposable
     /// cannot start; a follow-up records its task at once (the message is already in the task's history), and a new task
     /// records it when it is first stored.
     /// </summary>
-    /// <returns>The execution, and the task's last sequence before it (0 for a new task; see <see cref="Prepared.LastSequence"/>).</returns>
-    private async Task<(Execution Execution, long AfterSequence)> AcceptAsync(SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string? newTaskId, CancellationToken ct)
+    /// <returns>
+    /// The execution, and the task's last sequence before it (0 for a new task; see <see cref="Prepared.LastSequence"/>). The
+    /// execution is null for a duplicate follow-up (see <see cref="Prepared.Duplicate"/>): nothing was started.
+    /// </returns>
+    private async Task<(Execution? Execution, long AfterSequence)> AcceptAsync(SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim,
+        string? newTaskId, ResolvedAgent agent, CancellationToken ct)
     {
         try
         {
             var prepared = await PrepareAsync(request, call, ct, newTaskId).ConfigureAwait(false);
-            if (prepared.Context.IsNewTask) return (StartExecution(prepared.Context, prepared.PushConfig, claim), 0);
+            if (prepared.Context.IsNewTask) return (await StartExecutionAsync(prepared.Context, prepared.PushConfig, claim, agent).ConfigureAwait(false), 0);
+            if (prepared.Duplicate)
+            {
+                // The message is already in the history (an earlier request of it failed after the commit): its outcome is
+                // the task as it is. A retry with this claim gets the task as it is too.
+                await RecordAsync(claim, new IdempotencyOutcome.TaskCreated(prepared.Context.TaskId, 0), prepared.Context.TaskId).ConfigureAwait(false);
+                return (null, 0);
+            }
 
-            // Record after the execution is registered, so a blocking retry sees it running and waits for its outcome.
-            var exec = StartExecution(prepared.Context, prepared.PushConfig, IdempotencyClaim.None);
+            // Record after the execution is registered (on every instance), so a blocking retry sees it running and waits
+            // for its outcome.
+            var exec = await StartExecutionAsync(prepared.Context, prepared.PushConfig, IdempotencyClaim.None, agent).ConfigureAwait(false);
             var taskId = prepared.Context.TaskId;
             await RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId, prepared.LastSequence), taskId).ConfigureAwait(false);
             return (exec, prepared.LastSequence);
@@ -598,12 +724,14 @@ public sealed class A2ARequestHandler : IDisposable
         AgentTask? existing = null;
         long lastSequence = 0;
         string contextId;
+        var duplicate = false;
+        var approval = ApprovalState.None;
 
         // Check the push config before anything changes, so a refused request leaves no trace and a retry is refused the same way.
         TaskPushNotificationConfig? push = null;
         if (request.Configuration?.TaskPushNotificationConfig is { } p)
         {
-            RequirePush();
+            RequirePush(await RequireAgentAsync(call, ct).ConfigureAwait(false));
             await PushUrlValidator.ValidateAsync(p.Url, _options.PushNotifications, ct).ConfigureAwait(false);
             push = A2AJson.Clone(p);
             push.TaskId = taskId;
@@ -615,6 +743,9 @@ public sealed class A2ARequestHandler : IDisposable
         {
             var gate = LockFor(call.Tenant, taskId);
             await gate.WaitAsync(ct).ConfigureAwait(false);
+            var pushIsNew = false;   // the config id did not exist before this request
+            var pushSaved = false;
+            var committed = false;
             try
             {
                 for (var attempt = 0; ; attempt++)
@@ -623,6 +754,15 @@ public sealed class A2ARequestHandler : IDisposable
                     var state = record.Task.Status.State;
                     if (!string.IsNullOrEmpty(message.ContextId) && message.ContextId != record.Task.ContextId)
                         throw A2AException.InvalidParams("message.contextId does not match the task's contextId");
+                    if (record.Task.History?.Any(m => string.Equals(m.MessageId, message.MessageId, StringComparison.Ordinal)) == true)
+                    {
+                        // Already accepted (an earlier request of it failed after the commit): no push config, no append, no
+                        // new execution. Checked before the state, so a retry after the task settled gets its outcome.
+                        duplicate = true;
+                        existing = record.Task;
+                        contextId = record.Task.ContextId;
+                        break;
+                    }
                     if (state.IsTerminal())
                         throw new A2AException(A2AErrorCode.UnsupportedOperation,
                             "The task is in a terminal state. Start a new task and list this one in referenceTaskIds.")
@@ -635,14 +775,25 @@ public sealed class A2ARequestHandler : IDisposable
                             Metadata = new() { ["taskId"] = taskId },
                         };
                     EnsureTurnCapacity(record.Task);
-                    if (push is not null) await EnsurePushCapacityAsync(Key(call, taskId), push.Id!, ct).ConfigureAwait(false);
+                    approval = ResolveApproval(record.Task, message, out var consume);
+                    if (push is not null)
+                    {
+                        // Saved atomically under the limit before the message is committed, so a refused request leaves no message.
+                        if (!pushSaved) pushIsNew = await _pushConfigs.GetAsync(Key(call, taskId), push.Id!, ct).ConfigureAwait(false) is null;
+                        if (!await SavePushConfigIfUnderLimitAsync(Key(call, taskId), push, ct).ConfigureAwait(false))
+                            throw TooManyPushConfigs(_options.Limits.MaxPushConfigsPerTask);
+                        pushSaved = true;
+                    }
                     contextId = record.Task.ContextId;
                     message.ContextId = contextId;
                     (record.Task.History ??= []).Add(message);
+                    // Same update as the approving message: the approval cannot be used twice, also across instances (CAS).
+                    if (consume is not null) (record.Task.Metadata ??= [])[A2AProtocol.ApprovalConsumedKey] = StringElement(consume);
                     try
                     {
                         await _tasks.UpdateAsync(record, record.Version, ct).ConfigureAwait(false);
                         existing = record.Task;
+                        committed = true;
                         // Still under the task lock. The message is committed: a cancelled request must not stop here, or
                         // the idempotency entry would be abandoned and a retry would append the message again.
                         lastSequence = await _events.LastSequenceAsync(Key(call, taskId), CancellationToken.None).ConfigureAwait(false);
@@ -650,12 +801,15 @@ public sealed class A2ARequestHandler : IDisposable
                     }
                     catch (ConcurrencyException) when (attempt < MaxConflictRetries)
                     {
-                        // The task changed under us: reload, re-check the state, and append again.
+                        // The task changed under us: wait a moment, reload, re-check the state, and append again.
+                        await ConflictBackoffAsync(attempt, ct).ConfigureAwait(false);
                     }
                 }
             }
             finally
             {
+                // The message was not committed (state refused, conflicts, cancel): do not keep the config it came with.
+                if (pushSaved && pushIsNew && !committed) await TryDeletePushConfigAsync(Key(call, taskId), push!.Id!).ConfigureAwait(false);
                 gate.Release();
             }
         }
@@ -665,9 +819,7 @@ public sealed class A2ARequestHandler : IDisposable
             message.ContextId = contextId;
         }
 
-        // A new task saves its push config when the task is created; a follow-up saves it now (capacity checked above), past
-        // cancellation for the same reason as the last sequence: its message is already committed.
-        if (push is not null && existing is not null) await SavePushConfigAsync(Key(call, taskId), push, CancellationToken.None).ConfigureAwait(false);
+        // A new task saves its push config when the task is created; a follow-up saved it above, before its message was committed.
 
         var context = new AgentRequestContext
         {
@@ -678,8 +830,43 @@ public sealed class A2ARequestHandler : IDisposable
             Configuration = request.Configuration,
             Metadata = request.Metadata,
             Call = call,
+            Approval = approval,
         };
-        return new Prepared(context, existing is null ? push : null, lastSequence);
+        return new Prepared(context, existing is null ? push : null, lastSequence, duplicate);
+    }
+
+    /// <summary>
+    /// Approval binding (spec design §6.6). The pending approval is the hash in the metadata of the status message of a task
+    /// waiting in an interrupted state, so it is stored with the task and every instance sees it. It is used at most once:
+    /// the commit of the approving message also records the status message's id in the task metadata
+    /// (<see cref="A2AProtocol.ApprovalConsumedKey"/>), and a used approval is no longer pending. A follow-up without a hash is
+    /// accepted (<see cref="ApprovalState.NotApproved"/> while an approval is pending); a hash that does not match the pending
+    /// one, or when none is pending or it was used, is InvalidParams. A pending approval whose status message has no id fails
+    /// closed (treated as used). <paramref name="consume"/> is the status message id to record when the result is
+    /// <see cref="ApprovalState.Approved"/>.
+    /// </summary>
+    private static ApprovalState ResolveApproval(AgentTask task, Message message, out string? consume)
+    {
+        consume = null;
+        string? pending = null;
+        var status = task.Status.Message;
+        if (task.Status.State.IsInterrupted() && status?.Metadata is { } statusMetadata
+            && statusMetadata.TryGetValue(A2AProtocol.ApprovalHashKey, out var p) && p.ValueKind == JsonValueKind.String)
+            pending = p.GetString();
+        // A status message without an id could never be marked used: fail closed, as if it were.
+        var used = pending is not null
+            && (string.IsNullOrEmpty(status!.MessageId)
+                || (task.Metadata is { } taskMetadata
+                    && taskMetadata.TryGetValue(A2AProtocol.ApprovalConsumedKey, out var c) && c.ValueKind == JsonValueKind.String
+                    && string.Equals(c.GetString(), status.MessageId, StringComparison.Ordinal)));
+
+        if (message.Metadata is null || !message.Metadata.TryGetValue(A2AProtocol.ApprovalHashKey, out var value))
+            return pending is null ? ApprovalState.None : ApprovalState.NotApproved;
+        if (pending is null || used || value.ValueKind != JsonValueKind.String
+            || !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(pending), Encoding.UTF8.GetBytes(value.GetString()!)))
+            throw A2AException.InvalidParams("Approval does not match the pending request.");
+        consume = status!.MessageId;
+        return ApprovalState.Approved;
     }
 
     /// <summary>
@@ -735,6 +922,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.GetTask, request, request.Id, cancellationToken).ConfigureAwait(false);
+        await RequireAgentForTaskAsync(call, request.Id, cancellationToken).ConfigureAwait(false);
         A2AValidator.RequireId(request.Id, "id");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
@@ -748,6 +936,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.ListTasks, request, null, cancellationToken).ConfigureAwait(false);
+        await RequireAgentAsync(call, cancellationToken).ConfigureAwait(false);
         if (request.PageSize is < 1) throw A2AException.InvalidParams("pageSize must be between 1 and 100");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var pageSize = Math.Min(request.PageSize ?? 50, _options.Limits.MaxListPageSize);
@@ -778,24 +967,94 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.CancelTask, request, request.Id, cancellationToken).ConfigureAwait(false);
+        await RequireAgentForTaskAsync(call, request.Id, cancellationToken).ConfigureAwait(false);
         A2AValidator.RequireId(request.Id, "id");
-        var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        var key = Key(call, request.Id);
+        var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         if (record.Task.Status.State.IsTerminal()) throw NotCancelable(request.Id);
 
-        var running = _running.Snapshot(ScopeKey(call.Tenant, request.Id));
-        foreach (var r in running) r.Cancel();
+        // Executions here stop at once; the other instances stop theirs when the request reaches them.
+        CancelAll(_running.Snapshot(ScopeKey(call.Tenant, request.Id)).Where(exec => exec.Key == key));
+        try
+        {
+            await _coordinator.RequestCancelAsync(key, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Could not ask other instances to cancel task {TaskId}", request.Id);
+        }
 
         var snapshot = record.Task;
-        var exec = StartRaw(snapshot.Id, snapshot.ContextId, isNewTask: false, userMessage: null, call, push: null, emitInitialSnapshot: false,
-            (executor, updater, ct) => executor.CancelAsync(snapshot, updater, ct), requestMetadata: request.Metadata, kind: "cancel");
+        // Without an agent for the tenant, the default cancel runs (the task is marked canceled), so a task whose agent is
+        // gone can still be cancelled.
+        await using var agent = ResolveAgent(call.Tenant, CancelOnlyAgent.Instance);
+        var exec = await StartRawAsync(snapshot.Id, snapshot.ContextId, isNewTask: false, userMessage: null, call, push: null, emitInitialSnapshot: false,
+            (executor, updater, ct) => executor.CancelAsync(snapshot, updater, ct), agent, requestMetadata: request.Metadata, kind: CancelKind).ConfigureAwait(false);
         exec.Detach();
 
-        var waitAll = Task.WhenAll(running.Select(r => r.Completion).Append(exec.Completion));
-        await Task.WhenAny(waitAll, Task.Delay(_options.CancelGracePeriod, cancellationToken)).ConfigureAwait(false);
+        await WaitUntilStoppedAsync(key, _options.CancelGracePeriod, cancellationToken).ConfigureAwait(false);
 
-        record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
-        if (record.Task.Status.State != TaskState.Canceled) throw NotCancelable(request.Id);
-        return Shape(record.Task, null);
+        record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        var state = record.Task.Status.State;
+        if (state == TaskState.Canceled) return Shape(record.Task, null);
+        if (!state.IsTerminal() && await IsRunningAnywhereAsync(key, cancellationToken).ConfigureAwait(false))
+        {
+            // The execution has not stopped within the grace period: the cancel is requested, not done. Only the response says
+            // so; its later CANCELED arrives through the normal stream.
+            var pending = Shape(record.Task, null);
+            (pending.Metadata ??= [])[A2AProtocol.CancelRequestedKey] = TrueElement;
+            return pending;
+        }
+        throw NotCancelable(request.Id); // the agent refused and nothing runs, or the task ended otherwise
+    }
+
+    private static JsonElement StringElement(string value)
+    {
+        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer)) writer.WriteStringValue(value);
+        using var doc = JsonDocument.Parse(buffer.WrittenMemory);
+        return doc.RootElement.Clone();
+    }
+
+    private static readonly JsonElement TrueElement = JsonDocument.Parse("true").RootElement.Clone();
+
+    /// <summary>Whether an execution of the task runs on any instance. A failing coordinator counts as not running (logged).</summary>
+    private async Task<bool> IsRunningAnywhereAsync(TaskKey key, CancellationToken ct)
+    {
+        if (RunningCompletions(ScopeKey(key.Tenant, key.TaskId)).Count > 0) return true;
+        try { return await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not check whether task {TaskId} still runs on other instances", key.TaskId);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Waits until no execution of the task runs on any instance (the cancelled ones and the CancelTask execution), or
+    /// <paramref name="grace"/> has passed. When the coordinator fails, waits out the grace period (logged), so CancelTask
+    /// still answers.
+    /// </summary>
+    private async Task WaitUntilStoppedAsync(TaskKey key, TimeSpan grace, CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(grace);
+        try
+        {
+            while (await RunningWaitsAsync(key, timeout.Token).ConfigureAwait(false) is { } running)
+                await Task.WhenAny(running).WaitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // The grace period is over: answer with the task as it is.
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The coordinator failed: other instances cannot be checked, so give them the whole grace period.
+            _logger.LogWarning(ex, "Could not check whether task {TaskId} still runs on other instances; waiting out the cancel grace period", key.TaskId);
+            try { await Task.Delay(Timeout.Infinite, timeout.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+        }
     }
 
     /// <summary>A fresh subscribe: a snapshot of the task, then live events until the task ends (spec §3.1.6).</summary>
@@ -838,7 +1097,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SubscribeToTask, request, request.Id, cancellationToken).ConfigureAwait(false);
-        RequireStreaming();
+        RequireStreaming(await RequireAgentForTaskAsync(call, request.Id, cancellationToken).ConfigureAwait(false));
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.Id);
         var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
@@ -1052,7 +1311,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(config.Tenant);
         await AuthorizeAsync(call, A2AOperation.CreateTaskPushNotificationConfig, config, config.TaskId, cancellationToken).ConfigureAwait(false);
-        RequirePush();
+        RequirePush(await RequireAgentForTaskAsync(call, config.TaskId, cancellationToken).ConfigureAwait(false));
         A2AValidator.ValidatePushConfig(config, "config", requireTaskId: true);
         await PushUrlValidator.ValidateAsync(config.Url, _options.PushNotifications, cancellationToken).ConfigureAwait(false);
         var key = Key(call, config.TaskId!);
@@ -1060,8 +1319,8 @@ public sealed class A2ARequestHandler : IDisposable
         var stored = A2AJson.Clone(config);
         stored.Id = string.IsNullOrEmpty(stored.Id) ? TaskIds.New() : stored.Id;
         stored.Tenant = call.Tenant;
-        await EnsurePushCapacityAsync(key, stored.Id, cancellationToken).ConfigureAwait(false);
-        await SavePushConfigAsync(key, stored, cancellationToken).ConfigureAwait(false);
+        if (!await SavePushConfigIfUnderLimitAsync(key, stored, cancellationToken).ConfigureAwait(false))
+            throw TooManyPushConfigs(_options.Limits.MaxPushConfigsPerTask);
         return Redact(stored);
     }
 
@@ -1072,7 +1331,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.GetTaskPushNotificationConfig, request, request.TaskId, cancellationToken).ConfigureAwait(false);
-        RequirePush();
+        RequirePush(await RequireAgentForTaskAsync(call, request.TaskId, cancellationToken).ConfigureAwait(false));
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.TaskId);
@@ -1089,7 +1348,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.ListTaskPushNotificationConfigs, request, request.TaskId, cancellationToken).ConfigureAwait(false);
-        RequirePush();
+        RequirePush(await RequireAgentForTaskAsync(call, request.TaskId, cancellationToken).ConfigureAwait(false));
         A2AValidator.RequireId(request.TaskId, "taskId");
         var key = Key(call, request.TaskId);
         _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
@@ -1116,7 +1375,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.DeleteTaskPushNotificationConfig, request, request.TaskId, cancellationToken).ConfigureAwait(false);
-        RequirePush();
+        RequirePush(await RequireAgentForTaskAsync(call, request.TaskId, cancellationToken).ConfigureAwait(false));
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.TaskId);
@@ -1136,10 +1395,11 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.GetExtendedAgentCard, request, null, cancellationToken).ConfigureAwait(false);
-        if (_options.AgentCard.Capabilities.ExtendedAgentCard != true)
+        var publicCard = await RequireAgentAsync(call, cancellationToken).ConfigureAwait(false);
+        if (publicCard.Capabilities.ExtendedAgentCard != true)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "This agent does not provide an extended agent card.");
         if (!call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated, "The extended agent card requires authentication.");
-        var card = _options.ExtendedAgentCardProvider is null ? null : await _options.ExtendedAgentCardProvider(call, cancellationToken).ConfigureAwait(false);
+        var card = await _cards.GetExtendedCardAsync(call, cancellationToken).ConfigureAwait(false);
         return card ?? throw new A2AException(A2AErrorCode.ExtendedAgentCardNotConfigured);
     }
 
@@ -1147,39 +1407,102 @@ public sealed class A2ARequestHandler : IDisposable
     // Execution engine
     // =====================================================================
 
-    private Execution StartExecution(AgentRequestContext context, TaskPushNotificationConfig? push, IdempotencyClaim claim) =>
-        StartRaw(context.TaskId, context.ContextId, context.IsNewTask, context.Message, context.Call, push, emitInitialSnapshot: !context.IsNewTask,
-            (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct), claim, context.Metadata, _options.MaxTaskDuration);
+    private Task<Execution> StartExecutionAsync(AgentRequestContext context, TaskPushNotificationConfig? push, IdempotencyClaim claim, ResolvedAgent agent) =>
+        StartRawAsync(context.TaskId, context.ContextId, context.IsNewTask, context.Message, context.Call, push, emitInitialSnapshot: !context.IsNewTask,
+            (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct), agent, claim, context.Metadata, _options.MaxTaskDuration);
+
+    /// <summary>
+    /// The agent for an execution of the tenant, from a new DI scope that becomes the execution's own scope (one scoped executor
+    /// per execution, disposed when it ends). A resolver that throws does not throw here: the execution fails with that error,
+    /// like an agent that throws. A null executor becomes <paramref name="fallback"/> when one is given.
+    /// </summary>
+    private ResolvedAgent ResolveAgent(string tenant, IAgentExecutor? fallback = null)
+    {
+        var scope = _scopeFactory.CreateAsyncScope();
+        try
+        {
+            return new ResolvedAgent(scope, _executors.Resolve(tenant, scope.ServiceProvider) ?? fallback, null);
+        }
+        catch (Exception ex)
+        {
+            return new ResolvedAgent(scope, null, ExceptionDispatchInfo.Capture(ex));
+        }
+    }
+
+    /// <summary>
+    /// <see cref="ResolveAgent"/> for a message: a tenant whose resolver returns no executor is
+    /// <see cref="A2AErrorCode.UnsupportedOperation"/> (<see cref="NoAgentText"/>), before anything is claimed or stored.
+    /// </summary>
+    private async ValueTask<ResolvedAgent> RequireExecutorAsync(string tenant)
+    {
+        var agent = ResolveAgent(tenant);
+        if (agent.Executor is not null || agent.Error is not null) return agent;
+        await agent.DisposeAsync().ConfigureAwait(false);
+        throw new A2AException(A2AErrorCode.UnsupportedOperation, NoAgentText);
+    }
+
+    /// <summary>The execution kind of a CancelTask run. Cancel requests from other instances never cancel it.</summary>
+    private const string CancelKind = "cancel";
 
     /// <summary>
     /// Runs the agent for a task. An idempotency <c>claim</c> is completed when the task is first stored or the agent replies
     /// directly, and abandoned when neither happens. With a <paramref name="timeLimit"/>, an execution still running when it
     /// expires fails the task (<see cref="TimeLimitText"/>) and is cancelled.
     /// </summary>
-    private Execution StartRaw(string taskId, string contextId, bool isNewTask, Message? userMessage, ServerCallContext call,
-        TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run,
+    /// <remarks>
+    /// The execution is registered with the <see cref="ExecutionCoordinator"/> before the agent starts, so every instance sees
+    /// it running. Every <see cref="CoordinationOptions.Heartbeat"/> it renews its lease and its idempotency claim (while the
+    /// claim is unsettled, for example during a long direct reply). It unregisters once the agent returned and every event is
+    /// stored, before the execution counts as done here. Coordinator failures are logged and never stop the execution.
+    /// </remarks>
+    private async Task<Execution> StartRawAsync(string taskId, string contextId, bool isNewTask, Message? userMessage, ServerCallContext call,
+        TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run, ResolvedAgent agent,
         IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null, TimeSpan? timeLimit = null, string kind = "execute")
     {
-        var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token))
+        // Background writes outlive the request, so fix the owner scope now.
+        var key = Key(call, taskId);
+        claim ??= IdempotencyClaim.None;
+        // The request resolved the tenant's card already; its push capability holds for the whole execution, so no card
+        // provider call happens per event (or under a task lock).
+        var pushEnabled = (call.ResolvedCard is { } resolved && string.Equals(resolved.Tenant, call.Tenant, StringComparison.Ordinal)
+            ? resolved.Card
+            : await ResolveCardAsync(call, CancellationToken.None).ConfigureAwait(false))?.Capabilities.PushNotifications == true;
+        var exec = new Execution(key, Guid.NewGuid().ToString(), kind == CancelKind, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token))
         {
             // A child of the operation's span; ends when the agent has returned and every event is stored.
             Activity = ServerTelemetry.StartExecution(kind, call, taskId, contextId),
+            PushEnabled = pushEnabled,
         };
         var scope = ScopeKey(call.Tenant, taskId);
+        // Here first, then cluster-wide: whenever the coordinator lists the execution, this instance has it too.
         _running.Add(scope, exec);
+        try
+        {
+            await _coordinator.RegisterAsync(key, exec.Id, CancellationToken.None).ConfigureAwait(false);
+            exec.Registered = true;
+        }
+        catch (Exception ex)
+        {
+            // The next heartbeat registers it instead.
+            _logger.LogWarning(ex, "Could not register the execution of task {TaskId} with the execution coordinator", taskId);
+        }
+        var heartbeat = _time.CreateTimer(_ => _ = HeartbeatAsync(exec, claim), null, _options.Coordination.Heartbeat, _options.Coordination.Heartbeat);
         var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
         // Started before the agent, so the time spent waiting for a thread counts too. Disposed when the agent returns.
         var timer = timeLimit is { } limit && IsTimeLimit(limit)
             ? _time.CreateTimer(_ => _ = TimeOutAsync(exec, updater, taskId), null, limit, Timeout.InfiniteTimeSpan)
             : null;
 
+        // From here the execution owns the agent's scope and disposes it when the agent returns.
+        var agentScope = agent.TakeScope();
         var producer = Task.Run(async () =>
         {
             if (exec.Activity is not null) Activity.Current = exec.Activity; // the agent's own spans nest under the run
             try
             {
-                await using var scope = _scopeFactory.CreateAsyncScope();
-                var executor = scope.ServiceProvider.GetRequiredService<IAgentExecutor>();
+                await using var scope = agentScope;
+                agent.Error?.Throw(); // the resolver failed: as if the agent had thrown
+                var executor = agent.Executor ?? throw new InvalidOperationException($"No agent executor is configured for tenant '{key.Tenant}'.");
                 await run(executor, updater, exec.Cts.Token).ConfigureAwait(false);
                 exec.TryMarkReturned();
             }
@@ -1205,20 +1528,202 @@ public sealed class A2ARequestHandler : IDisposable
             }
         });
 
-        // Background writes outlive the request, so fix the owner scope now.
-        var key = Key(call, taskId);
         var consumer = Task.Run(() =>
         {
             if (exec.Activity is not null) Activity.Current = exec.Activity; // webhook deliveries link to the run
-            return ConsumeAsync(exec, key, contextId, isNewTask, userMessage, push, emitInitialSnapshot, claim ?? IdempotencyClaim.None);
+            return ConsumeAsync(exec, key, contextId, isNewTask, userMessage, push, emitInitialSnapshot, claim);
         });
-        _ = Task.WhenAll(producer, consumer).ContinueWith(_t =>
+        _ = FinishAsync();
+        return exec;
+
+        async Task FinishAsync()
         {
+            try { await Task.WhenAll(producer, consumer).ConfigureAwait(false); }
+            catch (Exception ex) { _logger.LogError(ex, "The execution of task {TaskId} ended with an error", taskId); }
+            await heartbeat.DisposeAsync().ConfigureAwait(false);
+            // Waits for a heartbeat still under way and keeps later ones out, so a late register cannot outlive the unregister.
+            await exec.HeartbeatGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                // Fenced by the execution id: never ends a newer execution's lease.
+                await _coordinator.UnregisterAsync(key, exec.Id, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not unregister the execution of task {TaskId} from the execution coordinator", taskId);
+            }
             _running.Remove(scope, exec);
             exec.EndActivity();
             exec.MarkDone();
-        }, TaskScheduler.Default);
-        return exec;
+        }
+    }
+
+    /// <summary>
+    /// Renews the execution's lease, or registers it when it has none (the register at start failed, or the lease was lost;
+    /// then <see cref="CancelIfEndedAsync"/> checks the task after the register), and renews its idempotency claim. Runs on
+    /// the heartbeat timer; skips a beat while the previous one is still running. Failures are logged and the execution goes on.
+    /// </summary>
+    private async Task HeartbeatAsync(Execution exec, IdempotencyClaim claim)
+    {
+        if (!exec.HeartbeatGate.Wait(0)) return;
+        try
+        {
+            try
+            {
+                if (exec.Registered)
+                {
+                    if (!await _coordinator.HeartbeatAsync(exec.Key, exec.Id, CancellationToken.None).ConfigureAwait(false))
+                        await OnLeaseLostAsync(exec).ConfigureAwait(false);
+                }
+                else
+                {
+                    // The execution still runs here, so registering it (again, under the same id) is not a resurrection:
+                    // a finished execution holds the heartbeat gate for good and never gets here.
+                    await _coordinator.RegisterAsync(exec.Key, exec.Id, CancellationToken.None).ConfigureAwait(false);
+                    // When the read fails, the execution stays unregistered: the next heartbeat registers and reads again.
+                    if (exec.LeaseLost) await CancelIfEndedAsync(exec).ConfigureAwait(false);
+                    exec.Registered = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not renew the execution lease of task {TaskId}", exec.TaskId);
+            }
+            try
+            {
+                await claim.RenewAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not renew the idempotency claim of task {TaskId}", exec.TaskId);
+            }
+        }
+        finally
+        {
+            exec.HeartbeatGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// The execution's lease lapsed (its heartbeats missed the lease, for example during a long pause) and the coordinator no
+    /// longer holds it. Called under the heartbeat gate. When the task is terminal or gone (the retention sweep may have failed
+    /// it as dead), the execution is cancelled: its later events would be dropped anyway. Otherwise the execution registers
+    /// again with its next heartbeat, so every instance sees it running.
+    /// </summary>
+    private async Task OnLeaseLostAsync(Execution exec)
+    {
+        var record = await _tasks.GetAsync(exec.Key, CancellationToken.None).ConfigureAwait(false);
+        if (record is null || record.Task.Status.State.IsTerminal())
+        {
+            _logger.LogWarning("Task {TaskId}: the execution lost its lease and the task has ended; cancelling the agent", exec.TaskId);
+            CancelAll([exec]);
+            return;
+        }
+        _logger.LogWarning("Task {TaskId}: the execution lost its lease (its heartbeats lapsed); registering it again", exec.TaskId);
+        exec.LeaseLost = true;
+        exec.Registered = false;
+    }
+
+    /// <summary>
+    /// Called under the heartbeat gate right after the heartbeat registered an execution that had lost its lease. While it
+    /// had none, another instance may have ended the task (the retention sweep fails it as dead), and that instance's cancel
+    /// request may never have arrived; its unregister found nothing to end. So the task is read again, and when it is
+    /// terminal or gone the execution is cancelled. The lease stays until the execution ends and unregisters.
+    /// </summary>
+    private async Task CancelIfEndedAsync(Execution exec)
+    {
+        var record = await _tasks.GetAsync(exec.Key, CancellationToken.None).ConfigureAwait(false);
+        exec.LeaseLost = false;
+        if (record is not null && !record.Task.Status.State.IsTerminal()) return;
+        _logger.LogWarning("Task {TaskId}: the task ended while the execution had no lease; cancelling the agent", exec.TaskId);
+        CancelAll([exec]);
+    }
+
+    /// <summary>
+    /// Reads the cancel requests of every instance and cancels the matching executions here, until shutdown. The first reader
+    /// is registered before this returns, so no request sent after the handler exists is missed; after a failure it reads
+    /// again every <see cref="CoordinationOptions.RunningPollInterval"/>.
+    /// </summary>
+    private void StartCancelListener(CancellationToken stopping)
+    {
+        var (requests, next) = ReadCancelRequests(stopping);
+        _ = ListenForCancelRequestsAsync(requests, next, stopping);
+    }
+
+    /// <summary>Starts a reader of cancel requests (registered once this returns), or returns null when the coordinator fails.</summary>
+    private (IAsyncEnumerator<TaskKey>? Requests, ValueTask<bool> Next) ReadCancelRequests(CancellationToken stopping)
+    {
+        try
+        {
+            var requests = _coordinator.CancelRequestsAsync(stopping).GetAsyncEnumerator(stopping);
+            return (requests, requests.MoveNextAsync());
+        }
+        catch (Exception ex)
+        {
+            LogCancelReadFailure(ex);
+            return (null, default);
+        }
+    }
+
+    private async Task ListenForCancelRequestsAsync(IAsyncEnumerator<TaskKey>? requests, ValueTask<bool> next, CancellationToken stopping)
+    {
+        while (true)
+        {
+            if (requests is not null)
+            {
+                try
+                {
+                    while (await next.ConfigureAwait(false))
+                    {
+                        _cancelReadFailures = 0; // reading works again
+                        CancelHere(requests.Current);
+                        next = requests.MoveNextAsync();
+                    }
+                }
+                catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+                {
+                }
+                catch (Exception ex)
+                {
+                    LogCancelReadFailure(ex);
+                }
+                try { await requests.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception ex) { _logger.LogDebug(ex, "Could not dispose the cancel request reader"); }
+            }
+            if (stopping.IsCancellationRequested) return;
+            try { await Task.Delay(_options.Coordination.RunningPollInterval, stopping).ConfigureAwait(false); }
+            catch (OperationCanceledException) { return; }
+            (requests, next) = ReadCancelRequests(stopping);
+        }
+    }
+
+    /// <summary>Consecutive failures to read cancel requests. Only the listener loop touches it.</summary>
+    private int _cancelReadFailures;
+
+    /// <summary>The first of a run of failures is a warning; the retries that fail again are debug, until reading works.</summary>
+    private void LogCancelReadFailure(Exception ex)
+    {
+        if (_cancelReadFailures++ == 0)
+            _logger.LogWarning(ex, "Could not read cancel requests from the execution coordinator; trying again every {Interval}", _options.Coordination.RunningPollInterval);
+        else
+            _logger.LogDebug(ex, "Still cannot read cancel requests from the execution coordinator ({Failures} failures in a row)", _cancelReadFailures);
+    }
+
+    /// <summary>
+    /// Cancels this instance's executions of <paramref name="task"/> that another instance asked to cancel, except
+    /// CancelTask runs (they record the cancellation).
+    /// </summary>
+    private void CancelHere(TaskKey task) =>
+        CancelAll(_running.Snapshot(ScopeKey(task.Tenant, task.TaskId)).Where(exec => !exec.IsCancelRun && exec.Key == task));
+
+    /// <summary>Cancels each execution; a cancellation callback that throws is logged and does not stop the others.</summary>
+    private void CancelAll(IEnumerable<Execution> executions)
+    {
+        foreach (var exec in executions)
+        {
+            if (exec.Cancel() is { } error)
+                _logger.LogWarning(error, "A cancellation callback of the agent for task {TaskId} failed", exec.TaskId);
+        }
     }
 
     /// <summary>
@@ -1297,7 +1802,7 @@ public sealed class A2ARequestHandler : IDisposable
                     if (!created)
                     {
                         var now = DateTimeOffset.UtcNow;
-                        record = await _tasks.CreateAsync(new TaskRecord(
+                        var initial = new TaskRecord(
                             key.Tenant, key.Owner,
                             new AgentTask
                             {
@@ -1306,11 +1811,26 @@ public sealed class A2ARequestHandler : IDisposable
                                 Status = new AgentTaskStatus { State = TaskState.Submitted, Timestamp = (evt as StatusUpdateEvent)?.StatusUpdate.Status.Timestamp ?? now },
                                 History = userMessage is null ? null : [WithTask(userMessage, taskId)],
                             },
-                            Version: 0, CreatedAt: now, UpdatedAt: now)).ConfigureAwait(false);
+                            Version: 0, CreatedAt: now, UpdatedAt: now);
+                        // The task, its first event (the snapshot) and the snapshot's push delivery are stored together. The
+                        // push config is saved first, so the delivery service always finds the config of a queued delivery.
+                        var snapshot = StreamResponse.Of(A2AJson.Clone(initial.Task));
+                        IReadOnlyList<PushDelivery> deliveries = push is null ? [] : [NewDelivery(key, push.Id!)];
                         if (push is not null) await SavePushConfigAsync(key, push, CancellationToken.None).ConfigureAwait(false);
+                        CommitResult committed;
+                        try
+                        {
+                            committed = await _tasks.CommitAsync(new TaskCommit(initial, 0, snapshot, deliveries)).ConfigureAwait(false);
+                        }
+                        catch when (push is not null)
+                        {
+                            await TryDeletePushConfigAsync(key, push.Id!).ConfigureAwait(false); // no task, so no config
+                            throw;
+                        }
+                        if (deliveries.Count > 0) _outbox.NotifyPending();
+                        record = committed.Record;
                         created = true;
-                        var snapshot = StreamResponse.Of(A2AJson.Clone(record.Task));
-                        Publish(exec, key, new SequencedEvent(await _events.AppendAsync(key, snapshot).ConfigureAwait(false), snapshot));
+                        Publish(exec, key, new SequencedEvent(committed.Sequence, snapshot));
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
                         await RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
                     }
@@ -1324,7 +1844,7 @@ public sealed class A2ARequestHandler : IDisposable
                         }
                     }
 
-                    if (await ApplyAndStoreAsync(key, record, evt).ConfigureAwait(false) is not { } stored) continue;
+                    if (await ApplyAndStoreAsync(key, record, evt, exec.PushEnabled).ConfigureAwait(false) is not { } stored) continue;
 
                     // Still under the task lock, so sinks see events in sequence order even with concurrent executions.
                     // Every sink is non-blocking.
@@ -1349,7 +1869,7 @@ public sealed class A2ARequestHandler : IDisposable
             exec.Cancel();
             // Before the FAILED event is published: the waiting request must see the error, not that event.
             exec.Fail(new A2AException(A2AErrorCode.Internal));
-            await TryFailStoredTaskAsync(key, contextId, scope).ConfigureAwait(false);
+            await TryFailStoredTaskAsync(key, exec.PushEnabled).ConfigureAwait(false);
         }
         finally
         {
@@ -1366,32 +1886,101 @@ public sealed class A2ARequestHandler : IDisposable
     /// Best effort: if the store is still failing, the task stays as it is. Subscribers and webhooks are told; the request that
     /// was running gets the error instead.
     /// </summary>
-    private async Task TryFailStoredTaskAsync(TaskKey key, string contextId, string scope)
+    private async Task TryFailStoredTaskAsync(TaskKey key, bool pushEnabled)
     {
         try
         {
-            var gate = LockFor(key.Tenant, key.TaskId);
-            await gate.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                var record = await _tasks.GetAsync(key).ConfigureAwait(false);
-                if (record is null || record.Task.Status.State.IsTerminal()) return;
-                var failed = FailureEvent(key.TaskId, contextId, StoreFailureText);
-                if (await ApplyAndStoreAsync(key, record, failed).ConfigureAwait(false) is not { } stored) return;
-                _bus.Publish(scope, stored);
-                _push.Enqueue(key, stored);
-                await _events.MarkTerminalAsync(key).ConfigureAwait(false);
-                _bus.Complete(scope);
-            }
-            finally
-            {
-                gate.Release();
-            }
+            // Its own execution is still running here, so the commit must not wait for it to end.
+            await CommitSystemStatusCoreAsync(key, TaskState.Failed, StoreFailureText, precondition: null, evenIfRunningHere: true, pushEnabled,
+                CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Could not mark task {TaskId} as failed after a storage error", key.TaskId);
         }
+    }
+
+    /// <summary>
+    /// Commits a status change that no agent made (the retention sweep: interrupted-state timeout, dead execution) through the
+    /// normal path: under the task lock, applied and committed with its push deliveries, then published to subscribers; a
+    /// terminal state also ends the task's streams. The status message is an agent message with <paramref name="text"/>.
+    /// Nothing is written while an execution of the task runs on this instance (it may not be registered with the
+    /// coordinator yet, or its registration failed).
+    /// </summary>
+    /// <param name="key">The task.</param>
+    /// <param name="state">The new state. Must be a valid transition from the current one, or nothing is written.</param>
+    /// <param name="text">The status message text.</param>
+    /// <param name="precondition">
+    /// When set, the change applies only while the stored record (read under the lock, and again after a version conflict)
+    /// satisfies it. Use it to require the version the caller looked at, so a task that changed since is left alone.
+    /// </param>
+    /// <param name="ct">Cancels waiting for the task lock and the first read.</param>
+    /// <returns>
+    /// True when the change was committed; false when the task is missing, terminal, runs here, fails the precondition, or the
+    /// transition is invalid.
+    /// </returns>
+    internal Task<bool> CommitSystemStatusAsync(TaskKey key, TaskState state, string text, Func<TaskRecord, bool>? precondition = null, CancellationToken ct = default) =>
+        CommitSystemStatusCoreAsync(key, state, text, precondition, evenIfRunningHere: false, pushEnabled: null, ct);
+
+    // pushEnabled: the push capability of the task's tenant; null resolves it from the tenant, before the task lock.
+    private async Task<bool> CommitSystemStatusCoreAsync(TaskKey key, TaskState state, string text, Func<TaskRecord, bool>? precondition,
+        bool evenIfRunningHere, bool? pushEnabled, CancellationToken ct)
+    {
+        // Never ask the card provider under the task lock: the locks are shared by many tasks.
+        var push = pushEnabled ?? await PushEnabledForTenantAsync(key, ct).ConfigureAwait(false);
+        var scope = ScopeKey(key.Tenant, key.TaskId);
+        var gate = LockFor(key.Tenant, key.TaskId);
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!evenIfRunningHere && _running.Snapshot(scope).Any(exec => exec.Key == key)) return false;
+            var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false);
+            if (record is null || record.Task.Status.State.IsTerminal()) return false;
+            var evt = StatusEvent(key.TaskId, record.Task.ContextId, state, text, _time.GetUtcNow());
+            if (await ApplyAndStoreAsync(key, record, evt, push, precondition).ConfigureAwait(false) is not { } stored) return false;
+            _bus.Publish(scope, stored);
+            if (state.IsTerminal())
+            {
+                await _events.MarkTerminalAsync(key).ConfigureAwait(false);
+                _bus.Complete(scope);
+            }
+            return true;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// For the retention sweep: true when the execution <paramref name="executionId"/>, whose lease expired, still runs on this
+    /// instance (its heartbeats lapsed, for example during a long pause). The sweep must then neither fail its task nor remove
+    /// its lease. Its next heartbeat registers it again under the same id: when no heartbeat is under way, this marks it
+    /// unregistered. A heartbeat under way finds the lease lost and handles it itself; an ending execution unregisters itself
+    /// (it holds the heartbeat gate before it unregisters, so a finished execution is never brought back).
+    /// </summary>
+    internal bool TryReclaimLocal(TaskKey key, string executionId)
+    {
+        var exec = _running.Snapshot(ScopeKey(key.Tenant, key.TaskId))
+            .FirstOrDefault(e => e.Key == key && string.Equals(e.Id, executionId, StringComparison.Ordinal));
+        if (exec is null) return false;
+        if (exec.HeartbeatGate.Wait(0))
+        {
+            exec.LeaseLost = true;
+            exec.Registered = false;
+            exec.HeartbeatGate.Release();
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Cancels every execution of the task: this instance's at once (CancelTask runs included), the other instances' through
+    /// <see cref="ExecutionCoordinator.RequestCancelAsync"/>. Does not wait for them to stop.
+    /// </summary>
+    internal async Task CancelExecutionsAsync(TaskKey key, CancellationToken ct = default)
+    {
+        CancelAll(_running.Snapshot(ScopeKey(key.Tenant, key.TaskId)).Where(exec => exec.Key == key));
+        await _coordinator.RequestCancelAsync(key, ct).ConfigureAwait(false);
     }
 
     /// <summary>Records an idempotency outcome. A failing idempotency store is logged; it never stops the task.</summary>
@@ -1402,14 +1991,23 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     /// <summary>
-    /// Applies the event, stores the task, then appends the event (the caller holds the task lock, so sequences follow
-    /// the apply order and the log holds only applied events). After a version conflict, reloads and re-applies, up to
-    /// <see cref="MaxConflictRetries"/> times. Returns null when the event was dropped (for example the task is already terminal).
+    /// Applies the event, then commits the task change and the event as one unit (<see cref="TaskStore.CommitAsync"/>), so
+    /// the log holds only applied events, in the order their changes were stored, even across instances. After a version
+    /// conflict, waits (<see cref="ConflictBackoffAsync"/>), reloads and re-applies, up to <see cref="MaxConflictRetries"/>
+    /// times: another instance writing the same task back to back can win the race several times in a row. Returns null when the event was
+    /// dropped (for example the task is already terminal, or the record, also a reloaded one, fails <paramref name="precondition"/>).
     /// </summary>
-    private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt)
+    private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, StreamResponse evt, bool pushEnabled,
+        Func<TaskRecord, bool>? precondition = null)
     {
+        var deliveries = await DeliveriesAsync(key, pushEnabled).ConfigureAwait(false);
         for (var attempt = 0; ; attempt++)
         {
+            if (precondition is not null && !precondition(record))
+            {
+                _logger.LogDebug("Task {TaskId} changed; dropping the event", key.TaskId);
+                return null;
+            }
             if (!Apply(record.Task, evt))
             {
                 _logger.LogDebug("Dropped event for task {TaskId} in state {State}", key.TaskId, record.Task.Status.State);
@@ -1417,11 +2015,13 @@ public sealed class A2ARequestHandler : IDisposable
             }
             try
             {
-                await _tasks.UpdateAsync(record, record.Version).ConfigureAwait(false);
-                return new SequencedEvent(await _events.AppendAsync(key, evt).ConfigureAwait(false), evt);
+                var committed = await _tasks.CommitAsync(new TaskCommit(record, record.Version, evt, deliveries)).ConfigureAwait(false);
+                if (deliveries.Count > 0) _outbox.NotifyPending();
+                return new SequencedEvent(committed.Sequence, evt);
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
             {
+                await ConflictBackoffAsync(attempt, CancellationToken.None).ConfigureAwait(false);
                 var fresh = await _tasks.GetAsync(key).ConfigureAwait(false);
                 if (fresh is null)
                 {
@@ -1433,11 +2033,43 @@ public sealed class A2ARequestHandler : IDisposable
         }
     }
 
+    /// <summary>Sends a stored event to the waiting request and to subscribers. Its webhooks were queued by its commit.</summary>
     private void Publish(Execution exec, TaskKey key, SequencedEvent evt)
     {
         exec.Emit(evt);
         _bus.Publish(ScopeKey(key.Tenant, key.TaskId), evt);
-        _push.Enqueue(key, evt);
+    }
+
+    /// <summary>
+    /// One push delivery per push config of the task, for the event about to be committed. None when the card of the task's
+    /// tenant has no push notifications (<paramref name="pushEnabled"/>, resolved before the task lock).
+    /// </summary>
+    private async ValueTask<IReadOnlyList<PushDelivery>> DeliveriesAsync(TaskKey key, bool pushEnabled)
+    {
+        if (!pushEnabled) return [];
+        var configs = await _pushConfigs.ListAsync(key).ConfigureAwait(false);
+        return configs.Count == 0 ? [] : configs.Select(c => NewDelivery(key, c.Config.Id!)).ToList();
+    }
+
+    /// <summary>
+    /// A new delivery (the store sets its sequence) with a fresh delivery id, the same on every attempt, and the trace context
+    /// of the current agent run, so its delivery span joins that trace.
+    /// </summary>
+    private static PushDelivery NewDelivery(TaskKey key, string configId)
+    {
+        string? traceParent = null;
+        A2ATelemetry.InjectTraceContext(Activity.Current, (name, value) =>
+        {
+            if (name == A2ATelemetry.TraceParentHeader) traceParent = value;
+        });
+        return new PushDelivery(key, configId, 0, Guid.NewGuid().ToString("N")) { TraceParent = traceParent };
+    }
+
+    /// <summary>Best effort: removes the push config saved for a task whose creation failed.</summary>
+    private async Task TryDeletePushConfigAsync(TaskKey key, string configId)
+    {
+        try { await _pushConfigs.DeleteAsync(key, configId, CancellationToken.None).ConfigureAwait(false); }
+        catch (Exception ex) { _logger.LogError(ex, "Could not remove push config {ConfigId} of task {TaskId} that was not created", configId, key.TaskId); }
     }
 
     /// <summary>Applies an event to the task. Returns false if the event must be dropped (task already terminal).</summary>
@@ -1486,20 +2118,23 @@ public sealed class A2ARequestHandler : IDisposable
     /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
     internal const string OversizedEventText = "The agent produced an event larger than the configured limit.";
 
-    private static StreamResponse FailureEvent(string taskId, string contextId, string text = OversizedEventText) => StreamResponse.Of(new TaskStatusUpdateEvent
+    private static StreamResponse StatusEvent(string taskId, string contextId, TaskState state, string text, DateTimeOffset at) => StreamResponse.Of(new TaskStatusUpdateEvent
     {
         TaskId = taskId,
         ContextId = contextId,
         Status = new AgentTaskStatus
         {
-            State = TaskState.Failed,
-            Timestamp = DateTimeOffset.UtcNow,
+            State = state,
+            Timestamp = at,
             Message = new Message
             {
                 MessageId = Message.NewId(), Role = Role.Agent, Parts = [Part.FromText(text)], TaskId = taskId, ContextId = contextId,
             },
         },
     });
+
+    private static StreamResponse FailureEvent(string taskId, string contextId, string text = OversizedEventText) =>
+        StatusEvent(taskId, contextId, TaskState.Failed, text, DateTimeOffset.UtcNow);
 
     private static Message WithTask(Message m, string taskId)
     {
@@ -1512,22 +2147,26 @@ public sealed class A2ARequestHandler : IDisposable
     // Helpers
     // =====================================================================
 
-    /// <summary>Throws InvalidRequest when adding config <paramref name="configId"/> would exceed the per-task limit. Replacing an existing id is allowed.</summary>
-    private async ValueTask EnsurePushCapacityAsync(TaskKey key, string configId, CancellationToken ct)
-    {
-        if (await _pushConfigs.GetAsync(key, configId, ct).ConfigureAwait(false) is not null) return;
-        var limit = _options.Limits.MaxPushConfigsPerTask;
-        if (await _pushConfigs.CountAsync(key, ct).ConfigureAwait(false) >= limit)
-            throw new A2AException(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {limit}).");
-    }
+    private static A2AException TooManyPushConfigs(int limit) =>
+        new(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {limit}).");
 
     /// <summary>Protects the secrets of <paramref name="config"/> and stores a copy. The caller's instance is not changed.</summary>
-    private ValueTask SavePushConfigAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct)
+    private ValueTask SavePushConfigAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct) =>
+        _pushConfigs.SaveAsync(ProtectedRecord(key, config), ct);
+
+    /// <summary>
+    /// Like <see cref="SavePushConfigAsync"/>, but atomically refuses (false) a new config id when the task already has
+    /// <see cref="A2ALimits.MaxPushConfigsPerTask"/> configs. Replacing an existing id is allowed.
+    /// </summary>
+    private ValueTask<bool> SavePushConfigIfUnderLimitAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct) =>
+        _pushConfigs.SaveIfUnderLimitAsync(ProtectedRecord(key, config), _options.Limits.MaxPushConfigsPerTask, ct);
+
+    private PushConfigRecord ProtectedRecord(TaskKey key, TaskPushNotificationConfig config)
     {
         var copy = A2AJson.Clone(config);
         if (!string.IsNullOrEmpty(copy.Token)) copy.Token = _protector.Protect(copy.Token);
         if (copy.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = _protector.Protect(auth.Credentials);
-        return _pushConfigs.SaveAsync(new PushConfigRecord(key, copy), ct);
+        return new PushConfigRecord(key, copy);
     }
 
     /// <summary>Returns a copy with the token and credentials blanked. Secrets never leave the server.</summary>
@@ -1556,15 +2195,33 @@ public sealed class A2ARequestHandler : IDisposable
         return copy;
     }
 
-    private void RequireStreaming()
+    /// <summary>
+    /// The push capability of the task's tenant for a commit no request made (the retention sweep), from the tenant alone. No
+    /// agent for the tenant means no push. A failing provider fails closed: no push deliveries for this commit (logged).
+    /// </summary>
+    private async ValueTask<bool> PushEnabledForTenantAsync(TaskKey key, CancellationToken ct)
     {
-        if (_options.AgentCard.Capabilities.Streaming != true)
+        try
+        {
+            var card = await _cards.GetCardAsync(AgentRequestScope.ForTenant(key.Tenant), ct).ConfigureAwait(false);
+            return card?.Capabilities.PushNotifications == true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Could not resolve the Agent Card of task {TaskId}; its status change sends no push notifications", key.TaskId);
+            return false;
+        }
+    }
+
+    private static void RequireStreaming(AgentCard card)
+    {
+        if (card.Capabilities.Streaming != true)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "Streaming is not supported by this agent.");
     }
 
-    private void RequirePush()
+    private static void RequirePush(AgentCard card)
     {
-        if (_options.AgentCard.Capabilities.PushNotifications != true)
+        if (card.Capabilities.PushNotifications != true)
             throw new A2AException(A2AErrorCode.PushNotificationNotSupported);
     }
 
@@ -1580,14 +2237,32 @@ public sealed class A2ARequestHandler : IDisposable
     /// </summary>
     internal const int MaxIdempotencyKeyLength = 256;
 
-    /// <summary>Retries after a version conflict when applying one change to a task.</summary>
-    private const int MaxConflictRetries = 3;
+    /// <summary>
+    /// Retries after a version conflict when applying one change to a task. Conflicts come from other instances (writers here
+    /// share the task lock), and one that writes back to back can win several races in a row.
+    /// </summary>
+    private const int MaxConflictRetries = 10;
+
+    /// <summary>
+    /// Waits before retry number <paramref name="attempt"/> + 1 after a version conflict: 5 ms doubling per attempt, at most
+    /// 200 ms, ±20 % jitter, so writers on different instances stop colliding in lockstep. Real time on purpose (not the
+    /// injected <see cref="TimeProvider"/>): a manual test clock must not stall a store retry.
+    /// </summary>
+    private static Task ConflictBackoffAsync(int attempt, CancellationToken ct)
+    {
+        var baseMs = Math.Min(5.0 * Math.Pow(2, Math.Min(attempt, 16)), 200.0);
+        var jittered = baseMs * (0.8 + (0.4 * Random.Shared.NextDouble()));
+        return Task.Delay(TimeSpan.FromMilliseconds(jittered), ct);
+    }
 
     /// <summary>Task ids are unique per tenant only, so in-memory state (locks, running executions, bus topics) is keyed by both.</summary>
     private static string ScopeKey(string tenant, string taskId) => $"{tenant}\u001f{taskId}";
 
-    private SemaphoreSlim LockFor(string tenant, string taskId) =>
-        _locks[(StringComparer.Ordinal.GetHashCode(ScopeKey(tenant, taskId)) & 0x7fffffff) % _locks.Length];
+    private SemaphoreSlim LockFor(string tenant, string taskId) => _locks[LockStripe(tenant, taskId)];
+
+    /// <summary>The index of the task's lock among the shared striped locks (tasks on the same stripe share a lock).</summary>
+    internal int LockStripe(string tenant, string taskId) =>
+        (StringComparer.Ordinal.GetHashCode(ScopeKey(tenant, taskId)) & 0x7fffffff) % _locks.Length;
 
     /// <summary>Waits for all running executions to finish. For tests and graceful shutdown.</summary>
     public async Task WhenIdleAsync()
@@ -1609,16 +2284,81 @@ public sealed class A2ARequestHandler : IDisposable
         _shutdown.Dispose();
     }
 
-    private sealed class Execution(string taskId, CancellationTokenSource cts)
+    /// <summary>
+    /// The agent of one execution, resolved before anything is claimed or stored, with the DI scope it came from. The request
+    /// disposes the scope unless an execution took it (<see cref="TakeScope"/>), which then disposes it when the agent returns.
+    /// </summary>
+    private sealed class ResolvedAgent(AsyncServiceScope scope, IAgentExecutor? executor, ExceptionDispatchInfo? error) : IAsyncDisposable
+    {
+        private AsyncServiceScope? _scope = scope;
+
+        /// <summary>The executor, or null when the resolver returned none or failed.</summary>
+        public IAgentExecutor? Executor { get; } = executor;
+
+        /// <summary>The resolver's failure, rethrown by the execution so the task fails like an agent that throws.</summary>
+        public ExceptionDispatchInfo? Error { get; } = error;
+
+        /// <summary>Hands the scope to the execution.</summary>
+        public AsyncServiceScope TakeScope()
+        {
+            var taken = _scope ?? throw new InvalidOperationException("The agent's scope was already taken or disposed.");
+            _scope = null;
+            return taken;
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            var owned = _scope;
+            _scope = null;
+            return owned?.DisposeAsync() ?? default;
+        }
+    }
+
+    /// <summary>Runs CancelTask for a tenant without an agent: the default cancel (the task is marked canceled).</summary>
+    private sealed class CancelOnlyAgent : IAgentExecutor
+    {
+        public static readonly CancelOnlyAgent Instance = new();
+
+        public Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("No agent is configured for this tenant.");
+    }
+
+    private sealed class Execution(TaskKey key, string id, bool isCancelRun, CancellationTokenSource cts)
     {
         private volatile bool _detached;
         private readonly TaskCompletionSource _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private volatile bool _registered;
 
-        public string TaskId { get; } = taskId;
+        /// <summary>The task, owner-scoped.</summary>
+        public TaskKey Key { get; } = key;
+
+        public string TaskId => Key.TaskId;
+
+        /// <summary>This execution's id with the <see cref="ExecutionCoordinator"/>: new for every execution.</summary>
+        public string Id { get; } = id;
+
+        /// <summary>True for the run of a CancelTask (<see cref="IAgentExecutor.CancelAsync"/>).</summary>
+        public bool IsCancelRun { get; } = isCancelRun;
+
         public CancellationTokenSource Cts { get; } = cts;
+
+        /// <summary>True once the execution's lease is registered with the coordinator.</summary>
+        public bool Registered { get => _registered; set => _registered = value; }
+
+        /// <summary>
+        /// True from a lost (or lapsed) lease until the heartbeat that registers the execution again has read the task.
+        /// Set and cleared under <see cref="HeartbeatGate"/>.
+        /// </summary>
+        public bool LeaseLost { get; set; }
+
+        /// <summary>Held by a running heartbeat, and for good once the execution ends.</summary>
+        public SemaphoreSlim HeartbeatGate { get; } = new(1, 1);
 
         /// <summary>The run's span, or null when nobody listens.</summary>
         public Activity? Activity { get; init; }
+
+        /// <summary>Whether the tenant's card had push notifications when the execution started; decides its push deliveries.</summary>
+        public bool PushEnabled { get; init; }
 
         /// <summary>
         /// Ends the run's span. A run that left the task FAILED gets an error status (unless a more specific error was
@@ -1639,10 +2379,24 @@ public sealed class A2ARequestHandler : IDisposable
         public Channel<SequencedEvent> Outgoing { get; } = Channel.CreateUnbounded<SequencedEvent>(new UnboundedChannelOptions { SingleWriter = true, SingleReader = true });
         public Task Completion => _done.Task;
 
-        public void Cancel()
+        /// <summary>
+        /// Cancels the execution. Returns the error of a cancellation callback that threw (the token is cancelled anyway), or null.
+        /// </summary>
+        public Exception? Cancel()
         {
-            try { Cts.Cancel(); }
-            catch (ObjectDisposedException) { /* already finished */ }
+            try
+            {
+                Cts.Cancel();
+                return null;
+            }
+            catch (ObjectDisposedException)
+            {
+                return null; // already finished
+            }
+            catch (AggregateException ex)
+            {
+                return ex;
+            }
         }
 
         public void MarkDone()

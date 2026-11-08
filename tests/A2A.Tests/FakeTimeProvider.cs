@@ -1,13 +1,19 @@
 namespace A2A.Tests;
 
 /// <summary>Manually advanced clock whose timers fire when <see cref="Advance"/> passes their due time.</summary>
-public sealed class FakeTimeProvider : TimeProvider
+public sealed class FakeTimeProvider(DateTimeOffset? start = null) : TimeProvider
 {
     private readonly object _gate = new();
     private readonly List<FakeTimer> _timers = [];
-    private DateTimeOffset _now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    private DateTimeOffset _now = start ?? new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
     public override DateTimeOffset GetUtcNow() { lock (_gate) return _now; }
+
+    /// <summary>Timers that are set to fire (created or changed, and not yet fired, stopped or disposed).</summary>
+    public int PendingTimers
+    {
+        get { lock (_gate) return _timers.Count(t => t.Due is not null); }
+    }
 
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {

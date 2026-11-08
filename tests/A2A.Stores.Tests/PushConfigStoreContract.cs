@@ -8,9 +8,9 @@ public abstract class PushConfigStoreContract
 {
     protected abstract Task<PushConfigStore> CreateStoreAsync();
 
-    private static readonly TaskKey Alice = new("t", "alice", "task1");
+    protected static readonly TaskKey Alice = new("t", "alice", "task1");
 
-    private static PushConfigRecord Config(TaskKey key, string id, string url = "https://hooks.example/cb") => new(key, new TaskPushNotificationConfig
+    protected static PushConfigRecord Config(TaskKey key, string id, string url = "https://hooks.example/cb") => new(key, new TaskPushNotificationConfig
     {
         TaskId = key.TaskId, Id = id, Url = url, Token = "protected:" + id,
         Authentication = new AuthenticationInfo { Scheme = "Bearer", Credentials = "protected-creds" },
@@ -85,6 +85,78 @@ public abstract class PushConfigStoreContract
         got.Config.Url = "https://changed-again.example";
         Assert.Equal("https://hooks.example/cb", (await s.GetAsync(Alice, "c1"))!.Config.Url);
     }
+
+    [SkippableFact]
+    public async Task DeleteAll_removes_every_config_of_the_task_only()
+    {
+        var s = await CreateStoreAsync();
+        var other = Alice with { TaskId = "task2" };
+        foreach (var id in new[] { "c1", "c2", "c3" }) await s.SaveAsync(Config(Alice, id));
+        await s.SaveAsync(Config(other, "c1"));
+
+        await s.DeleteAllAsync(Alice);
+        Assert.Equal(0, await s.CountAsync(Alice));
+        Assert.Equal(1, await s.CountAsync(other));
+        await s.DeleteAllAsync(Alice); // nothing left is fine
+    }
+
+    [SkippableFact]
+    public async Task DeleteAll_with_another_owner_or_tenant_deletes_nothing()
+    {
+        var s = await CreateStoreAsync();
+        await s.SaveAsync(Config(Alice, "c1"));
+        await s.DeleteAllAsync(Alice with { Owner = "bob" });
+        await s.DeleteAllAsync(Alice with { Tenant = "u" });
+        Assert.Equal(1, await s.CountAsync(Alice));
+    }
+
+    [SkippableFact]
+    public async Task SaveIfUnderLimit_adds_until_the_limit_then_refuses_new_ids()
+    {
+        var s = await CreateStoreAsync();
+        Assert.True(await s.SaveIfUnderLimitAsync(Config(Alice, "c1"), 2));
+        Assert.True(await s.SaveIfUnderLimitAsync(Config(Alice, "c2"), 2));
+        Assert.False(await s.SaveIfUnderLimitAsync(Config(Alice, "c3"), 2));
+        Assert.Null(await s.GetAsync(Alice, "c3"));
+        Assert.Equal(2, await s.CountAsync(Alice));
+    }
+
+    [SkippableFact]
+    public async Task SaveIfUnderLimit_replaces_an_existing_id_even_at_the_limit()
+    {
+        var s = await CreateStoreAsync();
+        Assert.True(await s.SaveIfUnderLimitAsync(Config(Alice, "c1"), 1));
+        Assert.True(await s.SaveIfUnderLimitAsync(Config(Alice, "c1", "https://hooks.example/v2"), 1));
+        Assert.Equal("https://hooks.example/v2", (await s.GetAsync(Alice, "c1"))!.Config.Url);
+        Assert.Equal(1, await s.CountAsync(Alice));
+    }
+
+    [SkippableFact]
+    public async Task SaveIfUnderLimit_counts_per_task_and_owner()
+    {
+        var s = await CreateStoreAsync();
+        Assert.True(await s.SaveIfUnderLimitAsync(Config(Alice, "c1"), 1));
+        Assert.True(await s.SaveIfUnderLimitAsync(Config(Alice with { TaskId = "task2" }, "c1"), 1));
+        Assert.True(await s.SaveIfUnderLimitAsync(Config(Alice with { Owner = "bob" }, "c1"), 1));
+        Assert.False(await s.SaveIfUnderLimitAsync(Config(Alice, "c2"), 1));
+    }
+
+    [SkippableFact]
+    public async Task SaveIfUnderLimit_is_atomic_under_parallel_savers()
+    {
+        var s = await CreateStoreAsync();
+        var go = new TaskCompletionSource();
+        var savers = Enumerable.Range(0, 20).Select(i => Task.Run(async () =>
+        {
+            await go.Task;
+            return await s.SaveIfUnderLimitAsync(Config(Alice, $"c{i:D2}"), 10);
+        })).ToArray();
+        go.SetResult();
+        var results = await Task.WhenAll(savers);
+
+        Assert.Equal(10, results.Count(r => r));
+        Assert.Equal(10, await s.CountAsync(Alice));
+    }
 }
 
 public sealed class InMemoryPushConfigStoreTests : PushConfigStoreContract
@@ -96,4 +168,28 @@ public sealed class InMemoryPushConfigStoreTests : PushConfigStoreContract
 public sealed class PostgresPushConfigStoreTests(PostgresFixture db) : PushConfigStoreContract
 {
     protected override async Task<PushConfigStore> CreateStoreAsync() => new PostgresPushConfigStore(db.DataSource, await db.NewSchemaAsync());
+
+    /// <summary>The 20-saver race again, with the task's row present (the production case; the contract test has no task row).</summary>
+    [SkippableFact]
+    public async Task SaveIfUnderLimit_is_atomic_under_parallel_savers_when_the_task_row_exists()
+    {
+        var schema = await db.NewSchemaAsync();
+        var s = new PostgresPushConfigStore(db.DataSource, schema);
+        var now = DateTimeOffset.UtcNow;
+        await new PostgresTaskStore(db.DataSource, new A2A.Server.StreamingOptions(), schema).CreateAsync(new TaskRecord(
+            Alice.Tenant, Alice.Owner,
+            new AgentTask { Id = Alice.TaskId, ContextId = "ctx", Status = new AgentTaskStatus { State = TaskState.Working, Timestamp = now } },
+            0, now, now));
+
+        var go = new TaskCompletionSource();
+        var savers = Enumerable.Range(0, 20).Select(i => Task.Run(async () =>
+        {
+            await go.Task;
+            return await s.SaveIfUnderLimitAsync(Config(Alice, $"c{i:D2}"), 10);
+        })).ToArray();
+        go.SetResult();
+
+        Assert.Equal(10, (await Task.WhenAll(savers)).Count(r => r));
+        Assert.Equal(10, await s.CountAsync(Alice));
+    }
 }

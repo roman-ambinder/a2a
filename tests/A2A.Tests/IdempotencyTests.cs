@@ -291,6 +291,9 @@ public class IdempotencyTests
     {
         private readonly Server.Storage.InMemoryEventStore _inner = new(new Server.StreamingOptions());
 
+        /// <summary>The wrapped store; the in-memory task store commits its events here.</summary>
+        public Server.Storage.InMemoryEventStore Inner => _inner;
+
         public CancellationTokenSource? CancelWhenAsked;
 
         public override ValueTask<long> LastSequenceAsync(Server.Storage.TaskKey task, CancellationToken ct = default)
@@ -311,6 +314,8 @@ public class IdempotencyTests
         public override ValueTask<long?> OldestRetainedAsync(Server.Storage.TaskKey task, CancellationToken ct = default) => _inner.OldestRetainedAsync(task, ct);
 
         public override ValueTask MarkTerminalAsync(Server.Storage.TaskKey task, CancellationToken ct = default) => _inner.MarkTerminalAsync(task, ct);
+
+        public override ValueTask DeleteAsync(Server.Storage.TaskKey task, CancellationToken ct = default) => _inner.DeleteAsync(task, ct);
     }
 
     /// <summary>
@@ -321,7 +326,9 @@ public class IdempotencyTests
     public async Task Follow_up_cancelled_after_its_message_is_stored_is_not_appended_again_on_retry()
     {
         var events = new CancelOnLastSequenceStore();
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<Server.Storage.EventStore>(events));
+        await using var host = await TestAgentHost.StartAsync(services: s => s
+            .AddSingleton<Server.Storage.EventStore>(events)
+            .AddSingleton<Server.Storage.TaskStore>(new Server.Storage.InMemoryTaskStore(events.Inner)));
         var waiting = (await host.Handler.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("input") }, AliceCall())).RequireTask();
         SendMessageRequest FollowUp() => new()
         {

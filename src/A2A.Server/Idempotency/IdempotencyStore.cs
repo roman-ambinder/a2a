@@ -62,6 +62,13 @@ public abstract class IdempotencyStore
 
     /// <summary>Forgets the claim of a request that failed before any task or message existed. Waiting requests try again.</summary>
     public abstract ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken ct = default);
+
+    /// <summary>
+    /// Extends the timeout of a running claim (claimed, not completed) to start from now, so a live request keeps its key
+    /// while a store that abandons stale claims still releases the key of a crashed one. Does nothing for a completed or
+    /// missing scope. A store that never expires running claims does nothing at all.
+    /// </summary>
+    public abstract ValueTask RenewAsync(IdempotencyScope scope, CancellationToken ct = default);
 }
 
 /// <summary>Settings for idempotent SendMessage.</summary>
@@ -101,4 +108,8 @@ internal sealed class IdempotencyClaim
 
     public ValueTask AbandonAsync() =>
         _store is not null && Interlocked.Exchange(ref _settled, 1) == 0 ? _store.AbandonAsync(_scope) : ValueTask.CompletedTask;
+
+    /// <summary>Extends the timeout of the running claim (<see cref="IdempotencyStore.RenewAsync"/>). Does nothing once it is settled.</summary>
+    public ValueTask RenewAsync() =>
+        _store is not null && Volatile.Read(ref _settled) == 0 ? _store.RenewAsync(_scope) : ValueTask.CompletedTask;
 }

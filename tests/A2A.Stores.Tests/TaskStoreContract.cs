@@ -1,13 +1,19 @@
 using A2A.Json;
+using A2A.Server;
 using A2A.Server.Postgres;
 using A2A.Server.Storage;
+using A2A.Server.Streaming;
+using Npgsql;
 
 namespace A2A.Stores.Tests;
 
 /// <summary>Behavior every <see cref="TaskStore"/> must have. Each store runs the same tests through a subclass.</summary>
 public abstract class TaskStoreContract
 {
-    protected abstract Task<TaskStore> CreateStoreAsync(TimeProvider? time = null);
+    /// <summary>A fresh task store and the event store its commits write to.</summary>
+    protected abstract Task<(TaskStore Tasks, EventStore Events)> CreateStoresAsync(TimeProvider? time = null);
+
+    protected async Task<TaskStore> CreateStoreAsync(TimeProvider? time = null) => (await CreateStoresAsync(time)).Tasks;
 
     internal static TaskRecord NewRecord(string tenant, string owner, string id, DateTimeOffset? at = null, string contextId = "ctx")
     {
@@ -29,6 +35,28 @@ public abstract class TaskStoreContract
         new(tenant, owner, contextId, status, after, pageSize, token);
 
     private static string[] Ids(TaskPage page) => page.Records.Select(r => r.Task.Id).ToArray();
+
+    [SkippableFact]
+    public async Task Status_message_metadata_survives_a_round_trip()
+    {
+        var s = await CreateStoreAsync();
+        var record = NewRecord("t", "alice", "approval");
+        var task = A2AJson.Clone(record.Task);
+        using var hash = System.Text.Json.JsonDocument.Parse("\"abc123\"");
+        task.Status.State = TaskState.InputRequired;
+        task.Status.Message = new Message
+        {
+            MessageId = "m1", Role = Role.Agent, Parts = [Part.FromText("ok?")],
+            Metadata = new() { [A2AProtocol.ApprovalHashKey] = hash.RootElement.Clone() },
+        };
+        task.Metadata = new() { [A2AProtocol.ApprovalConsumedKey] = hash.RootElement.Clone() };
+        var created = await s.CreateAsync(record with { Task = task });
+
+        var loaded = (await s.GetAsync(created.Key))!.Task;
+
+        Assert.Equal("abc123", loaded.Status.Message!.Metadata![A2AProtocol.ApprovalHashKey].GetString());
+        Assert.Equal("abc123", loaded.Metadata![A2AProtocol.ApprovalConsumedKey].GetString());
+    }
 
     [SkippableFact]
     public async Task Get_with_wrong_owner_returns_null()
@@ -303,16 +331,276 @@ public abstract class TaskStoreContract
             Assert.Equal(2, (await s.GetAsync(r.Key))!.Version);
         }
     }
+
+    internal static StreamResponse StatusEvent(string taskId, TaskState state, long? v = null) =>
+        new StatusUpdateEvent(new TaskStatusUpdateEvent
+        {
+            TaskId = taskId,
+            ContextId = "ctx",
+            Status = new AgentTaskStatus { State = state },
+            Metadata = v is { } n ? new() { ["v"] = A2AJson.SerializeToElement(n.ToString(System.Globalization.CultureInfo.InvariantCulture)) } : null,
+        });
+
+    internal static TaskCommit CreateCommit(TaskRecord record) => new(record, 0, StreamResponse.Of(record.Task), []);
+
+    internal static async Task<List<SequencedEvent>> ReadAllAsync(EventStore events, TaskKey key)
+    {
+        var list = new List<SequencedEvent>();
+        await foreach (var e in events.ReadAfterAsync(key, 0)) list.Add(e);
+        return list;
+    }
+
+    [SkippableFact]
+    public async Task Commit_stores_task_and_event_with_the_next_sequence()
+    {
+        var (s, events) = await CreateStoresAsync();
+        var created = await s.CommitAsync(CreateCommit(NewRecord("t", "alice", "id1")));
+        Assert.Equal(1, created.Sequence);
+        Assert.Equal(1, created.Record.Version);
+
+        var next = await s.CommitAsync(new TaskCommit(WithState(created.Record, TaskState.Working), 1, StatusEvent("id1", TaskState.Working), []));
+
+        Assert.Equal(2, next.Sequence);
+        Assert.Equal(2, next.Record.Version);
+        Assert.Equal(created.Record.CreatedAt, next.Record.CreatedAt);
+        var stored = (await s.GetAsync(created.Record.Key))!;
+        Assert.Equal(2, stored.Version);
+        Assert.Equal(TaskState.Working, stored.Task.Status.State);
+        var log = await ReadAllAsync(events, created.Record.Key);
+        Assert.Equal([1L, 2L], log.Select(e => e.Sequence));
+        Assert.Equal("id1", Assert.IsType<TaskEvent>(log[0].Event).Task.Id);
+        Assert.Equal(TaskState.Working, Assert.IsType<StatusUpdateEvent>(log[1].Event).StatusUpdate.Status.State);
+    }
+
+    [SkippableFact]
+    public async Task Stale_foreign_or_duplicate_commit_writes_nothing()
+    {
+        var (s, events) = await CreateStoresAsync();
+        var input = NewRecord("t", "alice", "id1");
+        var created = await s.CommitAsync(CreateCommit(input));
+        await s.CommitAsync(new TaskCommit(WithState(created.Record, TaskState.Working), 1, StatusEvent("id1", TaskState.Working), []));
+
+        await Assert.ThrowsAsync<ConcurrencyException>(() =>
+            s.CommitAsync(new TaskCommit(WithState(created.Record, TaskState.Failed), 1, StatusEvent("id1", TaskState.Failed), [])).AsTask());
+        await Assert.ThrowsAsync<ConcurrencyException>(() =>
+            s.CommitAsync(new TaskCommit(WithState(created.Record with { Owner = "bob" }, TaskState.Failed), 2, StatusEvent("id1", TaskState.Failed), [])).AsTask());
+        await Assert.ThrowsAsync<ConcurrencyException>(() =>
+            s.CommitAsync(new TaskCommit(NewRecord("t", "alice", "ghost"), 1, StatusEvent("ghost", TaskState.Failed), [])).AsTask());
+        await Assert.ThrowsAsync<DuplicateTaskException>(() => s.CommitAsync(CreateCommit(input)).AsTask());
+        await Assert.ThrowsAsync<ArgumentException>(() => s.CommitAsync(CreateCommit(input with { Version = 2 })).AsTask());
+
+        var stored = (await s.GetAsync(created.Record.Key))!;
+        Assert.Equal(2, stored.Version);
+        Assert.Equal(TaskState.Working, stored.Task.Status.State);
+        Assert.Equal([1L, 2L], (await ReadAllAsync(events, created.Record.Key)).Select(e => e.Sequence));
+        Assert.Equal(0, await events.LastSequenceAsync(new TaskKey("t", "bob", "id1")));
+        Assert.Equal(0, await events.LastSequenceAsync(new TaskKey("t", "alice", "ghost")));
+    }
+
+    /// <summary>
+    /// Writers on several threads commit to one task, each reloading and retrying after a conflict. Every event carries
+    /// the version its commit produced, so the log must list versions 1, 2, 3, ... in sequence order, with no gaps.
+    /// </summary>
+    [SkippableFact]
+    public async Task Concurrent_commits_log_order_equals_version_order()
+    {
+        const int writers = 20;
+        var (s, events) = await CreateStoresAsync();
+        var key = (await s.CommitAsync(CreateCommit(NewRecord("t", "a", "id1")))).Record.Key;
+        var go = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var tasks = Enumerable.Range(0, writers).Select(_ => Task.Run(async () =>
+        {
+            await go.Task;
+            for (var attempt = 0; ; attempt++)
+            {
+                var current = (await s.GetAsync(key))!;
+                var produced = current.Version + 1;
+                try
+                {
+                    await s.CommitAsync(new TaskCommit(WithState(current, TaskState.Working), current.Version, StatusEvent("id1", TaskState.Working, produced), []));
+                    return;
+                }
+                catch (ConcurrencyException) when (attempt < 1000)
+                {
+                    // Reload and retry, like the request handler.
+                }
+            }
+        })).ToArray();
+        go.SetResult();
+        await Task.WhenAll(tasks);
+
+        var log = await ReadAllAsync(events, key);
+        Assert.Equal(Enumerable.Range(1, writers + 1).Select(i => (long)i), log.Select(e => e.Sequence));
+        foreach (var e in log.Skip(1))
+            Assert.Equal(e.Sequence.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Assert.IsType<StatusUpdateEvent>(e.Event).StatusUpdate.Metadata!["v"].GetString());
+        Assert.Equal(writers + 1, (await s.GetAsync(key))!.Version);
+    }
+
+    // ---- retention members
+
+    private static readonly DateTimeOffset T0 = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    [SkippableFact]
+    public async Task Delete_removes_only_the_task_and_only_for_its_owner()
+    {
+        var s = await CreateStoreAsync();
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "ctx", T0));
+        var r = await s.CreateAsync(NewRecord("t", "alice", "id1"));
+        Assert.False(await s.DeleteAsync(r.Key with { Owner = "bob" }));
+        Assert.False(await s.DeleteAsync(r.Key with { Tenant = "u" }));
+        Assert.NotNull(await s.GetAsync(r.Key));
+
+        Assert.True(await s.DeleteAsync(r.Key));
+        Assert.Null(await s.GetAsync(r.Key));
+        Assert.False(await s.DeleteAsync(r.Key));
+        Assert.NotNull(await s.GetContextAsync("t", "ctx")); // the context is deleted by DeleteContextAsync, not with the task
+    }
+
+    [SkippableFact]
+    public async Task Delete_does_not_touch_the_event_log()
+    {
+        var (s, events) = await CreateStoresAsync();
+        var r = NewRecord("t", "alice", "id1");
+        await s.CommitAsync(new TaskCommit(r, 0, StreamResponse.Of(r.Task), []));
+        Assert.True(await s.DeleteAsync(r.Key));
+        Assert.Equal(1, await events.LastSequenceAsync(r.Key));
+    }
+
+    [SkippableFact]
+    public async Task ListExpired_returns_terminal_tasks_older_than_the_cutoff_oldest_first_capped()
+    {
+        var s = await CreateStoreAsync();
+        async Task Add(string id, TaskState state, int days, string tenant = "t", string owner = "alice") =>
+            await s.CreateAsync(WithState(NewRecord(tenant, owner, id, T0.AddDays(days)), state));
+        await Add("done-3", TaskState.Completed, 3);
+        await Add("done-1", TaskState.Completed, 1);
+        await Add("failed-2", TaskState.Failed, 2, tenant: "u", owner: "bob"); // other tenant and owner: still listed
+        await Add("canceled-4", TaskState.Canceled, 4);
+        await Add("rejected-5", TaskState.Rejected, 5);
+        await Add("done-new", TaskState.Completed, 30); // too new
+        await Add("working", TaskState.Working, 0);
+        await Add("input", TaskState.InputRequired, 0);
+        await Add("auth", TaskState.AuthRequired, 0);
+        await Add("submitted", TaskState.Submitted, 0);
+
+        var all = await s.ListExpiredAsync(T0.AddDays(10), 100);
+        Assert.Equal(
+            [new TaskKey("t", "alice", "done-1"), new TaskKey("u", "bob", "failed-2"), new TaskKey("t", "alice", "done-3"),
+             new TaskKey("t", "alice", "canceled-4"), new TaskKey("t", "alice", "rejected-5")],
+            all);
+        Assert.Equal(all.Take(2), await s.ListExpiredAsync(T0.AddDays(10), 2));
+        Assert.Empty(await s.ListExpiredAsync(T0.AddDays(1), 100)); // strictly earlier than the cutoff
+    }
+
+    [SkippableFact]
+    public async Task ListInterruptedBefore_returns_only_waiting_tasks_older_than_the_cutoff()
+    {
+        var s = await CreateStoreAsync();
+        await s.CreateAsync(WithState(NewRecord("t", "alice", "input-old", T0.AddDays(2)), TaskState.InputRequired));
+        await s.CreateAsync(WithState(NewRecord("u", "bob", "auth-old", T0.AddDays(1)), TaskState.AuthRequired));
+        await s.CreateAsync(WithState(NewRecord("t", "alice", "input-new", T0.AddDays(30)), TaskState.InputRequired));
+        await s.CreateAsync(WithState(NewRecord("t", "alice", "done-old", T0), TaskState.Completed));
+        await s.CreateAsync(WithState(NewRecord("t", "alice", "working-old", T0), TaskState.Working));
+
+        var list = await s.ListInterruptedBeforeAsync(T0.AddDays(10), 100);
+        Assert.Equal([new TaskKey("u", "bob", "auth-old"), new TaskKey("t", "alice", "input-old")], list);
+        Assert.Equal([new TaskKey("u", "bob", "auth-old")], await s.ListInterruptedBeforeAsync(T0.AddDays(10), 1));
+    }
+
+    [SkippableFact]
+    public async Task Orphan_contexts_have_no_tasks_and_are_older_than_the_cutoff()
+    {
+        var s = await CreateStoreAsync();
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "orphan-old", T0.AddDays(2)));
+        await s.GetOrCreateContextAsync(new ContextRecord("u", "bob", "orphan-older", T0.AddDays(1)));
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "orphan-new", T0.AddDays(30)));
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "used", T0));
+        await s.CreateAsync(NewRecord("t", "alice", "id1", T0, contextId: "used"));
+
+        var list = await s.ListOrphanContextsAsync(T0.AddDays(10), 100);
+        Assert.Equal(["orphan-older", "orphan-old"], list.Select(c => c.ContextId));
+        Assert.Equal(new ContextRecord("u", "bob", "orphan-older", T0.AddDays(1)), list[0]);
+        Assert.Single(await s.ListOrphanContextsAsync(T0.AddDays(10), 1));
+
+        // Once its last task is gone the context is an orphan too.
+        await s.DeleteAsync(new TaskKey("t", "alice", "id1"));
+        Assert.Contains("used", (await s.ListOrphanContextsAsync(T0.AddDays(10), 100)).Select(c => c.ContextId));
+    }
+
+    [SkippableFact]
+    public async Task DeleteContext_keeps_a_context_that_a_task_still_uses()
+    {
+        var s = await CreateStoreAsync();
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "used", T0));
+        await s.CreateAsync(NewRecord("t", "alice", "id1", T0, contextId: "used"));
+        Assert.False(await s.DeleteContextAsync("t", "used"));
+        Assert.NotNull(await s.GetContextAsync("t", "used"));
+
+        await s.DeleteAsync(new TaskKey("t", "alice", "id1"));
+        Assert.True(await s.DeleteContextAsync("t", "used"));
+        Assert.Null(await s.GetContextAsync("t", "used"));
+    }
+
+    [SkippableFact]
+    public async Task DeleteContext_removes_it_once_in_its_tenant_only()
+    {
+        var s = await CreateStoreAsync();
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "c1", T0));
+        Assert.False(await s.DeleteContextAsync("u", "c1"));
+        Assert.NotNull(await s.GetContextAsync("t", "c1"));
+        Assert.True(await s.DeleteContextAsync("t", "c1"));
+        Assert.Null(await s.GetContextAsync("t", "c1"));
+        Assert.False(await s.DeleteContextAsync("t", "c1"));
+    }
 }
 
 public sealed class InMemoryTaskStoreTests : TaskStoreContract
 {
-    protected override Task<TaskStore> CreateStoreAsync(TimeProvider? time = null) => Task.FromResult<TaskStore>(new InMemoryTaskStore());
+    protected override Task<(TaskStore Tasks, EventStore Events)> CreateStoresAsync(TimeProvider? time = null)
+    {
+        var events = new InMemoryEventStore(new StreamingOptions(), time);
+        return Task.FromResult<(TaskStore, EventStore)>((new InMemoryTaskStore(events), events));
+    }
 }
 
 [Collection(ContainersCollection.Name)]
 public sealed class PostgresTaskStoreTests(PostgresFixture db) : TaskStoreContract
 {
-    protected override async Task<TaskStore> CreateStoreAsync(TimeProvider? time = null) =>
-        new PostgresTaskStore(db.DataSource, await db.NewSchemaAsync(), time);
+    protected override async Task<(TaskStore Tasks, EventStore Events)> CreateStoresAsync(TimeProvider? time = null)
+    {
+        var schema = await db.NewSchemaAsync();
+        return Create(schema, time);
+    }
+
+    private (TaskStore Tasks, EventStore Events) Create(PostgresStoreOptions schema, TimeProvider? time = null)
+    {
+        var streaming = new StreamingOptions();
+        return (new PostgresTaskStore(db.DataSource, streaming, schema, time), new PostgresEventStore(db.DataSource, streaming, schema, time));
+    }
+
+    /// <summary>
+    /// The event insert fails after the task row was updated in the same transaction (a row already holds the next
+    /// sequence): the whole commit rolls back, so the task keeps its version and the log its last sequence.
+    /// </summary>
+    [SkippableFact]
+    public async Task Commit_is_atomic()
+    {
+        var schema = await db.NewSchemaAsync();
+        var (s, events) = Create(schema);
+        var created = await s.CommitAsync(CreateCommit(NewRecord("t", "a", "id1")));
+        await using (var plant = db.DataSource.CreateCommand(
+            $"INSERT INTO \"{schema.Schema}\".a2a_events (tenant, owner, task_id, seq, event) VALUES ('t', 'a', 'id1', 2, '{{}}')"))
+            await plant.ExecuteNonQueryAsync();
+
+        var ex = await Assert.ThrowsAsync<PostgresException>(() =>
+            s.CommitAsync(new TaskCommit(WithState(created.Record, TaskState.Working), 1, StatusEvent("id1", TaskState.Working), [])).AsTask());
+
+        Assert.Equal(PostgresErrorCodes.UniqueViolation, ex.SqlState);
+        var stored = (await s.GetAsync(created.Record.Key))!;
+        Assert.Equal(1, stored.Version);
+        Assert.Equal(TaskState.Submitted, stored.Task.Status.State);
+        Assert.Equal(1, await events.LastSequenceAsync(created.Record.Key));
+    }
 }

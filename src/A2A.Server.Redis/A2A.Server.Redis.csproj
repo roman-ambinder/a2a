@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>A2A.Server.Redis</RootNamespace>
-    <Description>Redis pub/sub event bus for the A2A (Agent2Agent) server, so live task subscriptions work across server instances.</Description>
+    <Description>Redis pub/sub event bus and execution coordinator for the A2A (Agent2Agent) server, so live task subscriptions, CancelTask and blocking waits work across server instances.</Description>
     <PackageTags>$(PackageTags);redis</PackageTags>
   </PropertyGroup>
   <ItemGroup>

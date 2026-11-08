@@ -11,9 +11,11 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="A2A.Tests" />
+    <InternalsVisibleTo Include="A2A.Stores.Tests" />
     <InternalsVisibleTo Include="A2A.Server.AspNetCore" />
   </ItemGroup>
 </Project>

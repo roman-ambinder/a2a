@@ -89,6 +89,9 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>A running entry never expires in this store, so there is nothing to extend.</summary>
+    public override ValueTask RenewAsync(IdempotencyScope scope, CancellationToken ct = default) => ValueTask.CompletedTask;
+
     /// <summary>Entries held, running or finished. For tests.</summary>
     internal int Count
     {

@@ -49,6 +49,9 @@ public sealed class PostgresFixture : ContainerFixture
         DataSource = NpgsqlDataSource.Create(_container.GetConnectionString());
     }
 
+    /// <summary>A data source of its own (for example for an instance whose death cuts its database access). Dispose it.</summary>
+    public NpgsqlDataSource NewDataSource() => NpgsqlDataSource.Create(_container!.GetConnectionString());
+
     /// <summary>A fresh schema with the A2A tables, so every test starts empty.</summary>
     public async Task<PostgresStoreOptions> NewSchemaAsync()
     {

@@ -18,6 +18,7 @@ public sealed class PostgresEventStore : EventStore
     private readonly NpgsqlDataSource _db;
     private readonly StreamingOptions _options;
     private readonly TimeProvider _time;
+    private readonly EventTables _tables;
     private readonly string _logs;
     private readonly string _events;
 
@@ -26,55 +27,20 @@ public sealed class PostgresEventStore : EventStore
         _db = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _time = time ?? TimeProvider.System;
-        var s = PostgresSchema.Quote((storeOptions ?? new()).Schema);
-        _logs = $"{s}.a2a_event_logs";
-        _events = $"{s}.a2a_events";
+        _tables = EventTables.For(storeOptions);
+        _logs = _tables.Logs;
+        _events = _tables.Events;
     }
 
     public override async ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(evt);
         var json = A2AJson.Serialize(evt);
-        var capacity = Math.Max(1, _options.ReplayBufferSize);
-        var now = _time.GetUtcNow().UtcTicks;
 
         await using var conn = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
         await using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
-
-        // The upsert locks the log row, so appends to one task are serialized. An expired log starts over at 1, like a
-        // fresh in-memory log after eviction.
-        long seq;
-        await using (var upsert = new NpgsqlCommand(
-            $"""
-            INSERT INTO {_logs} AS l (tenant, owner, task_id, last_seq, purge_ticks) VALUES ($1, $2, $3, 1, NULL)
-            ON CONFLICT (tenant, owner, task_id) DO UPDATE SET
-                last_seq    = CASE WHEN l.purge_ticks IS NOT NULL AND l.purge_ticks <= $4 THEN 1 ELSE l.last_seq + 1 END,
-                purge_ticks = CASE WHEN l.purge_ticks IS NOT NULL AND l.purge_ticks <= $4 THEN NULL ELSE l.purge_ticks END
-            RETURNING last_seq
-            """, conn, tx))
-        {
-            AddKey(upsert, task);
-            upsert.Parameters.Add(Long(now));
-            seq = (long)(await upsert.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
-        }
-
-        await using (var batch = new NpgsqlBatch(conn, tx))
-        {
-            // Trim to the replay buffer. Sequence 1 means a new or restarted log: drop anything left from an expired one.
-            var trim = new NpgsqlBatchCommand(
-                $"DELETE FROM {_events} WHERE tenant = $1 AND owner = $2 AND task_id = $3 AND ($4 = 1 OR seq <= $4 - $5)");
-            AddKey(trim, task);
-            trim.Parameters.Add(Long(seq));
-            trim.Parameters.Add(Long(capacity));
-            var insert = new NpgsqlBatchCommand($"INSERT INTO {_events} (tenant, owner, task_id, seq, event) VALUES ($1, $2, $3, $4, $5)");
-            AddKey(insert, task);
-            insert.Parameters.Add(Long(seq));
-            insert.Parameters.Add(Text(json));
-            batch.BatchCommands.Add(trim);
-            batch.BatchCommands.Add(insert);
-            await batch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-        }
-
+        var seq = await AppendEventAsync(conn, tx, _tables, task, json, Math.Max(1, _options.ReplayBufferSize), _time.GetUtcNow().UtcTicks, ct)
+            .ConfigureAwait(false);
         await tx.CommitAsync(ct).ConfigureAwait(false);
         return seq;
     }
@@ -140,17 +106,23 @@ public sealed class PostgresEventStore : EventStore
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
-    private static void AddKey(NpgsqlCommand cmd, TaskKey task)
+    public override async ValueTask DeleteAsync(TaskKey task, CancellationToken ct = default)
     {
-        cmd.Parameters.Add(Text(task.Tenant));
-        cmd.Parameters.Add(Text(task.Owner));
-        cmd.Parameters.Add(Text(task.TaskId));
+        // Events and the log header go together: the sequence counter lives in the header, so a later append restarts at 1.
+        await using var conn = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
+        await using (var batch = new NpgsqlBatch(conn, tx))
+        {
+            var events = new NpgsqlBatchCommand($"DELETE FROM {_events} WHERE tenant = $1 AND owner = $2 AND task_id = $3");
+            Sql.AddKey(events.Parameters, task);
+            var logs = new NpgsqlBatchCommand($"DELETE FROM {_logs} WHERE tenant = $1 AND owner = $2 AND task_id = $3");
+            Sql.AddKey(logs.Parameters, task);
+            batch.BatchCommands.Add(events);
+            batch.BatchCommands.Add(logs);
+            await batch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+        await tx.CommitAsync(ct).ConfigureAwait(false);
     }
 
-    private static void AddKey(NpgsqlBatchCommand cmd, TaskKey task)
-    {
-        cmd.Parameters.Add(Text(task.Tenant));
-        cmd.Parameters.Add(Text(task.Owner));
-        cmd.Parameters.Add(Text(task.TaskId));
-    }
+    private static void AddKey(NpgsqlCommand cmd, TaskKey task) => Sql.AddKey(cmd.Parameters, task);
 }

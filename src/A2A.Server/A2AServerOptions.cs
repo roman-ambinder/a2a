@@ -1,3 +1,4 @@
+using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
 
@@ -5,7 +6,10 @@ namespace A2A.Server;
 
 public sealed class A2AServerOptions
 {
-    /// <summary>The public Agent Card. Required.</summary>
+    /// <summary>
+    /// The public Agent Card. Required, unless an <see cref="Agents.AgentCardProvider"/> supplies each tenant's card; without one,
+    /// this card serves every tenant.
+    /// </summary>
     public AgentCard AgentCard { get; set; } = new()
     {
         Name = string.Empty, Description = string.Empty, SupportedInterfaces = [], Version = string.Empty,
@@ -32,11 +36,22 @@ public sealed class A2AServerOptions
 
     /// <summary>
     /// Returns the extended card for an authenticated caller (spec §3.1.11). Requires
-    /// <c>AgentCard.Capabilities.ExtendedAgentCard = true</c>. Return null when no card is configured.
+    /// <c>AgentCard.Capabilities.ExtendedAgentCard = true</c>. Return null when no card is configured. Used by the default
+    /// <see cref="Agents.AgentCardProvider"/> (one agent for every tenant); a registered provider supplies extended cards with
+    /// <see cref="Agents.AgentCardProvider.GetExtendedCardAsync"/> instead, and this delegate is not called.
     /// </summary>
     public Func<ServerCallContext, CancellationToken, ValueTask<AgentCard?>>? ExtendedAgentCardProvider { get; set; }
 
     public PushNotificationOptions PushNotifications { get; } = new();
+
+    /// <summary>Retry, lease and polling settings of the push outbox (<see cref="PushDeliveryService"/>).</summary>
+    public PushDeliveryOptions PushDelivery { get; } = new();
+
+    /// <summary>
+    /// Lease, heartbeat and polling settings of the <see cref="ExecutionCoordinator"/>, which tracks running executions across
+    /// instances. Checked when the request handler is created.
+    /// </summary>
+    public CoordinationOptions Coordination { get; } = new();
 
     /// <summary>How long CancelTask waits for a running execution to stop. Default 5 seconds.</summary>
     public TimeSpan CancelGracePeriod { get; set; } = TimeSpan.FromSeconds(5);
@@ -50,6 +65,17 @@ public sealed class A2AServerOptions
     /// off. Default null (off). The clock is the <see cref="TimeProvider"/> registered in DI, else <see cref="TimeProvider.System"/>.
     /// </summary>
     public TimeSpan? MaxTaskDuration { get; set; }
+
+    /// <summary>
+    /// Longest a task may wait in <c>INPUT_REQUIRED</c> or <c>AUTH_REQUIRED</c> with no agent running. After that the retention
+    /// sweep (<c>AddA2ARetention</c>) moves it to <see cref="TaskState.Canceled"/> with the status text "The task waited too
+    /// long for input." (sent to streams and webhooks like any final event). Measured from the task's status timestamp, on the
+    /// sweep's clock, so a task is cancelled up to one sweep interval late. Separate from <see cref="MaxTaskDuration"/>, which
+    /// limits running executions. Null turns the timeout off; otherwise it must be positive (checked when the sweep starts).
+    /// Default 24 hours. This timeout, dead-execution recovery and the retention purges run only when
+    /// <c>AddA2ARetention</c> is registered; without it this setting has no effect.
+    /// </summary>
+    public TimeSpan? InterruptedTimeout { get; set; } = TimeSpan.FromHours(24);
 
     /// <summary>
     /// Most incoming messages (SendMessage or SendStreamingMessage calls) one task accepts, counting the message that

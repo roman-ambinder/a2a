@@ -201,12 +201,12 @@ internal sealed class RestEndpoint(A2ARequestHandler handler,
         }
     }
 
-    private Task WriteErrorAsync(HttpContext http, ServerCallContext call, A2AException ex)
+    private async Task WriteErrorAsync(HttpContext http, ServerCallContext call, A2AException ex)
     {
-        HttpPlumbing.SetAuthChallenge(http, ex, handler.AgentCard);
+        await HttpPlumbing.SetAuthChallengeAsync(http, ex, handler, call).ConfigureAwait(false);
         HttpPlumbing.SetRetryAfter(http, ex);
         HttpPlumbing.WriteExtensionsHeader(http, call);
-        return HttpPlumbing.WriteJsonAsync(http, StatusBody(ex), A2AProtocol.MediaType, HttpPlumbing.StatusFor(ex));
+        await HttpPlumbing.WriteJsonAsync(http, StatusBody(ex), A2AProtocol.MediaType, HttpPlumbing.StatusFor(ex)).ConfigureAwait(false);
     }
 
     internal static RestErrorBody StatusBody(A2AException ex) => new()
