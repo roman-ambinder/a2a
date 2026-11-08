@@ -471,8 +471,10 @@ public class LimitsTests
         { """{"jsonrpc":"2.0","id":1,"method":"GetTask","params":[1]}""", -32602, "params must be an object", "1" },
         { "  \n{\"jsonrpc\":\"2.0\",\n\"id\":1,\n\"method\":\"GetTask\",\n\"params\":  {\n \"id\": 5}}", -32602,
             "Invalid params: The JSON value could not be converted to System.String. Path: $.id | LineNumber: 1 | BytePositionInLine: 8.", "1" },
+        // The tail of this message is System.Text.Json's own text, which differs between .NET 8 and .NET 10, so only the
+        // stable part is compared (a trailing "…" means "starts with"; the missing property name is checked separately).
         { """{"jsonrpc":"2.0","id":1,"method":"SendMessage"}""", -32602,
-            "Invalid params: JSON deserialization for type 'A2A.SendMessageRequest' was missing required properties including: 'message'.", "1" },
+            "Invalid params: JSON deserialization for type 'A2A.SendMessageRequest' was missing required properties…", "1" },
         { """{"jsonrpc":"2.0","\u0069d":"esc","\u006dethod":"GetTask","params":{"id":"x"}}""", -32001, "The specified task ID does not exist or is not accessible", "\"esc\"" },
     };
 
@@ -487,7 +489,14 @@ public class LimitsTests
         var (status, body) = await Send(host, req);
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Equal(code, body.GetProperty("error").GetProperty("code").GetInt32());
-        Assert.Equal(message, body.GetProperty("error").GetProperty("message").GetString());
+        var actual = body.GetProperty("error").GetProperty("message").GetString();
+        if (message.EndsWith('…'))
+        {
+            var prefix = message[..^1];
+            Assert.StartsWith(prefix, actual);
+            Assert.Contains("message", actual![prefix.Length..], StringComparison.Ordinal); // the missing property, in either runtime's wording
+        }
+        else Assert.Equal(message, actual);
         Assert.Equal(id, body.GetProperty("id").GetRawText());
     }
 
