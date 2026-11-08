@@ -41,6 +41,9 @@ internal static class ServerTelemetry
     public static readonly Counter<long> ObjectBytesWritten =
         Meter.CreateCounter<long>("a2a.server.artifact.bytes.written", unit: "By", description: "Bytes written to the artifact object store.");
 
+    public static readonly Counter<long> OrphanObjectsDeleted =
+        Meter.CreateCounter<long>("a2a.server.artifact.orphans.deleted", description: "Orphan objects the retention sweep deleted from the artifact object store.");
+
     /// <summary>
     /// The outcome of a call: <see cref="A2ATelemetry.Outcomes.Ok"/>; <see cref="A2ATelemetry.Outcomes.Canceled"/> for an
     /// <see cref="OperationCanceledException"/> when the caller canceled (<paramref name="cancellationToken"/>); otherwise

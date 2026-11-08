@@ -71,6 +71,19 @@ public sealed class PostgresTaskStore : TaskStore
     }
 
     /// <inheritdoc />
+    public override async ValueTask<TaskRecord?> GetForMaintenanceAsync(string tenant, string taskId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tenant);
+        ArgumentNullException.ThrowIfNull(taskId);
+        await using var cmd = _db.CreateCommand(
+            $"SELECT owner, version, created_ticks, updated_ticks, task FROM {_tasks} WHERE tenant = $1 AND task_id = $2");
+        cmd.Parameters.Add(TextParam(tenant));
+        cmd.Parameters.Add(TextParam(taskId));
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadRecord(reader, tenant) : null;
+    }
+
+    /// <inheritdoc />
     public override async ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken cancellationToken = default)
     {
         var (json, stored) = ForCreate(record);

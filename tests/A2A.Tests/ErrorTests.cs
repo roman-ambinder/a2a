@@ -23,6 +23,7 @@ public sealed class ThrowingTaskStore : TaskStore
     public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) => throw Boom();
     public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default) => throw Boom();
     public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default) => throw Boom();
+    public override ValueTask<TaskRecord?> GetForMaintenanceAsync(string tenant, string taskId, CancellationToken ct = default) => throw Boom();
 }
 
 public class ErrorTests
@@ -119,4 +120,5 @@ internal sealed class RateLimitedTaskStore : TaskStore
     public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) => throw Limited();
     public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default) => throw Limited();
     public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default) => throw Limited();
+    public override ValueTask<TaskRecord?> GetForMaintenanceAsync(string tenant, string taskId, CancellationToken ct = default) => throw Limited();
 }

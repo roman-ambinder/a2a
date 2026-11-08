@@ -154,6 +154,15 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 235, Level = LogLevel.Information, Message = "Task {TaskId} waited for input longer than {Timeout}; cancelled")]
     public static partial void SweepCancelledInterrupted(ILogger logger, string taskId, TimeSpan? timeout);
 
+    [LoggerMessage(EventId = 236, Level = LogLevel.Warning, Message = "Task {TaskId}: could not delete its artifact objects; the retention sweep removes them as orphans")]
+    public static partial void ArtifactObjectsDeleteFailed(ILogger logger, Exception exception, string taskId);
+
+    [LoggerMessage(EventId = 237, Level = LogLevel.Warning, Message = "Artifact object {Key}: could not tell whether its task still uses it, so it is kept; the next sweep tries again")]
+    public static partial void ArtifactObjectCheckFailed(ILogger logger, Exception exception, string key);
+
+    [LoggerMessage(EventId = 238, Level = LogLevel.Information, Message = "Deleted the orphan artifact object {Key}")]
+    public static partial void ArtifactOrphanDeleted(ILogger logger, string key);
+
     [LoggerMessage(EventId = 240, Level = LogLevel.Debug, Message = "Task {TaskId}: not continued ({Status})")]
     public static partial void ContinuationRefused(ILogger logger, string taskId, TaskContinuationStatus status);
 

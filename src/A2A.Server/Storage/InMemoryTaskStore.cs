@@ -27,6 +27,14 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
                 : null);
 
     /// <inheritdoc />
+    public override ValueTask<TaskRecord?> GetForMaintenanceAsync(string tenant, string taskId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tenant);
+        ArgumentNullException.ThrowIfNull(taskId);
+        return ValueTask.FromResult(_tasks.TryGetValue((tenant, taskId), out var r) ? r : null);
+    }
+
+    /// <inheritdoc />
     public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken cancellationToken = default)
     {
         if (record.Version != 0) throw new ArgumentException("A new record must have Version 0.", nameof(record));
