@@ -76,6 +76,13 @@ internal static class AgentNameNormalizer
         var scripts = Script.None;
         foreach (var rune in Prepare(name, maxLength).EnumerateRunes())
         {
+            // A mark must not end a token, or one placed at each script boundary would hide the mix.
+            if (Rune.GetUnicodeCategory(rune) is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark
+                or UnicodeCategory.SpacingCombiningMark)
+            {
+                continue;
+            }
+
             if (!Rune.IsLetterOrDigit(rune))
             {
                 scripts = Script.None; // token boundary

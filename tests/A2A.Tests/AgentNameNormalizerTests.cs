@@ -11,17 +11,17 @@ public class AgentNameNormalizerTests
 
     [Theory]
     [InlineData("Agent", "AGENT")]
-    [InlineData("Agent", "Agent​")] // zero-width space
-    [InlineData("Agent", "‮Agent")] // right-to-left override
-    [InlineData("Agent", "Ａgent")] // fullwidth A
+    [InlineData("Agent", "Agent\u200B")] // zero-width space
+    [InlineData("Agent", "\u202EAgent")] // right-to-left override
+    [InlineData("Agent", "\uFF21gent")] // fullwidth A
     [InlineData("Travel Agent", "  travel \t agent\n")]
-    [InlineData("ﬁle", "file")] // fi ligature
+    [InlineData("\uFB01le", "file")] // fi ligature
     public void NameKey_same(string a, string b) =>
         Assert.Equal(AgentNameNormalizer.NameKey(a, Max), AgentNameNormalizer.NameKey(b, Max));
 
     [Theory]
-    [InlineData("Agent", "Аgent")] // Cyrillic A
-    [InlineData("Café", "Cafe")] // e acute
+    [InlineData("Agent", "\u0410gent")] // Cyrillic A
+    [InlineData("Caf\u00E9", "Cafe")] // e acute
     [InlineData("Agent 1", "Agent 2")]
     public void NameKey_different(string a, string b) =>
         Assert.NotEqual(AgentNameNormalizer.NameKey(a, Max), AgentNameNormalizer.NameKey(b, Max));
@@ -29,21 +29,21 @@ public class AgentNameNormalizerTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("​​")] // zero-width spaces
+    [InlineData("\u200B\u200B")] // zero-width spaces
     [InlineData("  \t")]
     public void NameKey_empty(string? name) => Assert.Equal("", AgentNameNormalizer.NameKey(name, Max));
 
     [Theory]
-    [InlineData("Paypal", "Pаypal")] // Cyrillic a
+    [InlineData("Paypal", "P\u0430ypal")] // Cyrillic a
     [InlineData("paypal", "paypa1")]
     [InlineData("PAYPAL", "PAYPAI")]
     [InlineData("pay-pal", "pay pal")]
     [InlineData("pay_pal", "PayPal")]
-    [InlineData("Cafe", "Café")] // e acute
+    [InlineData("Cafe", "Caf\u00E9")] // e acute
     [InlineData("modern", "modem")]
     [InlineData("wide", "vvide")]
     [InlineData("Agent O", "Agent 0")]
-    [InlineData("Scope", "Ѕсоре")] // Cyrillic S c o p e
+    [InlineData("Scope", "\u0405\u0441\u043E\u0440\u0435")] // Cyrillic S c o p e
     public void Skeleton_same(string a, string b)
     {
         var skeleton = AgentNameNormalizer.Skeleton(a, Max);
@@ -64,17 +64,20 @@ public class AgentNameNormalizerTests
     public void Skeleton_empty(string name) => Assert.Equal("", AgentNameNormalizer.Skeleton(name, Max));
 
     [Theory]
-    [InlineData("Pаypal")] // Latin + Cyrillic a
-    [InlineData("Αgent")] // Greek Alpha + Latin
+    [InlineData("P\u0430ypal")] // Latin + Cyrillic a
+    [InlineData("\u0391gent")] // Greek Alpha + Latin
+    [InlineData("P\u0301\u0430\u0301ypal")] // marks at each script boundary must not hide the mix
     public void IsMixedScript_true(string name) => Assert.True(AgentNameNormalizer.IsMixedScript(name, Max));
 
     [Theory]
     [InlineData("Paypal")]
-    [InlineData("Агент")] // Cyrillic word
-    [InlineData("Travel Агент")] // Latin token, Cyrillic token
-    [InlineData("AI翻訳")] // Latin + CJK
+    [InlineData("\u0410\u0433\u0435\u043D\u0442")] // Cyrillic word
+    [InlineData("Travel \u0410\u0433\u0435\u043D\u0442")] // Latin token, Cyrillic token
+    [InlineData("AI\u7FFB\u8A33")] // Latin + CJK
     [InlineData("Agent 1")]
     [InlineData("")]
+    [InlineData("Cafe\u0301")] // e + combining acute
+    [InlineData("Caf\u00E9")] // precomposed e acute
     public void IsMixedScript_false(string name) => Assert.False(AgentNameNormalizer.IsMixedScript(name, Max));
 
     [Theory]
