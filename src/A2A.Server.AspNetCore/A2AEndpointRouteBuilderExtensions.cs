@@ -20,6 +20,8 @@ public static class A2AServiceCollectionExtensions
     /// <see cref="A2AServerOptions.AllowAnonymous"/>), and the default rate limit policy (see <see cref="A2ARateLimitingExtensions.AddA2ARateLimiting"/>; the host
     /// adds the middleware with <c>app.UseA2A()</c>). Call it once next to <c>AddA2AServer(...)</c>. <c>MapA2A</c> throws
     /// <see cref="InvalidOperationException"/> if it was not called, so the check cannot be skipped by mistake.
+    /// It replaces the <see cref="IAgentCardProvider"/> registration (with the one that completes an empty card): register a
+    /// custom provider after this call.
     /// </summary>
     public static IServiceCollection AddA2AServerAspNetCore(this IServiceCollection services)
     {

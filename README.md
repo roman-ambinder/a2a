@@ -15,6 +15,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | Package (NuGet ID: `RomanAmbinder.` + name) | What it is |
 |---|---|
 | `A2A.Protocol` | Data model (from `a2a.proto`), ProtoJSON serialization, errors, JCS (RFC 8785), JWS card signing/verification |
+| `A2A.Security.Http` | SSRF-safe outbound HTTP handler (private-address guard) and guarded `jku` key-set fetching, shared by the client and the push sender |
 | `A2A.Client` | `A2AClient`, JSON-RPC + REST transports, SSE reader, card resolver with caching and signature policy |
 | `A2A.Client.DependencyInjection` | `AddA2AClient`, `IA2AClientFactory`, `AddBearerToken` (adds DI, Options, `IHttpClientFactory`) |
 | `A2A.Server` | Transport-agnostic server core: executor model, task lifecycle, stores, event bus, push sender |
@@ -26,33 +27,17 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 ## Server in 20 lines
 
 ```csharp
-builder.Services.AddA2AServer(o => o.AgentCard = new AgentCard
-{
-    Name = "My Agent", Description = "...", Version = "1.0.0",
-    SupportedInterfaces =
-    [
-        new() { Url = "https://agent.example.com/a2a", ProtocolBinding = ProtocolBindings.JsonRpc },
-        new() { Url = "https://agent.example.com/a2a", ProtocolBinding = ProtocolBindings.HttpJson },
-    ],
-    Capabilities = new() { Streaming = true, PushNotifications = true },
-    DefaultInputModes = ["text/plain"], DefaultOutputModes = ["text/plain"],
-    Skills = [new() { Id = "x", Name = "X", Description = "...", Tags = ["x"] }],
-}).AddAgentExecutor<MyAgent>();
-builder.Services.AddA2AServerAspNetCore();   // registers the startup check and the default rate limit (required by MapA2A)
+builder.Services.AddAuthentication(/* your scheme */);
+builder.Services.AddAuthorization();
+builder.Services.AddA2A(a => a
+    .AddAgentExecutor<MyAgent>()
+    .AddAgentCard(new AgentCard { Name = "My Agent", Description = "Says hello.", Version = "1.0.0" }));
 
+var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A();                               // rate limiter middleware; the app refuses to start without it (or A2ARateLimitOptions.Enabled = false)
+app.UseA2A();                               // rate limiter middleware; the app refuses to start without it
 app.UseAuthorization();
-
-app.MapAgentCard();                         // GET /.well-known/agent-card.json (anonymous, cacheable)
-app.MapA2A("/a2a").RequireAuthorization();  // JSON-RPC at POST /a2a, REST at /a2a/message:send, /a2a/tasks/...
-// Without RequireAuthorization() the app refuses to start, unless you set o.AllowAnonymous = true.
-// SupportedInterfaces may be left empty: the served card then lists every mapped binding (MapA2A, MapA2AJsonRpc, MapA2AHttpJson,
-// MapA2AGrpc) at A2AHttpOptions.PublicBaseUrl (else the first listen address) + its pattern. Patterns with {tenant} are not listed,
-// and a card that ends up with no interface fails at first serve with an InvalidOperationException.
-// Limits (o.Limits): body 10 MB, 100 parts per message, JSON depth 32, history 100, page size 100. Rate limit per tenant and
-// principal (anonymous: per remote IP): 20 burst, 60 per minute (services.AddA2ARateLimiting(o => ...) to change). Both answer 429/413 with the right headers.
-// Tenants: MapA2A("/{tenant}/a2a") or the default /a2a/{tenant} variants set ServerCallContext.Tenant.
+app.MapA2A("/a2a").RequireAuthorization();  // JSON-RPC at POST /a2a, REST at /a2a/message:send, ...; and the Agent Card at /.well-known/agent-card.json
 
 class MyAgent : IAgentExecutor
 {
@@ -64,6 +49,16 @@ class MyAgent : IAgentExecutor
     }
 }
 ```
+
+What this gives you, with nothing else to configure:
+
+- `AddA2A` is `AddA2AServer()` + `AddA2AServerAspNetCore()` + your builder calls. Use the two-step form when you need `A2AServerOptions` at registration.
+- `MapA2A` also maps the public Agent Card (`GET /.well-known/agent-card.json`, anonymous, cacheable; and the JWKS when a signing key is set). On a route group (`app.MapGroup("/api")`) it does not: call `app.MapAgentCard()` on the application root. Turn it off with `o.MapAgentCard = false`.
+- Authorization: `MapA2A("/a2a", o => o.AuthorizationPolicy = "MyPolicy")` or `.RequireAuthorization()`. Without either, the app refuses to start, unless you set `A2AServerOptions.AllowAnonymous = true`.
+- The card needs only `Name`, `Description` and `Version`. Empty `SupportedInterfaces` are completed once, at first serve, from the mapped bindings (`MapA2A`, `MapA2AJsonRpc`, `MapA2AHttpJson`, `MapA2AGrpc`) at `A2AHttpOptions.PublicBaseUrl` (else the first listen address) + the mapped pattern. Set `PublicBaseUrl` behind a proxy or load balancer (`services.ConfigureA2AHttp(h => h.PublicBaseUrl = new Uri("https://agent.example.com"))`). Patterns with `{tenant}` are not listed, and a card that ends up with no interface fails at first serve with an `InvalidOperationException`.
+- Limits (`o.Limits`): body 10 MB, 100 parts per message, JSON depth 32, history 100, page size 100. Rate limit per tenant and principal (anonymous: per remote IP): 20 burst, 60 per minute (`services.AddA2ARateLimiting(o => ...)` to change; `o.Enabled = false` turns it off and lifts the `UseA2A()` requirement). Both answer 429/413 with the right headers.
+- Tenants: `MapA2A("/{tenant}/a2a")` or the default `/a2a/{tenant}` variants set `ServerCallContext.Tenant`.
+- A full sample with API-key auth, card signing and streaming is in [samples/EchoAgent](samples/EchoAgent/Program.cs).
 
 The executor is resolved from a **new DI scope per execution**, so scoped services (DbContext etc.) are safe.
 Call `updater.ReplyAsync(...)` instead for a stateless reply with no task.
@@ -80,7 +75,7 @@ await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("str
 
 Every client method takes optional `A2ARequestOptions` (headers, timeout, idempotency key, extensions, `ConfigureRequest`). `SendMessage` always sends an `Idempotency-Key` (default: the message id). Unary calls retry up to `MaxRetries` times (default 2, so 3 attempts; set it on `A2AClientOptions` or per call, 0 disables) on 503, 429, errors marked retryable, and transport errors. For `SendMessage` a transport error is retried only when the request never reached the server (connect, DNS, proxy tunnel or TLS failure), so a server without `Idempotency-Key` support cannot create the task twice. Creating or deleting a push config and streams are not retried.
 
-DI (package `A2A.Client.DependencyInjection`): `services.AddA2AClient("weather", o => o.AgentUrl = ...).AddBearerToken(...)`, then `IA2AClientFactory.GetClientAsync("weather")`.
+DI (package `A2A.Client.DependencyInjection`, which adds DI, Options and `IHttpClientFactory`): `services.AddA2AClient("weather", o => o.AgentUrl = ...).AddBearerToken(...)`, then `IA2AClientFactory.GetClientAsync("weather")`. The clients are cached per name; the returned `IHttpClientBuilder` takes auth handlers and resilience. See [samples/EchoClient](samples/EchoClient/Program.cs).
 
 The factory picks the first interface **in the card's order** that the client supports (spec §8.3.2), and sets `tenant` from it.
 
@@ -92,14 +87,35 @@ builder.Services.AddA2AGrpc();
 app.MapA2AGrpc();
 // Card: new AgentInterface { Url = "https://agent.example.com:443", ProtocolBinding = ProtocolBindings.Grpc }
 
-// Client
-var client = A2AGrpcClientFactory.Create(card);
+// Client: let the card choose (its interface order wins) ...
+var client = await A2AClientFactory.CreateAsync(agentUrl, httpClient, new A2AClientOptions().UseGrpc());
+// ... or require gRPC
+var grpcClient = await A2AGrpcClientFactory.CreateAsync(agentUrl, httpClient);   // or A2AGrpcClientFactory.Create(card)
 ```
 
 The gRPC service runs on the same `IA2ARequestHandler` as the HTTP bindings, so auth scoping, validation, and errors behave the same. A binding of your own resolves `IA2ARequestHandler` from DI and gets the same operations.
 Errors are `google.rpc.Status` with an `ErrorInfo` detail. `A2A-Version` and `A2A-Extensions` travel as `a2a-version` / `a2a-extensions` metadata.
 Proto ↔ model conversion goes through ProtoJSON (the model's JSON form *is* ProtoJSON), so all three bindings share one mapping.
-`A2AClientFactory` still chooses between JSON-RPC and HTTP+JSON only; use `A2AGrpcClientFactory` for gRPC.
+Without `UseGrpc()`, `A2AClientFactory` chooses between JSON-RPC and HTTP+JSON only. With it, gRPC joins the choice. `A2AGrpcClientFactory` always uses gRPC.
+
+## Design principles
+
+The SDK ranks its goals in this order: **safe > easy > performant > extendable > modular**. When two collide, the higher one wins: secure defaults before a short hello world, a short hello world before speed, and so on. The reasoning, the rules and the non-goals are in [docs/superpowers/specs/2026-11-07-sdk-design-principles-design.md](docs/superpowers/specs/2026-11-07-sdk-design-principles-design.md). CI enforces them with gates: a public API snapshot (PublicApiAnalyzers), XML docs as errors, benchmarks with an allocation gate, an AOT publish of the samples, and a line budget for the hello-world samples (`HelloWorldGateTests`).
+
+## Extending
+
+Every seam below is a DI registration or a builder call. Defaults are safe and in-memory; replace only what you need.
+
+- `IA2AOperationFilter` (+ `A2AFilterStage`): wrap every operation; `A2AServerBuilder.AddOperationFilter<T>()`.
+- `IA2ARequestHandler`: the operation set every binding calls; resolve it from DI to write a binding of your own.
+- Stores: `TaskStore`, `EventStore`, `PushConfigStore`, `IdempotencyStore`. An `EventStore` must return stored `SequencedEvent.Json` bytes unchanged: they are written to the wire unvalidated. `InMemoryEventStore` keeps each retained event as the model plus its UTF-8 bytes, so `StreamingOptions.ReplayBufferSize` costs roughly double the model's memory.
+- `IAgentExecutorFactory`: supplies the executor per execution (default: a new DI scope), so the core can run without a DI container.
+- `IAgentCardProvider` / `AgentCardProvider`: supply the public card. `AddA2AServerAspNetCore` replaces this registration with the completing provider, so register a custom provider after it. `A2AServerOptions.ExtendedAgentCardProvider` has the signature `(call, completedCard, cancellationToken)`.
+- `IPushNotificationSender` / `IPushConfigChangeListener`: replace webhook delivery; the listener hears config changes.
+- `IResumableTransport` (client): lets a custom transport support `ObserveTaskAsync` resume with `Last-Event-ID`.
+- Extension operations: `A2AServerBuilder.AddExtensionOperation(...)`. A policy denial happens in the HTTP binding before the pipeline: no span, no counter, and `BeforeAuthorization` filters do not see it. `allow: true` admits every caller the endpoint admits, including anonymous callers when `AllowAnonymous` is set.
+- `A2AAuthorizationHandler`: decides per operation; it receives an `A2AOperationDescriptor`.
+- Telemetry: the `ActivitySource`/`Meter` names `A2A.Server` and `A2A.Client`.
 
 ## Behavior and spec decisions
 
@@ -146,8 +162,8 @@ dotnet test tests/A2A.Tests
 Run the sample:
 
 ```bash
-dotnet run --project samples/EchoAgent
-dotnet run --project samples/EchoClient
+dotnet run --project samples/EchoAgent -- --EchoAgent:ApiKey=secret
+dotnet run --project samples/EchoClient -- http://localhost:5100/ "hello" secret
 ```
 
 `docs/a2a.proto` is the normative proto this SDK was built against.

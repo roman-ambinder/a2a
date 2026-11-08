@@ -8,7 +8,8 @@ namespace A2A.Server.Storage;
 /// Process-local event log. Keeps the last <see cref="StreamingOptions.ReplayBufferSize"/> events per task and drops the
 /// buffer of a terminal task <see cref="StreamingOptions.TerminalRetention"/> after <see cref="MarkTerminalAsync"/>.
 /// It stores the event instances it is given, with their encoded bytes, and returns them without copying or encoding again:
-/// an appended event belongs to the store and nobody changes it.
+/// an appended event belongs to the store and nobody changes it. Each retained event holds both the event model and its UTF-8
+/// bytes, so memory per event is roughly double the model alone: size <see cref="StreamingOptions.ReplayBufferSize"/> for that.
 /// </summary>
 public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? time = null) : EventStore
 {

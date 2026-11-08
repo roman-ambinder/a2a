@@ -13,7 +13,9 @@ namespace A2A.Server.Pipeline;
 /// authorization, with <see cref="A2AOperationDescriptor.Extension"/> as its descriptor. The request the filters see is the
 /// <see cref="JsonElement"/> params (boxed), and the result is the <see cref="JsonElement"/> the handler returns. The default
 /// <see cref="A2AAuthorizationHandler"/> allows the call only when <see cref="Allow"/> is true or the
-/// <see cref="AuthorizationPolicy"/> was satisfied; otherwise it denies it (fail closed).
+/// <see cref="AuthorizationPolicy"/> was satisfied; otherwise it denies it (fail closed). A policy denial in the HTTP
+/// bindings happens before the pipeline: the call gets no span and no counter, and <see cref="A2AFilterStage.BeforeAuthorization"/>
+/// filters do not see it.
 /// </remarks>
 /// <param name="Method">The JSON-RPC method name, and the last segment of the HTTP+JSON route. Letters, digits, <c>.</c>, <c>_</c> and <c>-</c>.</param>
 /// <param name="ExtensionUri">The absolute URI of the extension. The public Agent Card lists it in <see cref="AgentCapabilities.Extensions"/>.</param>
@@ -26,7 +28,7 @@ namespace A2A.Server.Pipeline;
 /// custom <see cref="A2AAuthorizationHandler"/> instead: nothing else evaluates the policy.
 /// </param>
 /// <param name="Allow">
-/// True to let the default <see cref="A2AAuthorizationHandler"/> allow every authenticated caller. A custom handler decides
+/// True to let the default <see cref="A2AAuthorizationHandler"/> allow every caller the endpoint admits, including anonymous callers when <see cref="A2AServerOptions.AllowAnonymous"/> is set. A custom handler decides
 /// on its own, by <see cref="A2AOperationDescriptor.Kind"/> and <see cref="A2AOperationDescriptor.Name"/>.
 /// </param>
 public sealed record A2AExtensionOperation(

@@ -17,6 +17,8 @@ namespace A2A.Server.Storage;
 /// <see cref="SequencedEvent.Json"/>. Keep those bytes and return them from <see cref="ReadAfterAsync"/>: replays and gap
 /// fills write them as they are. A store that persists only the bytes may rebuild the event from them; a store that does not
 /// keep the bytes may return events with an empty <see cref="SequencedEvent.Json"/>, and readers then encode them again.
+/// Return stored <see cref="SequencedEvent.Json"/> bytes unchanged: they are written to the wire without validation, so a
+/// store that alters, truncates or re-encodes them corrupts the stream.
 /// </para>
 /// </remarks>
 public abstract class EventStore

@@ -73,7 +73,10 @@ public sealed class A2AServerOptions
 /// <summary>Settings for the per-task event log and for SSE streams.</summary>
 public sealed class StreamingOptions
 {
-    /// <summary>Events kept per task for replay. Default 1000.</summary>
+    /// <summary>
+    /// Events kept per task for replay. Default 1000. <see cref="Storage.InMemoryEventStore"/> keeps each retained event as the
+    /// model plus its UTF-8 bytes, so memory per event is roughly double the model alone.
+    /// </summary>
     public int ReplayBufferSize { get; set; } = 1000;
 
     /// <summary>How long a terminal task's events are kept after it finishes. Default 10 minutes.</summary>
