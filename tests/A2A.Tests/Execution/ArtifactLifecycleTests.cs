@@ -258,6 +258,27 @@ public sealed class ArtifactLifecycleTests
     }
 
     [Fact]
+    public async Task A_rejected_artifact_call_is_not_a_task_event_so_a_direct_reply_still_works()
+    {
+        ArgumentException? caught = null;
+        await using var rig = Rig.For(async (_, u, ct) =>
+        {
+            try { await u.AddArtifactAsync([], "x", cancellationToken: ct); }
+            catch (ArgumentException ex) { caught = ex; }
+            Assert.False(u.HasTask);
+            await u.ReplyAsync("hi", ct);
+        });
+        var context = rig.NewTask();
+        var exec = await rig.Engine.StartForTestAsync(context);
+        var seen = new List<SequencedEvent>();
+        await foreach (var e in exec.Outgoing.Reader.ReadAllAsync().WithCancellation(new CancellationTokenSource(Wait).Token)) seen.Add(e);
+        await exec.Completion.WaitAsync(Wait);
+        Assert.NotNull(caught);
+        Assert.Equal("hi", Assert.IsType<MessageEvent>(Assert.Single(seen).Event).Message.GetText());
+        Assert.Null(await rig.Tasks.GetAsync(rig.Key(context.TaskId)));
+    }
+
+    [Fact]
     public async Task Empty_parts_can_seal_an_artifact_an_earlier_run_left()
     {
         await using var rig = Rig.For(async (c, u, ct) =>

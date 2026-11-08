@@ -292,8 +292,9 @@ public sealed class TaskUpdater
         ArgumentNullException.ThrowIfNull(artifact);
         lock (_gate)
         {
-            MarkTaskEvent(false);
+            CheckCanEmit();
             Track(artifact, append, lastChunk, hashing: false);
+            MarkTaskEvent(false); // last: a rejected call must not count as an emitted task event
         }
         return WriteArtifact(artifact, append, lastChunk, cancellationToken);
     }
@@ -335,8 +336,9 @@ public sealed class TaskUpdater
         };
         lock (_gate)
         {
-            MarkTaskEvent(false);
+            CheckCanEmit();
             Track(artifact, append, lastChunk, hashing: true);
+            MarkTaskEvent(false);
         }
         await WriteArtifact(artifact, append, lastChunk, cancellationToken).ConfigureAwait(false);
         return artifact.ArtifactId;
@@ -484,12 +486,20 @@ public sealed class TaskUpdater
         return doc.RootElement.Clone();
     }
 
-    private void MarkTaskEvent(bool terminal)
+    private void CheckCanEmit()
     {
         lock (_gate)
         {
             if (_replied) throw new InvalidOperationException("A direct reply was already sent; no task can be created for this request.");
             if (_terminal) throw new InvalidOperationException("The task is already in a terminal state.");
+        }
+    }
+
+    private void MarkTaskEvent(bool terminal)
+    {
+        lock (_gate)
+        {
+            CheckCanEmit();
             _taskEmitted = true;
             if (terminal) _terminal = true;
         }
