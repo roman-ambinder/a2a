@@ -10,6 +10,7 @@ public class OAuthTokenExchangerTests
 {
     private const string Endpoint = "https://auth.example.com/token";
     private const string SubjectToken = "subject-token-value";
+    private static readonly Uri Agent = new("https://agent.example.com/a2a");
 
     private sealed class FakeHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
     {
@@ -28,7 +29,7 @@ public class OAuthTokenExchangerTests
         new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 
     private static OAuthTokenExchanger Create(FakeHandler handler, OAuthTokenExchangerOptions? options = null) =>
-        new(new HttpClient(handler), options ?? new OAuthTokenExchangerOptions { TokenEndpoint = new Uri(Endpoint) });
+        new(handler, options ?? new OAuthTokenExchangerOptions { TokenEndpoint = new Uri(Endpoint) });
 
     private static Dictionary<string, string> Form(string? body) =>
         (body ?? "").Split('&', StringSplitOptions.RemoveEmptyEntries)
@@ -196,7 +197,7 @@ public class OAuthTokenExchangerTests
     public void Refuses_http_endpoint()
     {
         var options = new OAuthTokenExchangerOptions { TokenEndpoint = new Uri("http://example.com/token") };
-        var ex = Assert.Throws<ArgumentException>(() => new OAuthTokenExchanger(new HttpClient(), options));
+        var ex = Assert.Throws<ArgumentException>(() => new OAuthTokenExchanger(options));
         Assert.Equal("options", ex.ParamName);
     }
 
@@ -204,9 +205,9 @@ public class OAuthTokenExchangerTests
     public void Allows_loopback_http()
     {
         var options = new OAuthTokenExchangerOptions { TokenEndpoint = new Uri("http://localhost:8080/token") };
-        _ = new OAuthTokenExchanger(new HttpClient(), options);
+        _ = new OAuthTokenExchanger(options);
         options = new OAuthTokenExchangerOptions { TokenEndpoint = new Uri("http://127.0.0.1/token") };
-        _ = new OAuthTokenExchanger(new HttpClient(), options);
+        _ = new OAuthTokenExchanger(options);
     }
 
     [Fact]
@@ -255,7 +256,7 @@ public class OAuthTokenExchangerTests
     [Fact]
     public void UseBearerToken_sets_the_header()
     {
-        var options = new A2ARequestOptions().UseBearerToken(new TokenExchangeResult { AccessToken = "abc" });
+        var options = new A2ARequestOptions().UseBearerToken(new TokenExchangeResult { AccessToken = "abc" }, Agent);
         Assert.Equal("Bearer abc", options.Headers["Authorization"]);
     }
 
@@ -263,13 +264,13 @@ public class OAuthTokenExchangerTests
     public void UseBearerToken_refuses_other_token_types()
     {
         var token = new TokenExchangeResult { AccessToken = "abc", TokenType = "DPoP" };
-        Assert.Throws<InvalidOperationException>(() => new A2ARequestOptions().UseBearerToken(token));
+        Assert.Throws<InvalidOperationException>(() => new A2ARequestOptions().UseBearerToken(token, Agent));
     }
 
     [Fact]
     public void UseBearerToken_ignores_case_of_the_token_type()
     {
-        var options = new A2ARequestOptions().UseBearerToken(new TokenExchangeResult { AccessToken = "abc", TokenType = "bearer" });
+        var options = new A2ARequestOptions().UseBearerToken(new TokenExchangeResult { AccessToken = "abc", TokenType = "bearer" }, Agent);
         Assert.Equal("Bearer abc", options.Headers["Authorization"]);
     }
 }

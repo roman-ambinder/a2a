@@ -41,7 +41,7 @@ internal sealed class ScopeHandler : A2AAuthorizationHandler
 
 #region Delegate
 // An agent that hands part of its work to another agent.
-internal sealed class CoordinatorAgent(A2AClient worker) : IAgentExecutor
+internal sealed class CoordinatorAgent(A2AClient worker, Uri workerUrl) : IAgentExecutor
 {
     public async Task ExecuteAsync(AgentRequestContext ctx, TaskUpdater updater, CancellationToken ct)
     {
@@ -54,7 +54,7 @@ internal sealed class CoordinatorAgent(A2AClient worker) : IAgentExecutor
         // Swap the caller's token for a narrow one. CanExchangeToken tells you if this can run.
         var token = await ctx.ExchangeTokenAsync("agent:rebase-worker", ["repo:read"], ct);
 
-        await worker.SendMessageAsync(next, options: new A2ARequestOptions().UseBearerToken(token), cancellationToken: ct);
+        await worker.SendMessageAsync(next, options: new A2ARequestOptions().UseBearerToken(token, workerUrl), cancellationToken: ct);
         await updater.CompleteAsync("done", ct);
     }
 }
@@ -121,10 +121,9 @@ internal static class Samples
     {
         var builder = WebApplication.CreateBuilder();
         #region Exchanger
-        // Redirects stay off. A redirect would re-send the subject token.
-        var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+        // The exchanger never follows redirects, so the secret and the subject token stay on the token endpoint.
         builder.Services.AddA2AServer()
-            .AddTokenExchanger(new OAuthTokenExchanger(http, new OAuthTokenExchangerOptions
+            .AddTokenExchanger(new OAuthTokenExchanger(new OAuthTokenExchangerOptions
             {
                 TokenEndpoint = new Uri("https://idp.example/token"),
                 ClientId = "my-agent",

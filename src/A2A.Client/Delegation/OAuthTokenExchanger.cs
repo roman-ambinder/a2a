@@ -1,6 +1,8 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using A2A.Client.Credentials;
 using A2A.Delegation;
 
 namespace A2A.Client.Delegation;
@@ -26,25 +28,58 @@ public sealed class OAuthTokenExchangerOptions
 /// of response, and never puts a token or a server message into an exception.
 /// </summary>
 /// <remarks>
-/// Pass an <see cref="HttpClient"/> whose handler has <c>AllowAutoRedirect = false</c>. A redirect would send the subject
-/// token to the new location. This class sees a redirect only after the fact (the final request URI differs from the
-/// endpoint) and then throws, which is too late to stop the first re-send.
+/// <para>
+/// The request carries the client secret, the subject token and the actor token. A redirect (a 307 or 308 makes an
+/// <see cref="HttpClient"/> that follows redirects post the form body again) would send them to the new location. So this
+/// class does not take an <see cref="HttpClient"/>. It builds its own, over a handler that never follows redirects: a
+/// default handler, or the <see cref="HttpMessageHandler"/> you pass, which is checked with
+/// <see cref="A2ACredentialHandler.EnsureNoAutoRedirect"/>.
+/// </para>
+/// <para>
+/// The SDK can check only <see cref="SocketsHttpHandler"/> and <see cref="HttpClientHandler"/> (also under
+/// <see cref="DelegatingHandler"/>s). A custom terminal handler must not follow redirects itself. With
+/// <c>IHttpClientFactory</c>, pass <c>IHttpMessageHandlerFactory.CreateHandler(name)</c> and set
+/// <c>AllowAutoRedirect = false</c> on the named client's primary handler.
+/// </para>
+/// <para>
+/// A 3xx response is refused and its <c>Location</c> is not read. As a second line of defense, the exchanger throws when the
+/// response says the request went to another URI.
+/// </para>
 /// </remarks>
-public sealed class OAuthTokenExchanger : ITokenExchanger
+public sealed class OAuthTokenExchanger : ITokenExchanger, IDisposable
 {
     private const int MaxResponseBytes = 64 * 1024;
     private const int MaxErrorLength = 128;
     private const string GrantType = "urn:ietf:params:oauth:grant-type:token-exchange";
 
+    // Shared by every exchanger that does not bring its own handler. It has no state per caller (no cookies, no credentials).
+    private static readonly Lazy<SocketsHttpHandler> DefaultHandler = new(static () => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        UseCookies = false,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+    });
+
     private readonly HttpClient _httpClient;
     private readonly OAuthTokenExchangerOptions _options;
 
-    /// <summary>Creates the exchanger.</summary>
+    /// <summary>Creates the exchanger over a default handler that does not follow redirects.</summary>
     /// <exception cref="ArgumentException">The endpoint is not HTTPS and not loopback.</exception>
-    public OAuthTokenExchanger(HttpClient httpClient, OAuthTokenExchangerOptions options)
+    public OAuthTokenExchanger(OAuthTokenExchangerOptions options) : this(DefaultHandler.Value, options)
     {
-        ArgumentNullException.ThrowIfNull(httpClient);
+    }
+
+    /// <summary>
+    /// Creates the exchanger over <paramref name="handler"/>. The exchanger does not dispose the handler.
+    /// </summary>
+    /// <param name="handler">The primary handler. Must not follow redirects; see the remarks of the class.</param>
+    /// <param name="options">The settings.</param>
+    /// <exception cref="ArgumentException">The endpoint is not HTTPS and not loopback, or <paramref name="handler"/> follows redirects.</exception>
+    public OAuthTokenExchanger(HttpMessageHandler handler, OAuthTokenExchangerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
         ArgumentNullException.ThrowIfNull(options);
+        A2ACredentialHandler.EnsureNoAutoRedirect(handler);
         var endpoint = options.TokenEndpoint;
         if (!endpoint.IsAbsoluteUri
             || (endpoint.Scheme != Uri.UriSchemeHttps && !(endpoint.Scheme == Uri.UriSchemeHttp && endpoint.IsLoopback)))
@@ -52,9 +87,12 @@ public sealed class OAuthTokenExchanger : ITokenExchanger
             throw new ArgumentException("The token endpoint must be an HTTPS URI (HTTP is allowed only for loopback).", nameof(options));
         }
 
-        _httpClient = httpClient;
+        _httpClient = new HttpClient(handler, disposeHandler: false) { MaxResponseContentBufferSize = MaxResponseBytes };
         _options = options;
     }
+
+    /// <summary>Releases the internal <see cref="HttpClient"/>. The handler is not disposed: it is shared or yours.</summary>
+    public void Dispose() => _httpClient.Dispose();
 
     /// <inheritdoc />
     public async ValueTask<TokenExchangeResult> ExchangeAsync(TokenExchangeRequest request, CancellationToken cancellationToken)
@@ -92,12 +130,17 @@ public sealed class OAuthTokenExchanger : ITokenExchanger
         if (_options.ConfigureRequest is { } configure)
         {
             await configure(message, cancellationToken).ConfigureAwait(false);
+            if (message.RequestUri != _options.TokenEndpoint)
+            {
+                throw new InvalidOperationException("ConfigureRequest changed the request URI. It must not: the form holds secrets for the token endpoint only.");
+            }
         }
 
         using var response = await _httpClient.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
         var finalUri = response.RequestMessage?.RequestUri;
-        if (finalUri is not null && finalUri != _options.TokenEndpoint)
+        if (response.StatusCode is >= HttpStatusCode.Ambiguous and < HttpStatusCode.BadRequest
+            || (finalUri is not null && finalUri != _options.TokenEndpoint))
         {
             throw new TokenExchangeException("The token endpoint redirected the request. Redirects are refused.");
         }

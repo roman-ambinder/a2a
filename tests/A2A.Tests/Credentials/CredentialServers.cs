@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 
 namespace A2A.Tests.Credentials;
 
-internal sealed record SeenRequest(string Path, IReadOnlyDictionary<string, string> Headers)
+internal sealed record SeenRequest(string Path, IReadOnlyDictionary<string, string> Headers, string Body = "")
 {
     public string? Header(string name) => Headers.TryGetValue(name, out var v) ? v : null;
 }
@@ -42,8 +42,9 @@ internal sealed class TestOrigin : IAsyncDisposable
         TestOrigin? origin = null;
         app.Run(async context =>
         {
+            var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
             origin!.Requests.Enqueue(new SeenRequest(context.Request.Path.Value ?? "",
-                context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString(), StringComparer.OrdinalIgnoreCase)));
+                context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString(), StringComparer.OrdinalIgnoreCase), body));
             await handler(context, origin);
         });
         await app.StartAsync();
