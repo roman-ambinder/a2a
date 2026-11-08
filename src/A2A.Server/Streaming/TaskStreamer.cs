@@ -96,15 +96,25 @@ public sealed class TaskStreamer
             Task<bool>? ownWait = null, busWait = null; // one pending wait per reader: both have a single reader
             var ownDone = false;
             var started = false;
+            // The last sequence seen on the bus. Every event after afterSequence is published after the subscription was made,
+            // so a jump means the bounded subscription dropped events.
+            var busLast = afterSequence;
             while (true)
             {
                 if (exec.Failed) throw new A2AException(A2AErrorCode.Internal); // storage failed: an error, not the FAILED task
 
-                // Other executions (CancelTask, a later follow-up) settle the task too.
+                // Other executions (CancelTask, a later follow-up) settle the task too; so does this one, seen on the bus when
+                // its own channel dropped the event.
                 var settledElsewhere = false;
+                long? missedAfter = null;
                 while (sub.Reader.TryRead(out var other))
-                    if (other.Sequence > afterSequence && other.Event is StatusUpdateEvent { StatusUpdate.Status.State: var os } && (os.IsTerminal() || os.IsInterrupted()))
-                        settledElsewhere = true;
+                {
+                    if (other.Sequence > busLast + 1) missedAfter ??= busLast;
+                    busLast = Math.Max(busLast, other.Sequence);
+                    if (other.Sequence > afterSequence && Settles(other.Event)) settledElsewhere = true;
+                }
+                if (!settledElsewhere && missedAfter is { } after)
+                    settledElsewhere = await SettledInStoreAsync(key, after, busLast, stop.Token).ConfigureAwait(false);
                 if (settledElsewhere) break;
 
                 if (!ownDone && own.TryRead(out var sequenced))
@@ -113,7 +123,7 @@ public sealed class TaskStreamer
                     if (evt is MessageEvent reply) return reply.Message;
                     started = true;
                     if (returnImmediately) break;
-                    if (evt is StatusUpdateEvent { StatusUpdate: var su } && (su.Status.State.IsTerminal() || su.Status.State.IsInterrupted())) break;
+                    if (Settles(evt)) break;
                     continue;
                 }
 
@@ -150,6 +160,24 @@ public sealed class TaskStreamer
             exec.Detach();
         }
         return null;
+    }
+
+    /// <summary>True for a status update to a terminal or interrupted state: the outcome a blocking SendMessage waits for.</summary>
+    private static bool Settles(StreamResponse evt) =>
+        evt is StatusUpdateEvent { StatusUpdate.Status.State: var state } && (state.IsTerminal() || state.IsInterrupted());
+
+    /// <summary>
+    /// True when the event store holds an event after <paramref name="after"/> and up to <paramref name="upTo"/> that
+    /// <see cref="Settles"/> the task: the bus dropped events in that range. Every event is stored before it is published.
+    /// </summary>
+    private async Task<bool> SettledInStoreAsync(TaskKey key, long after, long upTo, CancellationToken ct)
+    {
+        await foreach (var stored in _events.ReadAfterAsync(key, after, ct).ConfigureAwait(false))
+        {
+            if (stored.Sequence > upTo) break;
+            if (Settles(stored.Event)) return true;
+        }
+        return false;
     }
 
     private async IAsyncEnumerable<SequencedEvent> SendStreamingCoreAsync(SendMessageRequest request, ServerCallContext call, AcceptMessage accept,

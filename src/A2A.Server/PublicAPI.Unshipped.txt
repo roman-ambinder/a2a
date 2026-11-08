@@ -337,6 +337,7 @@ A2A.Server.TaskEventBus.Subscription.Dispose() -> void
 A2A.Server.TaskEventBus.Subscription.Reader.get -> System.Threading.Channels.ChannelReader<A2A.Server.Streaming.SequencedEvent>!
 A2A.Server.TaskEventBus.Subscription.TaskId.get -> string!
 A2A.Server.TaskEventBus.TaskEventBus() -> void
+A2A.Server.TaskEventBus.TaskEventBus(A2A.Server.StreamingOptions! options) -> void
 A2A.Server.TaskStateMachine
 A2A.Server.TaskUpdater
 A2A.Server.TaskUpdater.AddArtifactAsync(A2A.Artifact! artifact, bool append = false, bool lastChunk = false, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask

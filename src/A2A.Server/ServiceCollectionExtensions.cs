@@ -29,7 +29,7 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<IPushSecretProtector, EphemeralPushSecretProtector>();
         services.TryAddSingleton<IPrincipalResolver, DefaultPrincipalResolver>();
         services.TryAddSingleton<A2AAuthorizationHandler, AllowAllAuthorizationHandler>();
-        services.TryAddSingleton<TaskEventBus>();
+        services.TryAddSingleton(sp => new TaskEventBus(sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming));
         services.TryAddSingleton(sp => sp.GetRequiredService<IOptions<A2AServerOptions>>().Value);
         services.TryAddSingleton<IAgentExecutorFactory, ScopedAgentExecutorFactory>();
         services.TryAddKeyedSingleton<HttpMessageInvoker>(HttpPushNotificationSender.InvokerServiceKey, (sp, _) => new HttpMessageInvoker(

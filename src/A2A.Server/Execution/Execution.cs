@@ -5,17 +5,36 @@ namespace A2A.Server.Execution;
 
 /// <summary>
 /// One run of an agent for a task: the executor writes to <see cref="Incoming"/>, the engine stores each event and passes it
-/// on through <see cref="Outgoing"/> to the request that started the run.
+/// on through <see cref="Outgoing"/> to the request that started the run. Both channels hold at most
+/// <paramref name="capacity"/> events.
 /// </summary>
-internal sealed class Execution(string taskId, CancellationTokenSource cts)
+internal sealed class Execution(string taskId, CancellationTokenSource cts, int capacity)
 {
     private volatile bool _detached;
     private readonly TaskCompletionSource _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public string TaskId { get; } = taskId;
     public CancellationTokenSource Cts { get; } = cts;
-    public Channel<StreamResponse> Incoming { get; } = Channel.CreateUnbounded<StreamResponse>(new UnboundedChannelOptions { SingleReader = true });
-    public Channel<SequencedEvent> Outgoing { get; } = Channel.CreateUnbounded<SequencedEvent>(new UnboundedChannelOptions { SingleWriter = true, SingleReader = true });
+
+    /// <summary>
+    /// The agent's events, read by the engine. When it is full the agent's next write waits: a fast agent is throttled to the
+    /// engine's pace. Only the executor writes here, never under the task lock.
+    /// </summary>
+    public Channel<StreamResponse> Incoming { get; } = Channel.CreateBounded<StreamResponse>(new BoundedChannelOptions(Math.Max(1, capacity))
+    {
+        FullMode = BoundedChannelFullMode.Wait, SingleReader = true,
+    });
+
+    /// <summary>
+    /// The stored events for the request that started the run. Written under the task lock, so a write never waits: when the
+    /// reader is behind, the event is dropped (DropWrite). The first event (the task, its snapshot, or a direct reply) is written
+    /// to an empty channel and always kept; every later event is stored before it is written, and the reader fills any gap in
+    /// sequences from the event store.
+    /// </summary>
+    public Channel<SequencedEvent> Outgoing { get; } = Channel.CreateBounded<SequencedEvent>(new BoundedChannelOptions(Math.Max(1, capacity))
+    {
+        FullMode = BoundedChannelFullMode.DropWrite, SingleWriter = true, SingleReader = true,
+    });
     public Task Completion => _done.Task;
 
     public void Cancel()

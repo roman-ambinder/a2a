@@ -88,8 +88,14 @@ public sealed class StreamingOptions
     public TimeSpan KeepAliveInterval { get; set; } = TimeSpan.FromSeconds(15);
 
     /// <summary>
-    /// Capacity of each per-task bounded event channel, such as the push delivery queue of a task. Default 256. When a channel
-    /// is full, the producer is not blocked and no event is dropped: later events wait, in order, until the consumer catches up.
+    /// Capacity of each per-task bounded event channel. Default 256; values below 1 count as 1. When a channel is full:
+    /// <list type="bullet">
+    /// <item>the agent's next <see cref="TaskUpdater"/> write waits until the engine catches up (a fast agent is throttled);</item>
+    /// <item>a stream or subscription that falls behind drops queued events and fills the gap from the event store, so it still
+    /// sends the task's events in order (a snapshot replaces events the store no longer has);</item>
+    /// <item>the push delivery queue of a task keeps every event: later events wait, in order, until the sender catches up.</item>
+    /// </list>
+    /// No channel write waits while the task's lock is held.
     /// </summary>
     public int ChannelCapacity { get; set; } = 256;
 }

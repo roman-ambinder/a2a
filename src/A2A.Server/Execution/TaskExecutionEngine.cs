@@ -120,7 +120,9 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     public async ValueTask<AgentTask> WaitUntilSettledAsync(TaskKey key, long afterSequence, CancellationToken cancellationToken)
     {
         using var sub = _bus.Subscribe(ScopeKey(key.Tenant, key.TaskId));
-        var statusAfter = afterSequence == 0 || await HasStatusEventAfterAsync(key, afterSequence, cancellationToken).ConfigureAwait(false);
+        var (statusAfter, known) = afterSequence == 0
+            ? (true, 0L)
+            : await StatusEventAfterAsync(key, afterSequence, cancellationToken).ConfigureAwait(false);
         Task<bool>? live = null; // one pending wait at a time: the subscription has a single reader
         while (true)
         {
@@ -138,17 +140,33 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 return (await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId)).Task;
             }
             live = null;
+            var missed = false;
             while (sub.Reader.TryRead(out var evt))
+            {
+                if (statusAfter) continue;
+                if (evt.Sequence > known + 1) missed = true; // the bounded subscription dropped events
+                known = Math.Max(known, evt.Sequence);
                 if (evt.Sequence > afterSequence && evt.Event is StatusUpdateEvent) statusAfter = true;
+            }
+            // Every event is stored before it is published: look for the dropped ones in the store.
+            if (missed && !statusAfter)
+                (statusAfter, known) = await StatusEventAfterAsync(key, afterSequence, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    /// <summary>True when the event store holds a status event of the task with a sequence after <paramref name="afterSequence"/>.</summary>
-    private async Task<bool> HasStatusEventAfterAsync(TaskKey key, long afterSequence, CancellationToken ct)
+    /// <summary>
+    /// Whether the event store holds a status event of the task with a sequence after <paramref name="afterSequence"/>, and the
+    /// last sequence read (at least <paramref name="afterSequence"/>).
+    /// </summary>
+    private async Task<(bool Found, long Last)> StatusEventAfterAsync(TaskKey key, long afterSequence, CancellationToken ct)
     {
+        var last = afterSequence;
         await foreach (var stored in _events.ReadAfterAsync(key, afterSequence, ct).ConfigureAwait(false))
-            if (stored.Event is StatusUpdateEvent) return true;
-        return false;
+        {
+            if (stored.Event is StatusUpdateEvent) return (true, stored.Sequence);
+            last = Math.Max(last, stored.Sequence);
+        }
+        return (false, last);
     }
 
     /// <summary>
@@ -160,7 +178,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null)
     {
         var taskId = key.TaskId;
-        var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token));
+        var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token), _options.Streaming.ChannelCapacity);
         var scope = ScopeKey(key.Tenant, taskId);
         _running.Add(scope, exec);
         var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
@@ -321,6 +339,9 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
             await _idempotency.AbandonAsync(claim, taskId).ConfigureAwait(false);
             // A storage failure (above) is an error for the request that is waiting, never a clean end of its stream.
             exec.Outgoing.Writer.TryComplete();
+            // Nobody reads the agent's events any more: an agent waiting for room in the bounded channel gets an error
+            // instead of waiting forever. (A no-op after a normal end: the agent completed the channel.)
+            exec.Incoming.Writer.TryComplete();
         }
     }
 

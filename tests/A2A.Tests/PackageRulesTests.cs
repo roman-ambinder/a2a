@@ -86,6 +86,21 @@ public sealed class PackageRulesTests
         }
         Assert.Empty(offenders);
     }
+
+    [Fact]
+    public void No_unbounded_channels_in_src()
+    {
+        // Every per-task channel is bounded (spec D12): a slow reader or a fast agent cannot grow memory without limit.
+        var src = Path.Combine(RepoRoot(), "src");
+        var offenders = new List<string>();
+        foreach (var file in Directory.EnumerateFiles(src, "*.cs", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetRelativePath(src, file).Split(Path.DirectorySeparatorChar);
+            if (rel.Contains("bin") || rel.Contains("obj")) continue;
+            if (File.ReadAllText(file).Contains("CreateUnbounded", StringComparison.Ordinal)) offenders.Add(Path.GetRelativePath(RepoRoot(), file));
+        }
+        Assert.Empty(offenders);
+    }
 }
 
 /// <summary>Namespaces follow assemblies and folders.</summary>
