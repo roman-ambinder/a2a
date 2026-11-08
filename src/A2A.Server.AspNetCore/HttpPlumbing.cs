@@ -42,8 +42,14 @@ internal static partial class HttpPlumbing
                 throw new A2AException(A2AErrorCode.Unauthenticated);
         }
 
+        // Kept only when a token exchanger is registered and the caller is authenticated. Never logged or stored.
+        var bearer = principal != ServerCallContext.AnonymousPrincipal && services.GetService<A2A.Delegation.ITokenExchanger>() is not null
+            ? BearerToken(http.Request.Headers.Authorization.ToString())
+            : null;
+
         return new ServerCallContext
         {
+            InboundBearerToken = bearer,
             User = user,
             Principal = principal,
             RemoteAddress = http.Connection.RemoteIpAddress?.ToString(),
@@ -57,6 +63,16 @@ internal static partial class HttpPlumbing
             TraceParent = A2ATelemetry.TryExtractTraceContext(
                 http.Request.Headers[A2ATelemetry.TraceParentHeader], http.Request.Headers[A2ATelemetry.TraceStateHeader], out var parent) ? parent : default,
         };
+    }
+
+    /// <summary>The token of an <c>Authorization: Bearer</c> header (scheme ignoring case), or null when absent or empty.</summary>
+    private static string? BearerToken(string header)
+    {
+        const string scheme = "Bearer";
+        if (header.Length <= scheme.Length || !header.StartsWith(scheme, StringComparison.OrdinalIgnoreCase) || !char.IsWhiteSpace(header[scheme.Length]))
+            return null;
+        var token = header[scheme.Length..].Trim();
+        return token.Length == 0 ? null : token;
     }
 
     /// <summary>The request's route values as strings (invariant culture).</summary>
