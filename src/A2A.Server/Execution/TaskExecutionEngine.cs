@@ -143,9 +143,10 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// <summary>Status text of a task failed because the execution of a follow-up could not start after its message was committed.</summary>
     internal const string StartFailureText = "The task failed because the agent could not be started for the message.";
 
-    /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
+    /// <summary>Status text of a task failed because it grew past <see cref="A2ALimits.MaxTaskBytes"/> or <see cref="A2ALimits.MaxArtifactsPerTask"/>.</summary>
     internal const string OversizedTaskText = "The task grew past the configured size limit.";
 
+    /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
     internal const string OversizedEventText = "The agent produced an event larger than the configured limit.";
 
     /// <summary>The bus the engine publishes every stored event to.</summary>
@@ -735,7 +736,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 return null;
             }
             // A terminal state is exempt, so the failure event that replaces an oversized one can always be stored.
-            // An event with no message and no artifact adds no content, so the walk is skipped for it.
+            // An event with no message, no metadata and no artifact adds no content, so the walk is skipped for it.
             if (!next.Status.State.IsTerminal() && AddsContent(evt) && IsOverCap(next))
             {
                 ServerLog.TaskTooLarge(_logger, key.TaskId, _options.Limits.MaxTaskBytes, _options.Limits.MaxArtifactsPerTask);
@@ -779,7 +780,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     }
 
     private static bool AddsContent(StreamResponse evt) =>
-        evt is not StatusUpdateEvent { StatusUpdate.Status.Message: null };
+        evt is not StatusUpdateEvent { StatusUpdate: { Status.Message: null, Metadata: null or { Count: 0 } } };
 
     private bool IsOverCap(AgentTask task) =>
         task.Artifacts?.Count > _options.Limits.MaxArtifactsPerTask || TaskSize.Measure(task) > _options.Limits.MaxTaskBytes;

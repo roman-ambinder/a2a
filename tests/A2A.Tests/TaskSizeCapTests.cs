@@ -54,6 +54,15 @@ public sealed class TaskSizeCapTests
                         await Gate.Task.WaitAsync(ct);
                         await updater.UpdateStatusAsync(TaskState.InputRequired, cancellationToken: ct); // no message: adds no content
                         break;
+                    case "meta-status":
+                        await updater.UpdateStatusAsync(TaskState.Working, metadata: Huge(), cancellationToken: ct); // no message, only metadata
+                        await Task.Delay(Timeout.Infinite, ct);
+                        break;
+                    case "meta-artifact":
+                        await updater.AddArtifactAsync(
+                            new Artifact { ArtifactId = "meta", Parts = [Part.FromText("x")], Metadata = Huge() }, cancellationToken: ct);
+                        await Task.Delay(Timeout.Infinite, ct);
+                        break;
                     case "input":
                         await updater.RequireInputAsync("more?", ct);
                         break;
@@ -69,6 +78,9 @@ public sealed class TaskSizeCapTests
             }
         }
     }
+
+    private static Dictionary<string, JsonElement> Huge() =>
+        new() { ["blob"] = JsonSerializer.SerializeToElement(new string('m', Cap * 2)) };
 
     private sealed class FixedFactory(IAgentExecutor executor) : IAgentExecutorFactory
     {
@@ -162,6 +174,59 @@ public sealed class TaskSizeCapTests
         Assert.Equal(before.Version, after.Version);
         Assert.Equal(before.Task.History!.Count, after.Task.History!.Count);
         Assert.Equal(TaskState.InputRequired, after.Task.Status.State);
+    }
+
+    [Fact]
+    public async Task Follow_up_with_small_text_and_huge_metadata_is_refused()
+    {
+        await using var host = await StartAsync(new CapAgent());
+        var client = host.Client(ProtocolBindings.JsonRpc);
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+        await host.Handler.WhenIdleAsync();
+        var before = await StoredAsync(host, task.Id);
+
+        var message = Message.FromUser("hi", task.ContextId, task.Id);
+        message.Metadata = Huge();
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(message, null));
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
+        Assert.Equal(before.Version, (await StoredAsync(host, task.Id)).Version);
+    }
+
+    [Theory]
+    [InlineData("meta-status")]
+    [InlineData("meta-artifact")]
+    public async Task Agent_event_metadata_past_cap_fails_task(string text)
+    {
+        var agent = new CapAgent();
+        await using var host = await StartAsync(agent);
+        var task = (await host.Client(ProtocolBindings.JsonRpc).SendMessageAsync(text)).RequireTask();
+        await host.Handler.WhenIdleAsync();
+
+        var stored = (await StoredAsync(host, task.Id)).Task;
+        Assert.Equal(TaskState.Failed, stored.Status.State);
+        Assert.DoesNotContain(stored.Artifacts ?? [], a => a.ArtifactId == "meta");
+        await agent.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void Measure_counts_metadata_names_and_file_names()
+    {
+        var blob = JsonSerializer.SerializeToElement("abcd"); // 6 characters of JSON
+        var message = Message.FromUser("a"); // 1
+        message.Metadata = new() { ["k"] = blob }; // 6
+        var part = Part.FromBytes(new byte[] { 1, 2, 3 }, "application/octet-stream", "f.bin"); // 4 + 5
+        var task = new AgentTask
+        {
+            Id = "t",
+            Status = new AgentTaskStatus(),
+            History = [message],
+            Metadata = new() { ["k"] = blob }, // 6
+            Artifacts =
+            [
+                new Artifact { ArtifactId = "a", Name = "nm", Description = "desc", Parts = [part], Metadata = new() { ["k"] = blob } }, // 2 + 4 + 6
+            ],
+        };
+        Assert.Equal(1 + 6 + 6 + 2 + 4 + 6 + 4 + 5, TaskSize.Measure(task));
     }
 
     [Fact]
