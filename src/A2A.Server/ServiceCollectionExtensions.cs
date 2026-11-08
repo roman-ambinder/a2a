@@ -210,7 +210,7 @@ public sealed class A2AServerBuilder
     /// Adds an extension operation (see <see cref="Pipeline.A2AExtensionOperation"/>): the JSON-RPC method
     /// <paramref name="method"/> and the HTTP+JSON route <c>POST {pattern}/ext/{method}</c>. Calls run through the operation
     /// pipeline with <see cref="Pipeline.A2AOperationDescriptor.Extension"/>. The public Agent Card lists
-    /// <paramref name="extensionUri"/> in its capabilities. The gRPC binding does not serve extension operations.
+    /// <paramref name="extensionUri"/> in its capabilities. The gRPC binding serves them through <c>a2a.extensions.v1.A2AExtensionService</c> (<c>MapA2AGrpcExtensions</c>); its streaming RPC is not served.
     /// </summary>
     /// <param name="method">The method name: letters, digits, <c>.</c>, <c>_</c> and <c>-</c>; not a built-in method name.</param>
     /// <param name="extensionUri">The absolute URI of the extension.</param>

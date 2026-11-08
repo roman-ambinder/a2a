@@ -1,1 +1,77 @@
 #nullable enable
+A2A.Grpc.Extensions.Protos.A2AExtensionsReflection
+~static A2A.Grpc.Extensions.Protos.A2AExtensionsReflection.Descriptor.get -> Google.Protobuf.Reflection.FileDescriptor
+A2A.Grpc.Extensions.Protos.ExtensionOperationRequest
+A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.CalculateSize() -> int
+A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.ExtensionOperationRequest() -> void
+override A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.GetHashCode() -> int
+~A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.Clone() -> A2A.Grpc.Extensions.Protos.ExtensionOperationRequest
+~A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.ExtensionOperationRequest(A2A.Grpc.Extensions.Protos.ExtensionOperationRequest other) -> void
+~A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.Equals(A2A.Grpc.Extensions.Protos.ExtensionOperationRequest other) -> bool
+~A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.MergeFrom(A2A.Grpc.Extensions.Protos.ExtensionOperationRequest other) -> void
+~A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~override A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.Equals(object other) -> bool
+~override A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.ToString() -> string
+~static A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.Parser.get -> Google.Protobuf.MessageParser<A2A.Grpc.Extensions.Protos.ExtensionOperationRequest>
+const A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.OperationIdFieldNumber = 1 -> int
+~A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.OperationId.get -> string
+~A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.OperationId.set -> void
+const A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.PayloadFieldNumber = 2 -> int
+~A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.Payload.get -> Google.Protobuf.ByteString
+~A2A.Grpc.Extensions.Protos.ExtensionOperationRequest.Payload.set -> void
+A2A.Grpc.Extensions.Protos.ExtensionOperationResponse
+A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.CalculateSize() -> int
+A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.ExtensionOperationResponse() -> void
+override A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.GetHashCode() -> int
+~A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.Clone() -> A2A.Grpc.Extensions.Protos.ExtensionOperationResponse
+~A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.ExtensionOperationResponse(A2A.Grpc.Extensions.Protos.ExtensionOperationResponse other) -> void
+~A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.Equals(A2A.Grpc.Extensions.Protos.ExtensionOperationResponse other) -> bool
+~A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.MergeFrom(A2A.Grpc.Extensions.Protos.ExtensionOperationResponse other) -> void
+~A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~override A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.Equals(object other) -> bool
+~override A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.ToString() -> string
+~static A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.Parser.get -> Google.Protobuf.MessageParser<A2A.Grpc.Extensions.Protos.ExtensionOperationResponse>
+const A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.PayloadFieldNumber = 1 -> int
+~A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.Payload.get -> Google.Protobuf.ByteString
+~A2A.Grpc.Extensions.Protos.ExtensionOperationResponse.Payload.set -> void
+A2A.Grpc.Extensions.Protos.ExtensionOperationEvent
+A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.CalculateSize() -> int
+A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.ExtensionOperationEvent() -> void
+override A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.GetHashCode() -> int
+~A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.Clone() -> A2A.Grpc.Extensions.Protos.ExtensionOperationEvent
+~A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.ExtensionOperationEvent(A2A.Grpc.Extensions.Protos.ExtensionOperationEvent other) -> void
+~A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.Equals(A2A.Grpc.Extensions.Protos.ExtensionOperationEvent other) -> bool
+~A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.MergeFrom(Google.Protobuf.CodedInputStream input) -> void
+~A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.MergeFrom(A2A.Grpc.Extensions.Protos.ExtensionOperationEvent other) -> void
+~A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.WriteTo(Google.Protobuf.CodedOutputStream output) -> void
+~override A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.Equals(object other) -> bool
+~override A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.ToString() -> string
+~static A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.Descriptor.get -> Google.Protobuf.Reflection.MessageDescriptor
+~static A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.Parser.get -> Google.Protobuf.MessageParser<A2A.Grpc.Extensions.Protos.ExtensionOperationEvent>
+const A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.PayloadFieldNumber = 1 -> int
+~A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.Payload.get -> Google.Protobuf.ByteString
+~A2A.Grpc.Extensions.Protos.ExtensionOperationEvent.Payload.set -> void
+A2A.Grpc.Extensions.Protos.A2AExtensionService
+A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceBase
+A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceBase.A2AExtensionServiceBase() -> void
+A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient
+A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient.A2AExtensionServiceClient() -> void
+~A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient.A2AExtensionServiceClient(Grpc.Core.CallInvoker callInvoker) -> void
+~A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient.A2AExtensionServiceClient(Grpc.Core.ChannelBase channel) -> void
+~A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient.A2AExtensionServiceClient(Grpc.Core.ClientBase.ClientBaseConfiguration configuration) -> void
+~override A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient.NewInstance(Grpc.Core.ClientBase.ClientBaseConfiguration configuration) -> A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient
+~static A2A.Grpc.Extensions.Protos.A2AExtensionService.BindService(Grpc.Core.ServiceBinderBase serviceBinder, A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceBase serviceImpl) -> void
+~static A2A.Grpc.Extensions.Protos.A2AExtensionService.BindService(A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceBase serviceImpl) -> Grpc.Core.ServerServiceDefinition
+~static A2A.Grpc.Extensions.Protos.A2AExtensionService.Descriptor.get -> Google.Protobuf.Reflection.ServiceDescriptor
+~virtual A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceBase.InvokeExtensionOperation(A2A.Grpc.Extensions.Protos.ExtensionOperationRequest request, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task<A2A.Grpc.Extensions.Protos.ExtensionOperationResponse>
+~virtual A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient.InvokeExtensionOperation(A2A.Grpc.Extensions.Protos.ExtensionOperationRequest request, Grpc.Core.CallOptions options) -> A2A.Grpc.Extensions.Protos.ExtensionOperationResponse
+~virtual A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient.InvokeExtensionOperationAsync(A2A.Grpc.Extensions.Protos.ExtensionOperationRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncUnaryCall<A2A.Grpc.Extensions.Protos.ExtensionOperationResponse>
+~virtual A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient.InvokeExtensionOperation(A2A.Grpc.Extensions.Protos.ExtensionOperationRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> A2A.Grpc.Extensions.Protos.ExtensionOperationResponse
+~virtual A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient.InvokeExtensionOperationAsync(A2A.Grpc.Extensions.Protos.ExtensionOperationRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncUnaryCall<A2A.Grpc.Extensions.Protos.ExtensionOperationResponse>
+~virtual A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceBase.InvokeStreamingExtensionOperation(A2A.Grpc.Extensions.Protos.ExtensionOperationRequest request, Grpc.Core.IServerStreamWriter<A2A.Grpc.Extensions.Protos.ExtensionOperationEvent> responseStream, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task
+~virtual A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient.InvokeStreamingExtensionOperation(A2A.Grpc.Extensions.Protos.ExtensionOperationRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncServerStreamingCall<A2A.Grpc.Extensions.Protos.ExtensionOperationEvent>
+~virtual A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient.InvokeStreamingExtensionOperation(A2A.Grpc.Extensions.Protos.ExtensionOperationRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncServerStreamingCall<A2A.Grpc.Extensions.Protos.ExtensionOperationEvent>

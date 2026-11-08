@@ -19,6 +19,8 @@ Severity: **High** = breaks or endangers real deployments today. **Med** = needs
 | S5 | Name is display metadata; hosts routing by name are spoofable (6/7 tested impls). | Med | [arXiv 2609.27624](https://arxiv.org/abs/2609.27624) | Client registry keyed by identity (S4); reject duplicate names; warn on homoglyphs. |
 | S6 | Prompt injection via card text reaches planner prompt. | High | MAESTRO [arXiv 2504.16902](https://arxiv.org/html/2504.16902v1); Red Hat, Unit 42 | `AgentCardSanitizer`: length caps, control-char strip, optional escaping; "untrusted text" wrapper type so callers cannot accidentally interpolate raw card strings. |
 
+Status: S1 is done (`CardTrustPolicy`: pinned keys, `jku` host allowlist per origin; a key the card points at by itself is never trusted, and signature enforcement starts once trust is configured, see `spec-decisions.md`). S4 is done (`PeerIdentity`, `IPeerIdentityResolver`). S5 is done (`AgentRegistry`: keyed by identity, duplicate names rejected, lookalike warning). Still partial: S2 (the signer warns on empty values instead of refusing), S3 (no `IAgentCardPolicy` hook or org match), S6 (no optional escaping).
+
 ### 1.2 Push notifications
 
 | # | Gap | Sev | Evidence | SDK addition |
@@ -28,6 +30,8 @@ Severity: **High** = breaks or endangers real deployments today. **Med** = needs
 | S9 | `token` type and carrying header unspecified. JS sends `Authorization`, Python sends `X-A2A-Notification-Token`. | Med | A2A#1250 → #1988 | Send both: `Authorization: Bearer <token>` **and** `X-A2A-Notification-Token`. Receiver accepts either. |
 | S10 | No body integrity, no delivery ID. Duplicates allowed by spec. | Med | #1988; [discussion #2101](https://github.com/a2aproject/A2A/discussions/2101) | Standard-Webhooks-style headers: `X-A2A-Delivery-Id`, `X-A2A-Notification-Sequence` (already in `A2AProtocol.Headers`), `X-A2A-Signature` HMAC-SHA256 over timestamp+body with per-config secret. Receiver helper dedupes and verifies; always reconciles with `GetTask`. |
 | S11 | Delivery guarantee undiscoverable; retry MAY. | Med | #2101 | `IPushNotificationSender` with pluggable retry policy (exp backoff, DLQ hook), delivery log, `IPushNotificationOutbox` for durable sends. |
+
+Status: S7, S8, S9 and S10 are done (`PushNotifications.cs`, `PushConfigService`, `IPushSecretProtector`, `PushNotificationReceiver`; S10 uses Standard Webhooks `webhook-signature` instead of `X-A2A-Signature`, see `spec-decisions.md`). S11 is partial (outbox, dead letters and redrive exist; retry is options only, with no pluggable policy or dead-letter hook).
 
 ### 1.3 Authorization and tenancy
 
@@ -43,7 +47,7 @@ Severity: **High** = breaks or endangers real deployments today. **Med** = needs
 | S19 | Circular delegation deadlock; interrupted states can hang forever. | Med | A2ABreak 10-11 | Configurable TTL for `INPUT_REQUIRED`/`AUTH_REQUIRED` → auto `CANCELED`/`FAILED` with reason; actorChain hop limit (S17). |
 | S20 | Rate limiting MAY only; no size limits. | Med | a2a-serve #180 | Defaults: max body, max part, max parts/message, max history returned, max ListTasks page, max concurrent streams/task, per-principal rate limit (ASP.NET Core rate limiter integration). |
 
-Status: S17 is done (actorChain model and echo, `ITokenExchanger`, `OAuthTokenExchanger`, no forwarding of the inbound token; design: `docs/superpowers/specs/2026-11-08-delegation-identity-design.md`). The actorChain hop limit part of S19 is done (`A2ALimits.MaxActorChainHops`); the interrupted-state timeout part was already done.
+Status: S17 is done (actorChain model and echo, `ITokenExchanger`, `OAuthTokenExchanger`, no forwarding of the inbound token; design: `docs/superpowers/specs/2026-11-08-delegation-identity-design.md`). The actorChain hop limit part of S19 is done (`A2ALimits.MaxActorChainHops`); the interrupted-state timeout part was already done. S12, S14, S18 and S20 are done (`TaskKey`, `ITenantResolver`, `PendingApproval`, `A2ALimits` and `A2ARateLimiting`). Still partial: S13 (no `IContextSharingPolicy`), S15 (a revoked stream ends with no explicit event), S16 (no `InvalidRequest` with a retry hint once conflict retries run out).
 
 ### 1.4 Messaging and task semantics
 
@@ -64,6 +68,8 @@ Status: S17 is done (actorChain model and echo, `ITokenExchanger`, `OAuthTokenEx
 | S33 | 0.3/1.0 payload shapes mixed in the wild. | Med | #2277; Google compat post | Strict `A2A-Version` handling; clear `UnsupportedVersion` error; optional 0.3 read-compat shim behind flag. |
 | S34 | No trace propagation defined. | Med | [A2A#2103](https://github.com/a2aproject/A2A/issues/2103) | W3C `traceparent` in HTTP headers **and** message metadata; ActivitySource spans tagged with taskId/contextId; OpenTelemetry semantic conventions for gen_ai where applicable. |
 
+Status: S22, S23, S25, S26, S30, S32 and S33 are done (`TaskStreamer` and SSE resume, `FollowUpPolicy`, `A2AProtocol.CancelRequestedKey`, `TaskStateMachine`, `A2AException.IsRetryable`, `A2ARetentionOptions` and `A2ATaskAdmin`, `CallValidator` and the v0.3 compat packages). S31: S31_STATUS Still partial: S21 (no client key persistence or `ListTasks` recovery), S24 (no client auto-fallback to stream or poll), S28 (metadata merge is artifact-only and undocumented), S34 (no `traceparent` in message metadata, though Part 3 item 17 says done).
+
 ### 1.5 Missing capabilities (do via extensions, not core)
 
 | # | Gap | Sev | Evidence | Position |
@@ -75,7 +81,7 @@ Status: S17 is done (actorChain model and echo, `ITokenExchanger`, `OAuthTokenEx
 | S39 | Progress reporting, cost metadata, priorities, batch. | Low | PR #1448, #2121, #1029 | Not core. Metadata conventions documented, not enforced. |
 | S40 | File size limits / large binary streaming. | Med | inferred | Enforce caps (S20); prefer `url` parts for large files with signed URLs; SSRF guard on `url` part fetch. |
 
-Status: S35 is done (`SkillSelection`, `A2AClient.SelectSkill`, `AgentRequestContext.RequestedSkillId`; design: `docs/superpowers/specs/2026-11-08-s35-skill-selection-design.md`).
+Status: S35 is done (`SkillSelection`, `A2AClient.SelectSkill`, `AgentRequestContext.RequestedSkillId`; design: `docs/superpowers/specs/2026-11-08-s35-skill-selection-design.md`). S36 is done (`A2ACardResolver` cache and pinning). S40 is done (caps from `A2ALimits`, `SafeHttp.DownloadAsync` for `url` parts). S39 is open (no metadata conventions written down).
 
 ---
 
@@ -99,6 +105,8 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 | D10 | Client has no timeout/retry/backoff. | Med | source | Built on `Microsoft.Extensions.Http.Resilience`; retry only when `ErrorInfo.metadata.retryable` or transport failure; idempotency key on every `SendMessage` (S21). |
 | D11 | Auto-delete push configs after terminal delivery broke conformance tests. | Low | #592 open | Retention policy opt-in, default off; purge via sweeper (S32). |
 
+Status: D4, D6, D7, D9, D10 and D11 are done (`TaskStateMachine` and version checks, shared `TaskStreamer` with `Parity/RegressionTests`, `PushOutbox` and `PushDeliveryService`, `RetryPolicy` instead of `Http.Resilience`, opt-in `AddA2ARetention`). Still partial: D1 (Postgres and Redis ship, Cosmos does not), D2 (no mutation id per write), D3 (no Azure Service Bus provider), D5 (heartbeat, ids and resume are done; `MaxStreamDuration` exists, but there is no idle timeout).
+
 ### 2.2 Security
 
 | # | Gap in a2a-dotnet | Sev | Evidence | This SDK |
@@ -111,6 +119,8 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 | D17 | No DoS limits; all delegated to Kestrel. | Med | docs/security.md §3-4 | Defaults in SDK (S20). |
 | D18 | Webhook SSRF guard is strong (keep). Receiver-side verification absent. | Low/Med | docs/push-notifications.md | Match their guard; add receiver helper verifying token + HMAC + delivery id (S10). |
 
+Status: D12 to D18 are done (`A2AAuthorizationHandler` with policy on all bindings, samples and `docs/site/snippets/ClientCredentials.cs` for API key, OAuth2 and mTLS; `TaskRecord` tenant and owner; `AgentCardSigner` and `AgentCardVerifier`; `HttpPlumbing.Normalize`; `UseCookies=false`; `A2ALimits`; `PushNotificationReceiver`).
+
 ### 2.3 Spec coverage and transport parity
 
 | # | Gap in a2a-dotnet | Sev | Evidence | This SDK |
@@ -122,6 +132,8 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 | D23 | Custom/extension method dispatch half-done. | Med | #169, #574 | `IA2AOperation` registry per transport from the start; extensions register operations + card entries together. |
 | D24 | V0_3Compat silently drops final message/artifacts when `blocking` absent. | High for interop | #386 open | If 0.3 supported at all: behaviour-preserving mapping (default blocking) or loud error. Decision: ship 0.3 **read** compat only behind flag (S33). |
 | D25 | No netstandard2.0. | Med | #197 open | `A2A.Protocol` and `A2A.Client` target netstandard2.0 + net8.0 + net10.0. Server stays net8+. |
+
+Status: D19, D20, D21, D22 and D24 are done (`IAgentCardProvider` and `TenantCardProvider`, `{tenant}` routes, `Parity/ParityTests` over all three bindings, closed `Part` hierarchy, default-blocking mapping in `V03Codec`). D23: D23_STATUS
 
 ### 2.4 API design and DX
 
@@ -136,37 +148,39 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 | D32 | Mandatory path param, surface noise, duplicated error maps, 5 copies of streaming lifecycle. | Low/Med | #186, #556 | Default `/` route; one error-code map in `A2A.Protocol`; one streaming pipeline. |
 | D33 | AF hosting: `ReferenceTaskIds` unsupported, message-only mode cannot cancel/resume, scoped lifetimes ignored, context memory lifecycle unresolved. | Med | AF #7733, #4876, #9481 | Not our bug, but: scoped DI per request, `referenceTaskIds` passed through to handler, context lifecycle policy hook. |
 
+Status: D27, D28, D30 and D32 are done (abstract extension points and sealed options, `A2ARequestOptions`, `ObserveTaskAsync`, default `/` route with one error map and one streamer). D26: D26_STATUS D33 is partial (no context lifecycle policy hook).
+
 ---
 
 ## Part 3: Prioritized additions
 
 **P0: before first usable release** (security + correctness; without these a deployment is unsafe)
 1. Owner/tenant-scoped task store contract with versioned writes (S12, S13, S14, S16, D2, D13).
-2. Auth hooks on every binding; foreign task → `TaskNotFound` (S12, D12).
-3. Push webhook SSRF guard default-on + secret redaction + dual token headers (S7, S8, S9, D18).
+2. Auth hooks on every binding; foreign task → `TaskNotFound` (S12, D12). Done.
+3. Push webhook SSRF guard default-on + secret redaction + dual token headers (S7, S8, S9, D18). Done.
 4. Idempotency: `Idempotency-Key` + `messageId` dedupe (S21, D10).
 5. SSE sequence ids, `Last-Event-ID`, heartbeat, bounded replay (S22, D5).
 6. Agent card verifier with trust-anchor policy and correct RFC 8785 canonicalization (S1, S2, D14).
-7. Size/rate limits defaults (S20, D17).
-8. Generic error messages by default; no cookies by default (D15, D16).
-9. Closed `Part` hierarchy and discriminated unions (D22).
-10. Transport parity test matrix (D21).
+7. Size/rate limits defaults (S20, D17). Done.
+8. Generic error messages by default; no cookies by default (D15, D16). Done.
+9. Closed `Part` hierarchy and discriminated unions (D22). Done.
+10. Transport parity test matrix (D21). Done.
 
 **P1: production scale**
 11. SQL/Redis stores (D1).
 12. `IEventBus` + `IEventStore` with Redis provider (D3, S22).
 13. Durable push outbox + retry + HMAC signature + delivery id (S10, S11, D9).
-14. Per-request card/handler resolution, tenant routes (D19, D20).
-15. Interrupted-state TTL, approval binding (loopjacking), cancel-requested semantics (S18, S19, S25).
-16. Client resilience: timeouts, retry on retryable, `ObserveTaskAsync` (D10, D30, S30).
+14. Per-request card/handler resolution, tenant routes (D19, D20). Done.
+15. Interrupted-state TTL, approval binding (loopjacking), cancel-requested semantics (S18, S19, S25). Done.
+16. Client resilience: timeouts, retry on retryable, `ObserveTaskAsync` (D10, D30, S30). Done.
 17. Trace context + OTel GenAI semconv (S34, D31). Done.
-18. Task retention sweeper (S32, D11).
+18. Task retention sweeper (S32, D11). Done.
 
 **P2: ecosystem**
 19. actorChain / token exchange for delegation (S17). Done.
 20. Extension registry, operation registry (S31, D23).
 21. netstandard2.0 for Protocol + Client (D25).
-22. 0.3 read-compat shim behind flag (S33, D24).
+22. 0.3 read-compat shim behind flag (S33, D24). Done.
 23. Artifact chunk hashing (S27). Done.
 24. Skill-selection and elicitation extension packages (S35, S38). S35 done, in the existing packages.
 25. Analyzer package, PublicAPI baseline (D26, D29).

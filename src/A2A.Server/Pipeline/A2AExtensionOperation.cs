@@ -6,7 +6,8 @@ namespace A2A.Server.Pipeline;
 /// <summary>
 /// An extension operation a host registered with <see cref="A2AServerBuilder.AddExtensionOperation"/>. The JSON-RPC binding
 /// serves it as the method <see cref="Method"/>; the HTTP+JSON binding as <c>POST {pattern}/ext/{Method}</c>. The gRPC binding
-/// does not serve extension operations (its service definition is fixed).
+/// serves it through <c>a2a.extensions.v1.A2AExtensionService</c> (<c>InvokeExtensionOperation</c>, with <see cref="Method"/> as the
+/// <c>operation_id</c> and JSON payloads), the service definition of the official A2A .NET SDK; its streaming RPC is not served.
 /// </summary>
 /// <remarks>
 /// Every call runs through the operation pipeline like a built-in operation: tenant binding, telemetry, the host filters and

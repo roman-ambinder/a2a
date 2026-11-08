@@ -38,7 +38,7 @@ Routes for `MapA2A("/a2a")`:
 | Push config get, delete | `POST /a2a` | `GET`, `DELETE /a2a/tasks/{id}/pushNotificationConfigs/{configId}` |
 | GetExtendedAgentCard | `POST /a2a` | `GET /a2a/extendedAgentCard` |
 
-In JSON-RPC the operation is the `method` member of the body. The server does not accept batch requests. Each route also has a `/{tenant}` variant, unless the pattern has a `{tenant}` segment. See [Multi-tenancy](multi-tenancy.md). Extension operations add `POST /a2a/ext/{method}` to HTTP+JSON, and a JSON-RPC method. They are not on gRPC.
+In JSON-RPC the operation is the `method` member of the body. The server does not accept batch requests. Each route also has a `/{tenant}` variant, unless the pattern has a `{tenant}` segment. See [Multi-tenancy](multi-tenancy.md). Extension operations add `POST /a2a/ext/{method}` to HTTP+JSON, and a JSON-RPC method. On gRPC they have their own service, `a2a.extensions.v1.A2AExtensionService` (see [Map gRPC](#map-grpc)).
 
 `MapA2A` takes an <xref:A2A.Server.AspNetCore.A2AEndpointOptions> with `AuthorizationPolicy` and `MapAgentCard`. All Map methods need `AddA2AServerAspNetCore()` (which `AddA2A` calls) and fail at startup without authorization, as described in [Authentication and ownership](auth-and-ownership.md).
 
@@ -49,6 +49,8 @@ In JSON-RPC the operation is the `method` member of the body. The server does no
 [!code-csharp[](../snippets/Bindings.cs#GrpcServer)]
 
 `MapA2AGrpc` has the same fail-closed authorization check and the same `"a2a"` rate limit as `MapA2A`. A rate limit rejection is `RESOURCE_EXHAUSTED` with `RetryInfo`.
+
+To serve extension operations over gRPC, also call <xref:A2A.Server.Grpc.A2AGrpcExtensions.MapA2AGrpcExtensions*>. It maps `a2a.extensions.v1.A2AExtensionService`, the same service definition as the official A2A .NET SDK. It is a separate call, so `RequireAuthorization()` on its result applies to this service alone. It has the same fail-closed check and rate limit as `MapA2AGrpc`. The unary `InvokeExtensionOperation` takes `operation_id` (the operation's method) and a `payload` of UTF-8 JSON, and returns a `payload` of UTF-8 JSON. An empty payload means `{}`. An unknown `operation_id` is `MethodNotFound`; a payload that is not JSON is `InvalidParams`. Authorization, errors and the extensions echo work as on HTTP+JSON. The streaming RPC `InvokeStreamingExtensionOperation` is not served and answers UNIMPLEMENTED.
 
 gRPC needs HTTP/2. Over TLS, Kestrel can serve HTTP/1.1 and HTTP/2 on one port. Without TLS, give gRPC a port that allows HTTP/2 only:
 
@@ -79,6 +81,7 @@ To require gRPC, use <xref:A2A.Client.Grpc.A2AGrpcClientFactory>. It throws `Uns
 | Errors | JSON-RPC error object (HTTP 200 for most errors), or a `google.rpc.Status` body over HTTP+JSON | `google.rpc.Status` with an `ErrorInfo` detail. `retryable` and `retryAfter` are in its metadata. `RetryInfo` is added on rate limits. |
 | Request headers | `A2A-Version`, `A2A-Extensions`, `Idempotency-Key` | `a2a-version`, `a2a-extensions`, `idempotency-key` metadata |
 | Extensions echo | `A2A-Extensions` response header, also on errors | `a2a-extensions` initial metadata on success; in the trailers when the call fails |
+| Extension operations | `POST /ext/{method}`, or a JSON-RPC method | `a2a.extensions.v1.A2AExtensionService`, unary only. Map it with `MapA2AGrpcExtensions`. |
 | Tenant | Route segment, or the `tenant` field of the request | The `tenant` field of the request |
 | Stream resume | `Last-Event-ID` | Not supported. See [Streaming and resume](streaming.md). |
 | `ConfigureRequest` | Supported | Throws `NotSupportedException` |

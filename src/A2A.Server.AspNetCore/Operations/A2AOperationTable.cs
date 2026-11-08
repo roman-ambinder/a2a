@@ -8,8 +8,9 @@ namespace A2A.Server.AspNetCore.Operations;
 /// The operations the HTTP bindings serve: the 11 built-in JSON-RPC methods and HTTP+JSON routes, each with the shared
 /// <see cref="A2AOperationDescriptor"/> of its operation, plus the registered extension operations
 /// (<see cref="A2AServerBuilder.AddExtensionOperation"/>): a JSON-RPC method and a <c>POST /ext/{method}</c> route each.
-/// <see cref="JsonRpcEndpoint"/> and <see cref="RestEndpoint"/> dispatch through it. The gRPC binding does not use it: its
-/// service definition is fixed.
+/// <see cref="JsonRpcEndpoint"/> and <see cref="RestEndpoint"/> dispatch through it. The gRPC extension service
+/// (<c>a2a.extensions.v1.A2AExtensionService</c>) looks the operations up with <see cref="TryGetExtension"/>; the gRPC
+/// <c>A2AService</c> does not use the table, because its service definition is fixed.
 /// </summary>
 public sealed class A2AOperationTable
 {
@@ -91,4 +92,11 @@ public sealed class A2AOperationTable
 
     /// <summary>The extension operation registered as <paramref name="method"/> (case-sensitive).</summary>
     internal A2AExtensionOperation GetExtension(string method) => _extensions[method];
+
+    /// <summary>Finds the extension operation registered as <paramref name="method"/> (case-sensitive, ordinal).</summary>
+    /// <param name="method">The operation name: the JSON-RPC method, and the <c>operation_id</c> of the gRPC extension service.</param>
+    /// <param name="operation">The operation, when found.</param>
+    /// <returns>True when an operation with that name is registered.</returns>
+    public bool TryGetExtension(string method, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out A2AExtensionOperation? operation) =>
+        _extensions.TryGetValue(method, out operation);
 }

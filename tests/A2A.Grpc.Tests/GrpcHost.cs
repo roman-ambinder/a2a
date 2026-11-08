@@ -96,12 +96,14 @@ internal sealed class GrpcHost : IAsyncDisposable
     /// <param name="useA2A">Adds the A2A middleware (rate limiter).</param>
     /// <param name="aspNetCore">Calls <c>AddA2AServerAspNetCore()</c>.</param>
     /// <param name="configureEndpoints">Runs on the gRPC endpoint convention builder after mapping.</param>
+    /// <param name="mapExtensions">Also maps <c>MapA2AGrpcExtensions()</c> (the extension operation service).</param>
+    /// <param name="requireExtensionsAuth">Calls <c>RequireAuthorization()</c> on the extension service endpoints.</param>
     /// <param name="configurePipeline">Runs first in the request pipeline.</param>
     /// <param name="server">Extra server registrations on the <see cref="A2AServerBuilder"/> (filters, stores).</param>
     public static async Task<GrpcHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<IServiceCollection>? services = null,
         bool requireAuth = true, bool useA2A = true, bool aspNetCore = true,
         Action<IEndpointConventionBuilder>? configureEndpoints = null, Action<WebApplication>? configurePipeline = null,
-        Action<A2AServerBuilder>? server = null)
+        Action<A2AServerBuilder>? server = null, bool mapExtensions = false, bool requireExtensionsAuth = true)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -135,6 +137,11 @@ internal sealed class GrpcHost : IAsyncDisposable
         var grpc = app.MapA2AGrpc();
         if (requireAuth) grpc.RequireAuthorization();
         configureEndpoints?.Invoke(grpc);
+        if (mapExtensions)
+        {
+            var extensions = app.MapA2AGrpcExtensions();
+            if (requireExtensionsAuth) extensions.RequireAuthorization();
+        }
         try
         {
             await app.StartAsync();
@@ -164,6 +171,9 @@ internal sealed class GrpcHost : IAsyncDisposable
 
     /// <summary>A raw generated client (no A2A metadata is added for you).</summary>
     public Lf.A2a.V1.A2AService.A2AServiceClient Raw(string? user = "alice") => new(Channel(user));
+
+    /// <summary>A raw generated client of the extension operation service (no A2A metadata is added for you).</summary>
+    public A2A.Grpc.Extensions.Protos.A2AExtensionService.A2AExtensionServiceClient RawExtensions(string? user = "alice") => new(Channel(user));
 
     public A2AClient Client(string? user = "alice", A2AClientOptions? options = null)
     {
