@@ -23,6 +23,7 @@ ITK_REPO=https://github.com/a2aproject/a2a-itk.git
 ITK_REF=d53108aaf378a38eaff64ea39029a3d795591827   # main, 2026-10-26 (same pin as a2a-dotnet)
 
 PORT=9999; REDUCED_PORT=9100; AUTH_PORT=9200
+setup_failed=0
 pids=()
 stop_agents() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; wait 2>/dev/null; pids=(); }
 trap stop_agents EXIT
@@ -63,8 +64,8 @@ for suite in $SUITES; do
       mkdir -p "$OUT/tck"
       # Non-zero exit on failures is expected; check.py decides.
       (cd "$CACHE/a2a-tck" && uv sync --frozen -q && uv run --frozen python run_tck.py \
-        --sut-host "http://127.0.0.1:$PORT" -- -p no:cacheprovider)
-      cp "$CACHE/a2a-tck/reports/compatibility.json" "$CACHE/a2a-tck/reports/junitreport.xml" "$OUT/tck/" || exit 2
+        --sut-host "http://127.0.0.1:$PORT" -- -p no:cacheprovider) || true
+      cp "$CACHE/a2a-tck/reports/compatibility.json" "$CACHE/a2a-tck/reports/junitreport.xml" "$OUT/tck/" || setup_failed=1
       stop_agents
       ;;
     acts)
@@ -79,11 +80,14 @@ for suite in $SUITES; do
         --reduced-sut-url "http://127.0.0.1:$REDUCED_PORT" \
         --auth-sut-url "http://127.0.0.1:$AUTH_PORT" \
         --behaviors "$ROOT/conformance/acts/sut-behaviors.yaml" \
-        --sdk roman-ambinder-a2a --language dotnet --transport all --out "$OUT/acts")
+        --sdk roman-ambinder-a2a --language dotnet --transport all --out "$OUT/acts") || true
+      ls "$OUT"/acts/acts-report-*.json >/dev/null 2>&1 || setup_failed=1
       stop_agents
       ;;
     *) echo "Unknown suite: $suite" >&2; exit 2 ;;
   esac
 done
 
-python3 -I "$ROOT/conformance/check.py" "$OUT" "$ROOT/conformance/expected-failures.txt"
+python3 -I "$ROOT/conformance/check.py" "$OUT" "$ROOT/conformance/expected-failures.txt"; rc=$?
+if [ "$setup_failed" -ne 0 ]; then echo "A suite produced no report (see output above)." >&2; exit 2; fi
+exit "$rc"
