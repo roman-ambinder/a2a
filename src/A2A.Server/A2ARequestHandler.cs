@@ -364,6 +364,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         RequestLimitValidator.Validate(request.Message, _options.Limits);
         ActorChainValidator.Validate(request.Message, _options.Limits, call);
         await RequireSupportedMediaTypesAsync(request.Message, call, ct).ConfigureAwait(false);
+        await SkillSelectionValidator.ValidateAsync(request.Message, call, _requestCards, _cards, ct).ConfigureAwait(false);
         // A copy: the caller's message is never changed (a retry with the same instance must hash the same). This copy goes to
         // the executor; the stored history gets copies of its own.
         var message = request.Message.DeepCopy();
