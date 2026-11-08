@@ -15,7 +15,6 @@ var port = args.Length > 0 ? int.Parse(args[0], System.Globalization.CultureInfo
 var host = Environment.GetEnvironmentVariable("SUT_BIND_HOST") ?? "127.0.0.1";
 var baseUrl = $"http://{host}:{port}";
 var reduced = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ITK_ACTS_REDUCED_CAPABILITIES"));
-var authRequired = ActsAuth.Enforced;
 
 var builder = WebApplication.CreateBuilder();
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
@@ -35,7 +34,8 @@ var card = new AgentCard
     [
         new AgentInterface { Url = $"{baseUrl}/a2a", ProtocolBinding = ProtocolBindings.JsonRpc },
         new AgentInterface { Url = $"{baseUrl}/a2a", ProtocolBinding = ProtocolBindings.HttpJson },
-        new AgentInterface { Url = $"http://{host}:{port + 1}", ProtocolBinding = ProtocolBindings.Grpc },
+        // host:port, no scheme: both suites pass this string straight to a gRPC channel.
+        new AgentInterface { Url = $"{host}:{port + 1}", ProtocolBinding = ProtocolBindings.Grpc },
     ],
     Capabilities = new AgentCapabilities
     {
@@ -52,8 +52,9 @@ var card = new AgentCard
 
 builder.Services.AddA2AServer(o =>
 {
-    // Default pass: the suites call anonymously. Auth pass: every operation needs the bearer token.
-    o.AllowAnonymous = !authRequired;
+    // Default pass: the suites call anonymously. Auth pass: ScopeAuthorizationHandler refuses anonymous callers,
+    // so the 401 comes from the SDK with a normal error body, on every binding.
+    o.AllowAnonymous = true;
     o.AgentCard = card;
     o.ExtendedAgentCardProvider = (_, publicCard, _) => ValueTask.FromResult<AgentCard?>(ActsAuth.Extend(publicCard));
     // The suites run their webhook receivers on 127.0.0.1 over plain HTTP.

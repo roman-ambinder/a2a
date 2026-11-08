@@ -60,10 +60,13 @@ internal static class ActsAuth
         }
     }
 
-    /// <summary>Denies authenticated callers without the scope. Anonymous callers are left to AllowAnonymous.</summary>
+    /// <summary>Auth pass: refuses anonymous callers with 401. Always: denies authenticated callers without the scope (403).</summary>
     internal sealed class ScopeAuthorizationHandler : A2AAuthorizationHandler
     {
-        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(operation.Kind != A2AOperation.Extension && (!call.IsAuthenticated || call.User?.HasClaim(ScopeClaim, "a2a") == true));
+        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, CancellationToken cancellationToken)
+        {
+            if (Enforced && !call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated);
+            return ValueTask.FromResult(operation.Kind != A2AOperation.Extension && (!call.IsAuthenticated || call.User?.HasClaim(ScopeClaim, "a2a") == true));
+        }
     }
 }
