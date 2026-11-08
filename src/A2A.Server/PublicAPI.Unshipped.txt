@@ -15,4 +15,28 @@ A2A.Server.AgentRequestContext.CanElicit.get -> bool
 A2A.Server.AgentRequestContext.ElicitationAnswer.get -> A2A.Elicitations.ElicitationAnswer?
 A2A.Server.AgentRequestContext.ElicitationAnswer.init -> void
 A2A.Server.TaskUpdater.RequireInputAsync(A2A.Server.AgentRequestContext! context, A2A.Elicitations.ElicitationForm! form, string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Coordination.InMemoryExecutionCoordinator.TryRegisterExclusiveAsync(A2A.Server.Storage.TaskKey task, string! executionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+virtual A2A.Server.Coordination.ExecutionCoordinator.TryRegisterExclusiveAsync(A2A.Server.Storage.TaskKey task, string! executionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+A2A.Server.IContinuableAgentExecutor
+A2A.Server.IContinuableAgentExecutor.ContinueAsync(A2A.Server.TaskContinuationContext! context, A2A.Server.TaskUpdater! updater, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+A2A.Server.TaskContinuationContext
+A2A.Server.TaskContinuationContext.TaskContinuationContext() -> void
+A2A.Server.TaskContinuationContext.Key.get -> A2A.Server.Storage.TaskKey
+A2A.Server.TaskContinuationContext.Key.init -> void
+A2A.Server.TaskContinuationContext.Task.get -> A2A.AgentTask!
+A2A.Server.TaskContinuationContext.Task.init -> void
+A2A.Server.TaskContinuationContext.Metadata.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.Server.TaskContinuationContext.Metadata.init -> void
+A2A.Server.TaskContinuationStatus
+A2A.Server.TaskContinuationStatus.Started = 0 -> A2A.Server.TaskContinuationStatus
+A2A.Server.TaskContinuationStatus.TaskNotFound = 1 -> A2A.Server.TaskContinuationStatus
+A2A.Server.TaskContinuationStatus.TaskTerminal = 2 -> A2A.Server.TaskContinuationStatus
+A2A.Server.TaskContinuationStatus.InterruptedTimedOut = 3 -> A2A.Server.TaskContinuationStatus
+A2A.Server.TaskContinuationStatus.AlreadyRunning = 4 -> A2A.Server.TaskContinuationStatus
+A2A.Server.TaskContinuationStatus.NotSupported = 5 -> A2A.Server.TaskContinuationStatus
+A2A.Server.TaskContinuationResult
+A2A.Server.TaskContinuationResult.Status.get -> A2A.Server.TaskContinuationStatus
+A2A.Server.TaskContinuationResult.Started.get -> bool
+A2A.Server.TaskContinuationResult.Completion.get -> System.Threading.Tasks.Task!
+A2A.Server.Execution.TaskExecutionEngine.ContinueTaskAsync(A2A.Server.Storage.TaskKey key, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.TaskContinuationResult!>
 A2A.Server.TaskUpdater.AddHashedArtifactAsync(System.Collections.Generic.IEnumerable<A2A.Part!>! parts, string? artifactId = null, string? name = null, string? description = null, bool append = false, bool lastChunk = false, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<string!>

@@ -8,6 +8,8 @@ services.AddA2AServer<MyAgent>(o => o.AgentCard = card);
 
 Retention is **opt-in**: without `services.AddA2ARetention()` nothing is purged, `InterruptedTimeout` does nothing and dead executions are not recovered. `services.AddA2ARetention()` adds a background sweep (one instance at a time) that deletes terminal tasks after `TaskRetention` (7 days) with their events, push configs and deliveries, removes orphan contexts, cancels tasks waiting for input longer than `InterruptedTimeout` (24 hours), and fails tasks whose execution died with its instance. `A2ATaskAdmin.DeleteTaskAsync` deletes one task the same way.
 
+Proactive continuation: an agent that implements `IContinuableAgentExecutor` can continue an existing task with no inbound request. The host calls `TaskExecutionEngine.ContinueTaskAsync(TaskKey, metadata)` from a timer or callback. It returns a status (`Started`, `TaskNotFound`, `TaskTerminal`, `InterruptedTimedOut`, `AlreadyRunning`, `NotSupported`). The run is exclusive across instances. The API does not check the caller: authenticate any endpoint that exposes it.
+
 Push delivery is a durable outbox sent by `PushDeliveryService` (`A2AServerOptions.PushDelivery`); failed deliveries are listed and re-driven with `A2APushAdmin`. Webhooks can be signed (Standard Webhooks): register the push config with scheme `webhook-signature` and a `whsec_` secret, and verify with `PushNotificationReceiver.VerifySignature` from `RomanAmbinder.A2A.Client`.
 
 Many agents in one host: `AddTenantCardProvider<T>()` and `AddAgentExecutorResolver<T>()` pick the card and executor per tenant; the `IAgentCardProvider` completes each tenant's card (kept per card instance), so cache in your provider if building a card is expensive.
