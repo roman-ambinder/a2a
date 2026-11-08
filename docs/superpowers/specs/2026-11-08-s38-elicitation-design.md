@@ -110,4 +110,4 @@ Several forms per status (PR #2149's model), non-blocking requests, URL mode, ne
 
 ## 6. Wire compatibility
 
-A request or status without the key is unchanged. A non-activating client gets no extension data on the status message. `Task.metadata` gains a key only after a valid answer. Cards change only if the host lists the extension. Parity tests and `interop/run.sh` stay as they are.
+A request or status without the key is unchanged. A call that did not activate the extension gets no form on the status message it causes. A form stored by an activated run is visible to anyone who may read the task, and plain peers ignore it. `Task.metadata` gains a key only after a valid answer. Cards change only if the host lists the extension. Parity tests and `interop/run.sh` stay as they are.
