@@ -417,7 +417,7 @@ A2A.Server.Push.PushConfigService.DeleteAsync(A2A.Server.Storage.TaskKey key, st
 A2A.Server.Push.PushConfigService.GetAsync(A2A.Server.Storage.TaskKey key, string! configId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.TaskPushNotificationConfig!>
 A2A.Server.Push.PushConfigService.ListAsync(A2A.Server.Storage.TaskKey key, int pageSize, string? pageToken, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.ListTaskPushNotificationConfigsResponse!>
 A2A.Server.Push.PushConfigService.SaveInlineAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
-A2A.Server.Push.PushConfigService.ValidateInlineAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Server.Push.PushConfigService.ValidateInlineAsync(A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 A2A.Server.Idempotency.IdempotencyCoordinator
 A2A.Server.Idempotency.IdempotencyCoordinator.IdempotencyCoordinator(A2A.Server.Idempotency.IdempotencyStore! store, A2A.Server.Storage.TaskStore! tasks, A2A.Server.A2AServerOptions! options, Microsoft.Extensions.Logging.ILogger<A2A.Server.Idempotency.IdempotencyCoordinator!>? logger = null) -> void
 A2A.Server.Idempotency.IdempotencyCoordinator.BeginAsync(A2A.SendMessageRequest! request, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<(A2A.Server.Idempotency.IdempotencyClaim! Claim, A2A.Server.Idempotency.IdempotencyOutcome? Replay)>
@@ -425,7 +425,6 @@ A2A.Server.Idempotency.IdempotencyCoordinator.ReplayAsync(A2A.Server.Idempotency
 A2A.Server.Idempotency.IdempotencyCoordinator.RecordAsync(A2A.Server.Idempotency.IdempotencyClaim! claim, A2A.Server.Idempotency.IdempotencyOutcome! outcome, string! taskId) -> System.Threading.Tasks.ValueTask
 A2A.Server.Idempotency.IdempotencyCoordinator.AbandonAsync(A2A.Server.Idempotency.IdempotencyClaim! claim, string? taskId = null) -> System.Threading.Tasks.ValueTask
 A2A.Server.Idempotency.IdempotencyClaim
-A2A.Server.Idempotency.IdempotencyClaim.IdempotencyClaim(A2A.Server.Idempotency.IdempotencyStore? store, A2A.Server.Idempotency.IdempotencyScope scope) -> void
 A2A.Server.Idempotency.IdempotencyClaim.CompleteAsync(A2A.Server.Idempotency.IdempotencyOutcome! outcome) -> System.Threading.Tasks.ValueTask
 A2A.Server.Idempotency.IdempotencyClaim.AbandonAsync() -> System.Threading.Tasks.ValueTask
 static A2A.Server.Idempotency.IdempotencyClaim.None.get -> A2A.Server.Idempotency.IdempotencyClaim!
@@ -436,7 +435,6 @@ A2A.Server.Execution.TaskExecutionEngine.DisposeAsync() -> System.Threading.Task
 A2A.Server.Execution.TaskExecutionEngine.WaitUntilSettledAsync(A2A.Server.Storage.TaskKey key, long afterSequence, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.AgentTask!>
 A2A.Server.Execution.TaskExecutionEngine.WhenIdleAsync() -> System.Threading.Tasks.Task!
 A2A.Server.Streaming.TaskStreamer
-A2A.Server.Streaming.TaskStreamer.TaskStreamer(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider! cards) -> void
 A2A.Server.A2ARequestHandler.SendStreamingMessageAsync(A2A.SendMessageRequest! request, A2A.Server.ServerCallContext! call, string? lastEventId = null, System.Action? onCaughtUp = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!
 A2A.Server.A2ARequestHandler.SubscribeToTaskAsync(A2A.SubscribeToTaskRequest! request, A2A.Server.ServerCallContext! call, long? resumeAfter = null, System.Action? onCaughtUp = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!
 A2A.Server.IA2ARequestHandler

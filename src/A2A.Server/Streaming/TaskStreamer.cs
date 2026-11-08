@@ -41,8 +41,8 @@ public sealed class TaskStreamer
     private readonly RequestCards _cards;
     private readonly StreamAdmission _admission;
 
-    /// <summary>Creates the streamer. In an ASP.NET Core app the DI container does this; the parameters are the registered services.</summary>
-    public TaskStreamer(
+    /// <summary>Creates the streamer. <c>AddA2AServer</c> registers it; the parameters are the registered services.</summary>
+    internal TaskStreamer(
         TaskStore tasks,
         EventStore events,
         TaskExecutionEngine engine,

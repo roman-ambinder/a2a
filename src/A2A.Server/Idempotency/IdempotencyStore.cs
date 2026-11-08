@@ -101,7 +101,7 @@ public sealed class IdempotencyClaim
     /// <summary>Creates the claim of the request that owns <paramref name="scope"/> in <paramref name="store"/>.</summary>
     /// <param name="store">The store that holds the entry; null for a claim that does nothing.</param>
     /// <param name="scope">The entry's owner and key.</param>
-    public IdempotencyClaim(IdempotencyStore? store, IdempotencyScope scope)
+    internal IdempotencyClaim(IdempotencyStore? store, IdempotencyScope scope)
     {
         _store = store;
         _scope = scope;

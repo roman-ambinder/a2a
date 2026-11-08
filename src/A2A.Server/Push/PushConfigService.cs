@@ -69,7 +69,7 @@ public sealed class PushConfigService(PushConfigStore store, IPushSecretProtecto
     }
 
     /// <summary>Checks the webhook URL of the inline config of a SendMessage request, before anything is committed.</summary>
-    public ValueTask ValidateInlineAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken cancellationToken) =>
+    public ValueTask ValidateInlineAsync(TaskPushNotificationConfig config, CancellationToken cancellationToken) =>
         ValidateUrlAsync(config.Url, cancellationToken);
 
     /// <summary>

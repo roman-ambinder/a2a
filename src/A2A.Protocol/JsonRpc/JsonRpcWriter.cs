@@ -92,7 +92,7 @@ public static class JsonRpcWriter
 
     /// <summary>Creates the writer options used by the envelope writers, for callers that supply their own <see cref="Utf8JsonWriter"/>.</summary>
     /// <returns>Options with the same string escaping as <see cref="A2AJson.Options"/>.</returns>
-    public static JsonWriterOptions CreateWriterOptions() => WriterOptions;
+    internal static JsonWriterOptions CreateWriterOptions() => WriterOptions;
 
     private static void Begin(Utf8JsonWriter w, JsonElement? id)
     {
