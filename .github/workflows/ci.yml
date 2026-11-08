@@ -268,23 +268,36 @@ jobs:
       - name: Build site (broken links and bad xrefs fail)
         run: dotnet docfx docs/site/docfx.json --warningsAsErrors
 
+      - name: Install lychee
+        # Not lychee-action: it downloads the binary with no retry, so one network blip fails the job.
+        env:
+          LYCHEE_VERSION: v0.24.2
+        run: |
+          set -euo pipefail
+          asset=lychee-x86_64-unknown-linux-gnu.tar.gz
+          url="https://github.com/lycheeverse/lychee/releases/download/lychee-${LYCHEE_VERSION}"
+          mkdir -p "$RUNNER_TEMP/lychee"
+          cd "$RUNNER_TEMP/lychee"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -O "$url/$asset"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -O "$url/$asset.sha256"
+          sha256sum -c "$asset.sha256"
+          tar -xzf "$asset"
+          echo "$RUNNER_TEMP/lychee/lychee-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
+
       - name: Check links between generated pages
-        uses: lycheeverse/lychee-action@v2
-        with:
-          args: --offline --no-progress 'docs/site/_site/**/*.html'
-          fail: true
+        run: lychee --offline --no-progress 'docs/site/_site/**/*.html'
 
       - name: Check external links in guides and home page
-        uses: lycheeverse/lychee-action@v2
-        with:
-          # API pages link to learn.microsoft.com heavily, so only the hand-written markdown is checked.
-          # This private repo is covered by check-guides.py.
-          args: >-
-            --no-progress --max-retries 3 --retry-wait-time 5 --timeout 30
-            --accept '100..=399,429'
-            --exclude 'github\.com/roman-ambinder/a2a'
-            'docs/site/index.md' 'docs/site/guides/*.md'
-          fail: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        # API pages link to learn.microsoft.com heavily, so only the hand-written markdown is checked.
+        # This private repo is covered by check-guides.py.
+        run: >-
+          lychee
+          --no-progress --max-retries 3 --retry-wait-time 5 --timeout 30
+          --accept '100..=399,429'
+          --exclude 'github\.com/roman-ambinder/a2a'
+          'docs/site/index.md' 'docs/site/guides/*.md'
 
       - name: Upload site
         if: success()
