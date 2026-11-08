@@ -1,0 +1,21 @@
+#nullable enable
+A2A.Server.Storage.AzureBlob.A2AAzureBlobServiceCollectionExtensions
+A2A.Server.Storage.AzureBlob.AzureBlobArtifactObjectStore
+A2A.Server.Storage.AzureBlob.AzureBlobArtifactObjectStore.AzureBlobArtifactObjectStore(A2A.Server.Storage.AzureBlob.AzureBlobArtifactStoreOptions! options) -> void
+A2A.Server.Storage.AzureBlob.AzureBlobArtifactStoreOptions
+A2A.Server.Storage.AzureBlob.AzureBlobArtifactStoreOptions.AzureBlobArtifactStoreOptions() -> void
+A2A.Server.Storage.AzureBlob.AzureBlobArtifactStoreOptions.ConnectionString.get -> string?
+A2A.Server.Storage.AzureBlob.AzureBlobArtifactStoreOptions.ConnectionString.set -> void
+A2A.Server.Storage.AzureBlob.AzureBlobArtifactStoreOptions.ContainerClient.get -> Azure.Storage.Blobs.BlobContainerClient?
+A2A.Server.Storage.AzureBlob.AzureBlobArtifactStoreOptions.ContainerClient.set -> void
+A2A.Server.Storage.AzureBlob.AzureBlobArtifactStoreOptions.ContainerName.get -> string!
+A2A.Server.Storage.AzureBlob.AzureBlobArtifactStoreOptions.ContainerName.set -> void
+A2A.Server.Storage.AzureBlob.AzureBlobArtifactStoreOptions.KeyPrefix.get -> string!
+A2A.Server.Storage.AzureBlob.AzureBlobArtifactStoreOptions.KeyPrefix.set -> void
+override A2A.Server.Storage.AzureBlob.AzureBlobArtifactObjectStore.DeleteAsync(string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Storage.AzureBlob.AzureBlobArtifactObjectStore.ExistsAsync(string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Storage.AzureBlob.AzureBlobArtifactObjectStore.ListAsync(string! prefix, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Storage.ArtifactObjectEntry!>!
+override A2A.Server.Storage.AzureBlob.AzureBlobArtifactObjectStore.OpenReadAsync(string! key, A2A.Server.Storage.ArtifactByteRange? range = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectContent?>
+override A2A.Server.Storage.AzureBlob.AzureBlobArtifactObjectStore.PutAsync(string! key, System.IO.Stream! content, A2A.Server.Storage.ArtifactObjectInfo! info, long maxBytes, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectWriteResult!>
+override A2A.Server.Storage.AzureBlob.AzureBlobArtifactObjectStore.TryCreateDownloadUrlAsync(string! key, System.TimeSpan lifetime, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Uri?>
+static A2A.Server.Storage.AzureBlob.A2AAzureBlobServiceCollectionExtensions.AddA2AAzureBlobArtifactStore(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<A2A.Server.Storage.AzureBlob.AzureBlobArtifactStoreOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

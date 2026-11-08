@@ -17,12 +17,14 @@
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Testcontainers.Redis" />
     <PackageReference Include="Testcontainers.Minio" />
+    <PackageReference Include="Testcontainers.Azurite" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\A2A.Server\A2A.Server.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server.Postgres\A2A.Server.Postgres.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server.Redis\A2A.Server.Redis.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server.Storage.S3\A2A.Server.Storage.S3.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.Storage.AzureBlob\A2A.Server.Storage.AzureBlob.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj" />
   </ItemGroup>

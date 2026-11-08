@@ -45,7 +45,12 @@ A store is a class that derives from <xref:A2A.Server.Storage.ArtifactObjectStor
 |---|---|
 | `A2A.Server` | `InMemoryArtifactObjectStore`: tests and development. Objects are lost on restart. |
 
-<!-- Add a row here for each provider package when it ships (S3, Azure Blob). -->
+| `A2A.Server.Storage.S3` | `S3ArtifactObjectStore`: Amazon S3 and S3-compatible services such as MinIO. Register with `AddA2AS3ArtifactStore`. |
+| `A2A.Server.Storage.AzureBlob` | `AzureBlobArtifactObjectStore`: Azure Blob Storage block blobs. Register with `AddA2AAzureBlobArtifactStore`. |
+
+Both cloud providers upload 8 MiB at a time, so a stream of unknown length never needs a full buffer, and a failed or over-limit upload leaves no object. Both give a presigned URL (S3 presigned URL, Azure SAS URL) that forces `Content-Disposition: attachment`, so a stored HTML file downloads and never renders from the storage origin. The Azure provider makes SAS URLs only when its client holds the account key; with another credential it gives no URL and the server proxies the download.
+
+The S3 credentials need `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucket`, `s3:AbortMultipartUpload`, and `s3:PutObjectTagging` / `s3:GetObjectTagging`. The tagging permissions are required: the provider stamps the completion time of a multipart object as a tag, because S3 dates it from the start of the upload and the orphan sweep ages objects by that date. The Azure credentials need to read, write, list and delete blobs in the container.
 
 Startup logs a warning (event 255) when a durable task store is combined with `InMemoryArtifactObjectStore`: stored tasks would keep links that no longer download.
 

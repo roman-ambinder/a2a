@@ -85,7 +85,7 @@ jobs:
           if-no-files-found: warn
 
   stores:
-    name: Durable stores (Postgres + Redis + MinIO, Testcontainers)
+    name: Durable stores (Postgres + Redis + MinIO + Azurite, Testcontainers)
     runs-on: ubuntu-latest
     env:
       # Fail instead of skipping when Docker is missing.
@@ -99,7 +99,7 @@ jobs:
             8.0.x
             10.0.x
 
-      - name: Test store contracts (in-memory, PostgreSQL, Redis, S3 on MinIO; net8.0 + net10.0)
+      - name: Test store contracts (in-memory, PostgreSQL, Redis, S3 on MinIO, Azure Blob on Azurite; net8.0 + net10.0)
         run: dotnet test tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj -c Release --logger "trx;LogFilePrefix=stores" --results-directory TestResults
 
       - name: Upload test results

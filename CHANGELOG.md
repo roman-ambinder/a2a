@@ -169,7 +169,11 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 
 - Large artifact bytes can live in an object store instead of the task row. Register an `ArtifactObjectStore` (abstract class, in
   `A2A.Server.Storage`) and set `A2AServerOptions.ArtifactStorage.PublicBaseUrl`. `InMemoryArtifactObjectStore` is for tests and
-  development; S3 and Azure Blob providers are planned. With no store registered, nothing changes except the size caps.
+  development. With no store registered, nothing changes except the size caps.
+- New packages `A2A.Server.Storage.S3` (`AddA2AS3ArtifactStore`; Amazon S3 and S3-compatible services) and
+  `A2A.Server.Storage.AzureBlob` (`AddA2AAzureBlobArtifactStore`; block blobs). Uploads go in 8 MiB steps and a failed upload leaves
+  no object. Download links force `Content-Disposition: attachment`. S3 needs the tagging permissions
+  (`s3:PutObjectTagging`, `s3:GetObjectTagging`); Azure makes SAS links only from an account key.
 - A raw part over `InlineThresholdBytes` (256 KiB) is uploaded and replaced by a `url` part with `sha256` and `sizeBytes` in its
   metadata. `TaskUpdater.AddArtifactFromStreamAsync` uploads a stream of up to `MaxObjectBytes` (5 GiB) without passing it
   through an event. Appended chunks stay inline.
