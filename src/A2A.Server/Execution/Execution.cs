@@ -16,6 +16,7 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
 {
     private volatile bool _detached;
     private volatile bool _registered;
+    private volatile bool _taskStored;
     private readonly TaskCompletionSource _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>The task, owner-scoped.</summary>
@@ -39,6 +40,12 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
     /// Set and cleared under <see cref="HeartbeatGate"/>.
     /// </summary>
     public bool LeaseLost { get; set; }
+
+    /// <summary>
+    /// True once the task is in the task store: from the start for an existing task, after the first stored event for a new
+    /// one. Until then a missing task is expected and does not mean that the task was deleted.
+    /// </summary>
+    public bool TaskStored { get => _taskStored; set => _taskStored = value; }
 
     /// <summary>Held by a running heartbeat, and for good once the execution ends.</summary>
     public SemaphoreSlim HeartbeatGate { get; } = new(1, 1);

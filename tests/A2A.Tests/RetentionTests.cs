@@ -371,6 +371,34 @@ public sealed class RetentionTests
     }
 
     /// <summary>
+    /// A new task is stored with its first event. An execution that loses its lease before that finds no task: that is not a
+    /// task that ended, so the execution registers again and goes on, and its task completes.
+    /// </summary>
+    [Fact]
+    public async Task Lost_lease_of_a_new_task_before_its_first_event_is_registered_again()
+    {
+        var clock = NewClock();
+        var coordinator = new InMemoryExecutionCoordinator(new CoordinationOptions(), clock);
+        await using var host = await StartAsync(clock, services: s => s.AddSingleton<ExecutionCoordinator>(coordinator));
+        var text = "quiet " + Guid.NewGuid().ToString("N");
+        var send = host.Handler.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser(text) }, Call());
+        await EventuallyAsync(() => Task.FromResult(ScenarioAgent.QuietStarted.ContainsKey(text)), "the agent started");
+        var key = Key(ScenarioAgent.QuietStarted[text]);
+        Assert.Null(await StateAsync(host, key)); // not stored yet
+
+        clock.Advance(HeartbeatStep + new CoordinationOptions().LeaseTtl); // one heartbeat, after the lease expired
+        await EventuallyAsync(async () =>
+        {
+            clock.Advance(HeartbeatStep);
+            return await coordinator.IsRunningAsync(key);
+        }, "a heartbeat registered the execution again");
+
+        ScenarioAgent.Gate(text).SetResult();
+        var response = await send.WaitAsync(Wait);
+        Assert.Equal(TaskState.Completed, response.RequireTask().Status.State);
+    }
+
+    /// <summary>
     /// Instance A misses its heartbeats (a long pause) while instance B's sweep fails the task. When A's next heartbeat finds
     /// its lease lost and the task terminal, A cancels its agent.
     /// </summary>
