@@ -190,6 +190,94 @@ public class AgentFunctionTests
         Assert.Equal("from json", ((TextPart)sent.Parts[0]).Text);
     }
 
+    // ---- interrupted tasks, continuation, encoding ----
+
+    [Theory]
+    [InlineData(TaskState.InputRequired)]
+    [InlineData(TaskState.AuthRequired)]
+    public async Task Interrupted_task_content_is_the_status_message_even_with_artifacts(TaskState state)
+    {
+        var transport = new FakeTransport
+        {
+            Send = (_, _) => Task.FromResult(FakeTransport.Respond(FakeTransport.TaskIn(state, message: Reply("Which account?"), artifacts: [Art("a", Part.FromText("partial result"))]))),
+        };
+        var text = (await InvokeAsync(transport.AsClient().AsAIFunction("n", "d"), "hi")).GetProperty("remoteContent").GetString();
+        Assert.Equal("Which account?", text);
+    }
+
+    [Fact]
+    public async Task Continuing_a_task_returns_only_artifacts_new_in_this_turn_and_the_hook_sees_only_those()
+    {
+        var old = Art("old", Part.FromText("turn one"));
+        var transport = new FakeTransport
+        {
+            Get = (r, _) => Task.FromResult(FakeTransport.TaskIn(TaskState.InputRequired, r.Id, "c", artifacts: [old])),
+            Send = (_, _) => Task.FromResult(FakeTransport.Respond(FakeTransport.TaskIn(TaskState.Completed, "t", "c", artifacts: [old, Art("new", Part.FromText("turn two"))]))),
+        };
+        var seen = new List<string>();
+        var fn = transport.AsClient().AsAIFunction("n", "d", new A2AAgentFunctionOptions { OnArtifactReceived = (a, _) => { seen.Add(a.ArtifactId); return ValueTask.CompletedTask; } });
+
+        var result = await InvokeAsync(fn, "more", taskId: "t");
+
+        Assert.Equal("turn two", result.GetProperty("remoteContent").GetString());
+        Assert.Equal(["new"], seen);
+    }
+
+    [Fact]
+    public async Task Lookup_failure_is_ignored_but_caller_cancellation_is_not()
+    {
+        var transport = new FakeTransport
+        {
+            Get = (_, _) => throw new InvalidOperationException("lookup failed"),
+            Send = (_, _) => Task.FromResult(FakeTransport.Respond(FakeTransport.TaskIn(TaskState.Completed, artifacts: [Art("a", Part.FromText("ok"))]))),
+        };
+        var client = transport.AsClient(new A2AClientOptions { MaxRetries = 0 });
+        var fn = client.AsAIFunction("n", "d");
+        Assert.Equal("ok", (await InvokeAsync(fn, "hi", taskId: "t")).GetProperty("remoteContent").GetString());
+
+        using var cts = new CancellationTokenSource();
+        transport.Get = (_, ct) =>
+        {
+            cts.Cancel();
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult(FakeTransport.TaskIn(TaskState.Working));
+        };
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await InvokeAsync(fn, "hi", taskId: "t", ct: cts.Token));
+    }
+
+    [Fact]
+    public async Task The_timeout_covers_the_lookup()
+    {
+        var transport = new FakeTransport
+        {
+            Get = async (_, ct) =>
+            {
+                await Task.Delay(Timeout.Infinite, ct);
+                return null!;
+            },
+            Send = (_, ct) =>
+            {
+                ct.ThrowIfCancellationRequested(); // the lookup used up the timeout
+                throw new InvalidOperationException("must not be reached");
+            },
+        };
+        var fn = transport.AsClient(new A2AClientOptions { MaxRetries = 0 }).AsAIFunction("n", "d", new A2AAgentFunctionOptions { Timeout = TimeSpan.FromMilliseconds(100) });
+        await Assert.ThrowsAsync<TimeoutException>(async () => await InvokeAsync(fn, "hi", taskId: "t"));
+    }
+
+    [Fact]
+    public async Task Non_ascii_text_is_not_escaped_and_quotes_and_backslashes_still_parse()
+    {
+        const string text = "Привет, \"мир\" \\ путь C:\\temp 日本語";
+        var transport = new FakeTransport { Send = (_, _) => Task.FromResult<SendMessageResponse>(new MessageResponse(Reply(text))) };
+        var result = await InvokeAsync(transport.AsClient().AsAIFunction("n", "d"), "hi");
+        var raw = result.GetRawText();
+        Assert.Contains("Привет", raw);
+        Assert.Contains("日本語", raw);
+        Assert.DoesNotContain("\\u04", raw);
+        Assert.Equal(text, JsonDocument.Parse(raw).RootElement.GetProperty("remoteContent").GetString());
+    }
+
     // ---- truncation ----
 
     [Fact]

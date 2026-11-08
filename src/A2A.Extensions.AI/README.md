@@ -39,7 +39,7 @@ A model error, a content filter stop, or a tool call that nothing ran fails the 
 
 ### History limit and `KeepConversationOpen`
 
-History is per task. A new task in the same `contextId` does not see earlier tasks. The model gets at most the newest `MaxHistoryMessages` messages of the task (100 by default). Callers who read the task back get at most `A2ALimits.MaxHistoryLengthReturned` messages (also 100 by default).
+History is per task. A new task in the same `contextId` does not see earlier tasks. The model gets at most the newest `MaxHistoryMessages` messages of the task (100 by default). If the trim would leave an agent reply first, the prompt starts at the next user message. Callers who read the task back get at most `A2ALimits.MaxHistoryLengthReturned` messages (also 100 by default).
 
 For a multi-turn chat, set `KeepConversationOpen = true`. Each turn then ends in `INPUT_REQUIRED` and the full reply is stored as a status message. The caller sends the next message with the same `taskId`, and the model sees the earlier turns.
 
@@ -58,7 +58,9 @@ The tool takes `message` (required), `contextId` and `taskId` (optional). It ret
 {"state":"completed","taskId":"...","contextId":"...","remoteContent":"...","truncated":false,"nonTextParts":0,"notice":"..."}
 ```
 
-- `remoteContent` is the text and JSON of the artifacts. If there are none, it is the status message text. For a direct reply, it is the message text.
+- `remoteContent` depends on the state. For `input-required` and `auth-required` it is the status message text (the agent's question), even when artifacts exist. For other states it is the text and JSON of the artifacts, or the status message text if there are none. For a direct reply, it is the message text.
+- When you continue a task with `taskId`, only artifacts that are new in this turn count, for `remoteContent` and for `OnArtifactReceived`. The tool looks the task up first. If the lookup fails, it is ignored. The `Timeout` covers the lookup.
+- The result is JSON with non-ASCII text written as is (not as `\uXXXX` escapes).
 - `MaxResultCharacters` (default 32000) cuts long text and sets `truncated`.
 - Non-text parts (bytes, URLs) are counted in `nonTextParts` and never sent to the model.
 - Failed, rejected, canceled, input-required and auth-required tasks are results with their `state`, not exceptions.
@@ -75,7 +77,8 @@ var response = await chat.GetResponseAsync([new ChatMessage(ChatRole.User, "Hell
 - `ChatOptions.ConversationId` is the A2A `contextId`. The response `ConversationId` is the context id.
 - The task id travels in `AdditionalProperties` under `A2AChatKeys.TaskId`, in both directions. `A2AChatKeys.TaskState` has the state on responses. Use them to continue an `INPUT_REQUIRED` task.
 - Failed, rejected or canceled tasks throw `InvalidOperationException` with the state only, not the remote text.
-- When you continue a task, a unary call returns only artifacts you have not seen. When the status message of an `INPUT_REQUIRED` task only repeats the artifact text (what `KeepConversationOpen` produces), it is not returned twice.
+- When you continue a task (task id set), the client looks the task up first. Unary calls and streams then return only artifacts you have not seen, and skip the old `INPUT_REQUIRED` question that a stream can replay. Updates still carry the task id and state. When the status message of an `INPUT_REQUIRED` task only repeats the artifact text (what `KeepConversationOpen` produces), it is not returned twice.
+- `AdditionalProperties` of messages and contents are never sent to the remote agent (they are caller side data). The public `ToA2AMessage` and `ToPart` still copy them.
 - Disposing the facade does not dispose the `A2AClient`.
 
 ## Conversions

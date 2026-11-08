@@ -37,7 +37,7 @@ public sealed class A2AChatClient : IChatClient
     public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
         var request = BuildMessage(messages, options);
-        var known = await KnownArtifactIdsAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
+        var known = await RemoteAgentSupport.LookupKnownAsync(_client, request.TaskId, _options.RequestOptions, cancellationToken, cancellationToken).ConfigureAwait(false);
         var response = await _client.SendMessageAsync(request, null, _options.RequestOptions, cancellationToken).ConfigureAwait(false);
         switch (response)
         {
@@ -60,7 +60,7 @@ public sealed class A2AChatClient : IChatClient
                 ThrowIfFailed(task.Status.State);
 
                 var chatMessages = new List<ChatMessage>();
-                var fresh = task.Artifacts?.Where(a => !known.Contains(a.ArtifactId)).ToList();
+                var fresh = task.Artifacts?.Where(a => !known.ArtifactIds.Contains(a.ArtifactId)).ToList();
                 if (fresh is not null)
                 {
                     foreach (var artifact in fresh)
@@ -69,7 +69,7 @@ public sealed class A2AChatClient : IChatClient
                         chatMessages.Add(artifact.ToChatMessage());
                     }
                 }
-                if (task.Status.State.IsInterrupted() && task.Status.Message is { } status && !EchoesArtifacts(status.Parts, ArtifactText(fresh)))
+                if (task.Status.State.IsInterrupted() && task.Status.Message is { } status && status.MessageId != known.StatusMessageId && !EchoesArtifacts(status.Parts, ArtifactText(fresh)))
                     chatMessages.Add(AgentMessage(status));
                 return new ChatResponse(chatMessages)
                 {
@@ -89,6 +89,7 @@ public sealed class A2AChatClient : IChatClient
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var request = BuildMessage(messages, options);
+        var known = await RemoteAgentSupport.LookupKnownAsync(_client, request.TaskId, _options.RequestOptions, cancellationToken, cancellationToken).ConfigureAwait(false);
         var chunked = new HashSet<string>(StringComparer.Ordinal);
         var emitted = new HashSet<string>(StringComparer.Ordinal);
         var artifactText = new System.Text.StringBuilder();
@@ -109,7 +110,10 @@ public sealed class A2AChatClient : IChatClient
                     break;
 
                 case StatusUpdateEvent { StatusUpdate: var change }:
-                    foreach (var update in StatusUpdates(change.ContextId, change.TaskId, change.Status, artifactText.ToString())) yield return update;
+                    foreach (var update in StatusUpdates(change.ContextId, change.TaskId, change.Status, artifactText.ToString(), known.StatusMessageId)) yield return update;
+                    // This SDK's server keeps the stream open at an interrupted state, waiting for a follow-up. The turn is over:
+                    // stop here, or a caller that reads to the end would wait for the stream duration limit.
+                    if (change.Status.State.IsInterrupted()) yield break;
                     break;
 
                 case TaskEvent { Task: var snapshot }:
@@ -117,47 +121,29 @@ public sealed class A2AChatClient : IChatClient
                     {
                         foreach (var artifact in artifacts)
                         {
-                            if (chunked.Contains(artifact.ArtifactId) || !emitted.Add(artifact.ArtifactId)) continue;
+                            if (known.ArtifactIds.Contains(artifact.ArtifactId) || chunked.Contains(artifact.ArtifactId) || !emitted.Add(artifact.ArtifactId)) continue;
                             if (_options.OnArtifactReceived is { } hook) await hook(artifact, cancellationToken).ConfigureAwait(false);
                             artifactText.Append(TextOf(artifact.Parts));
                             yield return Update(snapshot.ContextId, snapshot.Id, null, artifact.ArtifactId, artifact.Parts, finish: null);
                         }
                     }
-                    foreach (var update in StatusUpdates(snapshot.ContextId, snapshot.Id, snapshot.Status, artifactText.ToString())) yield return update;
+                    foreach (var update in StatusUpdates(snapshot.ContextId, snapshot.Id, snapshot.Status, artifactText.ToString(), known.StatusMessageId)) yield return update;
+                    // A snapshot of the existing task starts a continued stream. Its old interrupted status is not this turn's end.
+                    if (snapshot.Status.State.IsInterrupted() && snapshot.Status.Message?.MessageId != known.StatusMessageId) yield break;
                     break;
             }
         }
     }
 
-    private static IEnumerable<ChatResponseUpdate> StatusUpdates(string? contextId, string? taskId, AgentTaskStatus status, string artifactText)
+    private static IEnumerable<ChatResponseUpdate> StatusUpdates(string? contextId, string? taskId, AgentTaskStatus status, string artifactText, string? knownStatusMessageId)
     {
         var state = status.State;
         ThrowIfFailed(state);
         if (state is TaskState.Working or TaskState.Submitted or TaskState.Unspecified) yield break; // progress is not surfaced
         // A ChatClientAgentExecutor with KeepConversationOpen sends its reply as artifact chunks and again as the status message.
         // The caller must not see the same text twice, so an interrupted status that only repeats the artifacts adds no content.
-        var parts = state.IsInterrupted() && status.Message is { } message && !EchoesArtifacts(message.Parts, artifactText) ? message.Parts : [];
+        var parts = state.IsInterrupted() && status.Message is { } message && message.MessageId != knownStatusMessageId && !EchoesArtifacts(message.Parts, artifactText) ? message.Parts : [];
         yield return Update(contextId, taskId, state, status.Message?.MessageId, parts, state == TaskState.Completed ? ChatFinishReason.Stop : null);
-    }
-
-    /// <summary>
-    /// A task keeps the artifacts of every turn, and a unary reply returns all of them. When continuing a task, the caller has
-    /// already seen the earlier ones, so remember their ids. Best effort: if the lookup fails, the send reports the real error.
-    /// </summary>
-    private async Task<HashSet<string>> KnownArtifactIdsAsync(string? taskId, CancellationToken cancellationToken)
-    {
-        var known = new HashSet<string>(StringComparer.Ordinal);
-        if (string.IsNullOrEmpty(taskId)) return known;
-        try
-        {
-            var existing = await _client.GetTaskAsync(taskId, 0, _options.RequestOptions, cancellationToken).ConfigureAwait(false);
-            if (existing.Artifacts is { } artifacts)
-                foreach (var artifact in artifacts) known.Add(artifact.ArtifactId);
-        }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
-        {
-        }
-        return known;
     }
 
     private static string TextOf(IEnumerable<Part> parts) => string.Concat(parts.OfType<TextPart>().Select(p => p.Text));
@@ -212,16 +198,10 @@ public sealed class A2AChatClient : IChatClient
         if (start == list.Count) throw new ArgumentException("The messages must end with at least one user message.", nameof(messages));
 
         var result = new Message { MessageId = Message.NewId(), Role = Role.User, Parts = [] };
+        // Message and content properties are caller side data (they can hold anything). They are never sent to the remote agent.
         for (var i = start; i < list.Count; i++)
-        {
-            var converted = list[i].ToA2AMessage();
-            result.Parts.AddRange(converted.Parts);
-            if (converted.Metadata is { } metadata)
-            {
-                result.Metadata ??= new();
-                foreach (var (key, value) in metadata) result.Metadata[key] = value;
-            }
-        }
+            foreach (var content in list[i].Contents)
+                if (A2AContentExtensions.ConvertToPart(content, copyMetadata: false) is { } part) result.Parts.Add(part);
         if (result.Parts.Count == 0) throw new ArgumentException("The user messages have no content that A2A can carry.", nameof(messages));
 
         result.ContextId = string.IsNullOrEmpty(options?.ConversationId) ? null : options.ConversationId;

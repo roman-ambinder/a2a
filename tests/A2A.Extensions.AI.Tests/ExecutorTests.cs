@@ -159,9 +159,30 @@ public class ExecutorTests
         var first = Task_(await client.SendMessageAsync("q1"));
         await client.SendMessageAsync("q2", first.ContextId, first.Id);
 
+        // The trim leaves [answer1, q2]; the prompt then starts at the user turn.
         Assert.Equal(
-            [(ChatRole.System, "sys"), (ChatRole.Assistant, "answer1"), (ChatRole.User, "q2")],
+            [(ChatRole.System, "sys"), (ChatRole.User, "q2")],
             chat.Calls[1].Messages.Select(m => (m.Role, m.Text)).ToArray());
+    }
+
+    [Theory]
+    [InlineData(3, "q2,answer2,q3")]
+    [InlineData(4, "q2,answer2,q3")]
+    [InlineData(2, "q3")]
+    [InlineData(1, "q3")]
+    public async Task Trimmed_prompt_never_starts_with_an_agent_message(int max, string expected)
+    {
+        var n = 0;
+        var chat = FakeChatClient.Streaming(_ => [new ChatResponseUpdate(ChatRole.Assistant, $"answer{++n}")]);
+        await using var host = await AgentHost.StartAsync(chat, o => { o.KeepConversationOpen = true; o.MaxHistoryMessages = max; });
+        var client = host.Client(Binding);
+        var t = Task_(await client.SendMessageAsync("q1"));
+        await client.SendMessageAsync("q2", t.ContextId, t.Id);
+        await client.SendMessageAsync("q3", t.ContextId, t.Id);
+
+        var prompt = chat.Calls[2].Messages;
+        Assert.Equal(ChatRole.User, prompt[0].Role);
+        Assert.Equal(expected, string.Join(",", prompt.Select(m => m.Text)));
     }
 
     [Fact]

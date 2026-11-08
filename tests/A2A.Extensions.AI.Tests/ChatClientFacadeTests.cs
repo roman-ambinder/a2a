@@ -338,6 +338,72 @@ public class ChatClientFacadeTests
         Assert.Equal("x", (await transport.AsClient().AsChatClient().GetResponseAsync([new ChatMessage(ChatRole.User, "hi")])).Text);
     }
 
+    [Fact]
+    public async Task Streaming_a_continuation_skips_replayed_artifacts_and_the_old_question_but_keeps_ids_and_state()
+    {
+        var old = Art("old", "turn one");
+        var snapshot = FakeTransport.TaskIn(TaskState.InputRequired, "t1", "c1", AgentMsg("turn one", "m-old"), [old]);
+        var transport = new FakeTransport
+        {
+            Get = (r, _) => Task.FromResult(snapshot),
+            Stream = (_, _) => Events(new TaskEvent(snapshot), Chunk("new", "turn two"), Status(TaskState.InputRequired, AgentMsg("turn two"))),
+        };
+        var updates = new List<ChatResponseUpdate>();
+        await foreach (var u in transport.AsClient().AsChatClient().GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "more")],
+            new ChatOptions { ConversationId = "c1", AdditionalProperties = new() { [A2AChatKeys.TaskId] = "t1" } })) updates.Add(u);
+
+        Assert.Equal("turn two", string.Concat(updates.Select(u => u.Text)));
+        Assert.All(updates, u => Assert.Equal("t1", u.AdditionalProperties![A2AChatKeys.TaskId]));
+        Assert.Equal("input-required", updates.Last().AdditionalProperties![A2AChatKeys.TaskState]);
+    }
+
+    [Fact]
+    public async Task Streaming_ends_at_an_interrupted_state_even_if_the_server_keeps_the_stream_open()
+    {
+        // This SDK's server does not close the stream at input-required: it waits for a follow-up.
+        var transport = new FakeTransport { Stream = (_, ct) => OpenAfterInterrupt(ct) };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var updates = new List<ChatResponseUpdate>();
+        await foreach (var u in transport.AsClient().AsChatClient().GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "hi")], cancellationToken: cts.Token)) updates.Add(u);
+        Assert.False(cts.IsCancellationRequested);
+        Assert.Equal("what size?", string.Concat(updates.Select(u => u.Text)));
+
+        static async IAsyncEnumerable<StreamResponse> OpenAfterInterrupt([EnumeratorCancellation] CancellationToken ct)
+        {
+            yield return Status(TaskState.InputRequired, AgentMsg("what size?"));
+            await Task.Delay(Timeout.Infinite, ct);
+        }
+    }
+
+    [Fact]
+    public async Task Message_and_content_properties_are_not_sent_to_the_remote_agent()
+    {
+        var transport = Unary(FakeTransport.TaskIn(TaskState.Completed));
+        var chat = transport.AsClient().AsChatClient();
+        var content = new TextContent("hi") { AdditionalProperties = new() { ["contentSecret"] = "C-SECRET" } };
+        var message = new ChatMessage(ChatRole.User, [content]) { AdditionalProperties = new() { ["messageSecret"] = "M-SECRET" } };
+
+        await chat.GetResponseAsync([message]);
+        await CollectIgnoringAsync(chat, message);
+
+        foreach (var request in transport.Sent)
+        {
+            Assert.Null(request.Message.Metadata);
+            Assert.All(request.Message.Parts, p => Assert.Null(p.Metadata));
+            Assert.DoesNotContain("SECRET", System.Text.Json.JsonSerializer.Serialize(request, A2A.Json.A2AJson.Options));
+        }
+        Assert.Equal(2, transport.Sent.Count);
+        // The public conversion still copies metadata.
+        Assert.Equal("M-SECRET", message.ToA2AMessage().Metadata!["messageSecret"].GetString());
+    }
+
+    private static async Task CollectIgnoringAsync(IChatClient chat, ChatMessage message)
+    {
+        var transport = ((A2AChatClient)chat);
+        try { await foreach (var _ in transport.GetStreamingResponseAsync([message])) { } }
+        catch (NotSupportedException) { }
+    }
+
     // ---- service and dispose ----
 
     [Fact]
@@ -374,16 +440,18 @@ public class ChatClientFacadeTests
         var chat = transport.AsClient().AsChatClient();
         var task = Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
         {
-            await foreach (var _ in chat.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "hi")], cancellationToken: cts.Token)) cts.Cancel();
+            await foreach (var _ in chat.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "hi")], cancellationToken: cts.Token)) { }
         });
+        cts.CancelAfter(50);
         await task;
 
+        // Chunks keep coming (the stream does not end at a working status), so only the token can stop it.
         static async IAsyncEnumerable<StreamResponse> Infinite([EnumeratorCancellation] CancellationToken ct)
         {
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
-                yield return new StatusUpdateEvent(new TaskStatusUpdateEvent { TaskId = "t", ContextId = "c", Status = new AgentTaskStatus { State = TaskState.InputRequired, Message = new Message { MessageId = "m", Role = Role.Agent, Parts = [Part.FromText("x")] } } });
+                yield return Chunk("a", "x", append: true);
                 await Task.Yield();
             }
         }

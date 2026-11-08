@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using A2A.Client;
 using Microsoft.Extensions.AI;
@@ -55,6 +56,7 @@ public sealed class A2AAgentFunction : AIFunction
         string? remoteTaskId = null;
         try
         {
+            var known = await RemoteAgentSupport.LookupKnownAsync(_client, string.IsNullOrEmpty(taskId) ? null : taskId, _options.RequestOptions, cts.Token, cancellationToken).ConfigureAwait(false);
             var message = Message.FromUser(text, string.IsNullOrEmpty(contextId) ? null : contextId, string.IsNullOrEmpty(taskId) ? null : taskId);
             var response = await _client.SendMessageAsync(message, null, _options.RequestOptions, cts.Token).ConfigureAwait(false);
             switch (response)
@@ -65,9 +67,10 @@ public sealed class A2AAgentFunction : AIFunction
                     remoteTaskId = task.Id;
                     if (RemoteAgentSupport.NeedsWait(task.Status.State))
                         task = await _client.WaitForTaskAsync(task.Id, null, _options.RequestOptions, cts.Token).ConfigureAwait(false);
-                    if (task.Artifacts is { } artifacts && _options.OnArtifactReceived is { } hook)
-                        foreach (var artifact in artifacts) await hook(artifact, cts.Token).ConfigureAwait(false);
-                    return BuildResult(task);
+                    var fresh = task.Artifacts?.Where(a => !known.ArtifactIds.Contains(a.ArtifactId)).ToList();
+                    if (fresh is not null && _options.OnArtifactReceived is { } hook)
+                        foreach (var artifact in fresh) await hook(artifact, cts.Token).ConfigureAwait(false);
+                    return BuildResult(task, fresh);
                 default:
                     throw new InvalidOperationException("The remote agent sent an unknown response.");
             }
@@ -104,14 +107,17 @@ public sealed class A2AAgentFunction : AIFunction
             }
             : null;
 
-    private JsonElement BuildResult(AgentTask task)
+    private JsonElement BuildResult(AgentTask task, List<Artifact>? artifacts)
     {
         var content = new RemoteContent();
-        if (task.Artifacts is { Count: > 0 } artifacts)
+        // An interrupted task asks something: the question is the content. Otherwise the artifacts, else the status message.
+        if (task.Status.State.IsInterrupted() && task.Status.Message is { } question) content.AddBlock(question.Parts);
+        else
         {
-            foreach (var artifact in artifacts) content.AddBlock(artifact.Parts);
+            if (artifacts is not null)
+                foreach (var artifact in artifacts) content.AddBlock(artifact.Parts);
+            if (content.IsEmpty && task.Status.Message is { } status) content.AddBlock(status.Parts);
         }
-        if (content.IsEmpty && task.Status.Message is { } status) content.AddBlock(status.Parts);
         return BuildResult(task.Status.State, task.Id, task.ContextId, content);
     }
 
@@ -135,7 +141,7 @@ public sealed class A2AAgentFunction : AIFunction
         }
 
         var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
         {
             writer.WriteStartObject();
             writer.WriteString("state", RemoteAgentSupport.StateName(state));

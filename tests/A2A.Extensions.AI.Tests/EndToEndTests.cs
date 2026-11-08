@@ -82,6 +82,30 @@ public class EndToEndTests
 
     [Theory]
     [MemberData(nameof(Bindings.All), MemberType = typeof(Bindings))]
+    public async Task Streaming_turn_two_with_KeepConversationOpen_delivers_only_turn_two(string binding)
+    {
+        var n = 0;
+        var chat = FakeChatClient.Streaming(_ => [new ChatResponseUpdate(ChatRole.Assistant, $"answer{++n}")]);
+        await using var host = await AgentHost.StartAsync(chat, o => o.KeepConversationOpen = true);
+        var facade = host.Client(binding).AsChatClient();
+
+        var first = new List<ChatResponseUpdate>();
+        await foreach (var u in facade.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "q1")])) first.Add(u);
+        Assert.Equal("answer1", string.Concat(first.Select(u => u.Text)));
+        var taskId = (string)first.Last(u => u.AdditionalProperties?.ContainsKey(A2AChatKeys.TaskId) == true).AdditionalProperties![A2AChatKeys.TaskId]!;
+        var contextId = first.Last(u => u.ConversationId is not null).ConversationId;
+
+        var second = new List<ChatResponseUpdate>();
+        await foreach (var u in facade.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "q2")],
+            new ChatOptions { ConversationId = contextId, AdditionalProperties = new() { [A2AChatKeys.TaskId] = taskId } })) second.Add(u);
+
+        Assert.Equal("answer2", string.Concat(second.Select(u => u.Text)));
+        Assert.Equal(taskId, second.Last().AdditionalProperties![A2AChatKeys.TaskId]);
+        Assert.Equal("input-required", second.Last().AdditionalProperties![A2AChatKeys.TaskState]);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings.All), MemberType = typeof(Bindings))]
     public async Task Tool_calls_a_hosted_chat_client(string binding)
     {
         var chat = FakeChatClient.Replying("tool ", "answer");

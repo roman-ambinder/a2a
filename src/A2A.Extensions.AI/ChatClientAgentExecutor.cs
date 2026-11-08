@@ -84,6 +84,8 @@ public sealed class ChatClientAgentExecutor : IAgentExecutor
         if (source.Count == 0 || source[^1].MessageId != context.Message.MessageId) source.Add(context.Message);
 
         var skip = Math.Max(0, source.Count - _options.MaxHistoryMessages);
+        // Trimming can leave an agent reply first. Start at a user turn; the last message is the user's, so one always remains.
+        while (skip < source.Count - 1 && source[skip].Role == Role.Agent) skip++;
         var messages = new List<ChatMessage>(source.Count - skip + 1);
         if (!string.IsNullOrEmpty(_options.Instructions)) messages.Add(new ChatMessage(ChatRole.System, _options.Instructions));
         for (var i = skip; i < source.Count; i++)
