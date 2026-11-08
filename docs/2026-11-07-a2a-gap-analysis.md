@@ -68,7 +68,7 @@ Severity: **High** = breaks or endangers real deployments today. **Med** = needs
 |---|-----|-----|----------|----------|
 | S35 | Client-directed skill selection. | Med | epic #1989 | Extension URI + `metadata["skillId"]`; helper on client. |
 | S36 | Discovery/registry undefined. | Med | #2276, #2240 | Out of SDK core. Provide `IAgentCardResolver` with cache + pinning only. |
-| S37 | Auth scheme declaration insufficient to obtain tokens. | Med | epic #1990 | `IA2ACredentialProvider` per scheme (OAuth2 client-credentials, API key, mTLS); never auto-follow redirects with credentials (CVE-2026-111763/5). |
+| S37 | Auth scheme declaration insufficient to obtain tokens. | Med | epic #1990 | `IA2ACredentialProvider` per scheme (OAuth2 client-credentials, API key, mTLS); never auto-follow redirects with credentials (CVE-2026-111763/5). Status: implemented (client credential providers, origin check, no redirects). |
 | S38 | Structured elicitation for input-required. | Med | PR #2149 closed → extension | Optional extension package later. |
 | S39 | Progress reporting, cost metadata, priorities, batch. | Low | PR #1448, #2121, #1029 | Not core. Metadata conventions documented, not enforced. |
 | S40 | File size limits / large binary streaming. | Med | inferred | Enforce caps (S20); prefer `url` parts for large files with signed URLs; SSRF guard on `url` part fetch. |

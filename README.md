@@ -17,7 +17,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | `A2A.Protocol` | Data model (from `a2a.proto`), ProtoJSON serialization, errors, JCS (RFC 8785), JWS card signing/verification |
 | `A2A.Security.Http` | SSRF-safe outbound HTTP handler (private-address guard), guarded `jku` key-set fetching and `SafeHttp` for peer-chosen URLs, shared by the client and the push sender |
 | `A2A.Client` | `A2AClient`, JSON-RPC + REST transports, SSE reader, card resolver with caching and signature policy |
-| `A2A.Client.DependencyInjection` | `AddA2AClient`, `IA2AClientFactory`, `AddBearerToken` (adds DI, Options, `IHttpClientFactory`) |
+| `A2A.Client.DependencyInjection` | `AddA2AClient`, `IA2AClientFactory`, `AddBearerToken`, `AddOAuth2ClientCredentials`, `AddApiKey`, `AddMutualTls` (adds DI, Options, `IHttpClientFactory`) |
 | `A2A.Server` | Transport-agnostic server core: executor model, task lifecycle, stores, event bus, durable push delivery (outbox), execution coordination, retention, tracing and metrics |
 | `A2A.Server.AspNetCore` | Endpoints: JSON-RPC, REST, SSE, `/.well-known/agent-card.json`, JWKS |
 | `A2A.Grpc` | Generated types/stubs for `lf.a2a.v1.A2AService` (from `docs/a2a.proto`) and model mapping |
@@ -78,6 +78,21 @@ await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("str
 Every client method takes optional `A2ARequestOptions` (headers, timeout, idempotency key, extensions, `ConfigureRequest`). `SendMessage` always sends an `Idempotency-Key` (default: the message id). Unary calls retry up to `MaxRetries` times (default 2, so 3 attempts; set it on `A2AClientOptions` or per call, 0 disables) on 503, 429, errors marked retryable, and transport errors. For `SendMessage` a transport error is retried only when the request never reached the server (connect, DNS, proxy tunnel or TLS failure), so a server without `Idempotency-Key` support cannot create the task twice. Creating or deleting a push config and streams are not retried.
 
 DI (package `A2A.Client.DependencyInjection`, which adds DI, Options and `IHttpClientFactory`): `services.AddA2AClient("weather", o => o.AgentUrl = ...).AddBearerToken(...)`, then `IA2AClientFactory.GetClientAsync("weather")`. The clients are cached per name; the returned `IHttpClientBuilder` takes auth handlers and resilience. See [samples/EchoClient](samples/EchoClient/Program.cs).
+
+Authentication: pass providers instead of an `HttpClient`. The client picks providers by the schemes the card requires, in the card's order. If the card requires a scheme no provider handles, client creation fails. Credentials go only to the origin the card came from and never across a redirect. A card whose interface is on another origin fails client creation, and there is no opt-out. The handler chain must not follow redirects: a `SocketsHttpHandler` or `HttpClientHandler` with `AllowAutoRedirect = true` is refused, which is why credentials are not accepted with a plain `HttpClient`. OAuth2 sends the client secret to the configured `TokenEndpoint`, or to the card's token URL only when it is on the card's origin. Most identity providers are on another origin, so set `TokenEndpoint`. API keys go in a header or cookie as the card declares; query strings are refused. For mutual TLS use `A2AMutualTls.CreateHandler` (no DI) or `AddMutualTls` (DI). gRPC is not covered: `GrpcTransport` owns its channel, so selecting a gRPC interface with providers fails. To wire it yourself, set `GrpcChannelOptions.HttpHandler` over an `A2ACredentialHandler`. `AddBearerToken` on an `AddA2AClient` builder refuses to send the token off the `AgentUrl` origin.
+
+```csharp
+// No DI
+var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"),
+    [new OAuth2ClientCredentialsProvider(new OAuth2ClientCredentialsOptions
+    {
+        ClientId = "id", ClientSecret = secret, TokenEndpoint = new Uri("https://idp.example.com/token")
+    })]);
+
+// DI
+services.AddA2AClient("weather", o => o.AgentUrl = new Uri("https://agent.example.com/"))
+        .AddOAuth2ClientCredentials(o => { o.ClientId = "id"; o.ClientSecret = secret; o.TokenEndpoint = new Uri("https://idp.example.com/token"); });
+```
 
 The factory picks the first interface **in the card's order** that the client supports (spec §8.3.2), and sets `tenant` from it.
 

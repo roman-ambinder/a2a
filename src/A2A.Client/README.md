@@ -7,6 +7,13 @@ var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.c
 var reply = await client.SendMessageAsync("hello");
 ```
 
+Credentials: pass providers (`OAuth2ClientCredentialsProvider`, `ApiKeyCredentialProvider`, `MutualTlsCredentialProvider`) instead of an `HttpClient`. They are chosen by the card's required schemes and sent only to the card's origin, never across a redirect.
+
+```csharp
+var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"),
+    [new ApiKeyCredentialProvider(apiKey)]);
+```
+
 Tracing: spans on the `A2A.Client` `ActivitySource`, with W3C `traceparent` sent on every call; see [Observability](https://github.com/roman-ambinder/a2a#observability).
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 8 and .NET 10.
