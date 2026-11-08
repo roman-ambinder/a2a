@@ -20,5 +20,18 @@ public sealed class A2AHttpOptions
     /// mapped pattern. When null, the first address the server listens on is used, or <c>http://localhost</c> when it reports none
     /// (set this behind a proxy or load balancer, where the listen address is not the public one).
     /// </summary>
-    public Uri? PublicBaseUrl { get; set; }
+    /// <exception cref="ArgumentException">The value is not an absolute <c>http</c> or <c>https</c> URL, or has a query or fragment (thrown by the setter).</exception>
+    public Uri? PublicBaseUrl
+    {
+        get => _publicBaseUrl;
+        set
+        {
+            if (value is not null && (!value.IsAbsoluteUri || (value.Scheme != Uri.UriSchemeHttp && value.Scheme != Uri.UriSchemeHttps)
+                || value.Query.Length > 0 || value.Fragment.Length > 0))
+                throw new ArgumentException("PublicBaseUrl must be an absolute http or https URL without a query or fragment.", nameof(value));
+            _publicBaseUrl = value;
+        }
+    }
+
+    private Uri? _publicBaseUrl;
 }

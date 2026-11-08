@@ -335,7 +335,7 @@ public sealed class OperationFilterTests
         var cached = TestAgentHost.DefaultCard();
         cached.Name = "Cached Extended Card";
         await using var host = await TestAgentHost.StartAsync(
-            o => o.ExtendedAgentCardProvider = (_, _) => ValueTask.FromResult<AgentCard?>(cached),
+            o => o.ExtendedAgentCardProvider = (_, _, _) => ValueTask.FromResult<AgentCard?>(cached),
             services: With(new CardRenamer()));
         var client = host.Client(binding);
 

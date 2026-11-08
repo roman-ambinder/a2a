@@ -358,7 +358,7 @@ internal sealed class GrpcHost : IAsyncDisposable
             o.CancelGracePeriod = TimeSpan.FromSeconds(2);
             o.PushNotifications.AllowInsecureUrls = true;
             o.PushNotifications.AllowPrivateNetworks = true;
-            o.ExtendedAgentCardProvider = (call, _) =>
+            o.ExtendedAgentCardProvider = (call, _, _) =>
             {
                 var c = Card();
                 c.Description = $"Extended for {call.Principal}";

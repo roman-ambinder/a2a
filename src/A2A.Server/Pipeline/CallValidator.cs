@@ -4,9 +4,8 @@ namespace A2A.Server.Pipeline;
 /// Checks the protocol version, authentication and required extensions of an incoming call, and fills
 /// <see cref="ServerCallContext.ActivatedExtensions"/>. Throws <see cref="A2AException"/> when a check fails.
 /// </summary>
-public sealed class CallValidator(A2AServerOptions options, IAgentCardProvider? cards = null)
+public sealed class CallValidator(A2AServerOptions options, IAgentCardProvider cards)
 {
-    private readonly IAgentCardProvider _cards = cards ?? DefaultAgentCardProvider.For(options);
 
     /// <summary>Validates <paramref name="call"/> against the server options and the Agent Card's declared extensions.</summary>
     public void Validate(ServerCallContext call)
@@ -27,7 +26,7 @@ public sealed class CallValidator(A2AServerOptions options, IAgentCardProvider? 
         if (!options.AllowAnonymous && !call.IsAuthenticated)
             throw new A2AException(A2AErrorCode.Unauthenticated);
 
-        var declared = _cards.Get().Capabilities.Extensions ?? [];
+        var declared = cards.Get().Capabilities.Extensions ?? [];
         foreach (var ext in declared.Where(e => e.Required))
         {
             if (!call.RequestedExtensions.Contains(ext.Uri, StringComparer.Ordinal))

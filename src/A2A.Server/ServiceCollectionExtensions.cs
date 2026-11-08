@@ -44,7 +44,7 @@ public static class A2AServerServiceCollectionExtensions
         // when a host has replaced IPushNotificationSender.
         services.TryAddSingleton<IPushConfigChangeListener>(sp =>
             sp.GetRequiredService<IPushNotificationSender>() as IPushConfigChangeListener ?? NoOpPushConfigChangeListener.Instance);
-        services.TryAddSingleton<IAgentCardProvider, Pipeline.DefaultAgentCardProvider>();
+        services.TryAddSingleton<IAgentCardProvider, AgentCardProvider>();
         services.TryAddSingleton<Pipeline.CallValidator>();
         services.TryAddSingleton<PushConfigService>();
         services.TryAddSingleton<Idempotency.IdempotencyCoordinator>();

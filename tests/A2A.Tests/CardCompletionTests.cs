@@ -49,11 +49,100 @@ public sealed class CardCompletionTests
     [Fact]
     public async Task PublicBaseUrl_wins_over_server_address()
     {
-        await using var host = await TestAgentHost.StartAsync(NoInterfaces,
-            configureHttp: h => h.PublicBaseUrl = new Uri("https://agent.example.com/svc/"));
-        var card = await ServedCardAsync(host);
+        await using var app = await BuildAsync(o => o.PublicBaseUrl = new Uri("https://agent.example.com/svc/"), start: true);
+        var card = app.Services.GetRequiredService<IAgentCardProvider>().Get();
         Assert.Equal(2, card.SupportedInterfaces.Count);
         Assert.All(card.SupportedInterfaces, i => Assert.Equal("https://agent.example.com/svc/a2a", i.Url));
+        await app.StopAsync();
+    }
+
+    [Fact]
+    public async Task First_listen_address_is_used_and_wildcards_become_localhost()
+    {
+        await using var app = await BuildAsync(configureHttp: null, start: true);
+        var card = app.Services.GetRequiredService<IAgentCardProvider>().Get();
+        Assert.All(card.SupportedInterfaces, i => Assert.Equal("http://localhost:8080/a2a", i.Url));
+        await app.StopAsync();
+
+        await using var plus = await BuildAsync(configureHttp: null, start: true, addresses: ["http://+:5000/"]);
+        Assert.All(plus.Services.GetRequiredService<IAgentCardProvider>().Get().SupportedInterfaces,
+            i => Assert.Equal("http://localhost:5000/a2a", i.Url));
+        await plus.StopAsync();
+    }
+
+    [Fact]
+    public async Task Card_built_before_start_is_not_cached()
+    {
+        await using var app = await BuildAsync(configureHttp: null, start: false);
+        var provider = app.Services.GetRequiredService<IAgentCardProvider>();
+        Assert.All(provider.Get().SupportedInterfaces, i => Assert.Equal("http://localhost/a2a", i.Url));
+        await app.StartAsync();
+        var after = provider.Get();
+        Assert.All(after.SupportedInterfaces, i => Assert.Equal("http://localhost:8080/a2a", i.Url));
+        Assert.Same(after, provider.Get());
+        await app.StopAsync();
+    }
+
+    [Fact]
+    public async Task Extended_card_provider_receives_the_completed_card()
+    {
+        AgentCard? seen = null;
+        await using var host = await TestAgentHost.StartAsync(o =>
+        {
+            o.AgentCard.SupportedInterfaces = [];
+            o.ExtendedAgentCardProvider = (_, publicCard, _) => { seen = publicCard; return ValueTask.FromResult<AgentCard?>(publicCard); };
+        });
+        var client = host.Client(ProtocolBindings.JsonRpc);
+        await client.GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest());
+        Assert.NotNull(seen);
+        Assert.Equal(2, seen!.SupportedInterfaces.Count);
+        Assert.Same(host.Handler.AgentCard, seen);
+    }
+
+    [Fact]
+    public void PublicBaseUrl_must_be_absolute_http_without_query_or_fragment()
+    {
+        var http = new A2AHttpOptions();
+        Assert.Throws<ArgumentException>(() => http.PublicBaseUrl = new Uri("/rel", UriKind.Relative));
+        Assert.Throws<ArgumentException>(() => http.PublicBaseUrl = new Uri("ftp://x/"));
+        Assert.Throws<ArgumentException>(() => http.PublicBaseUrl = new Uri("https://x/?q=1"));
+        Assert.Throws<ArgumentException>(() => http.PublicBaseUrl = new Uri("https://x/#f"));
+        http.PublicBaseUrl = new Uri("https://x/p");
+    }
+
+    /// <summary>A server that reports listen addresses when it starts, as Kestrel does; no requests are served.</summary>
+    private sealed class FakeServer(string[] addresses) : Microsoft.AspNetCore.Hosting.Server.IServer
+    {
+        public Microsoft.AspNetCore.Http.Features.IFeatureCollection Features { get; } = new Microsoft.AspNetCore.Http.Features.FeatureCollection();
+        public Task StartAsync<TContext>(Microsoft.AspNetCore.Hosting.Server.IHttpApplication<TContext> application, CancellationToken cancellationToken) where TContext : notnull
+        {
+            var feature = new Microsoft.AspNetCore.Hosting.Server.Features.ServerAddressesFeature();
+            foreach (var a in addresses) feature.Addresses.Add(a);
+            Features.Set<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>(feature);
+            return Task.CompletedTask;
+        }
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public void Dispose() { }
+    }
+
+    private static async Task<WebApplication> BuildAsync(Action<A2AHttpOptions>? configureHttp, bool start, string[]? addresses = null)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
+        builder.Services.AddSingleton<Microsoft.AspNetCore.Hosting.Server.IServer>(new FakeServer(addresses ?? ["http://[::]:8080", "http://+:5000/"]));
+        builder.Services.AddA2AServer(o =>
+        {
+            o.AgentCard = TestAgentHost.DefaultCard();
+            o.AgentCard.SupportedInterfaces = [];
+            o.AllowAnonymous = true;
+            o.EnableRateLimiting = false;
+        }).AddAgentExecutor<ScenarioAgent>();
+        builder.Services.AddA2AServerAspNetCore();
+        if (configureHttp is not null) builder.Services.ConfigureA2AHttp(configureHttp);
+        var app = builder.Build();
+        app.MapA2A("/a2a");
+        if (start) await app.StartAsync();
+        return app;
     }
 
     [Fact]

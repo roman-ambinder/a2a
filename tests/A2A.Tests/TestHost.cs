@@ -177,7 +177,7 @@ public sealed class TestAgentHost : IAsyncDisposable
             o.PushNotifications.AllowPrivateNetworks = true;
             o.PushNotifications.InitialBackoff = TimeSpan.FromMilliseconds(10);
             o.CancelGracePeriod = TimeSpan.FromSeconds(2);
-            o.ExtendedAgentCardProvider = (call, _) =>
+            o.ExtendedAgentCardProvider = (call, _, _) =>
             {
                 var card = DefaultCard();
                 card.Description = $"Extended card for {call.Principal}";

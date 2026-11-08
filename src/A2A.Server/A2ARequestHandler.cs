@@ -72,9 +72,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         TaskStreamer streamer,
         IEnumerable<A2AOperationFilterRegistration> filters,
         IEnumerable<A2AExtensionOperation> extensionOperations,
-        IAgentCardProvider? cards = null)
+        IAgentCardProvider cards)
     {
-        _cards = cards ?? DefaultAgentCardProvider.For(options);
+        _cards = cards;
         ArgumentNullException.ThrowIfNull(extensionOperations);
         _extensions = new(StringComparer.Ordinal);
         foreach (var extension in extensionOperations)
@@ -531,7 +531,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         if (_cards.Get().Capabilities.ExtendedAgentCard != true)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "This agent does not provide an extended agent card.");
         if (!call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated, "The extended agent card requires authentication.");
-        var card = _options.ExtendedAgentCardProvider is null ? null : await _options.ExtendedAgentCardProvider(call, cancellationToken).ConfigureAwait(false);
+        var card = _options.ExtendedAgentCardProvider is null ? null : await _options.ExtendedAgentCardProvider(call, _cards.Get(), cancellationToken).ConfigureAwait(false);
         return card ?? throw new A2AException(A2AErrorCode.ExtendedAgentCardNotConfigured);
     }
 

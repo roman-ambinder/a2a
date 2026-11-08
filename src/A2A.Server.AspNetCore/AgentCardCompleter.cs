@@ -1,54 +1,36 @@
-using System.Text.Json;
-using A2A.Json;
 using A2A.Server.Pipeline;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace A2A.Server.AspNetCore;
 
 /// <summary>
-/// The <see cref="IAgentCardProvider"/> of an ASP.NET Core host. On the first <see cref="Get"/> (after the server has started, when
-/// its listen addresses are known) it copies <see cref="A2AServerOptions.AgentCard"/>, lists the registered extension operations
-/// in its capabilities, and, when the card lists no interfaces, adds one interface per mapped binding at
-/// <c>(PublicBaseUrl ?? first listen address ?? "http://localhost") + pattern</c> (no server in the container: <c>http://localhost</c>). The result is cached; the host's card is never
+/// The <see cref="IAgentCardProvider"/> of an ASP.NET Core host: the default copy with the extension entries, and, when the card lists
+/// no interfaces, one interface per mapped binding at <c>(PublicBaseUrl ?? first listen address ?? "http://localhost") + pattern</c>.
+/// The listen addresses are only known once the server has started, so without a <see cref="A2AHttpOptions.PublicBaseUrl"/> a card
+/// built before <c>ApplicationStarted</c> is returned but not cached. After that the card is cached. The host's card is never
 /// changed. Bindings mapped at a pattern with a <c>{</c> (a tenant template) are not listed.
 /// </summary>
-internal sealed class AgentCardCompleter : IAgentCardProvider
+internal sealed class AgentCardCompleter(A2AServerOptions options, IEnumerable<A2AExtensionOperation> extensions,
+    IOptions<A2AHttpOptions> http, A2AEndpointRegistry registry, IServer? server = null, IHostApplicationLifetime? lifetime = null)
+    : AgentCardProvider(options, extensions)
 {
-    private readonly Lazy<AgentCard> _card;
+    protected override bool CanCache =>
+        http.Value.PublicBaseUrl is not null || lifetime is null || lifetime.ApplicationStarted.IsCancellationRequested;
 
-    public AgentCardCompleter(IOptions<A2AServerOptions> options, IOptions<A2AHttpOptions> http, A2AEndpointRegistry registry,
-        IEnumerable<A2AExtensionOperation> extensions, IServer? server = null) =>
-        _card = new(() => Build(options.Value.AgentCard, http.Value, registry, server, extensions), LazyThreadSafetyMode.ExecutionAndPublication);
-
-    public AgentCard Get() => _card.Value;
-
-    private static AgentCard Build(AgentCard hostCard, A2AHttpOptions http, A2AEndpointRegistry registry, IServer? server,
-        IEnumerable<A2AExtensionOperation> extensions)
+    protected override void Complete(AgentCard copy)
     {
-        var card = JsonSerializer.Deserialize(A2AJson.SerializeToUtf8Bytes(hostCard), A2AJson.GetTypeInfo<AgentCard>())
-            ?? throw new InvalidOperationException("The Agent Card could not be copied.");
-
-        foreach (var extension in extensions)
-        {
-            var list = card.Capabilities.Extensions ??= [];
-            if (list.Exists(e => string.Equals(e.Uri, extension.ExtensionUri, StringComparison.Ordinal))) continue;
-            list.Add(new AgentExtension { Uri = extension.ExtensionUri });
-        }
-
-        if (card.SupportedInterfaces.Count == 0)
-        {
-            var baseUrl = BaseUrl(http, server);
-            foreach (var (binding, pattern) in registry.Bindings())
-                card.SupportedInterfaces.Add(new AgentInterface { Url = Combine(baseUrl, pattern), ProtocolBinding = binding });
-        }
-        return card;
+        if (copy.SupportedInterfaces.Count != 0) return;
+        var baseUrl = BaseUrl(http.Value, server);
+        foreach (var (binding, pattern) in registry.Bindings())
+            copy.SupportedInterfaces.Add(new AgentInterface { Url = Combine(baseUrl, pattern), ProtocolBinding = binding });
     }
 
     private static string BaseUrl(A2AHttpOptions http, IServer? server)
     {
-        if (http.PublicBaseUrl is { } configured) return configured.AbsoluteUri.TrimEnd('/');
+        if (http.PublicBaseUrl is { } configured) return configured.GetLeftPart(UriPartial.Authority) + configured.AbsolutePath.TrimEnd('/');
         var address = server?.Features.Get<IServerAddressesFeature>()?.Addresses.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a));
         return address is null ? "http://localhost" : Concrete(address).TrimEnd('/');
     }

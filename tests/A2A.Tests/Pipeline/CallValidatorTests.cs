@@ -12,27 +12,29 @@ public sealed class CallValidatorTests
         return options;
     }
 
+    private static CallValidator Validator(A2AServerOptions options) => new(options, new AgentCardProvider(options, []));
+
     [Fact]
     public void Missing_version_is_rejected_unless_TreatMissingVersionAsCurrent()
     {
-        var strict = new CallValidator(Options());
+        var strict = Validator(Options());
         var ex = Assert.Throws<A2AException>(() => strict.Validate(ServerCallContext.Anonymous(protocolVersion: null)));
         Assert.Equal(A2AErrorCode.VersionNotSupported, ex.Code);
 
-        var lenient = new CallValidator(Options(o => o.TreatMissingVersionAsCurrent = true));
+        var lenient = Validator(Options(o => o.TreatMissingVersionAsCurrent = true));
         lenient.Validate(ServerCallContext.Anonymous(protocolVersion: null));
     }
 
     [Fact]
     public void Patch_version_is_reduced_to_major_minor()
     {
-        new CallValidator(Options()).Validate(ServerCallContext.Anonymous(A2AProtocol.Version + ".7"));
+        Validator(Options()).Validate(ServerCallContext.Anonymous(A2AProtocol.Version + ".7"));
     }
 
     [Fact]
     public void Required_unknown_extension_is_rejected()
     {
-        var validator = new CallValidator(Options(o =>
+        var validator = Validator(Options(o =>
             o.AgentCard.Capabilities.Extensions = [new AgentExtension { Uri = "urn:must", Required = true }]));
         var ex = Assert.Throws<A2AException>(() => validator.Validate(ServerCallContext.Anonymous()));
         Assert.Equal(A2AErrorCode.ExtensionSupportRequired, ex.Code);
@@ -41,7 +43,7 @@ public sealed class CallValidatorTests
     [Fact]
     public void Declared_extension_is_activated()
     {
-        var validator = new CallValidator(Options(o =>
+        var validator = Validator(Options(o =>
             o.AgentCard.Capabilities.Extensions = [new AgentExtension { Uri = "urn:opt" }]));
         var call = new ServerCallContext { ProtocolVersion = A2AProtocol.Version, RequestedExtensions = ["urn:opt", "urn:unknown"] };
         validator.Validate(call);
@@ -51,7 +53,7 @@ public sealed class CallValidatorTests
     [Fact]
     public void Anonymous_caller_is_rejected_unless_allowed()
     {
-        var validator = new CallValidator(Options(o => o.AllowAnonymous = false));
+        var validator = Validator(Options(o => o.AllowAnonymous = false));
         var ex = Assert.Throws<A2AException>(() => validator.Validate(ServerCallContext.Anonymous()));
         Assert.Equal(A2AErrorCode.Unauthenticated, ex.Code);
     }

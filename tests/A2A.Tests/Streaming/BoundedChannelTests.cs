@@ -316,7 +316,7 @@ public sealed class BoundedChannelTests
             var idempotency = new IdempotencyCoordinator(new InMemoryIdempotencyStore(options.Idempotency), tasks, options);
             var engine = new TaskExecutionEngine(tasks, events, new DelegateFactory(agent), bus, new NoPush(), idempotency,
                 new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options), options, logger);
-            var streamer = new TaskStreamer(tasks, events, engine, idempotency, new AllowAllAuthorizationHandler([]), options);
+            var streamer = new TaskStreamer(tasks, events, engine, idempotency, new AllowAllAuthorizationHandler([]), options, new AgentCardProvider(options, []));
             return new Rig(engine, streamer, bus);
         }
 

@@ -45,9 +45,9 @@ public sealed class TaskStreamer
         IdempotencyCoordinator idempotency,
         A2AAuthorizationHandler authorization,
         A2AServerOptions options,
-        IAgentCardProvider? cards = null)
+        IAgentCardProvider cards)
     {
-        _cards = cards ?? Pipeline.DefaultAgentCardProvider.For(options);
+        _cards = cards;
         _tasks = tasks;
         _events = events;
         _bus = engine.Bus; // the bus the engine publishes to: streams subscribe to the same one

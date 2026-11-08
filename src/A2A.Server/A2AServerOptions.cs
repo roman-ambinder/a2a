@@ -33,9 +33,10 @@ public sealed class A2AServerOptions
 
     /// <summary>
     /// Returns the extended card for an authenticated caller (spec §3.1.11). Requires
-    /// <c>AgentCard.Capabilities.ExtendedAgentCard = true</c>. Return null when no card is configured.
+    /// <c>AgentCard.Capabilities.ExtendedAgentCard = true</c>. Return null when no card is configured. The second argument is the
+    /// completed public card (<see cref="IAgentCardProvider.Get"/>, with its interfaces and extension entries): copy it, do not change it.
     /// </summary>
-    public Func<ServerCallContext, CancellationToken, ValueTask<AgentCard?>>? ExtendedAgentCardProvider { get; set; }
+    public Func<ServerCallContext, AgentCard, CancellationToken, ValueTask<AgentCard?>>? ExtendedAgentCardProvider { get; set; }
 
     /// <summary>Webhook delivery and URL policy for push notifications.</summary>
     public PushNotificationOptions PushNotifications { get; } = new();
