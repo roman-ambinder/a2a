@@ -6,7 +6,10 @@ namespace A2A.Server;
 
 public sealed class A2AServerOptions
 {
-    /// <summary>The public Agent Card. Required.</summary>
+    /// <summary>
+    /// The public Agent Card. Required, unless an <see cref="Agents.AgentCardProvider"/> supplies each tenant's card; without one,
+    /// this card serves every tenant.
+    /// </summary>
     public AgentCard AgentCard { get; set; } = new()
     {
         Name = string.Empty, Description = string.Empty, SupportedInterfaces = [], Version = string.Empty,
@@ -33,7 +36,9 @@ public sealed class A2AServerOptions
 
     /// <summary>
     /// Returns the extended card for an authenticated caller (spec §3.1.11). Requires
-    /// <c>AgentCard.Capabilities.ExtendedAgentCard = true</c>. Return null when no card is configured.
+    /// <c>AgentCard.Capabilities.ExtendedAgentCard = true</c>. Return null when no card is configured. Used by the default
+    /// <see cref="Agents.AgentCardProvider"/> (one agent for every tenant); a registered provider supplies extended cards with
+    /// <see cref="Agents.AgentCardProvider.GetExtendedCardAsync"/> instead, and this delegate is not called.
     /// </summary>
     public Func<ServerCallContext, CancellationToken, ValueTask<AgentCard?>>? ExtendedAgentCardProvider { get; set; }
 

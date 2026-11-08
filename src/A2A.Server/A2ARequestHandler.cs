@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using A2A.Diagnostics;
 using A2A.Json;
+using A2A.Server.Agents;
 using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
@@ -42,11 +43,18 @@ public sealed class A2ARequestHandler : IDisposable
     private readonly StreamAdmission _admission;
     private readonly TimeProvider _time;
     private readonly ExecutionCoordinator _coordinator;
+    private readonly AgentCardProvider _cards;
+    private readonly AgentExecutorResolver _executors;
+
+    /// <summary>The refusal text for a tenant that no agent serves (its card is null).</summary>
+    internal const string NoAgentText = "No agent is configured for this tenant.";
 
     /// <summary>
     /// Created by DI. The optional <c>timeProvider</c> is the clock for <see cref="A2AServerOptions.MaxTaskDuration"/> and
     /// the execution heartbeat (default <see cref="TimeProvider.System"/>). The optional <c>coordinator</c> tracks running
-    /// executions across instances (default a process-local <see cref="InMemoryExecutionCoordinator"/>).
+    /// executions across instances (default a process-local <see cref="InMemoryExecutionCoordinator"/>). The optional
+    /// <c>cardProvider</c> and <c>executorResolver</c> pick each tenant's card and agent (default: the configured card and the
+    /// registered <see cref="IAgentExecutor"/> for every tenant).
     /// </summary>
     /// <exception cref="InvalidOperationException"><see cref="A2AServerOptions.Coordination"/> is invalid.</exception>
     public A2ARequestHandler(
@@ -62,7 +70,9 @@ public sealed class A2ARequestHandler : IDisposable
         IOptions<A2AServerOptions> options,
         ILogger<A2ARequestHandler>? logger = null,
         TimeProvider? timeProvider = null,
-        ExecutionCoordinator? coordinator = null)
+        ExecutionCoordinator? coordinator = null,
+        AgentCardProvider? cardProvider = null,
+        AgentExecutorResolver? executorResolver = null)
     {
         _scopeFactory = scopeFactory;
         _tasks = tasks;
@@ -79,16 +89,26 @@ public sealed class A2ARequestHandler : IDisposable
         _time = timeProvider ?? TimeProvider.System;
         _options.Coordination.Validate();
         _coordinator = coordinator ?? new InMemoryExecutionCoordinator(_options.Coordination, _time);
+        _cards = cardProvider ?? new DefaultAgentCardProvider(options);
+        _executors = executorResolver ?? new DefaultAgentExecutorResolver();
         StartCancelListener(_shutdown.Token);
     }
 
+    /// <summary>
+    /// The configured card (<see cref="A2AServerOptions.AgentCard"/>). With an <see cref="AgentCardProvider"/> each tenant has
+    /// its own card, and requests are checked against that one.
+    /// </summary>
     public AgentCard AgentCard => _options.AgentCard;
 
     // =====================================================================
-    // Call validation: version, extensions, authentication
+    // Call validation: version, authentication
     // =====================================================================
 
-    /// <summary>Checks protocol version, required extensions, and authentication; fills <see cref="ServerCallContext.ActivatedExtensions"/>.</summary>
+    /// <summary>
+    /// Checks protocol version and authentication. Extensions depend on the tenant's card, so each operation checks them once
+    /// its tenant is known (also from the request body): a missing required extension is
+    /// <see cref="A2AErrorCode.ExtensionSupportRequired"/>, and <see cref="ServerCallContext.ActivatedExtensions"/> is filled then.
+    /// </summary>
     public void ValidateCall(ServerCallContext call)
     {
         var version = string.IsNullOrWhiteSpace(call.ProtocolVersion)
@@ -106,8 +126,53 @@ public sealed class A2ARequestHandler : IDisposable
         // Backstop for hosts where the startup check could not run (or direct use of this class): anonymous is opt-in.
         if (!_options.AllowAnonymous && !call.IsAuthenticated)
             throw new A2AException(A2AErrorCode.Unauthenticated);
+    }
 
-        var declared = _options.AgentCard.Capabilities.Extensions ?? [];
+    // =====================================================================
+    // The tenant's agent: card, capabilities, extensions
+    // =====================================================================
+
+    /// <summary>
+    /// The card of the call's tenant from the <see cref="AgentCardProvider"/>, or null when no agent serves the tenant. Asked
+    /// once per request and tenant. The first time, checks the extensions against it: a required extension the caller did not
+    /// request is <see cref="A2AErrorCode.ExtensionSupportRequired"/>; requested and declared ones are activated.
+    /// </summary>
+    private async ValueTask<AgentCard?> ResolveCardAsync(ServerCallContext call, CancellationToken ct)
+    {
+        if (call.ResolvedCard is { } resolved && string.Equals(resolved.Tenant, call.Tenant, StringComparison.Ordinal)) return resolved.Card;
+        var card = await _cards.GetCardAsync(new AgentRequestScope(call.Tenant, call.RouteValues), ct).ConfigureAwait(false);
+        if (card is not null) ApplyExtensions(card, call);
+        call.ResolvedCard = (call.Tenant, card);
+        return card;
+    }
+
+    /// <summary>The tenant's card; a tenant no agent serves is <see cref="A2AErrorCode.UnsupportedOperation"/> (<see cref="NoAgentText"/>).</summary>
+    private async ValueTask<AgentCard> RequireAgentAsync(ServerCallContext call, CancellationToken ct) =>
+        await ResolveCardAsync(call, ct).ConfigureAwait(false) ?? throw new A2AException(A2AErrorCode.UnsupportedOperation, NoAgentText);
+
+    /// <summary>The tenant's card for an operation on task <paramref name="taskId"/>; a tenant no agent serves looks like a missing task.</summary>
+    private async ValueTask<AgentCard> RequireAgentForTaskAsync(ServerCallContext call, string? taskId, CancellationToken ct) =>
+        await ResolveCardAsync(call, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId ?? "");
+
+    /// <summary>
+    /// The card that names the authentication scheme of an Unauthenticated response: the tenant's card when it has one, else
+    /// <see cref="A2AServerOptions.AgentCard"/>. A failing or cancelled provider call falls back too (logged). Never throws.
+    /// </summary>
+    internal async ValueTask<AgentCard> ChallengeCardAsync(ServerCallContext call, CancellationToken ct)
+    {
+        if (call.ResolvedCard is { } resolved && string.Equals(resolved.Tenant, call.Tenant, StringComparison.Ordinal))
+            return resolved.Card ?? _options.AgentCard;
+        try { return await _cards.GetCardAsync(new AgentRequestScope(call.Tenant, call.RouteValues), ct).ConfigureAwait(false) ?? _options.AgentCard; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not resolve the Agent Card of the tenant for the authentication challenge");
+            return _options.AgentCard;
+        }
+    }
+
+    private static void ApplyExtensions(AgentCard card, ServerCallContext call)
+    {
+        var declared = card.Capabilities.Extensions ?? [];
         foreach (var ext in declared.Where(e => e.Required))
         {
             if (!call.RequestedExtensions.Contains(ext.Uri, StringComparer.Ordinal))
@@ -162,6 +227,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SendMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
+        await RequireAgentAsync(call, cancellationToken).ConfigureAwait(false);
         var (claim, replay) = await BeginIdempotentAsync(request, call, cancellationToken).ConfigureAwait(false);
         if (replay is not null) return await ReplayAsync(replay, request, call, cancellationToken).ConfigureAwait(false);
         var taskId = string.IsNullOrEmpty(request.Message?.TaskId) ? TaskIds.New() : request.Message.TaskId;
@@ -280,7 +346,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SendStreamingMessage, request, request.Message?.TaskId, cancellationToken).ConfigureAwait(false);
-        RequireStreaming();
+        RequireStreaming(await RequireAgentAsync(call, cancellationToken).ConfigureAwait(false));
         var (claim, replay) = await BeginIdempotentAsync(request, call, cancellationToken).ConfigureAwait(false);
         if (replay is IdempotencyOutcome.DirectMessage direct)
         {
@@ -653,7 +719,7 @@ public sealed class A2ARequestHandler : IDisposable
         TaskPushNotificationConfig? push = null;
         if (request.Configuration?.TaskPushNotificationConfig is { } p)
         {
-            RequirePush();
+            RequirePush(await RequireAgentAsync(call, ct).ConfigureAwait(false));
             await PushUrlValidator.ValidateAsync(p.Url, _options.PushNotifications, ct).ConfigureAwait(false);
             push = A2AJson.Clone(p);
             push.TaskId = taskId;
@@ -840,6 +906,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.GetTask, request, request.Id, cancellationToken).ConfigureAwait(false);
+        await RequireAgentForTaskAsync(call, request.Id, cancellationToken).ConfigureAwait(false);
         A2AValidator.RequireId(request.Id, "id");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
@@ -853,6 +920,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.ListTasks, request, null, cancellationToken).ConfigureAwait(false);
+        await RequireAgentAsync(call, cancellationToken).ConfigureAwait(false);
         if (request.PageSize is < 1) throw A2AException.InvalidParams("pageSize must be between 1 and 100");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var pageSize = Math.Min(request.PageSize ?? 50, _options.Limits.MaxListPageSize);
@@ -883,6 +951,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.CancelTask, request, request.Id, cancellationToken).ConfigureAwait(false);
+        await RequireAgentForTaskAsync(call, request.Id, cancellationToken).ConfigureAwait(false);
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.Id);
         var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
@@ -1009,7 +1078,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.SubscribeToTask, request, request.Id, cancellationToken).ConfigureAwait(false);
-        RequireStreaming();
+        RequireStreaming(await RequireAgentForTaskAsync(call, request.Id, cancellationToken).ConfigureAwait(false));
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.Id);
         var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
@@ -1223,7 +1292,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(config.Tenant);
         await AuthorizeAsync(call, A2AOperation.CreateTaskPushNotificationConfig, config, config.TaskId, cancellationToken).ConfigureAwait(false);
-        RequirePush();
+        RequirePush(await RequireAgentForTaskAsync(call, config.TaskId, cancellationToken).ConfigureAwait(false));
         A2AValidator.ValidatePushConfig(config, "config", requireTaskId: true);
         await PushUrlValidator.ValidateAsync(config.Url, _options.PushNotifications, cancellationToken).ConfigureAwait(false);
         var key = Key(call, config.TaskId!);
@@ -1243,7 +1312,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.GetTaskPushNotificationConfig, request, request.TaskId, cancellationToken).ConfigureAwait(false);
-        RequirePush();
+        RequirePush(await RequireAgentForTaskAsync(call, request.TaskId, cancellationToken).ConfigureAwait(false));
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.TaskId);
@@ -1260,7 +1329,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.ListTaskPushNotificationConfigs, request, request.TaskId, cancellationToken).ConfigureAwait(false);
-        RequirePush();
+        RequirePush(await RequireAgentForTaskAsync(call, request.TaskId, cancellationToken).ConfigureAwait(false));
         A2AValidator.RequireId(request.TaskId, "taskId");
         var key = Key(call, request.TaskId);
         _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
@@ -1287,7 +1356,7 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.DeleteTaskPushNotificationConfig, request, request.TaskId, cancellationToken).ConfigureAwait(false);
-        RequirePush();
+        RequirePush(await RequireAgentForTaskAsync(call, request.TaskId, cancellationToken).ConfigureAwait(false));
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.TaskId);
@@ -1307,10 +1376,11 @@ public sealed class A2ARequestHandler : IDisposable
     {
         call.BindTenant(request.Tenant);
         await AuthorizeAsync(call, A2AOperation.GetExtendedAgentCard, request, null, cancellationToken).ConfigureAwait(false);
-        if (_options.AgentCard.Capabilities.ExtendedAgentCard != true)
+        var publicCard = await RequireAgentAsync(call, cancellationToken).ConfigureAwait(false);
+        if (publicCard.Capabilities.ExtendedAgentCard != true)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "This agent does not provide an extended agent card.");
         if (!call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated, "The extended agent card requires authentication.");
-        var card = _options.ExtendedAgentCardProvider is null ? null : await _options.ExtendedAgentCardProvider(call, cancellationToken).ConfigureAwait(false);
+        var card = await _cards.GetExtendedCardAsync(call, cancellationToken).ConfigureAwait(false);
         return card ?? throw new A2AException(A2AErrorCode.ExtendedAgentCardNotConfigured);
     }
 
@@ -1374,7 +1444,9 @@ public sealed class A2ARequestHandler : IDisposable
             try
             {
                 await using var scope = _scopeFactory.CreateAsyncScope();
-                var executor = scope.ServiceProvider.GetRequiredService<IAgentExecutor>();
+                // From the tenant alone: the same agent for a request, a CancelTask and a follow-up on another instance.
+                var executor = _executors.Resolve(key.Tenant, scope.ServiceProvider)
+                    ?? throw new InvalidOperationException($"No agent executor is configured for tenant '{key.Tenant}'.");
                 await run(executor, updater, exec.Cts.Token).ConfigureAwait(false);
                 exec.TryMarkReturned();
             }
@@ -1847,10 +1919,22 @@ public sealed class A2ARequestHandler : IDisposable
         _bus.Publish(ScopeKey(key.Tenant, key.TaskId), evt);
     }
 
-    /// <summary>One push delivery per push config of the task, for the event about to be committed.</summary>
+    /// <summary>
+    /// One push delivery per push config of the task, for the event about to be committed. None when the card of the task's
+    /// tenant has no push notifications (or no agent serves the tenant). A failing card provider does not stop the commit: the
+    /// configs decide (logged).
+    /// </summary>
     private async ValueTask<IReadOnlyList<PushDelivery>> DeliveriesAsync(TaskKey key)
     {
-        if (_options.AgentCard.Capabilities.PushNotifications != true) return []; // no config can exist
+        try
+        {
+            var card = await _cards.GetCardAsync(AgentRequestScope.ForTenant(key.Tenant), CancellationToken.None).ConfigureAwait(false);
+            if (card?.Capabilities.PushNotifications != true) return [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not resolve the Agent Card of task {TaskId}; sending its push notifications if it has configs", key.TaskId);
+        }
         var configs = await _pushConfigs.ListAsync(key).ConfigureAwait(false);
         return configs.Count == 0 ? [] : configs.Select(c => NewDelivery(key, c.Config.Id!)).ToList();
     }
@@ -1999,15 +2083,15 @@ public sealed class A2ARequestHandler : IDisposable
         return copy;
     }
 
-    private void RequireStreaming()
+    private static void RequireStreaming(AgentCard card)
     {
-        if (_options.AgentCard.Capabilities.Streaming != true)
+        if (card.Capabilities.Streaming != true)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "Streaming is not supported by this agent.");
     }
 
-    private void RequirePush()
+    private static void RequirePush(AgentCard card)
     {
-        if (_options.AgentCard.Capabilities.PushNotifications != true)
+        if (card.Capabilities.PushNotifications != true)
             throw new A2AException(A2AErrorCode.PushNotificationNotSupported);
     }
 

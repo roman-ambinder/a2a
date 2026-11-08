@@ -124,7 +124,7 @@ internal sealed class JsonRpcEndpoint(A2ARequestHandler handler,
 
     private async Task WriteFailureAsync(HttpContext http, ServerCallContext call, JsonElement? id, A2AException a2a)
     {
-        HttpPlumbing.SetAuthChallenge(http, a2a, handler.AgentCard);
+        await HttpPlumbing.SetAuthChallengeAsync(http, a2a, handler, call).ConfigureAwait(false);
         var status = a2a.Code switch
         {
             A2AErrorCode.Unauthenticated => 401,

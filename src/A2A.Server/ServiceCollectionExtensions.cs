@@ -13,7 +13,9 @@ public static class A2AServerServiceCollectionExtensions
     /// Registers the A2A server core and returns a builder to add the agent, its card and extra services.
     /// Defaults: in-memory stores (tasks, events, push outbox, push configs, idempotency), a hosted <see cref="PushDeliveryService"/>
     /// that sends push notifications through an HTTP client with the SSRF guard, the <see cref="A2APushAdmin"/> dead-letter API,
-    /// the <see cref="Retention.A2ATaskAdmin"/> task delete API, an allow-all authorization handler, and a process-local <see cref="Coordination.ExecutionCoordinator"/>. Register your
+    /// the <see cref="Retention.A2ATaskAdmin"/> task delete API, an allow-all authorization handler, a process-local <see cref="Coordination.ExecutionCoordinator"/>,
+    /// and a single agent for every tenant (the configured card and executor; see <see cref="A2AServerBuilder.AddAgentCardProvider{T}"/>
+    /// and <see cref="A2AServerBuilder.AddAgentExecutorResolver{T}"/> for one agent per tenant). Register your
     /// own <see cref="Storage.TaskStore"/> (with the <see cref="Storage.EventStore"/> and <see cref="PushOutbox"/> it commits
     /// to), <see cref="Storage.PushConfigStore"/>, <see cref="Idempotency.IdempotencyStore"/> or
     /// <see cref="Coordination.ExecutionCoordinator"/> before or after to replace them.
@@ -31,6 +33,8 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<IPushSecretProtector, EphemeralPushSecretProtector>();
         services.TryAddSingleton<IPrincipalResolver, DefaultPrincipalResolver>();
         services.TryAddSingleton<A2AAuthorizationHandler, AllowAllAuthorizationHandler>();
+        services.TryAddSingleton<Agents.AgentCardProvider, Agents.DefaultAgentCardProvider>();
+        services.TryAddSingleton<Agents.AgentExecutorResolver, Agents.DefaultAgentExecutorResolver>();
         services.TryAddSingleton<TaskEventBus>();
         services.TryAddSingleton<Coordination.ExecutionCoordinator>(sp => new Coordination.InMemoryExecutionCoordinator(
             sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Coordination, sp.GetService<TimeProvider>()));
@@ -107,6 +111,26 @@ public sealed class A2AServerBuilder
     public A2AServerBuilder AddAgentCard(AgentCard card)
     {
         Services.Configure<A2AServerOptions>(o => o.AgentCard = card);
+        return this;
+    }
+
+    /// <summary>
+    /// Uses <typeparamref name="T"/> to supply each tenant's Agent Card (multi-agent hosting: one agent per tenant). Singleton.
+    /// Replaces an earlier provider. Without one, <see cref="A2AServerOptions.AgentCard"/> serves every tenant.
+    /// </summary>
+    public A2AServerBuilder AddAgentCardProvider<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() where T : Agents.AgentCardProvider
+    {
+        Services.Replace(ServiceDescriptor.Singleton<Agents.AgentCardProvider, T>());
+        return this;
+    }
+
+    /// <summary>
+    /// Uses <typeparamref name="T"/> to pick each tenant's agent (multi-agent hosting: one agent per tenant). Singleton.
+    /// Replaces an earlier resolver. Without one, the executor from <see cref="AddAgentExecutor{T}"/> runs every tenant's tasks.
+    /// </summary>
+    public A2AServerBuilder AddAgentExecutorResolver<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() where T : Agents.AgentExecutorResolver
+    {
+        Services.Replace(ServiceDescriptor.Singleton<Agents.AgentExecutorResolver, T>());
         return this;
     }
 

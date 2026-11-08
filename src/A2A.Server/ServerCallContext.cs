@@ -60,6 +60,15 @@ public sealed class ServerCallContext
             throw A2AException.InvalidParams("tenant in request body does not match the endpoint tenant");
     }
 
+    /// <summary>
+    /// The route values of the HTTP request (for example <c>tenant</c>), as strings; empty when the binding has none. Passed to
+    /// <see cref="Agents.AgentCardProvider"/> in <see cref="Agents.AgentRequestScope.RouteValues"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, string?> RouteValues { get; init; } = Agents.AgentRequestScope.NoRouteValues;
+
+    /// <summary>The card resolved for this request and the tenant it was resolved for (resolved at most once per request and tenant).</summary>
+    internal (string Tenant, AgentCard? Card)? ResolvedCard { get; set; }
+
     /// <summary>Value of the A2A-Version header, or null if absent.</summary>
     public string? ProtocolVersion { get; init; }
 

@@ -150,8 +150,12 @@ public static partial class A2AEndpointRouteBuilderExtensions
     }
 
     /// <summary>
-    /// Serves the public Agent Card at <c>/.well-known/agent-card.json</c> (anonymous, cacheable). When a signing key is
-    /// configured, the card is signed and the public key is served at <see cref="A2AHttpOptions.JwksPath"/>.
+    /// Serves the public Agent Card at <c>/.well-known/agent-card.json</c> and each tenant's card at
+    /// <c>/{tenant}/.well-known/agent-card.json</c> (anonymous, cacheable). The card comes from the
+    /// <see cref="Agents.AgentCardProvider"/> for the tenant the <see cref="ITenantResolver"/> finds (without a provider, the
+    /// configured card for every tenant); a tenant with no card is HTTP 404. When a signing key is configured (the provider's
+    /// for the tenant, else <see cref="A2AHttpOptions.SigningKey"/>), the card is signed and the public key is served at
+    /// <see cref="A2AHttpOptions.JwksPath"/>, and at <c>/{tenant}</c> followed by that path for a tenant.
     /// </summary>
     public static IEndpointConventionBuilder MapAgentCard(this IEndpointRouteBuilder endpoints)
     {
@@ -160,6 +164,8 @@ public static partial class A2AEndpointRouteBuilderExtensions
         var group = endpoints.MapGroup("");
         group.MapGet(A2AProtocol.WellKnownAgentCardPath, card.GetCardAsync).WithDisplayName("A2A Agent Card");
         group.MapGet(jwksPath, card.GetJwksAsync).WithDisplayName("A2A Agent Card JWKS");
+        group.MapGet("/{tenant}" + A2AProtocol.WellKnownAgentCardPath, card.GetCardAsync).WithDisplayName("A2A Agent Card (tenant)");
+        group.MapGet("/{tenant}/" + jwksPath.TrimStart('/'), card.GetJwksAsync).WithDisplayName("A2A Agent Card JWKS (tenant)");
         group.AllowAnonymous();
         return group;
     }
