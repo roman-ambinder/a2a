@@ -18,7 +18,7 @@ You can also register the webhook in the first message. Leave `TaskId` empty; th
 
 [!code-csharp[](../snippets/PushNotifications.cs#RegisterInline)]
 
-The server returns the config with `Token` and `Credentials` blanked. A task can have at most <xref:A2A.Server.A2ALimits.MaxPushConfigsPerTask> configs (default 10). A config change applies from the next event on.
+The server returns the config with `Token` and `Credentials` blanked. A task can have at most <xref:A2A.Server.A2ALimits.MaxPushConfigsPerTask> configs (default 10). A new config gets deliveries from the next event on. A pending delivery uses the config as it is when it is sent.
 
 ## How delivery works
 
@@ -73,7 +73,7 @@ The service checks the options at startup. `Timeout` must be positive and finite
 | `X-A2A-Delivery-Id` | The delivery id. The same on every retry. |
 | `X-A2A-Notification-Sequence` | The event sequence. An SDK extension, not in the spec. |
 | `X-A2A-Notification-Token` | The config `Token`, when set. |
-| `Authorization` | `{Scheme} {Credentials}` from the config's authentication. With no authentication but a `Token`, `Bearer {Token}`. Not sent for the `webhook-signature` scheme. |
+| `Authorization` | `{Scheme} {Credentials}` from the config's authentication. With no authentication, or with the `webhook-signature` scheme, and a `Token`: `Bearer {Token}`. The signing secret is never sent. |
 | `webhook-id`, `webhook-timestamp`, `webhook-signature` | Only for the `webhook-signature` scheme. |
 | `traceparent`, `tracestate` | The trace of the delivery span, when there is one. |
 

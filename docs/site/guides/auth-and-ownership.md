@@ -42,7 +42,7 @@ A caller can only reach its own tasks. For any other task id, the server answers
 
 ## Extra rules: A2AAuthorizationHandler
 
-<xref:A2A.Server.Authorization.A2AAuthorizationHandler> runs first in every operation, on every binding, after the tenant is known. It gets the call (user, owner, tenant), an <xref:A2A.Server.Pipeline.A2AOperationDescriptor> and the request object. Return `false` to deny.
+<xref:A2A.Server.Authorization.A2AAuthorizationHandler> runs in every operation, on every binding, after the tenant is known. Filters at the default stage run after it. Only `A2AFilterStage.BeforeAuthorization` filters run before it. It gets the call (user, owner, tenant), an <xref:A2A.Server.Pipeline.A2AOperationDescriptor> and the request object. Return `false` to deny.
 
 [!code-csharp[](../snippets/AuthAndOwnership.cs#Handler)]
 

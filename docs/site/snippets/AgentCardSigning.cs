@@ -78,12 +78,12 @@ internal static class Snippets
         #endregion
     }
 
-    public static async Task ResolveAsync(HttpClient http, Uri agentUrl)
+    public static async Task ResolveAsync(HttpClient http, Uri agentUrl, JwkSet jwks)
     {
         #region Resolve
         var resolver = new A2ACardResolver(http, new A2ACardResolverOptions
         {
-            Trust = { RequireSignature = true },
+            Trust = { TrustedKeys = { [CardTrustPolicy.OriginOf(agentUrl)] = jwks } },
             PinPolicy = PinPolicy.Strict,
         });
         resolver.CardChanged += (_, e) => Console.WriteLine($"Card of {e.Origin} changed: {e.OldHash} -> {e.NewHash}");
