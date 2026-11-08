@@ -20,15 +20,10 @@ internal sealed class RequestCards(IAgentCardProvider cards)
     /// <summary>The card of the call's tenant, or null when no agent serves the tenant.</summary>
     public async ValueTask<AgentCard?> ResolveAsync(ServerCallContext call, CancellationToken ct)
     {
-        if (call.ResolvedCard is { } resolved && string.Equals(resolved.Tenant, call.Tenant, StringComparison.Ordinal))
-        {
-            Telemetry.ServerTelemetry.SetAgent(resolved.Card);
-            return resolved.Card;
-        }
+        if (call.ResolvedCard is { } resolved && string.Equals(resolved.Tenant, call.Tenant, StringComparison.Ordinal)) return resolved.Card;
         var card = await cards.GetAsync(new AgentRequestScope(call.Tenant, call.RouteValues), ct).ConfigureAwait(false);
         if (card is not null && PerTenant) Pipeline.CallValidator.ApplyExtensions(card, call);
         call.ResolvedCard = (call.Tenant, card);
-        Telemetry.ServerTelemetry.SetAgent(card);
         return card;
     }
 

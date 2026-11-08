@@ -57,18 +57,8 @@ internal static class ServerTelemetry
         var activity = remote.TraceId != default && (current is null || current.TraceId != remote.TraceId)
             ? Source.StartActivity(spanName, ActivityKind.Server, remote)
             : Source.StartActivity(spanName, current is null ? ActivityKind.Server : ActivityKind.Internal);
-        if (activity is { IsAllDataRequested: true }) A2ATelemetry.SetOperationTags(activity, operation, call.Binding, call.Tenant, taskId, protocolVersion: call.ProtocolVersion);
+        if (activity is { IsAllDataRequested: true }) A2ATelemetry.SetOperationTags(activity, operation, call.Binding, call.Tenant, taskId, protocolVersion: call.WireProtocolVersion ?? call.ProtocolVersion);
         return activity;
-    }
-
-    /// <summary>
-    /// Tags the current operation span (when it is this source's) with the agent card that serves the call. Does nothing while
-    /// nobody listens.
-    /// </summary>
-    public static void SetAgent(AgentCard? card)
-    {
-        if (!Source.HasListeners()) return;
-        if (Activity.Current is { } activity && ReferenceEquals(activity.Source, Source)) A2ATelemetry.SetAgent(activity, card);
     }
 
     /// <summary>

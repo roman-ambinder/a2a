@@ -148,6 +148,71 @@ public sealed class TelemetryTests
     {
         Assert.Equal("TASK_NOT_FOUND", A2ATelemetry.ErrorTypeOf(A2AException.TaskNotFound("t")));
         Assert.Equal(typeof(InvalidOperationException).FullName, A2ATelemetry.ErrorTypeOf(new InvalidOperationException()));
+        Assert.Equal(A2AErrors.PayloadTooLargeReason, A2ATelemetry.ErrorTypeOf(A2AException.PayloadTooLarge(10))); // ReasonOverride wins
+    }
+
+    [Fact]
+    public void Stream_event_of_a_final_task_reports_its_state()
+    {
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = _ => true,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+        };
+        ActivitySource.AddActivityListener(listener);
+        using var source = new ActivitySource("test.final-task");
+        using var activity = source.StartActivity("stream")!;
+
+        A2ATelemetry.AddStreamEvent(activity, Status(TaskState.Working));
+        A2ATelemetry.AddStreamEvent(activity, new TaskEvent(new AgentTask { Id = "t-1", ContextId = "c-1", Status = new AgentTaskStatus { State = TaskState.Completed } }));
+
+        var last = activity.Events.Last(e => e.Name == A2ATelemetry.Events.StreamEvent);
+        Assert.Equal("task", last.Tags.Single(t => t.Key == A2ATelemetry.Events.EventKind).Value);
+        Assert.Equal("TASK_STATE_COMPLETED", last.Tags.Single(t => t.Key == A2ATelemetry.Tags.TaskState).Value);
+    }
+
+    /// <summary>A host filter that opens its own span (another source) around the operation.</summary>
+    private sealed class OwnSpanFilter : IA2AOperationFilter
+    {
+        private static readonly ActivitySource Own = new("test.host-filter");
+
+        public async ValueTask<object?> InvokeAsync(A2AOperationContext context, object request, A2AOperationDelegate next, CancellationToken cancellationToken)
+        {
+            using var _ = Own.StartActivity("host-filter");
+            return await next(context, request, cancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task Agent_tags_survive_a_host_filter_that_opens_its_own_span()
+    {
+        await using var host = await TestAgentHost.StartAsync(services: s =>
+        {
+            s.AddSingleton(new OwnSpanFilter());
+            s.AddA2AServer().AddOperationFilter<OwnSpanFilter>(A2AFilterStage.AfterAuthorization);
+        });
+        using var spans = new Spans(A2ATelemetry.ServerSourceName, "test.host-filter");
+
+        await host.Client(ProtocolBindings.JsonRpc).SendMessageAsync("hello");
+
+        var send = Assert.Single(await spans.WaitForAsync("SendMessage"));
+        Assert.Equal("Scenario Agent", send.GetTagItem(A2ATelemetry.Tags.AgentName));
+    }
+
+    [Fact]
+    public async Task Client_span_uses_the_card_it_was_created_with_after_a_refresh()
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        using var spans = new Spans(A2ATelemetry.ClientSourceName);
+        var client = host.Client(ProtocolBindings.JsonRpc);
+
+        var extended = await client.RefreshWithExtendedAgentCardAsync();
+        Assert.Equal("Extended card for alice", extended.Description);
+        Assert.Same(extended, client.AgentCard);
+        await client.GetTaskAsync("t-1").ContinueWith(_ => { });
+
+        var get = Assert.Single(spans.Named("GetTask"));
+        Assert.Equal("Test agent", get.GetTagItem(A2ATelemetry.Tags.AgentDescription));
     }
 
     [Fact]

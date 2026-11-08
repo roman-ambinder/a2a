@@ -18,6 +18,7 @@ public sealed class A2AClient : IA2AClient
     private readonly IA2AClient _transport;
     private readonly A2AClientOptions _options;
     private readonly string? _binding;
+    private readonly AgentCard? _telemetryCard;
 
     /// <summary>Creates a client over <paramref name="transport"/>. <paramref name="options"/> defaults to a new <see cref="A2AClientOptions"/>. <paramref name="agentCard"/> enables capability checks when given.</summary>
     public A2AClient(IA2AClient transport, A2AClientOptions? options = null, AgentCard? agentCard = null)
@@ -25,11 +26,15 @@ public sealed class A2AClient : IA2AClient
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _options = options ?? new A2AClientOptions();
         AgentCard = agentCard;
+        _telemetryCard = agentCard;
         _binding = (transport as ITransportBinding)?.Binding;
     }
 
     /// <summary>The card this client was created from, if any.</summary>
     public AgentCard? AgentCard { get; private set; }
+
+    /// <summary>The card the client was created with: spans tag it, never the extended card a refresh may bring (for authenticated callers only).</summary>
+    internal AgentCard? TelemetryCard => _telemetryCard;
 
     /// <summary>The binding name for the client's spans (null when the transport names none).</summary>
     internal string? TelemetryBinding => _binding;

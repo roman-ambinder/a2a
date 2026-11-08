@@ -447,8 +447,8 @@ internal sealed partial class V03Surface
         var headers = http.Request.Headers;
         if (!headers.ContainsKey(A2AProtocol.Headers.Extensions) && headers.TryGetValue(V03Compat.ExtensionsHeader, out var extensions))
             headers[A2AProtocol.Headers.Extensions] = extensions;
-        // The converted request is a v1.0 call.
-        return HttpPlumbing.CreateCallContext(http, binding, A2AProtocol.Version);
+        // The converted request is a v1.0 call; the caller spoke v0.3 on the wire.
+        return HttpPlumbing.CreateCallContext(http, binding, A2AProtocol.Version, wireVersion: A2AProtocol.ImplicitVersion);
     }
 
     private static void WriteExtensions(HttpContext http, ServerCallContext call)

@@ -6,8 +6,9 @@ namespace A2A.Diagnostics;
 /// <summary>
 /// Names used by the SDK's tracing and metrics. The SDK traces with <see cref="ActivitySource"/> and counts with
 /// <see cref="System.Diagnostics.Metrics.Meter"/> only, so it works with OpenTelemetry (<c>AddSource("A2A.Server", "A2A.Client")</c>,
-/// <c>AddMeter("A2A.Server")</c>) or any other listener, and costs almost nothing when nobody listens. Tags carry ids and
-/// outcomes only: never message content, tokens, credentials or webhook URLs. Names follow the OpenTelemetry A2A semantic conventions (status: Development).
+/// <c>AddMeter("A2A.Server")</c>) or any other listener, and costs almost nothing when nobody listens. Tags carry ids,
+/// states, versions and outcomes only, plus the public Agent Card's name, description and version: never message content,
+/// tokens, credentials or webhook URLs. Names follow the OpenTelemetry A2A semantic conventions (status: Development).
 /// </summary>
 public static class A2ATelemetry
 {
@@ -164,7 +165,7 @@ public static class A2ATelemetry
     /// <summary>Span event names. Stream events are span events on the stream's span, not child spans.</summary>
     public static class Events
     {
-        /// <summary>One stream event. Tags: <c>a2a.event.kind</c>, <c>a2a.event.sequence</c> (server), <c>a2a.task.state</c> (status updates).</summary>
+        /// <summary>One stream event. Tags: <c>a2a.event.kind</c>, <c>a2a.event.sequence</c> (server), <c>a2a.task.state</c> (status updates, and tasks that have a status).</summary>
         public const string StreamEvent = "a2a.stream.event";
 
         /// <summary>A client stream reconnected (or a webhook delivery attempt failed and is retried).</summary>
@@ -369,7 +370,8 @@ public static class A2ATelemetry
         if (activity is null || !activity.IsAllDataRequested) return;
         var tags = new ActivityTagsCollection { [Events.EventKind] = EventKindOf(evt) };
         if (sequence is { } s) tags[Events.EventSequence] = s;
-        if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var state }) tags[Tags.TaskState] = TaskStateValue(state);
+        if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var updated }) tags[Tags.TaskState] = TaskStateValue(updated);
+        else if (evt is TaskEvent { Task.Status.State: var current }) tags[Tags.TaskState] = TaskStateValue(current);
         activity.AddEvent(new ActivityEvent(Events.StreamEvent, tags: tags));
     }
 }

@@ -99,6 +99,12 @@ public sealed class ServerCallContext
     public string? ProtocolVersion { get; init; }
 
     /// <summary>
+    /// The version the caller used on the wire, when a compatibility surface translated the call so it differs from
+    /// <see cref="ProtocolVersion"/>. Telemetry reports it; null means the same as <see cref="ProtocolVersion"/>.
+    /// </summary>
+    public string? WireProtocolVersion { get; init; }
+
+    /// <summary>
     /// Value of the <c>Idempotency-Key</c> header, or null if absent. SendMessage uses it to recognize a retry; without it the
     /// message id is the key. Keys are scoped by <see cref="Tenant"/> and <see cref="Principal"/>. A key (header or message
     /// id) longer than 256 characters is refused with InvalidParams.

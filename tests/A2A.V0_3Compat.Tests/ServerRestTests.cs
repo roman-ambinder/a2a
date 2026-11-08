@@ -26,6 +26,28 @@ public class ServerRestTests
     }
 
     [Fact]
+    public async Task Operation_span_reports_the_wire_protocol_version_of_a_v03_caller()
+    {
+        var stopped = new System.Collections.Concurrent.ConcurrentQueue<System.Diagnostics.Activity>();
+        using var listener = new System.Diagnostics.ActivityListener
+        {
+            ShouldListenTo = s => s.Name == "A2A.Server",
+            Sample = (ref System.Diagnostics.ActivityCreationOptions<System.Diagnostics.ActivityContext> _) => System.Diagnostics.ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = stopped.Enqueue,
+        };
+        System.Diagnostics.ActivitySource.AddActivityListener(listener);
+        await using var host = await V03Host.StartAsync();
+
+        var (response, _) = await SendAsync(host.Http(), HttpMethod.Post, "/a2a/v1/message:send", V03Host.RestSendBody("hello"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var until = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (!stopped.Any(a => a.OperationName == "SendMessage") && DateTime.UtcNow < until) await Task.Delay(10);
+        var span = Assert.Single(stopped, a => a.OperationName == "SendMessage");
+        Assert.Equal("0.3", span.GetTagItem("a2a.protocol.version"));
+    }
+
+    [Fact]
     public async Task Message_send_returns_a_wrapped_message_that_parses_with_the_v03_proto()
     {
         await using var host = await V03Host.StartAsync();

@@ -164,8 +164,16 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
         {
             if (error is not null) A2ATelemetry.RecordError(activity, error, ReferenceEquals(outcome, A2ATelemetry.Outcomes.Canceled));
             if (call.Tenant.Length > 0) activity.SetTag(A2ATelemetry.Tags.Tenant, call.Tenant);
+            TagAgent(activity, call);
         }
         activity.Dispose();
+    }
+
+    /// <summary>Tags the agent of the card resolved for this call's tenant (none when the call was refused before a card resolved).</summary>
+    private static void TagAgent(Activity activity, ServerCallContext call)
+    {
+        if (call.ResolvedCard is { } resolved && string.Equals(resolved.Tenant, call.Tenant, StringComparison.Ordinal))
+            A2ATelemetry.SetAgent(activity, resolved.Card);
     }
 
     private static void StopCanceled(Activity? activity, A2AOperationDescriptor operation, ServerCallContext call)
@@ -176,6 +184,7 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
         {
             activity.SetTag(A2ATelemetry.ErrorTypeCanceledTag, true);
             if (call.Tenant.Length > 0) activity.SetTag(A2ATelemetry.Tags.Tenant, call.Tenant);
+            TagAgent(activity, call);
         }
         activity.Dispose();
     }

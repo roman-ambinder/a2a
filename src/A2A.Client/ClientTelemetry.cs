@@ -14,7 +14,7 @@ internal static class ClientTelemetry
     {
         var activity = Source.StartActivity(operation, ActivityKind.Client);
         A2ATelemetry.SetOperationTags(activity, operation, client.TelemetryBinding, tenant, taskId, protocolVersion: client.TelemetryProtocolVersion);
-        A2ATelemetry.SetAgent(activity, client.AgentCard);
+        A2ATelemetry.SetAgent(activity, client.TelemetryCard);
         A2ATelemetry.SetMessage(activity, message);
         return activity;
     }

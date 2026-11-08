@@ -41,7 +41,7 @@ Nothing is published on NuGet, so names change with no dual emission and no opt-
 | D5 | `error.type` on A2A errors is `ReasonOverride ?? A2AErrors.Reason(code)`, on spans and the counter. `a2a.error.code` keeps the enum name. Exception names are unchanged. `TimeLimit` and `TaskFailed` stay on run spans. | Convention. `ReasonOverride` is only ever one of two SDK constants, so a peer cannot inject a value. |
 | D6 | Add `a2a.message.id` and `a2a.message.reference_task_ids` on `SendMessage` and `SendStreamingMessage`, and set `a2a.task.id` and `gen_ai.conversation.id` from the request message. | Conditionally required / recommended. Ids only. |
 | D7 | Add `a2a.protocol.version`: `A2AClientOptions.ProtocolVersion` on the client, `ServerCallContext.ProtocolVersion` on the server when set. | Recommended. |
-| D8 | Add `gen_ai.agent.name`, `.description`, `.version` from the Agent Card. Client: `A2AClient.AgentCard`, when present. Server: the card `RequestCards.ResolveAsync` resolved, set on the operation span when it is current. | Conditionally required. `RequestCards` is the one place that knows the tenant's card, and it works for per-tenant cards. A call refused before the card resolves has no agent tags. |
+| D8 | Add `gen_ai.agent.name`, `.description`, `.version` from the Agent Card. Client: `A2AClient.AgentCard`, when present. Server: the card `RequestCards.ResolveAsync` resolved, set from `ServerCallContext.ResolvedCard` when the operation span stops. | Conditionally required. `RequestCards` is the one place that knows the tenant's card, and it works for per-tenant cards. A call refused before the card resolves has no agent tags. |
 | D9 | A stream span sets `a2a.task.state` only while one distinct state has been seen. It removes the tag on the second distinct state. Per-event `a2a.task.state` on `a2a.stream.event` stays. | Convention. The final state of a stream is on its last span event. |
 | D10 | Keep every `a2a.*` metric name. Keep `a2a.binding`, `a2a.error.code`, `a2a.canceled`, `a2a.outcome`, `a2a.stream.*`, `a2a.push.*`, `a2a.execution.*`, the `a2a.agent.execute` and `a2a.push.deliver` span names. | No convention replaces them. |
 | D11 | Keep the C# constant names (`Tags.Operation`, `Tags.ContextId`). Only their values change. | A later convention change touches one string. Smaller diff. |
@@ -53,7 +53,7 @@ Nothing is published on NuGet, so names change with no dual emission and no opt-
 ## Cost
 
 All new tags run only with a sampled span (`IsAllDataRequested`). With no listener, the client and server paths still return
-early at `HasListeners()`. `RequestCards.ResolveAsync` gains one `HasListeners()` check. The enum `ToString()` calls become a
+early at `HasListeners()`. The enum `ToString()` calls become a
 dictionary lookup on the proto name, so a listened-to run allocates less.
 
 ## Risk

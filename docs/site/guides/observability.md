@@ -43,7 +43,7 @@ The delivery span continues the trace of the agent run that produced the event. 
 
 ## Streams
 
-One span covers a whole stream. Each event is a span event named `a2a.stream.event`, not a child span. Its tags are `a2a.event.kind` (`task`, `message`, `status_update` or `artifact_update`), `a2a.event.sequence` (server only) and `a2a.task.state` (status updates).
+One span covers a whole stream. Each event is a span event named `a2a.stream.event`, not a child span. Its tags are `a2a.event.kind` (`task`, `message`, `status_update` or `artifact_update`), `a2a.event.sequence` (server only) and `a2a.task.state` (status updates, and tasks that have a status).
 
 A client reconnect adds an `a2a.retry` span event with `a2a.retry.attempt`. A failed webhook attempt that will be tried again adds an `a2a.retry` event, without tags, to its delivery span.
 
@@ -87,7 +87,7 @@ The SDK emits no `gen_ai.operation.name` and no `invoke_agent` span. The convent
 Differences from the convention:
 
 - The operation span is a separate span under the ASP.NET Core request span. It does not enrich that span.
-- `server.address` and `client.address` come from the transport spans.
+- `server.address` and `client.address` come from HTTP or gRPC transport instrumentation when it is on.
 
 Some names have no convention, so they stay: the span names `a2a.agent.execute` and `a2a.push.deliver`, the `a2a.*` counters, and the tags `a2a.binding` and `a2a.error.code`.
 
