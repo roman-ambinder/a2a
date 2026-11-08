@@ -8,18 +8,29 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 
 ### Packages
 
-- 11 packages on NuGet, all with the ID prefix `RomanAmbinder.`, so they never clash with the official `A2A` packages.
+- 15 packages on NuGet, all with the ID prefix `RomanAmbinder.`, so they never clash with the official `A2A` packages.
   Assemblies and namespaces are `A2A.*`.
-- Client: `A2A.Protocol`, `A2A.Security.Http`, `A2A.Client`, `A2A.Client.DependencyInjection`, `A2A.Client.Grpc`.
-- Server: `A2A.Server`, `A2A.Server.AspNetCore`, `A2A.Server.Grpc`, `A2A.Server.Postgres`, `A2A.Server.Redis`.
-- Shared gRPC types: `A2A.Grpc`.
+- Client: `A2A.Protocol`, `A2A.Security.Http`, `A2A.Client`, `A2A.Client.DependencyInjection`, `A2A.Client.Grpc`,
+  `A2A.Client.V0_3Compat`.
+- Server: `A2A.Server`, `A2A.Server.AspNetCore`, `A2A.Server.Grpc`, `A2A.Server.Postgres`, `A2A.Server.Redis`,
+  `A2A.Server.V0_3Compat`.
+- Shared: `A2A.Grpc` (gRPC types) and `A2A.V0_3Compat` (v0.3 codecs).
+- Microsoft.Extensions.AI: `A2A.Extensions.AI`.
 - Every package has a README, the Apache-2.0 license, SourceLink and a symbol package. The libraries are AOT compatible.
   (#4, #13)
 
 ### Protocol and bindings
 
 - JSON-RPC, HTTP+JSON and gRPC bindings, for both client and server, with SSE streaming. (#3, #6, #7)
-- Interop is tested in CI against the official Python `a2a-sdk`, in both directions.
+- Interop is tested in CI against the official Python `a2a-sdk`, in both directions. The official A2A conformance suites
+  (a2a-tck and ACTS) run in CI too. Known failures are listed in `conformance/expected-failures.txt`. (#17)
+- `DeleteTaskPushNotificationConfig` is idempotent: deleting a config that is gone succeeds (spec 3.1.10). (#17)
+- A message part whose `mediaType` the card does not accept is refused with `ContentTypeNotSupported`. `Part.FromData` uses
+  `application/json`, so a card that lists only `text/plain` now refuses data parts built with it. (#17)
+- An artifact is sealed with `lastChunk: true`. A later `append: true` is refused, also after a restart. `append: false`
+  replaces the artifact. (#32)
+- Optional artifact integrity hash: `TaskUpdater.AddHashedArtifactAsync` on the producer and `ArtifactVerifier` on the client.
+  It detects corruption, not forgery. Experimental. (#32, #TBD)
 - Accepts `history_length` as well as `historyLength`, as ProtoJSON requires. (#8)
 - REST stream errors are sent as SSE frames named `error`. All clients skip stream event types they do not know instead of
   ending the stream. (#8)
@@ -35,6 +46,35 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - SSRF guard for outbound HTTP, including webhooks, `jku` key sets and URLs chosen by a peer (`SafeHttp`). (#5, #8, #13)
 - HTTP transports refuse a response that arrived through a redirect. (#8)
 - Agent Card signing and verification (JWS, JCS).
+- Peer identity is the card origin plus the signing key id, never the card's `name`. `AgentRegistry` rejects duplicate names
+  and warns about lookalike names. A cached card is checked again against the current trust policy. (#23)
+- Credential providers are chosen by the card's security schemes: OAuth2 client credentials, API key and mutual TLS. A credential
+  goes only to the origin the card came from and is never sent across a redirect. (#24)
+- `OAuthTokenExchanger` and `UseBearerToken` follow the same redirect and origin rules. `OAuthTokenExchanger` no longer takes an
+  `HttpClient`, and `UseBearerToken` now takes the agent URL. (#26)
+
+### Delegation
+
+- `metadata["actorChain"]` records who the work is for (shape of A2A#2028). It is audit data, not authorization. A well-formed
+  chain is copied to the task. Experimental. (#22, #TBD)
+- `A2ALimits.MaxActorChainHops` (default 8) refuses a longer chain with `InvalidRequest`. It is a loop brake, not a security
+  boundary. (#22)
+- Token exchange (`ITokenExchanger`, `OAuthTokenExchanger`, RFC 8693 style). Agent code never gets the caller's token. (#22)
+
+### Skill selection
+
+- A client names the skill it wants with `A2AClient.SelectSkill`. The agent reads `AgentRequestContext.RequestedSkillId`. It is
+  an optional extension, and a hint, not authorization. A card can opt in to refusing unknown skills. Experimental. (#30, #TBD)
+
+### Microsoft.Extensions.AI
+
+- `A2A.Extensions.AI` runs any `IChatClient` as an agent (`AddChatClientAgent`), calls a remote agent as a tool
+  (`AsAIFunction`) and as a chat client (`AsChatClient`). URL parts are refused unless allowed. (#21)
+
+### v0.3 compatibility
+
+- Opt-in support for A2A v0.3 peers over JSON-RPC and HTTP+JSON. Server: `EnableV03Compat()` in `MapA2A`. Client:
+  `V03CompatClientFactory`. v0.3 push and gRPC are not supported. (#25)
 
 ### Streaming
 
@@ -55,7 +95,7 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - A follow-up that was accepted but could not start fails its task, so the task does not wait forever. (#15)
 - The client refuses a request with a missing required field before sending it, on every operation and binding, and names the
   field in the error (`InvalidParams`). No member became C# `required`.
-  v0.3 clients must give a config id to get a push config; use the list operation otherwise.
+  v0.3 clients must give a config id to get a push config; use the list operation otherwise. (#27)
 
 ### Durable stores and running several instances
 
@@ -90,11 +130,15 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
   through `Meter`. No OpenTelemetry package is needed in the core packages. (#11, #13)
 - All bindings send and read W3C `traceparent` and `tracestate`. (#11)
 - Tags never contain message content, tokens, credentials, webhook URLs or exception messages. (#11)
+- Span and attribute names follow the OpenTelemetry A2A semantic conventions (status: Development). Span names lose the `a2a.`
+  prefix, `rpc.method` is now `a2a.method.name`, and `a2a.context.id` is now `gen_ai.conversation.id`. (#29)
 
 ### Extending the SDK
 
 - `IA2ARequestHandler`, used by every binding, and an operation filter pipeline (`IA2AOperationFilter`). (#13)
-- Extension operations over JSON-RPC and REST (`AddExtensionOperation`), denied unless authorized. (#13)
+- Extension operations over JSON-RPC, REST and gRPC (`AddExtensionOperation`), denied unless authorized. gRPC serves them through
+  `a2a.extensions.v1.A2AExtensionService`, mapped with `MapA2AGrpcExtensions`. Experimental. (#13, #TBD)
+- gRPC errors list the activated extensions in the trailers, as the other bindings do. (#TBD)
 - `IResumableTransport` and `StreamFrame`, so third-party transports get stream resume. (#13)
 - `IAgentCardProvider` and `IPushConfigChangeListener`. (#13)
 - The server core runs without a DI container. `A2A.Client` depends only on `Microsoft.Extensions.Logging.Abstractions`. (#13)
@@ -104,6 +148,12 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - `services.AddA2A(...)` and `app.MapA2A(...)` set up a server in a few lines. `MapA2A` also maps the Agent Card. (#13)
 - An Agent Card needs only `Name`, `Description` and `Version`. Its interfaces are filled in from the mapped bindings. (#13)
 - `AddA2AClient` limits the response buffer to 16 MiB by default. (#15)
+
+### Versioning
+
+- `[Experimental]` marks APIs tied to unsettled contracts, each with a diagnostic ID: `A2AEXP001` skill selection, `A2AEXP002`
+  actor chain, `A2AEXP003` artifact integrity hash, `A2AEXP004` gRPC extension service. They can change in any minor version.
+  See the versioning guide. (#TBD)
 
 ### Performance
 
@@ -123,6 +173,8 @@ Each event is encoded once, and SSE, push and replay all write the stored bytes.
 
 - A docs site in `docs/site`, built with DocFX: task-oriented guides and a generated API reference. CI builds it, compiles
   every code sample, and checks type names and links. It is not hosted yet. (#19)
+- Guides for v0.3 compatibility, Microsoft.Extensions.AI, client credentials, peer identity, skill selection and versioning.
+  (#31, #TBD)
 
 ### Before you deploy
 
