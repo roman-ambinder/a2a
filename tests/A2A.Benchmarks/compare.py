@@ -22,15 +22,23 @@ def load_results(results_dir):
     if not files:
         sys.exit(f"error: no BenchmarkDotNet *-report-full*.json files in {results_dir}")
     out = {}
+    no_statistics = []
     for path in sorted(files):
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         for b in data.get("Benchmarks", []):
             key = f"{b['Type']}.{b['Method']}"
+            # BenchmarkDotNet writes null when the benchmark failed to run; there is nothing to compare.
+            if not b.get("Statistics") or not b.get("Memory"):
+                no_statistics.append(key)
+                continue
             out[key] = {
                 "meanNs": float(b["Statistics"]["Mean"]),
                 "allocatedBytes": int(b["Memory"]["BytesAllocatedPerOperation"]),
             }
+    if no_statistics:
+        sys.exit("error: these benchmarks produced no statistics (they failed to run, see the benchmark run's output for the "
+                 "exception):\n" + "\n".join(f"  {key}" for key in no_statistics))
     return out
 
 
