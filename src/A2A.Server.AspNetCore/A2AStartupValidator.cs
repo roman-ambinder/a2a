@@ -70,7 +70,8 @@ internal sealed class A2AEndpointRegistry
 /// <see cref="A2AServerOptions.AllowAnonymous"/> is true. When no endpoint is registered yet at start (Startup-style hosting
 /// maps endpoints while the web host starts), the check runs again on <c>ApplicationStarted</c> and stops the app on failure.
 /// <see cref="A2ARequestHandler"/> also rejects anonymous callers on its own as a backstop. The same check fails the start when
-/// A2A endpoints use the rate limit policy but <c>app.UseA2A()</c> (the rate limiter middleware) was not added.
+/// A2A endpoints use the rate limit policy but <c>app.UseA2A()</c> (the rate limiter middleware) was not added, and when the
+/// Agent Card has no name (<c>AddAgentCard(...)</c> was not called).
 /// </summary>
 internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions<A2AServerOptions> options,
     IHostApplicationLifetime lifetime, ILogger<A2AStartupValidator> logger, IServiceProvider services,
@@ -85,11 +86,15 @@ internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions
     internal const string NoRateLimiterMessage =
         "Call app.UseA2A() before app.UseAuthorization(), or set A2ARateLimitOptions.Enabled = false (services.AddA2ARateLimiting(o => o.Enabled = false)).";
 
+    internal const string NoCardNameMessage =
+        "The Agent Card has no name. Call AddAgentCard(...) on the A2A builder or set A2AServerOptions.AgentCard.";
+
     private const string Prefix = "A2A ";
     private const string AgentCard = "A2A Agent Card";
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        CheckCardName();
         await CheckExtensionPoliciesAsync().ConfigureAwait(false);
         if (options.Value.AllowAnonymous) AspNetCoreLog.AnonymousCallersAllowed(logger);
 
@@ -108,6 +113,16 @@ internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions
         }
 
         Check();
+    }
+
+    /// <summary>
+    /// Fails when the Agent Card has no name (a forgotten <c>AddAgentCard(...)</c>), unless a custom <see cref="IAgentCardProvider"/>
+    /// that does not build on <see cref="AgentCardProvider"/> supplies the card.
+    /// </summary>
+    private void CheckCardName()
+    {
+        if (services.GetService<IAgentCardProvider>() is not (null or AgentCardProvider)) return;
+        if (string.IsNullOrWhiteSpace(options.Value.AgentCard?.Name)) throw new InvalidOperationException(NoCardNameMessage);
     }
 
     /// <summary>Fails when an extension operation names an authorization policy the app cannot evaluate (fail closed).</summary>

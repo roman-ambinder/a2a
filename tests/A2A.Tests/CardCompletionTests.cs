@@ -221,4 +221,36 @@ public sealed class CardCompletionTests
         Assert.Contains("SupportedInterfaces", ex.ToString());
         await app.StopAsync();
     }
+
+    private const string NoNameMessage =
+        "The Agent Card has no name. Call AddAgentCard(...) on the A2A builder or set A2AServerOptions.AgentCard.";
+
+    [Fact]
+    public async Task Startup_fails_when_the_card_has_no_name()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+        builder.Services.AddA2AServer(o => o.AllowAnonymous = true).AddAgentExecutor<ScenarioAgent>(); // no AddAgentCard
+        builder.Services.AddA2AServerAspNetCore();
+        builder.Services.AddA2ARateLimiting(o => o.Enabled = false);
+        await using var app = builder.Build();
+        app.MapA2A("/a2a");
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => app.StartAsync());
+        Assert.Equal(NoNameMessage, ex.Message);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Core_provider_fails_at_first_use_when_the_card_has_no_name(string name)
+    {
+        var options = new A2AServerOptions();
+        options.AgentCard.Name = name;
+        var provider = new AgentCardProvider(options, []);
+        Assert.Equal(NoNameMessage, Assert.Throws<InvalidOperationException>(() => provider.Get()).Message);
+
+        options.AgentCard.Name = "Named";
+        Assert.Equal("Named", provider.Get().Name);
+    }
 }

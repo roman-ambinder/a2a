@@ -17,6 +17,10 @@ public class AgentCardProvider : IAgentCardProvider
     private readonly object _gate = new();
     private AgentCard? _card;
 
+    /// <summary>The message of the exception thrown when the card has no name.</summary>
+    internal const string NoNameMessage =
+        "The Agent Card has no name. Call AddAgentCard(...) on the A2A builder or set A2AServerOptions.AgentCard.";
+
     /// <summary>Creates the provider. In an app the DI container does this.</summary>
     /// <param name="options">The server options; <see cref="A2AServerOptions.AgentCard"/> is read when the card is first built.</param>
     /// <param name="extensions">The registered extension operations.</param>
@@ -39,6 +43,7 @@ public class AgentCardProvider : IAgentCardProvider
     protected virtual void Complete(AgentCard copy) { }
 
     /// <inheritdoc />
+    /// <exception cref="InvalidOperationException">The card has no name (no <c>AddAgentCard(...)</c> and no <see cref="A2AServerOptions.AgentCard"/>).</exception>
     public AgentCard Get()
     {
         if (Volatile.Read(ref _card) is { } cached) return cached;
@@ -62,6 +67,7 @@ public class AgentCardProvider : IAgentCardProvider
             list.Add(new AgentExtension { Uri = extension.ExtensionUri });
         }
         Complete(card);
+        if (string.IsNullOrWhiteSpace(card.Name)) throw new InvalidOperationException(NoNameMessage);
         return card;
     }
 }

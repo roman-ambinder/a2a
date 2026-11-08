@@ -8,6 +8,7 @@ public sealed class CallValidatorTests
     private static A2AServerOptions Options(Action<A2AServerOptions>? configure = null)
     {
         var options = new A2AServerOptions { AllowAnonymous = true };
+        options.AgentCard.Name = "Validator Test Agent";
         configure?.Invoke(options);
         return options;
     }
