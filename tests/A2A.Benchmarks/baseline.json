@@ -8,11 +8,11 @@
     "meanNs": 114.59396201372147
   },
   "SendMessageBenchmark.RoundTrip": {
-    "allocatedBytes": 56132,
-    "meanNs": 127629.5809733073
+    "allocatedBytes": 38044,
+    "meanNs": 134289.10327148438
   },
   "StreamingTaskBenchmark.ThousandEvents": {
-    "allocatedBytes": 21493982,
-    "meanNs": 8801571.182291666
+    "allocatedBytes": 20258263,
+    "meanNs": 7881229.166666667
   }
 }
