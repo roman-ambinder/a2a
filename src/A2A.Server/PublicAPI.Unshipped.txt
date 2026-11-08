@@ -14,6 +14,8 @@ A2A.Server.A2ALimits.MaxJsonDepth.get -> int
 A2A.Server.A2ALimits.MaxJsonDepth.set -> void
 A2A.Server.A2ALimits.MaxListPageSize.get -> int
 A2A.Server.A2ALimits.MaxListPageSize.set -> void
+A2A.Server.A2ALimits.MaxActorChainHops.get -> int
+A2A.Server.A2ALimits.MaxActorChainHops.set -> void
 A2A.Server.A2ALimits.MaxPartsPerMessage.get -> int
 A2A.Server.A2ALimits.MaxPartsPerMessage.set -> void
 A2A.Server.A2ALimits.MaxPushConfigsPerTask.get -> int

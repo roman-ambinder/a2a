@@ -293,6 +293,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         call.BindTenant(request.Tenant);
         A2AValidator.ValidateIncoming(request);
         RequestLimitValidator.Validate(request.Message, _options.Limits);
+        ActorChainValidator.Validate(request.Message, _options.Limits, call);
         // A copy: the caller's message is never changed (a retry with the same instance must hash the same). This copy goes to
         // the executor; the stored history gets copies of its own.
         var message = request.Message.DeepCopy();
@@ -366,6 +367,8 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     (next.History ??= []).Add(message.DeepCopy());
                     // Same update as the approving message: the approval cannot be used twice, also across instances (CAS).
                     if (consume is not null) (next.Metadata ??= [])[A2AProtocol.ApprovalConsumedKey] = StringElement(consume);
+                    // The latest well-formed chain wins; a follow-up without one leaves the echo as it is.
+                    if (ActorChainValidator.WellFormedChain(message) is { } chain) (next.Metadata ??= [])[A2A.Delegation.ActorChain.MetadataKey] = chain;
                     try
                     {
                         await _tasks.UpdateAsync(record with { Task = next }, record.Version, ct).ConfigureAwait(false);
