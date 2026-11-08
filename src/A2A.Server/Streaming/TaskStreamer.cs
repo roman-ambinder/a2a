@@ -238,6 +238,10 @@ public sealed class TaskStreamer
         if (accepted is not { } exec)
         {
             await agent.DisposeAsync().ConfigureAwait(false); // nothing runs
+            // The resume takes a stream slot and a subscription of its own: release these first, so a duplicate is not
+            // refused for a slot nothing streams on (MaxConcurrentStreamsPerTask = 1).
+            sub.Dispose();
+            admitted.Dispose();
             // A duplicate follow-up: nothing started. The same path as a retried request: the retained events from the start,
             // then live events.
             var resume = new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant };

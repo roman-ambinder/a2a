@@ -59,8 +59,13 @@ public class ApprovalTests
         return m;
     }
 
-    private static Task<TestAgentHost> StartAsync(ApprovalAgent agent) =>
-        TestAgentHost.StartAsync(services: s => s.Replace(ServiceDescriptor.Singleton<IAgentExecutor>(agent)));
+    private static Task<TestAgentHost> StartAsync(ApprovalAgent agent, Action<A2AServerOptions>? configure = null,
+        Action<IServiceCollection>? services = null) =>
+        TestAgentHost.StartAsync(configure, services: s =>
+        {
+            s.Replace(ServiceDescriptor.Singleton<IAgentExecutor>(agent));
+            services?.Invoke(s);
+        });
 
     [Fact]
     public void Hash_is_lowercase_hex_sha256_of_operation_and_description()
@@ -220,6 +225,27 @@ public class ApprovalTests
         Assert.Equal(2, agent.Executions);
         var stored = await client.GetTaskAsync(asked.Id);
         Assert.Single(stored.History!, m => m.MessageId == messageId);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Duplicate_follow_up_on_a_stream_resubscribes_with_one_stream_per_task(string binding)
+    {
+        var agent = new ApprovalAgent();
+        await using var host = await StartAsync(agent, o => o.Limits.MaxConcurrentStreamsPerTask = 1);
+        var client = host.Client(binding, options: new A2AClientOptions { MaxRetries = 0 });
+        var asked = (await client.SendMessageAsync("plain")).RequireTask();
+        var messageId = Message.NewId();
+        await client.SendMessageAsync(FollowUp(asked, null, messageId));
+
+        // Nothing else streams the task: the resume of the duplicate gets the one slot.
+        var events = new List<StreamResponse>();
+        await foreach (var e in client.SendStreamingMessageAsync(FollowUp(asked, null, messageId), options: new A2ARequestOptions { IdempotencyKey = Guid.NewGuid().ToString() }))
+            events.Add(e);
+
+        Assert.NotEmpty(events);
+        await host.WaitIdleAsync();
+        Assert.Equal(2, agent.Executions);
     }
 
     [Theory]
