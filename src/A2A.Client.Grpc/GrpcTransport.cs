@@ -12,6 +12,8 @@ namespace A2A.Client.Grpc;
 /// <see cref="A2ARequestOptions.IdempotencyKey"/> and <see cref="A2ARequestOptions.Timeout"/> (as the call deadline) apply.
 /// <see cref="A2ARequestOptions.MaxRetries"/> and <see cref="A2ARequestOptions.ConfigureRequest"/> are HTTP-only and are
 /// ignored; configure retries with a gRPC service config on the channel (<see cref="GrpcChannelOptions.ServiceConfig"/>).
+/// Streaming calls (<see cref="SendStreamingMessageAsync"/>, <see cref="SubscribeToTaskAsync"/>) start when the stream is first
+/// enumerated: a stream that is never read sends nothing.
 /// </remarks>
 public sealed class GrpcTransport : IA2AClient, IDisposable
 {
@@ -133,18 +135,18 @@ public sealed class GrpcTransport : IA2AClient, IDisposable
         try
         {
             var response = await invoke(_client, request, options).ResponseAsync.ConfigureAwait(false);
-            GrpcClientTelemetry.Stop(activity, null);
+            GrpcClientTelemetry.Stop(activity, null, options.CancellationToken);
             return response;
         }
         catch (RpcException ex)
         {
             var error = GrpcErrors.FromRpcException(ex);
-            GrpcClientTelemetry.Stop(activity, error);
+            GrpcClientTelemetry.Stop(activity, error, options.CancellationToken);
             throw error;
         }
         catch (Exception ex)
         {
-            GrpcClientTelemetry.Stop(activity, ex);
+            GrpcClientTelemetry.Stop(activity, ex, options.CancellationToken);
             throw;
         }
     }
@@ -166,7 +168,7 @@ public sealed class GrpcTransport : IA2AClient, IDisposable
         }
         catch (Exception ex)
         {
-            GrpcClientTelemetry.Stop(activity, ex);
+            GrpcClientTelemetry.Stop(activity, ex, ct);
             throw;
         }
         using (call)
@@ -179,15 +181,15 @@ public sealed class GrpcTransport : IA2AClient, IDisposable
             catch (RpcException ex)
             {
                 var error = GrpcErrors.FromRpcException(ex);
-                GrpcClientTelemetry.Stop(activity, error);
+                GrpcClientTelemetry.Stop(activity, error, ct);
                 throw error;
             }
             catch (Exception ex)
             {
-                GrpcClientTelemetry.Stop(activity, ex);
+                GrpcClientTelemetry.Stop(activity, ex, ct);
                 throw;
             }
-            GrpcClientTelemetry.Stop(activity, null);
+            GrpcClientTelemetry.Stop(activity, null, ct);
 
             while (moved)
             {

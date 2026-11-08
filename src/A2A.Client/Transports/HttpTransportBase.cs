@@ -92,7 +92,7 @@ public abstract class HttpTransportBase
                 try
                 {
                     var result = await WithTimeoutAsync(timeout, attempt, ct).ConfigureAwait(false);
-                    A2AClientTelemetry.Stop(activity, null);
+                    A2AClientTelemetry.Stop(activity, null, ct);
                     return result;
                 }
                 catch (Exception ex) when (n < maxAttempts && !ct.IsCancellationRequested && RetryPolicy.ShouldRetry(retry, ex, out _))
@@ -104,7 +104,7 @@ public abstract class HttpTransportBase
         }
         catch (Exception ex)
         {
-            A2AClientTelemetry.Stop(activity, ex);
+            A2AClientTelemetry.Stop(activity, ex, ct);
             throw;
         }
     }

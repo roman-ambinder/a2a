@@ -13,7 +13,8 @@ namespace A2A.Server.Telemetry;
 /// Spans: one per operation, named <c>a2a.server.{operation}</c> (for example <c>a2a.server.SendMessage</c>), kind
 /// <see cref="ActivityKind.Server"/>, with the tags <c>a2a.operation</c>, <c>a2a.tenant</c>, <c>a2a.task_id_hash</c> (the first
 /// 16 hex characters of the SHA-256 of the task id, when the request names a task) and <c>a2a.outcome</c> (<c>ok</c>,
-/// <c>canceled</c>, or <c>error:{A2AErrorCode}</c>). A streaming operation's span lasts until its stream ends. Spans carry no
+/// <c>canceled</c> when the caller canceled or stopped reading a stream, or <c>error:{A2AErrorCode}</c>). A streaming
+/// operation's span lasts until its stream ends, and the work that produces the stream runs inside it. Spans carry no
 /// request or response bodies and no principal.
 /// </para>
 /// <para>
@@ -53,12 +54,16 @@ public static class A2AServerTelemetry
 
     private static readonly ConcurrentDictionary<A2AErrorCode, string> ErrorOutcomes = new();
 
-    /// <summary><c>ok</c>, <c>canceled</c>, or <c>error:{code}</c>; an exception that is not an <see cref="A2AException"/> is <c>error:Internal</c>, as the bindings report it.</summary>
-    internal static string Outcome(Exception? error) => error switch
+    /// <summary>
+    /// <c>ok</c>; <c>canceled</c> for an <see cref="OperationCanceledException"/> when the caller canceled the call
+    /// (<paramref name="cancellationToken"/>); otherwise <c>error:{code}</c>. Any other exception, including a cancellation the
+    /// caller did not ask for (a server-side timeout), is <c>error:Internal</c>, as the bindings report it.
+    /// </summary>
+    internal static string Outcome(Exception? error, CancellationToken cancellationToken) => error switch
     {
         null => Ok,
         A2AException a2a => ErrorOutcome(a2a.Code),
-        OperationCanceledException => Canceled,
+        OperationCanceledException when cancellationToken.IsCancellationRequested => Canceled,
         _ => ErrorOutcome(A2AErrorCode.Internal),
     };
 

@@ -8,8 +8,8 @@ namespace A2A.Client.Telemetry;
 /// </summary>
 /// <remarks>
 /// One span per call, named <c>a2a.client.{operation}</c> (for example <c>a2a.client.GetTask</c>), kind
-/// <see cref="ActivityKind.Client"/>, with the tags <c>a2a.operation</c> and <c>a2a.outcome</c> (<c>ok</c>, <c>canceled</c>, or
-/// <c>error:{A2AErrorCode}</c>). A unary call's span covers its retries; a streaming call's span covers opening the stream.
+/// <see cref="ActivityKind.Client"/>, with the tags <c>a2a.operation</c> and <c>a2a.outcome</c> (<c>ok</c>, <c>canceled</c> when
+/// the caller canceled, or <c>error:{A2AErrorCode}</c>). A unary call's span covers its retries; a streaming call's span covers opening the stream.
 /// While the span is current, <see cref="HttpClient"/> and Grpc.Net.Client send it to the server as <c>traceparent</c>.
 /// </remarks>
 public static class A2AClientTelemetry
@@ -34,25 +34,29 @@ public static class A2AClientTelemetry
         return activity;
     }
 
-    /// <summary>Records the outcome and stops the span. Null passes.</summary>
-    internal static void Stop(Activity? activity, Exception? error)
+    /// <summary>Records the outcome (see <see cref="Outcome"/>) and stops the span. Null passes.</summary>
+    internal static void Stop(Activity? activity, Exception? error, CancellationToken cancellationToken)
     {
         if (activity is null) return;
         if (activity.IsAllDataRequested)
         {
-            var outcome = Outcome(error);
+            var outcome = Outcome(error, cancellationToken);
             activity.SetTag("a2a.outcome", outcome);
-            if (error is not null && error is not OperationCanceledException) activity.SetStatus(ActivityStatusCode.Error);
+            if (outcome is not ("ok" or "canceled")) activity.SetStatus(ActivityStatusCode.Error);
         }
         activity.Dispose();
     }
 
-    /// <summary><c>ok</c>, <c>canceled</c>, or <c>error:{code}</c>; an exception that is not an <see cref="A2AException"/> (a network failure, for example) is <c>error:Internal</c>.</summary>
-    internal static string Outcome(Exception? error) => error switch
+    /// <summary>
+    /// <c>ok</c>; <c>canceled</c> for an <see cref="OperationCanceledException"/> when the caller canceled
+    /// (<paramref name="cancellationToken"/>); otherwise <c>error:{code}</c>. Any other exception (a network failure, or a
+    /// timeout the caller did not ask for) is <c>error:Internal</c>.
+    /// </summary>
+    internal static string Outcome(Exception? error, CancellationToken cancellationToken) => error switch
     {
         null => "ok",
         A2AException a2a => ErrorOutcomes.GetOrAdd(a2a.Code, static c => "error:" + c),
-        OperationCanceledException => "canceled",
+        OperationCanceledException when cancellationToken.IsCancellationRequested => "canceled",
         _ => ErrorOutcomes.GetOrAdd(A2AErrorCode.Internal, static c => "error:" + c),
     };
 }

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using A2A.Client;
+using A2A.Client.Grpc;
 using A2A.Client.Telemetry;
 using A2A.Server.Telemetry;
 
@@ -48,5 +49,42 @@ public sealed class GrpcTelemetryTests
         Assert.Single(stopped, a => a.OperationName == "a2a.server.SendMessage");
         var serverGet = Assert.Single(stopped, a => a.OperationName == "a2a.server.GetTask");
         Assert.Equal("error:TaskNotFound", serverGet.GetTagItem("a2a.outcome"));
+    }
+
+    [Fact]
+    public async Task Grpc_caller_cancellation_is_canceled()
+    {
+        await using var host = await GrpcHost.StartAsync();
+        var stopped = new ConcurrentQueue<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = s => s.Name == A2AClientTelemetry.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = stopped.Enqueue,
+        };
+        ActivitySource.AddActivityListener(listener);
+        var transport = new GrpcTransport(host.Channel("alice").CreateCallInvoker());
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<Exception>(() => transport.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, cancellationToken: canceled.Token));
+
+        var get = Assert.Single(stopped, a => a.OperationName == "a2a.client.GetTask");
+        Assert.Equal("canceled", get.GetTagItem("a2a.outcome"));
+        Assert.NotEqual(ActivityStatusCode.Error, get.Status);
+    }
+
+    [Fact]
+    public async Task Unread_grpc_stream_sends_nothing()
+    {
+        await using var host = await GrpcHost.StartAsync();
+        var transport = new GrpcTransport(host.Channel("alice").CreateCallInvoker());
+
+        var stream = transport.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("task") });
+        await Task.Delay(300);
+        Assert.Empty((await transport.ListTasksAsync(new ListTasksRequest())).Tasks); // the server never received the message
+
+        await foreach (var _ in stream) { }
+        Assert.Single((await transport.ListTasksAsync(new ListTasksRequest())).Tasks);
     }
 }

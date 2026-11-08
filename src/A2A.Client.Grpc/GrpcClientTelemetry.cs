@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using A2A.Client.Telemetry;
+using Grpc.Core;
 
 namespace A2A.Client.Grpc;
 
@@ -23,20 +24,27 @@ internal static class GrpcClientTelemetry
         return activity;
     }
 
-    /// <summary>Records the outcome (<c>ok</c>, <c>canceled</c>, or <c>error:{code}</c>) and stops the span. Null passes.</summary>
-    public static void Stop(Activity? activity, Exception? error)
+    /// <summary>
+    /// Records the outcome and stops the span. Null passes. The outcome is <c>ok</c>; <c>canceled</c> when the caller canceled
+    /// (<paramref name="cancellationToken"/>) and the call ended as canceled (an <see cref="OperationCanceledException"/>, or
+    /// gRPC status <c>Cancelled</c> mapped to an <see cref="A2AException"/>); otherwise <c>error:{code}</c>, and
+    /// <c>error:Internal</c> for an exception that is not an <see cref="A2AException"/>.
+    /// </summary>
+    public static void Stop(Activity? activity, Exception? error, CancellationToken cancellationToken)
     {
         if (activity is null) return;
         if (activity.IsAllDataRequested)
         {
-            activity.SetTag("a2a.outcome", error switch
+            var outcome = error switch
             {
                 null => "ok",
+                OperationCanceledException or A2AException { InnerException: RpcException { StatusCode: StatusCode.Cancelled } }
+                    when cancellationToken.IsCancellationRequested => "canceled",
                 A2AException a2a => ErrorOutcomes.GetOrAdd(a2a.Code, static c => "error:" + c),
-                OperationCanceledException => "canceled",
                 _ => ErrorOutcomes.GetOrAdd(A2AErrorCode.Internal, static c => "error:" + c),
-            });
-            if (error is not null && error is not OperationCanceledException) activity.SetStatus(ActivityStatusCode.Error);
+            };
+            activity.SetTag("a2a.outcome", outcome);
+            if (outcome is not ("ok" or "canceled")) activity.SetStatus(ActivityStatusCode.Error);
         }
         activity.Dispose();
     }

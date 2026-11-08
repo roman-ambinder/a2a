@@ -46,11 +46,11 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
         }
         catch (Exception ex)
         {
-            Stop(activity, context.Operation, ex);
+            Stop(activity, context.Operation, A2AServerTelemetry.Outcome(ex, ct));
             throw;
         }
         if (result is IAsyncEnumerable<SequencedEvent> events) return Observe(events, activity, context.Operation, CancellationToken.None); // the reader passes its token (WithCancellation)
-        Stop(activity, context.Operation, null);
+        Stop(activity, context.Operation, A2AServerTelemetry.Ok);
         return result;
     }
 
@@ -71,19 +71,23 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
         }
         catch (Exception ex)
         {
-            Stop(activity, descriptor, ex);
+            Stop(activity, descriptor, A2AServerTelemetry.Outcome(ex, cancellationToken));
             throw;
         }
         if (result is IAsyncEnumerable<SequencedEvent> events) return (TResponse)Observe(events, activity, descriptor, CancellationToken.None); // the reader passes its token (WithCancellation)
-        Stop(activity, descriptor, null);
+        Stop(activity, descriptor, A2AServerTelemetry.Ok);
         return result;
     }
 
-    /// <summary>The same events; the span stops (and the call is counted) when the stream ends, fails or is disposed.</summary>
+    /// <summary>
+    /// The same events. The span is current while the stream produces each event, so the work it starts (the agent execution)
+    /// runs inside it. The span stops (and the call is counted) when the stream ends (<c>ok</c>), fails, or is disposed before
+    /// its end (<c>canceled</c>: the reader stopped reading).
+    /// </summary>
     private static async IAsyncEnumerable<SequencedEvent> Observe(IAsyncEnumerable<SequencedEvent> events, Activity? activity,
         A2AOperationDescriptor operation, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        Exception? error = null;
+        var outcome = A2AServerTelemetry.Canceled; // until the stream ends or fails
         var enumerator = events.GetAsyncEnumerator(cancellationToken);
         try
         {
@@ -92,21 +96,27 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
                 bool moved;
                 try
                 {
+                    // Scoped to this iterator step: the reader's own Activity.Current is not changed.
+                    if (activity is not null) Activity.Current = activity;
                     moved = await enumerator.MoveNextAsync().ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    error = ex;
+                    outcome = A2AServerTelemetry.Outcome(ex, cancellationToken);
                     throw;
                 }
-                if (!moved) break;
+                if (!moved)
+                {
+                    outcome = A2AServerTelemetry.Ok;
+                    break;
+                }
                 yield return enumerator.Current;
             }
         }
         finally
         {
             try { await enumerator.DisposeAsync().ConfigureAwait(false); }
-            finally { Stop(activity, operation, error); }
+            finally { Stop(activity, operation, outcome); }
         }
     }
 
@@ -121,10 +131,9 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
         return activity;
     }
 
-    /// <summary>Records the outcome on the span and the requests counter, then stops the span.</summary>
-    private static void Stop(Activity? activity, A2AOperationDescriptor operation, Exception? error)
+    /// <summary>Records <paramref name="outcome"/> on the span and the requests counter, then stops the span.</summary>
+    private static void Stop(Activity? activity, A2AOperationDescriptor operation, string outcome)
     {
-        var outcome = A2AServerTelemetry.Outcome(error);
         if (A2AServerTelemetry.Requests.Enabled)
         {
             A2AServerTelemetry.Requests.Add(1,
@@ -135,7 +144,7 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
         if (activity.IsAllDataRequested)
         {
             activity.SetTag(A2AServerTelemetry.OutcomeTag, outcome);
-            if (error is not null && !ReferenceEquals(outcome, A2AServerTelemetry.Canceled)) activity.SetStatus(ActivityStatusCode.Error);
+            if (!ReferenceEquals(outcome, A2AServerTelemetry.Ok) && !ReferenceEquals(outcome, A2AServerTelemetry.Canceled)) activity.SetStatus(ActivityStatusCode.Error);
         }
         activity.Dispose();
     }

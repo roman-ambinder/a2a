@@ -108,6 +108,16 @@ public sealed class TelemetryTests
         User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity([new System.Security.Claims.Claim("sub", "alice")], "Test")),
     };
 
+    /// <summary>Runs <paramref name="hook"/> as the authorization decision.</summary>
+    private sealed class HookAuthorization(Func<CancellationToken, bool> hook) : A2AAuthorizationHandler
+    {
+        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(hook(cancellationToken));
+    }
+
+    private static Action<IServiceCollection> Authorize(Func<CancellationToken, bool> hook) =>
+        s => s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler>(new HookAuthorization(hook)));
+
     private sealed class DenyAll : A2AAuthorizationHandler
     {
         public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, CancellationToken cancellationToken) =>
@@ -344,5 +354,113 @@ public sealed class TelemetryTests
         var open = Assert.Single(spans.Named("a2a.client.SendStreamingMessage"));
         Assert.Equal(ActivityKind.Client, open.Kind);
         Assert.Equal("ok", open.GetTagItem("a2a.outcome"));
+    }
+
+    // ---------------------------------------------------------------- outcome accuracy
+
+    [Fact]
+    public async Task Server_side_cancellation_is_an_internal_error()
+    {
+        // A cancellation the caller did not ask for (here: an unrelated token) is a server fault, as the bindings report it.
+        await using var host = await TestAgentHost.StartAsync(services: Authorize(_ => throw new OperationCanceledException(new CancellationToken(canceled: true))));
+        using var spans = new Spans(A2AServerTelemetry.ActivitySourceName);
+        using var counters = new Counters();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Handler.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, AliceCall()));
+
+        var span = Assert.Single(spans.Named("a2a.server.GetTask"));
+        Assert.Equal("error:Internal", span.GetTagItem("a2a.outcome"));
+        Assert.Equal(ActivityStatusCode.Error, span.Status);
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.outcome"], "error:Internal")));
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_is_canceled()
+    {
+        using var caller = new CancellationTokenSource();
+        await using var host = await TestAgentHost.StartAsync(services: Authorize(ct =>
+        {
+            caller.Cancel();
+            ct.ThrowIfCancellationRequested();
+            return true;
+        }));
+        using var spans = new Spans(A2AServerTelemetry.ActivitySourceName);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Handler.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, AliceCall(), caller.Token));
+
+        var span = Assert.Single(spans.Named("a2a.server.GetTask"));
+        Assert.Equal("canceled", span.GetTagItem("a2a.outcome"));
+        Assert.NotEqual(ActivityStatusCode.Error, span.Status);
+    }
+
+    [Fact]
+    public async Task Abandoned_stream_is_canceled()
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        using var spans = new Spans(A2AServerTelemetry.ActivitySourceName);
+        using var counters = new Counters();
+        const string text = "gate telemetry-abandoned";
+        var gate = ScenarioAgent.Gate(text);
+        try
+        {
+            using var cts = new CancellationTokenSource(Timeout);
+            await foreach (var _ in host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser(text) }, AliceCall(), cancellationToken: cts.Token))
+                break; // the reader stops after the first event: the stream is disposed before its end
+        }
+        finally
+        {
+            gate.TrySetResult();
+        }
+
+        var span = Assert.Single(spans.Named("a2a.server.SendStreamingMessage"));
+        Assert.Equal("canceled", span.GetTagItem("a2a.outcome"));
+        Assert.NotEqual(ActivityStatusCode.Error, span.Status);
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.operation"], "SendStreamingMessage") && Equals(t["a2a.outcome"], "canceled")));
+    }
+
+    [Fact]
+    public async Task Streaming_work_runs_inside_the_server_span()
+    {
+        ActivityTraceId? trace = null;
+        ActivitySpanId? span = null;
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2AServer().AddAgentExecutor((context, updater, ct) =>
+        {
+            trace = Activity.Current?.TraceId;
+            span = Activity.Current?.SpanId;
+            return updater.CompleteAsync("ok", ct).AsTask();
+        }));
+        using var spans = new Spans(A2AServerTelemetry.ActivitySourceName);
+        Activity.Current = null;
+
+        using var cts = new CancellationTokenSource(Timeout);
+        await foreach (var _ in host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("x") }, AliceCall(), cancellationToken: cts.Token)) { }
+
+        var server = Assert.Single(spans.Named("a2a.server.SendStreamingMessage"));
+        Assert.Equal(server.TraceId, trace);
+        Assert.Equal(server.SpanId, span);
+        Assert.Null(Activity.Current); // the reader's current activity is unchanged
+    }
+
+    [Fact]
+    public async Task Client_caller_cancellation_is_canceled_and_timeout_is_an_error()
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        using var spans = new Spans(A2AClientTelemetry.ActivitySourceName);
+        var transport = new HttpJsonTransport(host.Http("alice"), new Uri(TestAgentHost.BaseUrl));
+
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => transport.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, cancellationToken: canceled.Token));
+        var get = Assert.Single(spans.Named("a2a.client.GetTask"));
+        Assert.Equal("canceled", get.GetTagItem("a2a.outcome"));
+        Assert.NotEqual(ActivityStatusCode.Error, get.Status);
+
+        // A timeout is not the caller's cancellation: an error.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => transport.SendMessageAsync(
+            new SendMessageRequest { Message = Message.FromUser("slow") },
+            new A2ARequestOptions { Timeout = TimeSpan.FromMilliseconds(200), MaxRetries = 0 }));
+        var send = Assert.Single(spans.Named("a2a.client.SendMessage"));
+        Assert.Equal("error:Internal", send.GetTagItem("a2a.outcome"));
+        Assert.Equal(ActivityStatusCode.Error, send.Status);
     }
 }

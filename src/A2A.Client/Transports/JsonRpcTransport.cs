@@ -120,10 +120,10 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
         {
             opened?.Dispose();
             opening?.Dispose();
-            A2AClientTelemetry.Stop(activity, ex);
+            A2AClientTelemetry.Stop(activity, ex, ct);
             throw;
         }
-        A2AClientTelemetry.Stop(activity, null);
+        A2AClientTelemetry.Stop(activity, null, ct);
 
         using var request = opening;
         using var response = opened;

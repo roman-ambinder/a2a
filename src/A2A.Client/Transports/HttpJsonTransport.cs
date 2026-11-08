@@ -141,10 +141,10 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
         {
             opened?.Dispose();
             opening?.Dispose();
-            A2AClientTelemetry.Stop(activity, ex);
+            A2AClientTelemetry.Stop(activity, ex, ct);
             throw;
         }
-        A2AClientTelemetry.Stop(activity, null);
+        A2AClientTelemetry.Stop(activity, null, ct);
 
         using var req = opening;
         using var resp = opened;
