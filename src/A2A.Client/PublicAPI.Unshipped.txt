@@ -150,3 +150,6 @@ A2A.Client.Delegation.OAuthTokenExchanger.ExchangeAsync(A2A.Delegation.TokenExch
 A2A.Client.Delegation.DelegationRequestOptionsExtensions
 static A2A.Client.Delegation.DelegationRequestOptionsExtensions.UseBearerToken(this A2A.Client.A2ARequestOptions! options, A2A.Delegation.TokenExchangeResult! token, System.Uri! agentUrl) -> A2A.Client.A2ARequestOptions!
 A2A.Client.A2AClient.SelectSkill(A2A.Message! message, string! skillId, A2A.Client.A2ARequestOptions? options = null) -> A2A.Client.A2ARequestOptions!
+A2A.Client.ElicitationClientExtensions
+static A2A.Client.ElicitationClientExtensions.AnswerElicitationAsync(this A2A.Client.IA2AClient! client, A2A.AgentTask! task, A2A.Elicitations.ElicitationAnswer! answer, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.SendMessageResponse!>!
+static A2A.Client.ElicitationClientExtensions.UseElicitation(this A2A.Client.A2ARequestOptions! options) -> A2A.Client.A2ARequestOptions!

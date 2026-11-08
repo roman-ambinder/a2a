@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using A2A.Elicitations;
 using A2A.Server.Agents;
 using A2A.Server.Execution;
 using A2A.Server.Idempotency;
@@ -367,16 +368,19 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         ActorChainValidator.Validate(request.Message, _options.Limits, call);
         await RequireSupportedMediaTypesAsync(request.Message, call, ct).ConfigureAwait(false);
         await SkillSelectionValidator.ValidateAsync(request.Message, call, _requestCards, _cards, _authorization, ct).ConfigureAwait(false);
+        var answersForm = await ElicitationValidator.IsAnswerAsync(request.Message, call, _requestCards, ct).ConfigureAwait(false);
         // A copy: the caller's message is never changed (a retry with the same instance must hash the same). This copy goes to
         // the executor; the stored history gets copies of its own.
         var message = request.Message.DeepCopy();
         var isFollowUp = !string.IsNullOrEmpty(message.TaskId);
+        if (answersForm && !isFollowUp) throw ElicitationValidator.Refuse("An answer to a form needs the id of the task that asked.");
         var taskId = isFollowUp ? message.TaskId! : newTaskId ?? TaskIds.New();
         AgentTask? existing = null;
         long lastSequence = 0;
         string contextId;
         var duplicate = false;
         var approval = ApprovalState.None;
+        ElicitationAnswer? elicitation = null;
 
         // Check the push config before anything changes, so a refused request leaves no trace and a retry is refused the same way.
         TaskPushNotificationConfig? push = null;
@@ -427,6 +431,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                         };
                     EnsureTurnCapacity(record.Task);
                     approval = ResolveApproval(record.Task, message, out var consume);
+                    // A refused answer throws here: nothing is stored and the agent does not run. Same for a retry after a conflict.
+                    string? answeredForm = null;
+                    elicitation = answersForm ? ElicitationValidator.Resolve(record.Task, message, out answeredForm) : null;
                     if (push is not null && !pushSaved)
                     {
                         // Saved atomically under the limit before the message is committed, so a refused request leaves no message.
@@ -440,6 +447,8 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     (next.History ??= []).Add(message.DeepCopy());
                     // Same update as the approving message: the approval cannot be used twice, also across instances (CAS).
                     if (consume is not null) (next.Metadata ??= [])[A2AProtocol.ApprovalConsumedKey] = StringElement(consume);
+                    // Same for an answered form: a used form is no longer pending, also across instances (CAS).
+                    if (answeredForm is not null) (next.Metadata ??= [])[Elicitation.AnsweredKey] = StringElement(answeredForm);
                     // The latest well-formed chain wins; a follow-up without one leaves the echo as it is.
                     if (ActorChainValidator.WellFormedChain(message) is { } chain) (next.Metadata ??= [])[A2A.Delegation.ActorChain.MetadataKey] = chain;
                     try
@@ -486,6 +495,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             Metadata = request.Metadata,
             Call = call,
             Approval = approval,
+            ElicitationAnswer = elicitation,
             TokenExchanger = _tokenExchanger,
         };
         return new Prepared(context, existing is null ? push : null, lastSequence, duplicate, isFollowUp ? existing?.Status : null);

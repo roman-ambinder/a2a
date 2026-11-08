@@ -11,3 +11,7 @@ A2A.Server.A2AServerBuilder.AddTokenExchanger(A2A.Delegation.ITokenExchanger! ex
 A2A.Server.ServerCallContext.WireProtocolVersion.get -> string?
 A2A.Server.ServerCallContext.WireProtocolVersion.init -> void
 A2A.Server.AgentRequestContext.RequestedSkillId.get -> string?
+A2A.Server.AgentRequestContext.CanElicit.get -> bool
+A2A.Server.AgentRequestContext.ElicitationAnswer.get -> A2A.Elicitations.ElicitationAnswer?
+A2A.Server.AgentRequestContext.ElicitationAnswer.init -> void
+A2A.Server.TaskUpdater.RequireInputAsync(A2A.Server.AgentRequestContext! context, A2A.Elicitations.ElicitationForm! form, string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
