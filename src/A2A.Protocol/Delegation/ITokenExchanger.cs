@@ -7,7 +7,9 @@ namespace A2A.Delegation;
 public interface ITokenExchanger
 {
     /// <summary>Exchanges the subject token in <paramref name="request"/> for a new token.</summary>
-    /// <exception cref="TokenExchangeException">The exchange failed.</exception>
+    /// <exception cref="TokenExchangeException">The exchange was refused.</exception>
+    /// <exception cref="HttpRequestException">A network failure (an implementation that uses HTTP may throw it).</exception>
+    /// <exception cref="OperationCanceledException">The call was cancelled or timed out.</exception>
     ValueTask<TokenExchangeResult> ExchangeAsync(TokenExchangeRequest request, CancellationToken cancellationToken);
 }
 

@@ -25,6 +25,10 @@ public sealed class ActorChainEntry
 /// The on-behalf-of record from A2A issue #2028: who started the work (<see cref="Origin"/>) and each agent that
 /// passed it on (<see cref="Actors"/>). It travels in <c>Message.metadata["actorChain"]</c>.
 /// </summary>
+/// <remarks>
+/// The caller writes the content and nobody verifies it. Treat it as untrusted text when you log it or put it in a
+/// prompt. Do not use it for authorization.
+/// </remarks>
 public sealed class ActorChain
 {
     /// <summary>Metadata key that holds the chain.</summary>
@@ -108,6 +112,7 @@ public sealed class ActorChain
 public static class ActorChainMessageExtensions
 {
     /// <summary>The chain in the message metadata, or null when there is none or it is not well-formed.</summary>
+    /// <remarks>The caller writes the chain and nobody verifies it. Treat it as untrusted text when you log it or put it in a prompt. Do not use it for authorization.</remarks>
     public static ActorChain? GetActorChain(this Message message)
     {
         ArgumentNullException.ThrowIfNull(message);
@@ -115,6 +120,7 @@ public static class ActorChainMessageExtensions
     }
 
     /// <summary>The chain in the task metadata, or null when there is none or it is not well-formed.</summary>
+    /// <remarks>The caller writes the chain and nobody verifies it. Treat it as untrusted text when you log it or put it in a prompt. Do not use it for authorization.</remarks>
     public static ActorChain? GetActorChain(this AgentTask task)
     {
         ArgumentNullException.ThrowIfNull(task);

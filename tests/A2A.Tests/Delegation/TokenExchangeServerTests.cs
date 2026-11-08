@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Claims;
 using System.Reflection;
 using System.Text;
 using A2A.Client;
@@ -7,9 +8,12 @@ using A2A.Client.Transports;
 using A2A.Delegation;
 using A2A.Json;
 using A2A.Server;
+using A2A.Server.AspNetCore;
 using A2A.Server.Storage;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Primitives;
 
 namespace A2A.Tests;
 
@@ -49,7 +53,7 @@ public class TokenExchangeServerTests
         new() { Headers = { ["Authorization"] = value } };
 
     [Theory, MemberData(nameof(Bindings))]
-    public async Task Without_an_exchanger_the_token_is_not_captured(string binding)
+    public async Task Without_an_exchanger_the_agent_cannot_exchange(string binding)
     {
         bool? can = null;
         Type? error = null;
@@ -108,6 +112,8 @@ public class TokenExchangeServerTests
     [InlineData("Bearer")]
     [InlineData("Bearer   ")]
     [InlineData("Bearerx abc")]
+    [InlineData("Bearer a b")]
+    [InlineData("Bearer a,b")]
     public async Task Nothing_is_captured_for(string header)
     {
         bool? can = null;
@@ -116,6 +122,22 @@ public class TokenExchangeServerTests
         await host.Client(ProtocolBindings.JsonRpc).SendMessageAsync(Message.FromUser("hi"), options: Bearer(header));
         await host.WaitIdleAsync();
         Assert.False(can);
+    }
+
+    [Fact]
+    public void Nothing_is_captured_for_two_Authorization_headers()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<ITenantResolver, RouteTenantResolver>();
+        services.AddSingleton<IPrincipalResolver, DefaultPrincipalResolver>();
+        services.AddSingleton<ITokenExchanger>(new RecordingExchanger());
+        var http = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
+        http.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "alice")], "test"));
+        http.Request.Headers.Authorization = new StringValues(["Bearer aaa", "Bearer bbb"]);
+        Assert.Null(HttpPlumbing.CreateCallContext(http, null).InboundBearerToken);
+
+        http.Request.Headers.Authorization = "Bearer aaa";
+        Assert.Equal("aaa", HttpPlumbing.CreateCallContext(http, null).InboundBearerToken);
     }
 
     [Fact]
