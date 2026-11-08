@@ -436,12 +436,6 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     // A refused answer throws here: nothing is stored and the agent does not run. Same for a retry after a conflict.
                     string? answeredForm = null;
                     elicitation = answersForm ? ElicitationValidator.Resolve(record.Task, message, out answeredForm) : null;
-                    if (push is not null && !pushSaved)
-                    {
-                        // Saved atomically under the limit before the message is committed, so a refused request leaves no message.
-                        pushIsNew = await _pushConfigs.SaveInlineUnderLimitAsync(key, push, ct).ConfigureAwait(false);
-                        pushSaved = true;
-                    }
                     contextId = record.Task.ContextId;
                     message.ContextId = contextId;
                     // The stored record belongs to the store: append to a copy, with a copy of the message the executor gets.
@@ -453,6 +447,13 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     if (answeredForm is not null) (next.Metadata ??= [])[Elicitation.AnsweredKey] = StringElement(answeredForm);
                     // The latest well-formed chain wins; a follow-up without one leaves the echo as it is.
                     if (ActorChainValidator.WellFormedChain(message) is { } chain) (next.Metadata ??= [])[A2A.Delegation.ActorChain.MetadataKey] = chain;
+                    EnsureTaskSizeCapacity(next);
+                    if (push is not null && !pushSaved)
+                    {
+                        // Saved atomically under the limit before the message is committed, so a refused request leaves no message.
+                        pushIsNew = await _pushConfigs.SaveInlineUnderLimitAsync(key, push, ct).ConfigureAwait(false);
+                        pushSaved = true;
+                    }
                     try
                     {
                         await _tasks.UpdateAsync(record with { Task = next }, record.Version, ct).ConfigureAwait(false);
@@ -567,6 +568,21 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             $"The task reached its limit of {max} messages. Start a new task and list this one in referenceTaskIds.")
         {
             Metadata = new() { ["taskId"] = task.Id, ["maxTurnsPerTask"] = max.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+        };
+    }
+
+    /// <summary>
+    /// Throws UnsupportedOperation when the task, with the follow-up message already added, is larger than
+    /// <see cref="A2ALimits.MaxTaskBytes"/>. Nothing is stored then.
+    /// </summary>
+    private void EnsureTaskSizeCapacity(AgentTask next)
+    {
+        var max = _options.Limits.MaxTaskBytes;
+        if (TaskSize.Measure(next) <= max) return;
+        throw new A2AException(A2AErrorCode.UnsupportedOperation,
+            $"The task reached its size limit of {max} bytes. Start a new task and list this one in referenceTaskIds.")
+        {
+            Metadata = new() { ["taskId"] = next.Id, ["maxTaskBytes"] = max.ToString(System.Globalization.CultureInfo.InvariantCulture) },
         };
     }
 

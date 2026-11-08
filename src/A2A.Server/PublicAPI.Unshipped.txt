@@ -1,1 +1,5 @@
 #nullable enable
+A2A.Server.A2ALimits.MaxArtifactsPerTask.get -> int
+A2A.Server.A2ALimits.MaxArtifactsPerTask.set -> void
+A2A.Server.A2ALimits.MaxTaskBytes.get -> long
+A2A.Server.A2ALimits.MaxTaskBytes.set -> void

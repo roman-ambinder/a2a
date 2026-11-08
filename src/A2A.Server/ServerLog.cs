@@ -20,6 +20,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 201, Level = LogLevel.Warning, Message = "Task {TaskId}: the agent produced an event larger than {Limit} bytes; failing the task")]
     public static partial void EventTooLarge(ILogger logger, string taskId, int limit);
 
+    [LoggerMessage(EventId = 254, Level = LogLevel.Warning, Message = "Task {TaskId}: an event would take the task past {MaxTaskBytes} bytes or {MaxArtifacts} artifacts; failing the task")]
+    public static partial void TaskTooLarge(ILogger logger, string taskId, long maxTaskBytes, int maxArtifacts);
+
     [LoggerMessage(EventId = 202, Level = LogLevel.Warning, Message = "Task {TaskId} disappeared from the store; dropping event")]
     public static partial void TaskDisappeared(ILogger logger, string taskId);
 

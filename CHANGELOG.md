@@ -92,6 +92,9 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - `A2AClientOptions.OnMessageReceived` lets a client check every agent message, for example against the user's intent. (#9)
 - Single-use approval binding (`PendingApproval`). A follow-up with a `messageId` already in the task's history is not run
   again. (#12)
+- `A2ALimits.MaxTaskBytes` (default 64 MiB) and `A2ALimits.MaxArtifactsPerTask` (default 1024) cap what a stored task can hold.
+  An agent event past a cap fails the task and stops the agent. A follow-up past the byte cap is refused with
+  `UnsupportedOperation` and the task stays as it was.
 - A follow-up that was accepted but could not start fails its task, so the task does not wait forever. (#15)
 - The client refuses a request with a missing required field before sending it, on every operation and binding, and names the
   field in the error (`InvalidParams`). No member became C# `required`.

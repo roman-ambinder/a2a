@@ -135,6 +135,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     internal const string StartFailureText = "The task failed because the agent could not be started for the message.";
 
     /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
+    internal const string OversizedTaskText = "The task grew past the configured size limit.";
+
     internal const string OversizedEventText = "The agent produced an event larger than the configured limit.";
 
     /// <summary>The bus the engine publishes every stored event to.</summary>
@@ -545,14 +547,15 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         }
                     }
 
-                    if (await ApplyAndStoreAsync(key, record, encoded, exec.PushEnabled).ConfigureAwait(false) is not { } stored) continue;
+                    if (await ApplyAndStoreAsync(key, record, encoded, exec.PushEnabled, onOverCap: () => CancelAll([exec])).ConfigureAwait(false) is not { } stored) continue;
 
                     // Still under the task lock, so sinks see events in sequence order even with concurrent executions.
                     // Every sink is non-blocking.
                     Publish(exec, key, stored);
-                    if (exec.Activity is not null && evt is StatusUpdateEvent { StatusUpdate.Status.State: var recorded })
+                    // The stored event is not the produced one when the task grew past its cap.
+                    if (exec.Activity is not null && stored.Event is StatusUpdateEvent { StatusUpdate.Status.State: var recorded })
                         exec.Activity.SetTag(A2ATelemetry.Tags.TaskState, A2ATelemetry.TaskStateValue(recorded));
-                    if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal())
+                    if (stored.Event is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal())
                     {
                         await _events.MarkTerminalAsync(key).ConfigureAwait(false);
                         _bus.Complete(scope);
@@ -698,7 +701,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// returned event, and every push delivery, carry its bytes.
     /// </summary>
     private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, SequencedEvent encoded, bool pushEnabled,
-        Func<TaskRecord, bool>? precondition = null)
+        Func<TaskRecord, bool>? precondition = null, Action? onOverCap = null)
     {
         var evt = encoded.Event;
         var deliveries = await DeliveriesAsync(key, pushEnabled).ConfigureAwait(false);
@@ -720,6 +723,20 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             {
                 ServerLog.EventDropped(_logger, key.TaskId, record.Task.Status.State);
                 return null;
+            }
+            // A terminal state is exempt, so the failure event that replaces an oversized one can always be stored.
+            if (!next.Status.State.IsTerminal() && IsOverCap(next))
+            {
+                ServerLog.TaskTooLarge(_logger, key.TaskId, _options.Limits.MaxTaskBytes, _options.Limits.MaxArtifactsPerTask);
+                encoded = Encode(StreamResponse.Of(FailureEvent(key.TaskId, record.Task.ContextId, OversizedTaskText)));
+                evt = encoded.Event;
+                onOverCap?.Invoke();
+                if (ApplyToCopy(record.Task, evt) is not { } failed)
+                {
+                    ServerLog.EventDropped(_logger, key.TaskId, record.Task.Status.State);
+                    return null;
+                }
+                next = failed;
             }
             try
             {
@@ -749,6 +766,9 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
         }
     }
+
+    private bool IsOverCap(AgentTask task) =>
+        task.Artifacts?.Count > _options.Limits.MaxArtifactsPerTask || TaskSize.Measure(task) > _options.Limits.MaxTaskBytes;
 
     /// <summary>
     /// Queues the catch-up delivery (the stored task at the commit's sequence) for each config that was saved after

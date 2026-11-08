@@ -72,4 +72,18 @@ public sealed class A2ALimits
 
     /// <summary>Most push notification configs per task. More is InvalidRequest. Default 10.</summary>
     public int MaxPushConfigsPerTask { get; set; } = 10;
+
+    /// <summary>
+    /// Largest stored task in bytes, counted over the content of the history and artifact parts (text as UTF-8, <c>raw</c> as
+    /// base64, URLs and data as their text length). An agent event that would take a running task past it is never stored:
+    /// the task fails and the agent is stopped. A follow-up message that would take the task past it is refused with
+    /// UnsupportedOperation and the task stays as it is. Default 64 MiB.
+    /// </summary>
+    public long MaxTaskBytes { get; set; } = 64L * 1024 * 1024;
+
+    /// <summary>
+    /// Most artifacts in one task. An event that would add one more is never stored: the task fails and the agent is stopped.
+    /// Default 1024.
+    /// </summary>
+    public int MaxArtifactsPerTask { get; set; } = 1024;
 }
