@@ -29,7 +29,14 @@ public delegate ValueTask<object?> A2AOperationDelegate(A2AOperationContext cont
 /// Streaming operations (SendStreamingMessage and SubscribeToTask) return an <see cref="IAsyncEnumerable{T}"/> of
 /// <see cref="SequencedEvent"/>. The pipeline runs when the stream is first read, before any event is sent, so an exception
 /// still becomes an error response. A filter that wants to see the events returns a wrapping enumerable; it must keep the
-/// order and the <see cref="SequencedEvent.Sequence"/> of every event it passes on.
+/// order and the <see cref="SequencedEvent.Sequence"/> of every event it passes on. A filter that builds a new
+/// <see cref="SequencedEvent"/> uses the two-argument constructor <see cref="SequencedEvent(long, StreamResponse)"/> or
+/// <see cref="EventEncoder.Encode"/>: bindings write <see cref="SequencedEvent.Json"/> as it is, without checking that it
+/// matches <see cref="SequencedEvent.Event"/>.
+/// </para>
+/// <para>
+/// On an open stream, the periodic re-authorization (every <see cref="A2ALimits.StreamReauthInterval"/>) calls only the
+/// <see cref="Authorization.A2AAuthorizationHandler"/>; host filters are not run again.
 /// </para>
 /// <para>
 /// Results and events reach host filters as their own copies: a filter may change them, and they belong to the caller once

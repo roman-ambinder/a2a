@@ -134,7 +134,7 @@ public interface IPushNotificationSender
 {
     /// <summary>Queues delivery of a stored task event to the task's push configs.</summary>
     /// <remarks>
-    /// Called while the handler holds the task's lock, once per event in sequence order. Implementations must return quickly:
+    /// Called while the execution engine holds the task's lock, once per event in sequence order. Implementations must return quickly:
     /// they must not block, and must not call back into <see cref="A2ARequestHandler"/> for the same task (that would deadlock).
     /// The event carries its encoded bytes in <see cref="SequencedEvent.Json"/> (the same bytes the event store keeps); send
     /// them as they are, and encode with <see cref="EventEncoder.EnsureEncoded"/> only when they are empty.

@@ -3,6 +3,10 @@ using System.Security.Claims;
 namespace A2A.Server;
 
 /// <summary>Per-request information supplied by the protocol binding (HTTP layer).</summary>
+/// <remarks>
+/// One instance per call. A custom binding creates a new one for every call and must not reuse it across calls: its
+/// <see cref="Items"/> carry per-call authorization results, such as <see cref="Pipeline.A2AExtensionOperation.PolicySatisfiedItem"/>.
+/// </remarks>
 public sealed class ServerCallContext
 {
     /// <summary>Principal used for anonymous callers.</summary>
