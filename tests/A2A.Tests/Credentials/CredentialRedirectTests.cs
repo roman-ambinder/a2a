@@ -133,4 +133,53 @@ public class CredentialRedirectTests
         Assert.Empty(b.Requests);
         Assert.Empty(a.At("/a2a"));
     }
+
+    [Fact]
+    public async Task Token_endpoint_307_is_not_followed_and_the_client_secret_reaches_only_the_first_listener()
+    {
+        await using var b = await Target();
+        await using var a = await TestOrigin.StartAsync(async (context, origin) =>
+        {
+            switch (context.Request.Path.Value)
+            {
+                case CardPath:
+                    var (schemes, requirements) = OAuth(origin.Url);
+                    await TestOrigin.WriteCard(context, TestOrigin.Card(origin.Url, schemes, requirements));
+                    break;
+                case "/token":
+                    context.Response.StatusCode = StatusCodes.Status307TemporaryRedirect;
+                    context.Response.Headers.Location = new Uri(b.Url, "/stolen").ToString();
+                    break;
+                default:
+                    context.Response.StatusCode = 200;
+                    break;
+            }
+        });
+        using var provider = new OAuth2ClientCredentialsProvider(new OAuth2ClientCredentialsOptions { ClientId = "id", ClientSecret = "the-client-secret" });
+
+        var client = await A2AClientFactory.CreateAsync(a.Url, [provider], options: NoRetry());
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync("hi"));
+
+        Assert.Equal(A2AErrorCode.Unauthenticated, ex.Code);
+        Assert.Empty(b.Requests);
+        Assert.Empty(a.At("/a2a"));
+        var tokenRequest = a.At("/token").Single();
+        Assert.StartsWith("Basic ", tokenRequest.Header("Authorization"));
+    }
+
+    [Fact]
+    public async Task Card_over_16_MiB_fails_without_DI()
+    {
+        await using var a = await TestOrigin.StartAsync(async (context, origin) =>
+        {
+            var (schemes, requirements) = ApiKey();
+            var card = TestOrigin.Card(origin.Url, schemes, requirements);
+            card.Description = new string('x', 17 * 1024 * 1024);
+            await TestOrigin.WriteCard(context, card);
+        });
+
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            A2AClientFactory.CreateAsync(a.Url, [new ApiKeyCredentialProvider(Secret)], options: NoRetry()));
+        Assert.Empty(a.At("/a2a"));
+    }
 }

@@ -9,6 +9,8 @@ public sealed class ApiKeyCredentialProvider : IA2ACredentialProvider
     private static readonly HashSet<string> SensitiveHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
         "Host", "Transfer-Encoding", "Connection", "Upgrade", "Cookie", "TE", "Trailer", "Proxy-Authorization",
+        // Content headers that do not start with "Content-": they cannot go on a request, so every call would fail.
+        "Allow", "Expires", "Last-Modified",
     };
 
     private readonly Func<CancellationToken, ValueTask<string>> _source;

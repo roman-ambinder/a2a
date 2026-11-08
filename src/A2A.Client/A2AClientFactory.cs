@@ -6,6 +6,8 @@ namespace A2A.Client;
 /// <summary>Creates clients from Agent Cards, selecting the interface per spec §8.3.2.</summary>
 public static class A2AClientFactory
 {
+    private const long MaxResponseBytes = 16 * 1024 * 1024;
+
     /// <summary>
     /// Picks the first interface in the card's order whose binding this client supports and whose major version matches,
     /// sets the tenant from that interface, and builds the transport.
@@ -61,7 +63,11 @@ public static class A2AClientFactory
         var primary = handler ?? new SocketsHttpHandler { UseCookies = false, AllowAutoRedirect = false };
         A2ACredentialHandler.EnsureNoAutoRedirect(primary);
 
-        using var cardClient = new HttpClient(primary, disposeHandler: false) { Timeout = Timeout.InfiniteTimeSpan };
+        using var cardClient = new HttpClient(primary, disposeHandler: false)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+            MaxResponseContentBufferSize = MaxResponseBytes,
+        };
         var resolved = await new A2ACardResolver(cardClient, resolverOptions).ResolveAsync(agentUrl, cancellationToken).ConfigureAwait(false);
 
         var copy = Copy(options ?? new A2AClientOptions());
@@ -70,7 +76,7 @@ public static class A2AClientFactory
         var client = new HttpClient(new A2ACredentialHandler(binding, primary))
         {
             Timeout = Timeout.InfiniteTimeSpan,
-            MaxResponseContentBufferSize = 16 * 1024 * 1024,
+            MaxResponseContentBufferSize = MaxResponseBytes,
         };
         return Create(resolved.Card, client, options);
     }

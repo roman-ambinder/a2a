@@ -89,6 +89,9 @@ public class ApiKeyCredentialProviderTests
     [InlineData("content-type")]
     [InlineData("A2A-Version")]
     [InlineData("a2a-extensions")]
+    [InlineData("Allow")]
+    [InlineData("Expires")]
+    [InlineData("last-modified")]
     public void Sensitive_header_names_are_refused(string name)
     {
         var p = new ApiKeyCredentialProvider("k");
