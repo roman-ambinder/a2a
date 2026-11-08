@@ -1,1 +1,2 @@
 #nullable enable
+static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AArtifacts(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern = "/") -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
