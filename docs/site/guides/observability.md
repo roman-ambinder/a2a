@@ -128,7 +128,7 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | 100-101 | client: card signing and pinning |
 | 150-152 | client: agent registry (lookalike name, mixed-script name, identity change) |
 | 200-242 | server: agent runs, coordination, push-config cleanup, retention |
-| 250-255 | server: startup diagnostics (254 is a task past its size cap) |
+| 250-253, 255 | server: startup diagnostics (254 is not one: it is a task past its size cap) |
 | 300-313 | server: push delivery |
 | 400-402 | server: idempotency |
 | 500-501, 600 | ASP.NET Core: unhandled errors, stream errors |
