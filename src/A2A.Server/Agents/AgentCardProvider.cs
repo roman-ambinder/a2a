@@ -6,9 +6,10 @@ namespace A2A.Server.Agents;
 /// <summary>
 /// Supplies the Agent Card of the agent that serves a tenant, so one host can serve many agents (one agent per tenant).
 /// Register one with <c>AddAgentCardProvider&lt;T&gt;()</c>; without it, <see cref="A2AServerOptions.AgentCard"/> serves every
-/// tenant. The server asks for the card on every request (the public card endpoint, and each operation once) and for every
-/// stored event of a task (push capability), and never caches it, so a provider can change cards at runtime; cache in the
-/// provider if building a card is expensive.
+/// tenant. The server asks for the card once per request (the public card endpoint, and each operation once), once per
+/// execution when its request did not resolve it already (push capability), and once per system status commit (the retention
+/// sweep), never once per event. It never caches the card, so a provider can change cards at runtime; cache in the provider
+/// if building a card is expensive.
 /// </summary>
 /// <remarks>
 /// <para>

@@ -185,7 +185,8 @@ A runnable two-instance setup (Postgres, Redis, docker compose) is in [samples/M
 
 - `A2A.Server.Postgres` stores tasks, event logs, push configs, the push outbox and idempotency keys, and creates its tables at startup ([README](src/A2A.Server.Postgres/README.md)).
 - `A2A.Server.Redis` fans live events out to every instance, and `AddRedisEventBus` also registers its execution coordinator ([README](src/A2A.Server.Redis/README.md)).
-- Push secrets need a protector with persisted, shared keys; the default one is per process.
+- Push secrets need a protector with persisted, shared keys; the default one (`EphemeralPushSecretProtector`) is per process. With a durable push outbox and the default protector, startup logs an **error**: push configs with a token or credentials would be dead-lettered after a restart or when another instance sends them. Register `AddDataProtection()` with a persisted key ring shared by every instance, then `AddA2ADataProtectionPushSecrets()` (or your own `IPushSecretProtector`). Startup does not fail, so a host that does not use push keeps working.
+- The Postgres push outbox leases and idempotency claims are timed on each instance's clock, not the database's. Keep instance clocks in sync (NTP). Skew larger than `PushDelivery.Lease` can make two instances send the same delivery (same `webhook-id`, so receivers see a `Duplicate`); skew larger than `IdempotencyClaimTimeout` can make another instance treat a running claim as abandoned. Per-task order and lease-token fencing still hold.
 - The handler's per-task lock is per process. Across instances, each task change, its event and its push deliveries are written in one transaction (`TaskStore.CommitAsync`) with a version check, so the event log follows the order of task versions.
 - Both packages pass the same contract tests as the in-memory versions (`tests/A2A.Stores.Tests`, Docker via Testcontainers).
 
@@ -201,7 +202,9 @@ The coordinator answers "is this task running anywhere?", delivers CancelTask to
 - Pass the **same connection string** to both calls (or one `IConnectionMultiplexer`). Two different strings throw at registration, because they would share one connection.
 - On Redis Cluster the key prefix must map to one hash slot, for example `{a2a}:` (the Lua scripts touch several keys).
 - `A2AServerOptions.Coordination` (`CoordinationOptions`): `LeaseTtl` 30 s, `Heartbeat` 10 s, `RunningPollInterval` 1 s. `LeaseTtl` must be longer than 2 x `Heartbeat`. The heartbeat also renews the request's idempotency claim.
-- An execution whose heartbeats lapse past `LeaseTtl` (instance crash, long pause, Redis outage) is treated as **dead**. The retention sweep marks its task `FAILED` and its late events are dropped.
+- An execution whose heartbeats lapse past `LeaseTtl` (instance crash, long pause, Redis outage) is treated as **dead**. The retention sweep marks its task `FAILED`, drops its late events, and asks every instance to cancel it. An agent that is in fact still alive also stops at its next heartbeat, which finds its lease lost and the task ended. Exceptions: a lapsed execution on the sweeping instance itself is still seen running and registers again; a task that changed within the last `LeaseTtl` waits for a later sweep (a follow-up on another instance may not have registered yet).
+- A heartbeat that finds its lease lost while the task still runs registers the execution again, under the same id.
+- With a durable task store and the in-memory coordinator, startup logs a **warning**: CancelTask, running checks and dead-execution recovery then stay on the instance that runs the agent. One instance can ignore it.
 
 ### Retention (opt-in)
 
@@ -218,7 +221,7 @@ Also done by the sweep: tasks waiting in `INPUT_REQUIRED`/`AUTH_REQUIRED` longer
 
 ### Approvals, cancel and follow-ups
 
-- **Approval binding.** An executor that needs the user to confirm an action calls `updater.RequireApprovalAsync(new PendingApproval(operationId, exactDescription), "Delete 3 files?")`. The task goes to `AUTH_REQUIRED` and the status message carries the SHA-256 hash of the operation in metadata `a2a.approval.hash`. The client approves by echoing that hash in the follow-up message's metadata. The executor then sees `context.Approval == ApprovalState.Approved` (`NotApproved` if the hash is missing or wrong, `None` if nothing is pending). An approval works **once**: after it is used, the same hash is `NotApproved`.
+- **Approval binding.** An executor that needs the user to confirm an action calls `updater.RequireApprovalAsync(new PendingApproval(operationId, exactDescription), "Delete 3 files?")`. The task goes to `INPUT_REQUIRED` and the status message carries the SHA-256 hash of the operation in metadata `a2a.approval.hash` (over `operationId + "\n" + exactDescription`, so `operationId` must not contain a line feed). The client approves by echoing that hash in the follow-up message's metadata. The executor then sees `context.Approval == ApprovalState.Approved`; `NotApproved` when the hash is missing, `None` when nothing is pending. A wrong hash, or a hash when nothing is pending, is refused with `InvalidParams` before the agent runs. An approval works **once**: after it is used, the same hash is `InvalidParams`. Call `RequireApprovalAsync` again to ask anew.
 - **Cancel requested.** If the agent has not stopped within `CancelGracePeriod`, CancelTask answers with the task still `WORKING` and metadata `a2a.cancelRequested = true` (never stored). The `CANCELED` state arrives later on the stream.
 - **Follow-up de-duplication.** A follow-up whose `messageId` is already in the task's history is not run again: the caller gets the task as it is, with no new turn, push config or execution.
 
@@ -236,7 +239,7 @@ app.MapA2A("/{tenant}/a2a").RequireAuthorization();
 // Keys: /.well-known/jwks.json and /{tenant}/.well-known/jwks.json (AgentCardProvider.GetSigningKeyAsync, else the host key)
 ```
 
-- **The SDK does not cache cards across requests.** The provider is asked on every request (and for each stored event, for the push capability). Cache inside the provider if building a card costs anything.
+- **The SDK does not cache cards across requests.** The provider is asked once per request, once per execution when its request did not resolve the card already (for the push capability), and once per system status commit (retention sweep). Never once per event. Cache inside the provider if building a card costs anything.
 - **Unknown tenant** (the provider returns `null`): the public card is 404; SendMessage, SendStreamingMessage, ListTasks and GetExtendedAgentCard fail with `UnsupportedOperation`; every operation on a task (GetTask, CancelTask, SubscribeToTask, push configs) answers `TaskNotFound`, as for a task that does not exist.
 - Capability checks (streaming, push, extensions, extended card) use the card of the request's tenant. Background work (retention, remote cancel, push delivery) knows only the tenant, so the tenant alone must identify the agent.
 
@@ -256,6 +259,12 @@ Breaking changes for code that replaced SDK parts:
 - **Retention is opt-in.** If you expected purges, add `services.AddA2ARetention()`.
 - **Postgres schema:** P1 adds the tables `a2a_push_outbox` and `a2a_push_dead_letters` and some indexes (no existing column changes). They are created at startup. If you set `CreateSchemaOnStartup = false`, apply `PostgresSchema.ScriptFor("<schema>")` again before you deploy.
 - **Webhook receivers:** nothing breaks. To use signatures, register push configs with scheme `webhook-signature` and verify with `PushNotificationReceiver.VerifySignature`.
+- **`PushValidationResult` has new members** `InvalidSignature` and `Stale` (from `VerifySignature`). A `switch` over it that must be exhaustive needs cases for them.
+- **`A2ARequestHandler` public constructor:** the `IPushNotificationSender push` parameter is now `PushOutbox outbox`, and three optional parameters follow `timeProvider`: `ExecutionCoordinator? coordinator`, `AgentCardProvider? cardProvider`, `AgentExecutorResolver? executorResolver`. Prefer resolving the handler from DI (`AddA2AServer`).
+- **Custom `ExecutionCoordinator`: `HeartbeatAsync` returns `ValueTask<bool>`.** Return true when the lease was held (and renew it), false when it is missing or expired (and do not renew it). On false the handler re-reads the task: it cancels the execution when the task has ended, and registers it again otherwise. A coordinator that always returns true turns this off.
+- **Redriven dead letters** (`A2APushAdmin.RedriveAsync`) are sent after the newer events of the same push config that were delivered meanwhile, not in their original place.
+- **`PendingApproval`** throws `ArgumentException` when `OperationId` contains a line feed. The hash format is unchanged.
+- **Startup diagnostics:** `AddA2AServer` logs an error for a durable push outbox with the per-process push secret protector, and a warning for a durable task store with the in-memory execution coordinator (see "Durable stores and several instances"). Nothing throws.
 
 ## Interop
 
