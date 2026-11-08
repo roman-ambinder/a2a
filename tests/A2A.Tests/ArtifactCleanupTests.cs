@@ -78,7 +78,7 @@ public sealed class ArtifactCleanupTests
         public ValueTask DisposeAsync() => Host.DisposeAsync();
     }
 
-    private static async Task<Rig> StartAsync(bool withStore = true, TimeSpan? grace = null)
+    private static async Task<Rig> StartAsync(bool withStore = true, TimeSpan? grace = null, TimeSpan? interval = null)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var log = new List<string>();
@@ -89,6 +89,7 @@ public sealed class ArtifactCleanupTests
             {
                 o.ArtifactStorage.PublicBaseUrl = Base;
                 o.ArtifactStorage.OrphanGracePeriod = grace ?? Grace;
+                if (interval is { } i) o.ArtifactStorage.OrphanSweepInterval = i;
             },
             services: s =>
             {
@@ -341,6 +342,49 @@ public sealed class ArtifactCleanupTests
     public async Task Non_positive_grace_period_without_a_store_still_starts()
     {
         await using var rig = await StartAsync(withStore: false, grace: TimeSpan.Zero);
+        var sweeper = rig.Sweeper();
+
+        await sweeper.StartAsync(CancellationToken.None);
+        await sweeper.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Orphan_step_runs_at_most_once_per_interval()
+    {
+        await using var rig = await StartAsync();
+        var live = ArtifactObjectKey.NewObjectId();
+        await PutKeyAsync(rig, KeyOf("", "t1", live));
+        await CreateTaskAsync(rig, "", "alice", "t1", live);
+        var sweeper = rig.Sweeper();
+        rig.Clock.Advance(Grace + TimeSpan.FromMinutes(1));
+        await sweeper.RunOnceAsync(CancellationToken.None); // the first sweep runs the step
+        var reads = rig.Tasks.MaintenanceReads;
+        Assert.True(reads > 0);
+
+        var orphan = await PutAsync(rig, "", "gone");
+        rig.Clock.Advance(Grace + TimeSpan.FromMinutes(1)); // old enough to delete, but the interval (6 hours) has not passed
+        await sweeper.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(reads, rig.Tasks.MaintenanceReads);
+        Assert.True(await ExistsAsync(rig, KeyOf("", "gone", orphan)));
+
+        rig.Clock.Advance(TimeSpan.FromHours(6));
+        await sweeper.RunOnceAsync(CancellationToken.None);
+        Assert.False(await ExistsAsync(rig, KeyOf("", "gone", orphan)));
+        Assert.True(await ExistsAsync(rig, KeyOf("", "t1", live))); // a live object survives
+    }
+
+    [Fact]
+    public async Task Zero_orphan_sweep_interval_is_rejected_at_start()
+    {
+        await using var rig = await StartAsync(interval: TimeSpan.Zero);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Sweeper().StartAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Non_positive_orphan_sweep_interval_without_a_store_still_starts()
+    {
+        await using var rig = await StartAsync(withStore: false, interval: TimeSpan.Zero);
         var sweeper = rig.Sweeper();
 
         await sweeper.StartAsync(CancellationToken.None);

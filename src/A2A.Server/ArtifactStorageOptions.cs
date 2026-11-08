@@ -23,6 +23,12 @@ public sealed class ArtifactStorageOptions
 
     /// <summary>How old an object that no task refers to must be before the retention sweep deletes it. Default 1 hour.</summary>
     public TimeSpan OrphanGracePeriod { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// How often one instance runs the orphan step of the retention sweep. Default 6 hours. Listing a bucket is slow and costs
+    /// money, so the step is skipped on the sweeps in between. Must be greater than zero.
+    /// </summary>
+    public TimeSpan OrphanSweepInterval { get; set; } = TimeSpan.FromHours(6);
 }
 
 /// <summary>How the server delivers an artifact download.</summary>

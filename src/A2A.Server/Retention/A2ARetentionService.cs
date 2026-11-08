@@ -58,6 +58,8 @@ public sealed class A2ARetentionService : BackgroundService
     private readonly TimeProvider _time;
     private readonly ArtifactObjectStore? _objects;
     private readonly TimeSpan _orphanGracePeriod;
+    private readonly TimeSpan _orphanSweepInterval;
+    private DateTimeOffset? _lastOrphanStep;
 
     /// <summary>Creates the sweep. In an app the DI container does this (<c>AddA2ARetention</c>).</summary>
     /// <param name="options">The sweep settings.</param>
@@ -86,6 +88,7 @@ public sealed class A2ARetentionService : BackgroundService
         _time = time ?? TimeProvider.System;
         _objects = objects;
         _orphanGracePeriod = serverOptions.ArtifactStorage.OrphanGracePeriod;
+        _orphanSweepInterval = serverOptions.ArtifactStorage.OrphanSweepInterval;
     }
 
     /// <summary>Checks the options (<see cref="ValidateOptions"/>), then starts sweeping.</summary>
@@ -99,7 +102,7 @@ public sealed class A2ARetentionService : BackgroundService
     /// <summary>
     /// Throws <see cref="InvalidOperationException"/> when <see cref="A2ARetentionOptions.Validate"/> does, or when
     /// <see cref="A2AServerOptions.InterruptedTimeout"/> is set and not positive, or when an artifact object store is registered and
-    /// <see cref="ArtifactStorageOptions.OrphanGracePeriod"/> is not positive.
+    /// <see cref="ArtifactStorageOptions.OrphanGracePeriod"/> or <see cref="ArtifactStorageOptions.OrphanSweepInterval"/> is not positive.
     /// </summary>
     internal void ValidateOptions()
     {
@@ -108,6 +111,8 @@ public sealed class A2ARetentionService : BackgroundService
         // deleted, and the commit would then create a task that points at nothing.
         if (_objects is not null && _orphanGracePeriod <= TimeSpan.Zero)
             throw new InvalidOperationException($"ArtifactStorage.OrphanGracePeriod ({_orphanGracePeriod}) must be greater than zero.");
+        if (_objects is not null && _orphanSweepInterval <= TimeSpan.Zero)
+            throw new InvalidOperationException($"ArtifactStorage.OrphanSweepInterval ({_orphanSweepInterval}) must be greater than zero.");
         if (_interruptedTimeout is { } timeout && timeout <= TimeSpan.Zero)
             throw new InvalidOperationException($"InterruptedTimeout ({timeout}) must be greater than zero, or null to turn it off.");
     }
@@ -158,8 +163,16 @@ public sealed class A2ARetentionService : BackgroundService
         if (_interruptedTimeout is { } timeout) await StepAsync("interrupted timeout", c => CancelInterruptedAsync(timeout, c), cancellationToken).ConfigureAwait(false);
         await StepAsync("expired tasks", PurgeExpiredTasksAsync, cancellationToken).ConfigureAwait(false);
         await StepAsync("orphan contexts", DeleteOrphanContextsAsync, cancellationToken).ConfigureAwait(false);
-        if (_objects is { } objects) await StepAsync("orphan artifact objects", c => DeleteOrphanObjectsAsync(objects, c), cancellationToken).ConfigureAwait(false);
+        if (_objects is { } objects && OrphanStepDue())
+            await StepAsync("orphan artifact objects", async c =>
+            {
+                await DeleteOrphanObjectsAsync(objects, c).ConfigureAwait(false);
+                _lastOrphanStep = _time.GetUtcNow(); // a failed step is tried again on the next sweep
+            }, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>True when this instance has not run the orphan step, or the last run is at least <see cref="ArtifactStorageOptions.OrphanSweepInterval"/> ago.</summary>
+    private bool OrphanStepDue() => _lastOrphanStep is not { } last || _time.GetUtcNow() - last >= _orphanSweepInterval;
 
     private async Task StepAsync(string name, Func<CancellationToken, Task> step, CancellationToken cancellationToken)
     {
@@ -341,7 +354,9 @@ public sealed class A2ARetentionService : BackgroundService
     private async Task DeleteOrphanObjectsAsync(ArtifactObjectStore objects, CancellationToken cancellationToken)
     {
         var cutoff = Before(_time.GetUtcNow(), _orphanGracePeriod);
-        var references = new Dictionary<(string Tenant, string TaskId), HashSet<string>?>();
+        // Only the current task is kept. Stores list in key order, so the objects of one task come together; any other order only costs more reads.
+        (string Tenant, string TaskId)? currentTask = null;
+        HashSet<string>? used = null;
         var deleted = 0;
         await foreach (var entry in objects.ListAsync(string.Empty, cancellationToken).ConfigureAwait(false))
         {
@@ -351,11 +366,11 @@ public sealed class A2ARetentionService : BackgroundService
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                if (!references.TryGetValue((tenant, taskId), out var used))
+                if (currentTask != (tenant, taskId))
                 {
                     var record = await _tasks.GetForMaintenanceAsync(tenant, taskId, cancellationToken).ConfigureAwait(false);
                     used = record is null ? null : ReferencedObjectIds(record.Task);
-                    references[(tenant, taskId)] = used;
+                    currentTask = (tenant, taskId);
                 }
                 if (used is not null && used.Contains(objectId)) continue; // a live task uses it
                 await objects.DeleteAsync(entry.Key, cancellationToken).ConfigureAwait(false);

@@ -19,6 +19,8 @@ A2A.Server.ArtifactStorageOptions.MaxObjectBytes.get -> long
 A2A.Server.ArtifactStorageOptions.MaxObjectBytes.set -> void
 A2A.Server.ArtifactStorageOptions.OrphanGracePeriod.get -> System.TimeSpan
 A2A.Server.ArtifactStorageOptions.OrphanGracePeriod.set -> void
+A2A.Server.ArtifactStorageOptions.OrphanSweepInterval.get -> System.TimeSpan
+A2A.Server.ArtifactStorageOptions.OrphanSweepInterval.set -> void
 A2A.Server.ArtifactStorageOptions.PublicBaseUrl.get -> System.Uri?
 A2A.Server.ArtifactStorageOptions.PublicBaseUrl.set -> void
 A2A.Server.ArtifactStorageOptions.PublicBaseUrlResolver.get -> System.Func<string!, System.Uri!>?

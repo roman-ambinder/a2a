@@ -41,7 +41,7 @@ These would make this a failure even if it works:
 - A task that points at an object that does not exist because of a crash.
 - Any caller other than the task's owner reading an object through our endpoint.
 - Credentials sent to the object store host, or to any origin other than the agent's.
-- Storage URLs or bucket names leaking to clients.
+- Storage URLs or bucket names leaking to clients, other than the short-lived presigned URL in Redirect mode.
 - Any behavior change for someone who configures no object store, other than the caps.
 
 ## Constraints from the code
@@ -110,6 +110,7 @@ No object store registered means today's behavior: everything stays inline.
 | `Delivery` | `Redirect` | `Redirect` or `Proxy`. See "Serving" |
 | `DownloadUrlLifetime` | 5 minutes | Lifetime of a presigned URL |
 | `OrphanGracePeriod` | 1 hour | How old an unreferenced object must be before the sweeper deletes it |
+| `OrphanSweepInterval` | 6 hours | How often one instance runs the orphan step (listing a bucket is slow and costs money) |
 
 ### Write path
 
