@@ -56,6 +56,7 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - A follow-up that was accepted but could not start fails its task, so the task does not wait forever. (#15)
 - The client refuses a request with a missing required field before sending it, on every operation and binding, and names the
   field in the error (`InvalidParams`). No member became C# `required`.
+  v0.3 clients must give a config id to get a push config; use the list operation otherwise.
 
 ### Durable stores and running several instances
 

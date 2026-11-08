@@ -58,6 +58,8 @@ public class ClientRequiredFieldTests
         await Assert.ThrowsAsync<ArgumentNullException>(() => client.GetTaskPushNotificationConfigAsync(null!));
         await Assert.ThrowsAsync<ArgumentNullException>(() => client.ListTaskPushNotificationConfigsAsync(null!));
         await Assert.ThrowsAsync<ArgumentNullException>(() => client.DeleteTaskPushNotificationConfigAsync(null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => client.ListTasksAsync((ListTasksRequest)null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => client.GetExtendedAgentCardAsync((GetExtendedAgentCardRequest)null!));
         Assert.Empty(h.Calls);
     }
 

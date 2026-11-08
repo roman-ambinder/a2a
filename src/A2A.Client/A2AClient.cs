@@ -240,6 +240,7 @@ public sealed class A2AClient : IA2AClient
     /// <inheritdoc />
     public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.ListTasks, _binding, request.Tenant, null,
             () => _transport.ListTasksAsync(request, options, cancellationToken), cancellationToken);
@@ -307,6 +308,7 @@ public sealed class A2AClient : IA2AClient
     /// <inheritdoc />
     public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(request);
         request.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.ExtendedAgentCard, A2AErrorCode.UnsupportedOperation, "Agent does not declare an extended agent card.");
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.GetExtendedAgentCard, _binding, request.Tenant, null,
