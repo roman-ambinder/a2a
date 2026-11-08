@@ -86,14 +86,13 @@ public sealed partial class TaskExecutionEngine
 
     /// <summary>
     /// The execution's lease lapsed (its heartbeats missed the lease, for example during a long pause) and the coordinator no
-    /// longer holds it. Called under the heartbeat gate. When the task is terminal or gone (the retention sweep may have failed
-    /// it as dead), the execution is cancelled: its later events would be dropped anyway. Otherwise the execution registers
-    /// again with its next heartbeat, so every instance sees it running.
+    /// longer holds it. Called under the heartbeat gate. When the task ended (<see cref="TaskEndedAsync"/>: the retention sweep
+    /// may have failed it as dead), the execution is cancelled: its later events would be dropped anyway. Otherwise the
+    /// execution registers again with its next heartbeat, so every instance sees it running.
     /// </summary>
     private async Task OnLeaseLostAsync(Execution exec)
     {
-        var record = await _tasks.GetAsync(exec.Key, CancellationToken.None).ConfigureAwait(false);
-        if (record is null || record.Task.Status.State.IsTerminal())
+        if (await TaskEndedAsync(exec).ConfigureAwait(false))
         {
             ServerLog.LeaseLostTaskEnded(_logger, exec.TaskId);
             CancelAll([exec]);
@@ -111,11 +110,23 @@ public sealed partial class TaskExecutionEngine
     /// </summary>
     private async Task CancelIfEndedAsync(Execution exec)
     {
-        var record = await _tasks.GetAsync(exec.Key, CancellationToken.None).ConfigureAwait(false);
+        var ended = await TaskEndedAsync(exec).ConfigureAwait(false);
         exec.LeaseLost = false;
-        if (record is not null && !record.Task.Status.State.IsTerminal()) return;
+        if (!ended) return;
         ServerLog.LeaseLostTaskEnded(_logger, exec.TaskId);
         CancelAll([exec]);
+    }
+
+    /// <summary>
+    /// Whether the execution's task ended: it is terminal, or it was stored and is gone (deleted). A new task that is not stored
+    /// yet (the agent has sent no event) has not ended: nothing else can end a task that does not exist. The flag is read
+    /// before the task, so a first event stored in between is seen in the record.
+    /// </summary>
+    private async Task<bool> TaskEndedAsync(Execution exec)
+    {
+        var stored = exec.TaskStored;
+        var record = await _tasks.GetAsync(exec.Key, CancellationToken.None).ConfigureAwait(false);
+        return record is null ? stored : record.Task.Status.State.IsTerminal();
     }
 
     /// <summary>

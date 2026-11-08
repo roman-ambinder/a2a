@@ -534,4 +534,46 @@ public class ClientDefaultsTests
         Assert.False(sockets.AllowAutoRedirect);
         Assert.Equal(Timeout.InfiniteTimeSpan, provider.GetRequiredService<IHttpClientFactory>().CreateClient(name).Timeout);
     }
+
+    [Fact]
+    public void Registered_client_buffers_at_most_16_MiB_by_default_and_the_limit_is_configurable()
+    {
+        var services = new ServiceCollection();
+        services.AddA2AClient("agent", o => o.AgentUrl = new Uri("https://agent.example/"));
+        services.AddA2AClient("small", o =>
+        {
+            o.AgentUrl = new Uri("https://agent.example/");
+            o.MaxResponseContentBufferSize = 4096;
+        });
+        services.AddA2AClient("invalid", o =>
+        {
+            o.AgentUrl = new Uri("https://agent.example/");
+            o.MaxResponseContentBufferSize = 0;
+        });
+        using var provider = services.BuildServiceProvider();
+        var http = provider.GetRequiredService<IHttpClientFactory>();
+
+        Assert.Equal(16L * 1024 * 1024, A2ANamedClientOptions.DefaultMaxResponseContentBufferSize);
+        Assert.Equal(A2ANamedClientOptions.DefaultMaxResponseContentBufferSize, http.CreateClient("A2A:agent").MaxResponseContentBufferSize);
+        Assert.Equal(4096, http.CreateClient("A2A:small").MaxResponseContentBufferSize);
+        Assert.Throws<ArgumentOutOfRangeException>(() => http.CreateClient("A2A:invalid"));
+    }
+
+    [Fact]
+    public async Task Registered_client_refuses_a_response_body_over_its_buffer_limit()
+    {
+        var services = new ServiceCollection();
+        services.AddA2AClient("agent", o =>
+        {
+            o.AgentUrl = new Uri("https://agent.example/");
+            o.MaxResponseContentBufferSize = 1024;
+        }).ConfigurePrimaryHttpMessageHandler(() => new ScriptedHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"name\":\"" + new string('x', 4096) + "\"}", Encoding.UTF8, "application/json"),
+        })));
+        using var provider = services.BuildServiceProvider();
+
+        var error = await Assert.ThrowsAsync<HttpRequestException>(() => provider.GetRequiredService<IA2AClientFactory>().GetClientAsync("agent").AsTask());
+        Assert.Contains("buffer", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

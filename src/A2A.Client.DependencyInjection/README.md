@@ -9,6 +9,9 @@ services.AddA2AClient("weather", o => o.AgentUrl = new Uri("https://agent.exampl
 var client = await provider.GetRequiredService<IA2AClientFactory>().GetClientAsync("weather");
 ```
 
+The named client has no cookies, no redirects and no `HttpClient` timeout (limits are per call), and buffers response bodies up
+to 16 MiB; set `o.MaxResponseContentBufferSize` to change that.
+
 Use `RomanAmbinder.A2A.Client` alone when you do not use a DI container; this package adds the `Microsoft.Extensions.*` dependencies.
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 8 and .NET 10.

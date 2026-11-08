@@ -35,9 +35,12 @@ public abstract record IdempotencyOutcome
     /// <summary>
     /// The request created (or continued) the task <c>TaskId</c>. <c>AfterSequence</c> is the task's last event sequence when
     /// the request was accepted: 0 for a new task; for a follow-up, events up to it belong to earlier requests, so a blocking
-    /// retry does not take an interrupted state from before as this request's outcome.
+    /// retry does not take an interrupted state from before as this request's outcome. <c>AcceptedStatusTimestamp</c> is, for a
+    /// follow-up, the timestamp of the task's status when the request was accepted: when the event store no longer holds the
+    /// events after <c>AfterSequence</c>, a blocking retry takes an interrupted state as the outcome only if the status changed
+    /// since (null: the stored task decides alone).
     /// </summary>
-    public sealed record TaskCreated(string TaskId, long AfterSequence = 0) : IdempotencyOutcome;
+    public sealed record TaskCreated(string TaskId, long AfterSequence = 0, DateTimeOffset? AcceptedStatusTimestamp = null) : IdempotencyOutcome;
 
     /// <summary>The agent answered with a message and no task.</summary>
     public sealed record DirectMessage(Message Message) : IdempotencyOutcome;
@@ -87,7 +90,7 @@ public sealed class IdempotencyOptions
 /// <summary>
 /// The handler's claim on one idempotency entry. Records an outcome or abandons the entry at most once, so the execution
 /// engine can call it from every path without double bookkeeping. <see cref="None"/> is a claim that does nothing (no key,
-/// or the request is a replay).
+/// or the request is a replay). Claims are made by <see cref="IdempotencyCoordinator.BeginAsync"/>.
 /// </summary>
 public sealed class IdempotencyClaim
 {

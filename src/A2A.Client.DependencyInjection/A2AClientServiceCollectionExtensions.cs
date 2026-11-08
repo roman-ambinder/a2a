@@ -17,6 +17,18 @@ public sealed class A2ANamedClientOptions
 
     /// <summary>Options of the card resolver, such as trust policy and pinning.</summary>
     public A2ACardResolverOptions Resolver { get; } = new();
+
+    /// <summary>Default of <see cref="MaxResponseContentBufferSize"/>: 16 MiB.</summary>
+    public const long DefaultMaxResponseContentBufferSize = 16 * 1024 * 1024;
+
+    /// <summary>
+    /// Largest response body, in bytes, the client's <see cref="HttpClient"/> buffers
+    /// (<see cref="HttpClient.MaxResponseContentBufferSize"/>): Agent Cards, unary responses and error bodies. A larger body
+    /// fails the call with an <see cref="HttpRequestException"/> instead of filling memory. Streams are read as they arrive and
+    /// are not limited by it. Default <see cref="DefaultMaxResponseContentBufferSize"/> (16 MiB); from 1 to
+    /// <see cref="int.MaxValue"/>.
+    /// </summary>
+    public long MaxResponseContentBufferSize { get; set; } = DefaultMaxResponseContentBufferSize;
 }
 
 /// <summary>Creates and caches A2A clients registered with <see cref="A2AClientServiceCollectionExtensions.AddA2AClient"/>.</summary>
@@ -62,9 +74,14 @@ internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFacto
 public static class A2AClientServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers a named A2A client with safe defaults (no cookies, no redirects, infinite HttpClient timeout). Returns the <see cref="IHttpClientBuilder"/> so you can add auth handlers,
-    /// resilience, or a primary handler.
+    /// Registers a named A2A client with safe defaults (no cookies, no redirects, infinite HttpClient timeout, response bodies
+    /// buffered up to <see cref="A2ANamedClientOptions.MaxResponseContentBufferSize"/>). Returns the
+    /// <see cref="IHttpClientBuilder"/> so you can add auth handlers, resilience, or a primary handler.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown when the client is created: <see cref="A2ANamedClientOptions.MaxResponseContentBufferSize"/> is below 1 or above
+    /// <see cref="int.MaxValue"/>.
+    /// </exception>
     public static IHttpClientBuilder AddA2AClient(this IServiceCollection services, string name, Action<A2ANamedClientOptions> configure)
     {
         services.Configure(name, configure);
@@ -75,7 +92,14 @@ public static class A2AClientServiceCollectionExtensions
             // ConfigurePrimaryHttpMessageHandler on the returned builder if you need something else.
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { UseCookies = false, AllowAutoRedirect = false })
             // The limit is per call (A2ARequestOptions.Timeout, default 100 s for unary calls, none for streams).
-            .ConfigureHttpClient(c => c.Timeout = Timeout.InfiniteTimeSpan);
+            .ConfigureHttpClient((sp, c) =>
+            {
+                c.Timeout = Timeout.InfiniteTimeSpan;
+                var max = sp.GetRequiredService<IOptionsMonitor<A2ANamedClientOptions>>().Get(name).MaxResponseContentBufferSize;
+                ArgumentOutOfRangeException.ThrowIfLessThan(max, 1, nameof(A2ANamedClientOptions.MaxResponseContentBufferSize));
+                ArgumentOutOfRangeException.ThrowIfGreaterThan(max, int.MaxValue, nameof(A2ANamedClientOptions.MaxResponseContentBufferSize));
+                c.MaxResponseContentBufferSize = max;
+            });
     }
 
     /// <summary>Adds a bearer token to every request, fetched from <paramref name="tokenProvider"/> (cache inside it).</summary>

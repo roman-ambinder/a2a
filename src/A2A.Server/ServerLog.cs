@@ -29,6 +29,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 204, Level = LogLevel.Error, Message = "Could not mark task {TaskId} as failed after a storage error")]
     public static partial void MarkFailedFailed(ILogger logger, Exception exception, string taskId);
 
+    [LoggerMessage(EventId = 223, Level = LogLevel.Error, Message = "Could not mark task {TaskId} as failed after its follow-up could not start")]
+    public static partial void MarkUnstartedFailedFailed(ILogger logger, Exception exception, string taskId);
+
     [LoggerMessage(EventId = 205, Level = LogLevel.Debug, Message = "Dropped event for task {TaskId} in state {State}")]
     public static partial void EventDropped(ILogger logger, string taskId, TaskState state);
 
@@ -147,6 +150,9 @@ internal static partial class ServerLog
 
     [LoggerMessage(EventId = 252, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.LocalCoordinatorMessage)]
     public static partial void LocalCoordinatorWithDurableStore(ILogger logger, string taskStore);
+
+    [LoggerMessage(EventId = 253, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.RetentionOffMessage)]
+    public static partial void RetentionOffWithDurableStore(ILogger logger, string taskStore);
 
     // IdempotencyCoordinator: 400-499
     [LoggerMessage(EventId = 400, Level = LogLevel.Error, Message = "Failed to record the idempotency outcome for task {TaskId}")]

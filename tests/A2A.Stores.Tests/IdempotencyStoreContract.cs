@@ -44,6 +44,17 @@ public abstract class IdempotencyStoreContract
     }
 
     [SkippableFact]
+    public async Task Completed_follow_up_keeps_its_accepted_status_timestamp()
+    {
+        var s = await CreateStoreAsync(new IdempotencyOptions());
+        await s.TryBeginAsync(Scope, Hash);
+        var at = new DateTimeOffset(2026, 11, 8, 10, 30, 15, 123, TimeSpan.Zero);
+        await s.CompleteAsync(Scope, new IdempotencyOutcome.TaskCreated("task-1", 7, at));
+        var done = Assert.IsType<IdempotencyResult.Completed>(await s.TryBeginAsync(Scope, Hash));
+        Assert.Equal(new IdempotencyOutcome.TaskCreated("task-1", 7, at), done.Outcome);
+    }
+
+    [SkippableFact]
     public async Task Completed_request_returns_its_direct_message()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -179,7 +190,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
 {
     protected override async Task<IdempotencyStore> CreateStoreAsync(IdempotencyOptions options, TimeProvider? time = null)
     {
-        var schema = await db.NewSchemaAsync();
+        var schema = await db.NewSchemaAsync(time);
         schema.IdempotencyPollInterval = TimeSpan.FromMilliseconds(20);
         return new PostgresIdempotencyStore(db.DataSource, options, schema, time);
     }
@@ -188,7 +199,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
     public async Task Stale_claim_of_a_crashed_instance_can_be_taken_over()
     {
         var clock = new FakeTimeProvider();
-        var schema = await db.NewSchemaAsync();
+        var schema = await db.NewSchemaAsync(clock);
         schema.IdempotencyClaimTimeout = TimeSpan.FromMinutes(5);
         var crashed = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
         var other = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
@@ -217,7 +228,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
     public async Task Renew_pushes_the_claim_timeout_out_from_now()
     {
         var clock = new FakeTimeProvider();
-        var schema = await db.NewSchemaAsync();
+        var schema = await db.NewSchemaAsync(clock);
         schema.IdempotencyClaimTimeout = TimeSpan.FromMinutes(5);
         var owner = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
         var other = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
@@ -235,7 +246,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
     public async Task Renew_by_another_principal_or_tenant_does_not_extend_the_claim()
     {
         var clock = new FakeTimeProvider();
-        var schema = await db.NewSchemaAsync();
+        var schema = await db.NewSchemaAsync(clock);
         schema.IdempotencyClaimTimeout = TimeSpan.FromMinutes(5);
         var s = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
 

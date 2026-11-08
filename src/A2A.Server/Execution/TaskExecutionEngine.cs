@@ -127,6 +127,9 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// <summary>Status text of a task failed because a run lasted longer than <see cref="A2AServerOptions.MaxTaskDuration"/>.</summary>
     internal const string TimeLimitText = "Task exceeded its time limit";
 
+    /// <summary>Status text of a task failed because the execution of a follow-up could not start after its message was committed.</summary>
+    internal const string StartFailureText = "The task failed because the agent could not be started for the message.";
+
     /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
     internal const string OversizedEventText = "The agent produced an event larger than the configured limit.";
 
@@ -193,7 +196,9 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// <list type="bullet">
     /// <item>a terminal state;</item>
     /// <item>an interrupted state reached by a status event after <paramref name="afterSequence"/> (an interrupted state from
-    /// before a follow-up is not its outcome); seen in the event store or on the live bus;</item>
+    /// before a follow-up is not its outcome); seen in the event store or on the live bus. When the store no longer holds the
+    /// first events after <paramref name="afterSequence"/> (trimmed), the stored task decides: an interrupted state counts
+    /// once its status timestamp differs from <paramref name="acceptedStatusTimestamp"/>;</item>
     /// <item>no execution running for the task any more, on any instance (the agent returned without settling it, or its
     /// instance stopped): nothing will change it, so its current state;</item>
     /// <item>or the request is cancelled.</item>
@@ -203,12 +208,18 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// </summary>
     /// <param name="key">The task.</param>
     /// <param name="afterSequence">The task's last event sequence before the message; 0 for a new task.</param>
+    /// <param name="acceptedStatusTimestamp">
+    /// For a follow-up, the timestamp of the task's status when the message was accepted
+    /// (<see cref="IdempotencyOutcome.TaskCreated.AcceptedStatusTimestamp"/>); null when unknown, and then a trimmed store
+    /// leaves the decision to the stored task alone.
+    /// </param>
     /// <param name="cancellationToken">Cancellation.</param>
-    public async ValueTask<AgentTask> WaitUntilSettledAsync(TaskKey key, long afterSequence, CancellationToken cancellationToken)
+    public async ValueTask<AgentTask> WaitUntilSettledAsync(TaskKey key, long afterSequence, DateTimeOffset? acceptedStatusTimestamp,
+        CancellationToken cancellationToken)
     {
         using var sub = _bus.Subscribe(ScopeKey(key.Tenant, key.TaskId));
-        var (statusAfter, known) = afterSequence == 0
-            ? (true, 0L)
+        var (statusAfter, trimmed, known) = afterSequence == 0
+            ? (true, false, 0L)
             : await StatusEventAfterAsync(key, afterSequence, cancellationToken).ConfigureAwait(false);
         Task<bool>? live = null; // one pending wait at a time: the subscription has a single reader
         while (true)
@@ -216,7 +227,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             var running = await RunningWaitsAsync(key, cancellationToken).ConfigureAwait(false);
             var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
             var state = record.Task.Status.State;
-            if (state.IsTerminal() || (state.IsInterrupted() && statusAfter) || running is null) return record.Task;
+            var outcome = statusAfter || (trimmed && StatusChangedSince(record.Task.Status, acceptedStatusTimestamp));
+            if (state.IsTerminal() || (state.IsInterrupted() && outcome) || running is null) return record.Task;
 
             live ??= sub.Reader.WaitToReadAsync(cancellationToken).AsTask();
             await Task.WhenAny(running.Append(live)).ConfigureAwait(false);
@@ -237,25 +249,36 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
             // Every event is stored before it is published: look for the dropped ones in the store.
             if (missed && !statusAfter)
-                (statusAfter, known) = await StatusEventAfterAsync(key, afterSequence, cancellationToken).ConfigureAwait(false);
+                (statusAfter, trimmed, known) = await StatusEventAfterAsync(key, afterSequence, cancellationToken).ConfigureAwait(false);
         }
     }
 
     /// <summary>
     /// Whether the event store holds a status event of the task with a sequence after <paramref name="afterSequence"/>, and the
-    /// last sequence read (at least <paramref name="afterSequence"/>). When the store no longer has the first events after
-    /// <paramref name="afterSequence"/> (trimmed), this answers true: the stored task, which the caller reads, then decides.
+    /// last sequence read (at least <paramref name="afterSequence"/>). <c>Trimmed</c> is true when the store no longer has the
+    /// first events after <paramref name="afterSequence"/>: without a status event among the rest, the caller then decides from
+    /// the stored task (<see cref="StatusChangedSince"/>).
     /// </summary>
-    private async Task<(bool Found, long Last)> StatusEventAfterAsync(TaskKey key, long afterSequence, CancellationToken ct)
+    private async Task<(bool Found, bool Trimmed, long Last)> StatusEventAfterAsync(TaskKey key, long afterSequence, CancellationToken ct)
     {
         var last = afterSequence;
+        var trimmed = false;
         await foreach (var stored in _events.ReadAfterAsync(key, afterSequence, ct).ConfigureAwait(false))
         {
-            if (stored.Event is StatusUpdateEvent || stored.Sequence != last + 1) return (true, stored.Sequence);
+            if (stored.Sequence != last + 1) trimmed = true;
+            if (stored.Event is StatusUpdateEvent) return (true, trimmed, stored.Sequence);
             last = stored.Sequence;
         }
-        return (false, last);
+        return (false, trimmed, last);
     }
+
+    /// <summary>
+    /// Whether <paramref name="status"/> is a different status from the one the task had when a follow-up was accepted, known by
+    /// its timestamp <paramref name="acceptedTimestamp"/>. Every status the engine commits has a timestamp, so a status set
+    /// after the follow-up has a new one. Null (not known) answers true: the stored task decides alone.
+    /// </summary>
+    internal static bool StatusChangedSince(AgentTaskStatus status, DateTimeOffset? acceptedTimestamp) =>
+        acceptedTimestamp is null || status.Timestamp != acceptedTimestamp;
 
     /// <summary>
     /// Runs the agent for a task. An idempotency <c>claim</c> is completed when the task is first stored or the agent replies
@@ -282,6 +305,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             Activity = ServerTelemetry.StartExecution(kind, key.Tenant, taskId, contextId),
             Claim = claim,
             PushEnabled = pushEnabled,
+            TaskStored = !isNewTask,
         };
         var scope = ScopeKey(key.Tenant, taskId);
         var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
@@ -490,6 +514,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         ServerTelemetry.Events.Add(1);
                         record = committed.Record;
                         created = true;
+                        exec.TaskStored = true;
                         Publish(exec, key, snapshot with { Sequence = committed.Sequence });
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
                         await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
@@ -560,6 +585,26 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         catch (Exception ex)
         {
             ServerLog.MarkFailedFailed(_logger, ex, key.TaskId);
+        }
+    }
+
+    /// <summary>
+    /// After a follow-up's message was committed but its execution could not start, marks the task FAILED
+    /// (<see cref="StartFailureText"/>) so it does not wait for good for an agent that never runs. Only while the task still has
+    /// <paramref name="acceptedStatus"/> (nothing changed it since) and no execution of it runs here. Best effort: a failure is
+    /// logged, and the caller reports the start error.
+    /// </summary>
+    internal async Task TryFailUnstartedAsync(TaskKey key, AgentTaskStatus acceptedStatus)
+    {
+        try
+        {
+            await CommitSystemStatusAsync(key, TaskState.Failed, StartFailureText,
+                record => record.Task.Status.State == acceptedStatus.State && record.Task.Status.Timestamp == acceptedStatus.Timestamp,
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            ServerLog.MarkUnstartedFailedFailed(_logger, ex, key.TaskId);
         }
     }
 

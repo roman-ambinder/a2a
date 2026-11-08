@@ -366,7 +366,8 @@ public sealed class BoundedChannelTests
             var exec = (await rig.Engine.StartForTestAsync(context));
             await WaitForSequenceAsync(events, key, trimmed ? 5 : 4);
 
-            var reply = await rig.Streamer.WaitForOutcomeAsync(exec, key, sub, afterSequence: 0, returnImmediately: false, CancellationToken.None)
+            var reply = await rig.Streamer.WaitForOutcomeAsync(exec, key, sub, afterSequence: 0, acceptedStatusTimestamp: null, returnImmediately: false,
+                CancellationToken.None)
                 .WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Null(reply); // the response is the task
             Assert.False(release.Task.IsCompleted); // the agent is still running: only the INPUT_REQUIRED outcome ended the wait
@@ -457,6 +458,7 @@ public sealed class BoundedChannelTests
             exec.Detach();
             await exec.Completion.WaitAsync(Wait);
             var afterSequence = await events.LastSequenceAsync(key); // 3: the task is INPUT_REQUIRED
+            var acceptedAt = (await tasks.GetAsync(key))!.Task.Status.Timestamp;
 
             var followUp = new AgentRequestContext
             {
@@ -468,7 +470,7 @@ public sealed class BoundedChannelTests
             // The wait subscribes, then reads the store before the follow-up's events exist; that read is held back until
             // they are all published, and the bus (capacity 1) kept only the last artifact.
             events.Arm();
-            var wait = rig.Engine.WaitUntilSettledAsync(key, afterSequence, CancellationToken.None).AsTask();
+            var wait = rig.Engine.WaitUntilSettledAsync(key, afterSequence, acceptedAt, CancellationToken.None).AsTask();
             await events.ReadStarted.Task.WaitAsync(Wait);
             go.SetResult();
             await WaitForSequenceAsync(events, key, trimmed ? 7 : 6);
@@ -483,6 +485,122 @@ public sealed class BoundedChannelTests
         {
             go.TrySetResult();
             events.ReleaseRead.TrySetResult();
+            release.TrySetResult();
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------------
+    // A follow-up does not change the task's status. When the waiter fell behind and the store was trimmed, the stored task
+    // still has the INPUT_REQUIRED from before the follow-up: that is not the follow-up's outcome until the status changes.
+    // ---------------------------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// A task left INPUT_REQUIRED ("more?") by its first execution, and a follow-up execution that emits three artifacts (the
+    /// store keeps two, the bus one), then waits for <paramref name="go"/>, asks "again?" and keeps running until
+    /// <paramref name="release"/>. Returns the key, the sequence and the status timestamp at accept.
+    /// </summary>
+    private static async Task<(TaskKey Key, long AfterSequence, DateTimeOffset? AcceptedAt, A2A.Server.Execution.Execution FollowUp)> StartTrimmedFollowUpAsync(
+        Rig rig, InMemoryTaskStore tasks, EventStore events, AgentRequestContext first)
+    {
+        var key = new TaskKey(first.Call.Tenant, first.Call.Principal, first.TaskId);
+        var exec = await rig.Engine.StartForTestAsync(first);
+        exec.Detach();
+        await exec.Completion.WaitAsync(Wait);
+        var afterSequence = await events.LastSequenceAsync(key); // 3: WORKING, INPUT_REQUIRED after the task
+        var record = (await tasks.GetAsync(key))!;
+        Assert.Equal(TaskState.InputRequired, record.Task.Status.State);
+        var followUp = new AgentRequestContext
+        {
+            Message = Message.FromUser("more"), TaskId = first.TaskId, ContextId = first.ContextId, Call = first.Call,
+            Task = record.Task.DeepCopy(),
+        };
+        var running = await rig.Engine.StartForTestAsync(followUp);
+        await WaitForSequenceAsync(events, key, afterSequence + 3); // the three artifacts are stored (and the first one trimmed)
+        return (key, afterSequence, record.Task.Status.Timestamp, running);
+    }
+
+    private static Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> TrimmedFollowUpAgent(TaskCompletionSource go, TaskCompletionSource release) =>
+        async (context, u, ct) =>
+        {
+            if (context.IsNewTask)
+            {
+                await u.StartWorkAsync(cancellationToken: ct);
+                await u.RequireInputAsync("more?", ct);
+                return;
+            }
+            for (var i = 0; i < 3; i++) await u.AddArtifactAsync([Part.FromText("x")], artifactId: $"a{i}", cancellationToken: ct);
+            await go.Task.WaitAsync(ct);
+            await u.RequireInputAsync("again?", ct);
+            await release.Task.WaitAsync(ct);
+        };
+
+    private static (A2AServerOptions Options, InMemoryEventStore Events, InMemoryTaskStore Tasks) TrimmedStores()
+    {
+        var options = new A2AServerOptions();
+        options.AgentCard.Name = "Bounded Channel Test Agent";
+        options.Streaming.ChannelCapacity = 1;
+        options.Streaming.ReplayBufferSize = 2; // fewer than the follow-up's artifacts
+        var events = new InMemoryEventStore(options.Streaming);
+        return (options, events, new InMemoryTaskStore(events));
+    }
+
+    [Fact]
+    public async Task Blocking_follow_up_wait_on_a_trimmed_store_ignores_the_status_from_before_the_follow_up()
+    {
+        var (options, events, tasks) = TrimmedStores();
+        var go = Signal();
+        var release = Signal();
+        await using var rig = Rig.Create(options, tasks, events, TrimmedFollowUpAgent(go, release));
+        var first = NewTaskContext();
+        try
+        {
+            using var sub = rig.Bus.Subscribe(TaskExecutionEngine.ScopeKey(first.Call.Tenant, first.TaskId));
+            var (key, afterSequence, acceptedAt, followUp) = await StartTrimmedFollowUpAsync(rig, tasks, events, first);
+
+            // The bus kept only the last artifact: a gap, and the store no longer has the first event after afterSequence.
+            var wait = rig.Streamer.WaitForOutcomeAsync(followUp, key, sub, afterSequence, acceptedAt, returnImmediately: false, CancellationToken.None);
+            await Task.Delay(200);
+            Assert.False(wait.IsCompleted, "the INPUT_REQUIRED from before the follow-up was taken as its outcome");
+
+            go.SetResult();
+            Assert.Null(await wait.WaitAsync(Wait)); // the response is the task
+            var task = (await tasks.GetAsync(key))!.Task;
+            Assert.Equal("again?", task.Status.Message!.GetText());
+            Assert.False(release.Task.IsCompleted); // still running: the new INPUT_REQUIRED ended the wait
+        }
+        finally
+        {
+            go.TrySetResult();
+            release.TrySetResult();
+        }
+    }
+
+    [Fact]
+    public async Task Replay_follow_up_wait_on_a_trimmed_store_ignores_the_status_from_before_the_follow_up()
+    {
+        var (options, events, tasks) = TrimmedStores();
+        var go = Signal();
+        var release = Signal();
+        await using var rig = Rig.Create(options, tasks, events, TrimmedFollowUpAgent(go, release));
+        var first = NewTaskContext();
+        try
+        {
+            var (key, afterSequence, acceptedAt, followUp) = await StartTrimmedFollowUpAsync(rig, tasks, events, first);
+            followUp.Detach();
+
+            var wait = rig.Engine.WaitUntilSettledAsync(key, afterSequence, acceptedAt, CancellationToken.None).AsTask();
+            await Task.Delay(200);
+            Assert.False(wait.IsCompleted, "the INPUT_REQUIRED from before the follow-up was taken as its outcome");
+
+            go.SetResult();
+            var task = await wait.WaitAsync(Wait);
+            Assert.Equal(TaskState.InputRequired, task.Status.State);
+            Assert.Equal("again?", task.Status.Message!.GetText());
+            Assert.False(release.Task.IsCompleted);
+        }
+        finally
+        {
+            go.TrySetResult();
             release.TrySetResult();
         }
     }

@@ -17,6 +17,8 @@ namespace A2A.Server.Postgres;
 /// <item>A running claim older than <see cref="PostgresStoreOptions.IdempotencyClaimTimeout"/> counts as abandoned, so a crashed
 /// instance does not hold its keys forever. <see cref="RenewAsync"/> restarts that clock for a live request.</item>
 /// </list>
+/// Claim times and retention ends are on the database clock (<see cref="PostgresStoreOptions.UseDatabaseClock"/>), so an
+/// instance whose clock is off neither takes over a live claim nor drops a finished entry early.
 /// There is no <see cref="IdempotencyOptions.MaxEntries"/> cap: rows live until their retention ends.
 /// </summary>
 public sealed class PostgresIdempotencyStore : IdempotencyStore
@@ -28,19 +30,22 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
     private readonly IdempotencyOptions _options;
     private readonly PostgresStoreOptions _storeOptions;
     private readonly TimeProvider _time;
+    private readonly DbClock _clock;
     private readonly string _table;
 
     /// <summary>Creates the store over <paramref name="dataSource"/>. Create the tables first (<see cref="PostgresSchema"/>).</summary>
     /// <param name="dataSource">The database.</param>
     /// <param name="options">Retention of finished entries (<see cref="IdempotencyOptions.Retention"/>).</param>
     /// <param name="storeOptions">The schema, claim timeout and poll interval.</param>
-    /// <param name="time">The clock for retention and claim timeouts. Default <see cref="TimeProvider.System"/>.</param>
+    /// <param name="time">The clock for poll delays, and for retention and claim timeouts when
+    /// <see cref="PostgresStoreOptions.UseDatabaseClock"/> is off. Default <see cref="TimeProvider.System"/>.</param>
     public PostgresIdempotencyStore(NpgsqlDataSource dataSource, IdempotencyOptions options, PostgresStoreOptions? storeOptions = null, TimeProvider? time = null)
     {
         _db = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _storeOptions = storeOptions ?? new();
         _time = time ?? TimeProvider.System;
+        _clock = new DbClock(_time, _storeOptions);
         _table = $"{PostgresSchema.Quote(_storeOptions.Schema)}.a2a_idempotency";
     }
 
@@ -50,21 +55,20 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
         ArgumentNullException.ThrowIfNull(requestHash);
         while (true)
         {
-            var now = _time.GetUtcNow().UtcTicks;
             await using (var insert = _db.CreateCommand(
-                $"INSERT INTO {_table} (tenant, principal, key, hash, claim_id, claimed_ticks) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING"))
+                $"INSERT INTO {_table} (tenant, principal, key, hash, claim_id, claimed_ticks) VALUES ($1, $2, $3, $4, $5, {DbClock.Now(6)}) ON CONFLICT DO NOTHING"))
             {
                 AddScope(insert, scope);
                 insert.Parameters.Add(new NpgsqlParameter<byte[]> { TypedValue = requestHash, NpgsqlDbType = NpgsqlDbType.Bytea });
                 insert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = Guid.NewGuid() });
-                insert.Parameters.Add(Long(now));
+                insert.Parameters.Add(_clock.NowParam());
                 if (await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1) return New;
             }
 
             var row = await ReadAsync(scope, cancellationToken).ConfigureAwait(false);
             if (row is not { } r) continue; // removed in between: try to claim again
 
-            if (r.Outcome is not null ? r.ExpiresTicks <= now : IsStale(r.ClaimedTicks, now))
+            if (r.Outcome is not null ? r.ExpiresTicks <= r.NowTicks : IsStale(r.ClaimedTicks, r.NowTicks))
             {
                 // Expired outcome, or a claim nobody finished in time: drop exactly that entry and claim again.
                 await DeleteClaimAsync(scope, r.ClaimId, cancellationToken).ConfigureAwait(false);
@@ -81,10 +85,11 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
     {
         ArgumentNullException.ThrowIfNull(outcome);
         await using var cmd = _db.CreateCommand(
-            $"UPDATE {_table} SET outcome = $4, expires_ticks = $5 WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
+            $"UPDATE {_table} SET outcome = $4, expires_ticks = {DbClock.Now(5)} + $6 WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
         AddScope(cmd, scope);
         cmd.Parameters.Add(TextParam(OutcomeJson.Write(outcome)));
-        cmd.Parameters.Add(Long(AddClamped(_time.GetUtcNow().UtcTicks, _options.Retention)));
+        cmd.Parameters.Add(_clock.NowParam());
+        cmd.Parameters.Add(Span(_options.Retention));
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -100,9 +105,9 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
     public override async ValueTask RenewAsync(IdempotencyScope scope, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand(
-            $"UPDATE {_table} SET claimed_ticks = $4 WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
+            $"UPDATE {_table} SET claimed_ticks = {DbClock.Now(4)} WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
         AddScope(cmd, scope);
-        cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
+        cmd.Parameters.Add(_clock.NowParam());
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -116,7 +121,7 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
         {
             await Task.Delay(interval, _time).ConfigureAwait(false);
             var row = await ReadAsync(scope, CancellationToken.None).ConfigureAwait(false);
-            if (row is not { } r || r.ClaimId != claimId || (r.Outcome is null && IsStale(r.ClaimedTicks, _time.GetUtcNow().UtcTicks)))
+            if (row is not { } r || r.ClaimId != claimId || (r.Outcome is null && IsStale(r.ClaimedTicks, r.NowTicks)))
                 throw new TaskCanceledException("The idempotent request was abandoned.");
             if (r.Outcome is not null) return OutcomeJson.Read(r.Outcome);
         }
@@ -131,8 +136,9 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
     private async ValueTask<Row?> ReadAsync(IdempotencyScope scope, CancellationToken cancellationToken)
     {
         await using var cmd = _db.CreateCommand(
-            $"SELECT hash, claim_id, claimed_ticks, outcome, expires_ticks FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3");
+            $"SELECT hash, claim_id, claimed_ticks, outcome, expires_ticks, {DbClock.Now(4)} FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3");
         AddScope(cmd, scope);
+        cmd.Parameters.Add(_clock.NowParam());
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
         return new Row(
@@ -140,7 +146,8 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
             reader.GetGuid(1),
             reader.GetInt64(2),
             reader.IsDBNull(3) ? null : reader.GetString(3),
-            reader.IsDBNull(4) ? long.MaxValue : reader.GetInt64(4));
+            reader.IsDBNull(4) ? long.MaxValue : reader.GetInt64(4),
+            reader.GetInt64(5));
     }
 
     private async ValueTask DeleteClaimAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken)
@@ -158,7 +165,7 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
         cmd.Parameters.Add(TextParam(scope.Key));
     }
 
-    private readonly record struct Row(byte[] Hash, Guid ClaimId, long ClaimedTicks, string? Outcome, long ExpiresTicks);
+    private readonly record struct Row(byte[] Hash, Guid ClaimId, long ClaimedTicks, string? Outcome, long ExpiresTicks, long NowTicks);
 }
 
 /// <summary>JSON form of <see cref="IdempotencyOutcome"/>, written by hand so it needs no reflection.</summary>
@@ -176,6 +183,7 @@ internal static class OutcomeJson
                     w.WriteString("kind", "task");
                     w.WriteString("taskId", t.TaskId);
                     w.WriteNumber("afterSequence", t.AfterSequence);
+                    if (t.AcceptedStatusTimestamp is { } at) w.WriteString("acceptedStatusTimestamp", at);
                     break;
                 case IdempotencyOutcome.DirectMessage m:
                     w.WriteString("kind", "message");
@@ -196,7 +204,8 @@ internal static class OutcomeJson
         var root = doc.RootElement;
         return root.GetProperty("kind").GetString() switch
         {
-            "task" => new IdempotencyOutcome.TaskCreated(root.GetProperty("taskId").GetString()!, root.GetProperty("afterSequence").GetInt64()),
+            "task" => new IdempotencyOutcome.TaskCreated(root.GetProperty("taskId").GetString()!, root.GetProperty("afterSequence").GetInt64(),
+                root.TryGetProperty("acceptedStatusTimestamp", out var at) ? at.GetDateTimeOffset() : null),
             "message" => new IdempotencyOutcome.DirectMessage(A2AJson.Deserialize<Message>(root.GetProperty("message"))),
             var kind => throw new JsonException($"Unknown idempotency outcome kind '{kind}'."),
         };
