@@ -1,6 +1,6 @@
 # RomanAmbinder.A2A.Client
 
-A2A (Agent2Agent) client for .NET: JSON-RPC and HTTP+JSON transports, SSE streaming, Agent Card discovery with HTTP caching and signature checks, and DI integration.
+A2A (Agent2Agent) client for .NET: JSON-RPC and HTTP+JSON transports, SSE streaming, Agent Card discovery with HTTP caching and signature checks. DI registration (`AddA2AClient`) is in `RomanAmbinder.A2A.Client.DependencyInjection`.
 
 ```csharp
 var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), httpClient);
