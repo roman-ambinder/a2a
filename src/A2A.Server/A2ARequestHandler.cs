@@ -195,7 +195,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// CANCELED event of a CancelTask), in sequence order and without repeats. The stream ends after the task's final event,
     /// or when this execution ended and no other execution of the task is running. The stream is limited like every stream: see
     /// <see cref="A2ALimits.MaxConcurrentStreamsPerTask"/>, <see cref="A2ALimits.MaxConcurrentStreamsPerPrincipal"/>,
-    /// <see cref="A2ALimits.StreamReauthInterval"/> and <see cref="A2ALimits.MaxStreamDuration"/>.
+    /// <see cref="A2ALimits.StreamReauthInterval"/> and <see cref="A2ALimits.MaxStreamDuration"/>. A retry that resumes the task
+    /// instead of sending (the idempotency key's task, or a follow-up whose message id is already in the history) is authorized
+    /// as <see cref="A2AOperation.SubscribeToTask"/>, like a <paramref name="lastEventId"/> resume.
     /// </summary>
     /// <param name="request">The message to send.</param>
     /// <param name="call">The caller.</param>

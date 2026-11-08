@@ -1,6 +1,8 @@
 using System.Text.Json;
 using A2A.Client;
 using A2A.Server;
+using A2A.Server.Authorization;
+using A2A.Server.Pipeline;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -66,6 +68,13 @@ public class ApprovalTests
             s.Replace(ServiceDescriptor.Singleton<IAgentExecutor>(agent));
             services?.Invoke(s);
         });
+
+    /// <summary>Allows everything but SubscribeToTask.</summary>
+    private sealed class DenySubscribe : A2AAuthorizationHandler
+    {
+        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor op, object request, CancellationToken ct) =>
+            ValueTask.FromResult(op.Kind != A2AOperation.SubscribeToTask);
+    }
 
     [Fact]
     public void Hash_is_lowercase_hex_sha256_of_operation_and_description()
@@ -245,6 +254,32 @@ public class ApprovalTests
 
         Assert.NotEmpty(events);
         await host.WaitIdleAsync();
+        Assert.Equal(2, agent.Executions);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Duplicate_follow_up_on_a_stream_is_authorized_as_subscribe(string binding)
+    {
+        var agent = new ApprovalAgent();
+        await using var host = await StartAsync(agent, services: s => s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler, DenySubscribe>()));
+        var client = host.Client(binding, options: new A2AClientOptions { MaxRetries = 0 });
+        var asked = (await client.SendMessageAsync("plain")).RequireTask();
+        var messageId = Message.NewId();
+
+        // The first streaming send is allowed.
+        var first = new List<StreamResponse>();
+        await foreach (var e in client.SendStreamingMessageAsync(FollowUp(asked, null, messageId)))
+            first.Add(e);
+        Assert.NotEmpty(first);
+        await host.WaitIdleAsync();
+
+        // The duplicate resumes the task, a SubscribeToTask the caller may not do.
+        var ex = await Assert.ThrowsAsync<A2AException>(async () =>
+        {
+            await foreach (var _ in client.SendStreamingMessageAsync(FollowUp(asked, null, messageId), options: new A2ARequestOptions { IdempotencyKey = Guid.NewGuid().ToString() })) { }
+        });
+        Assert.Equal(A2AErrorCode.TaskNotFound, ex.Code);
         Assert.Equal(2, agent.Executions);
     }
 

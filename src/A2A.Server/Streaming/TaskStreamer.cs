@@ -243,8 +243,9 @@ public sealed class TaskStreamer
             sub.Dispose();
             admitted.Dispose();
             // A duplicate follow-up: nothing started. The same path as a retried request: the retained events from the start,
-            // then live events.
+            // then live events. The resume is a SubscribeToTask of the task: authorized as one, like every resume.
             var resume = new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant };
+            await AuthorizeAsync(call, A2AOperationDescriptor.For(A2AOperation.SubscribeToTask), resume, taskId, cancellationToken).ConfigureAwait(false);
             await foreach (var replayed in SubscribeCoreAsync(resume, call, resumeAfter: 0, onCaughtUp: null, cancellationToken).ConfigureAwait(false))
                 yield return replayed;
             yield break;
