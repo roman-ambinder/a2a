@@ -36,7 +36,7 @@ static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AHttpJson(th
 static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AJsonRpc(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern = "/") -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
 static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapAgentCard(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints) -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder!
 static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.WithA2AStartupCheck<TBuilder>(this TBuilder builder, Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! bindingName) -> TBuilder
-static A2A.Server.AspNetCore.A2AHttpContextExtensions.CreateA2ACallContext(this Microsoft.AspNetCore.Http.HttpContext! http) -> A2A.Server.ServerCallContext!
+static A2A.Server.AspNetCore.A2AHttpContextExtensions.CreateA2ACallContext(this Microsoft.AspNetCore.Http.HttpContext! http, string? binding = null) -> A2A.Server.ServerCallContext!
 static A2A.Server.AspNetCore.A2ARateLimitingExtensions.AddA2ARateLimiting(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<A2A.Server.AspNetCore.A2ARateLimitOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static A2A.Server.AspNetCore.A2ARateLimitingExtensions.UseA2A(this Microsoft.AspNetCore.Builder.IApplicationBuilder! app) -> Microsoft.AspNetCore.Builder.IApplicationBuilder!
 static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2ADataProtectionPushSecrets(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
@@ -63,3 +63,5 @@ static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2A(this Microsof
 A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl.get -> System.Uri?
 A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl.set -> void
 static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.RegisterA2ABinding(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! binding, string! pattern) -> void
+A2A.Server.AspNetCore.IA2ARejectionWriter
+A2A.Server.AspNetCore.IA2ARejectionWriter.TryWriteAsync(Microsoft.AspNetCore.Http.HttpContext! http, A2A.A2AException! error) -> System.Threading.Tasks.Task?

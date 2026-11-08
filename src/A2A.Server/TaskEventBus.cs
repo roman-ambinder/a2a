@@ -68,6 +68,9 @@ public class TaskEventBus
 
     internal int SubscriberCount(string taskId) => _subs.TryGetValue(taskId, out var s) ? s.Items.Length : 0;
 
+    /// <summary>True when this process has a live subscriber for the topic. Lets a distributed subclass skip events nobody here reads.</summary>
+    protected bool HasSubscribers(string taskId) => SubscriberCount(taskId) > 0;
+
     private void Remove(Subscription sub)
     {
         while (_subs.TryGetValue(sub.TaskId, out var current))

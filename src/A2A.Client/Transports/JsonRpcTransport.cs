@@ -3,15 +3,16 @@ using System.Text.Json;
 using A2A.Client.Resilience;
 using A2A.Client.Sse;
 using A2A.Client.Streaming;
-using A2A.Client.Telemetry;
 using A2A.Json;
 using A2A.JsonRpc;
 
 namespace A2A.Client.Transports;
 
 /// <summary>JSON-RPC 2.0 over HTTP binding (spec §9).</summary>
-public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumableTransport
+public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumableTransport, ITransportBinding
 {
+    string ITransportBinding.Binding => ProtocolBindings.JsonRpc;
+
     private readonly Uri _endpoint;
 
     /// <summary>Creates the transport for the JSON-RPC <paramref name="endpoint"/>. <paramref name="options"/> defaults to a new <see cref="A2AClientOptions"/>.</summary>
@@ -82,10 +83,10 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
     }
 
     private Task<JsonElement?> InvokeRawAsync<TParams>(string method, TParams parameters, RetryMode retry, A2ARequestOptions? call, string? key, CancellationToken ct) =>
-        ExecuteUnaryAsync(method, retry, call, async attemptCt =>
+        ExecuteUnaryAsync(retry, call, async attemptCt =>
         {
             using var request = await BuildRequestAsync(method, parameters, streaming: false, call, key, attemptCt).ConfigureAwait(false);
-            using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
+            using var response = await SendCheckedAsync(request, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
             JsonRpcResponse? rpc;
             using (var body = await ResponseBody.ReadUtf8Async(response.Content, attemptCt).ConfigureAwait(false))
                 rpc = TryParseResponse(body.Span);
@@ -100,36 +101,19 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
 
     private async IAsyncEnumerable<StreamFrame> StreamAsync<TParams>(string method, TParams parameters, A2ARequestOptions? call, string? key, string? lastEventId, [EnumeratorCancellation] CancellationToken ct)
     {
-        // The span covers opening the stream: from the request to the event-stream response headers.
-        var activity = A2AClientTelemetry.Start(method);
-        HttpRequestMessage? opening = null;
-        HttpResponseMessage? opened = null;
-        try
+        using var request = await BuildRequestAsync(method, parameters, streaming: true, call, key, ct, lastEventId).ConfigureAwait(false);
+        using var response = await SendCheckedAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        if (!IsEventStream(response))
         {
-            opening = await BuildRequestAsync(method, parameters, streaming: true, call, key, ct, lastEventId).ConfigureAwait(false);
-            opened = await Http.SendAsync(opening, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-            if (!IsEventStream(opened))
-            {
-                await ResponseBody.BufferAsync(opened.Content, ct).ConfigureAwait(false);
-                JsonRpcResponse? error;
-                using (var body = await ResponseBody.ReadUtf8Async(opened.Content, ct).ConfigureAwait(false))
-                    error = TryParseResponse(body.Span);
-                if (error?.Error is not null) throw WithStatus(error.Error.ToException(), opened);
-                if (!opened.IsSuccessStatusCode) throw HttpError(opened, await opened.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
-                throw ProtocolError($"{method}: expected text/event-stream.");
-            }
+            await ResponseBody.BufferAsync(response.Content, ct).ConfigureAwait(false);
+            JsonRpcResponse? error;
+            using (var body = await ResponseBody.ReadUtf8Async(response.Content, ct).ConfigureAwait(false))
+                error = TryParseResponse(body.Span);
+            if (error?.Error is not null) throw WithStatus(error.Error.ToException(), response);
+            if (!response.IsSuccessStatusCode) throw HttpError(response, await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+            throw ProtocolError($"{method}: expected text/event-stream.");
         }
-        catch (Exception ex)
-        {
-            opened?.Dispose();
-            opening?.Dispose();
-            A2AClientTelemetry.Stop(activity, ex, ct);
-            throw;
-        }
-        A2AClientTelemetry.Stop(activity, null, ct);
 
-        using var request = opening;
-        using var response = opened;
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         await foreach (var evt in SseReader.ReadAsync(stream, ct).ConfigureAwait(false))
         {
@@ -139,6 +123,8 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
             var rpc = parsed ?? throw ProtocolError($"{method}: SSE event is not a JSON-RPC response.");
             if (rpc.Error is not null) throw rpc.Error.ToException();
             if (rpc.Result is not { } r) throw ProtocolError($"{method}: SSE event has no result.");
+            // A2A #2269: an event of a type this SDK does not know (a newer protocol version) is skipped, not fatal.
+            if (!IsKnownStreamEvent(r)) continue;
             yield return new StreamFrame(Parse<StreamResponse>(r, "stream event"), evt.FrameId);
         }
     }

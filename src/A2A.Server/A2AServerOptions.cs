@@ -45,6 +45,27 @@ public sealed class A2AServerOptions
     public TimeSpan CancelGracePeriod { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
+    /// Longest one execution of the agent (one incoming message) may run. When it runs longer, the task moves to
+    /// <see cref="TaskState.Failed"/> with the status text "Task exceeded its time limit" (sent to streams and webhooks like
+    /// any final event), and the execution's cancellation token fires. Events the agent sends after that are dropped.
+    /// Time is measured per execution, so a task waiting in <c>INPUT_REQUIRED</c> or <c>AUTH_REQUIRED</c> with no agent
+    /// running is not affected, and each follow-up message gets the full time again. Null, zero or negative turns the limit
+    /// off. Default null (off). The clock is the <see cref="TimeProvider"/> registered in DI, else <see cref="TimeProvider.System"/>.
+    /// </summary>
+    public TimeSpan? MaxTaskDuration { get; set; }
+
+    /// <summary>
+    /// Most incoming messages (SendMessage or SendStreamingMessage calls) one task accepts, counting the message that
+    /// created it. A follow-up that would go over the cap is refused with <see cref="A2AErrorCode.UnsupportedOperation"/>
+    /// before the agent runs, and the task is not changed. A defense against multi-turn "agent session smuggling", where a
+    /// peer agent steers a long conversation step by step. A retry of an accepted message (same idempotency key) is not a
+    /// new turn. Turns are counted from the user messages in the stored task history, so a custom
+    /// <see cref="Storage.TaskStore"/> must keep the full history for the cap to hold. Null (default) turns the cap off;
+    /// 1 means no follow-ups at all.
+    /// </summary>
+    public int? MaxTurnsPerTask { get; set; }
+
+    /// <summary>
     /// Append the exception type and message to the text of unexpected (non-A2A) errors sent to callers.
     /// Null (default) means true only when the host environment is Development. The ASP.NET Core layer resolves the null.
     /// </summary>

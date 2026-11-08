@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>A2A.Server.Redis</RootNamespace>
+    <Description>Redis pub/sub event bus for the A2A (Agent2Agent) server, so live task subscriptions work across server instances.</Description>
+    <PackageTags>$(PackageTags);redis</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\A2A.Server\A2A.Server.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+  </ItemGroup>
+</Project>

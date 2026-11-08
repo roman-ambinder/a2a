@@ -482,7 +482,7 @@ static A2A.Grpc.GrpcErrors.FromRpcException(Grpc.Core.RpcException! ex) -> A2A.A
 static A2A.Grpc.GrpcErrors.ToRpcException(A2A.A2AException! ex) -> Grpc.Core.RpcException!
 static A2A.Grpc.GrpcErrors.ToStatusCode(A2A.A2AErrorCode code) -> Grpc.Core.StatusCode
 static A2A.Grpc.ProtoMapper.ToModel<T>(Google.Protobuf.IMessage! proto) -> T
-static A2A.Grpc.ProtoMapper.ToProto<TProto>(object! model) -> TProto
+static A2A.Grpc.ProtoMapper.ToProto<TProto, TModel>(TModel model) -> TProto
 ~Lf.A2a.V1.A2AService.A2AServiceClient.A2AServiceClient(Grpc.Core.CallInvoker callInvoker) -> void
 ~Lf.A2a.V1.A2AService.A2AServiceClient.A2AServiceClient(Grpc.Core.ChannelBase channel) -> void
 ~Lf.A2a.V1.A2AService.A2AServiceClient.A2AServiceClient(Grpc.Core.ClientBase.ClientBaseConfiguration configuration) -> void
@@ -1266,3 +1266,6 @@ static A2A.Grpc.ProtoMapper.ToProto<TProto>(object! model) -> TProto
 ~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SendStreamingMessage(Lf.A2a.V1.SendMessageRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncServerStreamingCall<Lf.A2a.V1.StreamResponse>
 ~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SubscribeToTask(Lf.A2a.V1.SubscribeToTaskRequest request, Grpc.Core.CallOptions options) -> Grpc.Core.AsyncServerStreamingCall<Lf.A2a.V1.StreamResponse>
 ~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SubscribeToTask(Lf.A2a.V1.SubscribeToTaskRequest request, Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncServerStreamingCall<Lf.A2a.V1.StreamResponse>
+const A2A.Grpc.GrpcErrors.IdempotencyKeyKey = "idempotency-key" -> string!
+static A2A.Grpc.GrpcErrors.ToStatus(A2A.A2AException! ex) -> Google.Rpc.Status!
+static A2A.Grpc.ProtoMapper.ToModel<T>(Google.Protobuf.IMessage! proto, int maxDepth) -> T

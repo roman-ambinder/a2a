@@ -16,7 +16,7 @@ namespace A2A.Server;
 /// (JSON-RPC, HTTP+JSON, gRPC) resolve the interface, parse the wire format, build a <see cref="ServerCallContext"/>, and call
 /// these methods. Errors are thrown as <see cref="A2AException"/>.
 /// Every operation binds the tenant from the request, then runs through the operation pipeline: telemetry (see
-/// <see cref="Telemetry.A2AServerTelemetry"/>) around the <see cref="A2AFilterStage.BeforeAuthorization"/> filters, authorization, the <see cref="A2AFilterStage.AfterAuthorization"/>
+/// the spans and counters named in <see cref="A2A.Diagnostics.A2ATelemetry"/>) around the <see cref="A2AFilterStage.BeforeAuthorization"/> filters, authorization, the <see cref="A2AFilterStage.AfterAuthorization"/>
 /// filters, then the operation (see <see cref="IA2AOperationFilter"/>).
 /// The tasks, messages and events these methods return may share instances with the stores: serialize them, never change them.
 /// </summary>
@@ -272,6 +272,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                         {
                             Metadata = new() { ["taskId"] = taskId },
                         };
+                    EnsureTurnCapacity(record.Task);
                     if (push is not null) await _pushConfigs.EnsureCapacityAsync(Key(call, taskId), push.Id!, ct).ConfigureAwait(false);
                     contextId = record.Task.ContextId;
                     message.ContextId = contextId;
@@ -321,6 +322,25 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// Returns the context id for a new task and makes sure the context belongs to the caller. A context owned by
     /// someone else looks like a missing one.
     /// </summary>
+    /// <summary>
+    /// Throws UnsupportedOperation when one more message would exceed <see cref="A2AServerOptions.MaxTurnsPerTask"/>.
+    /// Turns are the user messages in the stored history (the first message and every accepted follow-up).
+    /// </summary>
+    private void EnsureTurnCapacity(AgentTask task)
+    {
+        if (_options.MaxTurnsPerTask is not { } max) return;
+        var turns = 0;
+        if (task.History is { } history)
+            foreach (var m in history)
+                if (m.Role == Role.User) turns++;
+        if (turns < max) return;
+        throw new A2AException(A2AErrorCode.UnsupportedOperation,
+            $"The task reached its limit of {max} messages. Start a new task and list this one in referenceTaskIds.")
+        {
+            Metadata = new() { ["taskId"] = task.Id, ["maxTurnsPerTask"] = max.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+        };
+    }
+
     private async Task<string> ResolveContextAsync(string? requested, ServerCallContext call, CancellationToken ct)
     {
         const string NotFound = "contextId not found";

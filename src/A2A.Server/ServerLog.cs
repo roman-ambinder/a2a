@@ -35,6 +35,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 206, Level = LogLevel.Debug, Message = "Agent for task {TaskId} stopped: its events could no longer be stored")]
     public static partial void ExecutorStoppedAfterStoreFailure(ILogger logger, Exception exception, string taskId);
 
+    [LoggerMessage(EventId = 207, Level = LogLevel.Warning, Message = "Task {TaskId}: the agent ran longer than {Limit}; failing the task")]
+    public static partial void TaskTimedOut(ILogger logger, string taskId, TimeSpan? limit);
+
     // HttpPushNotificationSender: 300-399
     [LoggerMessage(EventId = 300, Level = LogLevel.Error, Message = "Push notification worker for task {TaskId} failed")]
     public static partial void PushWorkerFailed(ILogger logger, Exception exception, string taskId);

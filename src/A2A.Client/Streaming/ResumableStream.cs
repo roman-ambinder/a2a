@@ -153,6 +153,7 @@ internal static class ResumableStream
             // The connection ended early. Progress (a new sequence) since the last reconnect means a fresh budget of attempts.
             if (progressed) failures = 0;
             if (failures >= Backoff.Length) throw failure!;
+            ClientTelemetry.RecordRetry(failures + 1);
             await Task.Delay(Backoff[failures], timeProvider, cancellationToken).ConfigureAwait(false);
             failures++;
             reconnecting = true;

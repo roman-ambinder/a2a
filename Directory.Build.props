@@ -26,7 +26,6 @@
     <!-- CA1720: AgentCardVerificationStatus.Unsigned is a public enum member name; renaming breaks API. -->
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <IsAotCompatible>true</IsAotCompatible>
 
     <!-- NuGet identity: assembly names and namespaces stay A2A.*; package IDs are owner-prefixed so they never clash
          with the official "A2A" packages. -->
@@ -48,6 +47,8 @@
 
     <!-- Catch accidental API differences between target frameworks inside a package. -->
     <EnablePackageValidation>true</EnablePackageValidation>
+
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <ItemGroup Condition="$(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\'))">

@@ -44,7 +44,7 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
         var ct = http.RequestAborted;
         JsonElement? id = null;
         ServerCallContext call;
-        try { call = HttpPlumbing.CreateCallContext(http); }
+        try { call = HttpPlumbing.CreateCallContext(http, ProtocolBindings.JsonRpc); }
         catch (Exception ex)
         {
             await WriteFailureAsync(http, ServerCallContext.Anonymous(), id, HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
@@ -207,7 +207,8 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
         if (p[0] != (byte)'{') throw A2AException.InvalidParams("params must be an object");
         try
         {
-            return JsonSerializer.Deserialize(p, A2AJson.GetTypeInfo<T>()) ?? throw A2AException.InvalidParams("params are required");
+            // Proto field names (history_length) are accepted as ProtoJSON requires; the usual body binds from its bytes directly.
+            return ProtoJsonFieldNames.Deserialize(p, A2AJson.GetTypeInfo<T>()) ?? throw A2AException.InvalidParams("params are required");
         }
         catch (JsonException ex)
         {

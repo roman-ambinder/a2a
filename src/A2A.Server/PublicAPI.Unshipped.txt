@@ -456,7 +456,7 @@ A2A.Server.Idempotency.IdempotencyClaim.AbandonAsync() -> System.Threading.Tasks
 static A2A.Server.Idempotency.IdempotencyClaim.None.get -> A2A.Server.Idempotency.IdempotencyClaim!
 const A2A.Server.Idempotency.IdempotencyCoordinator.MaxIdempotencyKeyLength = 256 -> int
 A2A.Server.Execution.TaskExecutionEngine
-A2A.Server.Execution.TaskExecutionEngine.TaskExecutionEngine(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.IAgentExecutorFactory! executors, A2A.Server.TaskEventBus! bus, A2A.Server.Push.IPushNotificationSender! push, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider! cards, Microsoft.Extensions.Logging.ILogger<A2A.Server.Execution.TaskExecutionEngine!>? logger = null) -> void
+A2A.Server.Execution.TaskExecutionEngine.TaskExecutionEngine(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.IAgentExecutorFactory! executors, A2A.Server.TaskEventBus! bus, A2A.Server.Push.IPushNotificationSender! push, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider! cards, Microsoft.Extensions.Logging.ILogger<A2A.Server.Execution.TaskExecutionEngine!>? logger = null, System.TimeProvider? timeProvider = null) -> void
 A2A.Server.Execution.TaskExecutionEngine.Dispose() -> void
 A2A.Server.Execution.TaskExecutionEngine.DisposeAsync() -> System.Threading.Tasks.ValueTask
 A2A.Server.Execution.TaskExecutionEngine.WaitUntilSettledAsync(A2A.Server.Storage.TaskKey key, long afterSequence, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.AgentTask!>
@@ -504,9 +504,6 @@ A2A.Server.Pipeline.IA2AOperationFilter
 A2A.Server.Pipeline.IA2AOperationFilter.InvokeAsync(A2A.Server.Pipeline.A2AOperationContext! context, object! request, A2A.Server.Pipeline.A2AOperationDelegate! next, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<object?>
 static A2A.Server.Pipeline.A2AOperationDescriptor.Extension(string! name) -> A2A.Server.Pipeline.A2AOperationDescriptor!
 static A2A.Server.Pipeline.A2AOperationDescriptor.For(A2A.Server.Authorization.A2AOperation kind) -> A2A.Server.Pipeline.A2AOperationDescriptor!
-A2A.Server.Telemetry.A2AServerTelemetry
-const A2A.Server.Telemetry.A2AServerTelemetry.ActivitySourceName = "A2A.Server" -> string!
-const A2A.Server.Telemetry.A2AServerTelemetry.MeterName = "A2A.Server" -> string!
 A2A.Server.A2ARequestHandler.InvokeExtensionAsync(string! method, System.Text.Json.JsonElement parameters, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Text.Json.JsonElement>!
 A2A.Server.IA2ARequestHandler.InvokeExtensionAsync(string! method, System.Text.Json.JsonElement parameters, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Text.Json.JsonElement>!
 A2A.Server.A2AServerBuilder.AddExtensionOperation(string! method, string! extensionUri, System.Func<A2A.Server.Pipeline.A2AOperationContext!, System.Text.Json.JsonElement, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<System.Text.Json.JsonElement>>! handler, string? authorizationPolicy = null, bool allow = false) -> A2A.Server.A2AServerBuilder!
@@ -530,3 +527,12 @@ A2A.Server.AgentCardProvider.AgentCardProvider(A2A.Server.A2AServerOptions! opti
 A2A.Server.AgentCardProvider.Get() -> A2A.AgentCard!
 virtual A2A.Server.AgentCardProvider.CanCache.get -> bool
 virtual A2A.Server.AgentCardProvider.Complete(A2A.AgentCard! copy) -> void
+A2A.Server.A2AServerOptions.MaxTaskDuration.get -> System.TimeSpan?
+A2A.Server.A2AServerOptions.MaxTaskDuration.set -> void
+A2A.Server.A2AServerOptions.MaxTurnsPerTask.get -> int?
+A2A.Server.A2AServerOptions.MaxTurnsPerTask.set -> void
+A2A.Server.ServerCallContext.Binding.get -> string?
+A2A.Server.ServerCallContext.Binding.init -> void
+A2A.Server.ServerCallContext.TraceParent.get -> System.Diagnostics.ActivityContext
+A2A.Server.ServerCallContext.TraceParent.init -> void
+A2A.Server.TaskEventBus.HasSubscribers(string! taskId) -> bool

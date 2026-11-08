@@ -2,9 +2,11 @@ using System.Collections.Concurrent;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using A2A.Client;
+using A2A.Client.Grpc;
 using A2A.Client.Transports;
 using A2A.Server;
 using A2A.Server.AspNetCore;
+using A2A.Server.Grpc;
 using A2A.Server.Push;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
@@ -13,6 +15,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Grpc.Net.Client;
 using Microsoft.Extensions.Options;
 
 namespace A2A.Tests;
@@ -35,6 +38,11 @@ public sealed class ScenarioAgent : IAgentExecutor
         if (context.Task is not null && context.Task.Status.State == TaskState.InputRequired)
         {
             if (text.StartsWith("gate ", StringComparison.Ordinal)) await Gate(text).Task.WaitAsync(ct); // no WORKING first
+            if (text == "ask-again") // stays interrupted: one more turn
+            {
+                await updater.RequireInputAsync("need even more", ct);
+                return;
+            }
             await updater.CompleteAsync($"got: {text}", ct);
             return;
         }
@@ -163,7 +171,8 @@ public sealed class TestAgentHost : IAsyncDisposable
 
     public static async Task<TestAgentHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<A2AHttpOptions>? configureHttp = null,
         Action<IServiceCollection>? services = null, bool requireAuth = true,
-        Action<RouteGroupBuilder>? configureRoutes = null, bool useA2A = true, Action<WebApplication>? configurePipeline = null)
+        Action<RouteGroupBuilder>? configureRoutes = null, bool useA2A = true, Action<WebApplication>? configurePipeline = null,
+        bool grpc = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -186,6 +195,7 @@ public sealed class TestAgentHost : IAsyncDisposable
             configure?.Invoke(o);
         }).AddAgentExecutor<ScenarioAgent>();
         builder.Services.AddA2AServerAspNetCore();
+        if (grpc) builder.Services.AddA2AGrpc();
         services?.Invoke(builder.Services);
         var webhooks = new RecordingHandler();
         builder.Services.AddKeyedSingleton(HttpPushNotificationSender.InvokerServiceKey, new HttpMessageInvoker(webhooks, disposeHandler: false));
@@ -200,6 +210,11 @@ public sealed class TestAgentHost : IAsyncDisposable
         var a2a = app.MapA2A("/a2a");
         if (requireAuth) a2a.RequireAuthorization();
         configureRoutes?.Invoke(a2a);
+        if (grpc)
+        {
+            var g = app.MapA2AGrpc();
+            if (requireAuth) g.RequireAuthorization();
+        }
         await app.StartAsync();
         return new TestAgentHost(app, webhooks);
     }
@@ -215,11 +230,31 @@ public sealed class TestAgentHost : IAsyncDisposable
     public A2AClient Client(string binding, string? user = "alice", A2AClientOptions? options = null)
     {
         options ??= new A2AClientOptions();
-        var http = Http(user);
-        IA2AClient transport = binding == ProtocolBindings.JsonRpc
-            ? new JsonRpcTransport(http, new Uri(BaseUrl), options)
-            : new HttpJsonTransport(http, new Uri(BaseUrl), options);
+        IA2AClient transport = binding switch
+        {
+            ProtocolBindings.JsonRpc => new JsonRpcTransport(Http(user), new Uri(BaseUrl), options),
+            ProtocolBindings.HttpJson => new HttpJsonTransport(Http(user), new Uri(BaseUrl), options),
+            ProtocolBindings.Grpc => new GrpcTransport(GrpcChannel(user).CreateCallInvoker(), options),
+            _ => throw new ArgumentOutOfRangeException(nameof(binding), binding, null),
+        };
         return new A2AClient(transport, options, DefaultCard());
+    }
+
+    /// <summary>A gRPC channel to the test server (start the host with <c>grpc: true</c>), optionally authenticated as <paramref name="user"/>.</summary>
+    public global::Grpc.Net.Client.GrpcChannel GrpcChannel(string? user = null)
+    {
+        HttpMessageHandler handler = App.GetTestServer().CreateHandler();
+        if (user is not null) handler = new TestUserHandler(user) { InnerHandler = handler };
+        return global::Grpc.Net.Client.GrpcChannel.ForAddress(App.GetTestServer().BaseAddress, new GrpcChannelOptions { HttpHandler = handler });
+    }
+
+    private sealed class TestUserHandler(string user) : DelegatingHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            request.Headers.Add("X-Test-User", user);
+            return base.SendAsync(request, cancellationToken);
+        }
     }
 
     public async Task WaitIdleAsync()

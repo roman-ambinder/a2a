@@ -8,7 +8,7 @@ using A2A.Server;
 using A2A.Server.AspNetCore.Operations;
 using A2A.Server.Authorization;
 using A2A.Server.Pipeline;
-using A2A.Server.Telemetry;
+using A2A.Diagnostics;
 using A2A.Tests.Telemetry;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -282,7 +282,7 @@ public sealed class OperationTableTests
         var spans = new ConcurrentQueue<Activity>();
         using var listener = new ActivityListener
         {
-            ShouldListenTo = s => s.Name == A2AServerTelemetry.ActivitySourceName,
+            ShouldListenTo = s => s.Name == A2ATelemetry.ServerSourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
             ActivityStopped = spans.Enqueue,
         };
@@ -307,9 +307,9 @@ public sealed class OperationTableTests
         Assert.Equal("was here", seenItem); // the handler gets the context the filters saw
 
         var until = DateTime.UtcNow + TimeSpan.FromSeconds(30);
-        while (!spans.Any(a => a.OperationName == "a2a.server." + Echo) && DateTime.UtcNow < until) await Task.Delay(10);
-        var span = Assert.Single(spans, a => a.OperationName == "a2a.server." + Echo);
-        Assert.Equal(Echo, span.GetTagItem(A2AServerTelemetry.OperationTag));
+        while (!spans.Any(a => a.OperationName == A2ATelemetry.SpanNames.Operation(Echo)) && DateTime.UtcNow < until) await Task.Delay(10);
+        var span = Assert.Single(spans, a => a.OperationName == A2ATelemetry.SpanNames.Operation(Echo));
+        Assert.Equal(Echo, span.GetTagItem(A2ATelemetry.Tags.Operation));
     }
 
     [Fact]
@@ -318,7 +318,7 @@ public sealed class OperationTableTests
         var spans = new ConcurrentQueue<Activity>();
         using var listener = new ActivityListener
         {
-            ShouldListenTo = s => s.Name == A2AServerTelemetry.ActivitySourceName,
+            ShouldListenTo = s => s.Name == A2ATelemetry.ServerSourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
             ActivityStopped = spans.Enqueue,
         };
@@ -328,8 +328,8 @@ public sealed class OperationTableTests
         var (status, _) = await SendAsync(host, JsonRpc(Echo));
         Assert.Equal(HttpStatusCode.Forbidden, status);
         var until = DateTime.UtcNow + TimeSpan.FromSeconds(30);
-        while (!spans.Any(a => a.OperationName == "a2a.server." + Echo) && DateTime.UtcNow < until) await Task.Delay(10);
-        var span = Assert.Single(spans, a => a.OperationName == "a2a.server." + Echo);
+        while (!spans.Any(a => a.OperationName == A2ATelemetry.SpanNames.Operation(Echo)) && DateTime.UtcNow < until) await Task.Delay(10);
+        var span = Assert.Single(spans, a => a.OperationName == A2ATelemetry.SpanNames.Operation(Echo));
         Assert.Equal(ActivityStatusCode.Error, span.Status);
     }
 

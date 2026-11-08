@@ -2,8 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using A2A.Client;
 using A2A.Client.Grpc;
-using A2A.Client.Telemetry;
-using A2A.Server.Telemetry;
+using A2A.Diagnostics;
 
 namespace A2A.Grpc.Tests;
 
@@ -24,7 +23,7 @@ public sealed class GrpcTelemetryTests
         var stopped = new ConcurrentQueue<Activity>();
         using var listener = new ActivityListener
         {
-            ShouldListenTo = s => s.Name is A2AClientTelemetry.ActivitySourceName or A2AServerTelemetry.ActivitySourceName,
+            ShouldListenTo = s => s.Name is A2ATelemetry.ClientSourceName or A2ATelemetry.ServerSourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
             ActivityStopped = stopped.Enqueue,
         };
@@ -35,20 +34,23 @@ public sealed class GrpcTelemetryTests
         var ex = await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync("missing"));
         Assert.Equal(A2AErrorCode.TaskNotFound, ex.Code);
 
-        var send = Assert.Single(stopped, a => a.OperationName == "a2a.client.SendMessage");
+        // Client spans come from A2AClient (main's design: one span per A2AClient operation, retries included).
+        var send = Assert.Single(stopped, a => IsSpan(a, A2ATelemetry.ClientSourceName, "a2a.SendMessage"));
         Assert.Equal(ActivityKind.Client, send.Kind);
-        Assert.Equal("SendMessage", send.GetTagItem("a2a.operation"));
-        Assert.Equal("ok", send.GetTagItem("a2a.outcome"));
+        Assert.Equal("SendMessage", send.GetTagItem(A2ATelemetry.Tags.Operation));
+        Assert.Equal(ProtocolBindings.Grpc, send.GetTagItem(A2ATelemetry.Tags.Binding));
+        Assert.NotEqual(ActivityStatusCode.Error, send.Status);
 
-        var get = Assert.Single(stopped, a => a.OperationName == "a2a.client.GetTask");
-        Assert.Equal("error:TaskNotFound", get.GetTagItem("a2a.outcome"));
+        var get = Assert.Single(stopped, a => IsSpan(a, A2ATelemetry.ClientSourceName, "a2a.GetTask"));
+        Assert.Equal(nameof(A2AErrorCode.TaskNotFound), get.GetTagItem(A2ATelemetry.Tags.ErrorCode));
         Assert.Equal(ActivityStatusCode.Error, get.Status);
 
-        // The server side of the same calls. (Joining the client's trace needs a socket handler, which injects traceparent,
-        // and ASP.NET Core's request activity, which reads it; the TestServer handler has neither.)
-        Assert.Single(stopped, a => a.OperationName == "a2a.server.SendMessage");
-        var serverGet = Assert.Single(stopped, a => a.OperationName == "a2a.server.GetTask");
-        Assert.Equal("error:TaskNotFound", serverGet.GetTagItem("a2a.outcome"));
+        // The server side of the same calls; the server reads the traceparent from the gRPC metadata.
+        var serverSend = Assert.Single(stopped, a => IsSpan(a, A2ATelemetry.ServerSourceName, "a2a.SendMessage"));
+        Assert.Equal(send.TraceId, serverSend.TraceId);
+        var serverGet = Assert.Single(stopped, a => IsSpan(a, A2ATelemetry.ServerSourceName, "a2a.GetTask"));
+        Assert.Equal(nameof(A2AErrorCode.TaskNotFound), serverGet.GetTagItem(A2ATelemetry.Tags.ErrorCode));
+        Assert.Equal(ActivityStatusCode.Error, serverGet.Status);
     }
 
     [Fact]
@@ -58,21 +60,23 @@ public sealed class GrpcTelemetryTests
         var stopped = new ConcurrentQueue<Activity>();
         using var listener = new ActivityListener
         {
-            ShouldListenTo = s => s.Name == A2AClientTelemetry.ActivitySourceName,
+            ShouldListenTo = s => s.Name == A2ATelemetry.ClientSourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
             ActivityStopped = stopped.Enqueue,
         };
         ActivitySource.AddActivityListener(listener);
-        var transport = new GrpcTransport(host.Channel("alice").CreateCallInvoker());
+        var client = new A2AClient(new GrpcTransport(host.Channel("alice").CreateCallInvoker()));
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
 
-        await Assert.ThrowsAnyAsync<Exception>(() => transport.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, cancellationToken: canceled.Token));
+        await Assert.ThrowsAnyAsync<Exception>(() => client.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, cancellationToken: canceled.Token));
 
-        var get = Assert.Single(stopped, a => a.OperationName == "a2a.client.GetTask");
-        Assert.Equal("canceled", get.GetTagItem("a2a.outcome"));
+        var get = Assert.Single(stopped, a => a.OperationName == "a2a.GetTask");
+        Assert.Equal(true, get.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.NotEqual(ActivityStatusCode.Error, get.Status);
     }
+
+    private static bool IsSpan(Activity a, string source, string name) => a.Source.Name == source && a.OperationName == name;
 
     [Fact]
     public async Task Unread_grpc_stream_sends_nothing()

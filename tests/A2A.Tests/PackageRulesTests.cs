@@ -58,6 +58,17 @@ public sealed class PackageRulesTests
         AssertOnlyAbstractions("A2A.Server", r => r.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal)
             && (r.EndsWith(".Abstractions", StringComparison.Ordinal) || r == "Microsoft.Extensions.Options"));
 
+    private static bool IsExtensionsAbstraction(string r) =>
+        r.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal) && r.EndsWith(".Abstractions", StringComparison.Ordinal);
+
+    [Fact]
+    public void Postgres_references_only_npgsql_and_extensions_abstractions() =>
+        AssertOnlyAbstractions("A2A.Server.Postgres", r => r == "Npgsql" || IsExtensionsAbstraction(r));
+
+    [Fact]
+    public void Redis_references_only_stackexchange_redis_and_extensions_abstractions() =>
+        AssertOnlyAbstractions("A2A.Server.Redis", r => r == "StackExchange.Redis" || IsExtensionsAbstraction(r));
+
     [Fact]
     public void No_InternalsVisibleTo_targets_a_src_assembly()
     {

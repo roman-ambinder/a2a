@@ -2,11 +2,9 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Net;
-using System.Security.Cryptography;
-using System.Text;
 using A2A.Client;
-using A2A.Client.Telemetry;
 using A2A.Client.Transports;
+using A2A.Diagnostics;
 using A2A.Json;
 using A2A.Server;
 using A2A.Server.Authorization;
@@ -14,7 +12,6 @@ using A2A.Server.Pipeline;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
-using A2A.Server.Telemetry;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -24,7 +21,12 @@ using Microsoft.Extensions.Logging;
 
 namespace A2A.Tests.Telemetry;
 
-/// <summary>Activity and meter listeners are process-wide: these tests never run next to other tests.</summary>
+/// <summary>
+/// Activity and meter listeners are process-wide: these tests never run next to other tests. Names and tag semantics are
+/// main's tracing design (<see cref="A2ATelemetry"/>): <c>a2a.{Operation}</c> spans, <c>rpc.method</c>, <c>a2a.task.id</c>,
+/// error status with <c>error.type</c>/<c>a2a.error.code</c>, <c>a2a.canceled</c> for a caller's cancellation; the counters
+/// carry <c>rpc.method</c> and <c>a2a.outcome</c>.
+/// </summary>
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class TelemetryCollection
 {
@@ -80,7 +82,7 @@ public sealed class TelemetryTests
         {
             _listener.InstrumentPublished = (instrument, listener) =>
             {
-                if (instrument.Meter.Name == A2AServerTelemetry.MeterName) listener.EnableMeasurementEvents(instrument);
+                if (instrument.Meter.Name == A2ATelemetry.ServerMeterName) listener.EnableMeasurementEvents(instrument);
             };
             _listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
             {
@@ -98,9 +100,6 @@ public sealed class TelemetryTests
 
         public void Dispose() => _listener.Dispose();
     }
-
-    private static string Hash(string taskId) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(taskId)))[..16].ToLowerInvariant();
 
     private static ServerCallContext AliceCall() => new()
     {
@@ -143,48 +142,49 @@ public sealed class TelemetryTests
     {
         await using var host = await TestAgentHost.StartAsync();
         var client = host.Client(ProtocolBindings.JsonRpc);
-        using var spans = new Spans(A2AServerTelemetry.ActivitySourceName);
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
         using var counters = new Counters();
 
         var task = (await client.SendMessageAsync("input")).RequireTask();
         await client.GetTaskAsync(task.Id);
 
-        var get = Assert.Single(await spans.WaitForAsync("a2a.server.GetTask"));
-        Assert.Equal(ActivityKind.Server, get.Kind);
-        Assert.Equal(A2AServerTelemetry.ActivitySourceName, get.Source.Name);
-        Assert.Equal("GetTask", get.GetTagItem("a2a.operation"));
-        Assert.Equal("", get.GetTagItem("a2a.tenant"));
-        Assert.Equal(Hash(task.Id), get.GetTagItem("a2a.task_id_hash"));
-        Assert.Equal("ok", get.GetTagItem("a2a.outcome"));
+        var get = Assert.Single(await spans.WaitForAsync("a2a.GetTask"));
+        Assert.Equal(A2ATelemetry.ServerSourceName, get.Source.Name);
+        Assert.Equal("a2a", get.GetTagItem(A2ATelemetry.Tags.RpcSystem));
+        Assert.Equal("GetTask", get.GetTagItem(A2ATelemetry.Tags.Operation));
+        Assert.Equal(ProtocolBindings.JsonRpc, get.GetTagItem(A2ATelemetry.Tags.Binding));
+        Assert.Null(get.GetTagItem(A2ATelemetry.Tags.Tenant)); // set only for a non-default tenant
+        Assert.Equal(task.Id, get.GetTagItem(A2ATelemetry.Tags.TaskId));
         Assert.NotEqual(ActivityStatusCode.Error, get.Status);
 
-        var send = Assert.Single(await spans.WaitForAsync("a2a.server.SendMessage"));
-        Assert.Equal("SendMessage", send.GetTagItem("a2a.operation"));
-        Assert.Null(send.GetTagItem("a2a.task_id_hash")); // a new task: the request names none
-        Assert.Equal("ok", send.GetTagItem("a2a.outcome"));
+        var send = Assert.Single(await spans.WaitForAsync("a2a.SendMessage"));
+        Assert.Equal("SendMessage", send.GetTagItem(A2ATelemetry.Tags.Operation));
+        Assert.Equal(task.Id, send.GetTagItem(A2ATelemetry.Tags.TaskId)); // from the result: a new task
+        Assert.NotEqual(ActivityStatusCode.Error, send.Status);
 
         // Privacy: no principal and no bodies on the span.
-        Assert.DoesNotContain(get.TagObjects, t => Equals(t.Value, "alice") || Equals(t.Value, task.Id));
+        Assert.DoesNotContain(get.TagObjects, t => Equals(t.Value, "alice") || Equals(t.Value, "input"));
 
-        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.operation"], "GetTask") && Equals(t["a2a.outcome"], "ok")));
-        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.operation"], "SendMessage") && Equals(t["a2a.outcome"], "ok")));
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["rpc.method"], "GetTask") && Equals(t["a2a.outcome"], "ok")));
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["rpc.method"], "SendMessage") && Equals(t["a2a.outcome"], "ok")));
     }
 
     [Fact]
     public async Task Denied_call_has_span_with_error_outcome()
     {
         await using var host = await TestAgentHost.StartAsync(services: s => s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler, DenyAll>()));
-        using var spans = new Spans(A2AServerTelemetry.ActivitySourceName);
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
         using var counters = new Counters();
 
         var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(ProtocolBindings.JsonRpc).GetTaskAsync("t-denied"));
         Assert.Equal(A2AErrorCode.TaskNotFound, ex.Code);
 
-        var span = Assert.Single(await spans.WaitForAsync("a2a.server.GetTask"));
-        Assert.Equal("error:TaskNotFound", span.GetTagItem("a2a.outcome"));
+        var span = Assert.Single(await spans.WaitForAsync("a2a.GetTask"));
+        Assert.Equal(nameof(A2AErrorCode.TaskNotFound), span.GetTagItem(A2ATelemetry.Tags.ErrorCode));
         Assert.Equal(ActivityStatusCode.Error, span.Status);
-        Assert.Equal(Hash("t-denied"), span.GetTagItem("a2a.task_id_hash"));
-        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.operation"], "GetTask") && Equals(t["a2a.outcome"], "error:TaskNotFound")));
+        Assert.Equal("t-denied", span.GetTagItem(A2ATelemetry.Tags.TaskId));
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["rpc.method"], "GetTask") && Equals(t["a2a.outcome"], "error")
+            && Equals(t["error.type"], nameof(A2AErrorCode.TaskNotFound))));
     }
 
     [Fact]
@@ -199,13 +199,13 @@ public sealed class TelemetryTests
                 .AddOperationFilter<PassThrough>(A2AFilterStage.AfterAuthorization)
                 .AddOperationFilter<Blocker>(A2AFilterStage.BeforeAuthorization);
         });
-        using var spans = new Spans(A2AServerTelemetry.ActivitySourceName);
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
 
         var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(ProtocolBindings.HttpJson).GetTaskAsync("t-1"));
         Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
 
-        var span = Assert.Single(await spans.WaitForAsync("a2a.server.GetTask"));
-        Assert.Equal("error:InvalidParams", span.GetTagItem("a2a.outcome"));
+        var span = Assert.Single(await spans.WaitForAsync("a2a.GetTask"));
+        Assert.Equal(nameof(A2AErrorCode.InvalidParams), span.GetTagItem(A2ATelemetry.Tags.ErrorCode));
         Assert.Equal(ActivityStatusCode.Error, span.Status);
     }
 
@@ -213,7 +213,7 @@ public sealed class TelemetryTests
     public async Task Streaming_span_covers_the_whole_stream()
     {
         await using var host = await TestAgentHost.StartAsync();
-        using var spans = new Spans(A2AServerTelemetry.ActivitySourceName);
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
         using var counters = new Counters();
         const string text = "gate telemetry-stream";
         var gate = ScenarioAgent.Gate(text);
@@ -224,17 +224,18 @@ public sealed class TelemetryTests
         {
             if (++events == 1)
             {
-                Assert.Contains(spans.Started, a => a.OperationName == "a2a.server.SendStreamingMessage");
-                Assert.Empty(spans.Named("a2a.server.SendStreamingMessage")); // still open while events flow
+                Assert.Contains(spans.Started, a => a.OperationName == "a2a.SendStreamingMessage");
+                Assert.Empty(spans.Named("a2a.SendStreamingMessage")); // still open while events flow
                 gate.TrySetResult();
             }
         }
 
-        var span = Assert.Single(await spans.WaitForAsync("a2a.server.SendStreamingMessage"));
-        Assert.Equal(ActivityKind.Server, span.Kind);
-        Assert.Equal("ok", span.GetTagItem("a2a.outcome"));
+        var span = Assert.Single(await spans.WaitForAsync("a2a.SendStreamingMessage"));
+        Assert.NotEqual(ActivityStatusCode.Error, span.Status);
+        Assert.Equal(events, Convert.ToInt32(span.GetTagItem(A2ATelemetry.Tags.StreamEventCount)));
+        Assert.Equal(events, span.Events.Count(e => e.Name == A2ATelemetry.Events.StreamEvent));
         Assert.Equal(1, counters.Sum("a2a.server.streams.opened"));
-        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.operation"], "SendStreamingMessage") && Equals(t["a2a.outcome"], "ok")));
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["rpc.method"], "SendStreamingMessage") && Equals(t["a2a.outcome"], "ok")));
     }
 
     [Fact]
@@ -248,14 +249,21 @@ public sealed class TelemetryTests
         }));
         Activity.Current = null;
 
-        Assert.False(A2AServerTelemetry.Source.HasListeners());
+        Assert.False(HasServerListeners());
         await host.Handler.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("x") }, AliceCall());
         Assert.Null(seen);
 
-        // Control: with a listener the same call runs inside the operation span.
-        using (new Spans(A2AServerTelemetry.ActivitySourceName))
+        // Control: with a listener the same call runs inside the agent run's span (a child of the operation span).
+        using (new Spans(A2ATelemetry.ServerSourceName))
             await host.Handler.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("x") }, AliceCall());
-        Assert.Equal("a2a.server.SendMessage", seen);
+        Assert.Equal(A2ATelemetry.SpanNames.AgentExecution, seen);
+    }
+
+    /// <summary>Whether anything listens to the server's source (a probe source of the same name sees the same listeners).</summary>
+    private static bool HasServerListeners()
+    {
+        using var probe = new ActivitySource(A2ATelemetry.ServerSourceName);
+        return probe.HasListeners();
     }
 
     // ---------------------------------------------------------------- counters
@@ -323,16 +331,17 @@ public sealed class TelemetryTests
         });
         await app.StartAsync();
 
-        using var spans = new Spans(A2AClientTelemetry.ActivitySourceName);
+        using var spans = new Spans(A2ATelemetry.ClientSourceName);
         using var http = new HttpClient();
-        var transport = new JsonRpcTransport(http, new Uri(app.Urls.First() + "/rpc"));
-        var got = await transport.GetTaskAsync(new GetTaskRequest { Id = "t-1" });
+        var client = new A2AClient(new JsonRpcTransport(http, new Uri(app.Urls.First() + "/rpc")));
+        var got = await client.GetTaskAsync(new GetTaskRequest { Id = "t-1" });
         Assert.Equal("t-1", got.Id);
 
-        var span = Assert.Single(spans.Named("a2a.client.GetTask"));
+        var span = Assert.Single(spans.Named("a2a.GetTask"));
         Assert.Equal(ActivityKind.Client, span.Kind);
-        Assert.Equal("GetTask", span.GetTagItem("a2a.operation"));
-        Assert.Equal("ok", span.GetTagItem("a2a.outcome"));
+        Assert.Equal("GetTask", span.GetTagItem(A2ATelemetry.Tags.Operation));
+        Assert.Equal(ProtocolBindings.JsonRpc, span.GetTagItem(A2ATelemetry.Tags.Binding));
+        Assert.NotEqual(ActivityStatusCode.Error, span.Status);
         Assert.NotNull(traceparent);
         Assert.Equal(span.TraceId.ToHexString(), traceparent!.Split('-')[1]);
     }
@@ -341,37 +350,38 @@ public sealed class TelemetryTests
     public async Task Client_span_for_errors_and_stream_open()
     {
         await using var host = await TestAgentHost.StartAsync();
-        using var spans = new Spans(A2AClientTelemetry.ActivitySourceName);
+        using var spans = new Spans(A2ATelemetry.ClientSourceName);
         var client = host.Client(ProtocolBindings.HttpJson);
 
         await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync("missing"));
-        var failed = Assert.Single(spans.Named("a2a.client.GetTask"));
-        Assert.Equal("error:TaskNotFound", failed.GetTagItem("a2a.outcome"));
+        var failed = Assert.Single(spans.Named("a2a.GetTask"));
+        Assert.Equal(nameof(A2AErrorCode.TaskNotFound), failed.GetTagItem(A2ATelemetry.Tags.ErrorCode));
         Assert.Equal(ActivityStatusCode.Error, failed.Status);
 
         using var cts = new CancellationTokenSource(Timeout);
         await foreach (var _ in client.SendStreamingMessageAsync(Message.FromUser("task"), cancellationToken: cts.Token)) { }
-        var open = Assert.Single(spans.Named("a2a.client.SendStreamingMessage"));
+        var open = Assert.Single(spans.Named("a2a.SendStreamingMessage"));
         Assert.Equal(ActivityKind.Client, open.Kind);
-        Assert.Equal("ok", open.GetTagItem("a2a.outcome"));
+        Assert.NotEqual(ActivityStatusCode.Error, open.Status);
     }
 
     // ---------------------------------------------------------------- outcome accuracy
 
     [Fact]
-    public async Task Server_side_cancellation_is_an_internal_error()
+    public async Task Server_side_cancellation_is_an_error()
     {
         // A cancellation the caller did not ask for (here: an unrelated token) is a server fault, as the bindings report it.
         await using var host = await TestAgentHost.StartAsync(services: Authorize(_ => throw new OperationCanceledException(new CancellationToken(canceled: true))));
-        using var spans = new Spans(A2AServerTelemetry.ActivitySourceName);
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
         using var counters = new Counters();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Handler.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, AliceCall()));
 
-        var span = Assert.Single(spans.Named("a2a.server.GetTask"));
-        Assert.Equal("error:Internal", span.GetTagItem("a2a.outcome"));
+        var span = Assert.Single(spans.Named("a2a.GetTask"));
+        Assert.Equal(typeof(OperationCanceledException).FullName, span.GetTagItem(A2ATelemetry.Tags.ErrorType));
+        Assert.Null(span.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.Equal(ActivityStatusCode.Error, span.Status);
-        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.outcome"], "error:Internal")));
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.outcome"], "error")));
     }
 
     [Fact]
@@ -384,12 +394,12 @@ public sealed class TelemetryTests
             ct.ThrowIfCancellationRequested();
             return true;
         }));
-        using var spans = new Spans(A2AServerTelemetry.ActivitySourceName);
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => host.Handler.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, AliceCall(), caller.Token));
 
-        var span = Assert.Single(spans.Named("a2a.server.GetTask"));
-        Assert.Equal("canceled", span.GetTagItem("a2a.outcome"));
+        var span = Assert.Single(spans.Named("a2a.GetTask"));
+        Assert.Equal(true, span.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.NotEqual(ActivityStatusCode.Error, span.Status);
     }
 
@@ -397,7 +407,7 @@ public sealed class TelemetryTests
     public async Task Abandoned_stream_is_canceled()
     {
         await using var host = await TestAgentHost.StartAsync();
-        using var spans = new Spans(A2AServerTelemetry.ActivitySourceName);
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
         using var counters = new Counters();
         const string text = "gate telemetry-abandoned";
         var gate = ScenarioAgent.Gate(text);
@@ -412,32 +422,32 @@ public sealed class TelemetryTests
             gate.TrySetResult();
         }
 
-        var span = Assert.Single(spans.Named("a2a.server.SendStreamingMessage"));
-        Assert.Equal("canceled", span.GetTagItem("a2a.outcome"));
+        var span = Assert.Single(spans.Named("a2a.SendStreamingMessage"));
+        Assert.Equal(true, span.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.NotEqual(ActivityStatusCode.Error, span.Status);
-        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["a2a.operation"], "SendStreamingMessage") && Equals(t["a2a.outcome"], "canceled")));
+        Assert.Equal(1, counters.Sum("a2a.server.requests", t => Equals(t["rpc.method"], "SendStreamingMessage") && Equals(t["a2a.outcome"], "canceled")));
     }
 
     [Fact]
     public async Task Streaming_work_runs_inside_the_server_span()
     {
         ActivityTraceId? trace = null;
-        ActivitySpanId? span = null;
+        ActivitySpanId? parent = null;
         await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2AServer().AddAgentExecutor((context, updater, ct) =>
         {
             trace = Activity.Current?.TraceId;
-            span = Activity.Current?.SpanId;
+            parent = Activity.Current?.ParentSpanId; // the agent runs in its run span, a child of the stream's span
             return updater.CompleteAsync("ok", ct).AsTask();
         }));
-        using var spans = new Spans(A2AServerTelemetry.ActivitySourceName);
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
         Activity.Current = null;
 
         using var cts = new CancellationTokenSource(Timeout);
         await foreach (var _ in host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("x") }, AliceCall(), cancellationToken: cts.Token)) { }
 
-        var server = Assert.Single(spans.Named("a2a.server.SendStreamingMessage"));
+        var server = Assert.Single(spans.Named("a2a.SendStreamingMessage"));
         Assert.Equal(server.TraceId, trace);
-        Assert.Equal(server.SpanId, span);
+        Assert.Equal(server.SpanId, parent);
         Assert.Null(Activity.Current); // the reader's current activity is unchanged
     }
 
@@ -445,22 +455,22 @@ public sealed class TelemetryTests
     public async Task Client_caller_cancellation_is_canceled_and_timeout_is_an_error()
     {
         await using var host = await TestAgentHost.StartAsync();
-        using var spans = new Spans(A2AClientTelemetry.ActivitySourceName);
-        var transport = new HttpJsonTransport(host.Http("alice"), new Uri(TestAgentHost.BaseUrl));
+        using var spans = new Spans(A2ATelemetry.ClientSourceName);
+        var transport = new A2AClient(new HttpJsonTransport(host.Http("alice"), new Uri(TestAgentHost.BaseUrl)));
 
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => transport.GetTaskAsync(new GetTaskRequest { Id = "t-1" }, cancellationToken: canceled.Token));
-        var get = Assert.Single(spans.Named("a2a.client.GetTask"));
-        Assert.Equal("canceled", get.GetTagItem("a2a.outcome"));
+        var get = Assert.Single(spans.Named("a2a.GetTask"));
+        Assert.Equal(true, get.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.NotEqual(ActivityStatusCode.Error, get.Status);
 
         // A timeout is not the caller's cancellation: an error.
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => transport.SendMessageAsync(
             new SendMessageRequest { Message = Message.FromUser("slow") },
             new A2ARequestOptions { Timeout = TimeSpan.FromMilliseconds(200), MaxRetries = 0 }));
-        var send = Assert.Single(spans.Named("a2a.client.SendMessage"));
-        Assert.Equal("error:Internal", send.GetTagItem("a2a.outcome"));
+        var send = Assert.Single(spans.Named("a2a.SendMessage"));
+        Assert.Null(send.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.Equal(ActivityStatusCode.Error, send.Status);
     }
 }

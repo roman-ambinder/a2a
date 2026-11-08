@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
+using A2A.Diagnostics;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
 using A2A.Server.Storage;
@@ -16,6 +18,11 @@ namespace A2A.Server.Execution;
 /// then published (to the request that started the run, to stream subscribers and to webhooks), all under the task's lock, so
 /// publish order is sequence order. In an ASP.NET Core app the DI container creates and disposes it.
 /// </summary>
+/// <remarks>
+/// Each run is an <see cref="A2ATelemetry.SpanNames.AgentExecution"/> span, a child of the operation that started it; the agent's
+/// own spans and the webhook deliveries of its events nest under it. With <see cref="A2AServerOptions.MaxTaskDuration"/>, a
+/// run still going when the limit expires fails the task ("Task exceeded its time limit") and is cancelled.
+/// </remarks>
 public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
 {
     private readonly TaskStore _tasks;
@@ -28,12 +35,24 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     private readonly A2AServerOptions _options;
     private readonly IAgentCardProvider _cards;
     private readonly ILogger _logger;
+    private readonly TimeProvider _time;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly TaskLocks _locks = new();
     private readonly RunningRegistry<Execution> _running = new();
     private int _disposed;
 
     /// <summary>Creates the engine. In an ASP.NET Core app the DI container does this; the parameters are the registered services.</summary>
+    /// <param name="tasks">The task store.</param>
+    /// <param name="events">The event store.</param>
+    /// <param name="executors">Rents the agent executor of each run.</param>
+    /// <param name="bus">Live stream subscribers.</param>
+    /// <param name="push">Webhook delivery.</param>
+    /// <param name="idempotency">Records the outcome of a retried SendMessage.</param>
+    /// <param name="pushConfigs">Saves an inline push config when its task is first stored.</param>
+    /// <param name="options">Server options (limits, streaming, <see cref="A2AServerOptions.MaxTaskDuration"/>).</param>
+    /// <param name="cards">The public Agent Card (whether push is declared).</param>
+    /// <param name="logger">Optional logger.</param>
+    /// <param name="timeProvider">The clock of <see cref="A2AServerOptions.MaxTaskDuration"/>. Default <see cref="TimeProvider.System"/>.</param>
     public TaskExecutionEngine(
         TaskStore tasks,
         EventStore events,
@@ -44,7 +63,8 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         PushConfigService pushConfigs,
         A2AServerOptions options,
         IAgentCardProvider cards,
-        ILogger<TaskExecutionEngine>? logger = null)
+        ILogger<TaskExecutionEngine>? logger = null,
+        TimeProvider? timeProvider = null)
     {
         _tasks = tasks;
         _events = events;
@@ -56,6 +76,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         _options = options;
         _cards = cards;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
+        _time = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>Retries after a version conflict when applying one change to a task.</summary>
@@ -63,6 +84,9 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
 
     /// <summary>Status text of a task failed because its updates could not be stored.</summary>
     internal const string StoreFailureText = "The task failed because its updates could not be stored.";
+
+    /// <summary>Status text of a task failed because a run lasted longer than <see cref="A2AServerOptions.MaxTaskDuration"/>.</summary>
+    internal const string TimeLimitText = "Task exceeded its time limit";
 
     /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
     internal const string OversizedEventText = "The agent produced an event larger than the configured limit.";
@@ -95,15 +119,19 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// </summary>
     internal Execution Start(AgentRequestContext context, TaskPushNotificationConfig? push, IdempotencyClaim claim) =>
         StartRaw(new TaskKey(context.Call.Tenant, context.Call.Principal, context.TaskId), context.ContextId, context.IsNewTask, context.Message,
-            push, emitInitialSnapshot: !context.IsNewTask, (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct), claim, context.Metadata);
+            push, emitInitialSnapshot: !context.IsNewTask, (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct), claim, context.Metadata,
+            _options.MaxTaskDuration, ExecuteKind);
 
     /// <summary>Runs <see cref="IAgentExecutor.CancelAsync"/> for a task. The executor gets its own copy of <paramref name="task"/>.</summary>
     internal Execution StartCancel(TaskKey key, AgentTask task, Dictionary<string, JsonElement>? metadata)
     {
         var snapshot = task.DeepCopy(); // the executor's own view: changing it never changes the stored task
         return StartRaw(key, snapshot.ContextId, isNewTask: false, userMessage: null, push: null, emitInitialSnapshot: false,
-            (executor, updater, ct) => executor.CancelAsync(snapshot, updater, ct), requestMetadata: metadata);
+            (executor, updater, ct) => executor.CancelAsync(snapshot, updater, ct), requestMetadata: metadata, kind: CancelKind);
     }
+
+    private const string ExecuteKind = "execute";
+    private const string CancelKind = "cancel";
 
     /// <summary>
     /// Waits for the outcome of a blocking SendMessage, then returns the task, as the first request does:
@@ -176,28 +204,45 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Runs the agent for a task. An idempotency <c>claim</c> is completed when the task is first stored or the agent replies
-    /// directly, and abandoned when neither happens.
+    /// directly, and abandoned when neither happens. With a <paramref name="timeLimit"/>, a run still going when it expires
+    /// fails the task (<see cref="TimeLimitText"/>) and is cancelled.
     /// </summary>
     private Execution StartRaw(TaskKey key, string contextId, bool isNewTask, Message? userMessage,
         TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run,
-        IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null)
+        IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null, TimeSpan? timeLimit = null, string kind = ExecuteKind)
     {
         var taskId = key.TaskId;
-        var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token), _options.Streaming.ChannelCapacity);
+        var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token), _options.Streaming.ChannelCapacity)
+        {
+            // A child of the operation's span; ends when the agent has returned and every event is stored.
+            Activity = ServerTelemetry.StartExecution(kind, key.Tenant, taskId, contextId),
+        };
         var scope = ScopeKey(key.Tenant, taskId);
         _running.Add(scope, exec);
         var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
         // The first history entry of a new task, copied before the executor starts: the executor may change its message.
         var historyMessage = isNewTask && userMessage is not null ? WithTask(userMessage, taskId) : null;
+        // Started before the agent, so the time spent waiting for a thread counts too. Disposed when the agent returns.
+        var timer = timeLimit is { } limit && limit > TimeSpan.Zero
+            ? _time.CreateTimer(static state => { var (engine, e, u) = ((TaskExecutionEngine, Execution, TaskUpdater))state!; _ = engine.TimeOutAsync(e, u); },
+                (this, exec, updater), limit, Timeout.InfiniteTimeSpan)
+            : null;
         var producer = Task.Run(async () =>
         {
+            if (exec.Activity is not null) Activity.Current = exec.Activity; // the agent's own spans nest under the run
             try
             {
                 await using var lease = await _executors.RentAsync(exec.Cts.Token).ConfigureAwait(false);
                 await run(lease.Executor, updater, exec.Cts.Token).ConfigureAwait(false);
+                exec.TryMarkReturned();
+            }
+            catch (Exception) when (!exec.TryMarkReturned())
+            {
+                // The task already failed with the time limit text; the agent's late error or cancellation is expected.
             }
             catch (OperationCanceledException) when (exec.Cts.IsCancellationRequested)
             {
+                exec.Activity?.SetTag(A2ATelemetry.ErrorTypeCanceledTag, true);
                 await TryFinishAsync(updater, TaskState.Canceled, null).ConfigureAwait(false);
             }
             catch (ChannelClosedException ex) when (exec.Failed)
@@ -208,23 +253,48 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
             catch (Exception ex)
             {
+                A2ATelemetry.RecordError(exec.Activity, ex);
                 ServerLog.ExecutorFailed(_logger, ex, taskId);
                 await TryFinishAsync(updater, TaskState.Failed, "The agent failed to process the request.").ConfigureAwait(false);
             }
             finally
             {
+                if (timer is not null) await timer.DisposeAsync().ConfigureAwait(false);
                 exec.Incoming.Writer.TryComplete();
             }
         });
 
         // Background writes outlive the request: the owner scope is fixed in the key.
-        var consumer = Task.Run(() => ConsumeAsync(exec, key, contextId, isNewTask, historyMessage, push, emitInitialSnapshot, claim ?? IdempotencyClaim.None));
+        var consumer = Task.Run(() =>
+        {
+            if (exec.Activity is not null) Activity.Current = exec.Activity; // webhook deliveries of the run's events nest under it
+            return ConsumeAsync(exec, key, contextId, isNewTask, historyMessage, push, emitInitialSnapshot, claim ?? IdempotencyClaim.None);
+        });
         _ = Task.WhenAll(producer, consumer).ContinueWith(_t =>
         {
             _running.Remove(scope, exec);
+            exec.EndActivity();
             exec.MarkDone();
         }, TaskScheduler.Default);
         return exec;
+    }
+
+    /// <summary>
+    /// The run lasted longer than <see cref="A2AServerOptions.MaxTaskDuration"/>: fails the task (the FAILED event is queued
+    /// before the token fires, so it wins over a CANCELED from the agent's cancellation), then cancels the agent.
+    /// </summary>
+    private async Task TimeOutAsync(Execution exec, TaskUpdater updater)
+    {
+        if (!exec.TryMarkTimedOut()) return; // the agent returned first
+        if (exec.Activity is { } activity)
+        {
+            activity.SetTag(A2ATelemetry.Tags.TimedOut, true);
+            activity.SetTag(A2ATelemetry.Tags.ErrorType, "TimeLimit");
+            activity.SetStatus(ActivityStatusCode.Error, "TimeLimit");
+        }
+        ServerLog.TaskTimedOut(_logger, exec.TaskId, _options.MaxTaskDuration);
+        await TryFinishAsync(updater, TaskState.Failed, TimeLimitText).ConfigureAwait(false);
+        exec.Cancel();
     }
 
     private static async Task TryFinishAsync(TaskUpdater updater, TaskState state, string? text)
@@ -304,7 +374,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         // update stores a copy), and the event log owns the event from here on.
                         var snapshot = EventEncoder.Encode(0, StreamResponse.Of(record.Task));
                         var first = await _events.AppendAsync(key, snapshot).ConfigureAwait(false);
-                        A2AServerTelemetry.Events.Add(1);
+                        ServerTelemetry.Events.Add(1);
                         Publish(exec, key, snapshot with { Sequence = first });
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
                         await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
@@ -324,6 +394,8 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                     // Still under the task lock, so sinks see events in sequence order even with concurrent executions.
                     // Every sink is non-blocking.
                     Publish(exec, key, stored);
+                    if (exec.Activity is not null && evt is StatusUpdateEvent { StatusUpdate.Status.State: var recorded })
+                        exec.Activity.SetTag(A2ATelemetry.Tags.TaskState, recorded.ToString());
                     if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var st } && st.IsTerminal())
                     {
                         await _events.MarkTerminalAsync(key).ConfigureAwait(false);
@@ -339,6 +411,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         catch (Exception ex)
         {
             ServerLog.ApplyEventsFailed(_logger, ex, taskId);
+            A2ATelemetry.RecordError(exec.Activity, ex);
             exec.Cancel();
             // Before the FAILED event is published: the waiting request must see the error, not that event.
             exec.Fail(new A2AException(A2AErrorCode.Internal));
@@ -410,7 +483,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
             {
                 await _tasks.UpdateAsync(record with { Task = next }, record.Version).ConfigureAwait(false);
                 var sequence = await _events.AppendAsync(key, encoded).ConfigureAwait(false);
-                A2AServerTelemetry.Events.Add(1);
+                ServerTelemetry.Events.Add(1);
                 return encoded with { Sequence = sequence };
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)

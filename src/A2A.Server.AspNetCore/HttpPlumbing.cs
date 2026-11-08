@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
+using A2A.Diagnostics;
 using A2A.Json;
 using A2A.Server.Streaming;
 using Microsoft.AspNetCore.Http;
@@ -14,7 +15,7 @@ namespace A2A.Server.AspNetCore;
 
 internal static partial class HttpPlumbing
 {
-    public static ServerCallContext CreateCallContext(HttpContext http)
+    public static ServerCallContext CreateCallContext(HttpContext http, string? binding)
     {
         var extensions = http.Request.Headers[A2AProtocol.Headers.Extensions]
             .SelectMany(v => (v ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -51,6 +52,9 @@ internal static partial class HttpPlumbing
             IdempotencyKey = string.IsNullOrEmpty(idempotencyKey) ? null : idempotencyKey,
             Tenant = tenant,
             TenantFromRoute = http.GetRouteValue("tenant") is string { Length: > 0 },
+            Binding = binding,
+            TraceParent = A2ATelemetry.TryExtractTraceContext(
+                http.Request.Headers[A2ATelemetry.TraceParentHeader], http.Request.Headers[A2ATelemetry.TraceStateHeader], out var parent) ? parent : default,
         };
     }
 
@@ -114,6 +118,7 @@ internal static partial class HttpPlumbing
         http.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()?.DisableBuffering();
     }
 
+    private static ReadOnlySpan<byte> EventPrefix => "event: "u8;
     private static ReadOnlySpan<byte> IdPrefix => "id: "u8;
     private static ReadOnlySpan<byte> DataPrefix => "data: "u8;
     private static ReadOnlySpan<byte> EventSuffix => "\n\n"u8;
@@ -142,16 +147,18 @@ internal static partial class HttpPlumbing
         : UnusableCursor;
 
     /// <summary>
-    /// Writes one SSE frame (<c>id: {id}\n</c>, <c>data: {json}\n\n</c>) with a single write, then flushes. <paramref name="id"/>
-    /// null writes no <c>id:</c> line. The frame is built in a pooled buffer that is returned after the write.
+    /// Writes one SSE frame (<c>event: {eventType}\n</c>, <c>id: {id}\n</c>, <c>data: {json}\n\n</c>) with a single write, then
+    /// flushes. <paramref name="id"/> null writes no <c>id:</c> line; <paramref name="eventType"/> null writes no <c>event:</c>
+    /// line. The frame is built in a pooled buffer that is returned after the write.
     /// </summary>
-    public static async Task WriteEventAsync(HttpContext http, string? id, ReadOnlyMemory<byte> json)
+    public static async Task WriteEventAsync(HttpContext http, string? id, ReadOnlyMemory<byte> json, string? eventType = null)
     {
-        var length = (id is null ? 0 : IdPrefix.Length + Encoding.UTF8.GetByteCount(id) + 1) + DataPrefix.Length + json.Length + EventSuffix.Length;
+        var length = (eventType is null ? 0 : EventPrefix.Length + Encoding.UTF8.GetByteCount(eventType) + 1)
+            + (id is null ? 0 : IdPrefix.Length + Encoding.UTF8.GetByteCount(id) + 1) + DataPrefix.Length + json.Length + EventSuffix.Length;
         var frame = ArrayPool<byte>.Shared.Rent(length);
         try
         {
-            var written = BuildFrame(frame, id, json.Span);
+            var written = BuildFrame(frame, eventType, id, json.Span);
             var body = http.Response.Body;
             await body.WriteAsync(frame.AsMemory(0, written), http.RequestAborted).ConfigureAwait(false);
             await body.FlushAsync(http.RequestAborted).ConfigureAwait(false);
@@ -162,13 +169,20 @@ internal static partial class HttpPlumbing
         }
     }
 
-    private static int BuildFrame(Span<byte> frame, string? id, ReadOnlySpan<byte> json)
+    private static int BuildFrame(Span<byte> frame, string? eventType, string? id, ReadOnlySpan<byte> json)
     {
         var at = 0;
+        if (eventType is not null)
+        {
+            EventPrefix.CopyTo(frame);
+            at = EventPrefix.Length;
+            at += Encoding.UTF8.GetBytes(eventType, frame[at..]);
+            frame[at++] = (byte)'\n';
+        }
         if (id is not null)
         {
-            IdPrefix.CopyTo(frame);
-            at = IdPrefix.Length;
+            IdPrefix.CopyTo(frame[at..]);
+            at += IdPrefix.Length;
             at += Encoding.UTF8.GetBytes(id, frame[at..]);
             frame[at++] = (byte)'\n';
         }
@@ -250,9 +264,13 @@ internal static partial class HttpPlumbing
     /// Writes the primed stream as SSE, with an <c>id:</c> line on every stored task event and keep-alive comments when idle.
     /// Always disposes the enumerator, which releases the stream's resources (for example its stream slot).
     /// </summary>
-    /// <remarks><paramref name="encode"/> returns the <c>data:</c> payload of an event (for example its stored <see cref="SequencedEvent.Json"/>).</remarks>
+    /// <remarks>
+    /// <paramref name="encode"/> returns the <c>data:</c> payload of an event (for example its stored <see cref="SequencedEvent.Json"/>).
+    /// A failure after the stream started is written as one last frame (<paramref name="encodeError"/>), named
+    /// <paramref name="errorEventType"/> when set.
+    /// </remarks>
     public static async Task PumpAsync(HttpContext http, PrimedStream stream, Func<SequencedEvent, ReadOnlyMemory<byte>> encode,
-        Func<Exception, byte[]> encodeError, TimeSpan keepAlive, ILogger logger)
+        Func<Exception, byte[]> encodeError, TimeSpan keepAlive, ILogger logger, string? errorEventType = null)
     {
         var e = stream.Events;
         var next = stream.First;
@@ -286,7 +304,7 @@ internal static partial class HttpPlumbing
         }
         catch (Exception ex)
         {
-            try { await WriteEventAsync(http, null, encodeError(ex)).ConfigureAwait(false); }
+            try { await WriteEventAsync(http, null, encodeError(ex), errorEventType).ConfigureAwait(false); }
             catch (Exception writeEx) { AspNetCoreLog.StreamErrorWriteFailed(logger, writeEx); }
         }
         finally

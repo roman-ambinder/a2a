@@ -2,9 +2,13 @@ using System.Text.Json;
 using A2A.Grpc;
 using A2A.Server.AspNetCore;
 using A2A.Server.Streaming;
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Pb = Lf.A2a.V1;
 using GrpcContext = Grpc.Core.ServerCallContext;
 
@@ -12,86 +16,104 @@ namespace A2A.Server.Grpc;
 
 /// <summary>
 /// gRPC binding (spec §10). Implements <c>lf.a2a.v1.A2AService</c> on top of <see cref="IA2ARequestHandler"/>, so behavior,
-/// authorization scoping, and validation match the JSON-RPC and REST bindings exactly.
+/// authorization scoping, limits and errors match the JSON-RPC and REST bindings.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The call context is built exactly as for HTTP: the principal comes from the authenticated user through
+/// <see cref="IPrincipalResolver"/>, the tenant from the request's <c>tenant</c> field (and the host's <see cref="ITenantResolver"/>),
+/// the remote address from the connection, and <c>a2a-version</c>, <c>a2a-extensions</c> and <c>idempotency-key</c> from the
+/// request metadata.
+/// </para>
+/// <para>
+/// Stream resume is not supported over gRPC in this version: gRPC has no per-message metadata to carry an event cursor, so a
+/// client that loses a stream calls <c>SubscribeToTask</c> again (a task snapshot, then live events). The server-side stream
+/// limits (admission, re-authorization, maximum duration) apply as on the other bindings.
+/// </para>
+/// </remarks>
 public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
 {
     private readonly IA2ARequestHandler _handler;
     private readonly ILogger<A2AGrpcService> _logger;
+    private readonly int _maxDepth;
+    private readonly bool _includeDetails;
 
     /// <summary>Creates the service. The DI container does this.</summary>
-    public A2AGrpcService(IA2ARequestHandler handler, ILogger<A2AGrpcService> logger)
+    public A2AGrpcService(IA2ARequestHandler handler, IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<A2AGrpcService> logger)
     {
         _handler = handler;
         _logger = logger;
+        _maxDepth = serverOptions.Value.Limits.MaxJsonDepth;
+        // As the HTTP bindings decide it: the option, else true only in Development.
+        _includeDetails = serverOptions.Value.IncludeExceptionDetails ?? environment.IsDevelopment();
     }
 
     /// <summary>SendMessage (spec §3.1.1) over gRPC.</summary>
     public override Task<Pb.SendMessageResponse> SendMessage(Pb.SendMessageRequest request, GrpcContext context) =>
-        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.SendMessageResponse>(
-            await _handler.SendMessageAsync(ProtoMapper.ToModel<SendMessageRequest>(request), call, ct).ConfigureAwait(false)));
+        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.SendMessageResponse, SendMessageResponse>(
+            await _handler.SendMessageAsync(In<SendMessageRequest>(request), call, ct).ConfigureAwait(false)));
 
     /// <summary>SendStreamingMessage (spec §3.1.2) over gRPC.</summary>
     public override Task SendStreamingMessage(Pb.SendMessageRequest request, IServerStreamWriter<Pb.StreamResponse> responseStream, GrpcContext context) =>
-        Stream(context, responseStream, (call, ct) => _handler.SendStreamingMessageAsync(ProtoMapper.ToModel<SendMessageRequest>(request), call, cancellationToken: ct));
+        Stream(context, responseStream, (call, ct) => _handler.SendStreamingMessageAsync(In<SendMessageRequest>(request), call, cancellationToken: ct));
 
     /// <summary>GetTask (spec §3.1.3) over gRPC.</summary>
     public override Task<Pb.Task> GetTask(Pb.GetTaskRequest request, GrpcContext context) =>
-        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.Task>(
-            await _handler.GetTaskAsync(ProtoMapper.ToModel<GetTaskRequest>(request), call, ct).ConfigureAwait(false)));
+        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.Task, AgentTask>(
+            await _handler.GetTaskAsync(In<GetTaskRequest>(request), call, ct).ConfigureAwait(false)));
 
     /// <summary>ListTasks (spec §3.1.4) over gRPC.</summary>
     public override Task<Pb.ListTasksResponse> ListTasks(Pb.ListTasksRequest request, GrpcContext context) =>
-        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.ListTasksResponse>(
-            await _handler.ListTasksAsync(ProtoMapper.ToModel<ListTasksRequest>(request), call, ct).ConfigureAwait(false)));
+        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.ListTasksResponse, ListTasksResponse>(
+            await _handler.ListTasksAsync(In<ListTasksRequest>(request), call, ct).ConfigureAwait(false)));
 
     /// <summary>CancelTask (spec §3.1.5) over gRPC.</summary>
     public override Task<Pb.Task> CancelTask(Pb.CancelTaskRequest request, GrpcContext context) =>
-        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.Task>(
-            await _handler.CancelTaskAsync(ProtoMapper.ToModel<CancelTaskRequest>(request), call, ct).ConfigureAwait(false)));
+        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.Task, AgentTask>(
+            await _handler.CancelTaskAsync(In<CancelTaskRequest>(request), call, ct).ConfigureAwait(false)));
 
     /// <summary>SubscribeToTask (spec §3.1.6) over gRPC.</summary>
     public override Task SubscribeToTask(Pb.SubscribeToTaskRequest request, IServerStreamWriter<Pb.StreamResponse> responseStream, GrpcContext context) =>
-        Stream(context, responseStream, (call, ct) => _handler.SubscribeToTaskAsync(ProtoMapper.ToModel<SubscribeToTaskRequest>(request), call, cancellationToken: ct));
+        Stream(context, responseStream, (call, ct) => _handler.SubscribeToTaskAsync(In<SubscribeToTaskRequest>(request), call, cancellationToken: ct));
 
     /// <summary>CreateTaskPushNotificationConfig (spec §3.1.7) over gRPC.</summary>
     public override Task<Pb.TaskPushNotificationConfig> CreateTaskPushNotificationConfig(Pb.TaskPushNotificationConfig request, GrpcContext context) =>
-        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.TaskPushNotificationConfig>(
-            await _handler.CreateTaskPushNotificationConfigAsync(ProtoMapper.ToModel<TaskPushNotificationConfig>(request), call, ct).ConfigureAwait(false)));
+        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.TaskPushNotificationConfig, TaskPushNotificationConfig>(
+            await _handler.CreateTaskPushNotificationConfigAsync(In<TaskPushNotificationConfig>(request), call, ct).ConfigureAwait(false)));
 
     /// <summary>GetTaskPushNotificationConfig (spec §3.1.8) over gRPC.</summary>
     public override Task<Pb.TaskPushNotificationConfig> GetTaskPushNotificationConfig(Pb.GetTaskPushNotificationConfigRequest request, GrpcContext context) =>
-        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.TaskPushNotificationConfig>(
-            await _handler.GetTaskPushNotificationConfigAsync(ProtoMapper.ToModel<GetTaskPushNotificationConfigRequest>(request), call, ct).ConfigureAwait(false)));
+        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.TaskPushNotificationConfig, TaskPushNotificationConfig>(
+            await _handler.GetTaskPushNotificationConfigAsync(In<GetTaskPushNotificationConfigRequest>(request), call, ct).ConfigureAwait(false)));
 
     /// <summary>ListTaskPushNotificationConfigs (spec §3.1.9) over gRPC.</summary>
     public override Task<Pb.ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigs(Pb.ListTaskPushNotificationConfigsRequest request, GrpcContext context) =>
-        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.ListTaskPushNotificationConfigsResponse>(
-            await _handler.ListTaskPushNotificationConfigsAsync(ProtoMapper.ToModel<ListTaskPushNotificationConfigsRequest>(request), call, ct).ConfigureAwait(false)));
+        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.ListTaskPushNotificationConfigsResponse, ListTaskPushNotificationConfigsResponse>(
+            await _handler.ListTaskPushNotificationConfigsAsync(In<ListTaskPushNotificationConfigsRequest>(request), call, ct).ConfigureAwait(false)));
 
     /// <summary>DeleteTaskPushNotificationConfig (spec §3.1.10) over gRPC.</summary>
     public override Task<Empty> DeleteTaskPushNotificationConfig(Pb.DeleteTaskPushNotificationConfigRequest request, GrpcContext context) =>
         Unary(context, async (call, ct) =>
         {
-            await _handler.DeleteTaskPushNotificationConfigAsync(ProtoMapper.ToModel<DeleteTaskPushNotificationConfigRequest>(request), call, ct).ConfigureAwait(false);
+            await _handler.DeleteTaskPushNotificationConfigAsync(In<DeleteTaskPushNotificationConfigRequest>(request), call, ct).ConfigureAwait(false);
             return new Empty();
         });
 
     /// <summary>GetExtendedAgentCard (spec §3.1.11) over gRPC.</summary>
     public override Task<Pb.AgentCard> GetExtendedAgentCard(Pb.GetExtendedAgentCardRequest request, GrpcContext context) =>
-        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.AgentCard>(
-            await _handler.GetExtendedAgentCardAsync(ProtoMapper.ToModel<GetExtendedAgentCardRequest>(request), call, ct).ConfigureAwait(false)));
+        Unary(context, async (call, ct) => ProtoMapper.ToProto<Pb.AgentCard, AgentCard>(
+            await _handler.GetExtendedAgentCardAsync(In<GetExtendedAgentCardRequest>(request), call, ct).ConfigureAwait(false)));
 
     // ---- plumbing ----
 
-    // Same principal, tenant, version, extensions and idempotency handling as the HTTP bindings.
-    private static ServerCallContext CreateCall(GrpcContext context) => context.GetHttpContext().CreateA2ACallContext();
+    /// <summary>Maps an incoming request with the request depth limit.</summary>
+    private T In<T>(IMessage request) => ProtoMapper.ToModel<T>(request, _maxDepth);
 
     private async Task<T> Unary<T>(GrpcContext context, Func<ServerCallContext, CancellationToken, Task<T>> action)
     {
         try
         {
-            var call = CreateCall(context);
+            var call = context.GetHttpContext().CreateA2ACallContext(ProtocolBindings.Grpc);
             _handler.ValidateCall(call);
             var result = await action(call, context.CancellationToken).ConfigureAwait(false);
             await WriteExtensionsHeaderAsync(context, call).ConfigureAwait(false);
@@ -108,7 +130,7 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
     {
         try
         {
-            var call = CreateCall(context);
+            var call = context.GetHttpContext().CreateA2ACallContext(ProtocolBindings.Grpc);
             _handler.ValidateCall(call);
             var first = true;
             await foreach (var evt in source(call, context.CancellationToken).ConfigureAwait(false))
@@ -118,7 +140,7 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
                     await WriteExtensionsHeaderAsync(context, call).ConfigureAwait(false);
                     first = false;
                 }
-                await writer.WriteAsync(ProtoMapper.ToProto<Pb.StreamResponse>(evt.Event)).ConfigureAwait(false);
+                await writer.WriteAsync(ProtoMapper.ToProto<Pb.StreamResponse, StreamResponse>(evt.Event)).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is not RpcException)
@@ -133,20 +155,29 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
             ? Task.CompletedTask
             : context.WriteResponseHeadersAsync(new Metadata { { GrpcErrors.ExtensionsKey, string.Join(",", call.ActivatedExtensions) } });
 
+    /// <summary>
+    /// The gRPC status for a failure: A2A errors through the shared table; unexpected errors are logged and sent as a generic
+    /// INTERNAL (with the exception text only when <see cref="A2AServerOptions.IncludeExceptionDetails"/> allows it).
+    /// </summary>
     private RpcException Translate(Exception ex, GrpcContext context)
     {
         if (ex is OperationCanceledException && context.CancellationToken.IsCancellationRequested)
             return new RpcException(new global::Grpc.Core.Status(StatusCode.Cancelled, "Call canceled by the client"));
+        // The same normalization as the HTTP bindings: the request's own errors keep their code, anything else is a generic
+        // INTERNAL (with the exception text only when IncludeExceptionDetails allows it).
         var a2a = ex switch
         {
             A2AException e => e,
-            JsonException json => A2AException.InvalidParams($"Invalid request: {json.Message}"),
+            JsonException json => A2AException.InvalidParams($"Invalid request body: {json.Message}"),
+            BadHttpRequestException bad => new A2AException(A2AErrorCode.InvalidRequest, bad.Message),
             _ => null,
         };
         if (a2a is null)
         {
             GrpcServerLog.UnhandledError(_logger, ex, context.Method);
-            a2a = new A2AException(A2AErrorCode.Internal);
+            a2a = _includeDetails
+                ? new A2AException(A2AErrorCode.Internal, $"{A2AErrors.DefaultMessage(A2AErrorCode.Internal)}: {ex.GetType().Name}: {ex.Message}")
+                : new A2AException(A2AErrorCode.Internal);
         }
         return GrpcErrors.ToRpcException(a2a);
     }

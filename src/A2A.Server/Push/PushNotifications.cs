@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Threading.Channels;
+using A2A.Diagnostics;
 using A2A.Security.Http;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
@@ -145,8 +147,11 @@ public interface IPushNotificationSender
 /// <summary>
 /// Delivers notifications per task in order, at least once, with retries and exponential backoff (spec §4.3.3, §13.2).
 /// Adds <c>X-A2A-Notification-Token</c> (also sent as a bearer <c>Authorization</c> unless the config has its own), an <c>X-A2A-Delivery-Id</c> that stays the same across retries, and an <c>X-A2A-Notification-Sequence</c> number (the event store sequence) for deduplication and ordering.
+/// Every POST carries <c>A2A-Version</c> (the body is an A2A v1.0 StreamResponse) and the W3C <c>traceparent</c> of its delivery.
 /// </summary>
 /// <remarks>
+/// Each delivery (one event to one webhook, with its retries) is an <c>a2a.push.deliver</c> span of the <c>A2A.Server</c>
+/// source, a child of the agent run that produced the event (the activity current at <see cref="Enqueue"/>).
 /// Each task with queued events has one delivery worker that reads a bounded per-task channel
 /// (capacity <see cref="StreamingOptions.ChannelCapacity"/>). The worker takes the waiting events as a batch, lists the task's
 /// configs once per batch, and lists them again inside the batch only after <see cref="ConfigChanged"/>. It stops after
@@ -208,14 +213,17 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
     {
         public readonly TaskKey Key = key;
         public readonly int Capacity = capacity;
-        public readonly Channel<SequencedEvent> Channel = System.Threading.Channels.Channel.CreateBounded<SequencedEvent>(
+        public readonly Channel<PushItem> Channel = System.Threading.Channels.Channel.CreateBounded<PushItem>(
             new BoundedChannelOptions(capacity) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = true });
         public readonly object Sync = new();
-        public readonly Queue<SequencedEvent> Overflow = new();
+        public readonly Queue<PushItem> Overflow = new();
         public bool Started;
         public bool Exited;
         public int ConfigVersion;
     }
+
+    /// <summary>A queued event and the trace context of what produced it (the parent of its delivery spans).</summary>
+    private readonly record struct PushItem(SequencedEvent Event, ActivityContext Parent);
 
     /// <inheritdoc />
     /// <remarks>
@@ -226,6 +234,8 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
     {
         if (Volatile.Read(ref _disposed) != 0) return;
         Interlocked.Increment(ref _pending);
+        // The delivery span is a child of whatever produced the event (the agent run), not of whoever started the worker.
+        var item = new PushItem(evt, Activity.Current?.Context ?? default);
         while (true)
         {
             var worker = _workers.GetOrAdd(task, _newWorker);
@@ -233,7 +243,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
             lock (worker.Sync)
             {
                 if (worker.Exited) continue; // it left the map as it exited; the next GetOrAdd makes a fresh one
-                if (worker.Overflow.Count > 0 || !worker.Channel.Writer.TryWrite(evt)) worker.Overflow.Enqueue(evt);
+                if (worker.Overflow.Count > 0 || !worker.Channel.Writer.TryWrite(item)) worker.Overflow.Enqueue(item);
                 start = !worker.Started;
                 worker.Started = true;
             }
@@ -300,9 +310,10 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
 
     private async Task RunAsync(Worker worker)
     {
+        Activity.Current = null; // each delivery names its parent explicitly
         var reader = worker.Channel.Reader;
         // Sized by the first batch, not up front: a task without configs gets a new worker for nearly every event.
-        List<SequencedEvent>? batch = null;
+        List<PushItem>? batch = null;
         var linger = true;
         try
         {
@@ -316,7 +327,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
                     continue; // an event arrived (or arrived as we tried to exit)
                 }
 
-                if (batch is null) batch = new List<SequencedEvent>(Math.Clamp(reader.Count, 1, worker.Capacity));
+                if (batch is null) batch = new List<PushItem>(Math.Clamp(reader.Count, 1, worker.Capacity));
                 else batch.Clear();
                 while (batch.Count < worker.Capacity && reader.TryRead(out var evt)) batch.Add(evt);
                 Refill(worker);
@@ -335,7 +346,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
     }
 
     /// <summary>Waits for the next event until the idle timeout. False when the timeout passed first.</summary>
-    private async ValueTask<bool> WaitForEventAsync(ChannelReader<SequencedEvent> reader)
+    private async ValueTask<bool> WaitForEventAsync(ChannelReader<PushItem> reader)
     {
         var timeout = _options.WorkerIdleTimeout;
         if (timeout <= TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan) return false;
@@ -392,7 +403,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
     }
 
     /// <summary>Delivers a batch in order to every config of the task. Returns true when the task has configs (the worker then lingers).</summary>
-    private async Task<bool> DeliverBatchAsync(Worker worker, List<SequencedEvent> batch)
+    private async Task<bool> DeliverBatchAsync(Worker worker, List<PushItem> batch)
     {
         List<TaskPushNotificationConfig>? configs = null;
         var listedVersion = 0;
@@ -414,9 +425,9 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
                     }
                     if (configs.Count == 0) continue;
                     // The event's stored bytes are the body for every config; encoded here only for an event made without them.
-                    var body = EventEncoder.EnsureEncoded(item).Json;
+                    var body = EventEncoder.EnsureEncoded(item.Event).Json;
                     foreach (var config in configs)
-                        await DeliverAsync(config, item.Sequence, body).ConfigureAwait(false);
+                        await DeliverAsync(config, item.Event.Sequence, body, item.Parent).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
                 {
@@ -468,20 +479,38 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
         return config;
     }
 
-    /// <summary>Delivers one event to one webhook, with retries, and counts the final result (<c>a2a.server.push.deliveries</c>).</summary>
-    private async Task DeliverAsync(TaskPushNotificationConfig config, long seq, ReadOnlyMemory<byte> body)
+    /// <summary>
+    /// Delivers one event to one webhook, with retries, in its <c>a2a.push.deliver</c> span (a child of <paramref name="parent"/>),
+    /// and counts the final result (<c>a2a.server.push.deliveries</c>).
+    /// </summary>
+    private async Task DeliverAsync(TaskPushNotificationConfig config, long seq, ReadOnlyMemory<byte> body, ActivityContext parent)
     {
+        using var activity = ServerTelemetry.Source.HasListeners()
+            ? ServerTelemetry.Source.StartActivity(A2ATelemetry.SpanNames.PushDelivery, ActivityKind.Client, parent)
+            : null;
+        if (activity is { IsAllDataRequested: true })
+        {
+            A2ATelemetry.SetTask(activity, config.TaskId);
+            activity.SetTag(A2ATelemetry.Tags.PushConfigId, config.Id);
+            activity.SetTag(A2ATelemetry.Tags.PushSequence, seq);
+            if (!string.IsNullOrEmpty(config.Tenant)) activity.SetTag(A2ATelemetry.Tags.Tenant, config.Tenant);
+            if (Uri.TryCreate(config.Url, UriKind.Absolute, out var target)) activity.SetTag(A2ATelemetry.Tags.ServerAddress, target.Host);
+        }
+        // Without a listener there is no span: pass on the producer's context, so the receiver still joins the trace.
+        var traceContext = activity?.Context ?? parent;
         bool delivered;
         try
         {
-            delivered = await DeliverCoreAsync(config, seq, body).ConfigureAwait(false);
+            delivered = await DeliverCoreAsync(config, seq, body, activity, traceContext).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (_stopping.IsCancellationRequested)
         {
+            A2ATelemetry.RecordError(activity, ex, callerCanceled: true);
             throw; // stopping: no final result
         }
-        catch
+        catch (Exception ex)
         {
+            A2ATelemetry.RecordError(activity, ex);
             CountDelivery(false);
             throw;
         }
@@ -490,18 +519,27 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
 
     private static void CountDelivery(bool delivered)
     {
-        if (A2AServerTelemetry.PushDeliveries.Enabled)
-            A2AServerTelemetry.PushDeliveries.Add(1, new KeyValuePair<string, object?>(A2AServerTelemetry.OutcomeTag, delivered ? "delivered" : "failed"));
+        if (ServerTelemetry.PushDeliveries.Enabled)
+            ServerTelemetry.PushDeliveries.Add(1, new KeyValuePair<string, object?>(A2ATelemetry.Tags.Outcome, delivered ? A2ATelemetry.Outcomes.Delivered : A2ATelemetry.Outcomes.Failed));
+    }
+
+    /// <summary>Marks a delivery that gave up or was skipped.</summary>
+    private static void Fail(Activity? activity, string type)
+    {
+        if (activity is null) return;
+        activity.SetTag(A2ATelemetry.Tags.ErrorType, type);
+        activity.SetStatus(ActivityStatusCode.Error, type);
     }
 
     /// <summary>The delivery with retries. True when the webhook accepted the event; false when it was skipped, refused, or every attempt failed.</summary>
-    private async Task<bool> DeliverCoreAsync(TaskPushNotificationConfig config, long seq, ReadOnlyMemory<byte> body)
+    private async Task<bool> DeliverCoreAsync(TaskPushNotificationConfig config, long seq, ReadOnlyMemory<byte> body, Activity? activity, ActivityContext traceContext)
     {
         var deliveryId = Guid.NewGuid().ToString("N");
         var delay = _options.InitialBackoff;
 
         for (var attempt = 1; attempt <= Math.Max(1, _options.MaxAttempts); attempt++)
         {
+            activity?.SetTag(A2ATelemetry.Tags.PushAttempts, attempt);
             try
             {
                 // Re-validated on every attempt (not only at create): the host's DNS answer can change, and the allowlist may have.
@@ -514,16 +552,20 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
                 catch (A2AException ex)
                 {
                     ServerLog.PushWebhookSkipped(_logger, config.Id, config.TaskId, ex.Message);
+                    Fail(activity, "UrlNotAllowed");
                     return false;
                 }
                 catch (BlockedAddressException ex)
                 {
                     ServerLog.PushWebhookSkipped(_logger, config.Id, config.TaskId, ex.Message);
+                    Fail(activity, "UrlNotAllowed");
                     return false;
                 }
 
                 using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ReadOnlyMemoryContent(body) };
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue(A2AProtocol.MediaType);
+                // The body is an A2A v1.0 StreamResponse; say so, as on every other A2A request (a2a-js #647).
+                request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, A2AProtocol.Version);
                 if (config.Authentication is { Scheme.Length: > 0 } auth)
                     request.Headers.TryAddWithoutValidation("Authorization", string.IsNullOrEmpty(auth.Credentials) ? auth.Scheme : $"{auth.Scheme} {auth.Credentials}");
                 else if (!string.IsNullOrEmpty(config.Token))
@@ -531,16 +573,22 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
                 if (!string.IsNullOrEmpty(config.Token)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationToken, config.Token);
                 request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.DeliveryId, deliveryId);
                 request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationSequence, seq.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                A2ATelemetry.InjectTraceContext(traceContext, (name, value) => request.Headers.TryAddWithoutValidation(name, value));
 
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stopping);
                 cts.CancelAfter(_options.Timeout);
                 using var response = await _http.SendAsync(request, cts.Token).ConfigureAwait(false);
+                var status = (int)response.StatusCode;
+                activity?.SetTag(A2ATelemetry.Tags.HttpStatusCode, status);
                 if (response.IsSuccessStatusCode) return true;
 
-                var status = (int)response.StatusCode;
                 var retryable = status is 408 or 429 || status >= 500;
                 ServerLog.PushWebhookStatus(_logger, config.Id, config.TaskId, status, attempt);
-                if (!retryable) return false;
+                if (!retryable)
+                {
+                    Fail(activity, status.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    return false;
+                }
             }
             catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
             {
@@ -549,6 +597,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
             catch (HttpRequestException ex) when (ex is BlockedAddressException || ex.InnerException is BlockedAddressException)
             {
                 ServerLog.PushWebhookBlocked(_logger, config.Id, config.TaskId);
+                Fail(activity, "UrlNotAllowed");
                 return false;
             }
             catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
@@ -558,11 +607,13 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
 
             if (attempt < _options.MaxAttempts)
             {
+                activity?.AddEvent(new ActivityEvent(A2ATelemetry.Events.Retry));
                 await Task.Delay(delay, _stopping).ConfigureAwait(false);
                 delay = TimeSpan.FromTicks(delay.Ticks * 2);
             }
         }
         ServerLog.PushWebhookGaveUp(_logger, config.Id, config.TaskId, _options.MaxAttempts);
+        Fail(activity, "GaveUp");
         return false;
     }
 

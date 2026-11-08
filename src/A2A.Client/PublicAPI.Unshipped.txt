@@ -228,5 +228,30 @@ static A2A.Client.Transports.HttpTransportBase.Parse<T>(System.Text.Json.JsonEle
 static A2A.Client.Transports.HttpTransportBase.PrepareSend(A2A.SendMessageRequest! request, A2A.Client.A2ARequestOptions? call) -> string?
 static A2A.Client.Transports.HttpTransportBase.ProtocolError(string! message, System.Exception? inner = null) -> A2A.A2AException!
 static A2A.Client.Transports.HttpTransportBase.RetryAfterOf(System.Net.Http.HttpResponseMessage? response, System.Collections.Generic.IEnumerable<System.Text.Json.JsonElement>? details) -> System.TimeSpan?
-A2A.Client.Telemetry.A2AClientTelemetry
-const A2A.Client.Telemetry.A2AClientTelemetry.ActivitySourceName = "A2A.Client" -> string!
+A2A.Client.A2AClientOptions.OnMessageReceived.get -> System.Func<A2A.Client.ReceivedMessage!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask>?
+A2A.Client.A2AClientOptions.OnMessageReceived.set -> void
+A2A.Client.ITransportBinding
+A2A.Client.ITransportBinding.Binding.get -> string!
+A2A.Client.ReceivedMessage
+A2A.Client.ReceivedMessage.ContextId.get -> string?
+A2A.Client.ReceivedMessage.ContextId.init -> void
+A2A.Client.ReceivedMessage.Message.get -> A2A.Message!
+A2A.Client.ReceivedMessage.Message.init -> void
+A2A.Client.ReceivedMessage.ReceivedMessage(A2A.Message! Message, A2A.Client.ReceivedMessageSource Source, string? TaskId, string? ContextId) -> void
+A2A.Client.ReceivedMessage.Source.get -> A2A.Client.ReceivedMessageSource
+A2A.Client.ReceivedMessage.Source.init -> void
+A2A.Client.ReceivedMessage.TaskId.get -> string?
+A2A.Client.ReceivedMessage.TaskId.init -> void
+A2A.Client.ReceivedMessageSource
+A2A.Client.ReceivedMessageSource.DirectReply = 0 -> A2A.Client.ReceivedMessageSource
+A2A.Client.ReceivedMessageSource.StatusUpdate = 1 -> A2A.Client.ReceivedMessageSource
+A2A.Client.ReceivedMessageSource.TaskSnapshot = 2 -> A2A.Client.ReceivedMessageSource
+A2A.Client.Resilience.RetryMode
+A2A.Client.Resilience.RetryMode.Idempotent = 1 -> A2A.Client.Resilience.RetryMode
+A2A.Client.Resilience.RetryMode.None = 0 -> A2A.Client.Resilience.RetryMode
+A2A.Client.Resilience.RetryMode.UnsentOnly = 2 -> A2A.Client.Resilience.RetryMode
+A2A.Client.Resilience.RetryPolicy
+static A2A.Client.Resilience.RetryPolicy.Delay(int nextAttempt, System.TimeSpan? retryAfter) -> System.TimeSpan
+static A2A.Client.Resilience.RetryPolicy.ShouldRetry(A2A.Client.Resilience.RetryMode mode, System.Exception! error, out System.TimeSpan? retryAfter) -> bool
+static readonly A2A.Client.A2ARequestOptions.DefaultTimeout -> System.TimeSpan
+static readonly A2A.Client.Resilience.RetryPolicy.MaxRetryAfter -> System.TimeSpan

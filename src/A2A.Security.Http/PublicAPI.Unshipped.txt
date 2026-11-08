@@ -12,3 +12,17 @@ static A2A.Security.Http.PrivateAddressGuard.IsBlocked(System.Net.IPAddress! ip,
 static A2A.Security.Http.PrivateAddressGuard.IsPrivate(System.Net.IPAddress! ip) -> bool
 static A2A.Security.Http.PrivateAddressGuard.TrimHost(string! host) -> string!
 static A2A.Security.Http.PrivateAddressGuard.TryGetLiteral(System.Uri! uri) -> System.Net.IPAddress?
+A2A.Security.Http.SafeHttp
+A2A.Security.Http.SafeHttpOptions
+A2A.Security.Http.SafeHttpOptions.AllowedNetworks.get -> System.Collections.Generic.IList<(System.Net.IPAddress! Network, int PrefixLength)>!
+A2A.Security.Http.SafeHttpOptions.AllowHttp.get -> bool
+A2A.Security.Http.SafeHttpOptions.AllowHttp.set -> void
+A2A.Security.Http.SafeHttpOptions.AllowPrivateNetworks.get -> bool
+A2A.Security.Http.SafeHttpOptions.AllowPrivateNetworks.set -> void
+A2A.Security.Http.SafeHttpOptions.Proxy.get -> System.Net.IWebProxy?
+A2A.Security.Http.SafeHttpOptions.Proxy.set -> void
+A2A.Security.Http.SafeHttpOptions.SafeHttpOptions() -> void
+static A2A.Security.Http.SafeHttp.CreateClient(A2A.Security.Http.SafeHttpOptions? options = null) -> System.Net.Http.HttpClient!
+static A2A.Security.Http.SafeHttp.CreateHandler(A2A.Security.Http.SafeHttpOptions? options = null) -> System.Net.Http.SocketsHttpHandler!
+static A2A.Security.Http.SafeHttp.DownloadAsync(System.Net.Http.HttpClient! client, System.Uri! url, long maxBytes, A2A.Security.Http.SafeHttpOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<byte[]!>!
+static A2A.Security.Http.SafeHttp.EnsureAllowed(System.Uri! url, A2A.Security.Http.SafeHttpOptions? options = null) -> void

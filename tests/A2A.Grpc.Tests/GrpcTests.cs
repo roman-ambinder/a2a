@@ -1,21 +1,7 @@
-using System.Security.Claims;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using A2A.Client;
 using A2A.Client.Grpc;
-using A2A.Grpc;
-using A2A.Server;
-using A2A.Server.AspNetCore;
-using A2A.Server.Grpc;
 using Grpc.Core;
-using Grpc.Net.Client;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Pb = Lf.A2a.V1;
 
 namespace A2A.Grpc.Tests;
@@ -42,7 +28,7 @@ public class ProtoMapperTests
             Metadata = new() { ["k"] = JsonSerializer.SerializeToElement(new { deep = true }) },
         };
         var oldProto = OldToProto<Pb.Task>(task);
-        var newProto = ProtoMapper.ToProto<Pb.Task>(task);
+        var newProto = ProtoMapper.ToProto<Pb.Task, AgentTask>(task);
         Assert.Equal(oldProto, newProto);
         Assert.Equal(
             A2A.Json.A2AJson.Serialize(OldToModel<AgentTask>(oldProto)),
@@ -51,7 +37,7 @@ public class ProtoMapperTests
         var card = GrpcHost.Card();
         card.Capabilities.PushNotifications = false;
         var oldCard = OldToProto<Pb.AgentCard>(card);
-        var newCard = ProtoMapper.ToProto<Pb.AgentCard>(card);
+        var newCard = ProtoMapper.ToProto<Pb.AgentCard, AgentCard>(card);
         Assert.Equal(oldCard, newCard);
         Assert.Equal(
             A2A.Json.A2AJson.Serialize(OldToModel<AgentCard>(oldCard)),
@@ -66,10 +52,21 @@ public class ProtoMapperTests
             Id = "t1",
             ContextId = "c1",
             Status = new AgentTaskStatus { State = TaskState.InputRequired, Timestamp = new DateTimeOffset(2026, 1, 2, 3, 4, 5, 678, TimeSpan.Zero), Message = Message.FromAgent("more?", "c1", "t1") },
-            Artifacts = [new Artifact { ArtifactId = "a", Parts = [Part.FromText("x"), Part.FromBytes(new byte[] { 1, 2, 3 }, "application/octet-stream"), Part.FromData(JsonSerializer.SerializeToElement(new { n = 1 })), Part.FromUrl(new Uri("https://x/y"))] }],
+            Artifacts =
+            [
+                new Artifact
+                {
+                    ArtifactId = "a",
+                    Parts =
+                    [
+                        Part.FromText("x"), Part.FromBytes(new byte[] { 1, 2, 3 }, "application/octet-stream"),
+                        Part.FromData(JsonSerializer.SerializeToElement(new { n = 1 })), Part.FromUrl(new Uri("https://x/y")),
+                    ],
+                },
+            ],
             Metadata = new() { ["k"] = JsonSerializer.SerializeToElement(new { deep = true }) },
         };
-        var proto = ProtoMapper.ToProto<Pb.Task>(task);
+        var proto = ProtoMapper.ToProto<Pb.Task, AgentTask>(task);
         Assert.Equal(Pb.TaskState.InputRequired, proto.Status.State);
         Assert.Equal(Google.Protobuf.ByteString.CopyFrom(1, 2, 3), proto.Artifacts[0].Parts[1].Raw);
 
@@ -82,11 +79,27 @@ public class ProtoMapperTests
     }
 
     [Fact]
+    public void Response_unions_keep_their_member()
+    {
+        var reply = ProtoMapper.ToProto<Pb.SendMessageResponse, SendMessageResponse>(new MessageResponse(Message.FromAgent("hi")));
+        Assert.Equal(Pb.SendMessageResponse.PayloadOneofCase.Message, reply.PayloadCase);
+        var back = Assert.IsType<MessageResponse>(ProtoMapper.ToModel<SendMessageResponse>(reply));
+        Assert.Equal("hi", back.Message.GetText());
+
+        var evt = ProtoMapper.ToProto<Pb.StreamResponse, StreamResponse>(StreamResponse.Of(new TaskStatusUpdateEvent
+        {
+            TaskId = "t", ContextId = "c", Status = new AgentTaskStatus { State = TaskState.Working },
+        }));
+        Assert.Equal(Pb.StreamResponse.PayloadOneofCase.StatusUpdate, evt.PayloadCase);
+        Assert.IsType<StatusUpdateEvent>(ProtoMapper.ToModel<StreamResponse>(evt));
+    }
+
+    [Fact]
     public void Agent_card_keeps_explicit_optional_false()
     {
         var card = GrpcHost.Card();
         card.Capabilities.PushNotifications = false;
-        var proto = ProtoMapper.ToProto<Pb.AgentCard>(card);
+        var proto = ProtoMapper.ToProto<Pb.AgentCard, AgentCard>(card);
         Assert.True(proto.Capabilities.HasPushNotifications);
         Assert.False(ProtoMapper.ToModel<AgentCard>(proto).Capabilities.PushNotifications!.Value);
     }
@@ -99,6 +112,54 @@ public class ProtoMapperTests
         var back = GrpcErrors.FromRpcException(rpc);
         Assert.Equal(A2AErrorCode.TaskNotFound, back.Code);
         Assert.Equal("t9", back.Metadata!["taskId"]);
+        Assert.False(back.IsRetryable);
+    }
+
+    [Fact]
+    public void Rate_limit_error_carries_retry_info_and_retryable_metadata()
+    {
+        var rpc = GrpcErrors.ToRpcException(A2AException.RateLimited(TimeSpan.FromSeconds(7)));
+        Assert.Equal(StatusCode.ResourceExhausted, rpc.StatusCode);
+        var status = rpc.GetRpcStatus()!;
+        var info = status.GetDetail<Google.Rpc.ErrorInfo>()!;
+        Assert.Equal("RATE_LIMITED", info.Reason);
+        Assert.Equal("true", info.Metadata["retryable"]);
+        Assert.Equal("7", info.Metadata["retryAfter"]);
+        Assert.Equal(7, status.GetDetail<Google.Rpc.RetryInfo>()!.RetryDelay.Seconds);
+
+        var back = GrpcErrors.FromRpcException(rpc);
+        Assert.Equal(A2AErrorCode.RateLimited, back.Code);
+        Assert.Equal(TimeSpan.FromSeconds(7), back.RetryAfter);
+        Assert.True(back.IsRetryable);
+    }
+
+    [Theory]
+    [InlineData(A2AErrors.PayloadTooLargeReason)]
+    [InlineData(A2AErrors.IdempotencyKeyMismatchReason)]
+    public void Special_reasons_survive_the_round_trip(string reason)
+    {
+        var source = reason == A2AErrors.PayloadTooLargeReason ? A2AException.PayloadTooLarge(10) : A2AException.IdempotencyKeyMismatch();
+        var rpc = GrpcErrors.ToRpcException(source);
+        Assert.Equal(StatusCode.InvalidArgument, rpc.StatusCode);
+        Assert.Equal(reason, rpc.GetRpcStatus()!.GetDetail<Google.Rpc.ErrorInfo>()!.Reason);
+        var back = GrpcErrors.FromRpcException(rpc);
+        Assert.Equal(A2AErrorCode.InvalidRequest, back.Code);
+        Assert.Equal(reason, back.ReasonOverride);
+    }
+
+    [Fact]
+    public void Bare_resource_exhausted_is_payload_too_large_like_http_413()
+    {
+        // What the gRPC layer sends for a message over the size limit: no A2A ErrorInfo.
+        var rpc = new RpcException(new Status(StatusCode.ResourceExhausted, "Received message exceeds the maximum configured message size."));
+        var back = GrpcErrors.FromRpcException(rpc);
+        Assert.Equal(A2AErrorCode.InvalidRequest, back.Code);
+        Assert.Equal(A2AErrors.PayloadTooLargeReason, back.ReasonOverride);
+        Assert.Equal(413, back.HttpStatus);
+        Assert.False(back.IsRetryable);
+
+        // An A2A rate limit (RESOURCE_EXHAUSTED with ErrorInfo) keeps its own code.
+        Assert.Equal(A2AErrorCode.RateLimited, GrpcErrors.FromRpcException(GrpcErrors.ToRpcException(A2AException.RateLimited(TimeSpan.FromSeconds(1)))).Code);
     }
 
     [Theory]
@@ -126,9 +187,9 @@ public class GrpcBindingTests : IAsyncLifetime
     public async Task Blocking_send_and_get_with_history_length()
     {
         var client = _host.Client();
-        var task = TaskOf(await client.SendMessageAsync("task"));
+        var task = Assert.IsType<TaskResponse>(await client.SendMessageAsync("task")).Task;
         Assert.Equal(TaskState.Completed, task.Status.State);
-        Assert.Equal(["part1", "part2"], task.Artifacts!.Single().Parts.Cast<TextPart>().Select(p => p.Text));
+        Assert.Equal(["part1", "part2"], task.Artifacts!.Single().Parts.Select(p => ((TextPart)p).Text));
         Assert.Single((await client.GetTaskAsync(task.Id, 1)).History!);
         Assert.Null((await client.GetTaskAsync(task.Id, 0)).History);
     }
@@ -147,9 +208,9 @@ public class GrpcBindingTests : IAsyncLifetime
     public async Task Multi_turn_and_terminal_rejection()
     {
         var client = _host.Client();
-        var first = TaskOf(await client.SendMessageAsync("input"));
+        var first = Assert.IsType<TaskResponse>(await client.SendMessageAsync("input")).Task;
         Assert.Equal(TaskState.InputRequired, first.Status.State);
-        var second = TaskOf(await client.SendMessageAsync("more", first.ContextId, first.Id));
+        var second = Assert.IsType<TaskResponse>(await client.SendMessageAsync("more", first.ContextId, first.Id)).Task;
         Assert.Equal("got: more", second.Status.Message!.GetText());
         var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync("again", null, first.Id));
         Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
@@ -159,7 +220,7 @@ public class GrpcBindingTests : IAsyncLifetime
     public async Task Subscribe_then_cancel()
     {
         var client = _host.Client();
-        var task = TaskOf(await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true }));
+        var task = Assert.IsType<TaskResponse>(await client.SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).Task;
         var first = new TaskCompletionSource<StreamResponse>();
         var states = new List<TaskState>();
         var reader = Task.Run(async () =>
@@ -167,10 +228,10 @@ public class GrpcBindingTests : IAsyncLifetime
             await foreach (var e in client.SubscribeToTaskAsync(task.Id))
             {
                 first.TrySetResult(e);
-                if (e is StatusUpdateEvent { StatusUpdate: var su }) states.Add(su.Status.State);
+                if (e is StatusUpdateEvent su) states.Add(su.StatusUpdate.Status.State);
             }
         });
-        Assert.Equal(task.Id, (await first.Task.WaitAsync(TimeSpan.FromSeconds(10))).TaskId);
+        Assert.Equal(task.Id, Assert.IsType<TaskEvent>(await first.Task.WaitAsync(TimeSpan.FromSeconds(10))).Task.Id);
         Assert.Equal(TaskState.Canceled, (await client.CancelTaskAsync(task.Id)).Status.State);
         await reader.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Contains(TaskState.Canceled, states);
@@ -182,7 +243,7 @@ public class GrpcBindingTests : IAsyncLifetime
     {
         var alice = _host.Client("alice");
         var bob = _host.Client("bob");
-        var task = TaskOf(await alice.SendMessageAsync("task"));
+        var task = Assert.IsType<TaskResponse>(await alice.SendMessageAsync("task")).Task;
         Assert.Equal(A2AErrorCode.TaskNotFound, (await Assert.ThrowsAsync<A2AException>(() => bob.GetTaskAsync(task.Id))).Code);
         Assert.Empty((await bob.ListTasksAsync(new ListTasksRequest())).Tasks);
         Assert.Equal(task.Id, Assert.Single((await alice.ListTasksAsync(new ListTasksRequest())).Tasks).Id);
@@ -192,8 +253,8 @@ public class GrpcBindingTests : IAsyncLifetime
     public async Task Push_config_crud()
     {
         var client = _host.Client("carol");
-        var task = TaskOf(await client.SendMessageAsync("input"));
-        var created = await client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = task.Id, Url = "http://127.0.0.1:9/cb" });
+        var task = Assert.IsType<TaskResponse>(await client.SendMessageAsync("input")).Task;
+        var created = await client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = task.Id, Url = "https://hooks.example/cb" });
         Assert.Single((await client.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest { TaskId = task.Id })).Configs);
         await client.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = task.Id, Id = created.Id! });
         Assert.Empty((await client.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest { TaskId = task.Id })).Configs);
@@ -210,7 +271,7 @@ public class GrpcBindingTests : IAsyncLifetime
     [Fact]
     public async Task Missing_version_metadata_is_rejected_and_extensions_are_echoed()
     {
-        var raw = new Pb.A2AService.A2AServiceClient(_host.Channel("alice"));
+        var raw = _host.Raw();
         var noVersion = await Assert.ThrowsAsync<RpcException>(() => raw.GetTaskAsync(new Pb.GetTaskRequest { Id = "x" }).ResponseAsync);
         Assert.Equal(A2AErrorCode.VersionNotSupported, GrpcErrors.FromRpcException(noVersion).Code);
 
@@ -221,51 +282,24 @@ public class GrpcBindingTests : IAsyncLifetime
         Assert.Equal(GrpcHost.Extension, (await call.ResponseHeadersAsync).GetValue("a2a-extensions"));
     }
 
-    private static AgentTask TaskOf(SendMessageResponse r) => Assert.IsType<TaskResponse>(r).Task;
-
     [Fact]
     public async Task Invalid_request_maps_to_invalid_argument()
     {
-        var raw = new Pb.A2AService.A2AServiceClient(_host.Channel("alice"));
         var bad = new Pb.SendMessageRequest { Message = new Pb.Message { MessageId = "m", Role = Pb.Role.User } };
-        var ex = await Assert.ThrowsAsync<RpcException>(() => raw.SendMessageAsync(bad, new Metadata { { "a2a-version", "1.0" } }).ResponseAsync);
+        var ex = await Assert.ThrowsAsync<RpcException>(() => _host.Raw().SendMessageAsync(bad, new Metadata { { "a2a-version", "1.0" } }).ResponseAsync);
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
     }
 }
 
-public class GrpcSecurityAndFactoryTests
+/// <summary>Selecting gRPC from the Agent Card through <see cref="A2AClientFactory"/> and <see cref="A2AGrpcClientFactory"/>.</summary>
+public class GrpcClientFactoryTests
 {
-    [Fact]
-    public async Task Startup_fails_without_an_authorization_policy()
-    {
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => GrpcHost.StartAsync(requireAuth: false));
-        Assert.Contains("authorization policy", ex.Message);
-    }
-
-    [Fact]
-    public async Task Allow_anonymous_opts_out_of_the_startup_check()
-    {
-        await using var host = await GrpcHost.StartAsync(requireAuth: false, configure: o => o.AllowAnonymous = true);
-        Assert.IsType<MessageResponse>(await host.Client(user: null).SendMessageAsync("hello"));
-    }
-
-    [Fact]
-    public async Task Retry_with_same_idempotency_key_returns_the_same_task()
-    {
-        await using var host = await GrpcHost.StartAsync();
-        var client = host.Client();
-        var options = new A2ARequestOptions { IdempotencyKey = "key-1" };
-        var message = Message.FromUser("task");
-        var first = Assert.IsType<TaskResponse>(await client.SendMessageAsync(message, options: options)).Task;
-        var again = Assert.IsType<TaskResponse>(await client.SendMessageAsync(message, options: options)).Task;
-        Assert.Equal(first.Id, again.Id);
-    }
-
     [Fact]
     public void Factory_selects_grpc_only_when_enabled()
     {
         var card = GrpcHost.Card();
-        card.SupportedInterfaces = [
+        card.SupportedInterfaces =
+        [
             new AgentInterface { Url = "grpc.example.com:50051", ProtocolBinding = ProtocolBindings.Grpc },
             new AgentInterface { Url = "https://agent.example.com/a2a", ProtocolBinding = ProtocolBindings.JsonRpc },
         ];
@@ -285,133 +319,16 @@ public class GrpcSecurityAndFactoryTests
         card.SupportedInterfaces = [new AgentInterface { Url = "https://agent.example.com/a2a", ProtocolBinding = ProtocolBindings.JsonRpc }];
         Assert.Equal(A2AErrorCode.UnsupportedOperation, Assert.Throws<A2AException>(() => A2AGrpcClientFactory.Create(card)).Code);
     }
-}
 
-// ---------------- host ----------------
-
-internal sealed class ScenarioAgent : IAgentExecutor
-{
-    public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct)
+    [Fact]
+    public async Task Idempotency_key_option_deduplicates_end_to_end()
     {
-        if (context.Task?.Status.State == TaskState.InputRequired)
-        {
-            await updater.CompleteAsync($"got: {context.UserText}", ct);
-            return;
-        }
-        switch (context.UserText)
-        {
-            case "hello": await updater.ReplyAsync("hi there", ct); break;
-            case "task":
-                await updater.StartWorkAsync("working", ct);
-                await updater.AddArtifactAsync([Part.FromText("part1")], artifactId: "a1", name: "result", cancellationToken: ct);
-                await updater.AddArtifactAsync([Part.FromText("part2")], artifactId: "a1", append: true, lastChunk: true, cancellationToken: ct);
-                await updater.CompleteAsync("done", ct);
-                break;
-            case "input": await updater.RequireInputAsync("need more", ct); break;
-            case "slow":
-                await updater.StartWorkAsync(cancellationToken: ct);
-                await Task.Delay(Timeout.Infinite, ct);
-                break;
-            default: await updater.CompleteAsync(context.UserText, ct); break;
-        }
-    }
-}
-
-internal sealed class HeaderAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
-    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
-{
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
-    {
-        var user = Request.Headers["x-test-user"].ToString();
-        if (string.IsNullOrEmpty(user)) return Task.FromResult(AuthenticateResult.NoResult());
-        var id = new ClaimsIdentity([new Claim("sub", user)], "Test");
-        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(id), "Test")));
-    }
-}
-
-internal sealed class GrpcHost : IAsyncDisposable
-{
-    public const string Extension = "urn:test:ext";
-    private readonly WebApplication _app;
-
-    private GrpcHost(WebApplication app) => _app = app;
-
-    public static AgentCard Card() => new()
-    {
-        Name = "gRPC Scenario Agent", Description = "test", Version = "1.0.0",
-        SupportedInterfaces = [new AgentInterface { Url = "http://localhost", ProtocolBinding = ProtocolBindings.Grpc }],
-        Capabilities = new AgentCapabilities { Streaming = true, PushNotifications = true, ExtendedAgentCard = true, Extensions = [new AgentExtension { Uri = Extension }] },
-        DefaultInputModes = ["text/plain"], DefaultOutputModes = ["text/plain"],
-        Skills = [new AgentSkill { Id = "s", Name = "S", Description = "s", Tags = ["t"] }],
-    };
-
-    public static async Task<GrpcHost> StartAsync(bool requireAuth = true, Action<A2AServerOptions>? configure = null, Action<A2AServerBuilder>? server = null)
-    {
-        var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseTestServer();
-        builder.Logging.ClearProviders();
-        builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, HeaderAuthHandler>("Test", null);
-        builder.Services.AddAuthorization();
-        var a2a = builder.Services.AddA2AServer(o =>
-        {
-            o.AgentCard = Card();
-            o.CancelGracePeriod = TimeSpan.FromSeconds(2);
-            o.PushNotifications.AllowInsecureUrls = true;
-            o.PushNotifications.AllowPrivateNetworks = true;
-            o.ExtendedAgentCardProvider = (call, _, _) =>
-            {
-                var c = Card();
-                c.Description = $"Extended for {call.Principal}";
-                return ValueTask.FromResult<AgentCard?>(c);
-            };
-            configure?.Invoke(o);
-        }).AddAgentExecutor<ScenarioAgent>();
-        server?.Invoke(a2a);
-        builder.Services.AddA2AGrpc();
-        var app = builder.Build();
-        app.UseAuthentication();
-        app.UseA2A();
-        app.UseAuthorization();
-        app.MapAgentCard();
-        var grpc = app.MapA2AGrpc();
-        if (requireAuth) grpc.RequireAuthorization();
-        await app.StartAsync();
-        return new GrpcHost(app);
-    }
-
-    public GrpcChannel Channel(string? user = null)
-    {
-        HttpMessageHandler handler = _app.GetTestServer().CreateHandler();
-        if (user is not null) handler = new UserHandler(user) { InnerHandler = handler };
-        return GrpcChannel.ForAddress(_app.GetTestServer().BaseAddress, new GrpcChannelOptions { HttpHandler = handler });
-    }
-
-    public HttpMessageHandler Handler(string? user = null)
-    {
-        HttpMessageHandler handler = _app.GetTestServer().CreateHandler();
-        return user is null ? handler : new UserHandler(user) { InnerHandler = handler };
-    }
-
-    public Uri BaseAddress => _app.GetTestServer().BaseAddress;
-
-    public A2AClient Client(string? user = "alice", A2AClientOptions? options = null)
-    {
-        options ??= new A2AClientOptions();
-        return new A2AClient(new GrpcTransport(Channel(user).CreateCallInvoker(), options), options, Card());
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await _app.StopAsync();
-        await _app.DisposeAsync();
-    }
-
-    private sealed class UserHandler(string user) : DelegatingHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            request.Headers.Add("x-test-user", user);
-            return base.SendAsync(request, cancellationToken);
-        }
+        await using var host = await GrpcHost.StartAsync();
+        var client = host.Client();
+        var options = new A2ARequestOptions { IdempotencyKey = "key-1" };
+        var message = Message.FromUser("task");
+        var first = Assert.IsType<TaskResponse>(await client.SendMessageAsync(message, options: options)).Task;
+        var again = Assert.IsType<TaskResponse>(await client.SendMessageAsync(message, options: options)).Task;
+        Assert.Equal(first.Id, again.Id);
     }
 }

@@ -1,8 +1,9 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using A2A.Client.Resilience;
-using A2A.Client.Telemetry;
+using A2A.Diagnostics;
 using A2A.Json;
 
 namespace A2A.Client.Transports;
@@ -23,12 +24,10 @@ public abstract class HttpTransportBase
     /// <summary>The client options.</summary>
     protected A2AClientOptions Options { get; }
 
-    /// <summary>Default time limit of one unary attempt.</summary>
-    internal static readonly TimeSpan DefaultUnaryTimeout = TimeSpan.FromSeconds(100);
-
     /// <summary>
     /// Sets the request headers in this order: SDK headers (<c>A2A-Version</c>, <c>A2A-Extensions</c>, <c>Accept</c>,
-    /// <c>Idempotency-Key</c>, and <c>Last-Event-ID</c> on a stream resume), then <see cref="A2ARequestOptions.Headers"/>, then <see cref="A2ARequestOptions.ConfigureRequest"/>.
+    /// <c>Idempotency-Key</c>, <c>Last-Event-ID</c> on a stream resume, and the W3C <c>traceparent</c>/<c>tracestate</c> of the
+    /// current activity), then <see cref="A2ARequestOptions.Headers"/>, then <see cref="A2ARequestOptions.ConfigureRequest"/>.
     /// The later steps can replace or remove the earlier ones, including <c>A2A-Version</c>.
     /// </summary>
     protected async Task ApplyHeadersAsync(HttpRequestMessage request, bool streaming, A2ARequestOptions? call, string? idempotencyKey, CancellationToken cancellationToken, string? lastEventId = null)
@@ -42,6 +41,11 @@ public abstract class HttpTransportBase
         if (!streaming) request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.JsonMediaType));
         if (!string.IsNullOrEmpty(idempotencyKey)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.IdempotencyKey, idempotencyKey);
         if (!string.IsNullOrEmpty(lastEventId)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.LastEventId, lastEventId);
+        A2ATelemetry.InjectTraceContext(Activity.Current, (name, value) =>
+        {
+            request.Headers.Remove(name);
+            request.Headers.TryAddWithoutValidation(name, value);
+        });
 
         if (call is null) return;
         foreach (var (name, value) in call.Headers)
@@ -77,35 +81,24 @@ public abstract class HttpTransportBase
     /// Runs one unary operation: each attempt gets the call timeout, and failed attempts are retried by
     /// <see cref="RetryPolicy"/> under <paramref name="retry"/>, at most <see cref="A2ARequestOptions.MaxRetries"/>
     /// (else <see cref="A2AClientOptions.MaxRetries"/>) times. <paramref name="attempt"/> builds and sends a fresh request every time.
-    /// The whole call, retries included, is one <c>a2a.client.{operation}</c> span (<see cref="A2AClientTelemetry"/>).
+    /// The span of the call (retries included) is <see cref="A2AClient"/>'s.
     /// </summary>
-    private protected async Task<T> ExecuteUnaryAsync<T>(string operation, RetryMode retry, A2ARequestOptions? call, Func<CancellationToken, Task<T>> attempt, CancellationToken ct)
+    private protected async Task<T> ExecuteUnaryAsync<T>(RetryMode retry, A2ARequestOptions? call, Func<CancellationToken, Task<T>> attempt, CancellationToken ct)
     {
-        var activity = A2AClientTelemetry.Start(operation);
-        try
+        var timeout = call?.Timeout ?? A2ARequestOptions.DefaultTimeout;
+        var maxAttempts = 1 + (call?.MaxRetries ?? Options.MaxRetries);
+        for (var n = 1; ; n++)
         {
-            var timeout = call?.Timeout ?? DefaultUnaryTimeout;
-            var maxAttempts = 1 + (call?.MaxRetries ?? Options.MaxRetries);
-            for (var n = 1; ; n++)
+            ct.ThrowIfCancellationRequested();
+            try
             {
-                ct.ThrowIfCancellationRequested();
-                try
-                {
-                    var result = await WithTimeoutAsync(timeout, attempt, ct).ConfigureAwait(false);
-                    A2AClientTelemetry.Stop(activity, null, ct);
-                    return result;
-                }
-                catch (Exception ex) when (n < maxAttempts && !ct.IsCancellationRequested && RetryPolicy.ShouldRetry(retry, ex, out _))
-                {
-                    RetryPolicy.ShouldRetry(retry, ex, out var retryAfter);
-                    await Task.Delay(RetryPolicy.Delay(n + 1, retryAfter), Options.TimeProvider, ct).ConfigureAwait(false);
-                }
+                return await WithTimeoutAsync(timeout, attempt, ct).ConfigureAwait(false);
             }
-        }
-        catch (Exception ex)
-        {
-            A2AClientTelemetry.Stop(activity, ex, ct);
-            throw;
+            catch (Exception ex) when (n < maxAttempts && !ct.IsCancellationRequested && RetryPolicy.ShouldRetry(retry, ex, out _))
+            {
+                RetryPolicy.ShouldRetry(retry, ex, out var retryAfter);
+                await Task.Delay(RetryPolicy.Delay(n + 1, retryAfter), Options.TimeProvider, ct).ConfigureAwait(false);
+            }
         }
     }
 
@@ -187,5 +180,46 @@ public abstract class HttpTransportBase
     {
         try { return A2AJson.Deserialize<T>(element); }
         catch (JsonException ex) { throw ProtocolError($"Malformed {what} in agent response: {ex.Message}", ex); }
+    }
+
+    private static readonly string[] StreamEventMembers = ["task", "message", "statusUpdate", "artifactUpdate"];
+
+    /// <summary>
+    /// True when a stream event object carries a StreamResponse member this SDK knows. An object with only unknown
+    /// members comes from a newer protocol version and is skipped by the transports.
+    /// </summary>
+    private protected static bool IsKnownStreamEvent(JsonElement e)
+    {
+        if (e.ValueKind != JsonValueKind.Object) return true; // let the parser report the error
+        foreach (var name in StreamEventMembers)
+            if (e.TryGetProperty(name, out _)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Sends <paramref name="request"/> and refuses a response that arrived through a redirect. A2A endpoints are taken
+    /// from the Agent Card and never redirect; a redirect could hand the response, and the request's headers, to another
+    /// origin.
+    /// </summary>
+    /// <remarks>
+    /// This check runs after the response arrives, so it cannot stop an <see cref="HttpClient"/> that follows redirects
+    /// from re-sending custom credential headers (only <c>Authorization</c> is dropped). Use a handler with
+    /// <c>AllowAutoRedirect = false</c>; <c>AddA2AClient</c> sets that up.
+    /// </remarks>
+    private protected async Task<HttpResponseMessage> SendCheckedAsync(HttpRequestMessage request, HttpCompletionOption completion, CancellationToken ct)
+    {
+        var requested = request.RequestUri is { IsAbsoluteUri: true } abs ? abs
+            : Http.BaseAddress is { } baseAddress && request.RequestUri is { } rel ? new Uri(baseAddress, rel)
+            : request.RequestUri;
+        var response = await Http.SendAsync(request, completion, ct).ConfigureAwait(false);
+        var final = response.RequestMessage?.RequestUri;
+        if (requested is not null && final is not null && final != requested)
+        {
+            response.Dispose();
+            throw new A2AException(A2AErrorCode.InvalidAgentResponse,
+                $"The agent redirected the request to {final.GetLeftPart(UriPartial.Authority)}. A2A clients do not follow redirects: " +
+                "use an HttpClient whose handler sets AllowAutoRedirect = false (AddA2AClient does this).");
+        }
+        return response;
     }
 }

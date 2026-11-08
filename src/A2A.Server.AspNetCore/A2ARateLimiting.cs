@@ -102,7 +102,8 @@ internal sealed class A2ARateLimitMarker
 /// unauthenticated caller its remote IP address, so anonymous callers do not share one bucket. Every request also draws
 /// from a bucket per caller alone (same settings), so one caller cannot get more by spreading requests over tenants.
 /// </summary>
-internal sealed class A2ARateLimiterPolicy(IOptions<A2ARateLimitOptions> options, ITenantResolver tenants, IPrincipalResolver principals)
+internal sealed class A2ARateLimiterPolicy(IOptions<A2ARateLimitOptions> options, ITenantResolver tenants, IPrincipalResolver principals,
+    IEnumerable<IA2ARejectionWriter> writers)
     : IRateLimiterPolicy<string>, IDisposable
 {
     private readonly A2ARateLimitOptions _options = options.Value;
@@ -143,12 +144,34 @@ internal sealed class A2ARateLimiterPolicy(IOptions<A2ARateLimitOptions> options
         if (wait < TimeSpan.FromSeconds(1)) wait = TimeSpan.FromSeconds(1);
         var error = A2AException.RateLimited(wait);
 
+        foreach (var writer in writers)
+        {
+            if (writer.TryWriteAsync(http, error) is { } written) return new ValueTask(written);
+        }
+
         HttpPlumbing.SetRetryAfter(http, error);
         var isJsonRpc = http.GetEndpoint()?.DisplayName?.StartsWith(JsonRpcEndpoint.DisplayName, StringComparison.Ordinal) == true;
         return new ValueTask(isJsonRpc
             ? HttpPlumbing.WriteJsonAsync(http, JsonRpcResponse.Failure(null, error), A2AProtocol.JsonMediaType, 429)
             : HttpPlumbing.WriteJsonAsync(http, RestEndpoint.StatusBody(error), A2AProtocol.MediaType, 429));
     }
+}
+
+/// <summary>
+/// Writes an A2A error that is raised before the endpoint runs (the <c>"a2a"</c> rate limit rejection) in a binding's own
+/// format. The JSON-RPC and HTTP+JSON formats are built in; a binding package (for example the gRPC binding) registers one
+/// for its endpoints with <c>services.TryAddEnumerable(ServiceDescriptor.Singleton&lt;IA2ARejectionWriter, MyWriter&gt;())</c>.
+/// The registered writers are asked in order; the first one that writes wins.
+/// </summary>
+public interface IA2ARejectionWriter
+{
+    /// <summary>
+    /// Writes <paramref name="error"/> (with its <see cref="A2AException.RetryAfter"/>) and returns the write, or returns null
+    /// when <paramref name="http"/> is not a request of this writer's binding.
+    /// </summary>
+    /// <param name="http">The rejected request.</param>
+    /// <param name="error">The A2A error to send (<see cref="A2AErrorCode"/> RateLimited for the rate limit).</param>
+    Task? TryWriteAsync(HttpContext http, A2AException error);
 }
 
 /// <summary>

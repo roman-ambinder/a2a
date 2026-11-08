@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>A2A.Stores.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Xunit.SkippableFact" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.Redis" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\A2A.Server\A2A.Server.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.Postgres\A2A.Server.Postgres.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.Redis\A2A.Server.Redis.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Shared with A2A.Tests: the manual clock drives retention in every store. -->
+    <Compile Include="..\A2A.Tests\FakeTimeProvider.cs" Link="FakeTimeProvider.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

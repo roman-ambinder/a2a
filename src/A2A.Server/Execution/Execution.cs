@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Threading.Channels;
+using A2A.Diagnostics;
 using A2A.Server.Streaming;
 
 namespace A2A.Server.Execution;
@@ -15,6 +17,33 @@ internal sealed class Execution(string taskId, CancellationTokenSource cts, int 
 
     public string TaskId { get; } = taskId;
     public CancellationTokenSource Cts { get; } = cts;
+
+    /// <summary>The run's span (<see cref="A2ATelemetry.SpanNames.AgentExecution"/>), or null when nobody listens.</summary>
+    public Activity? Activity { get; init; }
+
+    /// <summary>
+    /// Ends the run's span. A run that left the task FAILED gets an error status (unless a more specific error was recorded,
+    /// for example the time limit).
+    /// </summary>
+    public void EndActivity()
+    {
+        if (Activity is not { } activity) return;
+        if (activity.Status == ActivityStatusCode.Unset && activity.GetTagItem(A2ATelemetry.Tags.TaskState) is string state
+            && string.Equals(state, nameof(TaskState.Failed), StringComparison.Ordinal))
+        {
+            activity.SetTag(A2ATelemetry.Tags.ErrorType, "TaskFailed");
+            activity.SetStatus(ActivityStatusCode.Error, "TaskFailed");
+        }
+        activity.Dispose();
+    }
+
+    private int _outcome; // 0 running, 1 the agent returned (or threw), 2 timed out
+
+    /// <summary>The agent returned or threw. False when the execution had already timed out.</summary>
+    public bool TryMarkReturned() => Interlocked.CompareExchange(ref _outcome, 1, 0) != 2;
+
+    /// <summary>The time limit expired. False when the agent had already returned.</summary>
+    public bool TryMarkTimedOut() => Interlocked.CompareExchange(ref _outcome, 2, 0) == 0;
 
     /// <summary>
     /// The agent's events, read by the engine. When it is full the agent's next write waits: a fast agent is throttled to the

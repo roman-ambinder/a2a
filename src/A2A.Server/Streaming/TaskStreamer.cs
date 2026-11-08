@@ -217,7 +217,7 @@ public sealed class TaskStreamer
         try
         {
             slot = _admission.Enter(Key(call, taskId), call.LimitPartition);
-            A2AServerTelemetry.StreamsOpened.Add(1);
+            ServerTelemetry.StreamsOpened.Add(1);
         }
         catch
         {
@@ -389,7 +389,7 @@ public sealed class TaskStreamer
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "Cannot subscribe to a task in a terminal state.") { Metadata = new() { ["taskId"] = request.Id } };
 
         using var slot = _admission.Enter(key, call.LimitPartition);
-        A2AServerTelemetry.StreamsOpened.Add(1);
+        ServerTelemetry.StreamsOpened.Add(1);
         using var sub = _bus.Subscribe(ScopeKey(call.Tenant, request.Id));
         // Read the starting point after subscribing, so every later event reaches the subscription (spec §3.1.6).
         var start = await ReadStartAsync(key, cancellationToken).ConfigureAwait(false);

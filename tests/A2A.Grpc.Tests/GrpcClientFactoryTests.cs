@@ -4,7 +4,7 @@ using Grpc.Net.Client;
 
 namespace A2A.Grpc.Tests;
 
-public class GrpcClientFactoryTests : IAsyncLifetime
+public class GrpcClientFactoryCreateAsyncTests : IAsyncLifetime
 {
     private GrpcHost _host = null!;
 

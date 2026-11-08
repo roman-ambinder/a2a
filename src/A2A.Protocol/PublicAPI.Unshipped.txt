@@ -797,3 +797,63 @@ static A2A.JsonRpc.JsonRpcWriter.Request<T>(string! id, string! method, T params
 static A2A.JsonRpc.JsonRpcWriter.Success<T>(System.Text.Json.JsonElement? id, T result, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! info) -> byte[]!
 static A2A.JsonRpc.JsonRpcWriter.Success(System.Text.Json.JsonElement? id, System.ReadOnlySpan<byte> resultJson) -> byte[]!
 static A2A.JsonRpc.JsonRpcWriter.WriteSuccess<T>(System.Text.Json.Utf8JsonWriter! w, System.Text.Json.JsonElement? id, T result, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! info) -> void
+A2A.Diagnostics.A2ATelemetry
+A2A.Diagnostics.A2ATelemetry.Events
+A2A.Diagnostics.A2ATelemetry.Metrics
+A2A.Diagnostics.A2ATelemetry.Outcomes
+A2A.Diagnostics.A2ATelemetry.SpanNames
+A2A.Diagnostics.A2ATelemetry.Tags
+A2A.Json.ProtoJsonFieldNames
+const A2A.Diagnostics.A2ATelemetry.ClientSourceName = "A2A.Client" -> string!
+const A2A.Diagnostics.A2ATelemetry.ErrorTypeCanceledTag = "a2a.canceled" -> string!
+const A2A.Diagnostics.A2ATelemetry.Events.EventKind = "a2a.event.kind" -> string!
+const A2A.Diagnostics.A2ATelemetry.Events.EventSequence = "a2a.event.sequence" -> string!
+const A2A.Diagnostics.A2ATelemetry.Events.Retry = "a2a.retry" -> string!
+const A2A.Diagnostics.A2ATelemetry.Events.StreamEvent = "a2a.stream.event" -> string!
+const A2A.Diagnostics.A2ATelemetry.Metrics.Events = "a2a.server.events" -> string!
+const A2A.Diagnostics.A2ATelemetry.Metrics.PushDeliveries = "a2a.server.push.deliveries" -> string!
+const A2A.Diagnostics.A2ATelemetry.Metrics.Requests = "a2a.server.requests" -> string!
+const A2A.Diagnostics.A2ATelemetry.Metrics.StreamsOpened = "a2a.server.streams.opened" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.Canceled = "canceled" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.Delivered = "delivered" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.Error = "error" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.Failed = "failed" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.Ok = "ok" -> string!
+const A2A.Diagnostics.A2ATelemetry.ServerMeterName = "A2A.Server" -> string!
+const A2A.Diagnostics.A2ATelemetry.ServerSourceName = "A2A.Server" -> string!
+const A2A.Diagnostics.A2ATelemetry.SpanNames.AgentExecution = "a2a.agent.execute" -> string!
+const A2A.Diagnostics.A2ATelemetry.SpanNames.OperationPrefix = "a2a." -> string!
+const A2A.Diagnostics.A2ATelemetry.SpanNames.PushDelivery = "a2a.push.deliver" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.Binding = "a2a.binding" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ContextId = "a2a.context.id" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ErrorCode = "a2a.error.code" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ErrorType = "error.type" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ExecutionKind = "a2a.execution.kind" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.HttpStatusCode = "http.response.status_code" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.Operation = "rpc.method" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.Outcome = "a2a.outcome" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.PushAttempts = "a2a.push.attempts" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.PushConfigId = "a2a.push.config.id" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.PushSequence = "a2a.push.sequence" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.RpcSystem = "rpc.system" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ServerAddress = "server.address" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.StreamEventCount = "a2a.stream.event_count" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.TaskId = "a2a.task.id" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.TaskState = "a2a.task.state" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.Tenant = "a2a.tenant" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.TimedOut = "a2a.execution.timed_out" -> string!
+const A2A.Diagnostics.A2ATelemetry.TraceParentHeader = "traceparent" -> string!
+const A2A.Diagnostics.A2ATelemetry.TraceStateHeader = "tracestate" -> string!
+static A2A.Diagnostics.A2ATelemetry.AddStreamEvent(System.Diagnostics.Activity? activity, A2A.StreamResponse! evt, long? sequence = null) -> void
+static A2A.Diagnostics.A2ATelemetry.EventKindOf(A2A.StreamResponse! evt) -> string!
+static A2A.Diagnostics.A2ATelemetry.InjectTraceContext(System.Diagnostics.Activity? activity, System.Action<string!, string!>! setHeader) -> void
+static A2A.Diagnostics.A2ATelemetry.InjectTraceContext(System.Diagnostics.ActivityContext context, System.Action<string!, string!>! setHeader) -> void
+static A2A.Diagnostics.A2ATelemetry.RecordError(System.Diagnostics.Activity? activity, System.Exception! error, bool callerCanceled = false) -> void
+static A2A.Diagnostics.A2ATelemetry.SetOperationTags(System.Diagnostics.Activity? activity, string! operation, string? binding, string? tenant, string? taskId = null, string? contextId = null) -> void
+static A2A.Diagnostics.A2ATelemetry.SetResult(System.Diagnostics.Activity? activity, object? result) -> void
+static A2A.Diagnostics.A2ATelemetry.SetTask(System.Diagnostics.Activity? activity, string? taskId, string? contextId = null) -> void
+static A2A.Diagnostics.A2ATelemetry.SpanNames.Operation(string! operation) -> string!
+static A2A.Diagnostics.A2ATelemetry.TryExtractTraceContext(string? traceParent, string? traceState, out System.Diagnostics.ActivityContext context) -> bool
+static A2A.Json.ProtoJsonFieldNames.Deserialize<T>(System.ReadOnlySpan<byte> utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! typeInfo) -> T?
+static A2A.Json.ProtoJsonFieldNames.Normalize(System.Text.Json.JsonElement element) -> System.Text.Json.JsonElement
+static A2A.Json.ProtoJsonFieldNames.ToJsonName(string! protoName) -> string!

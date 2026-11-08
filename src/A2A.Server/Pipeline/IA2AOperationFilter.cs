@@ -14,7 +14,7 @@ public delegate ValueTask<object?> A2AOperationDelegate(A2AOperationContext cont
 /// <see cref="A2AServerBuilder.AddOperationFilter{T}"/>; they run in registration order within their <see cref="A2AFilterStage"/>.
 /// The built-in authorization filter always runs between the <see cref="A2AFilterStage.BeforeAuthorization"/> filters and the
 /// <see cref="A2AFilterStage.AfterAuthorization"/> ones, and the operation is the innermost step. The built-in telemetry step
-/// (<see cref="Telemetry.A2AServerTelemetry"/>) wraps them all, so a call refused by a filter still has its span. The protocol version, the
+/// (spans and counters named in <see cref="A2A.Diagnostics.A2ATelemetry"/>) wraps them all, so a call refused by a filter still has its span. The protocol version, the
 /// extensions and the tenant are checked before the pipeline, so every filter sees a tenant-bound call.
 /// </summary>
 /// <remarks>

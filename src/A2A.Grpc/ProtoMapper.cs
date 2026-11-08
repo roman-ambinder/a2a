@@ -26,7 +26,16 @@ public static class ProtoMapper
     private static MemoryStream? t_buffer;
 
     /// <summary>Proto → model.</summary>
-    public static T ToModel<T>(IMessage proto)
+    public static T ToModel<T>(IMessage proto) => ToModelCore<T>(proto, maxDepth: 0);
+
+    /// <summary>
+    /// Proto → model for an incoming request: nesting deeper than <paramref name="maxDepth"/> (the request depth limit of the
+    /// HTTP bindings, applied to the same JSON form) is InvalidParams.
+    /// </summary>
+    public static T ToModel<T>(IMessage proto, int maxDepth) => ToModelCore<T>(proto, maxDepth);
+
+    /// <summary>Formats <paramref name="proto"/> as ProtoJSON into a reused UTF-8 buffer and reads the model from it. <paramref name="maxDepth"/> 0 means the reader's default.</summary>
+    private static T ToModelCore<T>(IMessage proto, int maxDepth)
     {
         ArgumentNullException.ThrowIfNull(proto);
         var buffer = t_buffer ??= new MemoryStream();
@@ -37,7 +46,8 @@ public static class ProtoMapper
             using (var writer = new StreamWriter(buffer, Utf8, 4096, leaveOpen: true))
                 Formatter.Format(proto, writer);
             var json = new ReadOnlySpan<byte>(buffer.GetBuffer(), 0, (int)buffer.Length);
-            return JsonSerializer.Deserialize(json, A2AJson.GetTypeInfo<T>()) ?? throw new JsonException($"Null {typeof(T).Name} payload.");
+            var reader = new Utf8JsonReader(json, new JsonReaderOptions { MaxDepth = maxDepth });
+            return JsonSerializer.Deserialize(ref reader, A2AJson.GetTypeInfo<T>()) ?? throw new JsonException($"Null {typeof(T).Name} payload.");
         }
         catch (JsonException ex)
         {
@@ -50,13 +60,15 @@ public static class ProtoMapper
         }
     }
 
-    /// <summary>Model → proto.</summary>
-    public static TProto ToProto<TProto>(object model) where TProto : IMessage<TProto>, new()
+    /// <summary>Model → proto. <typeparamref name="TModel"/> is the declared model type (for unions, the abstract base), so the
+    /// source-generated metadata for that type writes the wire form, including the union member name.</summary>
+    public static TProto ToProto<TProto, TModel>(TModel model) where TProto : IMessage<TProto>, new()
     {
         ArgumentNullException.ThrowIfNull(model);
         try
         {
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(model, A2AJson.Options.GetTypeInfo(model.GetType()));
+            // The declared type's metadata writes the wire form (for unions, the member name).
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(model, A2AJson.GetTypeInfo<TModel>());
             // JsonParser reads only a string or a TextReader; the reader decodes the UTF-8 in small chunks.
             using var reader = new StreamReader(new MemoryStream(bytes, writable: false), Utf8);
             return Parser.Parse<TProto>(reader);

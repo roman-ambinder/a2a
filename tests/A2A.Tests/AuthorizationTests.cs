@@ -298,4 +298,44 @@ public class AuthorizationTests
             TestAgentHost.StartAsync(configureRoutes: g => g.AllowAnonymous()));
         Assert.Contains("RequireAuthorization", ex.Message);
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WithA2AStartupCheck_applies_the_startup_check_and_the_rate_limit(bool requireAuth)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+        builder.Services.AddAuthentication(TestAuthHandler.SchemeName)
+            .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, null);
+        builder.Services.AddAuthorization();
+        builder.Services.AddA2AServer(o => o.AgentCard = TestAgentHost.DefaultCard()).AddAgentExecutor<ScenarioAgent>();
+        builder.Services.AddA2AServerAspNetCore();
+        await using var app = builder.Build();
+        app.UseAuthentication();
+        app.UseA2A();
+        app.UseAuthorization();
+        var custom = app.MapGet("/custom", () => "ok").WithDisplayName("custom").WithA2AStartupCheck(app, "Custom");
+        if (requireAuth) custom.RequireAuthorization();
+
+        if (!requireAuth)
+        {
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => app.StartAsync());
+            Assert.Contains("no authorization policy", ex.Message);
+            return;
+        }
+        await app.StartAsync();
+        try
+        {
+            var endpoint = Assert.Single(app.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>().Endpoints,
+                e => e.DisplayName == "A2A Custom custom");
+            var limit = endpoint.Metadata.GetMetadata<Microsoft.AspNetCore.RateLimiting.EnableRateLimitingAttribute>();
+            Assert.Equal(A2ARateLimitingExtensions.PolicyName, limit?.PolicyName);
+        }
+        finally
+        {
+            await app.StopAsync();
+        }
+    }
 }

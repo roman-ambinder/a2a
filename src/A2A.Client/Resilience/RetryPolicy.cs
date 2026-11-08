@@ -3,7 +3,7 @@ using System.Net;
 namespace A2A.Client.Resilience;
 
 /// <summary>Which failures of a unary call may be retried.</summary>
-internal enum RetryMode
+public enum RetryMode
 {
     /// <summary>Never retried.</summary>
     None,
@@ -24,7 +24,11 @@ internal enum RetryMode
 /// error the server explicitly marked retryable (<c>metadata.retryable</c> = "true"). The server-side default
 /// (<see cref="A2AErrors.DefaultRetryable"/>) is not used.
 /// </summary>
-internal static class RetryPolicy
+/// <remarks>
+/// Public so that every transport retries by the same rules: the built-in HTTP transports, the gRPC transport (a separate
+/// package) and third-party <see cref="IA2ATransportFactory"/> transports.
+/// </remarks>
+public static class RetryPolicy
 {
     private static readonly TimeSpan BaseDelay = TimeSpan.FromMilliseconds(200);
 

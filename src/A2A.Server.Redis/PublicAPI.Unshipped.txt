@@ -1,0 +1,16 @@
+A2A.Server.Redis.A2ARedisServiceCollectionExtensions
+A2A.Server.Redis.RedisEventBusOptions
+A2A.Server.Redis.RedisEventBusOptions.ChannelPrefix.get -> string!
+A2A.Server.Redis.RedisEventBusOptions.ChannelPrefix.set -> void
+A2A.Server.Redis.RedisEventBusOptions.RedisEventBusOptions() -> void
+A2A.Server.Redis.RedisTaskEventBus
+A2A.Server.Redis.RedisTaskEventBus.DisposeAsync() -> System.Threading.Tasks.ValueTask
+A2A.Server.Redis.RedisTaskEventBus.RedisTaskEventBus(StackExchange.Redis.IConnectionMultiplexer! redis, A2A.Server.StreamingOptions! streaming, A2A.Server.Redis.RedisEventBusOptions? options = null, Microsoft.Extensions.Logging.ILogger<A2A.Server.Redis.RedisTaskEventBus!>? logger = null) -> void
+A2A.Server.Redis.RedisTaskEventBus.StartAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+A2A.Server.Redis.RedisTaskEventBus.StopAsync() -> System.Threading.Tasks.Task!
+override A2A.Server.Redis.RedisTaskEventBus.Complete(string! taskId) -> void
+override A2A.Server.Redis.RedisTaskEventBus.Publish(string! taskId, A2A.Server.Streaming.SequencedEvent evt) -> void
+static A2A.Server.Redis.A2ARedisServiceCollectionExtensions.AddA2ARedisEventBus(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, StackExchange.Redis.IConnectionMultiplexer! redis, System.Action<A2A.Server.Redis.RedisEventBusOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static A2A.Server.Redis.A2ARedisServiceCollectionExtensions.AddA2ARedisEventBus(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, string! configuration, System.Action<A2A.Server.Redis.RedisEventBusOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static A2A.Server.Redis.A2ARedisServiceCollectionExtensions.AddRedisEventBus(this A2A.Server.A2AServerBuilder! builder, StackExchange.Redis.IConnectionMultiplexer! redis, System.Action<A2A.Server.Redis.RedisEventBusOptions!>? configure = null) -> A2A.Server.A2AServerBuilder!
+static A2A.Server.Redis.A2ARedisServiceCollectionExtensions.AddRedisEventBus(this A2A.Server.A2AServerBuilder! builder, string! configuration, System.Action<A2A.Server.Redis.RedisEventBusOptions!>? configure = null) -> A2A.Server.A2AServerBuilder!
