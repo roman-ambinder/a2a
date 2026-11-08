@@ -10,6 +10,8 @@
   href: streaming.md
 - name: Push notifications
   href: push-notifications.md
+- name: Proactive continuation
+  href: proactive-continuation.md
 - name: Agent card signing
   href: agent-card-signing.md
 - name: Peer identity and registry

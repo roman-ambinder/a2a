@@ -26,7 +26,7 @@ On a client process, listen to `A2A.Client`:
 | Source | Span | Kind | When |
 |---|---|---|---|
 | `A2A.Server` | `{method}` (`SendMessage`, `GetTask`, ...) | Server; Internal when it runs under another local span such as ASP.NET Core's request span | every operation, on all three bindings |
-| `A2A.Server` | `a2a.agent.execute` | Internal | one agent run (execute or cancel); child of the operation span |
+| `A2A.Server` | `a2a.agent.execute` | Internal | one agent run (execute, cancel or continue); child of the operation span |
 | `A2A.Server` | `a2a.push.deliver` | Client | one attempt to send one event to one webhook |
 | `A2A.Client` | `{method}` | Client | every `A2AClient` operation, with its retries and stream reconnects |
 
@@ -62,7 +62,7 @@ A client reconnect adds an `a2a.retry` span event with `a2a.retry.attempt`. A fa
 | `a2a.tenant` | all server spans, and client operation spans | only for a non-default tenant. On the client, when the request has a tenant |
 | `a2a.task.state` | operation and run spans | the task state after the call or run, as its proto name (`TASK_STATE_COMPLETED`). A stream span has it only when the stream saw one state |
 | `a2a.stream.event_count` | stream spans | events sent or received |
-| `a2a.execution.kind` | run spans | `execute` or `cancel` |
+| `a2a.execution.kind` | run spans | `execute`, `cancel` or `continue` |
 | `a2a.execution.timed_out` | run spans | `true` when `MaxTaskDuration` ended the run |
 | `a2a.push.config.id`, `a2a.push.sequence`, `a2a.push.attempts` | delivery spans | |
 | `server.address` | delivery spans | the webhook host only |
@@ -123,7 +123,7 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 |---|---|
 | 100-101 | client: card signing and pinning |
 | 150-152 | client: agent registry (lookalike name, mixed-script name, identity change) |
-| 200-235 | server: agent runs, coordination, push-config cleanup, retention |
+| 200-242 | server: agent runs, coordination, push-config cleanup, retention |
 | 250-253 | server: startup diagnostics |
 | 300-313 | server: push delivery |
 | 400-402 | server: idempotency |
