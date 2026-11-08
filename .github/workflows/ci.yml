@@ -187,3 +187,53 @@ jobs:
           grep -E 'warning IL(2|3)[0-9]{3}' publish-client.log > warnings-client.txt || true
           cat warnings-client.txt
           test ! -s warnings-client.txt
+
+  docs:
+    name: Docs site (DocFX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Build doc snippets (warnings as errors)
+        run: dotnet build docs/site/snippets/A2A.DocSnippets.csproj -c Release
+
+      - name: Check guides (no C# fences, repo links and snippet regions exist)
+        run: python3 docs/site/check-guides.py
+
+      - name: Build site (broken links and bad xrefs fail)
+        run: dotnet docfx docs/site/docfx.json --warningsAsErrors
+
+      - name: Check links between generated pages
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --offline --no-progress 'docs/site/_site/**/*.html'
+          fail: true
+
+      - name: Check external links in guides and home page
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # API pages link to learn.microsoft.com heavily, so only the hand-written markdown is checked.
+          # This private repo is covered by check-guides.py.
+          args: >-
+            --no-progress --max-retries 3 --retry-wait-time 5 --timeout 30
+            --accept '100..=399,429'
+            --exclude 'github\.com/roman-ambinder/a2a'
+            'docs/site/index.md' 'docs/site/guides/*.md'
+          fail: true
+
+      - name: Upload site
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: docs/site/_site
+          if-no-files-found: error

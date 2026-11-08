@@ -1,0 +1,40 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "src": "../../src",
+          "files": ["**/*.csproj"]
+        }
+      ],
+      "dest": "api",
+      "filter": "filterConfig.yml",
+      "properties": {
+        "TargetFramework": "net10.0",
+        "DocfxMetadata": "true"
+      },
+      "disableGitFeatures": true,
+      "disableDefaultFilter": false
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": ["index.md", "toc.yml", "guides/**/*.md", "guides/**/toc.yml"]
+      },
+      {
+        "files": ["api/**/*.yml", "api/index.md"]
+      }
+    ],
+    "output": "_site",
+    "globalMetadata": {
+      "_appTitle": "A2A .NET SDK",
+      "_enableSearch": true,
+      "_disableContribution": true
+    },
+    "template": ["default", "modern"],
+    "markdownEngineProperties": {
+      "markdigExtensions": ["Alerts"]
+    }
+  }
+}

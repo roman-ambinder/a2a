@@ -1,0 +1,28 @@
+- name: Getting started
+  href: getting-started.md
+- name: Bindings
+  href: bindings.md
+- name: Authentication and ownership
+  href: auth-and-ownership.md
+- name: Streaming and resume
+  href: streaming.md
+- name: Push notifications
+  href: push-notifications.md
+- name: Agent card signing
+  href: agent-card-signing.md
+- name: Multi-tenancy
+  href: multi-tenancy.md
+- name: Durable stores
+  href: durable-stores.md
+- name: Retention
+  href: retention.md
+- name: Observability
+  href: observability.md
+- name: Limits and rate limiting
+  href: limits-and-rate-limiting.md
+- name: Task safety
+  href: task-safety.md
+- name: Interop and conformance
+  href: interop-and-conformance.md
+- name: Spec decisions
+  href: spec-decisions.md
