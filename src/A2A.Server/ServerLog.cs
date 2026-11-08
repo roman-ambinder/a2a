@@ -32,6 +32,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 205, Level = LogLevel.Debug, Message = "Dropped event for task {TaskId} in state {State}")]
     public static partial void EventDropped(ILogger logger, string taskId, TaskState state);
 
+    [LoggerMessage(EventId = 206, Level = LogLevel.Debug, Message = "Agent for task {TaskId} stopped: its events could no longer be stored")]
+    public static partial void ExecutorStoppedAfterStoreFailure(ILogger logger, Exception exception, string taskId);
+
     // HttpPushNotificationSender: 300-399
     [LoggerMessage(EventId = 300, Level = LogLevel.Error, Message = "Push notification worker for task {TaskId} failed")]
     public static partial void PushWorkerFailed(ILogger logger, Exception exception, string taskId);

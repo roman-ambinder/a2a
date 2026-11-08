@@ -49,8 +49,18 @@ internal sealed class Execution(string taskId, CancellationTokenSource cts, int 
         _done.TrySetResult();
     }
 
+    private long _lastSequence;
+
+    /// <summary>
+    /// The highest sequence passed to <see cref="Emit"/>, whether or not the bounded channel kept it. After a storage failure the
+    /// initiating stream reads the events it missed from the store up to here, and never the FAILED event stored after them.
+    /// </summary>
+    public long LastSequence => Volatile.Read(ref _lastSequence);
+
     public void Emit(SequencedEvent evt)
     {
+        // Single writer (the engine's consumer, under the task lock), so a plain compare is enough.
+        if (evt.Sequence > _lastSequence) Volatile.Write(ref _lastSequence, evt.Sequence);
         if (!_detached) Outgoing.Writer.TryWrite(evt);
     }
 

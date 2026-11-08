@@ -1,11 +1,15 @@
+using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using A2A.Server;
+using A2A.Server.Authorization;
 using A2A.Server.Execution;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
+using A2A.Tests.Parity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace A2A.Tests.Streaming;
 
@@ -294,6 +298,267 @@ public sealed class BoundedChannelTests
         finally
         {
             release.TrySetResult();
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------------
+    // The blocking waits read the bus only for outcomes; a jump in sequences sends them to the store (and, when the store was
+    // trimmed, to the stored task).
+    // ---------------------------------------------------------------------------------------------------------------------
+
+    /// <summary>An engine and a streamer built with <c>new</c>, sharing one bus of the configured capacity.</summary>
+    private sealed record Rig(TaskExecutionEngine Engine, TaskStreamer Streamer, TaskEventBus Bus) : IAsyncDisposable
+    {
+        public static Rig Create(A2AServerOptions options, TaskStore tasks, EventStore events,
+            Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> agent, ILogger<TaskExecutionEngine>? logger = null)
+        {
+            var bus = new TaskEventBus(options.Streaming);
+            var idempotency = new IdempotencyCoordinator(new InMemoryIdempotencyStore(options.Idempotency), tasks, options);
+            var engine = new TaskExecutionEngine(tasks, events, new DelegateFactory(agent), bus, new NoPush(), idempotency,
+                new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options), options, logger);
+            var streamer = new TaskStreamer(tasks, events, engine, idempotency, new AllowAllAuthorizationHandler([]), options);
+            return new Rig(engine, streamer, bus);
+        }
+
+        public ValueTask DisposeAsync() => Engine.DisposeAsync();
+    }
+
+    private static AgentRequestContext NewTaskContext() => new()
+    {
+        Message = Message.FromUser("go"), TaskId = TaskIds.New(), ContextId = TaskIds.New(), Call = Call(),
+    };
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Blocking_wait_finds_an_outcome_the_bus_dropped(bool trimmed)
+    {
+        // Capacity 1: the request's own channel keeps only the new task (sequence 1), the bus only the newest event. The
+        // INPUT_REQUIRED outcome (sequence 3) reaches neither, and the agent emits nothing more until released.
+        var options = new A2AServerOptions();
+        options.Streaming.ChannelCapacity = 1;
+        if (trimmed) options.Streaming.ReplayBufferSize = 2; // the store keeps only the two artifacts after it
+        var tasks = new InMemoryTaskStore();
+        var events = new InMemoryEventStore(options.Streaming);
+        var release = Signal();
+        await using var rig = Rig.Create(options, tasks, events, async (_, u, ct) =>
+        {
+            await u.StartWorkAsync(cancellationToken: ct);
+            await u.RequireInputAsync("more?", ct);
+            if (trimmed)
+            {
+                await u.AddArtifactAsync([Part.FromText("x")], artifactId: "a1", cancellationToken: ct);
+                await u.AddArtifactAsync([Part.FromText("x")], artifactId: "a2", cancellationToken: ct);
+            }
+            else await u.StartWorkAsync(cancellationToken: ct); // WORKING again: a status, but not an outcome
+            await release.Task;
+        });
+        var context = NewTaskContext();
+        var key = new TaskKey(context.Call.Tenant, context.Call.Principal, context.TaskId);
+        try
+        {
+            using var sub = rig.Bus.Subscribe(TaskExecutionEngine.ScopeKey(key.Tenant, key.TaskId));
+            var exec = rig.Engine.Start(context, push: null, IdempotencyClaim.None);
+            await WaitForSequenceAsync(events, key, trimmed ? 5 : 4);
+
+            var reply = await rig.Streamer.WaitForOutcomeAsync(exec, key, sub, afterSequence: 0, returnImmediately: false, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Null(reply); // the response is the task
+            Assert.False(release.Task.IsCompleted); // the agent is still running: only the INPUT_REQUIRED outcome ended the wait
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+    }
+
+    /// <summary>An event store whose next read, once armed, returns what the store held at that moment, but only when released.</summary>
+    private sealed class StaleReadEventStore(EventStore inner) : EventStore
+    {
+        private int _armed;
+
+        public TaskCompletionSource ReadStarted { get; } = Signal();
+        public TaskCompletionSource ReleaseRead { get; } = Signal();
+
+        public void Arm() => Volatile.Write(ref _armed, 1);
+
+        public override async IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Exchange(ref _armed, 0) == 1)
+            {
+                var snapshot = new List<SequencedEvent>();
+                await foreach (var e in inner.ReadAfterAsync(task, afterSequence, cancellationToken)) snapshot.Add(e);
+                ReadStarted.TrySetResult();
+                await ReleaseRead.Task.WaitAsync(cancellationToken);
+                foreach (var e in snapshot) yield return e;
+                yield break;
+            }
+            await foreach (var e in inner.ReadAfterAsync(task, afterSequence, cancellationToken)) yield return e;
+        }
+
+        public override ValueTask<long> AppendAsync(TaskKey task, SequencedEvent evt, CancellationToken cancellationToken = default) =>
+            inner.AppendAsync(task, evt, cancellationToken);
+
+        public override ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken cancellationToken = default) =>
+            inner.OldestRetainedAsync(task, cancellationToken);
+
+        public override ValueTask<long> LastSequenceAsync(TaskKey task, CancellationToken cancellationToken = default) =>
+            inner.LastSequenceAsync(task, cancellationToken);
+
+        public override ValueTask MarkTerminalAsync(TaskKey task, CancellationToken cancellationToken = default) =>
+            inner.MarkTerminalAsync(task, cancellationToken);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Replay_wait_finds_a_status_the_bus_dropped(bool trimmed)
+    {
+        var options = new A2AServerOptions();
+        options.Streaming.ChannelCapacity = 1;
+        if (trimmed) options.Streaming.ReplayBufferSize = 2;
+        var tasks = new InMemoryTaskStore();
+        var events = new StaleReadEventStore(new InMemoryEventStore(options.Streaming));
+        var go = Signal();
+        var release = Signal();
+        await using var rig = Rig.Create(options, tasks, events, async (context, u, ct) =>
+        {
+            if (context.IsNewTask)
+            {
+                await u.StartWorkAsync(cancellationToken: ct);
+                await u.RequireInputAsync("more?", ct);
+                return;
+            }
+            // The follow-up, once the wait has read the store: WORKING (the status after the message), INPUT_REQUIRED, then
+            // artifacts; then it keeps running.
+            await go.Task;
+            await u.StartWorkAsync(cancellationToken: ct);
+            await u.RequireInputAsync("again?", ct);
+            await u.AddArtifactAsync([Part.FromText("x")], artifactId: "a1", cancellationToken: ct);
+            if (trimmed) await u.AddArtifactAsync([Part.FromText("x")], artifactId: "a2", cancellationToken: ct);
+            await release.Task;
+        });
+        var first = NewTaskContext();
+        var key = new TaskKey(first.Call.Tenant, first.Call.Principal, first.TaskId);
+        try
+        {
+            var exec = rig.Engine.Start(first, push: null, IdempotencyClaim.None);
+            exec.Detach();
+            await exec.Completion.WaitAsync(Wait);
+            var afterSequence = await events.LastSequenceAsync(key); // 3: the task is INPUT_REQUIRED
+
+            var followUp = new AgentRequestContext
+            {
+                Message = Message.FromUser("more"), TaskId = first.TaskId, ContextId = first.ContextId, Call = first.Call,
+                Task = (await tasks.GetAsync(key))!.Task.DeepCopy(),
+            };
+            rig.Engine.Start(followUp, push: null, IdempotencyClaim.None).Detach();
+
+            // The wait subscribes, then reads the store before the follow-up's events exist; that read is held back until
+            // they are all published, and the bus (capacity 1) kept only the last artifact.
+            events.Arm();
+            var wait = rig.Engine.WaitUntilSettledAsync(key, afterSequence, CancellationToken.None).AsTask();
+            await events.ReadStarted.Task.WaitAsync(Wait);
+            go.SetResult();
+            await WaitForSequenceAsync(events, key, trimmed ? 7 : 6);
+            events.ReleaseRead.SetResult();
+
+            var task = await wait.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(TaskState.InputRequired, task.Status.State);
+            Assert.Equal("again?", task.Status.Message!.GetText());
+            Assert.False(release.Task.IsCompleted);
+        }
+        finally
+        {
+            go.TrySetResult();
+            events.ReleaseRead.TrySetResult();
+            release.TrySetResult();
+        }
+    }
+
+    [Fact]
+    public async Task Send_stream_after_a_storage_failure_still_sends_every_stored_event()
+    {
+        // Capacity 1: while the reader stalls, the stream's own channel keeps one event and drops the rest. COMPLETED (the 7th
+        // update) cannot be stored; the stream then sends every stored event (1..7) and the error, never the FAILED event.
+        var tasks = new FailOnNthUpdateStore(failOn: 7);
+        // The failing store is registered after the host's default store, so it wins.
+        await using var failing = await TestAgentHost.StartAsync(o => o.Streaming.ChannelCapacity = 1, services: s =>
+        {
+            s.AddSingleton<TaskStore>(tasks);
+            s.AddSingleton<IAgentExecutor>(new DelegateAgentExecutor(async (_, u, ct) =>
+            {
+                await u.StartWorkAsync(cancellationToken: ct);
+                for (var i = 0; i < 5; i++) await u.AddArtifactAsync([Part.FromText("x")], artifactId: $"a{i}", cancellationToken: ct);
+                await u.CompleteAsync(cancellationToken: ct);
+            }));
+        });
+
+        await using var send = failing.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, Call())
+            .GetAsyncEnumerator();
+        Assert.True(await send.MoveNextAsync());
+        var taskId = Assert.IsType<TaskEvent>(send.Current.Event).Task.Id;
+        var sent = new List<long> { send.Current.Sequence };
+
+        // Stall until the engine has marked the task FAILED (after the storage error).
+        using (var timeout = new CancellationTokenSource(Wait))
+            while ((await tasks.GetAsync(Key(taskId)))!.Task.Status.State != TaskState.Failed) await Task.Delay(5, timeout.Token);
+
+        var ex = await Assert.ThrowsAsync<A2AException>(async () =>
+        {
+            while (await send.MoveNextAsync()) sent.Add(send.Current.Sequence);
+        });
+        Assert.Equal(A2AErrorCode.Internal, ex.Code);
+        AssertContiguous(sent, 1, 7); // the new task, WORKING, five artifacts; not the FAILED event (8)
+    }
+
+    private sealed class CaptureLogger : ILogger<TaskExecutionEngine>
+    {
+        public List<(LogLevel Level, int EventId)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            lock (Entries) Entries.Add((logLevel, eventId.Id));
+        }
+    }
+
+    [Fact]
+    public async Task Agent_stopped_by_a_storage_failure_is_not_logged_as_failed()
+    {
+        // The second update fails. The engine stops reading and closes the agent's channel; the agent, which ignores
+        // cancellation, gets ChannelClosedException on its next write. That is logged at Debug, not as an agent failure.
+        var options = new A2AServerOptions();
+        options.Streaming.ChannelCapacity = 1;
+        var tasks = new FailOnNthUpdateStore(failOn: 2);
+        var logger = new CaptureLogger();
+        var closed = Signal();
+        await using var rig = Rig.Create(options, tasks, new InMemoryEventStore(options.Streaming), async (_, u, _) =>
+        {
+            await u.StartWorkAsync(cancellationToken: CancellationToken.None);
+            try
+            {
+                for (var i = 0; i < 100; i++)
+                    await u.AddArtifactAsync([Part.FromText("x")], artifactId: $"a{i}", cancellationToken: CancellationToken.None);
+            }
+            catch (System.Threading.Channels.ChannelClosedException)
+            {
+                closed.TrySetResult();
+                throw;
+            }
+        }, logger);
+
+        var exec = rig.Engine.Start(NewTaskContext(), push: null, IdempotencyClaim.None);
+        exec.Detach();
+        await exec.Completion.WaitAsync(Wait);
+
+        Assert.True(closed.Task.IsCompleted);
+        lock (logger.Entries)
+        {
+            Assert.DoesNotContain(logger.Entries, e => e.EventId == 200); // "Agent executor failed"
+            Assert.Contains(logger.Entries, e => e.EventId == 206 && e.Level == LogLevel.Debug);
+            Assert.Contains(logger.Entries, e => e.EventId == 203); // the storage failure itself is still an error
         }
     }
 

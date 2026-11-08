@@ -169,15 +169,21 @@ public sealed class TaskStreamer
     /// <summary>
     /// True when the event store holds an event after <paramref name="after"/> and up to <paramref name="upTo"/> that
     /// <see cref="Settles"/> the task: the bus dropped events in that range. Every event is stored before it is published.
+    /// When the store no longer has all of them (trimmed), the task itself decides: settled when it is terminal or interrupted.
     /// </summary>
     private async Task<bool> SettledInStoreAsync(TaskKey key, long after, long upTo, CancellationToken ct)
     {
+        var expected = after + 1;
         await foreach (var stored in _events.ReadAfterAsync(key, after, ct).ConfigureAwait(false))
         {
-            if (stored.Sequence > upTo) break;
+            if (stored.Sequence > upTo || stored.Sequence != expected) break;
             if (Settles(stored.Event)) return true;
+            expected++;
         }
-        return false;
+        if (expected > upTo) return false; // every event of the range was there, none settles the task
+
+        var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false);
+        return record is null || record.Task.Status.State.IsTerminal() || record.Task.Status.State.IsInterrupted();
     }
 
     private async IAsyncEnumerable<SequencedEvent> SendStreamingCoreAsync(SendMessageRequest request, ServerCallContext call, AcceptMessage accept,
@@ -244,11 +250,19 @@ public sealed class TaskStreamer
             {
                 if (exec.Failed)
                 {
-                    // Storage failed: send what this execution still has queued, then the error (not the FAILED event on the bus).
+                    // Storage failed: send what this execution still has queued, then the events its bounded channel dropped
+                    // (from the store, up to the last event it emitted, so never the FAILED event stored after them), then the
+                    // error.
                     while (own.TryRead(out var queued))
                     {
                         await foreach (var e in InOrderAsync(key, queued, position, cancellationToken).ConfigureAwait(false)) yield return e;
                         if (position.Final) yield break;
+                    }
+                    await foreach (var stored in ReadContiguousAsync(key, position.Last, exec.LastSequence + 1, cancellationToken).ConfigureAwait(false))
+                    {
+                        yield return stored;
+                        position.Last = stored.Sequence;
+                        if (IsFinal(stored.Event)) yield break;
                     }
                     throw new A2AException(A2AErrorCode.Internal);
                 }

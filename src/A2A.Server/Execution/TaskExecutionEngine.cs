@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Threading.Channels;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
 using A2A.Server.Storage;
@@ -156,15 +157,16 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
 
     /// <summary>
     /// Whether the event store holds a status event of the task with a sequence after <paramref name="afterSequence"/>, and the
-    /// last sequence read (at least <paramref name="afterSequence"/>).
+    /// last sequence read (at least <paramref name="afterSequence"/>). When the store no longer has the first events after
+    /// <paramref name="afterSequence"/> (trimmed), this answers true: the stored task, which the caller reads, then decides.
     /// </summary>
     private async Task<(bool Found, long Last)> StatusEventAfterAsync(TaskKey key, long afterSequence, CancellationToken ct)
     {
         var last = afterSequence;
         await foreach (var stored in _events.ReadAfterAsync(key, afterSequence, ct).ConfigureAwait(false))
         {
-            if (stored.Event is StatusUpdateEvent) return (true, stored.Sequence);
-            last = Math.Max(last, stored.Sequence);
+            if (stored.Event is StatusUpdateEvent || stored.Sequence != last + 1) return (true, stored.Sequence);
+            last = stored.Sequence;
         }
         return (false, last);
     }
@@ -194,6 +196,12 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
             catch (OperationCanceledException) when (exec.Cts.IsCancellationRequested)
             {
                 await TryFinishAsync(updater, TaskState.Canceled, null).ConfigureAwait(false);
+            }
+            catch (ChannelClosedException ex) when (exec.Failed)
+            {
+                // The task's events could not be stored, which is already reported; the engine stopped reading and closed the
+                // agent's channel, so the agent's next write failed. Not an agent failure.
+                ServerLog.ExecutorStoppedAfterStoreFailure(_logger, ex, taskId);
             }
             catch (Exception ex)
             {
