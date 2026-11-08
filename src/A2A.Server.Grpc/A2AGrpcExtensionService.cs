@@ -30,6 +30,7 @@ namespace A2A.Server.Grpc;
 /// because extension operations are unary on every binding. Map the service with <see cref="A2AGrpcExtensions.MapA2AGrpcExtensions"/>.
 /// </para>
 /// </remarks>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP004", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public sealed class A2AGrpcExtensionService : A2AExtensionService.A2AExtensionServiceBase
 {
     private readonly IA2ARequestHandler _handler;

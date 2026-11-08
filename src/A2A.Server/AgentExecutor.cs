@@ -76,6 +76,7 @@ public sealed class AgentRequestContext
     /// This is a hint from the caller. Unless the card opts in with <see cref="SkillSelection.CreateExtension"/> (<c>rejectUnknownSkills: true</c>), it may name a skill
     /// the agent does not have. Do not use it for authorization.
     /// </remarks>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP001", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
     public string? RequestedSkillId =>
         Call.ActivatedExtensions.Contains(SkillSelection.ExtensionUri) ? Message.GetRequestedSkillId() : null;
 
@@ -321,6 +322,7 @@ public sealed class TaskUpdater
     /// </remarks>
     /// <exception cref="InvalidOperationException">The artifact is sealed and <paramref name="append"/> is true; the earlier content of the artifact is not known; or a data part cannot be put in canonical JSON form.</exception>
     /// <exception cref="ArgumentException"><paramref name="parts"/> is empty and the event is not an append to an artifact that exists, or a part is null.</exception>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP003", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
     public async ValueTask<string> AddHashedArtifactAsync(IEnumerable<Part> parts, string? artifactId = null, string? name = null,
         string? description = null, bool append = false, bool lastChunk = false, Dictionary<string, JsonElement>? metadata = null,
         CancellationToken cancellationToken = default)

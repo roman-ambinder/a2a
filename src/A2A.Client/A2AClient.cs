@@ -129,6 +129,7 @@ public sealed class A2AClient : IA2AClient
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="skillId"/> is null or empty.</exception>
     /// <exception cref="A2AException">InvalidParams: the card does not list the skill.</exception>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP001", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
     public A2ARequestOptions SelectSkill(Message message, string skillId, A2ARequestOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(message);

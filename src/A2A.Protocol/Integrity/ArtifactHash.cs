@@ -16,6 +16,7 @@ namespace A2A.Integrity;
 /// part is the RFC 8785 form of its JSON. Part metadata, file name and media type, and the artifact's own fields are not hashed.
 /// The value is <c>sha256:</c> and 64 lowercase hex digits.
 /// </remarks>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP003", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public static class ArtifactHash
 {
     /// <summary>The artifact metadata key that holds the hash of the artifact so far: <c>sha256</c>.</summary>

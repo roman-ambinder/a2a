@@ -5,6 +5,7 @@ using A2A.Json;
 namespace A2A.Delegation;
 
 /// <summary>One party in an actor chain: the origin or a hop. Unknown fields are kept and written back.</summary>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP002", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public sealed class ActorChainEntry
 {
     /// <summary>Subject of the party, for example <c>user:alice@example.com</c> or <c>agent:coordinator</c>.</summary>
@@ -29,6 +30,7 @@ public sealed class ActorChainEntry
 /// The caller writes the content and nobody verifies it. Treat it as untrusted text when you log it or put it in a
 /// prompt. Do not use it for authorization.
 /// </remarks>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP002", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public sealed class ActorChain
 {
     /// <summary>Metadata key that holds the chain.</summary>
@@ -109,6 +111,7 @@ public sealed class ActorChain
 }
 
 /// <summary>Read and write the actor chain on messages and tasks.</summary>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP002", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public static class ActorChainMessageExtensions
 {
     /// <summary>The chain in the message metadata, or null when there is none or it is not well-formed.</summary>

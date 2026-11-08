@@ -68,6 +68,7 @@ public static class A2AGrpcExtensions
     /// answers UNIMPLEMENTED. The payload is UTF-8 JSON. See <see cref="A2AGrpcExtensionService"/>.
     /// </remarks>
     /// <exception cref="InvalidOperationException"><c>services.AddA2AServerAspNetCore()</c> was not called.</exception>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP004", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
     public static GrpcServiceEndpointConventionBuilder MapA2AGrpcExtensions(this IEndpointRouteBuilder endpoints)
     {
         var builder = endpoints.MapGrpcService<A2AGrpcExtensionService>();
