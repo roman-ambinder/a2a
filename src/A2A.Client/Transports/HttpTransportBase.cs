@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using A2A.Client.Resilience;
+using A2A.Client.Telemetry;
 using A2A.Json;
 
 namespace A2A.Client.Transports;
@@ -76,23 +77,35 @@ public abstract class HttpTransportBase
     /// Runs one unary operation: each attempt gets the call timeout, and failed attempts are retried by
     /// <see cref="RetryPolicy"/> under <paramref name="retry"/>, at most <see cref="A2ARequestOptions.MaxRetries"/>
     /// (else <see cref="A2AClientOptions.MaxRetries"/>) times. <paramref name="attempt"/> builds and sends a fresh request every time.
+    /// The whole call, retries included, is one <c>a2a.client.{operation}</c> span (<see cref="A2AClientTelemetry"/>).
     /// </summary>
-    private protected async Task<T> ExecuteUnaryAsync<T>(RetryMode retry, A2ARequestOptions? call, Func<CancellationToken, Task<T>> attempt, CancellationToken ct)
+    private protected async Task<T> ExecuteUnaryAsync<T>(string operation, RetryMode retry, A2ARequestOptions? call, Func<CancellationToken, Task<T>> attempt, CancellationToken ct)
     {
-        var timeout = call?.Timeout ?? DefaultUnaryTimeout;
-        var maxAttempts = 1 + (call?.MaxRetries ?? Options.MaxRetries);
-        for (var n = 1; ; n++)
+        var activity = A2AClientTelemetry.Start(operation);
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            try
+            var timeout = call?.Timeout ?? DefaultUnaryTimeout;
+            var maxAttempts = 1 + (call?.MaxRetries ?? Options.MaxRetries);
+            for (var n = 1; ; n++)
             {
-                return await WithTimeoutAsync(timeout, attempt, ct).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var result = await WithTimeoutAsync(timeout, attempt, ct).ConfigureAwait(false);
+                    A2AClientTelemetry.Stop(activity, null);
+                    return result;
+                }
+                catch (Exception ex) when (n < maxAttempts && !ct.IsCancellationRequested && RetryPolicy.ShouldRetry(retry, ex, out _))
+                {
+                    RetryPolicy.ShouldRetry(retry, ex, out var retryAfter);
+                    await Task.Delay(RetryPolicy.Delay(n + 1, retryAfter), Options.TimeProvider, ct).ConfigureAwait(false);
+                }
             }
-            catch (Exception ex) when (n < maxAttempts && !ct.IsCancellationRequested && RetryPolicy.ShouldRetry(retry, ex, out _))
-            {
-                RetryPolicy.ShouldRetry(retry, ex, out var retryAfter);
-                await Task.Delay(RetryPolicy.Delay(n + 1, retryAfter), Options.TimeProvider, ct).ConfigureAwait(false);
-            }
+        }
+        catch (Exception ex)
+        {
+            A2AClientTelemetry.Stop(activity, ex);
+            throw;
         }
     }
 

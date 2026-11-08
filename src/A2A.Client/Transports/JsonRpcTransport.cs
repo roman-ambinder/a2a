@@ -3,6 +3,7 @@ using System.Text.Json;
 using A2A.Client.Resilience;
 using A2A.Client.Sse;
 using A2A.Client.Streaming;
+using A2A.Client.Telemetry;
 using A2A.Json;
 using A2A.JsonRpc;
 
@@ -81,7 +82,7 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
     }
 
     private Task<JsonElement?> InvokeRawAsync<TParams>(string method, TParams parameters, RetryMode retry, A2ARequestOptions? call, string? key, CancellationToken ct) =>
-        ExecuteUnaryAsync(retry, call, async attemptCt =>
+        ExecuteUnaryAsync(method, retry, call, async attemptCt =>
         {
             using var request = await BuildRequestAsync(method, parameters, streaming: false, call, key, attemptCt).ConfigureAwait(false);
             using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
@@ -98,18 +99,34 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
 
     private async IAsyncEnumerable<StreamFrame> StreamAsync<TParams>(string method, TParams parameters, A2ARequestOptions? call, string? key, string? lastEventId, [EnumeratorCancellation] CancellationToken ct)
     {
-        using var request = await BuildRequestAsync(method, parameters, streaming: true, call, key, ct, lastEventId).ConfigureAwait(false);
-        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-
-        if (!IsEventStream(response))
+        // The span covers opening the stream: from the request to the event-stream response headers.
+        var activity = A2AClientTelemetry.Start(method);
+        HttpRequestMessage? opening = null;
+        HttpResponseMessage? opened = null;
+        try
         {
-            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            var rpc = TryParseResponse(body);
-            if (rpc?.Error is not null) throw WithStatus(rpc.Error.ToException(), response);
-            if (!response.IsSuccessStatusCode) throw HttpError(response, body);
-            throw ProtocolError($"{method}: expected text/event-stream.");
+            opening = await BuildRequestAsync(method, parameters, streaming: true, call, key, ct, lastEventId).ConfigureAwait(false);
+            opened = await Http.SendAsync(opening, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            if (!IsEventStream(opened))
+            {
+                var body = await opened.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                var error = TryParseResponse(body);
+                if (error?.Error is not null) throw WithStatus(error.Error.ToException(), opened);
+                if (!opened.IsSuccessStatusCode) throw HttpError(opened, body);
+                throw ProtocolError($"{method}: expected text/event-stream.");
+            }
         }
+        catch (Exception ex)
+        {
+            opened?.Dispose();
+            opening?.Dispose();
+            A2AClientTelemetry.Stop(activity, ex);
+            throw;
+        }
+        A2AClientTelemetry.Stop(activity, null);
 
+        using var request = opening;
+        using var response = opened;
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         await foreach (var evt in SseReader.ReadAsync(stream, ct).ConfigureAwait(false))
         {

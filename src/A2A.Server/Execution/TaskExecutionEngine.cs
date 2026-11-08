@@ -4,6 +4,7 @@ using A2A.Server.Idempotency;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
+using A2A.Server.Telemetry;
 using A2A.Validation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -272,7 +273,9 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         // The new task as the first event. It shares the stored instance: nobody changes either (the next
                         // update stores a copy), and the event log owns the event from here on.
                         var snapshot = StreamResponse.Of(record.Task);
-                        Publish(exec, key, new SequencedEvent(await _events.AppendAsync(key, snapshot).ConfigureAwait(false), snapshot));
+                        var first = await _events.AppendAsync(key, snapshot).ConfigureAwait(false);
+                        A2AServerTelemetry.Events.Add(1);
+                        Publish(exec, key, new SequencedEvent(first, snapshot));
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
                         await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
                     }
@@ -371,7 +374,9 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
             try
             {
                 await _tasks.UpdateAsync(record with { Task = next }, record.Version).ConfigureAwait(false);
-                return new SequencedEvent(await _events.AppendAsync(key, evt).ConfigureAwait(false), evt);
+                var sequence = await _events.AppendAsync(key, evt).ConfigureAwait(false);
+                A2AServerTelemetry.Events.Add(1);
+                return new SequencedEvent(sequence, evt);
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
             {

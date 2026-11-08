@@ -6,6 +6,7 @@ using A2A.Json;
 using A2A.Security.Http;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
+using A2A.Server.Telemetry;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -461,7 +462,34 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
         return config;
     }
 
+    /// <summary>Delivers one event to one webhook, with retries, and counts the final result (<c>a2a.server.push.deliveries</c>).</summary>
     private async Task DeliverAsync(TaskPushNotificationConfig config, long seq, StreamResponse evt)
+    {
+        bool delivered;
+        try
+        {
+            delivered = await DeliverCoreAsync(config, seq, evt).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
+        {
+            throw; // stopping: no final result
+        }
+        catch
+        {
+            CountDelivery(false);
+            throw;
+        }
+        CountDelivery(delivered);
+    }
+
+    private static void CountDelivery(bool delivered)
+    {
+        if (A2AServerTelemetry.PushDeliveries.Enabled)
+            A2AServerTelemetry.PushDeliveries.Add(1, new KeyValuePair<string, object?>(A2AServerTelemetry.OutcomeTag, delivered ? "delivered" : "failed"));
+    }
+
+    /// <summary>The delivery with retries. True when the webhook accepted the event; false when it was skipped, refused, or every attempt failed.</summary>
+    private async Task<bool> DeliverCoreAsync(TaskPushNotificationConfig config, long seq, StreamResponse evt)
     {
         var deliveryId = Guid.NewGuid().ToString("N");
         var body = A2AJson.SerializeToUtf8Bytes(evt);
@@ -481,12 +509,12 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
                 catch (A2AException ex)
                 {
                     ServerLog.PushWebhookSkipped(_logger, config.Id, config.TaskId, ex.Message);
-                    return;
+                    return false;
                 }
                 catch (BlockedAddressException ex)
                 {
                     ServerLog.PushWebhookSkipped(_logger, config.Id, config.TaskId, ex.Message);
-                    return;
+                    return false;
                 }
 
                 using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ByteArrayContent(body) };
@@ -502,12 +530,12 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stopping);
                 cts.CancelAfter(_options.Timeout);
                 using var response = await _http.SendAsync(request, cts.Token).ConfigureAwait(false);
-                if (response.IsSuccessStatusCode) return;
+                if (response.IsSuccessStatusCode) return true;
 
                 var status = (int)response.StatusCode;
                 var retryable = status is 408 or 429 || status >= 500;
                 ServerLog.PushWebhookStatus(_logger, config.Id, config.TaskId, status, attempt);
-                if (!retryable) return;
+                if (!retryable) return false;
             }
             catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
             {
@@ -516,7 +544,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
             catch (HttpRequestException ex) when (ex is BlockedAddressException || ex.InnerException is BlockedAddressException)
             {
                 ServerLog.PushWebhookBlocked(_logger, config.Id, config.TaskId);
-                return;
+                return false;
             }
             catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
             {
@@ -530,6 +558,7 @@ public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushC
             }
         }
         ServerLog.PushWebhookGaveUp(_logger, config.Id, config.TaskId, _options.MaxAttempts);
+        return false;
     }
 
     private int _disposed;

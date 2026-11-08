@@ -500,3 +500,6 @@ A2A.Server.Pipeline.IA2AOperationFilter
 A2A.Server.Pipeline.IA2AOperationFilter.InvokeAsync(A2A.Server.Pipeline.A2AOperationContext! context, object! request, A2A.Server.Pipeline.A2AOperationDelegate! next, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<object?>
 static A2A.Server.Pipeline.A2AOperationDescriptor.Extension(string! name) -> A2A.Server.Pipeline.A2AOperationDescriptor!
 static A2A.Server.Pipeline.A2AOperationDescriptor.For(A2A.Server.Authorization.A2AOperation kind) -> A2A.Server.Pipeline.A2AOperationDescriptor!
+A2A.Server.Telemetry.A2AServerTelemetry
+const A2A.Server.Telemetry.A2AServerTelemetry.ActivitySourceName = "A2A.Server" -> string!
+const A2A.Server.Telemetry.A2AServerTelemetry.MeterName = "A2A.Server" -> string!

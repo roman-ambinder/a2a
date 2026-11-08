@@ -2,17 +2,20 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using A2A.Json;
 using A2A.Server.Streaming;
+using A2A.Server.Telemetry;
 
 namespace A2A.Server.Pipeline;
 
 /// <summary>
-/// Runs an operation through the filters: the <see cref="A2AFilterStage.BeforeAuthorization"/> host filters, the built-in
-/// <see cref="AuthorizationFilter"/>, the <see cref="A2AFilterStage.AfterAuthorization"/> host filters, then the operation.
+/// Runs an operation through the filters: the built-in <see cref="TelemetryFilter"/> (outermost), the
+/// <see cref="A2AFilterStage.BeforeAuthorization"/> host filters, the built-in <see cref="AuthorizationFilter"/>, the
+/// <see cref="A2AFilterStage.AfterAuthorization"/> host filters, then the operation.
 /// </summary>
 /// <remarks>
 /// The chain of delegates is built once, here. A call allocates only its <see cref="A2AOperationContext"/>; the operation
 /// delegate travels in the context and a shared <see cref="OperationInvoker{TRequest, TResponse}"/> runs it. Without host
-/// filters there is no chain at all: authorization, then the operation, with no context and no copies.
+/// filters there is no chain at all: telemetry, authorization, then the operation, with no context and no copies; and while
+/// nobody listens to telemetry, just authorization and the operation.
 /// With host filters, the result passes through <see cref="ResponseDetacher"/> before it reaches the innermost host filter,
 /// so host filters get their own copy of anything that may share instances with the stores. Built-in steps inside that
 /// point see the shared instances.
@@ -32,7 +35,7 @@ internal sealed class OperationPipeline
         if (before.Count + after.Count == 0) return;
 
         // Outermost first. The innermost host filter gets detached results from the steps inside it.
-        var steps = new List<(IA2AOperationFilter Filter, bool Host)>(before.Count + after.Count + 1);
+        var steps = new List<(IA2AOperationFilter Filter, bool Host)>(before.Count + after.Count + 2) { (TelemetryFilter.Instance, false) };
         steps.AddRange(before.Select(f => (f, true)));
         steps.Add((authorization, false));
         steps.AddRange(after.Select(f => (f, true)));
@@ -64,6 +67,7 @@ internal sealed class OperationPipeline
     {
         if (_chain is null)
         {
+            if (TelemetryFilter.IsEnabled) return TelemetryFilter.RunAsync(_authorization, descriptor, call, request, operation, cancellationToken);
             var authorized = _authorization.RequireAsync(descriptor, call, request, cancellationToken);
             return authorized.IsCompletedSuccessfully
                 ? operation(request, call, cancellationToken)

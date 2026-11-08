@@ -14,8 +14,8 @@ namespace A2A.Server;
 /// The default <see cref="IA2ARequestHandler"/>: transport-agnostic implementation of every A2A operation. Protocol bindings
 /// (JSON-RPC, HTTP+JSON, gRPC) resolve the interface, parse the wire format, build a <see cref="ServerCallContext"/>, and call
 /// these methods. Errors are thrown as <see cref="A2AException"/>.
-/// Every operation binds the tenant from the request, then runs through the operation pipeline: the
-/// <see cref="A2AFilterStage.BeforeAuthorization"/> filters, authorization, the <see cref="A2AFilterStage.AfterAuthorization"/>
+/// Every operation binds the tenant from the request, then runs through the operation pipeline: telemetry (see
+/// <see cref="Telemetry.A2AServerTelemetry"/>) around the <see cref="A2AFilterStage.BeforeAuthorization"/> filters, authorization, the <see cref="A2AFilterStage.AfterAuthorization"/>
 /// filters, then the operation (see <see cref="IA2AOperationFilter"/>).
 /// The tasks, messages and events these methods return may share instances with the stores: serialize them, never change them.
 /// </summary>

@@ -228,3 +228,5 @@ static A2A.Client.Transports.HttpTransportBase.Parse<T>(System.Text.Json.JsonEle
 static A2A.Client.Transports.HttpTransportBase.PrepareSend(A2A.SendMessageRequest! request, A2A.Client.A2ARequestOptions? call) -> string?
 static A2A.Client.Transports.HttpTransportBase.ProtocolError(string! message, System.Exception? inner = null) -> A2A.A2AException!
 static A2A.Client.Transports.HttpTransportBase.RetryAfterOf(System.Net.Http.HttpResponseMessage? response, System.Collections.Generic.IEnumerable<System.Text.Json.JsonElement>? details) -> System.TimeSpan?
+A2A.Client.Telemetry.A2AClientTelemetry
+const A2A.Client.Telemetry.A2AClientTelemetry.ActivitySourceName = "A2A.Client" -> string!
