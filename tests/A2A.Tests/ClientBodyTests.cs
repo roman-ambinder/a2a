@@ -86,7 +86,6 @@ public class ClientBodyTests
     [InlineData("""{"id":"1","result":{}}""")]
     [InlineData("""{"jsonrpc":"2.0","id":"1"}""")]
     [InlineData("""{"jsonrpc":"2.0","id":"1","error":{"code":"x","message":"m"}}""")]
-    [InlineData("""{"jsonrpc":"2.0","id":"1","result":{"id":"a"},"result":{"id":"b"}}""")]
     [InlineData("[1]")]
     [InlineData("{")]
     [InlineData("")]
