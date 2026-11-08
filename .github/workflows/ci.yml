@@ -133,8 +133,7 @@ jobs:
 
   benchmarks:
     name: Benchmarks (regression check)
-    # Non-blocking until baseline.json is regenerated from an ubuntu-latest run: download the benchmark-results artifact and run compare.py --write-baseline.
-    continue-on-error: true
+    # Blocking: fails on an allocation regression over 10% against tests/A2A.Benchmarks/baseline.json (from an ubuntu-latest run).
     needs: build-test
     runs-on: ubuntu-latest
     steps:
