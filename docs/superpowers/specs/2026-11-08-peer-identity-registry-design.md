@@ -12,7 +12,9 @@ Builds on P0 (`2026-11-07-p0-security-correctness-design.md`) and the design pri
 
 In: `PeerIdentity` of `(card origin, signing kid)`; `IPeerIdentityResolver` seam; client-side `AgentRegistry` keyed by identity, rejecting duplicate names and warning on lookalikes; `ResolvedAgentCard.Identity` becomes `PeerIdentity`.
 
-Out: registry discovery over the network (S36); a DID or SPIFFE implementation (seam only); revocation (remove the key from `CardTrustPolicy` and call `AgentRegistry.Remove`); durable registry storage; DI registration.
+Out: registry discovery over the network (S36); a DID or SPIFFE implementation (seam only); a revocation protocol; durable registry storage; DI registration.
+
+To revoke a key, remove it from `CardTrustPolicy` and call `AgentRegistry.Remove`. This works because `A2ACardResolver` re-checks a cached card against the live policy on the fresh-cache and 304 paths (`RawJson` is parsed again). A result whose status or `kid` changed, or which the policy now rejects, is dropped and the card is fetched again, so the normal path decides (my call: the 304 path otherwise extends a stale verification with no limit). Cost: one signature check per cached resolve, and a JWKS outage now fails a cached resolve the same way it fails a fresh one.
 
 ## 3. Types
 
@@ -59,11 +61,13 @@ Sealed, thread-safe, in memory, usable without DI. One entry per identity.
 
 ### 3.4 Name comparison
 
-Internal `AgentNameNormalizer`. All inputs go through `TextSanitizer.Sanitize(name, MaxNameLength)` first (default 256), then invalid surrogates become U+FFFD because `string.Normalize` throws on them, then fullwidth ASCII folds to ASCII.
+Internal `AgentNameNormalizer`. All inputs go through `TextSanitizer.Sanitize(name, MaxNameLength)` first (default 256), then invalid surrogates and Unicode noncharacters (U+FDD0 to U+FDEF, and U+xFFFE/U+xFFFF of every plane) become U+FFFD because `string.Normalize` can throw on them, then invisible characters the sanitizer keeps are dropped, then fullwidth ASCII folds to ASCII. If `Normalize` still throws, the name counts as empty (`InvalidName`), so a hostile name cannot raise anything but `AgentRegistrationException`.
+
+Dropped invisibles: `UnicodeCategory.Format`, U+034F, U+115F, U+1160, U+17B4, U+17B5, U+180B to U+180F, U+2800, U+3164, U+FE00 to U+FE0F, U+FFA0, U+E0100 to U+E01EF. This is in the normalizer, not `TextSanitizer`, so display text does not change.
 
 - **Name key** (duplicates): NFKC, invariant lower case, whitespace collapsed, trimmed. `Agent`, `AGENT`, `Agent​`, `Ａgent` are one name. Truncation can make two long names collide; that fails closed.
 - **Skeleton** (lookalikes): NFKD, drop combining marks, map confusables to Latin, lower case, keep letters and digits only, then `rn`→`m` and `vv`→`w`. `Pаypal` (Cyrillic а), `Paypa1`, `pay-pal` and `Café`/`Cafe` share a skeleton with their Latin forms.
-- **Mixed script**: one token holds letters from two of Latin, Greek, Cyrillic. Flagged even with no collision.
+- **Mixed script**: one token holds letters from two of Latin, Greek, Cyrillic. Flagged even with no collision. Combining marks do not split a token.
 
 The confusable table is curated (Cyrillic, Greek, Latin lookalikes), not all of UTS #39 (my call: no new dependency, `A2A.Client` may reference only Logging.Abstractions). No edit distance: `Agent 1` and `Agent 2` must not warn (my call).
 
@@ -71,7 +75,7 @@ Limit: with `InvariantGlobalization`, .NET's `Normalize` does nothing, so compat
 
 ### 3.5 Warnings
 
-Lookalikes warn and do not reject (per S5). `AgentRegistration.LookalikeOf` lists up to 16 other identities (capped so stored lists stay small under a flood), `MixedScriptName` flags the name. A name is logged at Warning and counted on `a2a.registry.name_lookalike` (meter `A2A`, tag `origin`) when it is new to that entry, so periodic re-registration does not spam. A host that wants to fail closed removes the entry. The name is logged through `TextSanitizer.ForMessage`.
+Lookalikes warn and do not reject (per S5). `AgentRegistration.LookalikeOf` lists up to 16 other identities (capped so stored lists stay small under a flood), `MixedScriptName` flags the name. When the entry is new or its name key changed, so periodic re-registration does not spam, a lookalike or mixed-script name is logged at Warning. Only a lookalike collision is counted, on `a2a.registry.name_lookalike` (meter `A2A`, tag `origin`). A host that wants to fail closed removes the entry. The name is logged through `TextSanitizer.ForMessage`.
 
 ## 4. Breaking change
 
