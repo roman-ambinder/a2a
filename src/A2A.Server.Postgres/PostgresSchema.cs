@@ -136,8 +136,12 @@ public static class PostgresSchema
             lease_ticks  bigint NULL,
             lease_token  uuid   NULL,
             last_error   text   NULL,
+            queued_ticks bigint NULL,
             PRIMARY KEY (tenant, owner, task_id, config_id, seq)
         );
+        -- Added after the first release of the table: nullable, no default, so it is safe on existing rows (a NULL is read as
+        -- due_ticks). queued_ticks is when the delivery was queued; PushDeliveryOptions.MaxDeliveryAge counts from it.
+        ALTER TABLE {s}.a2a_push_outbox ADD COLUMN IF NOT EXISTS queued_ticks bigint NULL;
         CREATE INDEX IF NOT EXISTS a2a_push_outbox_due_ix ON {s}.a2a_push_outbox (due_ticks);
 
         -- Push deliveries that failed for good, until re-driven (A2APushAdmin) or deleted with their task.

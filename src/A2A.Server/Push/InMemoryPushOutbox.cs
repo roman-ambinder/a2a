@@ -34,6 +34,19 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
     }
 
     /// <inheritdoc />
+    public override ValueTask<bool> EnqueueAsync(PushDelivery delivery, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(delivery);
+        lock (_gate)
+        {
+            if (_dead.ContainsKey((delivery.Task, delivery.ConfigId, delivery.Sequence))) return ValueTask.FromResult(false);
+            if (!Group(delivery, create: true)!.TryAdd(delivery.Sequence, new Entry(delivery, payload, _time.GetUtcNow()))) return ValueTask.FromResult(false);
+        }
+        NotifyPending();
+        return ValueTask.FromResult(true);
+    }
+
+    /// <inheritdoc />
     public override ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken cancellationToken = default)
     {
         if (max <= 0) return ValueTask.FromResult<IReadOnlyList<OutboxEntry>>([]);
@@ -52,7 +65,7 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
                 e.LeasedUntil = now + lease;
                 e.LeaseToken = token;
             }
-            return ValueTask.FromResult<IReadOnlyList<OutboxEntry>>(leased.Select(e => e.ToEntry()).ToList());
+            return ValueTask.FromResult<IReadOnlyList<OutboxEntry>>(leased.Select(e => e.ToEntry(now)).ToList());
         }
     }
 
@@ -165,6 +178,7 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
 
     private sealed class Entry(PushDelivery delivery, ReadOnlyMemory<byte> payload, DateTimeOffset dueAt)
     {
+        public DateTimeOffset QueuedAt { get; } = dueAt;
         public PushDelivery Delivery { get; } = delivery;
         public ReadOnlyMemory<byte> Payload { get; } = payload;
         public int Attempt { get; set; }
@@ -173,6 +187,7 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         public DateTimeOffset? LeasedUntil { get; set; }
         public Guid? LeaseToken { get; set; }
 
-        public OutboxEntry ToEntry() => new(Delivery, Attempt, DueAt, LastError) { Payload = Payload, LeaseToken = LeaseToken };
+        public OutboxEntry ToEntry(DateTimeOffset now) =>
+            new(Delivery, Attempt, DueAt, LastError) { Payload = Payload, LeaseToken = LeaseToken, Age = now > QueuedAt ? now - QueuedAt : TimeSpan.Zero };
     }
 }

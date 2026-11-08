@@ -98,6 +98,10 @@ public sealed class PushDeliveryService : BackgroundService
             throw new InvalidOperationException($"PushNotifications.Timeout ({timeout}) must be a positive, finite time span.");
         if (_options.PollInterval <= TimeSpan.Zero)
             throw new InvalidOperationException($"PushDelivery.PollInterval ({_options.PollInterval}) must be greater than zero.");
+        if (_options.MaxDeliveryAge is { } age && age <= TimeSpan.Zero)
+            throw new InvalidOperationException($"PushDelivery.MaxDeliveryAge ({age}) must be greater than zero, or null for no limit.");
+        if (_options.MaxAttempts is < 1)
+            throw new InvalidOperationException($"PushDelivery.MaxAttempts ({_options.MaxAttempts}) must be at least 1, or null for no limit.");
         // In 128-bit ticks, so a huge timeout cannot overflow.
         if ((Int128)_options.Lease.Ticks <= (2 * (Int128)timeout.Ticks) + TimeSpan.FromSeconds(5).Ticks)
             throw new InvalidOperationException(
@@ -209,6 +213,12 @@ public sealed class PushDeliveryService : BackgroundService
         }
         try
         {
+            if (_options.MaxDeliveryAge is { } maxAge && entry.Age > maxAge)
+            {
+                // Too old: no more attempts. The last real error (if any) stays with the dead letter.
+                await DeadLetterAsync(entry, activity, $"Expired: queued more than {maxAge} ago" + (entry.LastError is null ? "" : $"; last error: {entry.LastError}"), "Expired").ConfigureAwait(false);
+                return;
+            }
             var record = await _configs.GetAsync(d.Task, d.ConfigId, cancellationToken).ConfigureAwait(false);
             if (record is null)
             {
@@ -281,11 +291,11 @@ public sealed class PushDeliveryService : BackgroundService
         }
     }
 
-    /// <summary>A retryable failure: reschedules with backoff, or dead-letters after <see cref="PushDeliveryOptions.MaxAttempts"/>.</summary>
+    /// <summary>A retryable failure: reschedules with backoff, or dead-letters after <see cref="PushDeliveryOptions.MaxAttempts"/> (when set).</summary>
     private async Task RetryOrDeadLetterAsync(OutboxEntry entry, int attempt, Activity? activity, string error, string errorType)
     {
         var d = entry.Delivery;
-        if (attempt >= _options.MaxAttempts)
+        if (_options.MaxAttempts is { } maxAttempts && attempt >= maxAttempts)
         {
             ServerLog.PushWebhookGaveUp(_logger, d.ConfigId, d.Task.TaskId, attempt);
             await DeadLetterAsync(entry, activity, error, "GaveUp").ConfigureAwait(false);
@@ -309,6 +319,16 @@ public sealed class PushDeliveryService : BackgroundService
         }
         Count(A2ATelemetry.Outcomes.DeadLettered);
         if (ServerTelemetry.PushDeadLetters.Enabled) ServerTelemetry.PushDeadLetters.Add(1);
+        if (_options.OnDeadLetter is not { } hook) return;
+        var d = entry.Delivery;
+        try
+        {
+            await hook(new PushDeadLetterInfo(d.Task, d.ConfigId, d.Sequence, error)).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            ServerLog.PushDeadLetterHookFailed(_logger, ex, d.Sequence, d.Task.TaskId, d.ConfigId); // never affects delivery
+        }
     }
 
     private static void Count(string outcome)

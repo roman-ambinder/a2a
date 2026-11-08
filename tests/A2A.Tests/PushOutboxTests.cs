@@ -552,6 +552,7 @@ public class PushOutboxTests
         public override ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken ct = default) => inner.ListDeadLettersAsync(tenant, max, ct);
         public override ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken ct = default) => inner.RedriveAsync(d, ct);
         public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default) => inner.DeleteAllAsync(task, ct);
+        public override ValueTask<bool> EnqueueAsync(PushDelivery d, ReadOnlyMemory<byte> payload, CancellationToken ct = default) => inner.EnqueueAsync(d, payload, ct);
     }
 
     /// <summary>An outbox whose CompleteAsync fails once, then works. Everything else goes to the inner outbox.</summary>
@@ -566,6 +567,7 @@ public class PushOutboxTests
         public override ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken ct = default) => inner.ListDeadLettersAsync(tenant, max, ct);
         public override ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken ct = default) => inner.RedriveAsync(d, ct);
         public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default) => inner.DeleteAllAsync(task, ct);
+        public override ValueTask<bool> EnqueueAsync(PushDelivery d, ReadOnlyMemory<byte> payload, CancellationToken ct = default) => inner.EnqueueAsync(d, payload, ct);
     }
 
     [Fact]
@@ -690,7 +692,7 @@ public class PushOutboxTests
     public async Task Handler_commits_one_delivery_per_push_config()
     {
         var store = new RecordingDeliveriesStore();
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddTaskStore(store));
+        await using var host = await TestAgentHost.StartAsync(o => o.PushNotifications.CatchUpOnRegistration = false, services: s => s.AddTaskStore(store));
         var client = host.Client(ProtocolBindings.JsonRpc);
 
         var task = (await client.SendMessageAsync(new SendMessageRequest

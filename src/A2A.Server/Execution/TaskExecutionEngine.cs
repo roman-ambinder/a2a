@@ -726,6 +726,12 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 var committed = await _tasks.CommitAsync(new TaskCommit(record with { Task = next }, record.Version, encoded, deliveries)).ConfigureAwait(false);
                 if (deliveries.Count > 0) _outbox.NotifyPending();
                 ServerTelemetry.Events.Add(1);
+                // A webhook saved after the listing above is not among the deliveries. For an event that ends or interrupts the
+                // task nothing follows, so list again: a config registered before this commit has read the task (see
+                // CatchUpAsync) and will not see a later state, but is found here. No lock: it saved before it read, and it
+                // read before this commit, so it saved before this listing.
+                if (pushEnabled && _options.PushNotifications.CatchUpOnRegistration && PushCatchUp.IsFinalForNow(committed.Record.Task.Status.State))
+                    await CatchUpLateConfigsAsync(key, deliveries, committed).ConfigureAwait(false);
                 return encoded with { Sequence = committed.Sequence };
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
@@ -742,6 +748,56 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 record = fresh;
             }
         }
+    }
+
+    /// <summary>
+    /// Queues the catch-up delivery (the stored task at the commit's sequence) for each config that was saved after
+    /// <paramref name="queued"/> was listed. Best effort: the event is committed, so a failure here is logged, not thrown.
+    /// </summary>
+    private async ValueTask CatchUpLateConfigsAsync(TaskKey key, IReadOnlyList<PushDelivery> queued, CommitResult committed)
+    {
+        try
+        {
+            var configs = await _pushConfigs.Store.ListAsync(key).ConfigureAwait(false);
+            var late = configs.Where(c => queued.All(d => !string.Equals(d.ConfigId, c.Config.Id, StringComparison.Ordinal))).ToList();
+            foreach (var config in late)
+                await QueueCatchUpAsync(key, config.Config.Id!, committed.Record.Task, committed.Sequence, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            ServerLog.PushCatchUpFailed(_logger, ex, key.TaskId);
+        }
+    }
+
+    /// <summary>
+    /// A webhook was just registered (its config is saved): when the task is terminal or interrupted, queues one delivery of the
+    /// task snapshot for that config, at the task's latest event sequence. The sequence and the task are read until the
+    /// sequence is the same before and after the task read, so the snapshot is the state of that very event. Does nothing for a
+    /// running task (its next event reaches the config), a missing task, or when
+    /// <see cref="PushNotificationOptions.CatchUpOnRegistration"/> is off.
+    /// </summary>
+    internal async ValueTask CatchUpAsync(TaskKey key, string configId, CancellationToken cancellationToken)
+    {
+        if (!_options.PushNotifications.CatchUpOnRegistration) return;
+        TaskRecord? record = null;
+        long sequence = 0;
+        for (var i = 0; i < 5; i++)
+        {
+            var before = await _events.LastSequenceAsync(key, cancellationToken).ConfigureAwait(false);
+            record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false);
+            sequence = await _events.LastSequenceAsync(key, cancellationToken).ConfigureAwait(false);
+            if (record is null || before == sequence) break;
+        }
+        if (record is null || !PushCatchUp.IsFinalForNow(record.Task.Status.State)) return;
+        await QueueCatchUpAsync(key, configId, record.Task, sequence, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Queues the catch-up delivery of <paramref name="task"/> at <paramref name="sequence"/> for one config; a no-op when it is queued already.</summary>
+    private async ValueTask QueueCatchUpAsync(TaskKey key, string configId, AgentTask task, long sequence, CancellationToken cancellationToken)
+    {
+        var payload = EventEncoder.Encode(sequence, StreamResponse.Of(task)).Json;
+        if (await _outbox.EnqueueAsync(PushCatchUp.NewDelivery(key, configId, sequence), payload, cancellationToken).ConfigureAwait(false))
+            _outbox.NotifyPending();
     }
 
     /// <summary>

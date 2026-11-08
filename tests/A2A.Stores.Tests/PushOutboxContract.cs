@@ -356,6 +356,77 @@ public abstract class PushOutboxContract
         Assert.Equal(all.OrderBy(Id), leased.OrderBy(Id)); // every head once, nothing queued behind a head
     }
 
+    private static readonly byte[] Snapshot = System.Text.Encoding.UTF8.GetBytes("{\"task\":{\"id\":\"task1\"}}");
+
+    [SkippableFact]
+    public async Task Enqueue_queues_one_due_delivery_with_its_payload_and_is_idempotent_on_the_key()
+    {
+        var (_, outbox) = await CreateAsync(_time);
+        var d = new PushDelivery(Alice, "c1", 4, "id-one");
+
+        Assert.True(await outbox.EnqueueAsync(d, Snapshot));
+        Assert.False(await outbox.EnqueueAsync(d with { DeliveryId = "id-two" }, new byte[] { 1 })); // same key: nothing changes
+
+        var leased = Assert.Single(await outbox.LeaseDueAsync(10, Lease));
+        Assert.Equal(d, leased.Delivery);
+        Assert.Equal(0, leased.Attempt);
+        Assert.Equal(_time.GetUtcNow(), leased.DueAt);
+        Assert.Equal(Snapshot, leased.Payload.ToArray());
+        Assert.True(await outbox.EnqueueAsync(d with { ConfigId = "c2" }, Snapshot)); // another config: a new entry
+        Assert.True(await outbox.EnqueueAsync(d with { Sequence = 5 }, Snapshot)); // another sequence: a new entry
+    }
+
+    [SkippableFact]
+    public async Task Enqueue_does_nothing_when_a_dead_letter_has_the_key()
+    {
+        var (_, outbox) = await CreateAsync(_time);
+        var d = new PushDelivery(Alice, "c1", 4, "id-one");
+        Assert.True(await outbox.EnqueueAsync(d, Snapshot));
+        Assert.True(await outbox.DeadLetterAsync(Assert.Single(await outbox.LeaseDueAsync(10, Lease)), "HTTP 500"));
+
+        Assert.False(await outbox.EnqueueAsync(d, Snapshot));
+
+        Assert.Empty(await outbox.LeaseDueAsync(10, Lease));
+        Assert.Single(await outbox.ListDeadLettersAsync("t", 10));
+    }
+
+    [SkippableFact]
+    public async Task Concurrent_enqueues_of_one_key_queue_it_once_across_instances()
+    {
+        var (_, outbox) = await CreateAsync(_time);
+        var second = SecondInstance(outbox, _time);
+        var d = new PushDelivery(Alice, "c1", 4, "id-one");
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(i =>
+            Task.Run(async () => await (i % 2 == 0 ? outbox : second).EnqueueAsync(d, Snapshot))));
+
+        Assert.Equal(1, results.Count(r => r));
+        Assert.Single(await outbox.LeaseDueAsync(10, Lease));
+    }
+
+    [SkippableFact]
+    public async Task Age_counts_from_queueing_survives_retries_and_a_redrive_starts_over()
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        var committed = (await CommitAsync(tasks, Alice, "c1"))[0];
+        var enqueued = new PushDelivery(Alice, "c2", 9, "id-two");
+        Assert.True(await outbox.EnqueueAsync(enqueued, Snapshot));
+
+        _time.Advance(TimeSpan.FromHours(2));
+        var leased = await outbox.LeaseDueAsync(10, Lease);
+        Assert.Equal(TimeSpan.FromHours(2), Entry(leased, committed).Age);
+        Assert.Equal(TimeSpan.FromHours(2), Entry(leased, enqueued).Age);
+
+        // A retry keeps the age; a re-driven dead letter starts again.
+        Assert.True(await outbox.RescheduleAsync(Entry(leased, committed), 1, _time.GetUtcNow(), "HTTP 500"));
+        Assert.True(await outbox.DeadLetterAsync(Entry(leased, enqueued), "HTTP 500"));
+        _time.Advance(TimeSpan.FromHours(1));
+        Assert.True(await outbox.RedriveAsync(enqueued));
+        var again = await outbox.LeaseDueAsync(10, Lease);
+        Assert.Equal(TimeSpan.FromHours(3), Entry(again, committed).Age);
+        Assert.Equal(TimeSpan.Zero, Entry(again, enqueued).Age);
+    }
+
     private static string Id(PushDelivery d) => $"{d.Task.Tenant}/{d.Task.Owner}/{d.Task.TaskId}/{d.ConfigId}/{d.Sequence:D5}";
 }
 

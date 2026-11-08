@@ -81,6 +81,21 @@ internal static class Snippets
         #endregion
     }
 
+    public static void DeadLetterHook(IServiceCollection services)
+    {
+        #region DeadLetterHook
+        services.Configure<A2AServerOptions>(o =>
+        {
+            o.PushDelivery.MaxDeliveryAge = TimeSpan.FromHours(6);
+            o.PushDelivery.OnDeadLetter = info =>
+            {
+                Console.Error.WriteLine($"Webhook {info.ConfigId} of task {info.Task.TaskId} gave up at event {info.Sequence}: {info.LastError}");
+                return ValueTask.CompletedTask;
+            };
+        });
+        #endregion
+    }
+
     public static void Secrets(IServiceCollection services)
     {
         #region DataProtection

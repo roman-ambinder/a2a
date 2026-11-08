@@ -36,6 +36,15 @@ public sealed class PushNotificationOptions
 
     /// <summary>Timeout of one webhook POST, and of the DNS check before it. Retries are set in <see cref="PushDeliveryOptions"/>. Default 15 seconds.</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// Send the current state to a webhook that is registered late. When a push config is created
+    /// (CreateTaskPushNotificationConfig) for a task that is terminal or waiting for input or authorization, one delivery of
+    /// the task snapshot is queued for that config, so it does not wait for an event that will never come. The engine also
+    /// checks the task's webhooks again after an event that ends or interrupts the task, so a webhook registered while that
+    /// event was committed is not missed. Default true; false keeps the old behavior (a webhook only sees later events).
+    /// </summary>
+    public bool CatchUpOnRegistration { get; set; } = true;
 }
 
 /// <summary>Validates webhook URLs against the SSRF policy.</summary>

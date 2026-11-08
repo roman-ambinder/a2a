@@ -1,3 +1,5 @@
+using A2A.Server.Storage;
+
 namespace A2A.Server.Push;
 
 /// <summary>Retry and polling settings of <see cref="PushDeliveryService"/> (<see cref="A2AServerOptions.PushDelivery"/>).</summary>
@@ -9,8 +11,26 @@ public sealed class PushDeliveryOptions
     /// <summary>Longest wait between two attempts. Default 5 minutes.</summary>
     public TimeSpan MaxBackoff { get; set; } = TimeSpan.FromMinutes(5);
 
-    /// <summary>Attempts per delivery, the first included. After the last one fails, the delivery is dead-lettered. Default 10.</summary>
-    public int MaxAttempts { get; set; } = 10;
+    /// <summary>
+    /// Attempts per delivery, the first included. When set, the delivery is dead-lettered after the last one fails. Default
+    /// null: no limit on the count; <see cref="MaxDeliveryAge"/> ends a delivery that keeps failing.
+    /// </summary>
+    public int? MaxAttempts { get; set; }
+
+    /// <summary>
+    /// How long a delivery may stay in the outbox, measured from when it was queued (by the outbox's clock: the database clock
+    /// for PostgreSQL). A delivery that is older when it is next leased is dead-lettered without another attempt, and keeps
+    /// its last error. A re-driven dead letter starts again with age 0. Null: no age limit. Default 24 hours.
+    /// </summary>
+    public TimeSpan? MaxDeliveryAge { get; set; } = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// Called after a delivery was dead-lettered (too many attempts, too old, refused by the SSRF policy, a 4xx answer, secrets
+    /// that cannot be unprotected). It gets the task, config id, sequence and last error, never secrets; use it to alert or
+    /// to re-drive (<see cref="A2APushAdmin"/>). An exception it throws is logged and has no other effect. The send slot is
+    /// held while it runs, so keep it short. Default null.
+    /// </summary>
+    public Func<PushDeadLetterInfo, ValueTask>? OnDeadLetter { get; set; }
 
     /// <summary>
     /// How long a leased delivery stays invisible to other instances. An instance that dies mid-send delays the delivery by
@@ -31,3 +51,10 @@ public sealed class PushDeliveryOptions
     /// </summary>
     public int BatchSize { get; set; } = 50;
 }
+
+/// <summary>What <see cref="PushDeliveryOptions.OnDeadLetter"/> is told about a dead-lettered delivery. Never holds secrets.</summary>
+/// <param name="Task">The task the delivery belongs to.</param>
+/// <param name="ConfigId">The push config the delivery was for.</param>
+/// <param name="Sequence">The event sequence of the delivery.</param>
+/// <param name="LastError">Why the delivery was dead-lettered or why its last attempt failed.</param>
+public sealed record PushDeadLetterInfo(TaskKey Task, string ConfigId, long Sequence, string? LastError);

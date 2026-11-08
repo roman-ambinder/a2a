@@ -23,6 +23,13 @@ public sealed record OutboxEntry(PushDelivery Delivery, int Attempt, DateTimeOff
     /// apply only while the entry still holds this lease, so a holder whose lease ran out and was taken over cannot change it.
     /// </summary>
     public Guid? LeaseToken { get; init; }
+
+    /// <summary>
+    /// How long ago the entry was queued, by the outbox's own clock (the database clock for PostgreSQL), as of the call that
+    /// returned it. Zero when not known. Only <see cref="PushOutbox.LeaseDueAsync"/> sets it; <see cref="PushDeliveryOptions.MaxDeliveryAge"/>
+    /// is checked against it.
+    /// </summary>
+    public TimeSpan Age { get; init; }
 }
 
 /// <summary>
@@ -82,6 +89,13 @@ public abstract class PushOutbox
 
     /// <summary>Removes every entry and dead letter of <paramref name="task"/> (for example when the task is deleted).</summary>
     public abstract ValueTask DeleteAllAsync(TaskKey task, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Queues one delivery outside a commit (a catch-up: a webhook registered after the event it should see), due at once,
+    /// attempt 0, with <paramref name="payload"/> as its webhook body. Idempotent on task, config id and sequence: returns
+    /// false, and changes nothing, when a pending entry or a dead letter has that key already.
+    /// </summary>
+    public abstract ValueTask<bool> EnqueueAsync(PushDelivery delivery, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default);
 
     /// <summary>Wakes this process's <see cref="PushDeliveryService"/>, so new deliveries do not wait for its next poll.</summary>
     internal void NotifyPending() => Volatile.Read(ref _pending).TrySetResult();
