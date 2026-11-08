@@ -55,6 +55,7 @@ jobs:
         run: |
           dotnet test tests/A2A.Tests/A2A.Tests.csproj -c Release --no-build
           dotnet test tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj -c Release --no-build
+          dotnet test tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build
 
       - name: Pack
         run: |

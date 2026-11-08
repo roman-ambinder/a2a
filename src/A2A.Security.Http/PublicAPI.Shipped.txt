@@ -1,1 +1,29 @@
 #nullable enable
+A2A.Security.Http.BlockedAddressException
+A2A.Security.Http.BlockedAddressException.BlockedAddressException(string! message) -> void
+A2A.Security.Http.GuardedJwksFetcher
+A2A.Security.Http.GuardedJwksFetcher.FetchAsync(System.Uri! jku, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Signing.JwkSet!>
+A2A.Security.Http.GuardedJwksFetcher.GuardedJwksFetcher(System.Net.Http.HttpMessageInvoker? invoker = null) -> void
+A2A.Security.Http.PrivateAddressGuard
+static A2A.Security.Http.PrivateAddressGuard.CreateHandler(bool allowPrivateNetworks, string! hostKind, System.Collections.Generic.IReadOnlyCollection<(System.Net.IPAddress! Network, int PrefixLength)>? allowedNetworks = null, System.Net.IWebProxy? proxy = null) -> System.Net.Http.SocketsHttpHandler!
+static A2A.Security.Http.PrivateAddressGuard.EnsureHostAllowedAsync(string! host, bool allowPrivateNetworks, System.Collections.Generic.IEnumerable<(System.Net.IPAddress! Network, int PrefixLength)>? allowedNetworks, string! hostKind, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+static A2A.Security.Http.PrivateAddressGuard.InNetwork(System.Net.IPAddress! ip, System.Net.IPAddress! network, int prefixLength) -> bool
+static A2A.Security.Http.PrivateAddressGuard.IsAmbiguousNumericHost(string! host) -> bool
+static A2A.Security.Http.PrivateAddressGuard.IsBlocked(System.Net.IPAddress! ip, System.Collections.Generic.IEnumerable<(System.Net.IPAddress! Network, int PrefixLength)>? allowedNetworks) -> bool
+static A2A.Security.Http.PrivateAddressGuard.IsPrivate(System.Net.IPAddress! ip) -> bool
+static A2A.Security.Http.PrivateAddressGuard.TrimHost(string! host) -> string!
+static A2A.Security.Http.PrivateAddressGuard.TryGetLiteral(System.Uri! uri) -> System.Net.IPAddress?
+A2A.Security.Http.SafeHttp
+A2A.Security.Http.SafeHttpOptions
+A2A.Security.Http.SafeHttpOptions.AllowedNetworks.get -> System.Collections.Generic.IList<(System.Net.IPAddress! Network, int PrefixLength)>!
+A2A.Security.Http.SafeHttpOptions.AllowHttp.get -> bool
+A2A.Security.Http.SafeHttpOptions.AllowHttp.set -> void
+A2A.Security.Http.SafeHttpOptions.AllowPrivateNetworks.get -> bool
+A2A.Security.Http.SafeHttpOptions.AllowPrivateNetworks.set -> void
+A2A.Security.Http.SafeHttpOptions.Proxy.get -> System.Net.IWebProxy?
+A2A.Security.Http.SafeHttpOptions.Proxy.set -> void
+A2A.Security.Http.SafeHttpOptions.SafeHttpOptions() -> void
+static A2A.Security.Http.SafeHttp.CreateClient(A2A.Security.Http.SafeHttpOptions? options = null) -> System.Net.Http.HttpClient!
+static A2A.Security.Http.SafeHttp.CreateHandler(A2A.Security.Http.SafeHttpOptions? options = null) -> System.Net.Http.SocketsHttpHandler!
+static A2A.Security.Http.SafeHttp.DownloadAsync(System.Net.Http.HttpClient! client, System.Uri! url, long maxBytes, A2A.Security.Http.SafeHttpOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<byte[]!>!
+static A2A.Security.Http.SafeHttp.EnsureAllowed(System.Uri! url, A2A.Security.Http.SafeHttpOptions? options = null) -> void
