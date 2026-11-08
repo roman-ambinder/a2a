@@ -1,5 +1,1 @@
 #nullable enable
-A2A.Server.Grpc.A2AGrpcExtensionService
-A2A.Server.Grpc.A2AGrpcExtensionService.A2AGrpcExtensionService(A2A.Server.IA2ARequestHandler! handler, A2A.Server.AspNetCore.Operations.A2AOperationTable! table, Microsoft.Extensions.Options.IOptions<A2A.Server.A2AServerOptions!>! serverOptions, Microsoft.Extensions.Hosting.IHostEnvironment! environment, Microsoft.Extensions.Logging.ILogger<A2A.Server.Grpc.A2AGrpcExtensionService!>! logger) -> void
-override A2A.Server.Grpc.A2AGrpcExtensionService.InvokeExtensionOperation(A2A.Grpc.Extensions.Protos.ExtensionOperationRequest! request, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task<A2A.Grpc.Extensions.Protos.ExtensionOperationResponse!>!
-static A2A.Server.Grpc.A2AGrpcExtensions.MapA2AGrpcExtensions(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints) -> Microsoft.AspNetCore.Builder.GrpcServiceEndpointConventionBuilder!

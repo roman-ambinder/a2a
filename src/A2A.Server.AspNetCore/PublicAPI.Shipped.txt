@@ -66,3 +66,6 @@ static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.RegisterA2ABindin
 A2A.Server.AspNetCore.IA2ARejectionWriter
 A2A.Server.AspNetCore.IA2ARejectionWriter.TryWriteAsync(Microsoft.AspNetCore.Http.HttpContext! http, A2A.A2AException! error) -> System.Threading.Tasks.Task?
 static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.WithA2AStartupCheck<TBuilder>(this TBuilder builder, Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! bindingName) -> TBuilder
+A2A.Server.AspNetCore.Operations.A2AOperationTable.TryGetExtension(string! method, out A2A.Server.Pipeline.A2AExtensionOperation? operation) -> bool
+A2A.Server.AspNetCore.Operations.ExtensionPolicy
+static A2A.Server.AspNetCore.Operations.ExtensionPolicy.RequireAsync(Microsoft.AspNetCore.Http.HttpContext! http, A2A.Server.Pipeline.A2AExtensionOperation! operation, A2A.Server.ServerCallContext! call, bool allowAnonymous) -> System.Threading.Tasks.Task!

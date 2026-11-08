@@ -72,3 +72,4 @@ override A2A.Server.Postgres.PostgresTaskStore.ListInterruptedBeforeAsync(System
 override A2A.Server.Postgres.PostgresTaskStore.ListOrphanContextsAsync(System.DateTimeOffset createdBefore, int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.ContextRecord!>!>
 A2A.Server.Postgres.PostgresStoreOptions.UseDatabaseClock.get -> bool
 A2A.Server.Postgres.PostgresStoreOptions.UseDatabaseClock.set -> void
+override A2A.Server.Postgres.PostgresPushOutbox.EnqueueAsync(A2A.Server.Storage.PushDelivery! delivery, System.ReadOnlyMemory<byte> payload, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
