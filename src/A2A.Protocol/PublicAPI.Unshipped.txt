@@ -76,3 +76,14 @@ const A2A.Diagnostics.A2ATelemetry.Tags.Operation = "a2a.method.name" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.ContextId = "gen_ai.conversation.id" -> string!
 static A2A.Diagnostics.A2ATelemetry.TaskStateValue(A2A.TaskState state) -> string!
 static A2A.Diagnostics.A2ATelemetry.ErrorTypeOf(System.Exception! error) -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.MessageId = "a2a.message.id" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ReferenceTaskIds = "a2a.message.reference_task_ids" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ProtocolVersion = "a2a.protocol.version" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.AgentName = "gen_ai.agent.name" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.AgentDescription = "gen_ai.agent.description" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.AgentVersion = "gen_ai.agent.version" -> string!
+*REMOVED*static A2A.Diagnostics.A2ATelemetry.SetOperationTags(System.Diagnostics.Activity? activity, string! operation, string? binding, string? tenant, string? taskId = null, string? contextId = null) -> void
+static A2A.Diagnostics.A2ATelemetry.SetOperationTags(System.Diagnostics.Activity? activity, string! operation, string? binding, string? tenant, string? taskId = null, string? contextId = null, string? protocolVersion = null) -> void
+static A2A.Diagnostics.A2ATelemetry.SetMessage(System.Diagnostics.Activity? activity, A2A.Message? message) -> void
+static A2A.Diagnostics.A2ATelemetry.SetAgent(System.Diagnostics.Activity? activity, A2A.AgentCard? card) -> void
+static A2A.Diagnostics.A2ATelemetry.SetStreamResult(System.Diagnostics.Activity? activity, A2A.StreamResponse! evt) -> void

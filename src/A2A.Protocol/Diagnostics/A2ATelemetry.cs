@@ -59,6 +59,24 @@ public static class A2ATelemetry
         /// <summary>The context (conversation) id.</summary>
         public const string ContextId = "gen_ai.conversation.id";
 
+        /// <summary>The id of the message a call sends (<c>a2a.message.id</c>). Never its text, parts or metadata.</summary>
+        public const string MessageId = "a2a.message.id";
+
+        /// <summary>The ids of the tasks a message refers to (a string array); set only when there are any.</summary>
+        public const string ReferenceTaskIds = "a2a.message.reference_task_ids";
+
+        /// <summary>The A2A protocol version of the call (for example <c>1.0</c>).</summary>
+        public const string ProtocolVersion = "a2a.protocol.version";
+
+        /// <summary>The agent card's name (<c>gen_ai.agent.name</c>); not set when empty.</summary>
+        public const string AgentName = "gen_ai.agent.name";
+
+        /// <summary>The agent card's description (<c>gen_ai.agent.description</c>); not set when empty.</summary>
+        public const string AgentDescription = "gen_ai.agent.description";
+
+        /// <summary>The agent card's version (<c>gen_ai.agent.version</c>); not set when empty.</summary>
+        public const string AgentVersion = "gen_ai.agent.version";
+
         /// <summary>The tenant; set only when not the default (empty) tenant.</summary>
         public const string Tenant = "a2a.tenant";
 
@@ -237,50 +255,110 @@ public static class A2ATelemetry
     /// <summary>Set (true) on a span whose operation the caller canceled. Not an error.</summary>
     public const string ErrorTypeCanceledTag = "a2a.canceled";
 
-    /// <summary>Sets the common operation tags.</summary>
-    public static void SetOperationTags(Activity? activity, string operation, string? binding, string? tenant, string? taskId = null, string? contextId = null)
+    /// <summary>Sets the common operation tags (nothing on a span nobody samples).</summary>
+    public static void SetOperationTags(Activity? activity, string operation, string? binding, string? tenant, string? taskId = null, string? contextId = null, string? protocolVersion = null)
     {
-        if (activity is null) return;
+        if (activity is not { IsAllDataRequested: true }) return;
         activity.SetTag(Tags.Operation, operation);
         if (!string.IsNullOrEmpty(binding)) activity.SetTag(Tags.Binding, binding);
         if (!string.IsNullOrEmpty(tenant)) activity.SetTag(Tags.Tenant, tenant);
+        if (!string.IsNullOrEmpty(protocolVersion)) activity.SetTag(Tags.ProtocolVersion, protocolVersion);
         SetTask(activity, taskId, contextId);
     }
 
     /// <summary>Sets <see cref="Tags.TaskId"/> and <see cref="Tags.ContextId"/> when known.</summary>
     public static void SetTask(Activity? activity, string? taskId, string? contextId = null)
     {
-        if (activity is null) return;
+        if (activity is not { IsAllDataRequested: true }) return;
         if (!string.IsNullOrEmpty(taskId)) activity.SetTag(Tags.TaskId, taskId);
         if (!string.IsNullOrEmpty(contextId)) activity.SetTag(Tags.ContextId, contextId);
+    }
+
+    /// <summary>
+    /// Sets the id tags of a message a call sends: <see cref="Tags.MessageId"/>, <see cref="Tags.ReferenceTaskIds"/>, and the task and
+    /// context ids. Never its text, parts or metadata.
+    /// </summary>
+    public static void SetMessage(Activity? activity, Message? message)
+    {
+        if (message is null || activity is not { IsAllDataRequested: true }) return;
+        if (!string.IsNullOrEmpty(message.MessageId)) activity.SetTag(Tags.MessageId, message.MessageId);
+        if (message.ReferenceTaskIds is { Count: > 0 } references) activity.SetTag(Tags.ReferenceTaskIds, references.ToArray());
+        SetTask(activity, message.TaskId, message.ContextId);
+    }
+
+    /// <summary>Sets the agent card's name, description and version (<c>gen_ai.agent.*</c>); an empty field is not tagged.</summary>
+    public static void SetAgent(Activity? activity, AgentCard? card)
+    {
+        if (card is null || activity is not { IsAllDataRequested: true }) return;
+        if (!string.IsNullOrEmpty(card.Name)) activity.SetTag(Tags.AgentName, card.Name);
+        if (!string.IsNullOrEmpty(card.Description)) activity.SetTag(Tags.AgentDescription, card.Description);
+        if (!string.IsNullOrEmpty(card.Version)) activity.SetTag(Tags.AgentVersion, card.Version);
     }
 
     /// <summary>Sets the task tags from an operation result (a task, a message, a stream event).</summary>
     public static void SetResult(Activity? activity, object? result)
     {
+        if (activity is not { IsAllDataRequested: true }) return;
+        ApplyResult(activity, result, stream: false);
+    }
+
+    /// <summary>
+    /// Like <see cref="SetResult"/> for each event of a stream, but a span covers many events: <see cref="Tags.TaskState"/> stays
+    /// only while every event of the stream reported the same state. Once two different states have been seen the tag is removed
+    /// and does not come back (each event still carries its own state).
+    /// </summary>
+    public static void SetStreamResult(Activity? activity, StreamResponse evt)
+    {
+        if (activity is not { IsAllDataRequested: true }) return;
+        ApplyResult(activity, evt, stream: true);
+    }
+
+    private static readonly object MixedStates = new();
+    private const string MixedStatesKey = "a2a.stream.mixed_states";
+
+    private static void SetState(Activity activity, TaskState state, bool stream)
+    {
+        var value = TaskStateValue(state);
+        if (!stream)
+        {
+            activity.SetTag(Tags.TaskState, value);
+            return;
+        }
+        if (activity.GetCustomProperty(MixedStatesKey) is not null) return;
+        var current = activity.GetTagItem(Tags.TaskState);
+        if (current is null) activity.SetTag(Tags.TaskState, value);
+        else if (!string.Equals(current as string, value, StringComparison.Ordinal))
+        {
+            activity.SetTag(Tags.TaskState, null);
+            activity.SetCustomProperty(MixedStatesKey, MixedStates);
+        }
+    }
+
+    private static void ApplyResult(Activity activity, object? result, bool stream)
+    {
         switch (result)
         {
             case AgentTask t:
                 SetTask(activity, t.Id, t.ContextId);
-                if (t.Status is { } ts) activity?.SetTag(Tags.TaskState, TaskStateValue(ts.State));
+                if (t.Status is { } ts) SetState(activity, ts.State, stream);
                 break;
             case Message m:
                 SetTask(activity, m.TaskId, m.ContextId);
                 break;
-            case TaskResponse r: SetResult(activity, r.Task); break;
-            case MessageResponse r: SetResult(activity, r.Message); break;
-            case TaskEvent e: SetResult(activity, e.Task); break;
-            case MessageEvent e: SetResult(activity, e.Message); break;
+            case TaskResponse r: ApplyResult(activity, r.Task, stream); break;
+            case MessageResponse r: ApplyResult(activity, r.Message, stream); break;
+            case TaskEvent e: ApplyResult(activity, e.Task, stream); break;
+            case MessageEvent e: ApplyResult(activity, e.Message, stream); break;
             case StatusUpdateEvent { StatusUpdate: var su }:
                 SetTask(activity, su.TaskId, su.ContextId);
-                if (su.Status is { } ss) activity?.SetTag(Tags.TaskState, TaskStateValue(ss.State));
+                if (su.Status is { } ss) SetState(activity, ss.State, stream);
                 break;
             case ArtifactUpdateEvent { ArtifactUpdate: var au }:
                 SetTask(activity, au.TaskId, au.ContextId);
                 break;
             case TaskPushNotificationConfig c:
                 SetTask(activity, c.TaskId);
-                activity?.SetTag(Tags.PushConfigId, c.Id);
+                activity.SetTag(Tags.PushConfigId, c.Id);
                 break;
         }
     }

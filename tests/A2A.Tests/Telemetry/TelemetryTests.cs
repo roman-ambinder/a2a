@@ -494,4 +494,205 @@ public sealed class TelemetryTests
         Assert.Null(send.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
         Assert.Equal(ActivityStatusCode.Error, send.Status);
     }
+
+    // ---------------------------------------------------------------- convention attributes
+
+    private static Activity SampledActivity() => new("test") { IsAllDataRequested = true };
+
+    private static IEnumerable<string> Values(object? value) => value switch
+    {
+        null => [],
+        string text => [text],
+        IEnumerable<string> many => many,
+        _ => [value.ToString() ?? ""],
+    };
+
+    private static void AssertNoSecret(IEnumerable<Activity> spans, string secret)
+    {
+        foreach (var span in spans)
+        {
+            foreach (var tag in span.TagObjects) Assert.DoesNotContain(Values(tag.Value), v => v.Contains(secret, StringComparison.Ordinal));
+            foreach (var evt in span.Events)
+                foreach (var tag in evt.Tags) Assert.DoesNotContain(Values(tag.Value), v => v.Contains(secret, StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void Set_message_tags_ids_and_never_content()
+    {
+        using var activity = SampledActivity();
+        var message = new Message
+        {
+            MessageId = "m-1",
+            Role = Role.User,
+            ContextId = "c-1",
+            TaskId = "t-1",
+            ReferenceTaskIds = ["r-1"],
+            Parts = [Part.FromText("SECRET-TEXT")],
+            Metadata = new() { ["k"] = System.Text.Json.JsonSerializer.SerializeToElement("SECRET-META") },
+        };
+
+        A2ATelemetry.SetMessage(activity, message);
+
+        Assert.Equal("m-1", activity.GetTagItem(A2ATelemetry.Tags.MessageId));
+        Assert.Equal("c-1", activity.GetTagItem(A2ATelemetry.Tags.ContextId));
+        Assert.Equal("t-1", activity.GetTagItem(A2ATelemetry.Tags.TaskId));
+        Assert.Equal(new[] { "r-1" }, Assert.IsType<string[]>(activity.GetTagItem(A2ATelemetry.Tags.ReferenceTaskIds)));
+        AssertNoSecret([activity], "SECRET");
+    }
+
+    [Fact]
+    public void Set_message_skips_empty_references()
+    {
+        using var activity = SampledActivity();
+        A2ATelemetry.SetMessage(activity, new Message { MessageId = "m-1", Role = Role.User, ReferenceTaskIds = [], Parts = [Part.FromText("x")] });
+        Assert.Null(activity.GetTagItem(A2ATelemetry.Tags.ReferenceTaskIds));
+    }
+
+    [Fact]
+    public void Set_agent_skips_empty_card_fields()
+    {
+        using var activity = SampledActivity();
+        var card = TestAgentHost.DefaultCard();
+        card.Name = "Bot";
+        card.Description = "";
+        card.Version = "1.2";
+
+        A2ATelemetry.SetAgent(activity, card);
+
+        Assert.Equal("Bot", activity.GetTagItem(A2ATelemetry.Tags.AgentName));
+        Assert.Equal("1.2", activity.GetTagItem(A2ATelemetry.Tags.AgentVersion));
+        Assert.Null(activity.GetTagItem(A2ATelemetry.Tags.AgentDescription));
+        Assert.DoesNotContain(activity.TagObjects, t => t.Key == A2ATelemetry.Tags.AgentDescription);
+    }
+
+    private static StreamResponse Status(TaskState state) => new StatusUpdateEvent(
+        new TaskStatusUpdateEvent { TaskId = "t-1", ContextId = "c-1", Status = new AgentTaskStatus { State = state } });
+
+    [Fact]
+    public void Stream_keeps_one_state_and_drops_mixed_states()
+    {
+        using var activity = SampledActivity();
+
+        A2ATelemetry.SetStreamResult(activity, Status(TaskState.Working));
+        A2ATelemetry.SetStreamResult(activity, Status(TaskState.Working));
+        Assert.Equal("TASK_STATE_WORKING", activity.GetTagItem(A2ATelemetry.Tags.TaskState));
+
+        A2ATelemetry.SetStreamResult(activity, Status(TaskState.Completed));
+        Assert.Null(activity.GetTagItem(A2ATelemetry.Tags.TaskState));
+
+        A2ATelemetry.SetStreamResult(activity, Status(TaskState.Completed));
+        Assert.Null(activity.GetTagItem(A2ATelemetry.Tags.TaskState));
+        Assert.Equal("t-1", activity.GetTagItem(A2ATelemetry.Tags.TaskId));
+    }
+
+    [Fact]
+    public void Set_message_and_agent_skip_unsampled_span()
+    {
+        using var activity = new Activity("unsampled") { IsAllDataRequested = false };
+        var message = new Message { MessageId = "m-1", Role = Role.User, ContextId = "c-1", TaskId = "t-1", ReferenceTaskIds = ["r-1"], Parts = [Part.FromText("x")] };
+
+        A2ATelemetry.SetMessage(activity, message);
+        A2ATelemetry.SetAgent(activity, TestAgentHost.DefaultCard());
+        A2ATelemetry.SetOperationTags(activity, "SendMessage", "JSONRPC", "acme", "t-1", "c-1", "1.0");
+        A2ATelemetry.SetStreamResult(activity, Status(TaskState.Working));
+
+        Assert.Empty(activity.TagObjects);
+        A2ATelemetry.SetMessage(null, message);
+        A2ATelemetry.SetAgent(null, TestAgentHost.DefaultCard());
+        A2ATelemetry.SetStreamResult(null, Status(TaskState.Working));
+    }
+
+    [Fact]
+    public async Task Server_operation_span_carries_message_agent_and_protocol_version()
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
+        var message = Message.FromUser("SECRET-TEXT");
+        message.Metadata = new() { ["k"] = System.Text.Json.JsonSerializer.SerializeToElement("SECRET-META") };
+
+        var task = (await host.Client(ProtocolBindings.JsonRpc).SendMessageAsync(new SendMessageRequest { Message = message })).RequireTask();
+
+        var send = Assert.Single(await spans.WaitForAsync("SendMessage"));
+        Assert.Equal(message.MessageId, send.GetTagItem(A2ATelemetry.Tags.MessageId));
+        Assert.Equal("1.0", send.GetTagItem(A2ATelemetry.Tags.ProtocolVersion));
+        Assert.Equal("Scenario Agent", send.GetTagItem(A2ATelemetry.Tags.AgentName));
+        Assert.Equal(task.ContextId, send.GetTagItem(A2ATelemetry.Tags.ContextId));
+        Assert.Null(send.GetTagItem("gen_ai.operation.name"));
+        AssertNoSecret(spans.Stopped, "SECRET");
+    }
+
+    [Fact]
+    public async Task Server_stream_span_drops_the_state_of_a_multi_state_stream()
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
+        var states = new List<string>();
+
+        using var cts = new CancellationTokenSource(Timeout);
+        await foreach (var evt in host.Client(ProtocolBindings.JsonRpc).SendStreamingMessageAsync(Message.FromUser("task"), cancellationToken: cts.Token))
+        {
+            if (evt is StatusUpdateEvent { StatusUpdate.Status.State: var state }) states.Add(A2ATelemetry.TaskStateValue(state));
+            else if (evt is TaskEvent { Task.Status.State: var initial }) states.Add(A2ATelemetry.TaskStateValue(initial));
+        }
+
+        var span = Assert.Single(await spans.WaitForAsync("SendStreamingMessage"));
+        Assert.True(states.Distinct().Count() > 1, "the scenario goes through more than one state");
+        Assert.Equal("Scenario Agent", span.GetTagItem(A2ATelemetry.Tags.AgentName));
+        Assert.Null(span.GetTagItem(A2ATelemetry.Tags.TaskState));
+        var last = span.Events.Last(e => e.Name == A2ATelemetry.Events.StreamEvent && e.Tags.Any(t => t.Key == A2ATelemetry.Tags.TaskState));
+        Assert.Equal("TASK_STATE_COMPLETED", last.Tags.Single(t => t.Key == A2ATelemetry.Tags.TaskState).Value);
+    }
+
+    [Fact]
+    public async Task Per_tenant_spans_carry_their_own_agent_name()
+    {
+        await using var host = await TestAgentHost.StartAsync(
+            services: s => s.AddA2AServer().AddTenantCardProvider<TenantCards>().AddAgentExecutorResolver<TenantAgents>());
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
+
+        foreach (var tenant in new[] { "acme", "globex" })
+            await host.Client(ProtocolBindings.JsonRpc, options: new A2AClientOptions { Tenant = tenant, ValidateCapabilities = false }).SendMessageAsync("hello");
+
+        var sends = await spans.WaitForAsync("SendMessage", 2);
+        Assert.Equal(2, sends.Length);
+        Assert.Equal("acme agent", Assert.Single(sends, a => Equals(a.GetTagItem(A2ATelemetry.Tags.Tenant), "acme")).GetTagItem(A2ATelemetry.Tags.AgentName));
+        Assert.Equal("globex agent", Assert.Single(sends, a => Equals(a.GetTagItem(A2ATelemetry.Tags.Tenant), "globex")).GetTagItem(A2ATelemetry.Tags.AgentName));
+    }
+
+    [Fact]
+    public async Task Client_span_carries_card_protocol_version_and_message_id()
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        using var spans = new Spans(A2ATelemetry.ClientSourceName);
+        var message = Message.FromUser("SECRET-TEXT");
+
+        await host.Client(ProtocolBindings.JsonRpc).SendMessageAsync(new SendMessageRequest { Message = message });
+        await foreach (var _ in host.Client(ProtocolBindings.JsonRpc).SendStreamingMessageAsync(Message.FromUser("task"))) { }
+
+        var send = Assert.Single(spans.Named("SendMessage"));
+        Assert.Equal("Scenario Agent", send.GetTagItem(A2ATelemetry.Tags.AgentName));
+        Assert.Equal("1.0.0", send.GetTagItem(A2ATelemetry.Tags.AgentVersion));
+        Assert.Equal("1.0", send.GetTagItem(A2ATelemetry.Tags.ProtocolVersion));
+        Assert.Equal(message.MessageId, send.GetTagItem(A2ATelemetry.Tags.MessageId));
+        var stream = Assert.Single(spans.Named("SendStreamingMessage"));
+        Assert.NotNull(stream.GetTagItem(A2ATelemetry.Tags.MessageId));
+        Assert.Equal("Scenario Agent", stream.GetTagItem(A2ATelemetry.Tags.AgentName));
+        AssertNoSecret(spans.Stopped, "SECRET");
+    }
+
+    [Fact]
+    public async Task Client_without_a_card_has_no_agent_tags()
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        using var spans = new Spans(A2ATelemetry.ClientSourceName);
+        var client = new A2AClient(new HttpJsonTransport(host.Http("alice"), new Uri(TestAgentHost.BaseUrl)));
+
+        await client.GetTaskAsync(new GetTaskRequest { Id = "t-1" }).ContinueWith(_ => { });
+
+        var get = Assert.Single(spans.Named("GetTask"));
+        Assert.Null(get.GetTagItem(A2ATelemetry.Tags.AgentName));
+        Assert.Null(get.GetTagItem(A2ATelemetry.Tags.AgentVersion));
+        Assert.Equal("1.0", get.GetTagItem(A2ATelemetry.Tags.ProtocolVersion));
+    }
 }

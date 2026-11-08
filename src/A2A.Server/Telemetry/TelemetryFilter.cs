@@ -122,7 +122,7 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
                 count++;
                 if (activity is { IsAllDataRequested: true })
                 {
-                    A2ATelemetry.SetResult(activity, current.Event);
+                    A2ATelemetry.SetStreamResult(activity, current.Event);
                     A2ATelemetry.AddStreamEvent(activity, current.Event, current.Sequence);
                 }
                 yield return current;
@@ -144,8 +144,15 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
     /// <summary>Starts the span (null when nobody samples it) with the operation, binding, tenant and task id tags.</summary>
     private static Activity? Start(A2AOperationDescriptor operation, ServerCallContext call, object request) =>
         ServerTelemetry.Source.HasListeners()
-            ? ServerTelemetry.StartOperation(operation.Name, operation.Name, call, AuthorizationFilter.TaskIdOf(request))
+            ? StartWithMessage(operation, call, request)
             : null;
+
+    private static Activity? StartWithMessage(A2AOperationDescriptor operation, ServerCallContext call, object request)
+    {
+        var activity = ServerTelemetry.StartOperation(operation.Name, operation.Name, call, AuthorizationFilter.TaskIdOf(request));
+        A2ATelemetry.SetMessage(activity, (request as SendMessageRequest)?.Message);
+        return activity;
+    }
 
     /// <summary>Records the result (<paramref name="error"/> null) or the failure on the span and the requests counter, then stops the span.</summary>
     private static void Stop(Activity? activity, A2AOperationDescriptor operation, ServerCallContext call, Exception? error, CancellationToken cancellationToken)

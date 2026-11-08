@@ -146,7 +146,14 @@ public class TracingTests
         Assert.Equal(received, Convert.ToInt32(client.GetTagItem(A2ATelemetry.Tags.StreamEventCount)));
         Assert.Equal(received, server.Events.Count(e => e.Name == A2ATelemetry.Events.StreamEvent));
         Assert.Contains(server.Events, e => e.Tags.Any(t => t.Key == A2ATelemetry.Events.EventSequence));
-        Assert.Equal("TASK_STATE_COMPLETED", Tag(client, A2ATelemetry.Tags.TaskState));
+        // The stream went through more than one state, so the spans carry none; the last event has the final one.
+        Assert.Null(client.GetTagItem(A2ATelemetry.Tags.TaskState));
+        Assert.Null(server.GetTagItem(A2ATelemetry.Tags.TaskState));
+        foreach (var span in new[] { client, server })
+        {
+            var last = span.Events.Last(e => e.Tags.Any(t => t.Key == A2ATelemetry.Tags.TaskState));
+            Assert.Equal("TASK_STATE_COMPLETED", last.Tags.Single(t => t.Key == A2ATelemetry.Tags.TaskState).Value);
+        }
         Assert.True(DescendsFrom(server, client));
         // Events are span events, not child spans: the only children of the stream span are the agent run.
         Assert.All(trace.Spans().Where(s => s.ParentSpanId == server.SpanId), s => Assert.Equal(A2ATelemetry.SpanNames.AgentExecution, s.OperationName));
