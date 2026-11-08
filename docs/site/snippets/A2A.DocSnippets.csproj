@@ -22,5 +22,8 @@
     <ProjectReference Include="..\..\..\src\A2A.Client.DependencyInjection\A2A.Client.DependencyInjection.csproj" />
     <ProjectReference Include="..\..\..\src\A2A.Client.Grpc\A2A.Client.Grpc.csproj" />
     <ProjectReference Include="..\..\..\src\A2A.Security.Http\A2A.Security.Http.csproj" />
+    <ProjectReference Include="..\..\..\src\A2A.Extensions.AI\A2A.Extensions.AI.csproj" />
+    <ProjectReference Include="..\..\..\src\A2A.Server.V0_3Compat\A2A.Server.V0_3Compat.csproj" />
+    <ProjectReference Include="..\..\..\src\A2A.Client.V0_3Compat\A2A.Client.V0_3Compat.csproj" />
   </ItemGroup>
 </Project>

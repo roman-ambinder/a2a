@@ -35,6 +35,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 205, Level = LogLevel.Debug, Message = "Dropped event for task {TaskId} in state {State}")]
     public static partial void EventDropped(ILogger logger, string taskId, TaskState state);
 
+    [LoggerMessage(EventId = 224, Level = LogLevel.Warning, Message = "Task {TaskId}: dropped an append to artifact {ArtifactId}, which is sealed (its last chunk was already stored)")]
+    public static partial void ArtifactAppendAfterSeal(ILogger logger, string taskId, string artifactId);
+
     [LoggerMessage(EventId = 206, Level = LogLevel.Debug, Message = "Agent for task {TaskId} stopped: its events could no longer be stored")]
     public static partial void ExecutorStoppedAfterStoreFailure(ILogger logger, Exception exception, string taskId);
 

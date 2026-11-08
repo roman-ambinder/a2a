@@ -64,6 +64,60 @@ internal static class Samples
         #endregion
     }
 
+    public static async Task SendChunks(TaskUpdater updater, CancellationToken ct)
+    {
+        #region Chunks
+        var id = await updater.AddArtifactAsync([Part.FromText("Hello, ")], name: "greeting", cancellationToken: ct);
+        await updater.AddArtifactAsync([Part.FromText("world")], id, append: true, lastChunk: true, cancellationToken: ct);
+
+        try
+        {
+            // The artifact is sealed now: an append throws.
+            await updater.AddArtifactAsync([Part.FromText("!")], id, append: true, cancellationToken: ct);
+        }
+        catch (InvalidOperationException)
+        {
+            // Send it with append: false to replace the artifact, or use a new artifact id.
+            await updater.AddArtifactAsync([Part.FromText("Hello, world!")], id, lastChunk: true, cancellationToken: ct);
+        }
+        #endregion
+    }
+
+    public static async Task SendHashedChunks(TaskUpdater updater, CancellationToken ct)
+    {
+        #region HashedChunks
+        var id = await updater.AddHashedArtifactAsync([Part.FromText("Hello, ")], name: "greeting", cancellationToken: ct);
+        await updater.AddHashedArtifactAsync([Part.FromText("world")], id, append: true, cancellationToken: ct);
+
+        // No parts: this only seals the artifact. It repeats the hash of the whole artifact.
+        await updater.AddHashedArtifactAsync([], id, append: true, lastChunk: true, cancellationToken: ct);
+        #endregion
+    }
+
+    public static async Task VerifyStream(A2AClient client)
+    {
+        #region VerifyStream
+        using var verifier = new ArtifactVerifier();
+        await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("stream this")))
+        {
+            foreach (var result in verifier.Observe(evt))
+            {
+                if (result.Status is ArtifactVerificationStatus.Mismatch or ArtifactVerificationStatus.Unverifiable)
+                    Console.WriteLine($"Artifact {result.ArtifactId}: {result.Status}");
+            }
+        }
+        #endregion
+    }
+
+    public static async Task VerifyTask(A2AClient client, string taskId)
+    {
+        #region VerifyTask
+        var task = await client.GetTaskAsync(taskId);
+        foreach (var artifact in task.Artifacts ?? [])
+            Console.WriteLine($"Artifact {artifact.ArtifactId}: {ArtifactVerifier.Verify(artifact).Status}");
+        #endregion
+    }
+
     public static void Configure(IServiceCollection services)
     {
         #region Options

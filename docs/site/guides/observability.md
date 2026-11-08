@@ -19,7 +19,7 @@ On a client process, listen to `A2A.Client`:
 | `A2A.Server` | <xref:A2A.Diagnostics.A2ATelemetry.ServerSourceName> | server spans |
 | `A2A.Client` | <xref:A2A.Diagnostics.A2ATelemetry.ClientSourceName> | client spans |
 | `A2A.Server` | <xref:A2A.Diagnostics.A2ATelemetry.ServerMeterName> | server counters |
-| `A2A` | none | card and idempotency counters (see Metrics) |
+| `A2A` | none | card, idempotency, registry and v0.3 compatibility counters (see Metrics) |
 
 ## Spans
 
@@ -59,7 +59,7 @@ A client reconnect adds an `a2a.retry` span event with `a2a.retry.attempt`. A fa
 | `a2a.message.reference_task_ids` | `SendMessage` and `SendStreamingMessage` spans | string array, only when the message refers to tasks |
 | `a2a.protocol.version` | operation spans | the protocol version of the call, for example `1.0`. On the client it comes from `A2AClientOptions.ProtocolVersion`. On the server it is set when the caller's version is known |
 | `gen_ai.agent.name`, `gen_ai.agent.description`, `gen_ai.agent.version` | operation spans | from the Agent Card, each only when not empty. On the client, only when the client has an Agent Card. On the server, when the operation resolved the tenant's card, so a call refused before that has none |
-| `a2a.tenant` | all server spans | only for a non-default tenant |
+| `a2a.tenant` | all server spans, and client operation spans | only for a non-default tenant. On the client, when the request has a tenant |
 | `a2a.task.state` | operation and run spans | the task state after the call or run, as its proto name (`TASK_STATE_COMPLETED`). A stream span has it only when the stream saw one state |
 | `a2a.stream.event_count` | stream spans | events sent or received |
 | `a2a.execution.kind` | run spans | `execute`, `cancel` or `continue` |
@@ -105,12 +105,15 @@ All counters are `Counter<long>`.
 | `A2A` | `a2a.idempotency.evictions` | none | idempotency entries dropped early because the in-memory store was full |
 | `A2A` | `a2a.card.changed` | `origin` | cards that differ from the pinned card of their origin |
 | `A2A` | `a2a.card.unsigned` | `origin` | unsigned cards accepted because signatures are not required |
+| `A2A` | `a2a.registry.name_lookalike` | `origin` | agent names that look like the name of another registered agent. See [Peer identity and registry](peer-identity.md) |
+| `A2A` | `a2a.compat.v0_3.dropped` | `field` (for example `part.filename`) | values dropped because v0.3 cannot carry them. See [v0.3 compatibility](v03-compatibility.md) |
+| `A2A` | `a2a.compat.v0_3.requests` | `binding`, `operation` | requests served on the v0.3 surface. See [v0.3 compatibility](v03-compatibility.md) |
 
 A stream whose reader stops early counts as `canceled`. A cancellation that the caller did not ask for, such as a server-side timeout, counts as `error`.
 
 The push counters are also exposed as `PushDeliveryService.DeliveriesCounterName` and `PushDeliveryService.DeadLettersCounterName`. The idempotency counter is `InMemoryIdempotencyStore.EvictionsCounterName` on `InMemoryIdempotencyStore.MeterName`.
 
-The card counters come from the client's `A2ACardResolver`, so they exist in client processes. The meter `A2A` therefore needs `AddMeter("A2A")` in the process that resolves cards or runs the in-memory idempotency store.
+The card counters come from the client's `A2ACardResolver`, so they exist in client processes. `a2a.registry.name_lookalike` comes from `AgentRegistry`, also on the client side. The v0.3 counters come from the v0.3 compatibility packages. The meter `A2A` therefore needs `AddMeter("A2A")` in any process that resolves cards, keeps an agent registry, serves or converts v0.3, or runs the in-memory idempotency store.
 
 ## Logs
 
@@ -119,6 +122,7 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | Ids | Area |
 |---|---|
 | 100-101 | client: card signing and pinning |
+| 150-152 | client: agent registry (lookalike name, mixed-script name, identity change) |
 | 200-242 | server: agent runs, coordination, push-config cleanup, retention |
 | 250-253 | server: startup diagnostics |
 | 300-313 | server: push delivery |
@@ -126,8 +130,8 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | 500-501, 600 | ASP.NET Core: unhandled errors, stream errors |
 | 700-701, 800 | ASP.NET Core: startup validation, card signing warning |
 | 900 | gRPC: unhandled errors |
-| 1000-1001 | Postgres cleanup |
-| 1100-1104 | Redis event bus and coordinator |
+| 1000-1001 | Postgres cleanup; v0.3 compatibility (field dropped, card conversion problem) |
+| 1100-1104 | Redis event bus and coordinator; 1100 is also used by the v0.3 server surface (error after a response started) |
 
 ### Startup diagnostics
 
@@ -143,7 +147,8 @@ Code 250 (Debug) means the checks were skipped because of a broken registration.
 ## What can go wrong
 
 - No spans appear. Add the source name to `AddSource`. Client and server sources have different names.
-- Metrics from `A2A` are missing. Add `AddMeter("A2A")` as well as `AddMeter("A2A.Server")`.
+- Metrics from `A2A` are missing. Add `AddMeter("A2A")` as well as `AddMeter("A2A.Server")`. This also hides the registry and v0.3 counters.
+- Two log lines share an id such as 1000 or 1100. They come from different packages. Filter by category as well as by id.
 - A client span and a server span are in different traces. A proxy may drop `traceparent`, or a custom header in `A2ARequestOptions.Headers` may replace it.
 
 ## See also
@@ -152,3 +157,5 @@ Code 250 (Debug) means the checks were skipped because of a broken registration.
 - [Limits and rate limiting](limits-and-rate-limiting.md)
 - [Task safety](task-safety.md)
 - [Streaming](streaming.md)
+- [v0.3 compatibility](v03-compatibility.md)
+- [Peer identity and registry](peer-identity.md)

@@ -150,3 +150,19 @@ A2A.Client.Delegation.OAuthTokenExchanger.ExchangeAsync(A2A.Delegation.TokenExch
 A2A.Client.Delegation.DelegationRequestOptionsExtensions
 static A2A.Client.Delegation.DelegationRequestOptionsExtensions.UseBearerToken(this A2A.Client.A2ARequestOptions! options, A2A.Delegation.TokenExchangeResult! token, System.Uri! agentUrl) -> A2A.Client.A2ARequestOptions!
 A2A.Client.A2AClient.SelectSkill(A2A.Message! message, string! skillId, A2A.Client.A2ARequestOptions? options = null) -> A2A.Client.A2ARequestOptions!
+A2A.Client.ArtifactVerificationStatus
+A2A.Client.ArtifactVerificationStatus.NoHash = 0 -> A2A.Client.ArtifactVerificationStatus
+A2A.Client.ArtifactVerificationStatus.Verified = 1 -> A2A.Client.ArtifactVerificationStatus
+A2A.Client.ArtifactVerificationStatus.Mismatch = 2 -> A2A.Client.ArtifactVerificationStatus
+A2A.Client.ArtifactVerificationStatus.Unverifiable = 3 -> A2A.Client.ArtifactVerificationStatus
+A2A.Client.ArtifactVerification
+A2A.Client.ArtifactVerification.ArtifactVerification(string! artifactId, A2A.Client.ArtifactVerificationStatus status, string? expected = null, string? actual = null) -> void
+A2A.Client.ArtifactVerification.ArtifactId.get -> string!
+A2A.Client.ArtifactVerification.Status.get -> A2A.Client.ArtifactVerificationStatus
+A2A.Client.ArtifactVerification.Expected.get -> string?
+A2A.Client.ArtifactVerification.Actual.get -> string?
+A2A.Client.ArtifactVerifier
+A2A.Client.ArtifactVerifier.ArtifactVerifier() -> void
+A2A.Client.ArtifactVerifier.Dispose() -> void
+A2A.Client.ArtifactVerifier.Observe(A2A.StreamResponse! evt) -> System.Collections.Generic.IReadOnlyList<A2A.Client.ArtifactVerification!>!
+static A2A.Client.ArtifactVerifier.Verify(A2A.Artifact! artifact) -> A2A.Client.ArtifactVerification!

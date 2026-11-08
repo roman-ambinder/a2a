@@ -1,6 +1,8 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Channels;
 using A2A.Delegation;
+using A2A.Integrity;
 using A2A.Skills;
 
 namespace A2A.Server;
@@ -124,6 +126,7 @@ public sealed class AgentRequestContext
 public sealed class TaskUpdater
 {
     private readonly ChannelWriter<StreamResponse> _writer;
+    private Dictionary<string, ArtifactState>? _artifacts; // by artifact id; under _gate
     private readonly bool _isNewTask;
     private readonly object _gate = new();
     private bool _taskEmitted;
@@ -242,7 +245,12 @@ public sealed class TaskUpdater
         return _writer.WriteAsync(StreamResponse.Of(evt), cancellationToken);
     }
 
-    /// <summary>Adds an artifact, or appends parts to one (<paramref name="append"/>). Returns the artifact id.</summary>
+    /// <summary>
+    /// Adds an artifact, or appends parts to one (<paramref name="append"/>). Returns the artifact id.
+    /// <paramref name="lastChunk"/> seals the artifact. See <see cref="AddArtifactAsync(Artifact, bool, bool, CancellationToken)"/> for the rules.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The artifact is sealed and <paramref name="append"/> is true, or the artifact is being hashed (<see cref="AddHashedArtifactAsync"/>) and <paramref name="append"/> is true.</exception>
+    /// <exception cref="ArgumentException"><paramref name="parts"/> is empty and the event is not an append to an artifact that exists.</exception>
     public async ValueTask<string> AddArtifactAsync(IEnumerable<Part> parts, string? artifactId = null, string? name = null,
         string? description = null, bool append = false, bool lastChunk = false, Dictionary<string, JsonElement>? metadata = null,
         CancellationToken cancellationToken = default)
@@ -259,10 +267,86 @@ public sealed class TaskUpdater
         return artifact.ArtifactId;
     }
 
-    /// <summary>Adds <paramref name="artifact"/>, or appends its parts to the artifact with the same id when <paramref name="append"/> is true. <paramref name="lastChunk"/> marks the final chunk. Both default to false.</summary>
+    /// <summary>
+    /// Adds <paramref name="artifact"/>, or appends its parts to the artifact with the same id when <paramref name="append"/> is true.
+    /// <paramref name="lastChunk"/> marks the final chunk and seals the artifact. Both default to false.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Without <paramref name="append"/>, the artifact is created, or replaced when it exists, also a sealed one. With
+    /// <paramref name="append"/>, parts are added to an open artifact. An append to an artifact that does not exist creates it.
+    /// An append to a sealed artifact throws: send it with <c>append: false</c> to replace it, or use a new artifact id.
+    /// </para>
+    /// <para>
+    /// An empty <see cref="Artifact.Parts"/> list is allowed only for an append to an artifact that exists. It seals the artifact
+    /// or updates its metadata. A peer that follows the spec text strictly may reject such an event: send the last parts with
+    /// <paramref name="lastChunk"/> when you can.
+    /// </para>
+    /// <para>
+    /// The updater knows the artifacts this run sent and those earlier runs stored (the task the run started with).
+    /// </para>
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The artifact is sealed and <paramref name="append"/> is true, or the artifact is being hashed (<see cref="AddHashedArtifactAsync"/>) and <paramref name="append"/> is true.</exception>
+    /// <exception cref="ArgumentException"><paramref name="artifact"/> has no parts and the event is not an append to an artifact that exists.</exception>
     public ValueTask AddArtifactAsync(Artifact artifact, bool append = false, bool lastChunk = false, CancellationToken cancellationToken = default)
     {
-        MarkTaskEvent(false);
+        ArgumentNullException.ThrowIfNull(artifact);
+        lock (_gate)
+        {
+            CheckCanEmit();
+            Track(artifact, append, lastChunk, hashing: false);
+            MarkTaskEvent(false); // last: a rejected call must not count as an emitted task event
+        }
+        return WriteArtifact(artifact, append, lastChunk, cancellationToken);
+    }
+
+    /// <summary>
+    /// Adds an artifact like <see cref="AddArtifactAsync(IEnumerable{Part}, string?, string?, string?, bool, bool, Dictionary{string, JsonElement}?, CancellationToken)"/>,
+    /// and sets <c>metadata["sha256"]</c> to the hash of the artifact so far: every part from the first chunk up to and including this one
+    /// (<see cref="ArtifactHash"/>). The value on the last chunk is the hash of the final artifact. Returns the artifact id.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It has the same rules as <see cref="AddArtifactAsync(Artifact, bool, bool, CancellationToken)"/>, and overwrites any <c>sha256</c> in
+    /// <paramref name="metadata"/>. The hash continues from chunk to chunk without keeping the content. For an append to an artifact an
+    /// earlier run stored, it first hashes the stored parts. Hash state is released when the artifact is sealed and when the agent returns.
+    /// </para>
+    /// <para>
+    /// An append works only on an artifact this updater is hashing, one from an earlier run, or a new one. After a plain
+    /// <see cref="AddArtifactAsync(Artifact, bool, bool, CancellationToken)"/> in this run, the earlier content is not known, and the call throws.
+    /// A plain append to an artifact this updater is hashing throws too, because it would make the hash wrong.
+    /// </para>
+    /// <para>
+    /// This detects corruption and bad reassembly. It is not authenticity: anyone who can change the content can change an unsigned hash.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The artifact is sealed and <paramref name="append"/> is true; the earlier content of the artifact is not known; or a data part cannot be put in canonical JSON form.</exception>
+    /// <exception cref="ArgumentException"><paramref name="parts"/> is empty and the event is not an append to an artifact that exists, or a part is null.</exception>
+    public async ValueTask<string> AddHashedArtifactAsync(IEnumerable<Part> parts, string? artifactId = null, string? name = null,
+        string? description = null, bool append = false, bool lastChunk = false, Dictionary<string, JsonElement>? metadata = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(parts);
+        var artifact = new Artifact
+        {
+            ArtifactId = artifactId ?? Guid.NewGuid().ToString(),
+            Name = name,
+            Description = description,
+            Parts = parts.ToList(),
+            Metadata = metadata is null ? new() : new(metadata),
+        };
+        lock (_gate)
+        {
+            CheckCanEmit();
+            Track(artifact, append, lastChunk, hashing: true);
+            MarkTaskEvent(false);
+        }
+        await WriteArtifact(artifact, append, lastChunk, cancellationToken).ConfigureAwait(false);
+        return artifact.ArtifactId;
+    }
+
+    private ValueTask WriteArtifact(Artifact artifact, bool append, bool lastChunk, CancellationToken cancellationToken)
+    {
         var evt = new TaskArtifactUpdateEvent { TaskId = TaskId, ContextId = ContextId, Artifact = artifact, Append = append, LastChunk = lastChunk };
         return _writer.WriteAsync(StreamResponse.Of(evt), cancellationToken);
     }
@@ -282,12 +366,141 @@ public sealed class TaskUpdater
         return m;
     }
 
-    private void MarkTaskEvent(bool terminal)
+    /// <summary>What the updater knows about one artifact. Small on purpose: no content is kept once hashing has started.</summary>
+    private sealed class ArtifactState
+    {
+        public bool Sealed;
+        /// <summary>The running hash of the artifact so far. Null when the artifact is not being hashed.</summary>
+        public IncrementalHash? Hash;
+        /// <summary>The parts an earlier run stored, kept until the first hashed append needs them. Null otherwise.</summary>
+        public List<Part>? Stored;
+
+        public void Release()
+        {
+            Hash?.Dispose();
+            Hash = null;
+            Stored = null;
+        }
+    }
+
+    /// <summary>Learns the artifacts earlier runs left, from the task this run started with. Called by the engine before the executor runs.</summary>
+    internal void SeedArtifacts(List<Artifact>? artifacts)
+    {
+        if (artifacts is not { Count: > 0 }) return;
+        lock (_gate)
+        {
+            _artifacts ??= new();
+            foreach (var a in artifacts)
+            {
+                if (string.IsNullOrEmpty(a.ArtifactId)) continue;
+                _artifacts[a.ArtifactId] = ArtifactSeal.IsSealed(a)
+                    ? new ArtifactState { Sealed = true }
+                    : new ArtifactState { Stored = new List<Part>(a.Parts) };
+            }
+        }
+    }
+
+    /// <summary>Frees the hashes. Called when the agent returned. Seal flags stay, so a late call is still checked.</summary>
+    internal void ReleaseHashState()
+    {
+        lock (_gate)
+        {
+            if (_artifacts is null) return;
+            foreach (var state in _artifacts.Values) state.Release();
+        }
+    }
+
+    /// <summary>
+    /// Checks an artifact event against what the updater knows, and records its effect (under <c>_gate</c>). Throws before
+    /// anything is queued. For <paramref name="hashing"/>, sets <c>metadata["sha256"]</c> of <paramref name="artifact"/>, which is new.
+    /// </summary>
+    private void Track(Artifact artifact, bool append, bool lastChunk, bool hashing)
+    {
+        var id = artifact.ArtifactId;
+        var usable = !string.IsNullOrWhiteSpace(id); // the engine rejects an event without an id
+        ArtifactState? state = null;
+        if (usable) _artifacts?.TryGetValue(id, out state);
+        if (artifact.Parts is { Count: 0 } && !(append && state is not null))
+            throw new ArgumentException("Artifact parts are empty. Empty parts are allowed only to append to an artifact that exists, to seal it or update its metadata.", nameof(artifact));
+        if (!usable) return;
+        if (append && state is { Sealed: true })
+            throw new InvalidOperationException($"Artifact '{id}' is sealed: lastChunk was already sent. Send it with append: false to replace it, or use a new artifact id.");
+        if (append && !hashing && state?.Hash is not null)
+            throw new InvalidOperationException($"Artifact '{id}' is being hashed: use AddHashedArtifactAsync for every chunk, or send it with append: false to start over.");
+
+        IncrementalHash? hash = null;
+        if (hashing)
+        {
+            if (artifact.Parts is null) throw new ArgumentException("Artifact parts are missing.", nameof(artifact));
+            if (append && state is not null)
+            {
+                if (state.Hash is null && state.Stored is null)
+                    throw new InvalidOperationException($"Artifact '{id}' cannot be hashed: its earlier content was sent without AddHashedArtifactAsync in this run.");
+                if (state.Hash is null)
+                {
+                    var started = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                    try { ArtifactHash.Update(started, state.Stored!); }
+                    catch { started.Dispose(); throw; }
+                    state.Hash = started;
+                    state.Stored = null;
+                }
+                hash = state.Hash;
+            }
+            else
+            {
+                hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            }
+            try
+            {
+                ArtifactHash.Update(hash, artifact.Parts); // adds nothing when it throws
+            }
+            catch
+            {
+                if (!ReferenceEquals(hash, state?.Hash)) hash.Dispose();
+                throw;
+            }
+            (artifact.Metadata ??= new())[ArtifactHash.MetadataKey] = HashValue(ArtifactHash.Format(hash.GetCurrentHash()));
+        }
+
+        if (append && state is not null)
+        {
+            // Plain appends make the earlier content unknown to a later hashed append.
+            if (!hashing) state.Stored = null;
+        }
+        else
+        {
+            state?.Release();
+            _artifacts ??= new();
+            _artifacts[id] = state = new ArtifactState { Hash = hash };
+        }
+        if (lastChunk)
+        {
+            state!.Sealed = true;
+            state.Release();
+        }
+    }
+
+    // A JSON string: the value is "sha256:" and lowercase hex, so there is nothing to escape.
+    private static JsonElement HashValue(string value)
+    {
+        using var doc = JsonDocument.Parse($"\"{value}\"");
+        return doc.RootElement.Clone();
+    }
+
+    private void CheckCanEmit()
     {
         lock (_gate)
         {
             if (_replied) throw new InvalidOperationException("A direct reply was already sent; no task can be created for this request.");
             if (_terminal) throw new InvalidOperationException("The task is already in a terminal state.");
+        }
+    }
+
+    private void MarkTaskEvent(bool terminal)
+    {
+        lock (_gate)
+        {
+            CheckCanEmit();
             _taskEmitted = true;
             if (terminal) _terminal = true;
         }
