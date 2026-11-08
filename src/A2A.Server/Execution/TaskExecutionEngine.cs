@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using A2A.Diagnostics;
+using A2A.Server.Agents;
+using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
 using A2A.Server.Storage;
@@ -14,28 +16,37 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace A2A.Server.Execution;
 
 /// <summary>
-/// Runs agents for tasks. Each event an agent produces is applied to a copy of the task, stored, appended to the event log and
-/// then published (to the request that started the run, to stream subscribers and to webhooks), all under the task's lock, so
-/// publish order is sequence order. In an ASP.NET Core app the DI container creates and disposes it.
+/// Runs agents for tasks. Each event an agent produces is applied to a copy of the task and committed together with its push
+/// deliveries (<see cref="TaskStore.CommitAsync"/>: the task, the event log and the push outbox in one unit), then published
+/// (to the request that started the run and to stream subscribers), all under the task's lock, so publish order is sequence
+/// order. In an ASP.NET Core app the DI container creates and disposes it.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Each run is an <see cref="A2ATelemetry.SpanNames.AgentExecution"/> span, a child of the operation that started it; the agent's
 /// own spans and the webhook deliveries of its events nest under it. With <see cref="A2AServerOptions.MaxTaskDuration"/>, a
 /// run still going when the limit expires fails the task ("Task exceeded its time limit") and is cancelled.
+/// </para>
+/// <para>
+/// Every run holds a lease with the <see cref="ExecutionCoordinator"/> while it runs, renewed every
+/// <see cref="CoordinationOptions.Heartbeat"/>, so every instance that shares the coordinator sees it running; cancel requests
+/// of other instances reach it through the coordinator (see the coordination members of this class).
+/// </para>
 /// </remarks>
-public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
+public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
 {
     private readonly TaskStore _tasks;
     private readonly EventStore _events;
     private readonly IAgentExecutorFactory _executors;
     private readonly TaskEventBus _bus;
-    private readonly IPushNotificationSender _push;
+    private readonly PushOutbox _outbox;
     private readonly IdempotencyCoordinator _idempotency;
     private readonly PushConfigService _pushConfigs;
     private readonly A2AServerOptions _options;
     private readonly IAgentCardProvider _cards;
     private readonly ILogger _logger;
     private readonly TimeProvider _time;
+    private readonly ExecutionCoordinator _coordinator;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly TaskLocks _locks = new();
     private readonly RunningRegistry<Execution> _running = new();
@@ -46,41 +57,69 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// <param name="events">The event store.</param>
     /// <param name="executors">Rents the agent executor of each run.</param>
     /// <param name="bus">Live stream subscribers.</param>
-    /// <param name="push">Webhook delivery.</param>
+    /// <param name="outbox">The push outbox that commits queue deliveries in; told when new deliveries are due.</param>
     /// <param name="idempotency">Records the outcome of a retried SendMessage.</param>
     /// <param name="pushConfigs">Saves an inline push config when its task is first stored.</param>
     /// <param name="options">Server options (limits, streaming, <see cref="A2AServerOptions.MaxTaskDuration"/>).</param>
-    /// <param name="cards">The public Agent Card (whether push is declared).</param>
+    /// <param name="cards">The Agent Cards (whether a tenant's card declares push, for commits no request made).</param>
     /// <param name="logger">Optional logger.</param>
-    /// <param name="timeProvider">The clock of <see cref="A2AServerOptions.MaxTaskDuration"/>. Default <see cref="TimeProvider.System"/>.</param>
+    /// <param name="timeProvider">
+    /// The clock of <see cref="A2AServerOptions.MaxTaskDuration"/> and of the execution heartbeat. Default <see cref="TimeProvider.System"/>.
+    /// </param>
+    /// <param name="coordinator">
+    /// Tracks running executions across instances. Default a process-local <see cref="InMemoryExecutionCoordinator"/>.
+    /// </param>
+    /// <exception cref="InvalidOperationException"><see cref="A2AServerOptions.Coordination"/> is invalid.</exception>
     public TaskExecutionEngine(
         TaskStore tasks,
         EventStore events,
         IAgentExecutorFactory executors,
         TaskEventBus bus,
-        IPushNotificationSender push,
+        PushOutbox outbox,
         IdempotencyCoordinator idempotency,
         PushConfigService pushConfigs,
         A2AServerOptions options,
         IAgentCardProvider cards,
         ILogger<TaskExecutionEngine>? logger = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ExecutionCoordinator? coordinator = null)
     {
+        ArgumentNullException.ThrowIfNull(options);
         _tasks = tasks;
         _events = events;
         _executors = executors;
         _bus = bus;
-        _push = push;
+        _outbox = outbox;
         _idempotency = idempotency;
         _pushConfigs = pushConfigs;
         _options = options;
         _cards = cards;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _time = timeProvider ?? TimeProvider.System;
+        options.Coordination.Validate();
+        _coordinator = coordinator ?? new InMemoryExecutionCoordinator(options.Coordination, _time);
+        StartCancelListener(_shutdown.Token);
     }
 
-    /// <summary>Retries after a version conflict when applying one change to a task.</summary>
-    internal const int MaxConflictRetries = 3;
+    /// <summary>
+    /// Retries after a version conflict when applying one change to a task. Conflicts come from other instances (writers here
+    /// share the task lock), and one that writes back to back can win several races in a row.
+    /// </summary>
+    internal const int MaxConflictRetries = 10;
+
+    /// <summary>
+    /// Waits before retry number <paramref name="attempt"/> + 1 after a version conflict: 5 ms doubling per attempt, at most
+    /// 200 ms, ±20 % jitter, so writers on different instances stop colliding in lockstep. Real time on purpose (not the
+    /// injected <see cref="TimeProvider"/>): a manual test clock must not stall a store retry.
+    /// </summary>
+    internal static Task ConflictBackoffAsync(int attempt, CancellationToken cancellationToken)
+    {
+        var baseMs = Math.Min(5.0 * Math.Pow(2, Math.Min(attempt, 16)), 200.0);
+#pragma warning disable CA5394 // jitter, not security
+        var jittered = baseMs * (0.8 + (0.4 * Random.Shared.NextDouble()));
+#pragma warning restore CA5394
+        return Task.Delay(TimeSpan.FromMilliseconds(jittered), cancellationToken);
+    }
 
     /// <summary>Status text of a task failed because its updates could not be stored.</summary>
     internal const string StoreFailureText = "The task failed because its updates could not be stored.";
@@ -100,34 +139,50 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// <summary>Waits for the task's lock; dispose the result to release it.</summary>
     internal ValueTask<TaskLocks.Releaser> LockAsync(TaskKey key, CancellationToken ct) => _locks.AcquireAsync(key, ct);
 
-    /// <summary>Completions of the executions running for a task.</summary>
-    internal IReadOnlyList<Task> RunningCompletions(TaskKey key) =>
-        _running.Snapshot(ScopeKey(key.Tenant, key.TaskId)).Select(e => e.Completion).ToList();
+    /// <summary>The index of the task's lock among the shared striped locks (tasks on the same stripe share a lock). For tests.</summary>
+    internal int LockStripe(string tenant, string taskId) => _locks.Stripe(tenant, taskId);
 
-    /// <summary>Asks every execution running for the task to stop; returns them.</summary>
-    internal List<Execution> CancelRunning(TaskKey key)
+    /// <summary>Completions of the executions running for a task on this instance.</summary>
+    internal List<Task> RunningCompletions(TaskKey key) =>
+        _running.Snapshot(ScopeKey(key.Tenant, key.TaskId)).Where(e => e.Key == key).Select(e => e.Completion).ToList();
+
+    /// <summary>
+    /// Rents the agent of <paramref name="tenant"/> for one execution (see <see cref="RentedAgent"/>). A factory that throws
+    /// does not throw here: the execution fails with that error. A tenant without an agent gets <paramref name="fallback"/>.
+    /// </summary>
+    internal ValueTask<RentedAgent> RentAgentAsync(string tenant, IAgentExecutor? fallback, CancellationToken ct) =>
+        RentedAgent.RentAsync(_executors, tenant, fallback, ct);
+
+    /// <summary>
+    /// <see cref="RentAgentAsync"/> for a message: a tenant without an agent is <see cref="A2AErrorCode.UnsupportedOperation"/>
+    /// (<see cref="RequestCards.NoAgentText"/>), before anything is claimed or stored.
+    /// </summary>
+    internal async ValueTask<RentedAgent> RequireAgentAsync(string tenant, CancellationToken ct)
     {
-        var running = _running.Snapshot(ScopeKey(key.Tenant, key.TaskId));
-        foreach (var r in running) r.Cancel();
-        return running;
+        var agent = await RentAgentAsync(tenant, null, ct).ConfigureAwait(false);
+        if (agent.Executor is not null || agent.Error is not null) return agent;
+        await agent.DisposeAsync().ConfigureAwait(false);
+        throw new A2AException(A2AErrorCode.UnsupportedOperation, RequestCards.NoAgentText);
     }
 
     /// <summary>
     /// Runs <see cref="IAgentExecutor.ExecuteAsync"/> for a message. An idempotency <paramref name="claim"/> is completed when
     /// the task is first stored or the agent replies directly, and abandoned when neither happens. <paramref name="push"/> is
-    /// saved when a new task is first stored.
+    /// saved when a new task is first stored. The execution takes <paramref name="agent"/>'s lease. <paramref name="pushEnabled"/>:
+    /// whether the tenant's card declares push notifications (resolved by the request), which decides the push deliveries.
     /// </summary>
-    internal Execution Start(AgentRequestContext context, TaskPushNotificationConfig? push, IdempotencyClaim claim) =>
-        StartRaw(new TaskKey(context.Call.Tenant, context.Call.Principal, context.TaskId), context.ContextId, context.IsNewTask, context.Message,
-            push, emitInitialSnapshot: !context.IsNewTask, (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct), claim, context.Metadata,
-            _options.MaxTaskDuration, ExecuteKind);
+    internal Task<Execution> StartAsync(AgentRequestContext context, TaskPushNotificationConfig? push, IdempotencyClaim claim, RentedAgent agent,
+        bool pushEnabled) =>
+        StartRawAsync(new TaskKey(context.Call.Tenant, context.Call.Principal, context.TaskId), context.ContextId, context.IsNewTask, context.Message,
+            push, emitInitialSnapshot: !context.IsNewTask, (executor, updater, ct) => executor.ExecuteAsync(context, updater, ct), agent, pushEnabled,
+            claim, context.Metadata, _options.MaxTaskDuration, ExecuteKind);
 
     /// <summary>Runs <see cref="IAgentExecutor.CancelAsync"/> for a task. The executor gets its own copy of <paramref name="task"/>.</summary>
-    internal Execution StartCancel(TaskKey key, AgentTask task, Dictionary<string, JsonElement>? metadata)
+    internal Task<Execution> StartCancelAsync(TaskKey key, AgentTask task, Dictionary<string, JsonElement>? metadata, RentedAgent agent, bool pushEnabled)
     {
         var snapshot = task.DeepCopy(); // the executor's own view: changing it never changes the stored task
-        return StartRaw(key, snapshot.ContextId, isNewTask: false, userMessage: null, push: null, emitInitialSnapshot: false,
-            (executor, updater, ct) => executor.CancelAsync(snapshot, updater, ct), requestMetadata: metadata, kind: CancelKind);
+        return StartRawAsync(key, snapshot.ContextId, isNewTask: false, userMessage: null, push: null, emitInitialSnapshot: false,
+            (executor, updater, ct) => executor.CancelAsync(snapshot, updater, ct), agent, pushEnabled, requestMetadata: metadata, kind: CancelKind);
     }
 
     private const string ExecuteKind = "execute";
@@ -139,8 +194,8 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// <item>a terminal state;</item>
     /// <item>an interrupted state reached by a status event after <paramref name="afterSequence"/> (an interrupted state from
     /// before a follow-up is not its outcome); seen in the event store or on the live bus;</item>
-    /// <item>no execution running for the task any more (the agent returned without settling it, or the server restarted):
-    /// nothing will change it, so its current state;</item>
+    /// <item>no execution running for the task any more, on any instance (the agent returned without settling it, or its
+    /// instance stopped): nothing will change it, so its current state;</item>
     /// <item>or the request is cancelled.</item>
     /// </list>
     /// Subscribing before the first read, and checking for running executions before reading the task, means no change is missed.
@@ -158,14 +213,14 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         Task<bool>? live = null; // one pending wait at a time: the subscription has a single reader
         while (true)
         {
-            var running = RunningCompletions(key);
+            var running = await RunningWaitsAsync(key, cancellationToken).ConfigureAwait(false);
             var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
             var state = record.Task.Status.State;
-            if (state.IsTerminal() || (state.IsInterrupted() && statusAfter) || running.Count == 0) return record.Task;
+            if (state.IsTerminal() || (state.IsInterrupted() && statusAfter) || running is null) return record.Task;
 
             live ??= sub.Reader.WaitToReadAsync(cancellationToken).AsTask();
             await Task.WhenAny(running.Append(live)).ConfigureAwait(false);
-            if (!live.IsCompleted) continue; // an execution ended: check again
+            if (!live.IsCompleted) continue; // an execution ended, or time to ask the coordinator again
             if (!await live.ConfigureAwait(false))
             {
                 // The bus ended the topic (the task finished): one last read.
@@ -207,18 +262,33 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// directly, and abandoned when neither happens. With a <paramref name="timeLimit"/>, a run still going when it expires
     /// fails the task (<see cref="TimeLimitText"/>) and is cancelled.
     /// </summary>
-    private Execution StartRaw(TaskKey key, string contextId, bool isNewTask, Message? userMessage,
-        TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run,
-        IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null, TimeSpan? timeLimit = null, string kind = ExecuteKind)
+    /// <remarks>
+    /// The execution is registered here first, then with the <see cref="ExecutionCoordinator"/> before the agent starts, so
+    /// every instance sees it running. Every <see cref="CoordinationOptions.Heartbeat"/> it renews its lease and its idempotency
+    /// claim (while the claim is unsettled). It unregisters once the agent returned and every event is stored, before the
+    /// execution counts as done here. Coordinator failures are logged and never stop the execution.
+    /// </remarks>
+    private async Task<Execution> StartRawAsync(TaskKey key, string contextId, bool isNewTask, Message? userMessage,
+        TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run, RentedAgent agent,
+        bool pushEnabled, IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null, TimeSpan? timeLimit = null,
+        string kind = ExecuteKind)
     {
         var taskId = key.TaskId;
-        var exec = new Execution(taskId, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token), _options.Streaming.ChannelCapacity)
+        claim ??= IdempotencyClaim.None;
+        var exec = new Execution(key, Guid.NewGuid().ToString("N"), kind == CancelKind, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token),
+            _options.Streaming.ChannelCapacity)
         {
             // A child of the operation's span; ends when the agent has returned and every event is stored.
             Activity = ServerTelemetry.StartExecution(kind, key.Tenant, taskId, contextId),
+            Claim = claim,
+            PushEnabled = pushEnabled,
         };
         var scope = ScopeKey(key.Tenant, taskId);
+        // Here first, then cluster-wide: whenever the coordinator lists the execution, this instance has it too.
         _running.Add(scope, exec);
+        await RegisterAsync(exec).ConfigureAwait(false);
+        var heartbeat = _time.CreateTimer(static state => { var (engine, e) = ((TaskExecutionEngine, Execution))state!; _ = engine.HeartbeatAsync(e); },
+            (this, exec), _options.Coordination.Heartbeat, _options.Coordination.Heartbeat);
         var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
         // The first history entry of a new task, copied before the executor starts: the executor may change its message.
         var historyMessage = isNewTask && userMessage is not null ? WithTask(userMessage, taskId) : null;
@@ -227,13 +297,19 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
             ? _time.CreateTimer(static state => { var (engine, e, u) = ((TaskExecutionEngine, Execution, TaskUpdater))state!; _ = engine.TimeOutAsync(e, u); },
                 (this, exec, updater), limit, Timeout.InfiniteTimeSpan)
             : null;
+        // From here the execution owns the agent's lease and disposes it when the agent returns.
+        var lease = agent.TakeLease();
         var producer = Task.Run(async () =>
         {
             if (exec.Activity is not null) Activity.Current = exec.Activity; // the agent's own spans nest under the run
             try
             {
-                await using var lease = await _executors.RentAsync(exec.Cts.Token).ConfigureAwait(false);
-                await run(lease.Executor, updater, exec.Cts.Token).ConfigureAwait(false);
+                await using (lease ?? default)
+                {
+                    agent.Error?.Throw(); // the factory failed: as if the agent had thrown
+                    var executor = agent.Executor ?? throw new InvalidOperationException($"No agent executor is configured for tenant '{key.Tenant}'.");
+                    await run(executor, updater, exec.Cts.Token).ConfigureAwait(false);
+                }
                 exec.TryMarkReturned();
             }
             catch (Exception) when (!exec.TryMarkReturned())
@@ -268,15 +344,22 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         var consumer = Task.Run(() =>
         {
             if (exec.Activity is not null) Activity.Current = exec.Activity; // webhook deliveries of the run's events nest under it
-            return ConsumeAsync(exec, key, contextId, isNewTask, historyMessage, push, emitInitialSnapshot, claim ?? IdempotencyClaim.None);
+            return ConsumeAsync(exec, key, contextId, isNewTask, historyMessage, push, emitInitialSnapshot, claim);
         });
-        _ = Task.WhenAll(producer, consumer).ContinueWith(_t =>
-        {
-            _running.Remove(scope, exec);
-            exec.EndActivity();
-            exec.MarkDone();
-        }, TaskScheduler.Default);
+        _ = FinishAsync(exec, scope, producer, consumer, heartbeat);
         return exec;
+    }
+
+    /// <summary>After the agent returned and every event is stored: ends the lease (here and with the coordinator), then the execution.</summary>
+    private async Task FinishAsync(Execution exec, string scope, Task producer, Task consumer, ITimer heartbeat)
+    {
+        try { await Task.WhenAll(producer, consumer).ConfigureAwait(false); }
+        catch (Exception ex) { ServerLog.ExecutionEndedWithError(_logger, ex, exec.TaskId); }
+        await heartbeat.DisposeAsync().ConfigureAwait(false);
+        await UnregisterAsync(exec).ConfigureAwait(false);
+        _running.Remove(scope, exec);
+        exec.EndActivity();
+        exec.MarkDone();
     }
 
     /// <summary>
@@ -294,7 +377,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         }
         ServerLog.TaskTimedOut(_logger, exec.TaskId, _options.MaxTaskDuration);
         await TryFinishAsync(updater, TaskState.Failed, TimeLimitText).ConfigureAwait(false);
-        exec.Cancel();
+        CancelAll([exec]);
     }
 
     private static async Task TryFinishAsync(TaskUpdater updater, TaskState state, string? text)
@@ -338,7 +421,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                     // The event is never stored or sent: the task fails instead and the agent is stopped.
                     ServerLog.EventTooLarge(_logger, taskId, _options.Limits.MaxEventBytes);
                     encoded = Encode(StreamResponse.Of(FailureEvent(taskId, contextId)));
-                    exec.Cancel();
+                    CancelAll([exec]);
                 }
                 var evt = encoded.Event;
 
@@ -358,7 +441,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                     if (!created)
                     {
                         var now = DateTimeOffset.UtcNow;
-                        record = await _tasks.CreateAsync(new TaskRecord(
+                        var initial = new TaskRecord(
                             key.Tenant, key.Owner,
                             new AgentTask
                             {
@@ -367,15 +450,28 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                                 Status = new AgentTaskStatus { State = TaskState.Submitted, Timestamp = (evt as StatusUpdateEvent)?.StatusUpdate.Status.Timestamp ?? now },
                                 History = historyMessage is null ? null : [historyMessage],
                             },
-                            Version: 0, CreatedAt: now, UpdatedAt: now)).ConfigureAwait(false);
+                            Version: 0, CreatedAt: now, UpdatedAt: now);
+                        // The task, its first event (the snapshot) and the snapshot's push delivery are committed together. The
+                        // push config is saved first, so the delivery service always finds the config of a queued delivery. The
+                        // snapshot shares the stored instance: nobody changes either (the next update stores a copy).
+                        var snapshot = EventEncoder.Encode(0, StreamResponse.Of(initial.Task));
+                        IReadOnlyList<PushDelivery> deliveries = push is null || !exec.PushEnabled ? [] : [NewDelivery(key, push.Id!)];
                         if (push is not null) await _pushConfigs.SaveInlineAsync(key, push, CancellationToken.None).ConfigureAwait(false);
-                        created = true;
-                        // The new task as the first event. It shares the stored instance: nobody changes either (the next
-                        // update stores a copy), and the event log owns the event from here on.
-                        var snapshot = EventEncoder.Encode(0, StreamResponse.Of(record.Task));
-                        var first = await _events.AppendAsync(key, snapshot).ConfigureAwait(false);
+                        CommitResult committed;
+                        try
+                        {
+                            committed = await _tasks.CommitAsync(new TaskCommit(initial, 0, snapshot, deliveries)).ConfigureAwait(false);
+                        }
+                        catch when (push is not null)
+                        {
+                            await _pushConfigs.TryDeleteAsync(key, push.Id!).ConfigureAwait(false); // no task, so no config
+                            throw;
+                        }
+                        if (deliveries.Count > 0) _outbox.NotifyPending();
                         ServerTelemetry.Events.Add(1);
-                        Publish(exec, key, snapshot with { Sequence = first });
+                        record = committed.Record;
+                        created = true;
+                        Publish(exec, key, snapshot with { Sequence = committed.Sequence });
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
                         await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
                     }
@@ -389,7 +485,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         }
                     }
 
-                    if (await ApplyAndStoreAsync(key, record, encoded).ConfigureAwait(false) is not { } stored) continue;
+                    if (await ApplyAndStoreAsync(key, record, encoded, exec.PushEnabled).ConfigureAwait(false) is not { } stored) continue;
 
                     // Still under the task lock, so sinks see events in sequence order even with concurrent executions.
                     // Every sink is non-blocking.
@@ -412,10 +508,10 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         {
             ServerLog.ApplyEventsFailed(_logger, ex, taskId);
             A2ATelemetry.RecordError(exec.Activity, ex);
-            exec.Cancel();
+            CancelAll([exec]);
             // Before the FAILED event is published: the waiting request must see the error, not that event.
             exec.Fail(new A2AException(A2AErrorCode.Internal));
-            await TryFailStoredTaskAsync(key, contextId, scope).ConfigureAwait(false);
+            await TryFailStoredTaskAsync(key, exec.PushEnabled).ConfigureAwait(false);
         }
         finally
         {
@@ -434,27 +530,13 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// Best effort: if the store is still failing, the task stays as it is. Subscribers and webhooks are told; the request that
     /// was running gets the error instead.
     /// </summary>
-    private async Task TryFailStoredTaskAsync(TaskKey key, string contextId, string scope)
+    private async Task TryFailStoredTaskAsync(TaskKey key, bool pushEnabled)
     {
         try
         {
-            var gate = _locks.For(key.Tenant, key.TaskId);
-            await gate.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                var record = await _tasks.GetAsync(key).ConfigureAwait(false);
-                if (record is null || record.Task.Status.State.IsTerminal()) return;
-                var failed = Encode(StreamResponse.Of(FailureEvent(key.TaskId, contextId, StoreFailureText)));
-                if (await ApplyAndStoreAsync(key, record, failed).ConfigureAwait(false) is not { } stored) return;
-                _bus.Publish(scope, stored);
-                if (PushDeclared) _push.Enqueue(key, stored);
-                await _events.MarkTerminalAsync(key).ConfigureAwait(false);
-                _bus.Complete(scope);
-            }
-            finally
-            {
-                gate.Release();
-            }
+            // Its own execution is still running here, so the commit must not wait for it to end.
+            await CommitSystemStatusCoreAsync(key, TaskState.Failed, StoreFailureText, precondition: null, evenIfRunningHere: true, pushEnabled,
+                CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -463,17 +545,90 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// Applies the event to a copy of the task, stores the copy, then appends the event (the caller holds the task lock, so
-    /// sequences follow the apply order and the log holds only applied events). After a version conflict, reloads and
-    /// re-applies, up to <see cref="MaxConflictRetries"/> times. Returns null when the event was dropped (for example the task
-    /// is already terminal). <paramref name="record"/> belongs to the store and is never changed. <paramref name="encoded"/> comes
-    /// from <see cref="Encode"/>; the stored and returned event carries its bytes.
+    /// Commits a status change that no agent made (the retention sweep: interrupted-state timeout, dead execution) through the
+    /// normal path: under the task lock, applied and committed with its push deliveries, then published to subscribers; a
+    /// terminal state also ends the task's streams. The status message is an agent message with <paramref name="text"/>.
+    /// Nothing is written while an execution of the task runs on this instance (it may not be registered with the
+    /// coordinator yet, or its registration failed).
     /// </summary>
-    private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, SequencedEvent encoded)
+    /// <param name="key">The task.</param>
+    /// <param name="state">The new state. Must be a valid transition from the current one, or nothing is written.</param>
+    /// <param name="text">The status message text.</param>
+    /// <param name="precondition">
+    /// When set, the change applies only while the stored record (read under the lock, and again after a version conflict)
+    /// satisfies it. Use it to require the version the caller looked at, so a task that changed since is left alone.
+    /// </param>
+    /// <param name="ct">Cancels waiting for the task lock and the first read.</param>
+    /// <returns>
+    /// True when the change was committed; false when the task is missing, terminal, runs here, fails the precondition, or the
+    /// transition is invalid.
+    /// </returns>
+    internal Task<bool> CommitSystemStatusAsync(TaskKey key, TaskState state, string text, Func<TaskRecord, bool>? precondition = null, CancellationToken ct = default) =>
+        CommitSystemStatusCoreAsync(key, state, text, precondition, evenIfRunningHere: false, pushEnabled: null, ct);
+
+    // pushEnabled: the push capability of the task's tenant; null resolves it from the tenant, before the task lock.
+    private async Task<bool> CommitSystemStatusCoreAsync(TaskKey key, TaskState state, string text, Func<TaskRecord, bool>? precondition,
+        bool evenIfRunningHere, bool? pushEnabled, CancellationToken ct)
+    {
+        // Never ask the card provider under the task lock: the locks are shared by many tasks.
+        var push = pushEnabled ?? await PushEnabledForTenantAsync(key, ct).ConfigureAwait(false);
+        var scope = ScopeKey(key.Tenant, key.TaskId);
+        using (await _locks.AcquireAsync(key, ct).ConfigureAwait(false))
+        {
+            if (!evenIfRunningHere && _running.Snapshot(scope).Any(exec => exec.Key == key)) return false;
+            var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false);
+            if (record is null || record.Task.Status.State.IsTerminal()) return false;
+            var evt = Encode(StreamResponse.Of(StatusEvent(key.TaskId, record.Task.ContextId, state, text, _time.GetUtcNow())));
+            if (await ApplyAndStoreAsync(key, record, evt, push, precondition).ConfigureAwait(false) is not { } stored) return false;
+            _bus.Publish(scope, stored);
+            if (state.IsTerminal())
+            {
+                await _events.MarkTerminalAsync(key, CancellationToken.None).ConfigureAwait(false);
+                _bus.Complete(scope);
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// The push capability of the task's tenant for a commit no request made (the retention sweep), from the tenant alone. No
+    /// agent for the tenant means no push. A failing provider fails closed: no push deliveries for this commit (logged).
+    /// </summary>
+    private async ValueTask<bool> PushEnabledForTenantAsync(TaskKey key, CancellationToken ct)
+    {
+        try
+        {
+            var card = await _cards.GetAsync(AgentRequestScope.ForTenant(key.Tenant), ct).ConfigureAwait(false);
+            return card?.Capabilities.PushNotifications == true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            ServerLog.TenantCardFailed(_logger, ex, key.TaskId);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Applies the event to a copy of the task, then commits the copy, the event and its push deliveries as one unit
+    /// (<see cref="TaskStore.CommitAsync"/>; the caller holds the task lock, so the log holds only applied events, in the order
+    /// their changes were stored, even across instances). After a version conflict, waits (<see cref="ConflictBackoffAsync"/>),
+    /// reloads and re-applies, up to <see cref="MaxConflictRetries"/> times. Returns null when the event was dropped (the task is
+    /// already terminal, or the record, also a reloaded one, fails <paramref name="precondition"/>). <paramref name="record"/>
+    /// belongs to the store and is never changed. <paramref name="encoded"/> comes from <see cref="Encode"/>; the stored and
+    /// returned event, and every push delivery, carry its bytes.
+    /// </summary>
+    private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, SequencedEvent encoded, bool pushEnabled,
+        Func<TaskRecord, bool>? precondition = null)
     {
         var evt = encoded.Event;
+        var deliveries = await DeliveriesAsync(key, pushEnabled).ConfigureAwait(false);
         for (var attempt = 0; ; attempt++)
         {
+            if (precondition is not null && !precondition(record))
+            {
+                ServerLog.EventDropped(_logger, key.TaskId, record.Task.Status.State);
+                return null;
+            }
             if (ApplyToCopy(record.Task, evt) is not { } next)
             {
                 ServerLog.EventDropped(_logger, key.TaskId, record.Task.Status.State);
@@ -481,13 +636,14 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
             try
             {
-                await _tasks.UpdateAsync(record with { Task = next }, record.Version).ConfigureAwait(false);
-                var sequence = await _events.AppendAsync(key, encoded).ConfigureAwait(false);
+                var committed = await _tasks.CommitAsync(new TaskCommit(record with { Task = next }, record.Version, encoded, deliveries)).ConfigureAwait(false);
+                if (deliveries.Count > 0) _outbox.NotifyPending();
                 ServerTelemetry.Events.Add(1);
-                return encoded with { Sequence = sequence };
+                return encoded with { Sequence = committed.Sequence };
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
             {
+                await ConflictBackoffAsync(attempt, CancellationToken.None).ConfigureAwait(false);
                 var fresh = await _tasks.GetAsync(key).ConfigureAwait(false);
                 if (fresh is null)
                 {
@@ -500,6 +656,34 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
+    /// One push delivery per push config of the task, for the event about to be committed. None when the card of the task's
+    /// tenant has no push notifications (<paramref name="pushEnabled"/>, resolved before the task lock).
+    /// </summary>
+    private async ValueTask<IReadOnlyList<PushDelivery>> DeliveriesAsync(TaskKey key, bool pushEnabled)
+    {
+        if (!pushEnabled) return [];
+        var configs = await _pushConfigs.Store.ListAsync(key).ConfigureAwait(false);
+        if (configs.Count == 0) return [];
+        var deliveries = new PushDelivery[configs.Count];
+        for (var i = 0; i < configs.Count; i++) deliveries[i] = NewDelivery(key, configs[i].Config.Id!);
+        return deliveries;
+    }
+
+    /// <summary>
+    /// A new delivery (the store sets its sequence) with a fresh delivery id, the same on every attempt, and the trace context
+    /// of the current agent run, so its delivery span joins that trace.
+    /// </summary>
+    private static PushDelivery NewDelivery(TaskKey key, string configId)
+    {
+        string? traceParent = null;
+        A2ATelemetry.InjectTraceContext(Activity.Current, (name, value) =>
+        {
+            if (name == A2ATelemetry.TraceParentHeader) traceParent = value;
+        });
+        return new PushDelivery(key, configId, 0, Guid.NewGuid().ToString("N")) { TraceParent = traceParent };
+    }
+
+    /// <summary>
     /// Encodes an event the agent produced (or a failure event), once. A status update without a timestamp gets one first: the
     /// stored task, the stored event and its bytes then all carry the same time, and nothing changes the event afterwards.
     /// </summary>
@@ -509,18 +693,12 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         return EventEncoder.Encode(0, evt);
     }
 
+    /// <summary>Sends a stored event to the request that started the run and to subscribers. Its webhooks were queued by its commit.</summary>
     private void Publish(Execution exec, TaskKey key, SequencedEvent evt)
     {
         exec.Emit(evt);
         _bus.Publish(ScopeKey(key.Tenant, key.TaskId), evt);
-        if (PushDeclared) _push.Enqueue(key, evt);
     }
-
-    /// <summary>
-    /// Whether the public card declares push notifications. When it does not, no push config can exist, so events are not handed to
-    /// the <see cref="IPushNotificationSender"/>.
-    /// </summary>
-    private bool PushDeclared => _cards.Get().Capabilities.PushNotifications == true;
 
     /// <summary>
     /// Returns a copy of <paramref name="current"/> (<see cref="ModelCopies.CopyForUpdate"/>) with the event applied, or null
@@ -568,14 +746,17 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         return null;
     }
 
-    private static TaskStatusUpdateEvent FailureEvent(string taskId, string contextId, string text = OversizedEventText) => new TaskStatusUpdateEvent
+    private static TaskStatusUpdateEvent FailureEvent(string taskId, string contextId, string text = OversizedEventText) =>
+        StatusEvent(taskId, contextId, TaskState.Failed, text, DateTimeOffset.UtcNow);
+
+    private static TaskStatusUpdateEvent StatusEvent(string taskId, string contextId, TaskState state, string text, DateTimeOffset at) => new()
     {
         TaskId = taskId,
         ContextId = contextId,
         Status = new AgentTaskStatus
         {
-            State = TaskState.Failed,
-            Timestamp = DateTimeOffset.UtcNow,
+            State = state,
+            Timestamp = at,
             Message = new Message
             {
                 MessageId = Message.NewId(), Role = Role.Agent, Parts = [Part.FromText(text)], TaskId = taskId, ContextId = contextId,

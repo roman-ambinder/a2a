@@ -24,7 +24,8 @@ namespace A2A.Server.Storage;
 public abstract class EventStore
 {
     /// <summary>
-    /// Appends an event and returns the sequence the store assigned to it. The first event of a task gets 1.
+    /// Appends an event and returns the sequence the store assigned to it. The first event of a task gets 1. The execution
+    /// engine does not call this: it appends through <see cref="TaskStore.CommitAsync"/>, together with the task change.
     /// <see cref="SequencedEvent.Sequence"/> of <paramref name="evt"/> is ignored (the server passes 0): store
     /// <c>evt with { Sequence = assigned }</c>. <see cref="SequencedEvent.Json"/> carries the encoded event (it never
     /// contains the sequence, so it was encoded before the sequence was known).
@@ -42,4 +43,10 @@ public abstract class EventStore
 
     /// <summary>Tells the store the task reached a terminal state, so it may drop the retained events after a retention time.</summary>
     public abstract ValueTask MarkTerminalAsync(TaskKey task, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes the task's whole log, retained events and the sequence counter included: a later append starts at 1 again.
+    /// Owner-scoped through <paramref name="task"/>; another owner's key, or a task without a log, deletes nothing.
+    /// </summary>
+    public abstract ValueTask DeleteAsync(TaskKey task, CancellationToken cancellationToken = default);
 }

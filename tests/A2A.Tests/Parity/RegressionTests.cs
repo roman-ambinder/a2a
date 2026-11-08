@@ -42,28 +42,20 @@ public sealed class MetadataAgent(MetadataRecorder recorder) : IAgentExecutor
     }
 }
 
-/// <summary>A task store whose Nth update fails with a non-conflict error, like a database that went away.</summary>
-public sealed class FailOnNthUpdateStore(int failOn) : TaskStore
+/// <summary>A task store whose Nth update (plain or commit of an existing task) fails with a non-conflict error, like a database that went away.</summary>
+public sealed class FailOnNthUpdateStore(int failOn) : DelegatingTaskStore
 {
-    private readonly InMemoryTaskStore _inner = new();
     private int _updates;
-
-    public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) => _inner.GetAsync(key, ct);
-
-    public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => _inner.CreateAsync(record, ct);
 
     public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default) =>
         Interlocked.Increment(ref _updates) == failOn
             ? throw new InvalidOperationException("the database went away")
-            : _inner.UpdateAsync(record, expectedVersion, ct);
+            : Inner.UpdateAsync(record, expectedVersion, ct);
 
-    public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => _inner.ListAsync(query, ct);
-
-    public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) =>
-        _inner.GetContextAsync(tenant, contextId, ct);
-
-    public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) =>
-        _inner.GetOrCreateContextAsync(record, ct);
+    public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default) =>
+        !commit.IsCreate && Interlocked.Increment(ref _updates) == failOn
+            ? throw new InvalidOperationException("the database went away")
+            : Inner.CommitAsync(commit, ct);
 }
 
 /// <summary>
@@ -100,7 +92,7 @@ public class RegressionTests
     {
         // Update 1 stores WORKING; update 2 (the completion) fails. The gate keeps the agent running until a subscriber is attached.
         var gate = $"gate issue495-{binding}";
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(new FailOnNthUpdateStore(2)));
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddTaskStore(new FailOnNthUpdateStore(2)));
         var client = host.Client(binding);
         using var cts = new CancellationTokenSource(Wait);
         var seen = new List<StreamResponse>();

@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Threading.Channels;
 using A2A.Diagnostics;
+using A2A.Server.Idempotency;
+using A2A.Server.Storage;
 using A2A.Server.Streaming;
 
 namespace A2A.Server.Execution;
@@ -10,13 +12,42 @@ namespace A2A.Server.Execution;
 /// on through <see cref="Outgoing"/> to the request that started the run. Both channels hold at most
 /// <paramref name="capacity"/> events.
 /// </summary>
-internal sealed class Execution(string taskId, CancellationTokenSource cts, int capacity)
+internal sealed class Execution(TaskKey key, string id, bool isCancelRun, CancellationTokenSource cts, int capacity)
 {
     private volatile bool _detached;
+    private volatile bool _registered;
     private readonly TaskCompletionSource _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public string TaskId { get; } = taskId;
+    /// <summary>The task, owner-scoped.</summary>
+    public TaskKey Key { get; } = key;
+
+    public string TaskId => Key.TaskId;
+
+    /// <summary>This execution's id with the <see cref="Coordination.ExecutionCoordinator"/>: new for every execution.</summary>
+    public string Id { get; } = id;
+
+    /// <summary>True for the run of a CancelTask (<see cref="IAgentExecutor.CancelAsync"/>). Cancel requests from other instances never cancel it.</summary>
+    public bool IsCancelRun { get; } = isCancelRun;
+
     public CancellationTokenSource Cts { get; } = cts;
+
+    /// <summary>True once the execution's lease is registered with the coordinator.</summary>
+    public bool Registered { get => _registered; set => _registered = value; }
+
+    /// <summary>
+    /// True from a lost (or lapsed) lease until the heartbeat that registers the execution again has read the task.
+    /// Set and cleared under <see cref="HeartbeatGate"/>.
+    /// </summary>
+    public bool LeaseLost { get; set; }
+
+    /// <summary>Held by a running heartbeat, and for good once the execution ends.</summary>
+    public SemaphoreSlim HeartbeatGate { get; } = new(1, 1);
+
+    /// <summary>The idempotency claim the heartbeat renews while it is unsettled (for example during a long direct reply).</summary>
+    public IdempotencyClaim Claim { get; init; } = IdempotencyClaim.None;
+
+    /// <summary>Whether the tenant's card had push notifications when the execution started; decides its push deliveries.</summary>
+    public bool PushEnabled { get; init; }
 
     /// <summary>The run's span (<see cref="A2ATelemetry.SpanNames.AgentExecution"/>), or null when nobody listens.</summary>
     public Activity? Activity { get; init; }
@@ -66,10 +97,24 @@ internal sealed class Execution(string taskId, CancellationTokenSource cts, int 
     });
     public Task Completion => _done.Task;
 
-    public void Cancel()
+    /// <summary>
+    /// Cancels the execution. Returns the error of a cancellation callback that threw (the token is cancelled anyway), or null.
+    /// </summary>
+    public Exception? Cancel()
     {
-        try { Cts.Cancel(); }
-        catch (ObjectDisposedException) { /* already finished */ }
+        try
+        {
+            Cts.Cancel();
+            return null;
+        }
+        catch (ObjectDisposedException)
+        {
+            return null; // already finished
+        }
+        catch (AggregateException ex)
+        {
+            return ex;
+        }
     }
 
     public void MarkDone()

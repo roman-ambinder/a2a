@@ -7,6 +7,8 @@
   <Folder Name="/samples/">
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
     <Project Path="samples/EchoClient/EchoClient.csproj" />
+    <Project Path="samples/MultiInstance/Agent/MultiInstanceAgent.csproj" />
+    <Project Path="samples/MultiInstance/Client/MultiInstanceClient.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/A2A.Client.Grpc/A2A.Client.Grpc.csproj" />

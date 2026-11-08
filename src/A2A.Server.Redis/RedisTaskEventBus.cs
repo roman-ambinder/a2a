@@ -204,4 +204,10 @@ internal static partial class RedisLog
 
     [LoggerMessage(EventId = 1101, Level = LogLevel.Warning, Message = "Dropped a malformed A2A task event from Redis")]
     public static partial void MalformedMessage(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 1102, Level = LogLevel.Warning, Message = "Skipped a malformed A2A execution lease in Redis")]
+    public static partial void MalformedLease(ILogger logger);
+
+    [LoggerMessage(EventId = 1103, Level = LogLevel.Warning, Message = "Dropped a malformed A2A cancel request from Redis")]
+    public static partial void MalformedCancelRequest(ILogger logger);
 }

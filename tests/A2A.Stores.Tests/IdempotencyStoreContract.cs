@@ -134,6 +134,38 @@ public abstract class IdempotencyStoreContract
         Assert.Equal(15, results.Count(r => r is IdempotencyResult.InProgress));
         await s.AbandonAsync(Scope);
     }
+
+    [SkippableFact]
+    public async Task Renew_keeps_a_running_claim_running()
+    {
+        var s = await CreateStoreAsync(new IdempotencyOptions());
+        await s.TryBeginAsync(Scope, Hash);
+        await s.RenewAsync(Scope);
+        Assert.IsType<IdempotencyResult.InProgress>(await s.TryBeginAsync(Scope, Hash));
+        await s.AbandonAsync(Scope);
+    }
+
+    [SkippableFact]
+    public async Task Renew_of_a_missing_scope_does_nothing()
+    {
+        var s = await CreateStoreAsync(new IdempotencyOptions());
+        await s.RenewAsync(Scope);
+        Assert.IsType<IdempotencyResult.New>(await s.TryBeginAsync(Scope, Hash));
+    }
+
+    [SkippableFact]
+    public async Task Renew_of_a_completed_scope_does_not_change_it()
+    {
+        var clock = new FakeTimeProvider();
+        var s = await CreateStoreAsync(new IdempotencyOptions { Retention = TimeSpan.FromHours(1) }, clock);
+        await s.TryBeginAsync(Scope, Hash);
+        await s.CompleteAsync(Scope, new IdempotencyOutcome.TaskCreated("task-1"));
+        clock.Advance(TimeSpan.FromMinutes(40));
+        await s.RenewAsync(Scope);
+        Assert.IsType<IdempotencyResult.Completed>(await s.TryBeginAsync(Scope, Hash));
+        clock.Advance(TimeSpan.FromMinutes(30)); // still ends 1 h after completion, not after the renew
+        Assert.IsType<IdempotencyResult.New>(await s.TryBeginAsync(Scope, Hash));
+    }
 }
 
 public sealed class InMemoryIdempotencyStoreTests : IdempotencyStoreContract
@@ -180,4 +212,43 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         await a.CompleteAsync(Scope, new IdempotencyOutcome.TaskCreated("task-1"));
         Assert.Equal("task-1", Assert.IsType<IdempotencyOutcome.TaskCreated>(await waiting.Completion.WaitAsync(TimeSpan.FromSeconds(10))).TaskId);
     }
+
+    [SkippableFact]
+    public async Task Renew_pushes_the_claim_timeout_out_from_now()
+    {
+        var clock = new FakeTimeProvider();
+        var schema = await db.NewSchemaAsync();
+        schema.IdempotencyClaimTimeout = TimeSpan.FromMinutes(5);
+        var owner = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
+        var other = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
+
+        await owner.TryBeginAsync(Scope, Hash);
+        clock.Advance(TimeSpan.FromMinutes(4));
+        await owner.RenewAsync(Scope);
+        clock.Advance(TimeSpan.FromMinutes(4)); // 8 min after the claim, 4 after the renew
+        Assert.IsType<IdempotencyResult.InProgress>(await other.TryBeginAsync(Scope, Hash));
+        clock.Advance(TimeSpan.FromMinutes(2)); // 6 min after the renew
+        Assert.IsType<IdempotencyResult.New>(await other.TryBeginAsync(Scope, Hash));
+    }
+
+    [SkippableFact]
+    public async Task Renew_by_another_principal_or_tenant_does_not_extend_the_claim()
+    {
+        var clock = new FakeTimeProvider();
+        var schema = await db.NewSchemaAsync();
+        schema.IdempotencyClaimTimeout = TimeSpan.FromMinutes(5);
+        var s = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
+
+        await s.TryBeginAsync(Scope, Hash);
+        clock.Advance(TimeSpan.FromMinutes(4));
+        await s.RenewAsync(Scope with { Principal = "bob" });
+        await s.RenewAsync(Scope with { Tenant = "u" });
+        await s.RenewAsync(Scope with { Key = "other-key" });
+        clock.Advance(TimeSpan.FromMinutes(2)); // 6 min after the real claim, which nobody renewed
+        Assert.IsType<IdempotencyResult.New>(await s.TryBeginAsync(Scope, Hash));
+    }
+
+    [SkippableFact]
+    public void Claim_timeout_defaults_to_two_minutes() =>
+        Assert.Equal(TimeSpan.FromMinutes(2), new PostgresStoreOptions().IdempotencyClaimTimeout);
 }

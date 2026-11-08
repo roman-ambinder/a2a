@@ -13,7 +13,7 @@ namespace A2A.Server.Telemetry;
 /// Spans: one per operation (<c>a2a.{Operation}</c>, by <see cref="TelemetryFilter"/>), one per agent run
 /// (<see cref="A2ATelemetry.SpanNames.AgentExecution"/>) and one per webhook delivery (<see cref="A2ATelemetry.SpanNames.PushDelivery"/>).
 /// Counters (<see cref="A2ATelemetry.Metrics"/>): requests by operation and outcome, events stored, streams opened, push
-/// deliveries by outcome. Nothing here allocates while nobody listens.
+/// delivery attempts by outcome, dead letters. Nothing here allocates while nobody listens.
 /// </remarks>
 internal static class ServerTelemetry
 {
@@ -29,7 +29,9 @@ internal static class ServerTelemetry
     public static readonly Counter<long> StreamsOpened =
         Meter.CreateCounter<long>(A2ATelemetry.Metrics.StreamsOpened, description: "Event streams admitted (SendStreamingMessage and SubscribeToTask).");
     public static readonly Counter<long> PushDeliveries =
-        Meter.CreateCounter<long>(A2ATelemetry.Metrics.PushDeliveries, description: "Webhook deliveries after their last attempt, by outcome (delivered or failed).");
+        Meter.CreateCounter<long>(A2ATelemetry.Metrics.PushDeliveries, description: "Push delivery attempts by outcome: sent, retried or dead_lettered.");
+    public static readonly Counter<long> PushDeadLetters =
+        Meter.CreateCounter<long>(A2ATelemetry.Metrics.PushDeadLetters, description: "Push deliveries that failed for good and were moved to the dead letters.");
 
     /// <summary>
     /// The outcome of a call: <see cref="A2ATelemetry.Outcomes.Ok"/>; <see cref="A2ATelemetry.Outcomes.Canceled"/> for an

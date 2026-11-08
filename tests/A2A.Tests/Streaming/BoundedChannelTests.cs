@@ -7,6 +7,7 @@ using A2A.Server.Idempotency;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
+using A2A.Tests.Execution;
 using A2A.Tests.Parity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -163,8 +164,8 @@ public sealed class BoundedChannelTests
         var options = new A2AServerOptions();
         options.AgentCard.Name = "Bounded Channel Test Agent";
         options.Streaming.ChannelCapacity = 2;
-        var tasks = new InMemoryTaskStore();
         var events = new InMemoryEventStore(options.Streaming);
+        var tasks = new InMemoryTaskStore(events);
         var resume = Signal();
         var completed = 0;
         var factory = new DelegateFactory(async (_, u, ct) =>
@@ -178,7 +179,7 @@ public sealed class BoundedChannelTests
             }
             await u.CompleteAsync(cancellationToken: ct);
         });
-        await using var engine = new TaskExecutionEngine(tasks, events, factory, new TaskEventBus(options.Streaming), new NoPush(),
+        await using var engine = new TaskExecutionEngine(tasks, events, factory, new TaskEventBus(options.Streaming), new InMemoryPushOutbox(),
             new IdempotencyCoordinator(new InMemoryIdempotencyStore(options.Idempotency), tasks, options),
             new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options), options,
             new AgentCardProvider(options, []));
@@ -188,7 +189,7 @@ public sealed class BoundedChannelTests
         };
         var key = new TaskKey(context.Call.Tenant, context.Call.Principal, context.TaskId);
 
-        var exec = engine.Start(context, push: null, IdempotencyClaim.None);
+        var exec = (await engine.StartForTestAsync(context));
         exec.Detach(); // nobody reads the outgoing events here
 
         // The new task, WORKING and six artifacts are stored (sequence 8); then the engine's consumer is paused by holding the
@@ -316,7 +317,7 @@ public sealed class BoundedChannelTests
         {
             var bus = new TaskEventBus(options.Streaming);
             var idempotency = new IdempotencyCoordinator(new InMemoryIdempotencyStore(options.Idempotency), tasks, options);
-            var engine = new TaskExecutionEngine(tasks, events, new DelegateFactory(agent), bus, new NoPush(), idempotency,
+            var engine = new TaskExecutionEngine(tasks, events, new DelegateFactory(agent), bus, new InMemoryPushOutbox(), idempotency,
                 new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options), options,
                 new AgentCardProvider(options, []), logger);
             var streamer = new TaskStreamer(tasks, events, engine, idempotency, new AllowAllAuthorizationHandler([]), options, new AgentCardProvider(options, []));
@@ -342,8 +343,8 @@ public sealed class BoundedChannelTests
         options.AgentCard.Name = "Bounded Channel Test Agent";
         options.Streaming.ChannelCapacity = 1;
         if (trimmed) options.Streaming.ReplayBufferSize = 2; // the store keeps only the two artifacts after it
-        var tasks = new InMemoryTaskStore();
         var events = new InMemoryEventStore(options.Streaming);
+        var tasks = new InMemoryTaskStore(events);
         var release = Signal();
         await using var rig = Rig.Create(options, tasks, events, async (_, u, ct) =>
         {
@@ -362,7 +363,7 @@ public sealed class BoundedChannelTests
         try
         {
             using var sub = rig.Bus.Subscribe(TaskExecutionEngine.ScopeKey(key.Tenant, key.TaskId));
-            var exec = rig.Engine.Start(context, push: null, IdempotencyClaim.None);
+            var exec = (await rig.Engine.StartForTestAsync(context));
             await WaitForSequenceAsync(events, key, trimmed ? 5 : 4);
 
             var reply = await rig.Streamer.WaitForOutcomeAsync(exec, key, sub, afterSequence: 0, returnImmediately: false, CancellationToken.None)
@@ -412,6 +413,9 @@ public sealed class BoundedChannelTests
 
         public override ValueTask MarkTerminalAsync(TaskKey task, CancellationToken cancellationToken = default) =>
             inner.MarkTerminalAsync(task, cancellationToken);
+
+        public override ValueTask DeleteAsync(TaskKey task, CancellationToken cancellationToken = default) =>
+            inner.DeleteAsync(task, cancellationToken);
     }
 
     [Theory]
@@ -423,8 +427,9 @@ public sealed class BoundedChannelTests
         options.AgentCard.Name = "Bounded Channel Test Agent";
         options.Streaming.ChannelCapacity = 1;
         if (trimmed) options.Streaming.ReplayBufferSize = 2;
-        var tasks = new InMemoryTaskStore();
-        var events = new StaleReadEventStore(new InMemoryEventStore(options.Streaming));
+        var log = new InMemoryEventStore(options.Streaming);
+        var tasks = new InMemoryTaskStore(log);
+        var events = new StaleReadEventStore(log);
         var go = Signal();
         var release = Signal();
         await using var rig = Rig.Create(options, tasks, events, async (context, u, ct) =>
@@ -448,7 +453,7 @@ public sealed class BoundedChannelTests
         var key = new TaskKey(first.Call.Tenant, first.Call.Principal, first.TaskId);
         try
         {
-            var exec = rig.Engine.Start(first, push: null, IdempotencyClaim.None);
+            var exec = (await rig.Engine.StartForTestAsync(first));
             exec.Detach();
             await exec.Completion.WaitAsync(Wait);
             var afterSequence = await events.LastSequenceAsync(key); // 3: the task is INPUT_REQUIRED
@@ -458,7 +463,7 @@ public sealed class BoundedChannelTests
                 Message = Message.FromUser("more"), TaskId = first.TaskId, ContextId = first.ContextId, Call = first.Call,
                 Task = (await tasks.GetAsync(key))!.Task.DeepCopy(),
             };
-            rig.Engine.Start(followUp, push: null, IdempotencyClaim.None).Detach();
+            (await rig.Engine.StartForTestAsync(followUp)).Detach();
 
             // The wait subscribes, then reads the store before the follow-up's events exist; that read is held back until
             // they are all published, and the bus (capacity 1) kept only the last artifact.
@@ -491,7 +496,7 @@ public sealed class BoundedChannelTests
         // The failing store is registered after the host's default store, so it wins.
         await using var failing = await TestAgentHost.StartAsync(o => o.Streaming.ChannelCapacity = 1, services: s =>
         {
-            s.AddSingleton<TaskStore>(tasks);
+            s.AddTaskStore(tasks);
             s.AddSingleton<IAgentExecutor>(new DelegateAgentExecutor(async (_, u, ct) =>
             {
                 await u.StartWorkAsync(cancellationToken: ct);
@@ -540,7 +545,7 @@ public sealed class BoundedChannelTests
         var tasks = new FailOnNthUpdateStore(failOn: 2);
         var logger = new CaptureLogger();
         var closed = Signal();
-        await using var rig = Rig.Create(options, tasks, new InMemoryEventStore(options.Streaming), async (_, u, _) =>
+        await using var rig = Rig.Create(options, tasks, tasks.Events, async (_, u, _) =>
         {
             await u.StartWorkAsync(cancellationToken: CancellationToken.None);
             try
@@ -555,7 +560,7 @@ public sealed class BoundedChannelTests
             }
         }, logger);
 
-        var exec = rig.Engine.Start(NewTaskContext(), push: null, IdempotencyClaim.None);
+        var exec = (await rig.Engine.StartForTestAsync(NewTaskContext()));
         exec.Detach();
         await exec.Completion.WaitAsync(Wait);
 
@@ -570,12 +575,8 @@ public sealed class BoundedChannelTests
 
     private sealed class DelegateFactory(Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> execute) : IAgentExecutorFactory
     {
-        public ValueTask<AgentExecutorLease> RentAsync(CancellationToken ct) =>
+        public ValueTask<AgentExecutorLease> RentAsync(string tenant, CancellationToken ct) =>
             ValueTask.FromResult(new AgentExecutorLease(new DelegateAgentExecutor(execute), scope: null));
     }
 
-    private sealed class NoPush : IPushNotificationSender
-    {
-        public void Enqueue(TaskKey task, SequencedEvent evt) { }
-    }
 }

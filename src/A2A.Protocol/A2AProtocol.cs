@@ -22,6 +22,18 @@ public static class A2AProtocol
     /// <summary>Domain of the <c>google.rpc.ErrorInfo</c> detail attached to A2A errors.</summary>
     public const string ErrorDomain = "a2a-protocol.org";
 
+    /// <summary>Metadata key (status message and follow-up message) carrying the hash of a pending approval.</summary>
+    public const string ApprovalHashKey = "a2a.approval.hash";
+
+    /// <summary>
+    /// Task metadata key, written only by the server: the message id of the status message whose approval was used. An approval
+    /// is used at most once.
+    /// </summary>
+    public const string ApprovalConsumedKey = "a2a.approval.consumed";
+
+    /// <summary>Metadata key on a CancelTask response: the cancel was requested but the execution has not stopped yet. Never stored.</summary>
+    public const string CancelRequestedKey = "a2a.cancelRequested";
+
     /// <summary>HTTP header names used by the protocol and by SDK extensions.</summary>
     public static class Headers
     {

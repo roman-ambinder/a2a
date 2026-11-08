@@ -88,7 +88,7 @@ public class TaskStoreOwnershipTests
     private static Task<TestAgentHost> StartAsync(OwnershipCheckingTaskStore store) =>
         TestAgentHost.StartAsync(services: s =>
         {
-            s.AddSingleton<TaskStore>(store);
+            s.AddSingleton<TaskStore>(store).AddSingleton<EventStore>(store.Events).AddSingleton<A2A.Server.Push.PushOutbox>(store.Outbox);
             s.AddScoped<IAgentExecutor, OwnershipAgent>();
         });
 

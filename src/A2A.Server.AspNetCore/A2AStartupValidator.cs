@@ -117,11 +117,13 @@ internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions
 
     /// <summary>
     /// Fails when the Agent Card has no name (a forgotten <c>AddAgentCard(...)</c>), unless a custom <see cref="IAgentCardProvider"/>
-    /// that does not build on <see cref="AgentCardProvider"/> supplies the card.
+    /// that does not build on <see cref="AgentCardProvider"/> supplies the card, or a <see cref="Agents.TenantCardProvider"/>
+    /// supplies each tenant's card.
     /// </summary>
     private void CheckCardName()
     {
         if (services.GetService<IAgentCardProvider>() is not (null or AgentCardProvider)) return;
+        if (services.GetService<Agents.TenantCardProvider>() is not null) return;
         if (string.IsNullOrWhiteSpace(options.Value.AgentCard?.Name)) throw new InvalidOperationException(NoCardNameMessage);
     }
 

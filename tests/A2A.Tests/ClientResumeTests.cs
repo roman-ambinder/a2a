@@ -184,6 +184,27 @@ public class ClientResumeTests
 
     [Theory]
     [MemberData(nameof(Bindings))]
+    public async Task Observe_yields_a_snapshot_below_the_cursor_as_a_server_reset_and_rebaselines(string binding)
+    {
+        // The server lost its event log: after the drop at t1:3 it restarts at a snapshot with sequence 1.
+        var handler = new ScriptedHandler(
+            _ => SseResponse(Sse(binding, Run.Take(3)), drop: true),
+            _ => SseResponse(Sse(binding, [new Frame(TaskFrame(), "t1:1"), new Frame(StatusFrame("TASK_STATE_WORKING"), "t1:2")]), drop: true),
+            _ => SseResponse(Sse(binding, [Run[3]]), drop: false));
+        var client = NewClient(handler, binding);
+
+        var events = await Collect(client.ObserveTaskAsync("t1"));
+
+        Assert.Equal(
+            ["task:t1:Working", "status:Working", "status:Working", "task:t1:Working", "status:Working", "status:Completed"],
+            events.Select(Describe).ToList());
+        var calls = handler.Calls.ToArray();
+        Assert.Equal("t1:3", calls[1].LastEventId);
+        Assert.Equal("t1:2", calls[2].LastEventId); // the cursor was re-baselined by the snapshot
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
     public async Task Observe_ignores_id_less_frames_when_tracking_the_cursor(string binding)
     {
         var frames = new[] { new Frame(TaskFrame(), "t1:1"), new Frame(StatusFrame("TASK_STATE_WORKING"), null) };

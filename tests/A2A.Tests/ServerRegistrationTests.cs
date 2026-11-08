@@ -42,15 +42,17 @@ public sealed class ServerRegistrationTests
             o.PushNotifications.AllowPrivateNetworks = true;
         });
         services.AddSingleton(new HttpMessageInvoker(unrelated)); // registered after, too
-        services.AddKeyedSingleton(HttpPushNotificationSender.InvokerServiceKey, new HttpMessageInvoker(recording));
+        services.AddKeyedSingleton(PushDeliveryService.InvokerServiceKey, new HttpMessageInvoker(recording));
         using var sp = services.BuildServiceProvider();
 
         var key = new TaskKey("", "alice", "t1");
         await sp.GetRequiredService<PushConfigStore>().SaveAsync(new PushConfigRecord(key,
             new TaskPushNotificationConfig { Id = "c1", TaskId = "t1", Url = "http://127.0.0.1/hook" }));
-        var sender = sp.GetRequiredService<HttpPushNotificationSender>();
-        sender.Enqueue(key, new SequencedEvent(1, StreamResponse.Of(Message.FromUser("x"))));
-        await sender.WhenIdleAsync();
+        var now = DateTimeOffset.UtcNow;
+        var record = new TaskRecord("", "alice", new AgentTask { Id = "t1", ContextId = "c", Status = new AgentTaskStatus { State = TaskState.Submitted } }, 0, now, now);
+        await sp.GetRequiredService<TaskStore>().CommitAsync(new TaskCommit(record, 0, StreamResponse.Of(record.Task.DeepCopy()),
+            [new PushDelivery(key, "c1", 0, "d1")]));
+        Assert.Equal(1, await sp.GetRequiredService<PushDeliveryService>().RunOnceAsync(CancellationToken.None));
 
         Assert.Single(recording.Calls);
         Assert.Equal(0, unrelated.Calls);
@@ -63,56 +65,6 @@ public sealed class ServerRegistrationTests
         services.AddA2AServer();
         using var sp = services.BuildServiceProvider();
         Assert.Null(sp.GetService<HttpMessageInvoker>());
-        Assert.NotNull(sp.GetRequiredKeyedService<HttpMessageInvoker>(HttpPushNotificationSender.InvokerServiceKey));
-    }
-
-    private class CustomSender : IPushNotificationSender
-    {
-        public void Enqueue(TaskKey task, SequencedEvent evt) { }
-    }
-
-    private sealed class ListeningSender : CustomSender, IPushConfigChangeListener
-    {
-        public List<TaskKey> Changed { get; } = [];
-        public void ConfigChanged(TaskKey key) => Changed.Add(key);
-    }
-
-    private static TaskPushNotificationConfig Hook() => new() { Id = "c1", TaskId = "t1", Url = "https://hooks.example/cb" };
-
-    [Fact]
-    public async Task Custom_sender_that_listens_is_told_about_config_changes()
-    {
-        var custom = new ListeningSender();
-        var services = new ServiceCollection();
-        services.AddSingleton<IPushNotificationSender>(custom);
-        services.AddA2AServer(o => o.PushNotifications.AllowPrivateNetworks = true);
-        using var sp = services.BuildServiceProvider();
-
-        var key = new TaskKey("", "alice", "t1");
-        await sp.GetRequiredService<PushConfigService>().CreateAsync(key, Hook(), default);
-
-        Assert.Same(custom, sp.GetRequiredService<IPushConfigChangeListener>());
-        Assert.Equal([key], custom.Changed);
-    }
-
-    [Fact]
-    public async Task Custom_sender_that_does_not_listen_never_builds_the_http_sender()
-    {
-        var invokers = 0;
-        var services = new ServiceCollection();
-        services.AddSingleton<IPushNotificationSender>(new CustomSender());
-        services.AddKeyedSingleton(HttpPushNotificationSender.InvokerServiceKey, (_, _) =>
-        {
-            Interlocked.Increment(ref invokers); // built only when HttpPushNotificationSender is constructed
-            return new HttpMessageInvoker(new Throwing());
-        });
-        services.AddA2AServer(o => o.PushNotifications.AllowPrivateNetworks = true);
-        using var sp = services.BuildServiceProvider();
-
-        var listener = sp.GetRequiredService<IPushConfigChangeListener>();
-        await sp.GetRequiredService<PushConfigService>().CreateAsync(new TaskKey("", "alice", "t1"), Hook(), default);
-
-        Assert.IsNotType<HttpPushNotificationSender>(listener);
-        Assert.Equal(0, invokers);
+        Assert.NotNull(sp.GetRequiredKeyedService<HttpMessageInvoker>(PushDeliveryService.InvokerServiceKey));
     }
 }

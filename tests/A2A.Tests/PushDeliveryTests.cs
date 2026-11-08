@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net;
 using A2A.Client.Push;
 using A2A.Security.Http;
@@ -35,34 +34,26 @@ public class PushDeliveryTests
         public void Advance(TimeSpan by) => _now += by;
     }
 
-    private static readonly TaskKey Key = new("", "alice", "t1");
-
-    private static async Task<(HttpPushNotificationSender Sender, Scripted Handler)> SendOneAsync(
+    private static async Task<(PushDeliveryService Sender, Scripted Handler)> SendOneAsync(
         Action<PushNotificationOptions> configure, TaskPushNotificationConfig config, params HttpStatusCode[] codes)
     {
         var handler = new Scripted(codes.Length == 0 ? [HttpStatusCode.OK] : codes);
         return (await SendWithAsync(handler, configure, config), handler);
     }
 
-    private static async Task<HttpPushNotificationSender> SendWithAsync(HttpMessageHandler handler,
+    /// <summary>Delivers event 7 of a task to <paramref name="config"/> through the outbox, retries included.</summary>
+    private static async Task<PushDeliveryService> SendWithAsync(HttpMessageHandler handler,
         Action<PushNotificationOptions> configure, TaskPushNotificationConfig config)
     {
-        var protector = new EphemeralPushSecretProtector();
-        var store = new InMemoryPushConfigStore();
-        var stored = config.DeepCopy();
-        stored.Id = "c1";
-        stored.TaskId = Key.TaskId;
-        if (!string.IsNullOrEmpty(stored.Token)) stored.Token = protector.Protect(stored.Token);
-        if (stored.Authentication is { Credentials.Length: > 0 } a) a.Credentials = protector.Protect(a.Credentials);
-        await store.SaveAsync(new PushConfigRecord(Key, stored));
-
-        var options = new A2AServerOptions();
-        options.PushNotifications.InitialBackoff = TimeSpan.FromMilliseconds(5);
-        configure(options.PushNotifications);
-        var sender = new HttpPushNotificationSender(new HttpMessageInvoker(handler, disposeHandler: false), store, protector, options);
-        sender.Enqueue(Key, new SequencedEvent(7, StreamResponse.Of(Message.FromUser("x"))));
-        await sender.WhenIdleAsync();
-        return sender;
+        var rig = new PushRig(handler);
+        rig.Options.PushNotifications.AllowPrivateNetworks = false; // the defaults; tests opt out
+        configure(rig.Options.PushNotifications);
+        await rig.SaveConfigAsync(config);
+        for (var i = 1; i < 7; i++) await rig.CommitAsync();
+        await rig.CommitAsync("c1");
+        var service = rig.NewService();
+        await rig.DrainAsync(service);
+        return service;
     }
 
     private static TaskPushNotificationConfig Hook(string url = "https://hooks.example/cb", string? token = "s3cret") =>
@@ -418,207 +409,5 @@ public class PushDeliveryTests
         using var resp = await http.GetAsync("http://evil.example/");
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         Assert.Equal(1, proxyServer.Accepted);
-    }
-
-    /// <summary>Records each delivery (path, sequence); <see cref="Before"/> can hold request n (1-based) back.</summary>
-    private sealed class Recorder : HttpMessageHandler
-    {
-        private readonly object _lock = new();
-        private readonly List<(string Path, long Seq)> _calls = [];
-        private int _n;
-        public Func<int, Task>? Before { get; init; }
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            var n = Interlocked.Increment(ref _n);
-            if (Before is { } before) await before(n);
-            var seq = long.Parse(request.Headers.GetValues(A2AProtocol.Headers.NotificationSequence).Single(), System.Globalization.CultureInfo.InvariantCulture);
-            lock (_lock) _calls.Add((request.RequestUri!.AbsolutePath, seq));
-            return new HttpResponseMessage(HttpStatusCode.OK);
-        }
-
-        public int Count { get { lock (_lock) return _calls.Count; } }
-        public long[] Seqs(string path) { lock (_lock) return _calls.Where(c => c.Path == path).Select(c => c.Seq).ToArray(); }
-    }
-
-    /// <summary>A clock whose timers fire only when the test advances it.</summary>
-    private sealed class TimerClock : TimeProvider
-    {
-        private readonly object _lock = new();
-        private readonly List<FakeTimer> _timers = [];
-        private DateTimeOffset _now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-
-        public override DateTimeOffset GetUtcNow() { lock (_lock) return _now; }
-        public int ArmedTimers { get { lock (_lock) return _timers.Count(t => t.Due is not null); } }
-
-        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-        {
-            var timer = new FakeTimer(this, callback, state);
-            timer.Change(dueTime, period);
-            return timer;
-        }
-
-        public void Advance(TimeSpan by)
-        {
-            List<FakeTimer> due;
-            lock (_lock)
-            {
-                _now += by;
-                due = _timers.Where(t => t.Due <= _now).ToList();
-                foreach (var t in due) t.Due = null;
-            }
-            foreach (var t in due) t.Fire();
-        }
-
-        private sealed class FakeTimer(TimerClock clock, TimerCallback callback, object? state) : ITimer
-        {
-            public DateTimeOffset? Due;
-            public bool Change(TimeSpan dueTime, TimeSpan period)
-            {
-                lock (clock._lock)
-                {
-                    Due = dueTime == Timeout.InfiniteTimeSpan ? null : clock._now + dueTime;
-                    if (!clock._timers.Contains(this)) clock._timers.Add(this);
-                }
-                return true;
-            }
-            public void Fire() => callback(state);
-            public void Dispose() { lock (clock._lock) clock._timers.Remove(this); }
-            public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
-        }
-    }
-
-    private static (HttpPushNotificationSender Sender, PushConfigService Configs) NewSender(HttpMessageHandler handler,
-        Action<A2AServerOptions>? configure = null, TimeProvider? time = null)
-    {
-        var protector = new EphemeralPushSecretProtector();
-        var store = new InMemoryPushConfigStore();
-        var options = new A2AServerOptions();
-        options.PushNotifications.AllowPrivateNetworks = true;
-        options.PushNotifications.InitialBackoff = TimeSpan.FromMilliseconds(5);
-        configure?.Invoke(options);
-        var sender = new HttpPushNotificationSender(new HttpMessageInvoker(handler, disposeHandler: false), store, protector, options, time: time);
-        return (sender, new PushConfigService(store, protector, options, sender));
-    }
-
-    private static SequencedEvent Evt(long seq) => new(seq, StreamResponse.Of(Message.FromUser("x")));
-
-    private static Task AddHookAsync(PushConfigService configs, string id) =>
-        configs.CreateAsync(Key, new TaskPushNotificationConfig { Id = id, TaskId = Key.TaskId, Url = $"https://hooks.example/{id}" }, default).AsTask();
-
-    private static async Task WaitUntil(Func<bool> condition)
-    {
-        var sw = Stopwatch.StartNew();
-        while (!condition())
-        {
-            if (sw.Elapsed > TimeSpan.FromSeconds(10)) throw new TimeoutException("condition not met in 10 s");
-            await Task.Delay(2);
-        }
-    }
-
-    [Fact]
-    public async Task Config_added_mid_task_receives_later_events()
-    {
-        var atFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var atSecond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseSecond = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var h = new Recorder
-        {
-            Before = n => n switch
-            {
-                1 => Hold(atFirst, releaseFirst),
-                2 => Hold(atSecond, releaseSecond),
-                _ => Task.CompletedTask,
-            },
-        };
-        var (sender, configs) = NewSender(h);
-        using var _ = sender;
-        await AddHookAsync(configs, "c1");
-
-        sender.Enqueue(Key, Evt(1));
-        await atFirst.Task.WaitAsync(TimeSpan.FromSeconds(10)); // event 1 is being delivered to c1
-        sender.Enqueue(Key, Evt(2));
-        sender.Enqueue(Key, Evt(3)); // 2 and 3 wait together: one batch, configs listed once
-        releaseFirst.SetResult();
-        await atSecond.Task.WaitAsync(TimeSpan.FromSeconds(10)); // event 2 is being delivered to c1
-        await AddHookAsync(configs, "c2"); // added mid-batch: the listing is invalidated
-        releaseSecond.SetResult();
-        await sender.WhenIdleAsync();
-
-        Assert.Equal([1L, 2L, 3L], h.Seqs("/c1"));
-        Assert.Equal([3L], h.Seqs("/c2"));
-
-        static async Task Hold(TaskCompletionSource at, TaskCompletionSource release)
-        {
-            at.TrySetResult();
-            await release.Task;
-        }
-    }
-
-    [Fact]
-    public async Task Worker_exits_when_idle()
-    {
-        var clock = new TimerClock();
-        var h = new Recorder();
-        var (sender, configs) = NewSender(h, o => o.PushNotifications.WorkerIdleTimeout = TimeSpan.FromSeconds(30), clock);
-        using var _ = sender;
-        await AddHookAsync(configs, "c1");
-
-        sender.Enqueue(Key, Evt(1));
-        await sender.WhenIdleAsync();
-        await WaitUntil(() => clock.ArmedTimers > 0); // the worker waits for its next event
-        Assert.Equal(1, sender.ActiveWorkers);
-        clock.Advance(TimeSpan.FromSeconds(29));
-        Assert.Equal(1, sender.ActiveWorkers); // not idle long enough yet
-        clock.Advance(TimeSpan.FromSeconds(1)); // the idle timeout passes
-        await WaitUntil(() => sender.ActiveWorkers == 0);
-
-        sender.Enqueue(Key, Evt(2)); // a new worker starts on the next event
-        await sender.WhenIdleAsync();
-        Assert.Equal([1L, 2L], h.Seqs("/c1"));
-        Assert.Equal(1, sender.ActiveWorkers);
-    }
-
-    [Fact]
-    public async Task Events_keep_order_when_the_channel_is_full()
-    {
-        var open = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var h = new Recorder { Before = async _ => { await open.Task; await Task.Delay(2); } }; // slow webhook, closed at first
-        var (sender, configs) = NewSender(h, o => o.Streaming.ChannelCapacity = 2);
-        using var _ = sender;
-        await AddHookAsync(configs, "c1");
-
-        var enqueue = Task.Run(() => { for (var i = 1; i <= 20; i++) sender.Enqueue(Key, Evt(i)); });
-        await enqueue.WaitAsync(TimeSpan.FromSeconds(5)); // the webhook is still closed: this times out if Enqueue waits for channel space
-        Assert.Equal(0, h.Count);
-
-        open.SetResult();
-        await sender.WhenIdleAsync();
-        Assert.Equal(Enumerable.Range(1, 20).Select(i => (long)i), h.Seqs("/c1"));
-    }
-
-    [Fact]
-    public async Task Event_arriving_as_worker_exits_is_delivered()
-    {
-        var clock = new TimerClock();
-        var h = new Recorder();
-        var (sender, configs) = NewSender(h, o => o.PushNotifications.WorkerIdleTimeout = TimeSpan.FromSeconds(30), clock);
-        using var _ = sender;
-        await AddHookAsync(configs, "c1");
-
-        const int n = 100;
-        for (var i = 1; i <= n; i++)
-        {
-            if (i > 1)
-            {
-                await WaitUntil(() => clock.ArmedTimers > 0); // the worker waits for its next event
-                clock.Advance(TimeSpan.FromSeconds(30)); // the idle timeout fires: the worker is deciding to exit
-            }
-            sender.Enqueue(Key, Evt(i)); // ... while this event arrives
-            await WaitUntil(() => h.Count == i);
-        }
-        await sender.WhenIdleAsync();
-        Assert.Equal(Enumerable.Range(1, n).Select(i => (long)i), h.Seqs("/c1"));
     }
 }

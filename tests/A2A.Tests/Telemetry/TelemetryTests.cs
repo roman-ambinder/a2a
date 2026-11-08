@@ -290,24 +290,28 @@ public sealed class TelemetryTests
     }
 
     [Theory]
-    [InlineData(HttpStatusCode.OK, "delivered")]
-    [InlineData(HttpStatusCode.BadRequest, "failed")]
-    public async Task Push_deliveries_counter_records_the_final_result(HttpStatusCode status, string outcome)
+    [InlineData(HttpStatusCode.OK, "sent")]
+    [InlineData(HttpStatusCode.BadRequest, "dead_lettered")]
+    public async Task Push_deliveries_counter_records_the_attempt_outcome(HttpStatusCode status, string outcome)
     {
         using var counters = new Counters();
         var key = new TaskKey("", "alice", "t-push");
-        var protector = new EphemeralPushSecretProtector();
         var store = new InMemoryPushConfigStore();
         await store.SaveAsync(new PushConfigRecord(key, new TaskPushNotificationConfig { Id = "c1", TaskId = key.TaskId, Url = "https://hooks.example/cb" }));
         var options = new A2AServerOptions();
         options.PushNotifications.AllowPrivateNetworks = true;
-        using var sender = new HttpPushNotificationSender(new HttpMessageInvoker(new StatusHandler(status)), store, protector, options);
+        var outbox = new InMemoryPushOutbox();
+        var tasks = new InMemoryTaskStore(new InMemoryEventStore(options.Streaming), outbox);
+        var now = DateTimeOffset.UtcNow;
+        var record = new TaskRecord("", "alice", new AgentTask { Id = key.TaskId, ContextId = "c", Status = new AgentTaskStatus { State = TaskState.Working } }, 0, now, now);
+        await tasks.CommitAsync(new TaskCommit(record, 0, StreamResponse.Of(Message.FromUser("x")), [new PushDelivery(key, "c1", 0, "d1")]));
+        var service = new PushDeliveryService(outbox, store, new EphemeralPushSecretProtector(), new HttpMessageInvoker(new StatusHandler(status)), options);
 
-        sender.Enqueue(key, new SequencedEvent(1, StreamResponse.Of(Message.FromUser("x"))));
-        await sender.WhenIdleAsync();
+        Assert.Equal(1, await service.RunOnceAsync(CancellationToken.None));
 
         Assert.Equal(1, counters.Sum("a2a.server.push.deliveries"));
         Assert.Equal(1, counters.Sum("a2a.server.push.deliveries", t => Equals(t["a2a.outcome"], outcome)));
+        Assert.Equal(outcome == "dead_lettered" ? 1 : 0, counters.Sum("a2a.server.push.dead_letters"));
     }
 
     // ---------------------------------------------------------------- client spans

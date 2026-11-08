@@ -172,6 +172,37 @@ public abstract class EventStoreContract
         Assert.Equal(Enumerable.Range(1, 40).Select(i => (long)i), seqs.Order());
         Assert.Equal(40, (await ReadAllAsync(store, key)).Count);
     }
+
+    [SkippableFact]
+    public async Task Delete_drops_the_log_and_restarts_sequences()
+    {
+        var store = await CreateStoreAsync(new StreamingOptions());
+        var key = new TaskKey("t", "alice", "x");
+        var other = new TaskKey("t", "alice", "y");
+        await store.AppendAsync(key, Evt("x"));
+        await store.AppendAsync(key, Evt("x"));
+        await store.AppendAsync(other, Evt("y"));
+
+        await store.DeleteAsync(key);
+        Assert.Equal(0, await store.LastSequenceAsync(key));
+        Assert.Null(await store.OldestRetainedAsync(key));
+        Assert.Empty(await ReadAllAsync(store, key));
+        Assert.Equal(1, await store.LastSequenceAsync(other));
+        Assert.Equal(1, await store.AppendAsync(key, Evt("x")));
+        await store.DeleteAsync(new TaskKey("t", "alice", "never-existed")); // nothing to delete is fine
+    }
+
+    [SkippableFact]
+    public async Task Delete_with_another_owner_or_tenant_deletes_nothing()
+    {
+        var store = await CreateStoreAsync(new StreamingOptions());
+        var key = new TaskKey("t", "alice", "x");
+        await store.AppendAsync(key, Evt("x"));
+        await store.DeleteAsync(key with { Owner = "bob" });
+        await store.DeleteAsync(key with { Tenant = "u" });
+        Assert.Equal(1, await store.LastSequenceAsync(key));
+        Assert.Single(await ReadAllAsync(store, key));
+    }
 }
 
 public sealed class InMemoryEventStoreTests : EventStoreContract

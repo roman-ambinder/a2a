@@ -1,0 +1,178 @@
+using A2A.Server.Storage;
+
+namespace A2A.Server.Push;
+
+/// <summary>
+/// Process-local <see cref="PushOutbox"/>. For development and tests; pending deliveries are lost on restart.
+/// <see cref="InMemoryTaskStore"/> writes its entries, so give that store this outbox.
+/// </summary>
+public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
+{
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
+    private readonly object _gate = new();
+    private readonly Dictionary<(TaskKey Task, string ConfigId), SortedDictionary<long, Entry>> _pending = new();
+    private readonly Dictionary<(TaskKey Task, string ConfigId, long Sequence), OutboxEntry> _dead = new();
+
+    /// <summary>Entries not yet delivered or dead-lettered, leased ones included.</summary>
+    internal int Count
+    {
+        get { lock (_gate) return _pending.Values.Sum(g => g.Count); }
+    }
+
+    /// <summary>
+    /// Adds new deliveries of one event, due now, with its JSON <paramref name="payload"/> (shared, never changed).
+    /// Called by <see cref="InMemoryTaskStore"/> inside its commit; does not fail.
+    /// </summary>
+    internal void Add(IEnumerable<PushDelivery> deliveries, ReadOnlyMemory<byte> payload)
+    {
+        lock (_gate)
+        {
+            var now = _time.GetUtcNow();
+            foreach (var d in deliveries) Group(d, create: true)!.TryAdd(d.Sequence, new Entry(d, payload, now)); // never replaces
+        }
+        NotifyPending();
+    }
+
+    /// <inheritdoc />
+    public override ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken cancellationToken = default)
+    {
+        if (max <= 0) return ValueTask.FromResult<IReadOnlyList<OutboxEntry>>([]);
+        lock (_gate)
+        {
+            var now = _time.GetUtcNow();
+            var leased = _pending.Values
+                .Select(g => g.Values.First()) // only the oldest entry of a task and config may be in flight
+                .Where(e => e.DueAt <= now && (e.LeasedUntil is not { } until || until <= now))
+                .OrderBy(e => e.DueAt).ThenBy(e => e.Delivery.Sequence)
+                .Take(max)
+                .ToList();
+            var token = Guid.NewGuid();
+            foreach (var e in leased)
+            {
+                e.LeasedUntil = now + lease;
+                e.LeaseToken = token;
+            }
+            return ValueTask.FromResult<IReadOnlyList<OutboxEntry>>(leased.Select(e => e.ToEntry()).ToList());
+        }
+    }
+
+    /// <inheritdoc />
+    public override ValueTask<bool> CompleteAsync(OutboxEntry leased, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(leased);
+        lock (_gate) return ValueTask.FromResult(Remove(leased) is not null);
+    }
+
+    /// <inheritdoc />
+    public override ValueTask<bool> RescheduleAsync(OutboxEntry leased, int attempt, DateTimeOffset dueAt, string error, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(leased);
+        lock (_gate)
+        {
+            if (Held(leased) is not { } e) return ValueTask.FromResult(false);
+            e.Attempt = attempt;
+            e.DueAt = dueAt;
+            e.LastError = error;
+            e.LeasedUntil = null;
+            e.LeaseToken = null;
+            return ValueTask.FromResult(true);
+        }
+    }
+
+    /// <inheritdoc />
+    public override ValueTask<bool> DeadLetterAsync(OutboxEntry leased, string error, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(leased);
+        lock (_gate)
+        {
+            if (Remove(leased) is not { } e) return ValueTask.FromResult(false);
+            var d = e.Delivery;
+            _dead[(d.Task, d.ConfigId, d.Sequence)] = new OutboxEntry(d, e.Attempt + 1, _time.GetUtcNow(), error) { Payload = e.Payload };
+            return ValueTask.FromResult(true);
+        }
+    }
+
+    /// <inheritdoc />
+    public override ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            IReadOnlyList<OutboxEntry> list = _dead.Values
+                .Where(e => string.Equals(e.Delivery.Task.Tenant, tenant, StringComparison.Ordinal))
+                .OrderBy(e => e.DueAt)
+                .ThenBy(e => e.Delivery.Task.Owner, StringComparer.Ordinal)
+                .ThenBy(e => e.Delivery.Task.TaskId, StringComparer.Ordinal)
+                .ThenBy(e => e.Delivery.ConfigId, StringComparer.Ordinal)
+                .ThenBy(e => e.Delivery.Sequence)
+                .Take(Math.Max(0, max))
+                .ToList();
+            return ValueTask.FromResult(list);
+        }
+    }
+
+    /// <inheritdoc />
+    public override ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            if (!_dead.TryGetValue((d.Task, d.ConfigId, d.Sequence), out var dead)) return ValueTask.FromResult(false);
+            // An entry with this key is pending already: leave it (and its lease) alone, and keep the dead letter.
+            if (!Group(d, create: true)!.TryAdd(d.Sequence, new Entry(dead.Delivery, dead.Payload, _time.GetUtcNow()))) return ValueTask.FromResult(false);
+            _dead.Remove((d.Task, d.ConfigId, d.Sequence));
+        }
+        NotifyPending();
+        return ValueTask.FromResult(true);
+    }
+
+    /// <inheritdoc />
+    public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            foreach (var key in _pending.Keys.Where(k => k.Task == task).ToList()) _pending.Remove(key);
+            foreach (var key in _dead.Keys.Where(k => k.Task == task).ToList()) _dead.Remove(key);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    private SortedDictionary<long, Entry>? Group(PushDelivery d, bool create)
+    {
+        var key = (d.Task, d.ConfigId);
+        if (_pending.TryGetValue(key, out var g)) return g;
+        if (!create) return null;
+        return _pending[key] = new SortedDictionary<long, Entry>();
+    }
+
+    /// <summary>The pending entry of <paramref name="leased"/> if it still holds that lease.</summary>
+    private Entry? Held(OutboxEntry leased)
+    {
+        var d = leased.Delivery;
+        return leased.LeaseToken is { } token && Group(d, create: false) is { } g && g.TryGetValue(d.Sequence, out var e) && e.LeaseToken == token
+            ? e
+            : null;
+    }
+
+    /// <summary>Removes the entry of <paramref name="leased"/> if it still holds that lease.</summary>
+    private Entry? Remove(OutboxEntry leased)
+    {
+        if (Held(leased) is not { } e) return null;
+        var d = e.Delivery;
+        var g = Group(d, create: false)!;
+        g.Remove(d.Sequence);
+        if (g.Count == 0) _pending.Remove((d.Task, d.ConfigId));
+        return e;
+    }
+
+    private sealed class Entry(PushDelivery delivery, ReadOnlyMemory<byte> payload, DateTimeOffset dueAt)
+    {
+        public PushDelivery Delivery { get; } = delivery;
+        public ReadOnlyMemory<byte> Payload { get; } = payload;
+        public int Attempt { get; set; }
+        public DateTimeOffset DueAt { get; set; } = dueAt;
+        public string? LastError { get; set; }
+        public DateTimeOffset? LeasedUntil { get; set; }
+        public Guid? LeaseToken { get; set; }
+
+        public OutboxEntry ToEntry() => new(Delivery, Attempt, DueAt, LastError) { Payload = Payload, LeaseToken = LeaseToken };
+    }
+}

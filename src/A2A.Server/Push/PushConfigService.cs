@@ -1,16 +1,27 @@
 using A2A.Server.Storage;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace A2A.Server.Push;
 
 /// <summary>
-/// Push notification config operations: webhook URL checks, the per-task limit, secret protection and redaction.
-/// The caller has already authorized the call and built the <see cref="TaskKey"/>. Secrets never leave this class unredacted.
-/// After every stored or deleted config it tells the optional <see cref="IPushConfigChangeListener"/> (in an ASP.NET Core app,
-/// the <see cref="HttpPushNotificationSender"/>), so delivery sees the change from the next event on.
+/// Push notification config operations: webhook URL checks, the per-task limit (enforced atomically by
+/// <see cref="PushConfigStore.SaveIfUnderLimitAsync"/>), secret protection and redaction. The caller has already authorized the
+/// call and built the <see cref="TaskKey"/>. Secrets never leave this class unredacted. Deliveries read the configs when each
+/// event is committed, so a change applies from the next event on.
 /// </summary>
+/// <param name="store">The push config store.</param>
+/// <param name="protector">Protects secrets before they are stored.</param>
+/// <param name="options">Server options (URL policy, <see cref="A2ALimits.MaxPushConfigsPerTask"/>).</param>
+/// <param name="logger">Optional logger.</param>
 public sealed class PushConfigService(PushConfigStore store, IPushSecretProtector protector, A2AServerOptions options,
-    IPushConfigChangeListener? changes = null)
+    ILogger<PushConfigService>? logger = null)
 {
+    private readonly ILogger _logger = (ILogger?)logger ?? NullLogger.Instance;
+
+    /// <summary>The store the configs live in.</summary>
+    internal PushConfigStore Store => store;
+
     /// <summary>Checks the webhook URL, applies the per-task limit, stores a copy of <paramref name="config"/> and returns it with secrets removed. The caller's instance is not changed.</summary>
     public async ValueTask<TaskPushNotificationConfig> CreateAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken cancellationToken)
     {
@@ -18,8 +29,8 @@ public sealed class PushConfigService(PushConfigStore store, IPushSecretProtecto
         var stored = config.DeepCopy(); // the caller's config is never changed
         stored.Id = string.IsNullOrEmpty(stored.Id) ? TaskIds.New() : stored.Id;
         stored.Tenant = key.Tenant;
-        await EnsureCapacityAsync(key, stored.Id, cancellationToken).ConfigureAwait(false);
-        await SaveAsync(key, stored, cancellationToken).ConfigureAwait(false);
+        if (!await SaveIfUnderLimitAsync(key, stored, cancellationToken).ConfigureAwait(false))
+            throw TooManyConfigs(options.Limits.MaxPushConfigsPerTask);
         return Redact(stored);
     }
 
@@ -55,35 +66,48 @@ public sealed class PushConfigService(PushConfigStore store, IPushSecretProtecto
     {
         if (!await store.DeleteAsync(key, configId, cancellationToken).ConfigureAwait(false))
             throw ConfigNotFound(key.TaskId, configId);
-        changes?.ConfigChanged(key);
     }
 
     /// <summary>Checks the webhook URL of the inline config of a SendMessage request, before anything is committed.</summary>
     public ValueTask ValidateInlineAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken cancellationToken) =>
         ValidateUrlAsync(config.Url, cancellationToken);
 
-    /// <summary>Throws InvalidRequest when adding config <paramref name="configId"/> would exceed the per-task limit. Replacing an existing id is allowed.</summary>
-    public async ValueTask EnsureCapacityAsync(TaskKey key, string configId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Saves the inline config of a follow-up atomically under the per-task limit, before its message is committed; throws
+    /// InvalidRequest at the limit (nothing stored). Returns whether the config id was new (so a request that is not committed
+    /// after all removes it again with <see cref="TryDeleteAsync"/>).
+    /// </summary>
+    internal async ValueTask<bool> SaveInlineUnderLimitAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken cancellationToken)
     {
-        if (await store.GetAsync(key, configId, cancellationToken).ConfigureAwait(false) is not null) return;
-        var limit = options.Limits.MaxPushConfigsPerTask;
-        if (await store.CountAsync(key, cancellationToken).ConfigureAwait(false) >= limit)
-            throw new A2AException(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {limit}).");
+        var isNew = await store.GetAsync(key, config.Id!, cancellationToken).ConfigureAwait(false) is null;
+        if (!await SaveIfUnderLimitAsync(key, config, cancellationToken).ConfigureAwait(false))
+            throw TooManyConfigs(options.Limits.MaxPushConfigsPerTask);
+        return isNew;
     }
 
-    /// <summary>Protects the secrets of the inline config and stores a copy. The caller's instance is not changed.</summary>
-    public ValueTask SaveInlineAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken cancellationToken) => SaveAsync(key, config, cancellationToken);
+    /// <summary>Protects the secrets of the inline config of a new task and stores a copy (a new task has no other configs). The caller's instance is not changed.</summary>
+    public ValueTask SaveInlineAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken cancellationToken) =>
+        store.SaveAsync(ProtectedRecord(key, config), cancellationToken);
+
+    /// <summary>Best effort: removes a config saved for a task whose creation failed, or for a message that was not committed.</summary>
+    internal async ValueTask TryDeleteAsync(TaskKey key, string configId)
+    {
+        try { await store.DeleteAsync(key, configId, CancellationToken.None).ConfigureAwait(false); }
+        catch (Exception ex) { ServerLog.PushConfigCleanupFailed(_logger, ex, configId, key.TaskId); }
+    }
 
     internal ValueTask ValidateUrlAsync(string url, CancellationToken ct) => PushUrlValidator.ValidateAsync(url, options.PushNotifications, ct);
 
-    /// <summary>Protects the secrets of <paramref name="config"/> and stores a copy, which the store then owns. Then tells the change listener.</summary>
-    private async ValueTask SaveAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct)
+    private ValueTask<bool> SaveIfUnderLimitAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct) =>
+        store.SaveIfUnderLimitAsync(ProtectedRecord(key, config), options.Limits.MaxPushConfigsPerTask, ct);
+
+    /// <summary>A copy of <paramref name="config"/> with its secrets protected, which the store then owns.</summary>
+    private PushConfigRecord ProtectedRecord(TaskKey key, TaskPushNotificationConfig config)
     {
         var copy = config.DeepCopy();
         if (!string.IsNullOrEmpty(copy.Token)) copy.Token = protector.Protect(copy.Token);
         if (copy.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = protector.Protect(auth.Credentials);
-        await store.SaveAsync(new PushConfigRecord(key, copy), ct).ConfigureAwait(false);
-        changes?.ConfigChanged(key);
+        return new PushConfigRecord(key, copy);
     }
 
     /// <summary>Returns a copy with the token and credentials blanked; <paramref name="config"/> (often the stored one) is not changed.</summary>
@@ -94,6 +118,9 @@ public sealed class PushConfigService(PushConfigStore store, IPushSecretProtecto
         if (copy.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = "";
         return copy;
     }
+
+    private static A2AException TooManyConfigs(int limit) =>
+        new(A2AErrorCode.InvalidRequest, $"Too many push notification configs for this task (max {limit}).");
 
     private static A2AException ConfigNotFound(string taskId, string id) =>
         new(A2AErrorCode.TaskNotFound, "Push notification config not found") { Metadata = new() { ["taskId"] = taskId, ["configId"] = id } };

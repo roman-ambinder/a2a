@@ -11,8 +11,11 @@ internal sealed class TaskLocks
     private readonly SemaphoreSlim[] _locks = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
     /// <summary>The semaphore of a task.</summary>
-    public SemaphoreSlim For(string tenant, string taskId) =>
-        _locks[(StringComparer.Ordinal.GetHashCode(TaskExecutionEngine.ScopeKey(tenant, taskId)) & 0x7fffffff) % _locks.Length];
+    public SemaphoreSlim For(string tenant, string taskId) => _locks[Stripe(tenant, taskId)];
+
+    /// <summary>The index of the task's lock (tasks on the same stripe share a lock).</summary>
+    public int Stripe(string tenant, string taskId) =>
+        (StringComparer.Ordinal.GetHashCode(TaskExecutionEngine.ScopeKey(tenant, taskId)) & 0x7fffffff) % _locks.Length;
 
     /// <summary>Waits for the task's lock; dispose the result to release it. Nothing is held when the wait is cancelled.</summary>
     public async ValueTask<Releaser> AcquireAsync(TaskKey key, CancellationToken cancellationToken)

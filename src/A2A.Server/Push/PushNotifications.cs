@@ -1,19 +1,16 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Threading.Channels;
 using A2A.Diagnostics;
+using A2A.Push;
 using A2A.Security.Http;
 using A2A.Server.Storage;
-using A2A.Server.Streaming;
-using A2A.Server.Telemetry;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace A2A.Server.Push;
 
-/// <summary>Settings of push notification delivery: webhook URL policy (SSRF guard), timeouts and retries.</summary>
+/// <summary>Settings of push notification delivery: webhook URL policy (SSRF guard) and the timeout of one attempt (retries: <see cref="PushDeliveryOptions"/>).</summary>
 public sealed class PushNotificationOptions
 {
     /// <summary>Allow http:// webhook URLs. Default false (spec §13.2: SHOULD use HTTPS).</summary>
@@ -37,21 +34,8 @@ public sealed class PushNotificationOptions
     /// </summary>
     public IWebProxy? Proxy { get; set; }
 
-    /// <summary>Timeout of one delivery attempt. Default 15 seconds.</summary>
+    /// <summary>Timeout of one webhook POST, and of the DNS check before it. Retries are set in <see cref="PushDeliveryOptions"/>. Default 15 seconds.</summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(15);
-
-    /// <summary>Delivery attempts per notification, including the first. Default 3.</summary>
-    public int MaxAttempts { get; set; } = 3;
-
-    /// <summary>Wait before the first retry. Default 1 second; it grows exponentially.</summary>
-    public TimeSpan InitialBackoff { get; set; } = TimeSpan.FromSeconds(1);
-
-    /// <summary>
-    /// How long a task's delivery worker waits for the next event before it stops. Default 30 seconds. The next event starts a
-    /// new worker. <see cref="Timeout.InfiniteTimeSpan"/> keeps workers until the sender is disposed; zero stops a worker as soon
-    /// as its queue is empty. A task without push configs never keeps an idle worker.
-    /// </summary>
-    public TimeSpan WorkerIdleTimeout { get; set; } = TimeSpan.FromSeconds(30);
 }
 
 /// <summary>Validates webhook URLs against the SSRF policy.</summary>
@@ -116,11 +100,11 @@ public static class PushUrlValidator
     /// Full check run before each delivery attempt: the static rules of <see cref="Validate"/> plus DNS resolution and the IP check.
     /// Throws <see cref="A2AException"/> for policy violations (permanent) and <see cref="HttpRequestException"/> when resolution fails or finds a private address.
     /// </summary>
-    internal static async ValueTask ValidateForDeliveryAsync(string url, PushNotificationOptions options, CancellationToken ct)
+    internal static async ValueTask ValidateForDeliveryAsync(string url, PushNotificationOptions options, CancellationToken cancellationToken)
     {
         Validate(url, options);
         var uri = new Uri(url);
-        await PrivateAddressGuard.EnsureHostAllowedAsync(uri.Host, options.AllowPrivateNetworks, options.AllowedNetworks, "Webhook", ct).ConfigureAwait(false);
+        await PrivateAddressGuard.EnsureHostAllowedAsync(uri.Host, options.AllowPrivateNetworks, options.AllowedNetworks, "Webhook", cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>True for addresses that must not be reached from the agent by default.</summary>
@@ -131,499 +115,108 @@ public static class PushUrlValidator
         PrivateAddressGuard.CreateHandler(options.AllowPrivateNetworks, "Webhook", options.AllowedNetworks.ToArray(), options.Proxy);
 }
 
-/// <summary>Sends task events to registered webhooks.</summary>
-public interface IPushNotificationSender
+/// <summary>The result of one webhook attempt.</summary>
+internal enum PushSendOutcome
 {
-    /// <summary>Queues delivery of a stored task event to the task's push configs.</summary>
-    /// <remarks>
-    /// Called while the execution engine holds the task's lock, once per event in sequence order. Implementations must return quickly:
-    /// they must not block, and must not call back into <see cref="A2ARequestHandler"/> for the same task (that would deadlock).
-    /// The event carries its encoded bytes in <see cref="SequencedEvent.Json"/> (the same bytes the event store keeps); send
-    /// them as they are, and encode with <see cref="EventEncoder.EnsureEncoded"/> only when they are empty.
-    /// </remarks>
-    void Enqueue(TaskKey task, SequencedEvent evt);
+    /// <summary>The receiver answered 2xx.</summary>
+    Sent,
+
+    /// <summary>A failure worth retrying: 408, 429, 5xx, a timeout or a connection error.</summary>
+    Retry,
+
+    /// <summary>A failure that will not change: the URL policy or the IP check refused the target, or another 4xx status.</summary>
+    Permanent,
 }
 
+/// <param name="Outcome">What happened.</param>
+/// <param name="Error">For a failure, a short description without secrets or the URL (stored with the delivery).</param>
+/// <param name="ErrorType">For a failure, the <c>error.type</c> span tag.</param>
+internal readonly record struct PushSendResult(PushSendOutcome Outcome, string? Error = null, string? ErrorType = null);
+
 /// <summary>
-/// Delivers notifications per task in order, at least once, with retries and exponential backoff (spec §4.3.3, §13.2).
-/// Adds <c>X-A2A-Notification-Token</c> (also sent as a bearer <c>Authorization</c> unless the config has its own), an <c>X-A2A-Delivery-Id</c> that stays the same across retries, and an <c>X-A2A-Notification-Sequence</c> number (the event store sequence) for deduplication and ordering.
-/// Every POST carries <c>A2A-Version</c> (the body is an A2A v1.0 StreamResponse) and the W3C <c>traceparent</c> of its delivery.
+/// Sends one webhook POST for one delivery (spec §4.3.3, §13.2), guarded by the SSRF policy: the URL and its resolved
+/// addresses are checked again before every attempt (the DNS answer or the allowlist may have changed since the config was
+/// created), and the push HttpClient checks the IP again at connect time. Adds <c>X-A2A-Notification-Token</c> (also sent as
+/// a bearer <c>Authorization</c> unless the config has its own), the <c>X-A2A-Delivery-Id</c> of the delivery (the same on
+/// every attempt), the <c>X-A2A-Notification-Sequence</c> (the event store sequence) and the W3C <c>traceparent</c>.
+/// Retries and their timing belong to <see cref="PushDeliveryService"/>.
 /// </summary>
-/// <remarks>
-/// Each delivery (one event to one webhook, with its retries) is an <c>a2a.push.deliver</c> span of the <c>A2A.Server</c>
-/// source, a child of the agent run that produced the event (the activity current at <see cref="Enqueue"/>).
-/// Each task with queued events has one delivery worker that reads a bounded per-task channel
-/// (capacity <see cref="StreamingOptions.ChannelCapacity"/>). The worker takes the waiting events as a batch, lists the task's
-/// configs once per batch, and lists them again inside the batch only after <see cref="ConfigChanged"/>. It stops after
-/// <see cref="PushNotificationOptions.WorkerIdleTimeout"/> without events, or as soon as its queue is empty when the task has no configs.
-/// </remarks>
-public sealed class HttpPushNotificationSender : IPushNotificationSender, IPushConfigChangeListener, IDisposable
+internal sealed class PushWebhookSender(HttpMessageInvoker http, PushNotificationOptions options, ILogger logger, TimeProvider? time = null)
 {
-    /// <summary>
-    /// Service key under which <c>AddA2AServer</c> registers the <see cref="HttpMessageInvoker"/> used for webhook delivery (SSRF-guarded by default).
-    /// Register your own keyed singleton under this key to replace it deliberately; an unkeyed <see cref="HttpMessageInvoker"/> is never used.
-    /// </summary>
-    public const string InvokerServiceKey = "A2A.PushNotifications";
-
-    private readonly HttpMessageInvoker _http;
-    private readonly PushConfigStore _store;
-    private readonly IPushSecretProtector _protector;
-    private readonly PushNotificationOptions _options;
-    private readonly StreamingOptions _streaming;
-    private readonly TimeProvider _time;
-    private readonly ILogger _logger;
-    private readonly ConcurrentDictionary<TaskKey, Worker> _workers = new();
-    private readonly Func<TaskKey, Worker> _newWorker;
-    private readonly ConcurrentDictionary<Task, byte> _runs = new();
-    private readonly CancellationTokenSource _shutdown = new();
-    private readonly CancellationToken _stopping;
-
-    // Events enqueued and not yet attempted; WhenIdleAsync waits for zero. Only reaching zero takes _idleGate.
-    private readonly object _idleGate = new();
-    private TaskCompletionSource _idle = NewIdleSource(completed: true);
-    private int _pending;
-
-    /// <summary>Creates the sender. In an ASP.NET Core app the DI container does this.</summary>
-    /// <param name="http">Sends the webhook requests.</param>
-    /// <param name="store">Source of the push configs of each task.</param>
-    /// <param name="protector">Unprotects stored secrets at delivery time.</param>
-    /// <param name="options">Server options; <see cref="A2AServerOptions.PushNotifications"/> and <see cref="StreamingOptions.ChannelCapacity"/> are used.</param>
-    /// <param name="logger">Optional logger.</param>
-    /// <param name="time">Clock for the worker idle timeout. Default <see cref="TimeProvider.System"/>.</param>
-    public HttpPushNotificationSender(HttpMessageInvoker http, PushConfigStore store, IPushSecretProtector protector,
-        A2AServerOptions options, ILogger<HttpPushNotificationSender>? logger = null, TimeProvider? time = null)
+    public async Task<PushSendResult> SendAsync(TaskPushNotificationConfig config, PushDelivery delivery, int attempt, ReadOnlyMemory<byte> body,
+        Activity? activity, ActivityContext traceContext, CancellationToken cancellationToken)
     {
-        _http = http;
-        _store = store;
-        _protector = protector;
-        _options = options.PushNotifications;
-        _streaming = options.Streaming;
-        _time = time ?? TimeProvider.System;
-        _logger = (ILogger?)logger ?? NullLogger.Instance;
-        _stopping = _shutdown.Token;
-        _newWorker = key => new Worker(key, Math.Max(1, _streaming.ChannelCapacity));
-    }
-
-    /// <summary>
-    /// One task's delivery queue. <see cref="Sync"/> guards <see cref="Overflow"/>, <see cref="Started"/>, <see cref="Exited"/>
-    /// and every write to <see cref="Channel"/>. Invariant (under <see cref="Sync"/>): <see cref="Overflow"/> is empty unless the
-    /// channel is full, or the worker has just read from it and is about to refill; so channel items are always older than overflow items.
-    /// </summary>
-    private sealed class Worker(TaskKey key, int capacity)
-    {
-        public readonly TaskKey Key = key;
-        public readonly int Capacity = capacity;
-        public readonly Channel<PushItem> Channel = System.Threading.Channels.Channel.CreateBounded<PushItem>(
-            new BoundedChannelOptions(capacity) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = true });
-        public readonly object Sync = new();
-        public readonly Queue<PushItem> Overflow = new();
-        public bool Started;
-        public bool Exited;
-        public int ConfigVersion;
-    }
-
-    /// <summary>A queued event and the trace context of what produced it (the parent of its delivery spans).</summary>
-    private readonly record struct PushItem(SequencedEvent Event, ActivityContext Parent);
-
-    /// <inheritdoc />
-    /// <remarks>
-    /// Never waits: the event goes into the task's bounded channel with <c>TryWrite</c>; when the channel is full it goes into
-    /// the task's overflow queue, which the worker moves into the channel as space frees up. Per-task order is kept and nothing is dropped.
-    /// </remarks>
-    public void Enqueue(TaskKey task, SequencedEvent evt)
-    {
-        if (Volatile.Read(ref _disposed) != 0) return;
-        Interlocked.Increment(ref _pending);
-        // The delivery span is a child of whatever produced the event (the agent run), not of whoever started the worker.
-        var item = new PushItem(evt, Activity.Current?.Context ?? default);
-        while (true)
-        {
-            var worker = _workers.GetOrAdd(task, _newWorker);
-            bool start;
-            lock (worker.Sync)
-            {
-                if (worker.Exited) continue; // it left the map as it exited; the next GetOrAdd makes a fresh one
-                if (worker.Overflow.Count > 0 || !worker.Channel.Writer.TryWrite(item)) worker.Overflow.Enqueue(item);
-                start = !worker.Started;
-                worker.Started = true;
-            }
-            if (start) StartWorker(worker);
-            return;
-        }
-    }
-
-    /// <summary>
-    /// Tells the task's running worker that its configs changed, so it lists them again before its next event.
-    /// <see cref="PushConfigService"/> calls this after a config is created, deleted or saved inline. A task without a running
-    /// worker needs nothing: the next worker lists the configs on its first batch.
-    /// </summary>
-    public void ConfigChanged(TaskKey key)
-    {
-        if (_workers.TryGetValue(key, out var worker)) Interlocked.Increment(ref worker.ConfigVersion);
-    }
-
-    /// <summary>Number of live per-task workers. For tests.</summary>
-    internal int ActiveWorkers => _workers.Count;
-
-    /// <summary>Completes when all queued notifications have been attempted. For tests and graceful shutdown.</summary>
-    /// <remarks>After <see cref="Dispose"/> it completes when every worker has stopped.</remarks>
-    public async Task WhenIdleAsync()
-    {
-        while (true)
-        {
-            Task idle;
-            lock (_idleGate)
-            {
-                if (Volatile.Read(ref _pending) <= 0) break;
-                if (_idle.Task.IsCompleted) _idle = NewIdleSource(completed: false);
-                idle = _idle.Task;
-            }
-            await idle.ConfigureAwait(false);
-        }
-        if (Volatile.Read(ref _disposed) != 0)
-            while (!_runs.IsEmpty) await Task.WhenAll(_runs.Keys).ConfigureAwait(false);
-    }
-
-    private static TaskCompletionSource NewIdleSource(bool completed)
-    {
-        var source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (completed) source.SetResult();
-        return source;
-    }
-
-    private void Attempted(int count)
-    {
-        if (count == 0 || Interlocked.Add(ref _pending, -count) > 0) return;
-        lock (_idleGate)
-        {
-            if (Volatile.Read(ref _pending) <= 0) _idle.TrySetResult();
-        }
-    }
-
-    private void StartWorker(Worker worker)
-    {
-        var run = Task.Run(() => RunAsync(worker));
-        _runs[run] = 0;
-        run.ContinueWith(static (t, runs) => ((ConcurrentDictionary<Task, byte>)runs!).TryRemove(t, out _), _runs,
-            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-    }
-
-    private async Task RunAsync(Worker worker)
-    {
-        Activity.Current = null; // each delivery names its parent explicitly
-        var reader = worker.Channel.Reader;
-        // Sized by the first batch, not up front: a task without configs gets a new worker for nearly every event.
-        List<PushItem>? batch = null;
-        var linger = true;
         try
-        {
-            while (true)
-            {
-                if (!reader.TryPeek(out _))
-                {
-                    // Linger for the next event only while the task has configs.
-                    var arrived = linger && await WaitForEventAsync(reader).ConfigureAwait(false);
-                    if (!arrived && TryExit(worker)) return;
-                    continue; // an event arrived (or arrived as we tried to exit)
-                }
-
-                if (batch is null) batch = new List<PushItem>(Math.Clamp(reader.Count, 1, worker.Capacity));
-                else batch.Clear();
-                while (batch.Count < worker.Capacity && reader.TryRead(out var evt)) batch.Add(evt);
-                Refill(worker);
-                linger = await DeliverBatchAsync(worker, batch).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
-        {
-            // Disposed: stop.
-        }
-        catch (Exception ex)
-        {
-            ServerLog.PushWorkerFailed(_logger, ex, worker.Key.TaskId);
-        }
-        Abandon(worker);
-    }
-
-    /// <summary>Waits for the next event until the idle timeout. False when the timeout passed first.</summary>
-    private async ValueTask<bool> WaitForEventAsync(ChannelReader<PushItem> reader)
-    {
-        var timeout = _options.WorkerIdleTimeout;
-        if (timeout <= TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan) return false;
-        using var idle = new CancellationTokenSource(timeout, _time);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(idle.Token, _stopping);
-        try
-        {
-            return await reader.WaitToReadAsync(linked.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!_stopping.IsCancellationRequested)
-        {
-            return false;
-        }
-    }
-
-    /// <summary>Moves overflow events into the channel's free slots, oldest first.</summary>
-    private static void Refill(Worker worker)
-    {
-        lock (worker.Sync)
-        {
-            while (worker.Overflow.Count > 0 && worker.Channel.Writer.TryWrite(worker.Overflow.Peek())) worker.Overflow.Dequeue();
-        }
-    }
-
-    /// <summary>
-    /// Leaves the map unless an event is waiting. Under <see cref="Worker.Sync"/>, so an <see cref="Enqueue"/> either wrote before
-    /// (this sees it and keeps running) or sees <see cref="Worker.Exited"/> after (and starts a new worker). No event is lost.
-    /// </summary>
-    private bool TryExit(Worker worker)
-    {
-        lock (worker.Sync)
-        {
-            if (worker.Overflow.Count > 0 || worker.Channel.Reader.TryPeek(out _)) return false;
-            worker.Exited = true;
-            _workers.TryRemove(new KeyValuePair<TaskKey, Worker>(worker.Key, worker));
-            return true;
-        }
-    }
-
-    /// <summary>After shutdown or a failure: leaves the map and counts the events it will not attempt, so <see cref="WhenIdleAsync"/> does not hang.</summary>
-    private void Abandon(Worker worker)
-    {
-        int dropped;
-        lock (worker.Sync)
-        {
-            if (worker.Exited) return;
-            worker.Exited = true;
-            _workers.TryRemove(new KeyValuePair<TaskKey, Worker>(worker.Key, worker));
-            dropped = worker.Overflow.Count;
-            worker.Overflow.Clear();
-            while (worker.Channel.Reader.TryRead(out _)) dropped++;
-        }
-        Attempted(dropped);
-    }
-
-    /// <summary>Delivers a batch in order to every config of the task. Returns true when the task has configs (the worker then lingers).</summary>
-    private async Task<bool> DeliverBatchAsync(Worker worker, List<PushItem> batch)
-    {
-        List<TaskPushNotificationConfig>? configs = null;
-        var listedVersion = 0;
-        var i = 0;
-        try
-        {
-            for (; i < batch.Count; i++)
-            {
-                var item = batch[i];
-                try
-                {
-                    // Listed once per batch; listed again only when ConfigChanged ran since. The version is read before listing,
-                    // so a change made during the listing triggers one more.
-                    var version = Volatile.Read(ref worker.ConfigVersion);
-                    if (configs is null || version != listedVersion)
-                    {
-                        configs = await ListConfigsAsync(worker.Key).ConfigureAwait(false);
-                        listedVersion = version;
-                    }
-                    if (configs.Count == 0) continue;
-                    // The event's stored bytes are the body for every config; encoded here only for an event made without them.
-                    var body = EventEncoder.EnsureEncoded(item.Event).Json;
-                    foreach (var config in configs)
-                        await DeliverAsync(config, item.Event.Sequence, body, item.Parent).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    ServerLog.PushProcessingFailed(_logger, ex, worker.Key.TaskId);
-                }
-                finally
-                {
-                    Attempted(1);
-                }
-            }
-        }
-        catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
-        {
-            Attempted(batch.Count - i - 1);
-            throw;
-        }
-        return configs is { Count: > 0 };
-    }
-
-    /// <summary>The task's configs with secrets unprotected (copies; the store's instances are not changed). Configs whose secrets cannot be unprotected are logged and skipped.</summary>
-    private async Task<List<TaskPushNotificationConfig>> ListConfigsAsync(TaskKey task)
-    {
-        var records = await _store.ListAsync(task, _stopping).ConfigureAwait(false);
-        var configs = new List<TaskPushNotificationConfig>(records.Count);
-        foreach (var record in records)
         {
             try
             {
-                configs.Add(Unprotect(record.Config));
+                using var vcts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                vcts.CancelAfter(options.Timeout);
+                await PushUrlValidator.ValidateForDeliveryAsync(config.Url, options, vcts.Token).ConfigureAwait(false);
             }
-            catch (System.Security.Cryptography.CryptographicException ex)
+            catch (A2AException ex)
             {
-                ServerLog.PushUnprotectFailed(_logger, ex, record.Config.Id, task.TaskId);
+                ServerLog.PushWebhookSkipped(logger, config.Id, delivery.Task.TaskId, ex.Message);
+                return new PushSendResult(PushSendOutcome.Permanent, "URL not allowed: " + ex.Message, "UrlNotAllowed");
             }
-        }
-        return configs;
-    }
 
-    /// <summary>Returns a copy of the stored config with its secrets in plaintext; the stored config (owned by the store) is not changed. Used only at delivery time.</summary>
-    private TaskPushNotificationConfig Unprotect(TaskPushNotificationConfig stored)
-    {
-        var config = stored.DeepCopy();
-        if (!string.IsNullOrEmpty(config.Token)) config.Token = _protector.Unprotect(config.Token);
-        if (config.Authentication is { Credentials.Length: > 0 } auth) auth.Credentials = _protector.Unprotect(auth.Credentials);
-        return config;
-    }
+            using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ReadOnlyMemoryContent(body) };
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue(A2AProtocol.MediaType);
+            // The body is an A2A v1.0 StreamResponse; say so, as on every other A2A request (a2a-js #647).
+            request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, A2AProtocol.Version);
+            // The webhook-signature scheme carries the signing secret, never an Authorization header: the bearer token (if any) applies.
+            var signing = config.Authentication is { } a && string.Equals(a.Scheme, WebhookSignature.Scheme, StringComparison.OrdinalIgnoreCase) ? config.Authentication : null;
+            if (signing is not null)
+            {
+                if (!WebhookSignature.TryParseSecret(signing.Credentials, out var secret))
+                {
+                    ServerLog.PushWebhookSkipped(logger, config.Id, delivery.Task.TaskId, "no usable signing secret");
+                    return new PushSendResult(PushSendOutcome.Permanent, "Invalid webhook signing secret", "InvalidSigningSecret");
+                }
+                var timestamp = (time ?? TimeProvider.System).GetUtcNow().ToUnixTimeSeconds(); // fresh on every attempt; the id is stable
+                request.Headers.TryAddWithoutValidation(WebhookSignature.IdHeader, delivery.DeliveryId);
+                request.Headers.TryAddWithoutValidation(WebhookSignature.TimestampHeader, timestamp.ToString(CultureInfo.InvariantCulture));
+                request.Headers.TryAddWithoutValidation(WebhookSignature.SignatureHeader, WebhookSignature.Sign(secret, delivery.DeliveryId, timestamp, body.Span));
+            }
+            if (signing is null && config.Authentication is { Scheme.Length: > 0 } auth)
+                request.Headers.TryAddWithoutValidation("Authorization", string.IsNullOrEmpty(auth.Credentials) ? auth.Scheme : $"{auth.Scheme} {auth.Credentials}");
+            else if (!string.IsNullOrEmpty(config.Token))
+                request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {config.Token}");
+            if (!string.IsNullOrEmpty(config.Token)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationToken, config.Token);
+            request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.DeliveryId, delivery.DeliveryId);
+            request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationSequence, delivery.Sequence.ToString(CultureInfo.InvariantCulture));
+            A2ATelemetry.InjectTraceContext(traceContext, (name, value) => request.Headers.TryAddWithoutValidation(name, value));
 
-    /// <summary>
-    /// Delivers one event to one webhook, with retries, in its <c>a2a.push.deliver</c> span (a child of <paramref name="parent"/>),
-    /// and counts the final result (<c>a2a.server.push.deliveries</c>).
-    /// </summary>
-    private async Task DeliverAsync(TaskPushNotificationConfig config, long seq, ReadOnlyMemory<byte> body, ActivityContext parent)
-    {
-        using var activity = ServerTelemetry.Source.HasListeners()
-            ? ServerTelemetry.Source.StartActivity(A2ATelemetry.SpanNames.PushDelivery, ActivityKind.Client, parent)
-            : null;
-        if (activity is { IsAllDataRequested: true })
-        {
-            A2ATelemetry.SetTask(activity, config.TaskId);
-            activity.SetTag(A2ATelemetry.Tags.PushConfigId, config.Id);
-            activity.SetTag(A2ATelemetry.Tags.PushSequence, seq);
-            if (!string.IsNullOrEmpty(config.Tenant)) activity.SetTag(A2ATelemetry.Tags.Tenant, config.Tenant);
-            if (Uri.TryCreate(config.Url, UriKind.Absolute, out var target)) activity.SetTag(A2ATelemetry.Tags.ServerAddress, target.Host);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(options.Timeout);
+            using var response = await http.SendAsync(request, cts.Token).ConfigureAwait(false);
+            var status = (int)response.StatusCode;
+            activity?.SetTag(A2ATelemetry.Tags.HttpStatusCode, status);
+            if (response.IsSuccessStatusCode) return new PushSendResult(PushSendOutcome.Sent);
+
+            var code = status.ToString(CultureInfo.InvariantCulture);
+            ServerLog.PushWebhookStatus(logger, config.Id, delivery.Task.TaskId, status, attempt);
+            var retryable = status is 408 or 429 || status >= 500;
+            return new PushSendResult(retryable ? PushSendOutcome.Retry : PushSendOutcome.Permanent, "HTTP " + code, code);
         }
-        // Without a listener there is no span: pass on the producer's context, so the receiver still joins the trace.
-        var traceContext = activity?.Context ?? parent;
-        bool delivered;
-        try
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            delivered = await DeliverCoreAsync(config, seq, body, activity, traceContext).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException ex) when (_stopping.IsCancellationRequested)
-        {
-            A2ATelemetry.RecordError(activity, ex, callerCanceled: true);
-            throw; // stopping: no final result
-        }
-        catch (Exception ex)
-        {
-            A2ATelemetry.RecordError(activity, ex);
-            CountDelivery(false);
             throw;
         }
-        CountDelivery(delivered);
-    }
-
-    private static void CountDelivery(bool delivered)
-    {
-        if (ServerTelemetry.PushDeliveries.Enabled)
-            ServerTelemetry.PushDeliveries.Add(1, new KeyValuePair<string, object?>(A2ATelemetry.Tags.Outcome, delivered ? A2ATelemetry.Outcomes.Delivered : A2ATelemetry.Outcomes.Failed));
-    }
-
-    /// <summary>Marks a delivery that gave up or was skipped.</summary>
-    private static void Fail(Activity? activity, string type)
-    {
-        if (activity is null) return;
-        activity.SetTag(A2ATelemetry.Tags.ErrorType, type);
-        activity.SetStatus(ActivityStatusCode.Error, type);
-    }
-
-    /// <summary>The delivery with retries. True when the webhook accepted the event; false when it was skipped, refused, or every attempt failed.</summary>
-    private async Task<bool> DeliverCoreAsync(TaskPushNotificationConfig config, long seq, ReadOnlyMemory<byte> body, Activity? activity, ActivityContext traceContext)
-    {
-        var deliveryId = Guid.NewGuid().ToString("N");
-        var delay = _options.InitialBackoff;
-
-        for (var attempt = 1; attempt <= Math.Max(1, _options.MaxAttempts); attempt++)
+        catch (HttpRequestException ex) when (ex is BlockedAddressException || ex.InnerException is BlockedAddressException)
         {
-            activity?.SetTag(A2ATelemetry.Tags.PushAttempts, attempt);
-            try
-            {
-                // Re-validated on every attempt (not only at create): the host's DNS answer can change, and the allowlist may have.
-                try
-                {
-                    using var vcts = CancellationTokenSource.CreateLinkedTokenSource(_stopping);
-                    vcts.CancelAfter(_options.Timeout);
-                    await PushUrlValidator.ValidateForDeliveryAsync(config.Url, _options, vcts.Token).ConfigureAwait(false);
-                }
-                catch (A2AException ex)
-                {
-                    ServerLog.PushWebhookSkipped(_logger, config.Id, config.TaskId, ex.Message);
-                    Fail(activity, "UrlNotAllowed");
-                    return false;
-                }
-                catch (BlockedAddressException ex)
-                {
-                    ServerLog.PushWebhookSkipped(_logger, config.Id, config.TaskId, ex.Message);
-                    Fail(activity, "UrlNotAllowed");
-                    return false;
-                }
-
-                using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ReadOnlyMemoryContent(body) };
-                request.Content.Headers.ContentType = new MediaTypeHeaderValue(A2AProtocol.MediaType);
-                // The body is an A2A v1.0 StreamResponse; say so, as on every other A2A request (a2a-js #647).
-                request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, A2AProtocol.Version);
-                if (config.Authentication is { Scheme.Length: > 0 } auth)
-                    request.Headers.TryAddWithoutValidation("Authorization", string.IsNullOrEmpty(auth.Credentials) ? auth.Scheme : $"{auth.Scheme} {auth.Credentials}");
-                else if (!string.IsNullOrEmpty(config.Token))
-                    request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {config.Token}");
-                if (!string.IsNullOrEmpty(config.Token)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationToken, config.Token);
-                request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.DeliveryId, deliveryId);
-                request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationSequence, seq.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                A2ATelemetry.InjectTraceContext(traceContext, (name, value) => request.Headers.TryAddWithoutValidation(name, value));
-
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(_stopping);
-                cts.CancelAfter(_options.Timeout);
-                using var response = await _http.SendAsync(request, cts.Token).ConfigureAwait(false);
-                var status = (int)response.StatusCode;
-                activity?.SetTag(A2ATelemetry.Tags.HttpStatusCode, status);
-                if (response.IsSuccessStatusCode) return true;
-
-                var retryable = status is 408 or 429 || status >= 500;
-                ServerLog.PushWebhookStatus(_logger, config.Id, config.TaskId, status, attempt);
-                if (!retryable)
-                {
-                    Fail(activity, status.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    return false;
-                }
-            }
-            catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (HttpRequestException ex) when (ex is BlockedAddressException || ex.InnerException is BlockedAddressException)
-            {
-                ServerLog.PushWebhookBlocked(_logger, config.Id, config.TaskId);
-                Fail(activity, "UrlNotAllowed");
-                return false;
-            }
-            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
-            {
-                ServerLog.PushWebhookAttemptFailed(_logger, ex, config.Id, config.TaskId, attempt);
-            }
-
-            if (attempt < _options.MaxAttempts)
-            {
-                activity?.AddEvent(new ActivityEvent(A2ATelemetry.Events.Retry));
-                await Task.Delay(delay, _stopping).ConfigureAwait(false);
-                delay = TimeSpan.FromTicks(delay.Ticks * 2);
-            }
+            ServerLog.PushWebhookBlocked(logger, config.Id, delivery.Task.TaskId);
+            return new PushSendResult(PushSendOutcome.Permanent, "URL not allowed: the target address is not allowed", "UrlNotAllowed");
         }
-        ServerLog.PushWebhookGaveUp(_logger, config.Id, config.TaskId, _options.MaxAttempts);
-        Fail(activity, "GaveUp");
-        return false;
-    }
-
-    private int _disposed;
-
-    /// <summary>Stops delivery and releases resources. Safe to call more than once.</summary>
-    public void Dispose()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-        _shutdown.Cancel();
-        _shutdown.Dispose();
+        catch (HttpRequestException ex)
+        {
+            ServerLog.PushWebhookAttemptFailed(logger, ex, config.Id, delivery.Task.TaskId, attempt);
+            return new PushSendResult(PushSendOutcome.Retry, "Request failed: " + ex.HttpRequestError, ex.GetType().FullName);
+        }
+        catch (OperationCanceledException ex)
+        {
+            ServerLog.PushWebhookAttemptFailed(logger, ex, config.Id, delivery.Task.TaskId, attempt);
+            return new PushSendResult(PushSendOutcome.Retry, "Timed out", "Timeout");
+        }
     }
 }

@@ -17,35 +17,31 @@ public sealed class TaskExecutionEngineTests
 
     private sealed class DelegateFactory(Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> execute) : IAgentExecutorFactory
     {
-        public ValueTask<AgentExecutorLease> RentAsync(CancellationToken ct) =>
+        public ValueTask<AgentExecutorLease> RentAsync(string tenant, CancellationToken ct) =>
             ValueTask.FromResult(new AgentExecutorLease(new DelegateAgentExecutor(execute), scope: null));
     }
 
-    private sealed class NoPush : IPushNotificationSender
+
+    /// <summary>A task store and the event store it commits to.</summary>
+    private static (InMemoryTaskStore Tasks, InMemoryEventStore Events) Stores(A2AServerOptions? options = null)
     {
-        public void Enqueue(TaskKey task, SequencedEvent evt) { }
+        var events = new InMemoryEventStore((options ?? new A2AServerOptions()).Streaming);
+        return (new InMemoryTaskStore(events, new InMemoryPushOutbox()), events);
     }
 
-    private sealed class RecordingPush : IPushNotificationSender
-    {
-        private int _count;
-        public int Count => Volatile.Read(ref _count);
-        public void Enqueue(TaskKey task, SequencedEvent evt) => Interlocked.Increment(ref _count);
-    }
-
-    private static TaskExecutionEngine Engine(TaskStore tasks, Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> execute,
-        A2AServerOptions? options = null, IPushNotificationSender? push = null)
+    private static TaskExecutionEngine Engine(TaskStore tasks, EventStore events, Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> execute,
+        A2AServerOptions? options = null, PushConfigService? pushConfigs = null)
     {
         options ??= new A2AServerOptions();
         if (string.IsNullOrEmpty(options.AgentCard.Name)) options.AgentCard.Name = "Engine Test Agent";
         return new TaskExecutionEngine(
             tasks,
-            new InMemoryEventStore(options.Streaming),
+            events,
             new DelegateFactory(execute),
             new TaskEventBus(),
-            push ?? new NoPush(),
+            new InMemoryPushOutbox(),
             new IdempotencyCoordinator(new InMemoryIdempotencyStore(options.Idempotency), tasks, options),
-            new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options),
+            pushConfigs ?? new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options),
             options,
             new AgentCardProvider(options, []));
     }
@@ -63,15 +59,15 @@ public sealed class TaskExecutionEngineTests
     [Fact]
     public async Task Start_runs_executor_and_stores_terminal_state()
     {
-        var tasks = new InMemoryTaskStore();
-        await using var engine = Engine(tasks, async (_, updater, ct) =>
+        var (tasks, events) = Stores();
+        await using var engine = Engine(tasks, events, async (_, updater, ct) =>
         {
             await updater.StartWorkAsync("working", ct);
             await updater.CompleteAsync("done", ct);
         });
         var context = NewTask(ServerCallContext.Anonymous());
 
-        var exec = engine.Start(context, push: null, IdempotencyClaim.None);
+        var exec = (await engine.StartForTestAsync(context));
         var seen = new List<SequencedEvent>();
         await foreach (var e in exec.Outgoing.Reader.ReadAllAsync().WithCancellation(new CancellationTokenSource(Wait).Token)) seen.Add(e);
         await exec.Completion.WaitAsync(Wait);
@@ -93,8 +89,8 @@ public sealed class TaskExecutionEngineTests
         var options = new A2AServerOptions();
         options.Limits.MaxEventBytes = 1024;
         var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var tasks = new InMemoryTaskStore();
-        await using var engine = Engine(tasks, async (_, updater, ct) =>
+        var (tasks, events) = Stores();
+        await using var engine = Engine(tasks, events, async (_, updater, ct) =>
         {
             await updater.StartWorkAsync(cancellationToken: ct);
             await updater.AddArtifactAsync([Part.FromText(new string('x', 4096))], name: "big", cancellationToken: ct);
@@ -110,7 +106,7 @@ public sealed class TaskExecutionEngineTests
         }, options);
         var context = NewTask(ServerCallContext.Anonymous());
 
-        var exec = engine.Start(context, push: null, IdempotencyClaim.None);
+        var exec = (await engine.StartForTestAsync(context));
         await stopped.Task.WaitAsync(Wait);
         await exec.Completion.WaitAsync(Wait);
 
@@ -125,14 +121,14 @@ public sealed class TaskExecutionEngineTests
     public async Task Store_failure_fails_task()
     {
         var tasks = new FailOnNthUpdateStore(failOn: 2); // WORKING is stored; COMPLETED fails
-        await using var engine = Engine(tasks, async (_, updater, ct) =>
+        await using var engine = Engine(tasks, tasks.Events, async (_, updater, ct) =>
         {
             await updater.StartWorkAsync(cancellationToken: ct);
             await updater.CompleteAsync("done", ct);
         });
         var context = NewTask(ServerCallContext.Anonymous());
 
-        var exec = engine.Start(context, push: null, IdempotencyClaim.None);
+        var exec = (await engine.StartForTestAsync(context));
         // The request that started the run gets an error after the events that were stored, not the FAILED event.
         var seen = new List<SequencedEvent>();
         var ex = await Assert.ThrowsAsync<A2AException>(async () =>
@@ -152,25 +148,29 @@ public sealed class TaskExecutionEngineTests
     }
 
     [Theory]
-    [InlineData(null)]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Events_reach_the_push_sender_only_when_the_card_declares_push(bool? declared)
+    public async Task Events_queue_push_deliveries_only_when_the_card_declares_push(bool declared)
     {
+        // The request resolves the tenant's card and passes its push capability to the execution; without it, no commit
+        // queues a delivery, even for a task with a push config.
         var options = new A2AServerOptions();
-        options.AgentCard.Capabilities.PushNotifications = declared;
-        var push = new RecordingPush();
-        var tasks = new InMemoryTaskStore();
-        await using var engine = Engine(tasks, async (_, updater, ct) =>
+        var events = new InMemoryEventStore(options.Streaming);
+        var outbox = new InMemoryPushOutbox();
+        var tasks = new InMemoryTaskStore(events, outbox);
+        var configs = new InMemoryPushConfigStore();
+        var context = NewTask(ServerCallContext.Anonymous());
+        await configs.SaveAsync(new PushConfigRecord(Key(context), new TaskPushNotificationConfig { Id = "c1", TaskId = context.TaskId, Url = "https://hooks.example/h" }));
+        await using var engine = Engine(tasks, events, async (_, updater, ct) =>
         {
             await updater.StartWorkAsync("working", ct);
             await updater.CompleteAsync("done", ct);
-        }, options, push);
-        var exec = engine.Start(NewTask(ServerCallContext.Anonymous()), push: null, IdempotencyClaim.None);
+        }, options, new PushConfigService(configs, new EphemeralPushSecretProtector(), options));
+        var exec = await engine.StartForTestAsync(context, pushEnabled: declared);
         exec.Detach();
         await exec.Completion.WaitAsync(Wait);
 
-        if (declared == true) Assert.True(push.Count > 0);
-        else Assert.Equal(0, push.Count);
+        if (declared) Assert.Equal(2, outbox.Count); // WORKING, COMPLETED (the new task's snapshot goes only to an inline config)
+        else Assert.Equal(0, outbox.Count);
     }
 }

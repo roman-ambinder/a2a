@@ -32,14 +32,28 @@ public sealed class ServerCallContext
     public string LimitPartition => LimitPartitionFor(Principal, RemoteAddress);
 
     /// <summary>
-    /// The key for per-caller limits: <c>user:{principal}</c> for an authenticated caller, and <c>anon:{remoteAddress}</c>
-    /// (<c>anon:unknown</c> without an address) for <see cref="AnonymousPrincipal"/>, so anonymous callers do not share one
-    /// budget. The prefixes keep a principal id from colliding with an address key.
+    /// The key for per-caller limits: <c>user:{principal}</c> for an authenticated caller, and for <see cref="AnonymousPrincipal"/>
+    /// <c>anon:{address}</c> (<c>anon:unknown</c> without an address), so anonymous callers do not share one budget. An IPv4
+    /// address (also IPv4-mapped IPv6) is its own partition. An IPv6 address is grouped by its /64 prefix, written
+    /// <c>anon:2001:db8:1:2::/64</c>, because one host usually controls a whole /64 and could otherwise pick a fresh address per
+    /// request. The prefixes keep a principal id from colliding with an address key.
     /// </summary>
     public static string LimitPartitionFor(string principal, string? remoteAddress) =>
         string.Equals(principal, AnonymousPrincipal, StringComparison.Ordinal)
-            ? "anon:" + (string.IsNullOrEmpty(remoteAddress) ? "unknown" : remoteAddress)
+            ? "anon:" + AnonymousAddressKey(remoteAddress)
             : "user:" + principal;
+
+    private static string AnonymousAddressKey(string? remoteAddress)
+    {
+        if (string.IsNullOrEmpty(remoteAddress)) return "unknown";
+        if (!System.Net.IPAddress.TryParse(remoteAddress, out var ip)) return remoteAddress;
+        if (ip.IsIPv4MappedToIPv6) return ip.MapToIPv4().ToString();
+        if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetworkV6) return ip.ToString();
+        Span<byte> bytes = stackalloc byte[16];
+        ip.TryWriteBytes(bytes, out _);
+        bytes[8..].Clear();
+        return new System.Net.IPAddress(bytes).ToString() + "/64";
+    }
 
     /// <summary>True when <see cref="User"/> is set and authenticated.</summary>
     public bool IsAuthenticated => User?.Identity?.IsAuthenticated == true;
@@ -65,6 +79,15 @@ public sealed class ServerCallContext
         if (!string.Equals(Tenant, bodyTenant, StringComparison.Ordinal))
             throw A2AException.InvalidParams("tenant in request body does not match the endpoint tenant");
     }
+
+    /// <summary>
+    /// The route values of the HTTP request (for example <c>tenant</c>), as strings; empty when the binding has none. Passed to
+    /// <see cref="IAgentCardProvider.GetAsync"/> in <see cref="Agents.AgentRequestScope.RouteValues"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, string?> RouteValues { get; init; } = Agents.AgentRequestScope.NoRouteValues;
+
+    /// <summary>The card resolved for this request and the tenant it was resolved for (resolved at most once per request and tenant).</summary>
+    internal (string Tenant, AgentCard? Card)? ResolvedCard { get; set; }
 
     /// <summary>Value of the A2A-Version header, or null if absent.</summary>
     public string? ProtocolVersion { get; init; }

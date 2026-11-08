@@ -1,5 +1,8 @@
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using A2A.Server.Agents;
 using A2A.Server.Execution;
 using A2A.Server.Idempotency;
 using A2A.Server.Pipeline;
@@ -28,6 +31,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private readonly TaskEventBus _bus;
     private readonly A2AServerOptions _options;
     private readonly IAgentCardProvider _cards;
+    private readonly RequestCards _requestCards;
     private readonly CallValidator _validator;
     private readonly PushConfigService _pushConfigs;
     private readonly TaskExecutionEngine _engine;
@@ -75,6 +79,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         IAgentCardProvider cards)
     {
         _cards = cards;
+        _requestCards = new RequestCards(cards);
         ArgumentNullException.ThrowIfNull(extensionOperations);
         _extensions = new(StringComparer.Ordinal);
         foreach (var extension in extensionOperations)
@@ -105,8 +110,14 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         _extendedCard = GetExtendedAgentCardCoreAsync;
     }
 
-    /// <summary>The public Agent Card: <see cref="IAgentCardProvider.Get"/>, the completed copy of <see cref="A2AServerOptions.AgentCard"/>.</summary>
+    /// <summary>
+    /// The public Agent Card of the host: <see cref="IAgentCardProvider.Get"/>, the completed copy of <see cref="A2AServerOptions.AgentCard"/>.
+    /// With a <see cref="TenantCardProvider"/> each tenant has its own card, and requests are checked against that one.
+    /// </summary>
     public AgentCard AgentCard => _cards.Get();
+
+    /// <summary>The refusal text for a tenant that no agent serves (its card is null).</summary>
+    internal const string NoAgentText = RequestCards.NoAgentText;
 
     // =====================================================================
     // Call validation: version, extensions, authentication
@@ -149,14 +160,27 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private async ValueTask<SendMessageResponse> SendMessageCoreAsync(SendMessageRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
+        await _requestCards.RequireAgentAsync(call, cancellationToken).ConfigureAwait(false);
+        // Before the idempotency claim and anything stored: a tenant without an agent leaves no trace.
+        await using var agent = await _engine.RequireAgentAsync(call.Tenant, cancellationToken).ConfigureAwait(false);
         var (claim, replay) = await _idempotency.BeginAsync(request, call, cancellationToken).ConfigureAwait(false);
-        if (replay is not null) return await _idempotency.ReplayAsync(replay, request, call, _engine.WaitUntilSettledAsync, cancellationToken).ConfigureAwait(false);
+        if (replay is not null)
+        {
+            await agent.DisposeAsync().ConfigureAwait(false); // nothing runs
+            return await _idempotency.ReplayAsync(replay, request, call, _engine.WaitUntilSettledAsync, cancellationToken).ConfigureAwait(false);
+        }
         var taskId = string.IsNullOrEmpty(request.Message?.TaskId) ? TaskIds.New() : request.Message.TaskId;
         var key = Key(call, taskId);
         var scope = ScopeKey(call.Tenant, taskId);
         // Subscribe before the agent starts, so no event of another execution is missed.
         using var sub = _bus.Subscribe(scope);
-        var (exec, afterSequence) = await AcceptAsync(request, call, claim, taskId, cancellationToken).ConfigureAwait(false);
+        var (accepted, afterSequence) = await AcceptAsync(request, call, claim, taskId, agent, cancellationToken).ConfigureAwait(false);
+        if (accepted is not { } exec)
+        {
+            // A duplicate follow-up: nothing started, so there is nothing to wait for.
+            var current = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
+            return new TaskResponse(Shape(current.Task, request.Configuration?.HistoryLength));
+        }
         var reply = await _streamer.WaitForOutcomeAsync(exec, key, sub, afterSequence, request.Configuration?.ReturnImmediately == true,
             cancellationToken).ConfigureAwait(false);
         if (reply is not null) return new MessageResponse(reply);
@@ -197,23 +221,40 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// <param name="Context">The request context for the agent.</param>
     /// <param name="PushConfig">The push config to save when a new task is created.</param>
     /// <param name="LastSequence">For a follow-up, the task's last event sequence right after the message was appended; 0 for a new task.</param>
-    private sealed record Prepared(AgentRequestContext Context, TaskPushNotificationConfig? PushConfig, long LastSequence);
+    /// <param name="Duplicate">The follow-up's message id was already in the task's history: nothing was appended and no agent must start.</param>
+    private sealed record Prepared(AgentRequestContext Context, TaskPushNotificationConfig? PushConfig, long LastSequence, bool Duplicate = false);
 
     /// <summary>
     /// Accepts the message and starts the agent. The idempotency claim is abandoned when the message is refused or the agent
     /// cannot start; a follow-up records its task at once (the message is already in the task's history), and a new task
     /// records it when it is first stored.
     /// </summary>
-    /// <returns>The execution, and the task's last sequence before it (0 for a new task; see <see cref="Prepared.LastSequence"/>).</returns>
-    private async Task<(Execution.Execution Execution, long AfterSequence)> AcceptAsync(SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string? newTaskId, CancellationToken ct)
+    /// <returns>
+    /// The execution, and the task's last sequence before it (0 for a new task; see <see cref="Prepared.LastSequence"/>). The
+    /// execution is null for a duplicate follow-up (see <see cref="Prepared.Duplicate"/>): nothing was started.
+    /// </returns>
+    private async Task<(Execution.Execution? Execution, long AfterSequence)> AcceptAsync(SendMessageRequest request, ServerCallContext call,
+        IdempotencyClaim claim, string? newTaskId, RentedAgent agent, CancellationToken ct)
     {
         try
         {
             var prepared = await PrepareAsync(request, call, ct, newTaskId).ConfigureAwait(false);
-            if (prepared.Context.IsNewTask) return (_engine.Start(prepared.Context, prepared.PushConfig, claim), 0);
+            // The request resolved the tenant's card already; its push capability holds for the whole execution, so no card
+            // provider call happens per event (or under a task lock).
+            var pushEnabled = call.ResolvedCard?.Card?.Capabilities.PushNotifications == true;
+            if (prepared.Context.IsNewTask)
+                return (await _engine.StartAsync(prepared.Context, prepared.PushConfig, claim, agent, pushEnabled).ConfigureAwait(false), 0);
+            if (prepared.Duplicate)
+            {
+                // The message is already in the history (an earlier request of it failed after the commit): its outcome is
+                // the task as it is. A retry with this claim gets the task as it is too.
+                await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(prepared.Context.TaskId, 0), prepared.Context.TaskId).ConfigureAwait(false);
+                return (null, 0);
+            }
 
-            // Record after the execution is registered, so a blocking retry sees it running and waits for its outcome.
-            var exec = _engine.Start(prepared.Context, prepared.PushConfig, IdempotencyClaim.None);
+            // Record after the execution is registered (on every instance), so a blocking retry sees it running and waits for
+            // its outcome.
+            var exec = await _engine.StartAsync(prepared.Context, prepared.PushConfig, IdempotencyClaim.None, agent, pushEnabled).ConfigureAwait(false);
             var taskId = prepared.Context.TaskId;
             await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId, prepared.LastSequence), taskId).ConfigureAwait(false);
             return (exec, prepared.LastSequence);
@@ -238,12 +279,14 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         AgentTask? existing = null;
         long lastSequence = 0;
         string contextId;
+        var duplicate = false;
+        var approval = ApprovalState.None;
 
         // Check the push config before anything changes, so a refused request leaves no trace and a retry is refused the same way.
         TaskPushNotificationConfig? push = null;
         if (request.Configuration?.TaskPushNotificationConfig is { } p)
         {
-            RequirePush();
+            RequestCards.RequirePush(await _requestCards.RequireAgentAsync(call, ct).ConfigureAwait(false));
             push = p.DeepCopy(); // the caller's config is never changed
             push.TaskId = taskId;
             push.Id = string.IsNullOrEmpty(push.Id) ? TaskIds.New() : push.Id;
@@ -253,14 +296,28 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
         if (isFollowUp)
         {
-            using (await _engine.LockAsync(Key(call, taskId), ct).ConfigureAwait(false))
+            var key = Key(call, taskId);
+            var pushIsNew = false;   // the config id did not exist before this request
+            var pushSaved = false;
+            var committed = false;
+            var gate = await _engine.LockAsync(key, ct).ConfigureAwait(false);
+            try
             {
                 for (var attempt = 0; ; attempt++)
                 {
-                    var record = await _tasks.GetAsync(Key(call, taskId), ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
+                    var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
                     var state = record.Task.Status.State;
                     if (!string.IsNullOrEmpty(message.ContextId) && message.ContextId != record.Task.ContextId)
                         throw A2AException.InvalidParams("message.contextId does not match the task's contextId");
+                    if (record.Task.History?.Exists(m => string.Equals(m.MessageId, message.MessageId, StringComparison.Ordinal)) == true)
+                    {
+                        // Already accepted (an earlier request of it failed after the commit): no push config, no append, no
+                        // new execution. Checked before the state, so a retry after the task settled gets its outcome.
+                        duplicate = true;
+                        existing = record.Task;
+                        contextId = record.Task.ContextId;
+                        break;
+                    }
                     if (state.IsTerminal())
                         throw new A2AException(A2AErrorCode.UnsupportedOperation,
                             "The task is in a terminal state. Start a new task and list this one in referenceTaskIds.")
@@ -273,26 +330,42 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                             Metadata = new() { ["taskId"] = taskId },
                         };
                     EnsureTurnCapacity(record.Task);
-                    if (push is not null) await _pushConfigs.EnsureCapacityAsync(Key(call, taskId), push.Id!, ct).ConfigureAwait(false);
+                    approval = ResolveApproval(record.Task, message, out var consume);
+                    if (push is not null && !pushSaved)
+                    {
+                        // Saved atomically under the limit before the message is committed, so a refused request leaves no message.
+                        pushIsNew = await _pushConfigs.SaveInlineUnderLimitAsync(key, push, ct).ConfigureAwait(false);
+                        pushSaved = true;
+                    }
                     contextId = record.Task.ContextId;
                     message.ContextId = contextId;
                     // The stored record belongs to the store: append to a copy, with a copy of the message the executor gets.
                     var next = record.Task.CopyForUpdate();
                     (next.History ??= []).Add(message.DeepCopy());
+                    // Same update as the approving message: the approval cannot be used twice, also across instances (CAS).
+                    if (consume is not null) (next.Metadata ??= [])[A2AProtocol.ApprovalConsumedKey] = StringElement(consume);
                     try
                     {
                         await _tasks.UpdateAsync(record with { Task = next }, record.Version, ct).ConfigureAwait(false);
                         existing = next;
+                        committed = true;
                         // Still under the task lock. The message is committed: a cancelled request must not stop here, or
                         // the idempotency entry would be abandoned and a retry would append the message again.
-                        lastSequence = await _events.LastSequenceAsync(Key(call, taskId), CancellationToken.None).ConfigureAwait(false);
+                        lastSequence = await _events.LastSequenceAsync(key, CancellationToken.None).ConfigureAwait(false);
                         break;
                     }
                     catch (ConcurrencyException) when (attempt < TaskExecutionEngine.MaxConflictRetries)
                     {
-                        // The task changed under us: reload, re-check the state, and append again.
+                        // The task changed under us: wait a moment, reload, re-check the state, and append again.
+                        await TaskExecutionEngine.ConflictBackoffAsync(attempt, ct).ConfigureAwait(false);
                     }
                 }
+            }
+            finally
+            {
+                // The message was not committed (state refused, conflicts, cancel): do not keep the config it came with.
+                if (pushSaved && pushIsNew && !committed) await _pushConfigs.TryDeleteAsync(key, push!.Id!).ConfigureAwait(false);
+                gate.Dispose();
             }
         }
         else
@@ -301,9 +374,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             message.ContextId = contextId;
         }
 
-        // A new task saves its push config when the task is created; a follow-up saves it now (capacity checked above), past
-        // cancellation for the same reason as the last sequence: its message is already committed.
-        if (push is not null && existing is not null) await _pushConfigs.SaveInlineAsync(Key(call, taskId), push, CancellationToken.None).ConfigureAwait(false);
+        // A new task saves its push config when the task is created; a follow-up saved it above, before its message was committed.
 
         var context = new AgentRequestContext
         {
@@ -314,9 +385,54 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             Configuration = request.Configuration,
             Metadata = request.Metadata,
             Call = call,
+            Approval = approval,
         };
-        return new Prepared(context, existing is null ? push : null, lastSequence);
+        return new Prepared(context, existing is null ? push : null, lastSequence, duplicate);
     }
+
+    /// <summary>
+    /// Approval binding (spec design §6.6). The pending approval is the hash in the metadata of the status message of a task
+    /// waiting in an interrupted state, so it is stored with the task and every instance sees it. It is used at most once:
+    /// the commit of the approving message also records the status message's id in the task metadata
+    /// (<see cref="A2AProtocol.ApprovalConsumedKey"/>), and a used approval is no longer pending. A follow-up without a hash is
+    /// accepted (<see cref="ApprovalState.NotApproved"/> while an approval is pending); a hash that does not match the pending
+    /// one, or when none is pending or it was used, is InvalidParams. A pending approval whose status message has no id fails
+    /// closed (treated as used). <paramref name="consume"/> is the status message id to record when the result is
+    /// <see cref="ApprovalState.Approved"/>.
+    /// </summary>
+    private static ApprovalState ResolveApproval(AgentTask task, Message message, out string? consume)
+    {
+        consume = null;
+        string? pending = null;
+        var status = task.Status.Message;
+        if (task.Status.State.IsInterrupted() && status?.Metadata is { } statusMetadata
+            && statusMetadata.TryGetValue(A2AProtocol.ApprovalHashKey, out var p) && p.ValueKind == JsonValueKind.String)
+            pending = p.GetString();
+        // A status message without an id could never be marked used: fail closed, as if it were.
+        var used = pending is not null
+            && (string.IsNullOrEmpty(status!.MessageId)
+                || (task.Metadata is { } taskMetadata
+                    && taskMetadata.TryGetValue(A2AProtocol.ApprovalConsumedKey, out var c) && c.ValueKind == JsonValueKind.String
+                    && string.Equals(c.GetString(), status.MessageId, StringComparison.Ordinal)));
+
+        if (message.Metadata is null || !message.Metadata.TryGetValue(A2AProtocol.ApprovalHashKey, out var value))
+            return pending is null ? ApprovalState.None : ApprovalState.NotApproved;
+        if (pending is null || used || value.ValueKind != JsonValueKind.String
+            || !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(pending), Encoding.UTF8.GetBytes(value.GetString()!)))
+            throw A2AException.InvalidParams("Approval does not match the pending request.");
+        consume = status!.MessageId;
+        return ApprovalState.Approved;
+    }
+
+    private static JsonElement StringElement(string value)
+    {
+        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer)) writer.WriteStringValue(value);
+        using var doc = JsonDocument.Parse(buffer.WrittenMemory);
+        return doc.RootElement.Clone();
+    }
+
+    private static readonly JsonElement TrueElement = JsonDocument.Parse("true").RootElement.Clone();
 
     /// <summary>
     /// Returns the context id for a new task and makes sure the context belongs to the caller. A context owned by
@@ -376,6 +492,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private async ValueTask<AgentTask> GetTaskCoreAsync(GetTaskRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
+        await _requestCards.RequireAgentForTaskAsync(call, request.Id, cancellationToken).ConfigureAwait(false);
         A2AValidator.RequireId(request.Id, "id");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
@@ -391,6 +508,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private async ValueTask<ListTasksResponse> ListTasksCoreAsync(ListTasksRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
+        await _requestCards.RequireAgentAsync(call, cancellationToken).ConfigureAwait(false);
         if (request.PageSize is < 1) throw A2AException.InvalidParams("pageSize must be between 1 and 100");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         var pageSize = Math.Min(request.PageSize ?? 50, _options.Limits.MaxListPageSize);
@@ -414,7 +532,12 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         };
     }
 
-    /// <summary>CancelTask (spec §3.1.5). Asks the running agent to stop, waits up to <see cref="A2AServerOptions.CancelGracePeriod"/>, and returns the task. Throws TaskNotCancelable when the task is already terminal.</summary>
+    /// <summary>
+    /// CancelTask (spec §3.1.5). Asks the running agent to stop (on this instance directly, on the others through the
+    /// execution coordinator), waits up to <see cref="A2AServerOptions.CancelGracePeriod"/>, and returns the task. When an
+    /// execution still runs after that, the response is the task with <see cref="A2AProtocol.CancelRequestedKey"/> = true in its
+    /// metadata (the cancel is requested, not done). Throws TaskNotCancelable when the task is already terminal.
+    /// </summary>
     public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
@@ -423,20 +546,46 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private async ValueTask<AgentTask> CancelTaskCoreAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
+        var card = await _requestCards.RequireAgentForTaskAsync(call, request.Id, cancellationToken).ConfigureAwait(false);
         A2AValidator.RequireId(request.Id, "id");
-        var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        var key = Key(call, request.Id);
+        var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         if (record.Task.Status.State.IsTerminal()) throw NotCancelable(request.Id);
 
-        var running = _engine.CancelRunning(Key(call, request.Id));
-        var exec = _engine.StartCancel(Key(call, request.Id), record.Task, request.Metadata);
+        // Executions here stop at once; the other instances stop theirs when the request reaches them.
+        _engine.CancelRunning(key);
+        await _engine.RequestCancelElsewhereAsync(key, cancellationToken).ConfigureAwait(false);
+
+        // Without an agent for the tenant, the default cancel runs (the task is marked canceled), so a task whose agent is
+        // gone can still be cancelled.
+        await using var agent = await _engine.RentAgentAsync(call.Tenant, CancelOnlyAgent.Instance, cancellationToken).ConfigureAwait(false);
+        var exec = await _engine.StartCancelAsync(key, record.Task, request.Metadata, agent, card.Capabilities.PushNotifications == true).ConfigureAwait(false);
         exec.Detach();
 
-        var waitAll = Task.WhenAll(running.Select(r => r.Completion).Append(exec.Completion));
-        await Task.WhenAny(waitAll, Task.Delay(_options.CancelGracePeriod, cancellationToken)).ConfigureAwait(false);
+        await _engine.WaitUntilStoppedAsync(key, _options.CancelGracePeriod, cancellationToken).ConfigureAwait(false);
 
-        record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
-        if (record.Task.Status.State != TaskState.Canceled) throw NotCancelable(request.Id);
-        return Shape(record.Task, null);
+        record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        var state = record.Task.Status.State;
+        if (state == TaskState.Canceled) return Shape(record.Task, null);
+        if (!state.IsTerminal() && await _engine.IsRunningAnywhereAsync(key, cancellationToken).ConfigureAwait(false))
+        {
+            // The execution has not stopped within the grace period: the cancel is requested, not done. Only the response says
+            // so (the stored task is not changed); its later CANCELED arrives through the normal stream.
+            var pending = Shape(record.Task, null);
+            pending.Metadata = pending.Metadata is null ? [] : new(pending.Metadata);
+            pending.Metadata[A2AProtocol.CancelRequestedKey] = TrueElement;
+            return pending;
+        }
+        throw NotCancelable(request.Id); // the agent refused and nothing runs, or the task ended otherwise
+    }
+
+    /// <summary>Runs CancelTask for a tenant without an agent: the default cancel (the task is marked canceled).</summary>
+    private sealed class CancelOnlyAgent : IAgentExecutor
+    {
+        public static readonly CancelOnlyAgent Instance = new();
+
+        public Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(NoAgentText);
     }
 
     /// <summary>
@@ -477,7 +626,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private async ValueTask<TaskPushNotificationConfig> CreateTaskPushNotificationConfigCoreAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken)
     {
-        RequirePush();
+        RequestCards.RequirePush(await _requestCards.RequireAgentForTaskAsync(call, config.TaskId, cancellationToken).ConfigureAwait(false));
         A2AValidator.ValidatePushConfig(config, "config", requireTaskId: true);
         var key = Key(call, config.TaskId!);
         _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(config.TaskId!);
@@ -493,7 +642,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private async ValueTask<TaskPushNotificationConfig> GetTaskPushNotificationConfigCoreAsync(GetTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
-        RequirePush();
+        RequestCards.RequirePush(await _requestCards.RequireAgentForTaskAsync(call, request.TaskId, cancellationToken).ConfigureAwait(false));
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.TaskId);
@@ -510,7 +659,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private async ValueTask<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsCoreAsync(ListTaskPushNotificationConfigsRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
-        RequirePush();
+        RequestCards.RequirePush(await _requestCards.RequireAgentForTaskAsync(call, request.TaskId, cancellationToken).ConfigureAwait(false));
         A2AValidator.RequireId(request.TaskId, "taskId");
         var key = Key(call, request.TaskId);
         _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.TaskId);
@@ -526,7 +675,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private async ValueTask<object?> DeleteTaskPushNotificationConfigCoreAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
-        RequirePush();
+        RequestCards.RequirePush(await _requestCards.RequireAgentForTaskAsync(call, request.TaskId, cancellationToken).ConfigureAwait(false));
         A2AValidator.RequireId(request.TaskId, "taskId");
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.TaskId);
@@ -539,7 +688,10 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     // Extended Agent Card
     // =====================================================================
 
-    /// <summary>GetExtendedAgentCard (spec §3.1.11). Needs an authenticated caller and a card from <see cref="A2AServerOptions.ExtendedAgentCardProvider"/>.</summary>
+    /// <summary>
+    /// GetExtendedAgentCard (spec §3.1.11). Needs an authenticated caller and a card from <see cref="IAgentCardProvider.GetExtendedAsync"/>
+    /// (by default <see cref="A2AServerOptions.ExtendedAgentCardProvider"/>, or the <see cref="TenantCardProvider"/>).
+    /// </summary>
     public async Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);
@@ -548,10 +700,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private async ValueTask<AgentCard> GetExtendedAgentCardCoreAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
-        if (_cards.Get().Capabilities.ExtendedAgentCard != true)
+        var publicCard = await _requestCards.RequireAgentAsync(call, cancellationToken).ConfigureAwait(false);
+        if (publicCard.Capabilities.ExtendedAgentCard != true)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "This agent does not provide an extended agent card.");
         if (!call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated, "The extended agent card requires authentication.");
-        var card = _options.ExtendedAgentCardProvider is null ? null : await _options.ExtendedAgentCardProvider(call, _cards.Get(), cancellationToken).ConfigureAwait(false);
+        var card = await _cards.GetExtendedAsync(call, publicCard, cancellationToken).ConfigureAwait(false);
         return card ?? throw new A2AException(A2AErrorCode.ExtendedAgentCardNotConfigured);
     }
 
@@ -584,12 +737,6 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private AgentTask Shape(AgentTask task, int? historyLength, bool includeArtifacts = true) =>
         TaskShaper.Shape(task, historyLength, _options.Limits, includeArtifacts);
-
-    private void RequirePush()
-    {
-        if (_cards.Get().Capabilities.PushNotifications != true)
-            throw new A2AException(A2AErrorCode.PushNotificationNotSupported);
-    }
 
     private static A2AException NotCancelable(string taskId) =>
         new(A2AErrorCode.TaskNotCancelable) { Metadata = new() { ["taskId"] = taskId } };

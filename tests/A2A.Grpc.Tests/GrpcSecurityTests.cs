@@ -101,6 +101,26 @@ public class GrpcSecurityTests
         Assert.Equal(StatusCode.NotFound, other.StatusCode);
     }
 
+    private sealed class FixedTenantResolver(string tenant) : ITenantResolver
+    {
+        public string Resolve(Microsoft.AspNetCore.Http.HttpContext http) => tenant;
+    }
+
+    [Fact]
+    public async Task Resolver_tenant_that_differs_from_the_request_tenant_is_invalid_params()
+    {
+        await using var host = await GrpcHost.StartAsync(services: s => s.Replace(ServiceDescriptor.Singleton<ITenantResolver>(new FixedTenantResolver("a"))));
+        var raw = host.Raw("alice");
+
+        var ex = await Assert.ThrowsAsync<RpcException>(() => raw.SendMessageAsync(Send("hello", tenant: "b"), V()).ResponseAsync);
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal("INVALID_PARAMS", Info(ex).Reason);
+
+        // the same tenant as the resolver's is fine
+        var ok = await raw.SendMessageAsync(Send("hello", "m2", tenant: "a"), V()).ResponseAsync;
+        Assert.NotNull(ok);
+    }
+
     // ------------------------------------------------------------------ authentication
 
     [Fact]

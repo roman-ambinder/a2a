@@ -76,6 +76,11 @@ public sealed class ScenarioAgent : IAgentExecutor
                 await Gate(text).Task.WaitAsync(ct);
                 await updater.CompleteAsync("through the gate", ct);
                 break;
+            case "throw-on-cancel": // works until cancelled; its cancellation callback throws
+                await updater.StartWorkAsync(cancellationToken: ct);
+                using (ct.Register(() => throw new InvalidOperationException("cancellation callback failed")))
+                    await Task.Delay(Timeout.Infinite, ct);
+                break;
             case "halfway": // starts work, then returns without finishing the task
                 await updater.StartWorkAsync(cancellationToken: ct);
                 break;
@@ -124,11 +129,14 @@ public sealed class RecordingHandler : HttpMessageHandler
 {
     public ConcurrentQueue<(HttpRequestMessage Request, string Body)> Calls { get; } = new();
 
+    /// <summary>The status to answer a call with. Default: 200 OK for every call.</summary>
+    public Func<HttpRequestMessage, System.Net.HttpStatusCode> Status { get; set; } = _ => System.Net.HttpStatusCode.OK;
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
         Calls.Enqueue((request, body));
-        return new HttpResponseMessage(System.Net.HttpStatusCode.OK);
+        return new HttpResponseMessage(Status(request));
     }
 }
 
@@ -146,7 +154,10 @@ public sealed class TestAgentHost : IAsyncDisposable
     public WebApplication App { get; }
     public RecordingHandler Webhooks { get; }
     public A2ARequestHandler Handler => App.Services.GetRequiredService<A2ARequestHandler>();
-    public HttpPushNotificationSender PushSender => App.Services.GetRequiredService<HttpPushNotificationSender>();
+
+    /// <summary>The execution engine (system commits, execution leases and cancels live there).</summary>
+    public A2A.Server.Execution.TaskExecutionEngine Engine => App.Services.GetRequiredService<A2A.Server.Execution.TaskExecutionEngine>();
+    public InMemoryPushOutbox PushOutbox => (InMemoryPushOutbox)App.Services.GetRequiredService<PushOutbox>();
 
     public static AgentCard DefaultCard() => new()
     {
@@ -184,7 +195,8 @@ public sealed class TestAgentHost : IAsyncDisposable
             o.AgentCard = DefaultCard();
             o.PushNotifications.AllowInsecureUrls = true;
             o.PushNotifications.AllowPrivateNetworks = true;
-            o.PushNotifications.InitialBackoff = TimeSpan.FromMilliseconds(10);
+            o.PushDelivery.InitialBackoff = TimeSpan.FromMilliseconds(10);
+            o.PushDelivery.PollInterval = TimeSpan.FromMilliseconds(20);
             o.CancelGracePeriod = TimeSpan.FromSeconds(2);
             o.ExtendedAgentCardProvider = (call, _, _) =>
             {
@@ -198,7 +210,7 @@ public sealed class TestAgentHost : IAsyncDisposable
         if (grpc) builder.Services.AddA2AGrpc();
         services?.Invoke(builder.Services);
         var webhooks = new RecordingHandler();
-        builder.Services.AddKeyedSingleton(HttpPushNotificationSender.InvokerServiceKey, new HttpMessageInvoker(webhooks, disposeHandler: false));
+        builder.Services.AddKeyedSingleton(PushDeliveryService.InvokerServiceKey, new HttpMessageInvoker(webhooks, disposeHandler: false));
         if (configureHttp is not null) builder.Services.ConfigureA2AHttp(configureHttp);
 
         var app = builder.Build();
@@ -257,10 +269,22 @@ public sealed class TestAgentHost : IAsyncDisposable
         }
     }
 
+    /// <summary>Waits until no agent runs and every committed push delivery was sent or dead-lettered.</summary>
     public async Task WaitIdleAsync()
     {
         await Handler.WhenIdleAsync();
-        await PushSender.WhenIdleAsync();
+        await WaitForPushIdleAsync();
+    }
+
+    /// <summary>Waits until the push outbox is empty: every delivery was sent, dropped or dead-lettered.</summary>
+    public async Task WaitForPushIdleAsync()
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (PushOutbox.Count > 0)
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException($"{PushOutbox.Count} push deliveries are still pending.");
+            await Task.Delay(5);
+        }
     }
 
     public async ValueTask DisposeAsync()

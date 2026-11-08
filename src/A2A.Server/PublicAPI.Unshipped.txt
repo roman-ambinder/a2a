@@ -165,16 +165,6 @@ A2A.Server.Push.EphemeralPushSecretProtector
 A2A.Server.Push.EphemeralPushSecretProtector.EphemeralPushSecretProtector() -> void
 A2A.Server.Push.EphemeralPushSecretProtector.Protect(string! plaintext) -> string!
 A2A.Server.Push.EphemeralPushSecretProtector.Unprotect(string! protectedValue) -> string!
-A2A.Server.Push.HttpPushNotificationSender
-A2A.Server.Push.HttpPushNotificationSender.Dispose() -> void
-A2A.Server.Push.HttpPushNotificationSender.Enqueue(A2A.Server.Storage.TaskKey task, A2A.Server.Streaming.SequencedEvent evt) -> void
-A2A.Server.Push.HttpPushNotificationSender.HttpPushNotificationSender(System.Net.Http.HttpMessageInvoker! http, A2A.Server.Storage.PushConfigStore! store, A2A.Server.Push.IPushSecretProtector! protector, A2A.Server.A2AServerOptions! options, Microsoft.Extensions.Logging.ILogger<A2A.Server.Push.HttpPushNotificationSender!>? logger = null, System.TimeProvider? time = null) -> void
-A2A.Server.Push.HttpPushNotificationSender.ConfigChanged(A2A.Server.Storage.TaskKey key) -> void
-A2A.Server.Push.IPushConfigChangeListener
-A2A.Server.Push.IPushConfigChangeListener.ConfigChanged(A2A.Server.Storage.TaskKey key) -> void
-A2A.Server.Push.HttpPushNotificationSender.WhenIdleAsync() -> System.Threading.Tasks.Task!
-A2A.Server.Push.IPushNotificationSender
-A2A.Server.Push.IPushNotificationSender.Enqueue(A2A.Server.Storage.TaskKey task, A2A.Server.Streaming.SequencedEvent evt) -> void
 A2A.Server.Push.IPushSecretProtector
 A2A.Server.Push.IPushSecretProtector.Protect(string! plaintext) -> string!
 A2A.Server.Push.IPushSecretProtector.Unprotect(string! protectedValue) -> string!
@@ -185,17 +175,11 @@ A2A.Server.Push.PushNotificationOptions.AllowInsecureUrls.get -> bool
 A2A.Server.Push.PushNotificationOptions.AllowInsecureUrls.set -> void
 A2A.Server.Push.PushNotificationOptions.AllowPrivateNetworks.get -> bool
 A2A.Server.Push.PushNotificationOptions.AllowPrivateNetworks.set -> void
-A2A.Server.Push.PushNotificationOptions.InitialBackoff.get -> System.TimeSpan
-A2A.Server.Push.PushNotificationOptions.InitialBackoff.set -> void
-A2A.Server.Push.PushNotificationOptions.MaxAttempts.get -> int
-A2A.Server.Push.PushNotificationOptions.MaxAttempts.set -> void
 A2A.Server.Push.PushNotificationOptions.Proxy.get -> System.Net.IWebProxy?
 A2A.Server.Push.PushNotificationOptions.Proxy.set -> void
 A2A.Server.Push.PushNotificationOptions.PushNotificationOptions() -> void
 A2A.Server.Push.PushNotificationOptions.Timeout.get -> System.TimeSpan
 A2A.Server.Push.PushNotificationOptions.Timeout.set -> void
-A2A.Server.Push.PushNotificationOptions.WorkerIdleTimeout.get -> System.TimeSpan
-A2A.Server.Push.PushNotificationOptions.WorkerIdleTimeout.set -> void
 A2A.Server.Push.PushUrlValidator
 A2A.Server.RequestLimitValidator
 A2A.Server.ServerCallContext
@@ -245,7 +229,6 @@ A2A.Server.Storage.InMemoryEventStore.InMemoryEventStore(A2A.Server.StreamingOpt
 A2A.Server.Storage.InMemoryPushConfigStore
 A2A.Server.Storage.InMemoryPushConfigStore.InMemoryPushConfigStore() -> void
 A2A.Server.Storage.InMemoryTaskStore
-A2A.Server.Storage.InMemoryTaskStore.InMemoryTaskStore() -> void
 A2A.Server.Storage.PageCursor
 A2A.Server.Storage.PushConfigRecord
 A2A.Server.Storage.PushConfigRecord.Config.get -> A2A.TaskPushNotificationConfig!
@@ -421,26 +404,18 @@ virtual A2A.Server.TaskEventBus.Complete(string! taskId) -> void
 virtual A2A.Server.TaskEventBus.Publish(string! taskId, A2A.Server.Streaming.SequencedEvent evt) -> void
 virtual A2A.Server.TaskEventBus.Subscribe(string! taskId) -> A2A.Server.TaskEventBus.Subscription!
 A2A.Server.IAgentExecutorFactory
-A2A.Server.IAgentExecutorFactory.RentAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Server.AgentExecutorLease>
 A2A.Server.AgentExecutorLease
 A2A.Server.AgentExecutorLease.AgentExecutorLease() -> void
-A2A.Server.AgentExecutorLease.AgentExecutorLease(A2A.Server.IAgentExecutor! executor, System.IAsyncDisposable? scope) -> void
 A2A.Server.AgentExecutorLease.DisposeAsync() -> System.Threading.Tasks.ValueTask
-A2A.Server.AgentExecutorLease.Executor.get -> A2A.Server.IAgentExecutor!
 A2A.Server.ScopedAgentExecutorFactory
-A2A.Server.ScopedAgentExecutorFactory.RentAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Server.AgentExecutorLease>
-A2A.Server.ScopedAgentExecutorFactory.ScopedAgentExecutorFactory(Microsoft.Extensions.DependencyInjection.IServiceScopeFactory! scopes) -> void
-const A2A.Server.Push.HttpPushNotificationSender.InvokerServiceKey = "A2A.PushNotifications" -> string!
 A2A.Server.Pipeline.CallValidator
 A2A.Server.Pipeline.CallValidator.CallValidator(A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider! cards) -> void
 A2A.Server.Pipeline.CallValidator.Validate(A2A.Server.ServerCallContext! call) -> void
 A2A.Server.Push.PushConfigService
 A2A.Server.Push.PushConfigService.CreateAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.TaskPushNotificationConfig!>
-A2A.Server.Push.PushConfigService.EnsureCapacityAsync(A2A.Server.Storage.TaskKey key, string! configId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 A2A.Server.Push.PushConfigService.DeleteAsync(A2A.Server.Storage.TaskKey key, string! configId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 A2A.Server.Push.PushConfigService.GetAsync(A2A.Server.Storage.TaskKey key, string! configId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.TaskPushNotificationConfig!>
 A2A.Server.Push.PushConfigService.ListAsync(A2A.Server.Storage.TaskKey key, int pageSize, string? pageToken, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.ListTaskPushNotificationConfigsResponse!>
-A2A.Server.Push.PushConfigService.PushConfigService(A2A.Server.Storage.PushConfigStore! store, A2A.Server.Push.IPushSecretProtector! protector, A2A.Server.A2AServerOptions! options, A2A.Server.Push.IPushConfigChangeListener? changes = null) -> void
 A2A.Server.Push.PushConfigService.SaveInlineAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 A2A.Server.Push.PushConfigService.ValidateInlineAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 A2A.Server.Idempotency.IdempotencyCoordinator
@@ -456,7 +431,6 @@ A2A.Server.Idempotency.IdempotencyClaim.AbandonAsync() -> System.Threading.Tasks
 static A2A.Server.Idempotency.IdempotencyClaim.None.get -> A2A.Server.Idempotency.IdempotencyClaim!
 const A2A.Server.Idempotency.IdempotencyCoordinator.MaxIdempotencyKeyLength = 256 -> int
 A2A.Server.Execution.TaskExecutionEngine
-A2A.Server.Execution.TaskExecutionEngine.TaskExecutionEngine(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.IAgentExecutorFactory! executors, A2A.Server.TaskEventBus! bus, A2A.Server.Push.IPushNotificationSender! push, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider! cards, Microsoft.Extensions.Logging.ILogger<A2A.Server.Execution.TaskExecutionEngine!>? logger = null, System.TimeProvider? timeProvider = null) -> void
 A2A.Server.Execution.TaskExecutionEngine.Dispose() -> void
 A2A.Server.Execution.TaskExecutionEngine.DisposeAsync() -> System.Threading.Tasks.ValueTask
 A2A.Server.Execution.TaskExecutionEngine.WaitUntilSettledAsync(A2A.Server.Storage.TaskKey key, long afterSequence, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.AgentTask!>
@@ -523,7 +497,6 @@ const A2A.Server.Pipeline.A2AExtensionOperation.PolicySatisfiedItem = "a2a.exten
 A2A.Server.IAgentCardProvider
 A2A.Server.IAgentCardProvider.Get() -> A2A.AgentCard!
 A2A.Server.AgentCardProvider
-A2A.Server.AgentCardProvider.AgentCardProvider(A2A.Server.A2AServerOptions! options, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensions) -> void
 A2A.Server.AgentCardProvider.Get() -> A2A.AgentCard!
 virtual A2A.Server.AgentCardProvider.CanCache.get -> bool
 virtual A2A.Server.AgentCardProvider.Complete(A2A.AgentCard! copy) -> void
@@ -536,3 +509,214 @@ A2A.Server.ServerCallContext.Binding.init -> void
 A2A.Server.ServerCallContext.TraceParent.get -> System.Diagnostics.ActivityContext
 A2A.Server.ServerCallContext.TraceParent.init -> void
 A2A.Server.TaskEventBus.HasSubscribers(string! taskId) -> bool
+A2A.Server.A2AServerBuilder.AddAgentExecutorResolver<T>() -> A2A.Server.A2AServerBuilder!
+A2A.Server.A2AServerBuilder.AddTenantCardProvider<T>() -> A2A.Server.A2AServerBuilder!
+A2A.Server.A2AServerOptions.Coordination.get -> A2A.Server.Coordination.CoordinationOptions!
+A2A.Server.A2AServerOptions.InterruptedTimeout.get -> System.TimeSpan?
+A2A.Server.A2AServerOptions.InterruptedTimeout.set -> void
+A2A.Server.A2AServerOptions.PushDelivery.get -> A2A.Server.Push.PushDeliveryOptions!
+A2A.Server.AgentCardProvider.AgentCardProvider(A2A.Server.A2AServerOptions! options, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensions, A2A.Server.Agents.TenantCardProvider? tenants = null) -> void
+A2A.Server.AgentCardProvider.GetAsync(A2A.Server.Agents.AgentRequestScope! scope, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.AgentCard?>
+A2A.Server.AgentCardProvider.GetExtendedAsync(A2A.Server.ServerCallContext! call, A2A.AgentCard! publicCard, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.AgentCard?>
+A2A.Server.AgentCardProvider.GetSigningKeyAsync(string! tenant, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Signing.AgentCardSigningKey?>
+A2A.Server.AgentCardProvider.HasTenantCards.get -> bool
+A2A.Server.AgentExecutorLease.AgentExecutorLease(A2A.Server.IAgentExecutor? executor, System.IAsyncDisposable? scope) -> void
+A2A.Server.AgentExecutorLease.Executor.get -> A2A.Server.IAgentExecutor?
+A2A.Server.AgentRequestContext.Approval.get -> A2A.Server.ApprovalState
+A2A.Server.AgentRequestContext.Approval.init -> void
+A2A.Server.Agents.AgentExecutorResolver
+A2A.Server.Agents.AgentExecutorResolver.AgentExecutorResolver() -> void
+A2A.Server.Agents.AgentRequestScope
+A2A.Server.Agents.AgentRequestScope.RouteValues.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string?>!
+A2A.Server.Agents.AgentRequestScope.RouteValues.init -> void
+A2A.Server.Agents.AgentRequestScope.Tenant.get -> string!
+A2A.Server.Agents.AgentRequestScope.Tenant.init -> void
+A2A.Server.Agents.TenantCardProvider
+A2A.Server.Agents.TenantCardProvider.TenantCardProvider() -> void
+A2A.Server.ApprovalState
+A2A.Server.ApprovalState.Approved = 1 -> A2A.Server.ApprovalState
+A2A.Server.ApprovalState.None = 0 -> A2A.Server.ApprovalState
+A2A.Server.ApprovalState.NotApproved = 2 -> A2A.Server.ApprovalState
+A2A.Server.Coordination.CoordinationOptions
+A2A.Server.Coordination.CoordinationOptions.CoordinationOptions() -> void
+A2A.Server.Coordination.CoordinationOptions.Heartbeat.get -> System.TimeSpan
+A2A.Server.Coordination.CoordinationOptions.Heartbeat.set -> void
+A2A.Server.Coordination.CoordinationOptions.LeaseTtl.get -> System.TimeSpan
+A2A.Server.Coordination.CoordinationOptions.LeaseTtl.set -> void
+A2A.Server.Coordination.CoordinationOptions.RunningPollInterval.get -> System.TimeSpan
+A2A.Server.Coordination.CoordinationOptions.RunningPollInterval.set -> void
+A2A.Server.Coordination.CoordinationOptions.Validate() -> void
+A2A.Server.Coordination.ExecutionCoordinator
+A2A.Server.Coordination.ExecutionCoordinator.ExecutionCoordinator() -> void
+A2A.Server.Coordination.InMemoryExecutionCoordinator
+A2A.Server.Coordination.InMemoryExecutionCoordinator.InMemoryExecutionCoordinator(A2A.Server.Coordination.CoordinationOptions? options = null, System.TimeProvider? timeProvider = null) -> void
+A2A.Server.Execution.TaskExecutionEngine.TaskExecutionEngine(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.IAgentExecutorFactory! executors, A2A.Server.TaskEventBus! bus, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider! cards, Microsoft.Extensions.Logging.ILogger<A2A.Server.Execution.TaskExecutionEngine!>? logger = null, System.TimeProvider? timeProvider = null, A2A.Server.Coordination.ExecutionCoordinator? coordinator = null) -> void
+A2A.Server.IAgentCardProvider.GetAsync(A2A.Server.Agents.AgentRequestScope! scope, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.AgentCard?>
+A2A.Server.IAgentCardProvider.GetExtendedAsync(A2A.Server.ServerCallContext! call, A2A.AgentCard! publicCard, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.AgentCard?>
+A2A.Server.IAgentCardProvider.GetSigningKeyAsync(string! tenant, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Signing.AgentCardSigningKey?>
+A2A.Server.IAgentExecutorFactory.RentAsync(string! tenant, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Server.AgentExecutorLease>
+A2A.Server.Idempotency.IdempotencyClaim.RenewAsync() -> System.Threading.Tasks.ValueTask
+A2A.Server.PendingApproval
+A2A.Server.PendingApproval.Description.get -> string!
+A2A.Server.PendingApproval.Description.init -> void
+A2A.Server.PendingApproval.Hash.get -> string!
+A2A.Server.PendingApproval.OperationId.get -> string!
+A2A.Server.PendingApproval.OperationId.init -> void
+A2A.Server.Push.A2APushAdmin
+A2A.Server.Push.A2APushAdmin.ListDeadLettersAsync(string! tenant, int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Push.OutboxEntry!>!>
+A2A.Server.Push.A2APushAdmin.RedriveAsync(A2A.Server.Storage.PushDelivery! d, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+A2A.Server.Push.InMemoryPushOutbox
+A2A.Server.Push.OutboxEntry
+A2A.Server.Push.OutboxEntry.Attempt.get -> int
+A2A.Server.Push.OutboxEntry.Attempt.init -> void
+A2A.Server.Push.OutboxEntry.Delivery.get -> A2A.Server.Storage.PushDelivery!
+A2A.Server.Push.OutboxEntry.Delivery.init -> void
+A2A.Server.Push.OutboxEntry.DueAt.get -> System.DateTimeOffset
+A2A.Server.Push.OutboxEntry.DueAt.init -> void
+A2A.Server.Push.OutboxEntry.LastError.get -> string?
+A2A.Server.Push.OutboxEntry.LastError.init -> void
+A2A.Server.Push.OutboxEntry.LeaseToken.get -> System.Guid?
+A2A.Server.Push.OutboxEntry.LeaseToken.init -> void
+A2A.Server.Push.OutboxEntry.Payload.get -> System.ReadOnlyMemory<byte>
+A2A.Server.Push.OutboxEntry.Payload.init -> void
+A2A.Server.Push.PushConfigService.PushConfigService(A2A.Server.Storage.PushConfigStore! store, A2A.Server.Push.IPushSecretProtector! protector, A2A.Server.A2AServerOptions! options, Microsoft.Extensions.Logging.ILogger<A2A.Server.Push.PushConfigService!>? logger = null) -> void
+A2A.Server.Push.PushDeliveryOptions
+A2A.Server.Push.PushDeliveryOptions.BatchSize.get -> int
+A2A.Server.Push.PushDeliveryOptions.BatchSize.set -> void
+A2A.Server.Push.PushDeliveryOptions.InitialBackoff.get -> System.TimeSpan
+A2A.Server.Push.PushDeliveryOptions.InitialBackoff.set -> void
+A2A.Server.Push.PushDeliveryOptions.Lease.get -> System.TimeSpan
+A2A.Server.Push.PushDeliveryOptions.Lease.set -> void
+A2A.Server.Push.PushDeliveryOptions.MaxAttempts.get -> int
+A2A.Server.Push.PushDeliveryOptions.MaxAttempts.set -> void
+A2A.Server.Push.PushDeliveryOptions.MaxBackoff.get -> System.TimeSpan
+A2A.Server.Push.PushDeliveryOptions.MaxBackoff.set -> void
+A2A.Server.Push.PushDeliveryOptions.PollInterval.get -> System.TimeSpan
+A2A.Server.Push.PushDeliveryOptions.PollInterval.set -> void
+A2A.Server.Push.PushDeliveryOptions.PushDeliveryOptions() -> void
+A2A.Server.Push.PushDeliveryService
+A2A.Server.Push.PushDeliveryService.PushDeliveryService(A2A.Server.Push.PushOutbox! outbox, A2A.Server.Storage.PushConfigStore! configs, A2A.Server.Push.IPushSecretProtector! protector, System.Net.Http.HttpMessageInvoker! http, A2A.Server.A2AServerOptions! options, Microsoft.Extensions.Logging.ILogger<A2A.Server.Push.PushDeliveryService!>? logger = null, System.TimeProvider? time = null) -> void
+A2A.Server.Push.PushOutbox
+A2A.Server.Push.PushOutbox.PushOutbox() -> void
+A2A.Server.Retention.A2ARetentionOptions
+A2A.Server.Retention.A2ARetentionOptions.A2ARetentionOptions() -> void
+A2A.Server.Retention.A2ARetentionOptions.BatchSize.get -> int
+A2A.Server.Retention.A2ARetentionOptions.BatchSize.set -> void
+A2A.Server.Retention.A2ARetentionOptions.OrphanContextRetention.get -> System.TimeSpan
+A2A.Server.Retention.A2ARetentionOptions.OrphanContextRetention.set -> void
+A2A.Server.Retention.A2ARetentionOptions.SweepInterval.get -> System.TimeSpan
+A2A.Server.Retention.A2ARetentionOptions.SweepInterval.set -> void
+A2A.Server.Retention.A2ARetentionOptions.TaskRetention.get -> System.TimeSpan
+A2A.Server.Retention.A2ARetentionOptions.TaskRetention.set -> void
+A2A.Server.Retention.A2ARetentionOptions.Validate() -> void
+A2A.Server.Retention.A2ARetentionService
+A2A.Server.Retention.A2ARetentionService.A2ARetentionService(Microsoft.Extensions.Options.IOptions<A2A.Server.Retention.A2ARetentionOptions!>! options, A2A.Server.A2AServerOptions! serverOptions, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Retention.A2ATaskAdmin! admin, Microsoft.Extensions.Logging.ILogger<A2A.Server.Retention.A2ARetentionService!>? logger = null, System.TimeProvider? time = null) -> void
+A2A.Server.Retention.A2ATaskAdmin
+A2A.Server.Retention.A2ATaskAdmin.A2ATaskAdmin(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Storage.PushConfigStore! pushConfigs, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine? engine = null) -> void
+A2A.Server.Retention.A2ATaskAdmin.DeleteTaskAsync(A2A.Server.Storage.TaskKey key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+A2A.Server.ScopedAgentExecutorFactory.RentAsync(string! tenant, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Server.AgentExecutorLease>
+A2A.Server.ScopedAgentExecutorFactory.ScopedAgentExecutorFactory(Microsoft.Extensions.DependencyInjection.IServiceScopeFactory! scopes, A2A.Server.Agents.AgentExecutorResolver? resolver = null) -> void
+A2A.Server.ServerCallContext.RouteValues.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string?>!
+A2A.Server.ServerCallContext.RouteValues.init -> void
+A2A.Server.Storage.CommitResult
+A2A.Server.Storage.CommitResult.Record.get -> A2A.Server.Storage.TaskRecord!
+A2A.Server.Storage.CommitResult.Record.init -> void
+A2A.Server.Storage.CommitResult.Sequence.get -> long
+A2A.Server.Storage.CommitResult.Sequence.init -> void
+A2A.Server.Storage.InMemoryTaskStore.InMemoryTaskStore(A2A.Server.Storage.InMemoryEventStore! events, A2A.Server.Push.InMemoryPushOutbox? outbox = null) -> void
+A2A.Server.Storage.PushDelivery
+A2A.Server.Storage.PushDelivery.ConfigId.get -> string!
+A2A.Server.Storage.PushDelivery.ConfigId.init -> void
+A2A.Server.Storage.PushDelivery.DeliveryId.get -> string!
+A2A.Server.Storage.PushDelivery.DeliveryId.init -> void
+A2A.Server.Storage.PushDelivery.Sequence.get -> long
+A2A.Server.Storage.PushDelivery.Sequence.init -> void
+A2A.Server.Storage.PushDelivery.Task.get -> A2A.Server.Storage.TaskKey
+A2A.Server.Storage.PushDelivery.Task.init -> void
+A2A.Server.Storage.PushDelivery.TraceParent.get -> string?
+A2A.Server.Storage.PushDelivery.TraceParent.init -> void
+A2A.Server.Storage.TaskCommit
+A2A.Server.Storage.TaskCommit.Deliveries.get -> System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.PushDelivery!>!
+A2A.Server.Storage.TaskCommit.Deliveries.init -> void
+A2A.Server.Storage.TaskCommit.Event.get -> A2A.Server.Streaming.SequencedEvent
+A2A.Server.Storage.TaskCommit.Event.init -> void
+A2A.Server.Storage.TaskCommit.ExpectedVersion.get -> long
+A2A.Server.Storage.TaskCommit.ExpectedVersion.init -> void
+A2A.Server.Storage.TaskCommit.IsCreate.get -> bool
+A2A.Server.Storage.TaskCommit.Record.get -> A2A.Server.Storage.TaskRecord!
+A2A.Server.Storage.TaskCommit.Record.init -> void
+A2A.Server.TaskUpdater.RequireApprovalAsync(A2A.Server.PendingApproval! approval, string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Agents.AgentExecutorResolver.Resolve(string! tenant, System.IServiceProvider! services) -> A2A.Server.IAgentExecutor?
+abstract A2A.Server.Agents.TenantCardProvider.GetCardAsync(A2A.Server.Agents.AgentRequestScope! scope, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.AgentCard?>
+abstract A2A.Server.Coordination.ExecutionCoordinator.CancelRequestsAsync(System.Threading.CancellationToken cancellationToken) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Storage.TaskKey>!
+abstract A2A.Server.Coordination.ExecutionCoordinator.HeartbeatAsync(A2A.Server.Storage.TaskKey task, string! executionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+abstract A2A.Server.Coordination.ExecutionCoordinator.IsRunningAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+abstract A2A.Server.Coordination.ExecutionCoordinator.ListExpiredAsync(int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<(A2A.Server.Storage.TaskKey Task, string! ExecutionId)>!>
+abstract A2A.Server.Coordination.ExecutionCoordinator.RegisterAsync(A2A.Server.Storage.TaskKey task, string! executionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Coordination.ExecutionCoordinator.RequestCancelAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Coordination.ExecutionCoordinator.TryAcquireSweepLeaseAsync(string! name, System.TimeSpan duration, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+abstract A2A.Server.Coordination.ExecutionCoordinator.UnregisterAsync(A2A.Server.Storage.TaskKey task, string! executionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Idempotency.IdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Push.PushOutbox.CompleteAsync(A2A.Server.Push.OutboxEntry! leased, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+abstract A2A.Server.Push.PushOutbox.DeadLetterAsync(A2A.Server.Push.OutboxEntry! leased, string! error, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+abstract A2A.Server.Push.PushOutbox.DeleteAllAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Push.PushOutbox.LeaseDueAsync(int max, System.TimeSpan lease, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Push.OutboxEntry!>!>
+abstract A2A.Server.Push.PushOutbox.ListDeadLettersAsync(string! tenant, int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Push.OutboxEntry!>!>
+abstract A2A.Server.Push.PushOutbox.RedriveAsync(A2A.Server.Storage.PushDelivery! d, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+abstract A2A.Server.Push.PushOutbox.RescheduleAsync(A2A.Server.Push.OutboxEntry! leased, int attempt, System.DateTimeOffset dueAt, string! error, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+abstract A2A.Server.Storage.EventStore.DeleteAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Storage.PushConfigStore.DeleteAllAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Storage.PushConfigStore.SaveIfUnderLimitAsync(A2A.Server.Storage.PushConfigRecord! record, int limit, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+abstract A2A.Server.Storage.TaskStore.CommitAsync(A2A.Server.Storage.TaskCommit! commit, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.CommitResult!>
+abstract A2A.Server.Storage.TaskStore.DeleteAsync(A2A.Server.Storage.TaskKey key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+abstract A2A.Server.Storage.TaskStore.DeleteContextAsync(string! tenant, string! contextId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+abstract A2A.Server.Storage.TaskStore.ListExpiredAsync(System.DateTimeOffset terminalBefore, int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.TaskKey>!>
+abstract A2A.Server.Storage.TaskStore.ListInterruptedBeforeAsync(System.DateTimeOffset before, int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.TaskKey>!>
+abstract A2A.Server.Storage.TaskStore.ListOrphanContextsAsync(System.DateTimeOffset createdBefore, int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.ContextRecord!>!>
+const A2A.Server.Push.PushDeliveryService.DeadLettersCounterName = "a2a.server.push.dead_letters" -> string!
+const A2A.Server.Push.PushDeliveryService.DeliveriesCounterName = "a2a.server.push.deliveries" -> string!
+const A2A.Server.Push.PushDeliveryService.InvokerServiceKey = "A2A.PushNotifications" -> string!
+const A2A.Server.Retention.A2ARetentionOptions.MaxBatchSize = 10000 -> int
+const A2A.Server.Retention.A2ARetentionService.SweepLeaseName = "a2a:retention" -> string!
+override A2A.Server.Coordination.InMemoryExecutionCoordinator.CancelRequestsAsync(System.Threading.CancellationToken cancellationToken) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Storage.TaskKey>!
+override A2A.Server.Coordination.InMemoryExecutionCoordinator.HeartbeatAsync(A2A.Server.Storage.TaskKey task, string! executionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Coordination.InMemoryExecutionCoordinator.IsRunningAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Coordination.InMemoryExecutionCoordinator.ListExpiredAsync(int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<(A2A.Server.Storage.TaskKey Task, string! ExecutionId)>!>
+override A2A.Server.Coordination.InMemoryExecutionCoordinator.RegisterAsync(A2A.Server.Storage.TaskKey task, string! executionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Coordination.InMemoryExecutionCoordinator.RequestCancelAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Coordination.InMemoryExecutionCoordinator.TryAcquireSweepLeaseAsync(string! name, System.TimeSpan duration, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Coordination.InMemoryExecutionCoordinator.UnregisterAsync(A2A.Server.Storage.TaskKey task, string! executionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Idempotency.InMemoryIdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Push.InMemoryPushOutbox.CompleteAsync(A2A.Server.Push.OutboxEntry! leased, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Push.InMemoryPushOutbox.DeadLetterAsync(A2A.Server.Push.OutboxEntry! leased, string! error, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Push.InMemoryPushOutbox.DeleteAllAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Push.InMemoryPushOutbox.LeaseDueAsync(int max, System.TimeSpan lease, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Push.OutboxEntry!>!>
+override A2A.Server.Push.InMemoryPushOutbox.ListDeadLettersAsync(string! tenant, int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Push.OutboxEntry!>!>
+override A2A.Server.Push.InMemoryPushOutbox.RedriveAsync(A2A.Server.Storage.PushDelivery! d, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Push.InMemoryPushOutbox.RescheduleAsync(A2A.Server.Push.OutboxEntry! leased, int attempt, System.DateTimeOffset dueAt, string! error, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Push.PushDeliveryService.StartAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+override A2A.Server.Retention.A2ARetentionService.StartAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+override A2A.Server.Storage.InMemoryEventStore.DeleteAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Storage.InMemoryPushConfigStore.DeleteAllAsync(A2A.Server.Storage.TaskKey task, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Storage.InMemoryPushConfigStore.SaveIfUnderLimitAsync(A2A.Server.Storage.PushConfigRecord! record, int limit, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Storage.InMemoryTaskStore.CommitAsync(A2A.Server.Storage.TaskCommit! commit, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.CommitResult!>
+override A2A.Server.Storage.InMemoryTaskStore.DeleteAsync(A2A.Server.Storage.TaskKey key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Storage.InMemoryTaskStore.DeleteContextAsync(string! tenant, string! contextId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Storage.InMemoryTaskStore.ListExpiredAsync(System.DateTimeOffset terminalBefore, int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.TaskKey>!>
+override A2A.Server.Storage.InMemoryTaskStore.ListInterruptedBeforeAsync(System.DateTimeOffset before, int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.TaskKey>!>
+override A2A.Server.Storage.InMemoryTaskStore.ListOrphanContextsAsync(System.DateTimeOffset createdBefore, int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.ContextRecord!>!>
+static A2A.Server.A2AServerServiceCollectionExtensions.AddA2ARetention(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<A2A.Server.Retention.A2ARetentionOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static A2A.Server.Agents.AgentRequestScope.ForTenant(string! tenant) -> A2A.Server.Agents.AgentRequestScope!
+static A2A.Server.Storage.TaskStore.ValidateDeliveries(A2A.Server.Storage.TaskCommit! commit) -> void
+static readonly A2A.Server.Agents.AgentRequestScope.NoRouteValues -> System.Collections.Generic.IReadOnlyDictionary<string!, string?>!
+virtual A2A.Server.Agents.TenantCardProvider.GetExtendedCardAsync(A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.AgentCard?>
+virtual A2A.Server.Agents.TenantCardProvider.GetSigningKeyAsync(string! tenant, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Signing.AgentCardSigningKey?>
+A2A.Server.Agents.AgentRequestScope.AgentRequestScope(string! Tenant, System.Collections.Generic.IReadOnlyDictionary<string!, string?>! RouteValues) -> void
+A2A.Server.PendingApproval.PendingApproval(string! OperationId, string! Description) -> void
+A2A.Server.Push.A2APushAdmin.A2APushAdmin(A2A.Server.Push.PushOutbox! outbox) -> void
+A2A.Server.Push.InMemoryPushOutbox.InMemoryPushOutbox(System.TimeProvider? time = null) -> void
+A2A.Server.Push.OutboxEntry.OutboxEntry(A2A.Server.Storage.PushDelivery! Delivery, int Attempt, System.DateTimeOffset DueAt, string? LastError) -> void
+A2A.Server.Storage.CommitResult.CommitResult(A2A.Server.Storage.TaskRecord! Record, long Sequence) -> void
+A2A.Server.Storage.PushDelivery.PushDelivery(A2A.Server.Storage.TaskKey Task, string! ConfigId, long Sequence, string! DeliveryId) -> void
+A2A.Server.Storage.TaskCommit.TaskCommit(A2A.Server.Storage.TaskRecord! Record, long ExpectedVersion, A2A.Server.Streaming.SequencedEvent Event, System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.PushDelivery!>! Deliveries) -> void
+A2A.Server.Storage.TaskCommit.TaskCommit(A2A.Server.Storage.TaskRecord! record, long expectedVersion, A2A.StreamResponse! evt, System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.PushDelivery!>! deliveries) -> void

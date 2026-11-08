@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using A2A.Server.Agents;
 using A2A.Server.Authorization;
 using A2A.Server.Execution;
 using A2A.Server.Idempotency;
@@ -14,9 +15,12 @@ namespace A2A.Server.Streaming;
 /// Accepts a streamed message and starts its execution: the request handler's accept step, which it shares with SendMessage.
 /// It abandons <paramref name="claim"/> when the message is refused or the agent cannot start.
 /// </summary>
-/// <returns>The execution, and the task's last sequence before it (0 for a new task).</returns>
-internal delegate Task<(Execution.Execution Execution, long AfterSequence)> AcceptMessage(SendMessageRequest request, ServerCallContext call,
-    IdempotencyClaim claim, string taskId, CancellationToken ct);
+/// <returns>
+/// The execution, and the task's last sequence before it (0 for a new task). The execution is null for a duplicate follow-up:
+/// nothing was started. The execution takes the lease of <paramref name="agent"/>.
+/// </returns>
+internal delegate Task<(Execution.Execution? Execution, long AfterSequence)> AcceptMessage(SendMessageRequest request, ServerCallContext call,
+    IdempotencyClaim claim, string taskId, RentedAgent agent, CancellationToken ct);
 
 /// <summary>
 /// Follows a task's events: the SendStreamingMessage stream of a new execution, SubscribeToTask (fresh or resumed), and the
@@ -34,7 +38,7 @@ public sealed class TaskStreamer
     private readonly IdempotencyCoordinator _idempotency;
     private readonly A2AAuthorizationHandler _authorization;
     private readonly A2AServerOptions _options;
-    private readonly IAgentCardProvider _cards;
+    private readonly RequestCards _cards;
     private readonly StreamAdmission _admission;
 
     /// <summary>Creates the streamer. In an ASP.NET Core app the DI container does this; the parameters are the registered services.</summary>
@@ -47,7 +51,7 @@ public sealed class TaskStreamer
         A2AServerOptions options,
         IAgentCardProvider cards)
     {
-        _cards = cards;
+        _cards = new RequestCards(cards);
         _tasks = tasks;
         _events = events;
         _bus = engine.Bus; // the bus the engine publishes to: streams subscribe to the same one
@@ -132,9 +136,8 @@ public sealed class TaskStreamer
 
                 if (ownDone)
                 {
-                    // This execution ended. Nothing more will change the task once no execution of it is running.
-                    var running = _engine.RunningCompletions(key);
-                    if (!started || running.Count == 0) break;
+                    // This execution ended. Nothing more will change the task once no execution of it runs, on any instance.
+                    if (!started || await _engine.RunningWaitsAsync(key, stop.Token).ConfigureAwait(false) is not { } running) break;
                     busWait ??= sub.Reader.WaitToReadAsync(stop.Token).AsTask();
                     await Task.WhenAny(running.Append(busWait)).ConfigureAwait(false);
                 }
@@ -192,8 +195,11 @@ public sealed class TaskStreamer
     private async IAsyncEnumerable<SequencedEvent> SendStreamingCoreAsync(SendMessageRequest request, ServerCallContext call, AcceptMessage accept,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        RequireStreaming();
+        RequestCards.RequireStreaming(await _cards.RequireAgentAsync(call, cancellationToken).ConfigureAwait(false));
+        // Before the idempotency claim and anything stored: a tenant without an agent leaves no trace.
+        await using var agent = await _engine.RequireAgentAsync(call.Tenant, cancellationToken).ConfigureAwait(false);
         var (claim, replay) = await _idempotency.BeginAsync(request, call, cancellationToken).ConfigureAwait(false);
+        if (replay is not null) await agent.DisposeAsync().ConfigureAwait(false); // nothing runs
         if (replay is IdempotencyOutcome.DirectMessage direct)
         {
             // The stored outcome belongs to the idempotency store; the caller gets its own copy.
@@ -228,7 +234,17 @@ public sealed class TaskStreamer
         var scope = ScopeKey(call.Tenant, taskId);
         // Subscribe before the agent starts, so no event of another execution is missed.
         using var sub = _bus.Subscribe(scope);
-        var (exec, _) = await accept(request, call, claim, taskId, cancellationToken).ConfigureAwait(false);
+        var (accepted, _) = await accept(request, call, claim, taskId, agent, cancellationToken).ConfigureAwait(false);
+        if (accepted is not { } exec)
+        {
+            await agent.DisposeAsync().ConfigureAwait(false); // nothing runs
+            // A duplicate follow-up: nothing started. The same path as a retried request: the retained events from the start,
+            // then live events.
+            var resume = new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant };
+            await foreach (var replayed in SubscribeCoreAsync(resume, call, resumeAfter: 0, onCaughtUp: null, cancellationToken).ConfigureAwait(false))
+                yield return replayed;
+            yield break;
+        }
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
@@ -285,8 +301,8 @@ public sealed class TaskStreamer
 
                 if (ownDone)
                 {
-                    var running = _engine.RunningCompletions(key);
-                    if (running.Count == 0) break; // nothing will change the task any more
+                    // Nothing will change the task any more once no execution of it runs, on any instance.
+                    if (await _engine.RunningWaitsAsync(key, stop.Token).ConfigureAwait(false) is not { } running) break;
                     busWait ??= sub.Reader.WaitToReadAsync(stop.Token).AsTask();
                     await Task.WhenAny(running.Append(busWait)).ConfigureAwait(false);
                 }
@@ -381,7 +397,7 @@ public sealed class TaskStreamer
     private async IAsyncEnumerable<SequencedEvent> SubscribeCoreAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
         Action? onCaughtUp, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        RequireStreaming();
+        RequestCards.RequireStreaming(await _cards.RequireAgentForTaskAsync(call, request.Id, cancellationToken).ConfigureAwait(false));
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.Id);
         var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
@@ -585,10 +601,4 @@ public sealed class TaskStreamer
 
     private Task AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, string? taskId, CancellationToken ct) =>
         _authorization.RequireAsync(_options, call, operation, request, taskId, ct);
-
-    private void RequireStreaming()
-    {
-        if (_cards.Get().Capabilities.Streaming != true)
-            throw new A2AException(A2AErrorCode.UnsupportedOperation, "Streaming is not supported by this agent.");
-    }
 }

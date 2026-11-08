@@ -815,9 +815,7 @@ const A2A.Diagnostics.A2ATelemetry.Metrics.PushDeliveries = "a2a.server.push.del
 const A2A.Diagnostics.A2ATelemetry.Metrics.Requests = "a2a.server.requests" -> string!
 const A2A.Diagnostics.A2ATelemetry.Metrics.StreamsOpened = "a2a.server.streams.opened" -> string!
 const A2A.Diagnostics.A2ATelemetry.Outcomes.Canceled = "canceled" -> string!
-const A2A.Diagnostics.A2ATelemetry.Outcomes.Delivered = "delivered" -> string!
 const A2A.Diagnostics.A2ATelemetry.Outcomes.Error = "error" -> string!
-const A2A.Diagnostics.A2ATelemetry.Outcomes.Failed = "failed" -> string!
 const A2A.Diagnostics.A2ATelemetry.Outcomes.Ok = "ok" -> string!
 const A2A.Diagnostics.A2ATelemetry.ServerMeterName = "A2A.Server" -> string!
 const A2A.Diagnostics.A2ATelemetry.ServerSourceName = "A2A.Server" -> string!
@@ -857,3 +855,20 @@ static A2A.Diagnostics.A2ATelemetry.TryExtractTraceContext(string? traceParent, 
 static A2A.Json.ProtoJsonFieldNames.Deserialize<T>(System.ReadOnlySpan<byte> utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! typeInfo) -> T?
 static A2A.Json.ProtoJsonFieldNames.Normalize(System.Text.Json.JsonElement element) -> System.Text.Json.JsonElement
 static A2A.Json.ProtoJsonFieldNames.ToJsonName(string! protoName) -> string!
+A2A.Push.WebhookSignature
+const A2A.A2AProtocol.ApprovalConsumedKey = "a2a.approval.consumed" -> string!
+const A2A.A2AProtocol.ApprovalHashKey = "a2a.approval.hash" -> string!
+const A2A.A2AProtocol.CancelRequestedKey = "a2a.cancelRequested" -> string!
+const A2A.Diagnostics.A2ATelemetry.Metrics.PushDeadLetters = "a2a.server.push.dead_letters" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.DeadLettered = "dead_lettered" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.Retried = "retried" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.Sent = "sent" -> string!
+const A2A.Push.WebhookSignature.IdHeader = "webhook-id" -> string!
+const A2A.Push.WebhookSignature.MinSecretLength = 16 -> int
+const A2A.Push.WebhookSignature.Scheme = "webhook-signature" -> string!
+const A2A.Push.WebhookSignature.SecretPrefix = "whsec_" -> string!
+const A2A.Push.WebhookSignature.SignatureHeader = "webhook-signature" -> string!
+const A2A.Push.WebhookSignature.TimestampHeader = "webhook-timestamp" -> string!
+static A2A.Push.WebhookSignature.Sign(System.ReadOnlySpan<byte> secret, string! id, long unixSeconds, System.ReadOnlySpan<byte> body) -> string!
+static A2A.Push.WebhookSignature.TryParseSecret(string? credentials, out byte[]! secret) -> bool
+static A2A.Push.WebhookSignature.Matches(string! signatureHeader, System.ReadOnlySpan<byte> secret, string! id, long unixSeconds, System.ReadOnlySpan<byte> body) -> bool

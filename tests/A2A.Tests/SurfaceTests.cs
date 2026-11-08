@@ -138,7 +138,9 @@ public class SurfaceTests
             a.MapAgentCard();
         });
         Assert.Equal(HttpStatusCode.OK, (await withRoot.GetTestClient().GetAsync(CardPath)).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await withRoot.GetTestClient().GetAsync("/api" + CardPath)).StatusCode);
+        // The root card mapping also serves each tenant's card at /{tenant}/.well-known/agent-card.json (one agent serves every
+        // tenant here), so "/api" is the card of tenant "api", not a card mapped by the group.
+        Assert.Equal(1, EndpointCount(withRoot, CardPath));
     }
 
     [Fact]

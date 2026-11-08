@@ -28,6 +28,16 @@ public abstract class PushConfigStore
 
     /// <summary>Deletes a registration. Returns false when it did not exist.</summary>
     public abstract ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes every config of the task. Owner-scoped through <paramref name="task"/>: another owner's key deletes nothing.</summary>
+    public abstract ValueTask DeleteAllAsync(TaskKey task, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Atomically stores <paramref name="record"/> unless that would take the task over <paramref name="limit"/> configs.
+    /// Replacing an existing config id always succeeds; a new id succeeds only when the task has fewer than
+    /// <paramref name="limit"/> configs. Returns false (nothing stored) at the limit. Concurrent savers never exceed the limit.
+    /// </summary>
+    public abstract ValueTask<bool> SaveIfUnderLimitAsync(PushConfigRecord record, int limit, CancellationToken cancellationToken = default);
 }
 
 /// <summary>In-memory <see cref="PushConfigStore"/> for development and tests. Keeps and returns the instances it is given, without copying.</summary>
@@ -54,6 +64,39 @@ public sealed class InMemoryPushConfigStore : PushConfigStore
                 return ValueTask.CompletedTask;
             }
         }
+    }
+
+    /// <inheritdoc />
+    public override ValueTask<bool> SaveIfUnderLimitAsync(PushConfigRecord record, int limit, CancellationToken cancellationToken = default)
+    {
+        while (true)
+        {
+            var task = _configs.GetOrAdd(record.TaskKey, static _ => new ConcurrentDictionary<string, PushConfigRecord>(StringComparer.Ordinal));
+            lock (task)
+            {
+                if (!_configs.TryGetValue(record.TaskKey, out var current) || !ReferenceEquals(current, task)) continue;
+                if (!task.ContainsKey(record.Config.Id!) && task.Count >= limit)
+                {
+                    // Do not keep an empty dictionary created only for a refused save.
+                    if (task.IsEmpty) _configs.TryRemove(new KeyValuePair<TaskKey, ConcurrentDictionary<string, PushConfigRecord>>(record.TaskKey, task));
+                    return ValueTask.FromResult(false);
+                }
+                task[record.Config.Id!] = record;
+                return ValueTask.FromResult(true);
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken cancellationToken = default)
+    {
+        if (!_configs.TryGetValue(task, out var configs)) return ValueTask.CompletedTask;
+        lock (configs)
+        {
+            configs.Clear();
+            _configs.TryRemove(new KeyValuePair<TaskKey, ConcurrentDictionary<string, PushConfigRecord>>(task, configs));
+        }
+        return ValueTask.CompletedTask;
     }
 
     /// <inheritdoc />

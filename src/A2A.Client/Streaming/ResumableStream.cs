@@ -128,7 +128,10 @@ internal static class ResumableStream
                     taskId ??= TaskIdOf(frame.Response);
                     if (TryParseCursor(frame.Id, out var cursorTask, out var sequence) && taskId is not null && cursorTask == taskId)
                     {
-                        if (sequence <= lastSequence) continue; // already delivered before the drop
+                        // A task snapshot below the cursor means the server lost its event log and started over: take the
+                        // snapshot and continue from its sequence. Any other frame at or below the cursor was delivered before the drop.
+                        var serverReset = frame.Response is TaskEvent && sequence < lastSequence;
+                        if (sequence <= lastSequence && !serverReset) continue;
                         lastSequence = sequence;
                         cursor = frame.Id;
                         progressed = true; // only a new sequence is progress: frames without ids cannot be told from replays

@@ -137,7 +137,7 @@ public class HandlerSequenceTests
     public async Task Dropped_event_is_not_in_the_event_log()
     {
         var store = new FlakyTaskStore();
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<TaskStore>(store));
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddTaskStore(store));
         store.CancelThenConflictOnNextUpdate(); // conflict, then the reloaded task is terminal: the event is dropped
         var task = (await host.Client(ProtocolBindings.JsonRpc).SendMessageAsync("task")).RequireTask();
         await host.WaitIdleAsync();

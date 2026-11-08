@@ -14,8 +14,9 @@ namespace A2A.Server.AspNetCore;
 /// changed. Bindings mapped at a pattern with a <c>{</c> (a tenant template) are not listed.
 /// </summary>
 internal sealed class AgentCardCompleter(A2AServerOptions options, IEnumerable<A2AExtensionOperation> extensions,
-    IOptions<A2AHttpOptions> http, A2AEndpointRegistry registry, IServer? server = null, IHostApplicationLifetime? lifetime = null)
-    : AgentCardProvider(options, extensions)
+    IOptions<A2AHttpOptions> http, A2AEndpointRegistry registry, IServer? server = null, IHostApplicationLifetime? lifetime = null,
+    Agents.TenantCardProvider? tenants = null)
+    : AgentCardProvider(options, extensions, tenants)
 {
     protected override bool CanCache =>
         http.Value.PublicBaseUrl is not null || lifetime is null || lifetime.ApplicationStarted.IsCancellationRequested;

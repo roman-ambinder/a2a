@@ -116,8 +116,14 @@ public static class A2ATelemetry
         /// <summary>Event streams admitted (SendStreamingMessage and SubscribeToTask).</summary>
         public const string StreamsOpened = "a2a.server.streams.opened";
 
-        /// <summary>Webhook deliveries after their last attempt. Tag: <see cref="Tags.Outcome"/> (<see cref="Outcomes.Delivered"/> or <see cref="Outcomes.Failed"/>).</summary>
+        /// <summary>
+        /// Webhook delivery attempts of the push outbox. Tag: <see cref="Tags.Outcome"/> (<see cref="Outcomes.Sent"/>,
+        /// <see cref="Outcomes.Retried"/> or <see cref="Outcomes.DeadLettered"/>).
+        /// </summary>
         public const string PushDeliveries = "a2a.server.push.deliveries";
+
+        /// <summary>Push deliveries that failed for good and were moved to the dead letters.</summary>
+        public const string PushDeadLetters = "a2a.server.push.dead_letters";
     }
 
     /// <summary>Values of <see cref="Tags.Outcome"/>.</summary>
@@ -132,11 +138,14 @@ public static class A2ATelemetry
         /// <summary>The call failed; <see cref="Tags.ErrorType"/> says how.</summary>
         public const string Error = "error";
 
-        /// <summary>A webhook accepted the event.</summary>
-        public const string Delivered = "delivered";
+        /// <summary>A webhook accepted the delivery.</summary>
+        public const string Sent = "sent";
 
-        /// <summary>A webhook delivery was skipped, refused, or failed every attempt.</summary>
-        public const string Failed = "failed";
+        /// <summary>A webhook delivery attempt failed and the delivery is due again later.</summary>
+        public const string Retried = "retried";
+
+        /// <summary>A webhook delivery failed for good (refused, not allowed, or its last attempt failed) and was dead-lettered.</summary>
+        public const string DeadLettered = "dead_lettered";
     }
 
     /// <summary>Span event names. Stream events are span events on the stream's span, not child spans.</summary>

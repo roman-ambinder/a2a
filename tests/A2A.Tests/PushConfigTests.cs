@@ -210,6 +210,37 @@ public class PushConfigTests : IAsyncLifetime
         Assert.Equal(viaHandler.Message, ex.Message);
     }
 
+    /// <summary>A store whose count and lookups are stale (a concurrent saver took the last slot): only the atomic save can hold the limit.</summary>
+    private sealed class StaleCountPushConfigStore : PushConfigStore
+    {
+        private readonly InMemoryPushConfigStore _inner = new();
+        public override ValueTask SaveAsync(PushConfigRecord record, CancellationToken cancellationToken = default) => _inner.SaveAsync(record, cancellationToken);
+        public override ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken cancellationToken = default) => _inner.GetAsync(task, configId, cancellationToken);
+        public override ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken cancellationToken = default) => _inner.ListAsync(task, cancellationToken);
+        public override ValueTask<int> CountAsync(TaskKey task, CancellationToken ct = default) => ValueTask.FromResult(0);
+        public override ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken cancellationToken = default) => _inner.DeleteAsync(task, configId, cancellationToken);
+        public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken cancellationToken = default) => _inner.DeleteAllAsync(task, cancellationToken);
+        public override ValueTask<bool> SaveIfUnderLimitAsync(PushConfigRecord record, int limit, CancellationToken cancellationToken = default) => _inner.SaveIfUnderLimitAsync(record, limit, cancellationToken);
+    }
+
+    [Fact]
+    public async Task Inline_config_on_existing_task_holds_the_limit_through_the_atomic_save_and_leaves_no_message()
+    {
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<PushConfigStore, StaleCountPushConfigStore>());
+        var client = host.Client(ProtocolBindings.JsonRpc, "alice");
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+        for (var i = 0; i < 10; i++) await client.CreateTaskPushNotificationConfigAsync(Secret(task.Id));
+        var historyBefore = (await client.GetTaskAsync(task.Id)).History?.Count ?? 0;
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(
+            Message.FromUser("more", task.ContextId, task.Id),
+            new SendMessageConfiguration { TaskPushNotificationConfig = Secret("") }));
+        Assert.Equal(A2AErrorCode.InvalidRequest, ex.Code);
+        Assert.Contains("max 10", ex.Message);
+        Assert.Equal(10, (await host.App.Services.GetRequiredService<PushConfigStore>().ListAsync(new TaskKey("", "alice", task.Id))).Count);
+        Assert.Equal(historyBefore, (await client.GetTaskAsync(task.Id)).History?.Count ?? 0);
+    }
+
     [Fact]
     public async Task Data_protection_protector_round_trips_and_is_used_by_the_store_path()
     {

@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using A2A.Json;
+using A2A.Server;
+using A2A.Server.Push;
 using A2A.Server.Storage;
 
 namespace A2A.Tests.Storage;
@@ -12,7 +14,15 @@ namespace A2A.Tests.Storage;
 /// </summary>
 internal sealed class OwnershipCheckingTaskStore : TaskStore
 {
-    private readonly InMemoryTaskStore _inner = new();
+    private readonly InMemoryTaskStore _inner;
+
+    public OwnershipCheckingTaskStore() => _inner = new InMemoryTaskStore(Events, Outbox);
+
+    /// <summary>The event store the inner store commits to.</summary>
+    public InMemoryEventStore Events { get; } = new(new StreamingOptions());
+
+    /// <summary>The push outbox the inner store commits deliveries to.</summary>
+    public InMemoryPushOutbox Outbox { get; } = new();
     private readonly object _gate = new();
     private readonly Dictionary<(TaskKey Key, long Version), List<(AgentTask Task, byte[] Hash)>> _seen = new();
 
@@ -56,6 +66,21 @@ internal sealed class OwnershipCheckingTaskStore : TaskStore
         Track(record with { Version = r.Version });
         return Track(r);
     }
+
+    public override async ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
+    {
+        Verify();
+        var r = await _inner.CommitAsync(commit, ct).ConfigureAwait(false);
+        Track(commit.Record with { Version = r.Record.Version });
+        Track(r.Record);
+        return r;
+    }
+
+    public override ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default) => _inner.DeleteAsync(key, ct);
+    public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default) => _inner.ListExpiredAsync(terminalBefore, max, ct);
+    public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) => _inner.ListInterruptedBeforeAsync(before, max, ct);
+    public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default) => _inner.DeleteContextAsync(tenant, contextId, ct);
+    public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default) => _inner.ListOrphanContextsAsync(createdBefore, max, ct);
 
     public override async ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default)
     {

@@ -15,7 +15,7 @@ namespace A2A.Server.Postgres;
 /// <list type="bullet">
 /// <item>A request waiting on a key held elsewhere polls the row every <see cref="PostgresStoreOptions.IdempotencyPollInterval"/>.</item>
 /// <item>A running claim older than <see cref="PostgresStoreOptions.IdempotencyClaimTimeout"/> counts as abandoned, so a crashed
-/// instance does not hold its keys forever.</item>
+/// instance does not hold its keys forever. <see cref="RenewAsync"/> restarts that clock for a live request.</item>
 /// </list>
 /// There is no <see cref="IdempotencyOptions.MaxEntries"/> cap: rows live until their retention ends.
 /// </summary>
@@ -96,6 +96,16 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public override async ValueTask RenewAsync(IdempotencyScope scope, CancellationToken cancellationToken = default)
+    {
+        await using var cmd = _db.CreateCommand(
+            $"UPDATE {_table} SET claimed_ticks = $4 WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
+        AddScope(cmd, scope);
+        cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Polls the claim until it has an outcome (result), disappears or goes stale (canceled: the caller tries again).
     /// </summary>
@@ -118,13 +128,13 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
         return timeout != Timeout.InfiniteTimeSpan && timeout > TimeSpan.Zero && AddClamped(claimedTicks, timeout) <= now;
     }
 
-    private async ValueTask<Row?> ReadAsync(IdempotencyScope scope, CancellationToken ct)
+    private async ValueTask<Row?> ReadAsync(IdempotencyScope scope, CancellationToken cancellationToken)
     {
         await using var cmd = _db.CreateCommand(
             $"SELECT hash, claim_id, claimed_ticks, outcome, expires_ticks FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3");
         AddScope(cmd, scope);
-        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        if (!await reader.ReadAsync(ct).ConfigureAwait(false)) return null;
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
         return new Row(
             reader.GetFieldValue<byte[]>(0),
             reader.GetGuid(1),
@@ -133,12 +143,12 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
             reader.IsDBNull(4) ? long.MaxValue : reader.GetInt64(4));
     }
 
-    private async ValueTask DeleteClaimAsync(IdempotencyScope scope, Guid claimId, CancellationToken ct)
+    private async ValueTask DeleteClaimAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken)
     {
         await using var cmd = _db.CreateCommand($"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $4");
         AddScope(cmd, scope);
         cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = claimId });
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static void AddScope(NpgsqlCommand cmd, IdempotencyScope scope)

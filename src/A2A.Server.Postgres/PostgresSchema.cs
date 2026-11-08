@@ -70,6 +70,12 @@ public static class PostgresSchema
         -- ListTasks: owner-scoped, newest first, keyset paging on (status_ticks, task_id).
         CREATE INDEX IF NOT EXISTS a2a_tasks_list_ix ON {s}.a2a_tasks (tenant, owner, status_ticks DESC, task_id);
         CREATE INDEX IF NOT EXISTS a2a_tasks_context_ix ON {s}.a2a_tasks (tenant, owner, context_id, status_ticks DESC, task_id);
+        -- Retention sweeps (all tenants and owners): tasks by state and age, and "does any task still use this context".
+        DROP INDEX IF EXISTS {s}.a2a_tasks_state_ix;
+        -- state 3,4,5,7 = completed, failed, canceled, rejected; 6,8 = input-required, auth-required (TaskState values).
+        CREATE INDEX IF NOT EXISTS a2a_tasks_terminal_ix ON {s}.a2a_tasks (status_ticks, tenant, task_id) WHERE state IN (3, 4, 5, 7);
+        CREATE INDEX IF NOT EXISTS a2a_tasks_interrupted_ix ON {s}.a2a_tasks (status_ticks, tenant, task_id) WHERE state IN (6, 8);
+        CREATE INDEX IF NOT EXISTS a2a_tasks_tenant_context_ix ON {s}.a2a_tasks (tenant, context_id);
 
         CREATE TABLE IF NOT EXISTS {s}.a2a_contexts (
             tenant        text COLLATE "C" NOT NULL,
@@ -78,6 +84,8 @@ public static class PostgresSchema
             created_ticks bigint NOT NULL,
             PRIMARY KEY (tenant, context_id)
         );
+        -- Orphan-context sweep: oldest first.
+        CREATE INDEX IF NOT EXISTS a2a_contexts_created_ix ON {s}.a2a_contexts (created_ticks, tenant, context_id);
 
         -- Per-task event log header: the last sequence ever appended, and when a terminal task's log expires.
         CREATE TABLE IF NOT EXISTS {s}.a2a_event_logs (
@@ -109,6 +117,45 @@ public static class PostgresSchema
             config    text NOT NULL,
             PRIMARY KEY (tenant, owner, task_id, config_id)
         );
+
+        -- Push deliveries waiting to be sent (PostgresPushOutbox), written with their event by the task commit; payload is the
+        -- webhook body (the event JSON, UTF-8), so delivery does not depend on event-log retention. Only the lowest
+        -- seq of a (task, config) is leased; lease_ticks hides a leased row from other instances until then, and lease_token
+        -- fences the holder's result writes (a holder whose lease was taken over changes nothing).
+        CREATE TABLE IF NOT EXISTS {s}.a2a_push_outbox (
+            tenant       text COLLATE "C" NOT NULL,
+            owner        text COLLATE "C" NOT NULL,
+            task_id      text COLLATE "C" NOT NULL,
+            config_id    text COLLATE "C" NOT NULL,
+            seq          bigint NOT NULL,
+            delivery_id  text   NOT NULL,
+            trace_parent text   NULL,
+            attempt      int    NOT NULL,
+            payload      bytea  NOT NULL,
+            due_ticks    bigint NOT NULL,
+            lease_ticks  bigint NULL,
+            lease_token  uuid   NULL,
+            last_error   text   NULL,
+            PRIMARY KEY (tenant, owner, task_id, config_id, seq)
+        );
+        CREATE INDEX IF NOT EXISTS a2a_push_outbox_due_ix ON {s}.a2a_push_outbox (due_ticks);
+
+        -- Push deliveries that failed for good, until re-driven (A2APushAdmin) or deleted with their task.
+        CREATE TABLE IF NOT EXISTS {s}.a2a_push_dead_letters (
+            tenant       text COLLATE "C" NOT NULL,
+            owner        text COLLATE "C" NOT NULL,
+            task_id      text COLLATE "C" NOT NULL,
+            config_id    text COLLATE "C" NOT NULL,
+            seq          bigint NOT NULL,
+            delivery_id  text   NOT NULL,
+            trace_parent text   NULL,
+            attempt      int    NOT NULL,
+            payload      bytea  NOT NULL,
+            dead_ticks   bigint NOT NULL,
+            last_error   text   NOT NULL,
+            PRIMARY KEY (tenant, owner, task_id, config_id, seq)
+        );
+        CREATE INDEX IF NOT EXISTS a2a_push_dead_letters_list_ix ON {s}.a2a_push_dead_letters (tenant, dead_ticks);
 
         -- Idempotency keys. outcome is NULL while the request runs; claim_id identifies the running claim.
         CREATE TABLE IF NOT EXISTS {s}.a2a_idempotency (

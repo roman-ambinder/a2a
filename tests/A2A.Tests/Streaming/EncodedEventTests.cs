@@ -7,6 +7,7 @@ using A2A.Server.Idempotency;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
+using A2A.Tests.Execution;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -23,20 +24,16 @@ public sealed class EncodedEventTests
 
     private sealed class DelegateFactory(Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> execute) : IAgentExecutorFactory
     {
-        public ValueTask<AgentExecutorLease> RentAsync(CancellationToken ct) =>
+        public ValueTask<AgentExecutorLease> RentAsync(string tenant, CancellationToken ct) =>
             ValueTask.FromResult(new AgentExecutorLease(new DelegateAgentExecutor(execute), scope: null));
     }
 
-    private sealed class NoPush : IPushNotificationSender
-    {
-        public void Enqueue(TaskKey task, SequencedEvent evt) { }
-    }
 
     private static TaskExecutionEngine Engine(TaskStore tasks, EventStore events, Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> execute,
         A2AServerOptions options)
     {
         if (string.IsNullOrEmpty(options.AgentCard.Name)) options.AgentCard.Name = "Encoded Event Test Agent";
-        return new(tasks, events, new DelegateFactory(execute), new TaskEventBus(), new NoPush(),
+        return new(tasks, events, new DelegateFactory(execute), new TaskEventBus(), new InMemoryPushOutbox(),
             new IdempotencyCoordinator(new InMemoryIdempotencyStore(options.Idempotency), tasks, options),
             new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options),
             options, new AgentCardProvider(options, []));
@@ -60,13 +57,14 @@ public sealed class EncodedEventTests
 
     private static async Task<AgentTask> RunArtifactAsync(A2AServerOptions options, AgentRequestContext context, Artifact artifact)
     {
-        var tasks = new InMemoryTaskStore();
-        await using var engine = Engine(tasks, new InMemoryEventStore(options.Streaming), async (_, updater, ct) =>
+        var events = new InMemoryEventStore(options.Streaming);
+        var tasks = new InMemoryTaskStore(events);
+        await using var engine = Engine(tasks, events, async (_, updater, ct) =>
         {
             await updater.AddArtifactAsync(artifact, cancellationToken: ct);
             await updater.CompleteAsync(cancellationToken: ct);
         }, options);
-        var exec = engine.Start(context, push: null, IdempotencyClaim.None);
+        var exec = (await engine.StartForTestAsync(context));
         await foreach (var _ in exec.Outgoing.Reader.ReadAllAsync().WithCancellation(new CancellationTokenSource(Wait).Token)) { }
         await exec.Completion.WaitAsync(Wait);
         await engine.WhenIdleAsync().WaitAsync(Wait);
@@ -148,8 +146,8 @@ public sealed class EncodedEventTests
     public async Task Engine_stores_and_publishes_the_same_bytes()
     {
         var options = new A2AServerOptions();
-        var tasks = new InMemoryTaskStore();
         var events = new InMemoryEventStore(options.Streaming);
+        var tasks = new InMemoryTaskStore(events);
         await using var engine = Engine(tasks, events, async (_, updater, ct) =>
         {
             await updater.StartWorkAsync("working", ct);
@@ -157,7 +155,7 @@ public sealed class EncodedEventTests
             await updater.CompleteAsync("done", ct);
         }, options);
         var context = NewTask();
-        var exec = engine.Start(context, push: null, IdempotencyClaim.None);
+        var exec = (await engine.StartForTestAsync(context));
         var published = new List<SequencedEvent>();
         await foreach (var e in exec.Outgoing.Reader.ReadAllAsync().WithCancellation(new CancellationTokenSource(Wait).Token)) published.Add(e);
         await engine.WhenIdleAsync().WaitAsync(Wait);
@@ -234,21 +232,26 @@ public sealed class EncodedEventTests
     public async Task Push_body_equals_event_json()
     {
         var key = new TaskKey("", "alice", "t1");
-        var store = new InMemoryPushConfigStore();
-        await store.SaveAsync(new PushConfigRecord(key, new TaskPushNotificationConfig { Id = "c1", TaskId = key.TaskId, Url = "https://hooks.example/cb" }));
+        var configs = new InMemoryPushConfigStore();
+        await configs.SaveAsync(new PushConfigRecord(key, new TaskPushNotificationConfig { Id = "c1", TaskId = key.TaskId, Url = "https://hooks.example/cb" }));
         var options = new A2AServerOptions();
         options.PushNotifications.AllowPrivateNetworks = true;
+        var events = new InMemoryEventStore(options.Streaming);
+        var outbox = new InMemoryPushOutbox();
+        var tasks = new InMemoryTaskStore(events, outbox);
         var handler = new BodyRecorder();
-        using var sender = new HttpPushNotificationSender(new HttpMessageInvoker(handler, disposeHandler: false), store, new EphemeralPushSecretProtector(), options);
+        var service = new PushDeliveryService(outbox, configs, new EphemeralPushSecretProtector(), new HttpMessageInvoker(handler, disposeHandler: false), options);
 
         var evt = Sample("status");
-        var encoded = EventEncoder.Encode(1, evt);
-        // The sender writes the bytes it is given, never a new encoding: these differ from a fresh one by a trailing space.
-        var marked = new SequencedEvent(2, evt, Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(encoded.Json.Span) + " "));
-        sender.Enqueue(key, encoded);
-        sender.Enqueue(key, marked);
-        sender.Enqueue(key, new SequencedEvent(3, evt)); // not encoded: encoded on demand
-        await sender.WhenIdleAsync();
+        var encoded = EventEncoder.Encode(0, evt);
+        // The outbox keeps the bytes the commit carries, never a new encoding: these differ from a fresh one by a trailing space.
+        var marked = new SequencedEvent(0, evt, Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(encoded.Json.Span) + " "));
+        var now = DateTimeOffset.UtcNow;
+        var record = new TaskRecord("", "alice", new AgentTask { Id = key.TaskId, ContextId = "c", Status = new AgentTaskStatus { State = TaskState.Working } }, 0, now, now);
+        var stored = (await tasks.CommitAsync(new TaskCommit(record, 0, encoded, [new PushDelivery(key, "c1", 0, "d1")]))).Record;
+        stored = (await tasks.CommitAsync(new TaskCommit(stored, stored.Version, marked, [new PushDelivery(key, "c1", 0, "d2")]))).Record;
+        await tasks.CommitAsync(new TaskCommit(stored, stored.Version, new SequencedEvent(0, evt), [new PushDelivery(key, "c1", 0, "d3")])); // not encoded: encoded on demand
+        for (var i = 0; i < 3; i++) Assert.Equal(1, await service.RunOnceAsync(CancellationToken.None)); // in order, one at a time
 
         Assert.Equal(3, handler.Bodies.Count);
         Assert.Equal(encoded.Json.ToArray(), handler.Bodies[0]);
@@ -257,30 +260,22 @@ public sealed class EncodedEventTests
     }
 
     /// <summary>
-    /// Keeps a marked copy of each appended event's bytes (a trailing space, still the same JSON value), so a stream that
+    /// Keeps a marked copy of each committed event's bytes (a trailing space, still the same JSON value), so a stream that
     /// writes stored bytes is told apart from one that encodes the event again.
     /// </summary>
-    private sealed class MarkingEventStore(StreamingOptions options) : EventStore
+    private sealed class MarkingTaskStore : DelegatingTaskStore
     {
-        private readonly InMemoryEventStore _inner = new(options);
-
-        public override ValueTask<long> AppendAsync(TaskKey task, SequencedEvent evt, CancellationToken cancellationToken = default) =>
-            _inner.AppendAsync(task, new SequencedEvent(evt.Sequence, evt.Event, Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(evt.Json.Span) + " ")), cancellationToken);
-
-        public override IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence, CancellationToken cancellationToken = default) =>
-            _inner.ReadAfterAsync(task, afterSequence, cancellationToken);
-
-        public override ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken cancellationToken = default) => _inner.OldestRetainedAsync(task, cancellationToken);
-
-        public override ValueTask<long> LastSequenceAsync(TaskKey task, CancellationToken cancellationToken = default) => _inner.LastSequenceAsync(task, cancellationToken);
-
-        public override ValueTask MarkTerminalAsync(TaskKey task, CancellationToken cancellationToken = default) => _inner.MarkTerminalAsync(task, cancellationToken);
+        public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default) =>
+            Inner.CommitAsync(commit with
+            {
+                Event = new SequencedEvent(commit.Event.Sequence, commit.Event.Event, Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(commit.Event.Json.Span) + " ")),
+            }, ct);
     }
 
     [Fact]
     public async Task Replay_writes_stored_bytes_without_reencoding()
     {
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<EventStore>(new MarkingEventStore(new StreamingOptions())));
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddTaskStore(new MarkingTaskStore()));
         var task = (await host.Client(ProtocolBindings.HttpJson).SendMessageAsync("task")).RequireTask();
         await host.WaitIdleAsync();
         var store = host.App.Services.GetRequiredService<EventStore>();

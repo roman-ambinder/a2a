@@ -52,10 +52,21 @@ internal static partial class HttpPlumbing
             IdempotencyKey = string.IsNullOrEmpty(idempotencyKey) ? null : idempotencyKey,
             Tenant = tenant,
             TenantFromRoute = http.GetRouteValue("tenant") is string { Length: > 0 },
+            RouteValues = RouteValues(http),
             Binding = binding,
             TraceParent = A2ATelemetry.TryExtractTraceContext(
                 http.Request.Headers[A2ATelemetry.TraceParentHeader], http.Request.Headers[A2ATelemetry.TraceStateHeader], out var parent) ? parent : default,
         };
+    }
+
+    /// <summary>The request's route values as strings (invariant culture).</summary>
+    public static IReadOnlyDictionary<string, string?> RouteValues(HttpContext http)
+    {
+        var values = http.Request.RouteValues;
+        if (values.Count == 0) return Agents.AgentRequestScope.NoRouteValues;
+        var copy = new Dictionary<string, string?>(values.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, value) in values) copy[name] = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
+        return copy;
     }
 
     public static void WriteExtensionsHeader(HttpContext http, ServerCallContext call)
@@ -102,11 +113,32 @@ internal static partial class HttpPlumbing
         await http.Response.Body.WriteAsync(A2AJson.SerializeToUtf8Bytes(value), http.RequestAborted).ConfigureAwait(false);
     }
 
-    public static void SetAuthChallenge(HttpContext http, A2AException ex, AgentCard card)
+    /// <summary>
+    /// For an Unauthenticated error, sets <c>WWW-Authenticate</c> to the first HTTP auth scheme of the card of the call's tenant
+    /// (else <c>Bearer</c>). The card comes from the <see cref="IAgentCardProvider"/>; a tenant without a card, or a provider that
+    /// fails, falls back to the host's card (and to <c>Bearer</c> when that cannot be built either). Never throws.
+    /// </summary>
+    public static async ValueTask SetAuthChallengeAsync(HttpContext http, A2AException ex, ServerCallContext call)
     {
         if (ex.Code != A2AErrorCode.Unauthenticated || http.Response.HasStarted) return;
-        var scheme = card.SecuritySchemes?.Values.Select(s => (s as HttpAuthScheme)?.Value.Scheme).FirstOrDefault(s => s is not null) ?? "Bearer";
+        var card = await ChallengeCardAsync(http, call).ConfigureAwait(false);
+        if (http.Response.HasStarted) return;
+        var scheme = card?.SecuritySchemes?.Values.Select(s => (s as HttpAuthScheme)?.Value.Scheme).FirstOrDefault(s => s is not null) ?? "Bearer";
         http.Response.Headers.WWWAuthenticate = new StringValues(scheme);
+    }
+
+    private static async ValueTask<AgentCard?> ChallengeCardAsync(HttpContext http, ServerCallContext call)
+    {
+        if (http.RequestServices.GetService<IAgentCardProvider>() is not { } cards) return null;
+        try
+        {
+            return await cards.GetAsync(new Agents.AgentRequestScope(call.Tenant, call.RouteValues), http.RequestAborted).ConfigureAwait(false) ?? cards.Get();
+        }
+        catch (Exception)
+        {
+            try { return cards.Get(); }
+            catch (InvalidOperationException) { return null; } // no host card either (one agent per tenant)
+        }
     }
 
     public static void StartEventStream(HttpContext http)

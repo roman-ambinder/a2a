@@ -255,3 +255,7 @@ static A2A.Client.Resilience.RetryPolicy.Delay(int nextAttempt, System.TimeSpan?
 static A2A.Client.Resilience.RetryPolicy.ShouldRetry(A2A.Client.Resilience.RetryMode mode, System.Exception! error, out System.TimeSpan? retryAfter) -> bool
 static readonly A2A.Client.A2ARequestOptions.DefaultTimeout -> System.TimeSpan
 static readonly A2A.Client.Resilience.RetryPolicy.MaxRetryAfter -> System.TimeSpan
+A2A.Client.Push.PushNotificationReceiver.VerifySignature(System.Collections.Generic.IReadOnlyDictionary<string!, string!>! headers, System.ReadOnlySpan<byte> body, System.ReadOnlySpan<byte> secret, System.TimeSpan? tolerance = null) -> A2A.Client.Push.PushValidationResult
+A2A.Client.Push.PushValidationResult.InvalidSignature = 3 -> A2A.Client.Push.PushValidationResult
+A2A.Client.Push.PushValidationResult.Stale = 4 -> A2A.Client.Push.PushValidationResult
+static readonly A2A.Client.Push.PushNotificationReceiver.DefaultSignatureTolerance -> System.TimeSpan
