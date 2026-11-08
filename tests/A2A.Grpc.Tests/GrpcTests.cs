@@ -345,14 +345,14 @@ internal sealed class GrpcHost : IAsyncDisposable
         Skills = [new AgentSkill { Id = "s", Name = "S", Description = "s", Tags = ["t"] }],
     };
 
-    public static async Task<GrpcHost> StartAsync(bool requireAuth = true, Action<A2AServerOptions>? configure = null)
+    public static async Task<GrpcHost> StartAsync(bool requireAuth = true, Action<A2AServerOptions>? configure = null, Action<A2AServerBuilder>? server = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, HeaderAuthHandler>("Test", null);
         builder.Services.AddAuthorization();
-        builder.Services.AddA2AServer(o =>
+        var a2a = builder.Services.AddA2AServer(o =>
         {
             o.AgentCard = Card();
             o.CancelGracePeriod = TimeSpan.FromSeconds(2);
@@ -366,6 +366,7 @@ internal sealed class GrpcHost : IAsyncDisposable
             };
             configure?.Invoke(o);
         }).AddAgentExecutor<ScenarioAgent>();
+        server?.Invoke(a2a);
         builder.Services.AddA2AGrpc();
         var app = builder.Build();
         app.UseAuthentication();
