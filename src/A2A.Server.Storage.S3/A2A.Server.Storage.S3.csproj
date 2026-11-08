@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>A2A.Server.Storage.S3</RootNamespace>
+    <Description>Amazon S3 (and S3-compatible) artifact object store for the A2A (Agent2Agent) server: large artifact bytes live in a bucket, with presigned download links.</Description>
+    <PackageTags>$(PackageTags);s3;aws;object-storage</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\A2A.Server\A2A.Server.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" />
+  </ItemGroup>
+</Project>

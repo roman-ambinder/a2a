@@ -233,6 +233,64 @@ public abstract class ArtifactObjectStoreContract
     }
 
     [Fact]
+    public async Task Zero_byte_object_round_trips()
+    {
+        var s = await CreateStoreAsync();
+        var key = NewKey();
+
+        var result = await s.PutAsync(key, new MemoryStream(), Info, 100);
+
+        Assert.Equal(0, result.SizeBytes);
+        Assert.Equal(ArtifactHash.Format(SHA256.HashData([])), result.Sha256);
+        Assert.True(await s.ExistsAsync(key));
+        var whole = await s.OpenReadAsync(key);
+        Assert.NotNull(whole);
+        Assert.Equal(0, whole.TotalLength);
+        Assert.Empty(await ReadAll(whole));
+        var ranged = await s.OpenReadAsync(key, new ArtifactByteRange(0, null));
+        Assert.NotNull(ranged);
+        Assert.Equal(0, ranged.TotalLength);
+        Assert.Empty(await ReadAll(ranged));
+    }
+
+    [Fact]
+    public async Task Range_read_past_the_end_is_empty()
+    {
+        var s = await CreateStoreAsync();
+        var key = NewKey();
+        await s.PutAsync(key, new MemoryStream(Bytes(1_000)), Info, 10_000);
+
+        var content = await s.OpenReadAsync(key, new ArtifactByteRange(2_000, 10));
+
+        Assert.NotNull(content);
+        Assert.Equal(0, content.Length);
+        Assert.Equal(1_000, content.TotalLength);
+        Assert.Empty(await ReadAll(content));
+        Assert.Null(await s.OpenReadAsync(NewKey(), new ArtifactByteRange(2_000, 10)));
+    }
+
+    [Theory]
+    [InlineData("t", "")]
+    [InlineData("", "task")]
+    [InlineData("a b", "50%/..")]
+    [InlineData("t", "x%2Fy%25")]
+    public async Task Keys_with_an_empty_segment_or_encoded_characters_work(string tenant, string task)
+    {
+        var s = await CreateStoreAsync();
+        var key = ArtifactObjectKey.Create(tenant, task, ArtifactObjectKey.NewObjectId());
+        var data = Bytes(100);
+
+        await s.PutAsync(key, new MemoryStream(data), Info, 1_000);
+
+        Assert.True(await s.ExistsAsync(key));
+        Assert.Equal(data, await ReadAll((await s.OpenReadAsync(key))!));
+        Assert.Equal(new[] { key }, await Keys(s, ArtifactObjectKey.TaskPrefix(tenant, task)));
+        await s.DeleteAsync(key);
+        Assert.False(await s.ExistsAsync(key));
+        Assert.Empty(await Keys(s, ArtifactObjectKey.TaskPrefix(tenant, task)));
+    }
+
+    [Fact]
     public async Task Default_download_url_is_null_or_absolute()
     {
         var s = await CreateStoreAsync();

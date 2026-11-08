@@ -1,6 +1,8 @@
 using A2A.Server.Postgres;
+using Amazon.S3;
 using Npgsql;
 using StackExchange.Redis;
+using Testcontainers.Minio;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 
@@ -96,9 +98,50 @@ public sealed class RedisFixture : ContainerFixture
     }
 }
 
+public sealed class MinioFixture : ContainerFixture
+{
+    private MinioContainer? _container;
+    private const string AccessKey = "a2a-test", SecretKey = "a2a-test-secret";
+    private string _endpoint = "";
+
+    protected override async Task StartAsync()
+    {
+        _container = new MinioBuilder("cgr.dev/chainguard/minio:latest").WithUsername(AccessKey).WithPassword(SecretKey).Build();
+        await _container.StartAsync();
+        _endpoint = _container.GetConnectionString();
+    }
+
+    /// <summary>A client for the container. The caller disposes it.</summary>
+    public AmazonS3Client NewClient()
+    {
+        SkipIfUnavailable();
+        return new AmazonS3Client(new Amazon.Runtime.BasicAWSCredentials(AccessKey, SecretKey), new AmazonS3Config
+        {
+            ServiceURL = _endpoint,
+            ForcePathStyle = true,
+            // S3-compatible services do not all accept the newer default checksums.
+            RequestChecksumCalculation = Amazon.Runtime.RequestChecksumCalculation.WHEN_REQUIRED,
+            ResponseChecksumValidation = Amazon.Runtime.ResponseChecksumValidation.WHEN_REQUIRED,
+        });
+    }
+
+    /// <summary>A new, empty bucket, so every test starts empty.</summary>
+    public async Task<string> NewBucketAsync(AmazonS3Client client)
+    {
+        var name = "t-" + Guid.NewGuid().ToString("N");
+        await client.PutBucketAsync(name);
+        return name;
+    }
+
+    public override async Task DisposeAsync()
+    {
+        if (_container is not null) await _container.DisposeAsync();
+    }
+}
+
 /// <summary>Tests that need the containers. One collection, so each container starts once per run.</summary>
 [CollectionDefinition(Name)]
-public sealed class ContainersCollection : ICollectionFixture<PostgresFixture>, ICollectionFixture<RedisFixture>
+public sealed class ContainersCollection : ICollectionFixture<PostgresFixture>, ICollectionFixture<RedisFixture>, ICollectionFixture<MinioFixture>
 {
     public const string Name = "containers";
 }
