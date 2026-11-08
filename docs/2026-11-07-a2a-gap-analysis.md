@@ -122,7 +122,7 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 | D22 | Union models allow multiple alternatives populated; gRPC emits first only. | Med | #556 item 2 | `Part` as closed hierarchy (`TextPart`, `RawPart`, `UrlPart`, `DataPart`) with factory; `SendMessageResponse`/`StreamResponse` as discriminated unions. |
 | D23 | Custom/extension method dispatch half-done. | Med | #169, #574 | `IA2AOperation` registry per transport from the start; extensions register operations + card entries together. |
 | D24 | V0_3Compat silently drops final message/artifacts when `blocking` absent. | High for interop | #386 open | If 0.3 supported at all: behaviour-preserving mapping (default blocking) or loud error. Decision: ship 0.3 **read** compat only behind flag (S33). |
-| D25 | No netstandard2.0. | Med | #197 open | `A2A.Protocol` and `A2A.Client` target netstandard2.0 + net8.0 + net10.0. Server stays net8+. |
+| D25 | No netstandard2.0. | Med | #197 open | `A2A.Protocol` and `A2A.Client` target netstandard2.0 + net8.0 + net10.0. Server stays net8+. Done: see docs/superpowers/specs/2026-11-08-d25-netstandard-design.md. |
 
 ### 2.4 API design and DX
 
@@ -166,7 +166,7 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 **P2: ecosystem**
 19. actorChain / token exchange for delegation (S17). Done.
 20. Extension registry, operation registry (S31, D23).
-21. netstandard2.0 for Protocol + Client (D25).
+21. netstandard2.0 for Protocol + Client (D25). Done.
 22. 0.3 read-compat shim behind flag (S33, D24).
 23. Artifact chunk hashing (S27). Done.
 24. Skill-selection and elicitation extension packages (S35, S38). S35 and S38 done, in the existing packages.

@@ -165,7 +165,7 @@ public sealed class AgentCardVerifier
         if (alg is null || !Policy.AllowedAlgorithms.Contains(alg) || !JwsAlgorithms.IsSupported(alg))
             return (Failed, kid, $"algorithm '{TextSanitizer.ForMessage(alg)}' not allowed");
         if (header.ContainsKey("crit")) return (Failed, kid, "unsupported 'crit' header");
-        if (string.IsNullOrEmpty(kid)) return (AgentCardVerificationStatus.Unverified, null, "missing kid, no trusted key applies");
+        if (kid is null || kid.Length == 0) return (AgentCardVerificationStatus.Unverified, null, "missing kid, no trusted key applies");
 
         var keys = Policy.TrustedKeysFor(issuer, kid);
         string? jkuNote = null;

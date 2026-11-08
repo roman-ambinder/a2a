@@ -60,7 +60,12 @@ public static class A2AClientFactory
         ArgumentNullException.ThrowIfNull(credentialProviders);
         var providers = credentialProviders.ToList();
         if (providers.Count == 0) throw new ArgumentException("At least one credential provider is required.", nameof(credentialProviders));
+        #if NETSTANDARD2_0
+        // No SocketsHttpHandler on netstandard2.0.
+        var primary = handler ?? new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false };
+#else
         var primary = handler ?? new SocketsHttpHandler { UseCookies = false, AllowAutoRedirect = false };
+#endif
         A2ACredentialHandler.EnsureNoAutoRedirect(primary);
 
         using var cardClient = new HttpClient(primary, disposeHandler: false)
@@ -109,7 +114,7 @@ public static class A2AClientFactory
         options.TransportFactories.LastOrDefault(f => string.Equals(f.ProtocolBinding, binding, StringComparison.Ordinal));
 
     private static string Major(string? version) =>
-        string.IsNullOrEmpty(version) ? "0" : version.Split('.')[0];
+        version is null || version.Length == 0 ? "0" : version.Split('.')[0];
 
     private static A2AClientOptions Copy(A2AClientOptions o) => new()
     {

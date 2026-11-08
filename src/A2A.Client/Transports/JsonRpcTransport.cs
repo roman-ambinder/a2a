@@ -114,7 +114,12 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
             throw ProtocolError($"{method}: expected text/event-stream.");
         }
 
+#if NETSTANDARD2_0
+        // Stream has no DisposeAsync on netstandard2.0.
+        using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+#else
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+#endif
         await foreach (var evt in SseReader.ReadAsync(stream, ct).ConfigureAwait(false))
         {
             JsonRpcResponse? parsed;

@@ -10,7 +10,9 @@ using A2A.Client.Cards;
 using A2A.Client.Peers;
 using A2A.Client.Transports;
 using A2A.Json;
+#if !NETSTANDARD2_0
 using A2A.Security.Http;
+#endif
 using A2A.Signing;
 using A2A.Text;
 using A2A.Validation;
@@ -132,7 +134,12 @@ public sealed class A2ACardResolver
         ArgumentOutOfRangeException.ThrowIfLessThan(_options.MaxCardTextLength, 1, "options.MaxCardTextLength");
         // jku targets are chosen by the card, so they are fetched through the SSRF guard. The policy is mutable and read live;
         // the verifier's per-origin allowlist check still prevents any fetch for a host nobody allowed.
+#if NETSTANDARD2_0
+        // No SSRF guard on netstandard2.0, so no jku fetch: a signature that needs one is Unverified.
+        _verifier = new AgentCardVerifier(_options.Trust);
+#else
         _verifier = new AgentCardVerifier(_options.Trust, new GuardedJwksFetcher(_options.JwksHttpClient));
+#endif
         _logger = logger ?? NullLogger.Instance;
     }
 

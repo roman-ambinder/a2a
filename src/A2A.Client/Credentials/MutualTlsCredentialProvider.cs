@@ -27,6 +27,8 @@ public sealed class MutualTlsCredentialProvider(string? schemeName = null) : IA2
     }
 }
 
+#if !NETSTANDARD2_0
+// Needs SocketsHttpHandler to present the certificate to the agent host only. HttpClientHandler has no per-host rule.
 /// <summary>Builds transports that present a client certificate.</summary>
 public static class A2AMutualTls
 {
@@ -56,3 +58,4 @@ public static class A2AMutualTls
         };
     }
 }
+#endif

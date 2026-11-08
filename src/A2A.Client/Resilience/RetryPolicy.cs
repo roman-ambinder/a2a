@@ -53,7 +53,7 @@ public static class RetryPolicy
                 if (retryAfter > MaxRetryAfter) return false;
                 // Only what the server said: HTTP 503/429, or an explicit metadata.retryable = "true". Errors the client
                 // synthesized from a bare HTTP status, or server errors without that metadata, are not retried.
-                return a2a.HttpStatus is (int)HttpStatusCode.ServiceUnavailable or (int)HttpStatusCode.TooManyRequests
+                return a2a.HttpStatus is (int)HttpStatusCode.ServiceUnavailable or 429 /* Too Many Requests */
                     || (A2AErrors.TryGetRetryableFromDetails(a2a.Details, out var explicitRetryable) && explicitRetryable);
             case HttpRequestException transport:
                 return mode == RetryMode.Idempotent || NeverReachedServer(transport);
@@ -68,8 +68,13 @@ public static class RetryPolicy
     /// unknown) may have reached it.
     /// </summary>
     private static bool NeverReachedServer(HttpRequestException error) =>
+#if NETSTANDARD2_0
+        // netstandard2.0 has no HttpRequestError, so it cannot tell. Not retrying is the safe answer.
+        false;
+#else
         error.HttpRequestError is HttpRequestError.ConnectionError or HttpRequestError.NameResolutionError
             or HttpRequestError.ProxyTunnelError or HttpRequestError.SecureConnectionError;
+#endif
 
     /// <summary>
     /// Wait before attempt <paramref name="nextAttempt"/> (2 or later): the server's value, else 200 ms * 2^(n-2) +-20 %,

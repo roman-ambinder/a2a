@@ -89,7 +89,7 @@ public sealed class ApiKeyCredentialProvider : IA2ACredentialProvider
 
     private static bool IsValidKey(string? key, bool cookie)
     {
-        if (string.IsNullOrEmpty(key)) return false;
+        if (key is null || key.Length == 0) return false;
         foreach (var c in key)
         {
             if (char.IsControl(c)) return false;
@@ -105,7 +105,7 @@ public sealed class ApiKeyCredentialProvider : IA2ACredentialProvider
 
     private static bool IsToken(string? name)
     {
-        if (string.IsNullOrEmpty(name)) return false;
+        if (name is null || name.Length == 0) return false;
         foreach (var c in name)
         {
             var ok = c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9'
