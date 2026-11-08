@@ -148,6 +148,8 @@ The meter is `A2A.Server`. Add it with `AddMeter("A2A.Server")`.
 | `a2a.server.push.deliveries` | `a2a.outcome` = `sent`, `retried` or `dead_lettered` | One count per attempt. |
 | `a2a.server.push.dead_letters` | none | Deliveries moved to the dead letters. |
 
+A task can also change with no client request. See [Proactive continuation](proactive-continuation.md); its events are delivered like any other.
+
 Each attempt is also a span, `a2a.push.deliver`, a child of the agent run that made the event. See [Observability](observability.md).
 
 ## What can go wrong
