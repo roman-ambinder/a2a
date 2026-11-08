@@ -69,6 +69,8 @@ public sealed class ScenarioAgent : IAgentExecutor
             case "meta": // status events with event metadata: the second one overwrites one key and keeps the other
                 await updater.UpdateStatusAsync(TaskState.Working, updater.NewAgentMessage("working"),
                     new() { ["progress"] = System.Text.Json.JsonSerializer.SerializeToElement(50), ["owner"] = System.Text.Json.JsonSerializer.SerializeToElement("a") }, ct);
+                await updater.AddArtifactAsync(new Artifact { ArtifactId = "m", Parts = [Part.FromText("p")] },
+                    new Dictionary<string, System.Text.Json.JsonElement> { ["fromArtifact"] = System.Text.Json.JsonSerializer.SerializeToElement("x"), ["progress"] = System.Text.Json.JsonSerializer.SerializeToElement(75) }, cancellationToken: ct);
                 await updater.UpdateStatusAsync(TaskState.Working, null, new() { ["progress"] = System.Text.Json.JsonSerializer.SerializeToElement(100) }, ct);
                 await updater.CompleteAsync("done", ct);
                 break;

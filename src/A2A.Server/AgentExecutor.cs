@@ -287,7 +287,17 @@ public sealed class TaskUpdater
     /// </remarks>
     /// <exception cref="InvalidOperationException">The artifact is sealed and <paramref name="append"/> is true, or the artifact is being hashed (<see cref="AddHashedArtifactAsync"/>) and <paramref name="append"/> is true.</exception>
     /// <exception cref="ArgumentException"><paramref name="artifact"/> has no parts and the event is not an append to an artifact that exists.</exception>
-    public ValueTask AddArtifactAsync(Artifact artifact, bool append = false, bool lastChunk = false, CancellationToken cancellationToken = default)
+    public ValueTask AddArtifactAsync(Artifact artifact, bool append = false, bool lastChunk = false, CancellationToken cancellationToken = default) =>
+        AddArtifactAsync(artifact, null, append, lastChunk, cancellationToken);
+
+    /// <summary>
+    /// Like <see cref="AddArtifactAsync(Artifact, bool, bool, CancellationToken)"/>, with metadata for the event itself.
+    /// <paramref name="eventMetadata"/> is copied, and merges into the task's metadata: shallow, last write wins (the same rule
+    /// as the metadata of a status event). It is not the artifact's own <see cref="Artifact.Metadata"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The artifact is sealed and <paramref name="append"/> is true, or the artifact is being hashed (<see cref="AddHashedArtifactAsync"/>) and <paramref name="append"/> is true.</exception>
+    /// <exception cref="ArgumentException"><paramref name="artifact"/> has no parts and the event is not an append to an artifact that exists.</exception>
+    public ValueTask AddArtifactAsync(Artifact artifact, Dictionary<string, JsonElement>? eventMetadata, bool append = false, bool lastChunk = false, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(artifact);
         lock (_gate)
@@ -296,7 +306,7 @@ public sealed class TaskUpdater
             Track(artifact, append, lastChunk, hashing: false);
             MarkTaskEvent(false); // last: a rejected call must not count as an emitted task event
         }
-        return WriteArtifact(artifact, append, lastChunk, cancellationToken);
+        return WriteArtifact(artifact, append, lastChunk, cancellationToken, eventMetadata);
     }
 
     /// <summary>
@@ -344,9 +354,13 @@ public sealed class TaskUpdater
         return artifact.ArtifactId;
     }
 
-    private ValueTask WriteArtifact(Artifact artifact, bool append, bool lastChunk, CancellationToken cancellationToken)
+    private ValueTask WriteArtifact(Artifact artifact, bool append, bool lastChunk, CancellationToken cancellationToken, Dictionary<string, JsonElement>? eventMetadata = null)
     {
-        var evt = new TaskArtifactUpdateEvent { TaskId = TaskId, ContextId = ContextId, Artifact = artifact, Append = append, LastChunk = lastChunk };
+        var evt = new TaskArtifactUpdateEvent
+        {
+            TaskId = TaskId, ContextId = ContextId, Artifact = artifact, Append = append, LastChunk = lastChunk,
+            Metadata = eventMetadata is null ? null : new(eventMetadata), // the stored event keeps its own: the caller may reuse the dictionary
+        };
         return _writer.WriteAsync(StreamResponse.Of(evt), cancellationToken);
     }
 

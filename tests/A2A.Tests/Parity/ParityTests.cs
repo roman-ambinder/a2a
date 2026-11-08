@@ -460,6 +460,18 @@ public class ParityTests
     }
 
     [Theory, MemberData(nameof(Bindings))]
+    public async Task GetTask_artifact_event_metadata_is_merged_and_a_later_status_event_overwrites_it(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
+        var client = host.Client(binding);
+        var task = (await client.SendMessageAsync("meta")).RequireTask();
+        var read = await client.GetTaskAsync(task.Id);
+        Assert.Equal("x", read.Metadata!["fromArtifact"].GetString()); // from the artifact event
+        Assert.Equal(100, read.Metadata["progress"].GetInt32());       // artifact event wrote 75, the later status event wrote 100
+        Assert.Null(Assert.Single(read.Artifacts!).Metadata);          // not the artifact's own metadata
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
     public async Task GetTask_every_history_message_has_a_recordedAt_and_no_other_new_key(string binding)
     {
         await using var host = await TestAgentHost.StartAsync(grpc: true);
