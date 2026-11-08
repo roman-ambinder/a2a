@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Console smoke test, not a unit test project (D25). It runs the netstandard2.0 builds of A2A.Protocol and A2A.Client:
+    on net10.0 by forcing the netstandard2.0 asset, on net48 through normal asset selection (net48 runs only on Windows).
+    Usage: A2A.NetStandard.Smoke <agent-url> <api-key>. Exit code 0 only when every check passes.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net10.0;net48</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <ProjectReference Include="..\..\src\A2A.Protocol\A2A.Protocol.csproj" SetTargetFramework="TargetFramework=netstandard2.0" />
+    <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj" SetTargetFramework="TargetFramework=netstandard2.0" />
+    <!-- Runtime dependencies of the netstandard2.0 assemblies. Restore resolves the net10.0 asset of the projects, so they are not inherited. -->
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
+    <PackageReference Include="Microsoft.Bcl.HashCode" />
+    <PackageReference Include="Microsoft.Bcl.TimeProvider" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <ProjectReference Include="..\..\src\A2A.Protocol\A2A.Protocol.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj" />
+    <Reference Include="System.Net.Http" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" PrivateAssets="all" />
+  </ItemGroup>
+</Project>
