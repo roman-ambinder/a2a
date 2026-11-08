@@ -96,7 +96,8 @@ internal sealed class A2ARateLimitMarker
 }
 
 /// <summary>
-/// The <c>"a2a"</c> policy. The partition is <c>"{tenant}|{caller}"</c>, where the caller is
+/// The <c>"a2a"</c> policy. The partition of an authenticated caller is <c>"{tenant}|{caller}"</c>; an anonymous caller's is
+/// the caller alone (no tenant: see <see cref="GetPartition"/>). The caller is
 /// <see cref="ServerCallContext.LimitPartitionFor"/>: the principal, computed from the <see cref="HttpContext"/> with the same
 /// resolvers the endpoints use (the rate limiter runs before the A2A endpoint builds its call context), or for an
 /// unauthenticated caller its remote IP address, so anonymous callers do not share one bucket. Every request also draws
@@ -133,7 +134,12 @@ internal sealed class A2ARateLimiterPolicy(IOptions<A2ARateLimitOptions> options
             if (!string.IsNullOrEmpty(resolved)) principal = resolved;
         }
         var caller = ServerCallContext.LimitPartitionFor(principal, httpContext.Connection.RemoteIpAddress?.ToString());
-        return RateLimitPartition.Get($"{tenant}|{caller}",
+        // The limiter runs before authorization and the tenant comes from the route, so it is attacker text for an anonymous
+        // caller: POST /a2a/<random> would create a partition (a bucket with a timer) per name. Anonymous callers therefore
+        // get no tenant in the key. Cost: anonymous callers from one address share one bucket across tenants. The key has
+        // no '|', so it cannot collide with an authenticated key ("{tenant}|user:{id}").
+        var key = principal == ServerCallContext.AnonymousPrincipal ? caller : $"{tenant}|{caller}";
+        return RateLimitPartition.Get(key,
             _ => new TenantAndPrincipalLimiter(new TokenBucketRateLimiter(Bucket(_options)), _perPrincipal, caller));
     }
 
@@ -201,5 +207,13 @@ internal sealed class TenantAndPrincipalLimiter(RateLimiter tenantBucket, Partit
     {
         if (disposing) tenantBucket.Dispose();
         base.Dispose(disposing);
+    }
+
+    // The partitioned limiter's idle cleanup calls DisposeAsync, which runs Dispose(false). Without this the bucket and its
+    // replenishment timer would never be released.
+    protected override async ValueTask DisposeAsyncCore()
+    {
+        await tenantBucket.DisposeAsync().ConfigureAwait(false);
+        await base.DisposeAsyncCore().ConfigureAwait(false);
     }
 }
