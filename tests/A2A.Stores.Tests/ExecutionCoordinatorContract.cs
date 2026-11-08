@@ -4,6 +4,7 @@ using A2A.Server.Redis;
 using A2A.Server.Storage;
 using A2A.Tests;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
 namespace A2A.Stores.Tests;
@@ -338,6 +339,68 @@ public sealed class RedisExecutionCoordinatorTests(RedisFixture redis) : Executi
         _cleanup.Add(mux);
         _cleanup.Insert(0, coordinator);
         return coordinator;
+    }
+
+    /// <summary>
+    /// A cancel reader that falls its capacity (1,024 requests) behind drops the oldest
+    /// and logs it. The log runs outside the coordinator's reader lock: while logging, another thread can still add a reader.
+    /// </summary>
+    [SkippableFact]
+    public async Task Dropped_cancel_request_is_logged_outside_the_reader_lock()
+    {
+        var prefix = $"coord:{Guid.NewGuid():N}:";
+        var logger = new DropProbeLogger();
+        var mux = await redis.ConnectAsync();
+        _cleanup.Add(mux);
+        var a = new RedisExecutionCoordinator(mux, new RedisEventBusOptions { ChannelPrefix = prefix }, Options, logger);
+        _cleanup.Insert(0, a);
+        await a.StartAsync();
+        logger.Coordinator = a;
+        var b = await NewAsync(prefix);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await using var reader = a.CancelRequestsAsync(cts.Token).GetAsyncEnumerator(cts.Token);
+        var first = reader.MoveNextAsync();
+        await b.RequestCancelAsync(new TaskKey("", "o", "first"));
+        Assert.True(await first); // the reader is subscribed; it reads nothing more from here on
+
+        const int readerCapacity = 1024; // RedisExecutionCoordinator.CancelReaderCapacity (internal)
+        for (var i = 0; i <= readerCapacity + 5; i++)
+            await b.RequestCancelAsync(new TaskKey("", "o", $"t{i}"));
+
+        Assert.True(await logger.Probed.Task.WaitAsync(TimeSpan.FromSeconds(20)), "the drop was logged while the reader lock was held");
+    }
+
+    /// <summary>
+    /// On the first dropped-request warning, adds a cancel reader from another thread (which takes the reader lock) and waits for
+    /// it: true when that succeeds, false when it was blocked (the warning was logged under the lock).
+    /// </summary>
+    private sealed class DropProbeLogger : ILogger<RedisExecutionCoordinator>
+    {
+        private int _probed;
+
+        public RedisExecutionCoordinator? Coordinator { get; set; }
+
+        public TaskCompletionSource<bool> Probed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (eventId.Id != 1104 || Coordinator is not { } coordinator || Interlocked.Exchange(ref _probed, 1) == 1) return;
+            using var stop = new CancellationTokenSource();
+            var add = Task.Run(() =>
+            {
+                var probe = coordinator.CancelRequestsAsync(stop.Token).GetAsyncEnumerator(stop.Token);
+                _ = probe.MoveNextAsync(); // runs up to the reader's registration (under the lock), then waits
+                return probe;
+            });
+            var added = add.Wait(TimeSpan.FromSeconds(5));
+            stop.Cancel();
+            Probed.TrySetResult(added);
+        }
     }
 
     /// <summary>Review Focus 4: an instance whose clock runs 60 s ahead neither expires nor misreads a fresh lease.</summary>

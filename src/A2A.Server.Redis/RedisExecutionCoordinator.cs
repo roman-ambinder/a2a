@@ -83,7 +83,9 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
     private readonly long _ttlMs;
     private readonly ILogger _logger;
     private readonly object _gate = new();
-    private readonly List<Channel<TaskKey>> _cancelReaders = [];
+    // Copy on write, changed under _gate: a cancel message is fanned out from a snapshot, without the lock, so a dropped
+    // request is logged (by the channel's drop callback) outside it.
+    private Channel<TaskKey>[] _cancelReaders = [];
     private readonly string _origin = Guid.NewGuid().ToString("N");
     private ChannelMessageQueue? _queue;
 
@@ -173,7 +175,7 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
         {
             SingleReader = true, FullMode = BoundedChannelFullMode.DropOldest,
         }, dropped => RedisLog.CancelRequestDropped(_logger, dropped.TaskId, CancelReaderCapacity));
-        lock (_gate) _cancelReaders.Add(channel);
+        lock (_gate) _cancelReaders = [.. _cancelReaders, channel];
         try
         {
             await StartAsync(cancellationToken).ConfigureAwait(false);
@@ -181,7 +183,7 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
         }
         finally
         {
-            lock (_gate) _cancelReaders.Remove(channel);
+            lock (_gate) _cancelReaders = Array.FindAll(_cancelReaders, reader => reader != channel);
         }
     }
 
@@ -227,10 +229,8 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
             return;
         }
         if (origin == _origin) return; // our own request: the sender cancels its own executions directly
-        lock (_gate)
-        {
-            foreach (var reader in _cancelReaders) reader.Writer.TryWrite(task);
-        }
+        // A full reader drops its oldest request and logs it from TryWrite: never under _gate.
+        foreach (var reader in Volatile.Read(ref _cancelReaders)) reader.Writer.TryWrite(task);
     }
 
     /// <summary>
