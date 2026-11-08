@@ -1,5 +1,6 @@
 using A2A.Json;
 using A2A.Server.Storage;
+using A2A.Server.Streaming;
 using Npgsql;
 using NpgsqlTypes;
 using static A2A.Server.Postgres.Sql;
@@ -25,6 +26,11 @@ public sealed class PostgresTaskStore : TaskStore
     private readonly string _insertSql;
     private readonly string _updateSql;
 
+    /// <summary>Creates the store over <paramref name="dataSource"/>. Create the tables first (<see cref="PostgresSchema"/>).</summary>
+    /// <param name="dataSource">The database.</param>
+    /// <param name="streaming">The event log retention, as for <see cref="PostgresEventStore"/> (<see cref="StreamingOptions.ReplayBufferSize"/>).</param>
+    /// <param name="options">The schema; default <c>public</c>.</param>
+    /// <param name="time">The clock for <see cref="TaskRecord.UpdatedAt"/> and retention. Default <see cref="TimeProvider.System"/>.</param>
     public PostgresTaskStore(NpgsqlDataSource dataSource, StreamingOptions streaming, PostgresStoreOptions? options = null, TimeProvider? time = null)
     {
         _db = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
@@ -50,32 +56,35 @@ public sealed class PostgresTaskStore : TaskStore
             """;
     }
 
-    public override async ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand(
             $"SELECT owner, version, created_ticks, updated_ticks, task FROM {_tasks} WHERE tenant = $1 AND task_id = $2 AND owner = $3");
-        cmd.Parameters.Add(Text(key.Tenant));
-        cmd.Parameters.Add(Text(key.TaskId));
-        cmd.Parameters.Add(Text(key.Owner));
-        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        return await reader.ReadAsync(ct).ConfigureAwait(false) ? ReadRecord(reader, key.Tenant) : null;
+        cmd.Parameters.Add(TextParam(key.Tenant));
+        cmd.Parameters.Add(TextParam(key.TaskId));
+        cmd.Parameters.Add(TextParam(key.Owner));
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadRecord(reader, key.Tenant) : null;
     }
 
-    public override async ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken cancellationToken = default)
     {
         var (json, stored) = ForCreate(record);
         await using var cmd = _db.CreateCommand(_insertSql);
         AddInsertParameters(cmd, stored, json);
-        if (await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 0) throw new DuplicateTaskException(record.Key);
+        if (await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 0) throw new DuplicateTaskException(record.Key);
         return stored;
     }
 
-    public override async ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken cancellationToken = default)
     {
         var (json, stored) = ForUpdate(record, expectedVersion);
         await using var cmd = _db.CreateCommand(_updateSql);
         AddUpdateParameters(cmd, stored, json, expectedVersion);
-        var created = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+        var created = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         if (created is not long createdTicks) throw new ConcurrencyException(record.Key, expectedVersion);
         return stored with { CreatedAt = new DateTimeOffset(createdTicks, TimeSpan.Zero) };
     }
@@ -86,45 +95,50 @@ public sealed class PostgresTaskStore : TaskStore
     /// that sequence. Any failure rolls back all of it. The final COMMIT is not cancelled: once it is sent, a cancelled
     /// token must not leave the caller unsure whether the event and its deliveries were stored.
     /// </summary>
-    public override async ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(commit);
         ValidateDeliveries(commit);
         var key = commit.Record.Key;
         var (json, stored) = commit.IsCreate ? ForCreate(commit.Record) : ForUpdate(commit.Record, commit.ExpectedVersion);
-        var eventJson = A2AJson.Serialize(commit.Event);
+        // The bytes the engine encoded, as they are: the log keeps them and every delivery sends them (encoded here only for an
+        // event made without them).
+        var eventBytes = EventEncoder.EnsureEncoded(commit.Event).Json;
+        var eventJson = System.Text.Encoding.UTF8.GetString(eventBytes.Span);
 
-        await using var conn = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
-        await using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
+        await using var conn = await _db.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var tx = await conn.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         if (commit.IsCreate)
         {
             await using var insert = new NpgsqlCommand(_insertSql, conn, tx);
             AddInsertParameters(insert, stored, json);
-            if (await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 0) throw new DuplicateTaskException(key);
+            if (await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 0) throw new DuplicateTaskException(key);
         }
         else
         {
             await using var update = new NpgsqlCommand(_updateSql, conn, tx);
             AddUpdateParameters(update, stored, json, commit.ExpectedVersion);
-            if (await update.ExecuteScalarAsync(ct).ConfigureAwait(false) is not long createdTicks)
+            if (await update.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not long createdTicks)
                 throw new ConcurrencyException(key, commit.ExpectedVersion);
             stored = stored with { CreatedAt = new DateTimeOffset(createdTicks, TimeSpan.Zero) };
         }
 
         var now = _time.GetUtcNow().UtcTicks;
-        var seq = await AppendEventAsync(conn, tx, _eventTables, key, eventJson, Math.Max(1, _streaming.ReplayBufferSize), now, ct).ConfigureAwait(false);
+        var seq = await AppendEventAsync(conn, tx, _eventTables, key, eventJson, Math.Max(1, _streaming.ReplayBufferSize), now, cancellationToken).ConfigureAwait(false);
         if (commit.Deliveries.Count > 0)
         {
-            var payload = System.Text.Encoding.UTF8.GetBytes(eventJson); // the webhook body, stored with the event
+            var payload = eventBytes.ToArray(); // the webhook body, stored with the event
             await using var batch = new NpgsqlBatch(conn, tx);
             foreach (var d in commit.Deliveries) batch.BatchCommands.Add(PostgresPushOutbox.InsertCommand(_outbox, d, seq, payload, now));
-            await batch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            await batch.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         await tx.CommitAsync(CancellationToken.None).ConfigureAwait(false);
         return new CommitResult(stored, seq);
     }
 
-    public override async ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
         var cursor = PageCursor.Decode(query.PageToken);
@@ -137,7 +151,7 @@ public sealed class PostgresTaskStore : TaskStore
         {
             pageArgs.Add(Long(c.Ticks));
             var t = pageArgs.Count;
-            pageArgs.Add(Text(c.Id));
+            pageArgs.Add(TextParam(c.Id));
             pageFilter += $" AND (status_ticks < ${t} OR (status_ticks = ${t} AND task_id > ${t + 1}))";
         }
         pageArgs.Add(new NpgsqlParameter<int> { TypedValue = checked(Math.Max(0, query.PageSize) + 1) });
@@ -151,12 +165,12 @@ public sealed class PostgresTaskStore : TaskStore
         batch.BatchCommands.Add(count);
         batch.BatchCommands.Add(page);
 
-        await using var reader = await batch.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        await reader.ReadAsync(ct).ConfigureAwait(false);
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         var total = checked((int)reader.GetInt64(0));
-        await reader.NextResultAsync(ct).ConfigureAwait(false);
+        await reader.NextResultAsync(cancellationToken).ConfigureAwait(false);
         var records = new List<TaskRecord>();
-        while (await reader.ReadAsync(ct).ConfigureAwait(false)) records.Add(ReadRecord(reader, query.Tenant));
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) records.Add(ReadRecord(reader, query.Tenant));
 
         var hasMore = records.Count > query.PageSize;
         if (hasMore) records.RemoveAt(records.Count - 1);
@@ -164,48 +178,53 @@ public sealed class PostgresTaskStore : TaskStore
         return new TaskPage(records, next, total);
     }
 
-    public override async ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand($"SELECT owner, created_ticks FROM {_contexts} WHERE tenant = $1 AND context_id = $2");
-        cmd.Parameters.Add(Text(tenant));
-        cmd.Parameters.Add(Text(contextId));
-        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        return await reader.ReadAsync(ct).ConfigureAwait(false)
+        cmd.Parameters.Add(TextParam(tenant));
+        cmd.Parameters.Add(TextParam(contextId));
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
             ? new ContextRecord(tenant, reader.GetString(0), contextId, new DateTimeOffset(reader.GetInt64(1), TimeSpan.Zero))
             : null;
     }
 
-    public override async ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(record);
         await using (var cmd = _db.CreateCommand(
             $"INSERT INTO {_contexts} (tenant, context_id, owner, created_ticks) VALUES ($1, $2, $3, $4) ON CONFLICT (tenant, context_id) DO NOTHING"))
         {
-            cmd.Parameters.Add(Text(record.Tenant));
-            cmd.Parameters.Add(Text(record.ContextId));
-            cmd.Parameters.Add(Text(record.Owner));
+            cmd.Parameters.Add(TextParam(record.Tenant));
+            cmd.Parameters.Add(TextParam(record.ContextId));
+            cmd.Parameters.Add(TextParam(record.Owner));
             cmd.Parameters.Add(Long(record.CreatedAt.UtcTicks));
-            if (await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1) return record;
+            if (await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1) return record;
         }
         // Lost the race (or the context existed): a new statement sees the committed winner.
-        return await GetContextAsync(record.Tenant, record.ContextId, ct).ConfigureAwait(false)
+        return await GetContextAsync(record.Tenant, record.ContextId, cancellationToken).ConfigureAwait(false)
                ?? throw new InvalidOperationException($"Context '{record.ContextId}' vanished while it was being created.");
     }
 
-    public override async ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand($"DELETE FROM {_tasks} WHERE tenant = $1 AND task_id = $2 AND owner = $3");
-        cmd.Parameters.Add(Text(key.Tenant));
-        cmd.Parameters.Add(Text(key.TaskId));
-        cmd.Parameters.Add(Text(key.Owner));
-        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
+        cmd.Parameters.Add(TextParam(key.Tenant));
+        cmd.Parameters.Add(TextParam(key.TaskId));
+        cmd.Parameters.Add(TextParam(key.Owner));
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
-    public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default) =>
-        ListByStateAsync(TerminalStates, terminalBefore, max, ct);
+    /// <inheritdoc />
+    public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken cancellationToken = default) =>
+        ListByStateAsync(TerminalStates, terminalBefore, max, cancellationToken);
 
-    public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) =>
-        ListByStateAsync(InterruptedStates, before, max, ct);
+    /// <inheritdoc />
+    public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken cancellationToken = default) =>
+        ListByStateAsync(InterruptedStates, before, max, cancellationToken);
 
     // state is stored as the TaskState number; these are the SQL lists of the two groups.
     private static readonly string TerminalStates = StateList(TaskState.Completed, TaskState.Failed, TaskState.Canceled, TaskState.Rejected);
@@ -213,7 +232,7 @@ public sealed class PostgresTaskStore : TaskStore
 
     private static string StateList(params TaskState[] states) => string.Join(", ", states.Select(s => ((int)s).ToString(System.Globalization.CultureInfo.InvariantCulture)));
 
-    private async ValueTask<IReadOnlyList<TaskKey>> ListByStateAsync(string states, DateTimeOffset before, int max, CancellationToken ct)
+    private async ValueTask<IReadOnlyList<TaskKey>> ListByStateAsync(string states, DateTimeOffset before, int max, CancellationToken cancellationToken)
     {
         await using var cmd = _db.CreateCommand(
             $"""
@@ -225,24 +244,26 @@ public sealed class PostgresTaskStore : TaskStore
         cmd.Parameters.Add(Long(before.UtcTicks));
         cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = Math.Max(0, max) });
         var keys = new List<TaskKey>();
-        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        while (await reader.ReadAsync(ct).ConfigureAwait(false)) keys.Add(new TaskKey(reader.GetString(0), reader.GetString(1), reader.GetString(2)));
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) keys.Add(new TaskKey(reader.GetString(0), reader.GetString(1), reader.GetString(2)));
         return keys;
     }
 
-    public override async ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand(
             $"""
             DELETE FROM {_contexts} c WHERE c.tenant = $1 AND c.context_id = $2
                AND NOT EXISTS (SELECT 1 FROM {_tasks} t WHERE t.tenant = c.tenant AND t.context_id = c.context_id)
             """);
-        cmd.Parameters.Add(Text(tenant));
-        cmd.Parameters.Add(Text(contextId));
-        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
+        cmd.Parameters.Add(TextParam(tenant));
+        cmd.Parameters.Add(TextParam(contextId));
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
-    public override async ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand(
             $"""
@@ -255,8 +276,8 @@ public sealed class PostgresTaskStore : TaskStore
         cmd.Parameters.Add(Long(createdBefore.UtcTicks));
         cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = Math.Max(0, max) });
         var list = new List<ContextRecord>();
-        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             list.Add(new ContextRecord(reader.GetString(0), reader.GetString(1), reader.GetString(2), new DateTimeOffset(reader.GetInt64(3), TimeSpan.Zero)));
         return list;
     }
@@ -276,28 +297,28 @@ public sealed class PostgresTaskStore : TaskStore
 
     private static void AddInsertParameters(NpgsqlCommand cmd, TaskRecord stored, string json)
     {
-        cmd.Parameters.Add(Text(stored.Tenant));
-        cmd.Parameters.Add(Text(stored.Task.Id));
-        cmd.Parameters.Add(Text(stored.Owner));
-        cmd.Parameters.Add(Text(stored.Task.ContextId ?? string.Empty));
+        cmd.Parameters.Add(TextParam(stored.Tenant));
+        cmd.Parameters.Add(TextParam(stored.Task.Id));
+        cmd.Parameters.Add(TextParam(stored.Owner));
+        cmd.Parameters.Add(TextParam(stored.Task.ContextId ?? string.Empty));
         cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = (int)stored.Task.Status.State });
         cmd.Parameters.Add(Long(StatusTicks(stored)));
         cmd.Parameters.Add(Long(stored.CreatedAt.UtcTicks));
         cmd.Parameters.Add(Long(stored.UpdatedAt.UtcTicks));
-        cmd.Parameters.Add(Text(json));
+        cmd.Parameters.Add(TextParam(json));
     }
 
     private static void AddUpdateParameters(NpgsqlCommand cmd, TaskRecord stored, string json, long expectedVersion)
     {
-        cmd.Parameters.Add(Text(stored.Tenant));
-        cmd.Parameters.Add(Text(stored.Task.Id));
-        cmd.Parameters.Add(Text(stored.Owner));
-        cmd.Parameters.Add(Text(stored.Task.ContextId ?? string.Empty));
+        cmd.Parameters.Add(TextParam(stored.Tenant));
+        cmd.Parameters.Add(TextParam(stored.Task.Id));
+        cmd.Parameters.Add(TextParam(stored.Owner));
+        cmd.Parameters.Add(TextParam(stored.Task.ContextId ?? string.Empty));
         cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = (int)stored.Task.Status.State });
         // Without a status timestamp the sort key falls back to the creation time, which only the database row has.
         cmd.Parameters.Add(new NpgsqlParameter { Value = (object?)stored.Task.Status.Timestamp?.UtcTicks ?? DBNull.Value, NpgsqlDbType = NpgsqlDbType.Bigint });
         cmd.Parameters.Add(Long(stored.UpdatedAt.UtcTicks));
-        cmd.Parameters.Add(Text(json));
+        cmd.Parameters.Add(TextParam(json));
         cmd.Parameters.Add(Long(expectedVersion));
     }
 
@@ -321,12 +342,12 @@ public sealed class PostgresTaskStore : TaskStore
     /// <summary>The WHERE clause for a query; adds its parameters (positional, $1..) to <paramref name="args"/>.</summary>
     private static string Filter(TaskQuery query, List<NpgsqlParameter> args)
     {
-        args.Add(Text(query.Tenant));
-        args.Add(Text(query.Owner));
+        args.Add(TextParam(query.Tenant));
+        args.Add(TextParam(query.Owner));
         var filter = "tenant = $1 AND owner = $2";
         if (query.ContextId is not null)
         {
-            args.Add(Text(query.ContextId));
+            args.Add(TextParam(query.ContextId));
             filter += $" AND context_id = ${args.Count}";
         }
         if (query.Status is { } status)

@@ -107,10 +107,10 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
     }
 
     /// <summary>Subscribes to the cancel requests of every instance. Idempotent.</summary>
-    public async Task StartAsync(CancellationToken ct = default)
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         if (Volatile.Read(ref _queue) is not null) return;
-        var queue = await _redis.GetSubscriber().SubscribeAsync(_cancelChannel).WaitAsync(ct).ConfigureAwait(false);
+        var queue = await _redis.GetSubscriber().SubscribeAsync(_cancelChannel).WaitAsync(cancellationToken).ConfigureAwait(false);
         if (Interlocked.CompareExchange(ref _queue, queue, null) is not null)
         {
             await queue.UnsubscribeAsync().ConfigureAwait(false);
@@ -129,44 +129,55 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
     public ValueTask DisposeAsync() => new(StopAsync());
 
     /// <inheritdoc />
-    public override async ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken ct = default)
+    public override async ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(executionId);
-        await EvaluateAsync(RegisterScript, LeaseKeys(task), LeaseArgs(task, executionId, withTtl: true), ct).ConfigureAwait(false);
+        await EvaluateAsync(RegisterScript, LeaseKeys(task), LeaseArgs(task, executionId, withTtl: true), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public override async ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default)
+    public override async ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(executionId);
-        return (int)await EvaluateAsync(HeartbeatScript, LeaseKeys(task), LeaseArgs(task, executionId, withTtl: true), ct).ConfigureAwait(false) == 1;
+        return (int)await EvaluateAsync(HeartbeatScript, LeaseKeys(task), LeaseArgs(task, executionId, withTtl: true), cancellationToken).ConfigureAwait(false) == 1;
     }
 
     /// <inheritdoc />
-    public override async ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default)
+    public override async ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(executionId);
-        await EvaluateAsync(UnregisterScript, LeaseKeys(task), LeaseArgs(task, executionId, withTtl: false), ct).ConfigureAwait(false);
+        await EvaluateAsync(UnregisterScript, LeaseKeys(task), LeaseArgs(task, executionId, withTtl: false), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public override async ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default) =>
-        (int)await EvaluateAsync(IsRunningScript, [LeaseKey(task)], [], ct).ConfigureAwait(false) == 1;
+    public override async ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken cancellationToken = default) =>
+        (int)await EvaluateAsync(IsRunningScript, [LeaseKey(task)], [], cancellationToken).ConfigureAwait(false) == 1;
 
     /// <inheritdoc />
     /// <remarks>The message carries this coordinator's origin id, so its own readers ignore the echo.</remarks>
-    public override async ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default) =>
-        await _redis.GetSubscriber().PublishAsync(_cancelChannel, Encode(task, _origin)).WaitAsync(ct).ConfigureAwait(false);
+    public override async ValueTask RequestCancelAsync(TaskKey task, CancellationToken cancellationToken = default) =>
+        await _redis.GetSubscriber().PublishAsync(_cancelChannel, Encode(task, _origin)).WaitAsync(cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Most cancel requests one reader holds before the oldest is dropped (see <see cref="CancelRequestsAsync"/>).</summary>
+    internal const int CancelReaderCapacity = 1024;
 
     /// <inheritdoc />
-    public override async IAsyncEnumerable<TaskKey> CancelRequestsAsync([EnumeratorCancellation] CancellationToken ct)
+    /// <remarks>
+    /// Each reader has a bounded queue of <see cref="CancelReaderCapacity"/> requests. A reader that falls that far behind loses
+    /// the oldest ones (delivery is at most once anyway), each logged as a warning; the execution then still stops when its
+    /// lease is found lost or the task terminal.
+    /// </remarks>
+    public override async IAsyncEnumerable<TaskKey> CancelRequestsAsync([EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var channel = Channel.CreateUnbounded<TaskKey>(new UnboundedChannelOptions { SingleReader = true });
+        var channel = Channel.CreateBounded<TaskKey>(new BoundedChannelOptions(CancelReaderCapacity)
+        {
+            SingleReader = true, FullMode = BoundedChannelFullMode.DropOldest,
+        }, dropped => RedisLog.CancelRequestDropped(_logger, dropped.TaskId, CancelReaderCapacity));
         lock (_gate) _cancelReaders.Add(channel);
         try
         {
-            await StartAsync(ct).ConfigureAwait(false);
-            await foreach (var task in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false)) yield return task;
+            await StartAsync(cancellationToken).ConfigureAwait(false);
+            await foreach (var task in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false)) yield return task;
         }
         finally
         {
@@ -175,31 +186,31 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
     }
 
     /// <inheritdoc />
-    public override async ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken ct = default)
+    public override async ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(max);
         if (max == 0) return [];
-        var members = (RedisValue[])(await EvaluateAsync(ListExpiredScript, [_expiries], [max], ct).ConfigureAwait(false))!;
+        var members = (RedisValue[])(await EvaluateAsync(ListExpiredScript, [_expiries], [max], cancellationToken).ConfigureAwait(false))!;
         var expired = new List<(TaskKey, string)>(members.Length);
         foreach (var member in members)
         {
             if (TryDecode(member, out var task, out var executionId) && executionId is not null) expired.Add((task, executionId));
-            else _logger.LogWarning("Skipped a malformed A2A execution lease in Redis");
+            else RedisLog.MalformedLease(_logger);
         }
         return expired;
     }
 
     /// <inheritdoc />
-    public override async ValueTask<bool> TryAcquireSweepLeaseAsync(string name, TimeSpan duration, CancellationToken ct = default)
+    public override async ValueTask<bool> TryAcquireSweepLeaseAsync(string name, TimeSpan duration, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(duration, TimeSpan.Zero);
         var expiry = TimeSpan.FromMilliseconds(Math.Max(1, Math.Ceiling(duration.TotalMilliseconds)));
-        return await _redis.GetDatabase().StringSetAsync(_prefix + "sweep:" + name, "1", expiry, When.NotExists).WaitAsync(ct).ConfigureAwait(false);
+        return await _redis.GetDatabase().StringSetAsync(_prefix + "sweep:" + name, "1", expiry, When.NotExists).WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private Task<RedisResult> EvaluateAsync(string script, RedisKey[] keys, RedisValue[] args, CancellationToken ct) =>
-        _redis.GetDatabase().ScriptEvaluateAsync(script, keys, args).WaitAsync(ct);
+    private Task<RedisResult> EvaluateAsync(string script, RedisKey[] keys, RedisValue[] args, CancellationToken cancellationToken) =>
+        _redis.GetDatabase().ScriptEvaluateAsync(script, keys, args).WaitAsync(cancellationToken);
 
     private RedisKey LeaseKey(TaskKey task) => ((RedisKey)(_prefix + "lease:")).Append(Encode(task, null));
 
@@ -212,7 +223,7 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
     {
         if (!TryDecode(message.Message, out var task, out var origin))
         {
-            _logger.LogWarning("Dropped a malformed A2A cancel request from Redis");
+            RedisLog.MalformedCancelRequest(_logger);
             return;
         }
         if (origin == _origin) return; // our own request: the sender cancels its own executions directly

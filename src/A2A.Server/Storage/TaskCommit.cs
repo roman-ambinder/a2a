@@ -1,3 +1,5 @@
+using A2A.Server.Streaming;
+
 namespace A2A.Server.Storage;
 
 /// <summary>
@@ -6,10 +8,24 @@ namespace A2A.Server.Storage;
 /// </summary>
 /// <param name="Record">The task as it must be stored. For a create its <see cref="TaskRecord.Version"/> must be 0.</param>
 /// <param name="ExpectedVersion">The stored version this change is based on; 0 creates the task.</param>
-/// <param name="Event">The event appended to the task's log. The store allocates its sequence.</param>
+/// <param name="Event">
+/// The event appended to the task's log, encoded once (<see cref="EventEncoder"/>): <see cref="SequencedEvent.Json"/> holds its
+/// bytes, which the store keeps for the log (as <see cref="EventStore.AppendAsync"/> does) and uses as the payload of
+/// <paramref name="Deliveries"/>. Its <see cref="SequencedEvent.Sequence"/> is ignored: the store allocates the sequence.
+/// </param>
 /// <param name="Deliveries">Push deliveries for the event. The store sets their <see cref="PushDelivery.Sequence"/>.</param>
-public sealed record TaskCommit(TaskRecord Record, long ExpectedVersion, StreamResponse Event, IReadOnlyList<PushDelivery> Deliveries)
+public sealed record TaskCommit(TaskRecord Record, long ExpectedVersion, SequencedEvent Event, IReadOnlyList<PushDelivery> Deliveries)
 {
+    /// <summary>A commit of an event that is not encoded yet: <paramref name="evt"/> is encoded here, once (<see cref="EventEncoder.Encode"/>).</summary>
+    /// <param name="record">The task as it must be stored.</param>
+    /// <param name="expectedVersion">The stored version this change is based on; 0 creates the task.</param>
+    /// <param name="evt">The event appended to the task's log.</param>
+    /// <param name="deliveries">Push deliveries for the event.</param>
+    public TaskCommit(TaskRecord record, long expectedVersion, StreamResponse evt, IReadOnlyList<PushDelivery> deliveries)
+        : this(record, expectedVersion, EventEncoder.Encode(0, evt), deliveries)
+    {
+    }
+
     /// <summary>True when the commit creates the task (<see cref="ExpectedVersion"/> is 0).</summary>
     public bool IsCreate => ExpectedVersion == 0;
 }

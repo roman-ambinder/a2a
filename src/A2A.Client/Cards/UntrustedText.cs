@@ -1,4 +1,4 @@
-using A2A.Validation;
+using A2A.Text;
 
 namespace A2A.Client.Cards;
 
@@ -17,6 +17,7 @@ public readonly struct UntrustedText
     private readonly string? _raw;
     private readonly int _maxLength;
 
+    /// <summary>Wraps <paramref name="raw"/>. <paramref name="maxLength"/> caps the sanitized text; it defaults to <see cref="DefaultMaxLength"/> and must be at least 1.</summary>
     public UntrustedText(string? raw, int maxLength = DefaultMaxLength)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxLength, 1);

@@ -5,15 +5,12 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\A2A.Protocol\A2A.Protocol.csproj" />
+    <ProjectReference Include="..\A2A.Security.Http\A2A.Security.Http.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
-    <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="A2A.Tests" />
-    <!-- The gRPC transport (separate package, released together) reuses the retry rules. -->
-    <InternalsVisibleTo Include="A2A.Client.Grpc" />
   </ItemGroup>
 </Project>

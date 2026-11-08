@@ -30,6 +30,11 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
     private readonly TimeProvider _time;
     private readonly string _table;
 
+    /// <summary>Creates the store over <paramref name="dataSource"/>. Create the tables first (<see cref="PostgresSchema"/>).</summary>
+    /// <param name="dataSource">The database.</param>
+    /// <param name="options">Retention of finished entries (<see cref="IdempotencyOptions.Retention"/>).</param>
+    /// <param name="storeOptions">The schema, claim timeout and poll interval.</param>
+    /// <param name="time">The clock for retention and claim timeouts. Default <see cref="TimeProvider.System"/>.</param>
     public PostgresIdempotencyStore(NpgsqlDataSource dataSource, IdempotencyOptions options, PostgresStoreOptions? storeOptions = null, TimeProvider? time = null)
     {
         _db = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
@@ -39,7 +44,8 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
         _table = $"{PostgresSchema.Quote(_storeOptions.Schema)}.a2a_idempotency";
     }
 
-    public override async ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(requestHash);
         while (true)
@@ -52,16 +58,16 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
                 insert.Parameters.Add(new NpgsqlParameter<byte[]> { TypedValue = requestHash, NpgsqlDbType = NpgsqlDbType.Bytea });
                 insert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = Guid.NewGuid() });
                 insert.Parameters.Add(Long(now));
-                if (await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1) return New;
+                if (await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1) return New;
             }
 
-            var row = await ReadAsync(scope, ct).ConfigureAwait(false);
+            var row = await ReadAsync(scope, cancellationToken).ConfigureAwait(false);
             if (row is not { } r) continue; // removed in between: try to claim again
 
             if (r.Outcome is not null ? r.ExpiresTicks <= now : IsStale(r.ClaimedTicks, now))
             {
                 // Expired outcome, or a claim nobody finished in time: drop exactly that entry and claim again.
-                await DeleteClaimAsync(scope, r.ClaimId, ct).ConfigureAwait(false);
+                await DeleteClaimAsync(scope, r.ClaimId, cancellationToken).ConfigureAwait(false);
                 continue;
             }
             if (!r.Hash.AsSpan().SequenceEqual(requestHash)) return Mismatch;
@@ -70,31 +76,34 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
         }
     }
 
-    public override async ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(outcome);
         await using var cmd = _db.CreateCommand(
             $"UPDATE {_table} SET outcome = $4, expires_ticks = $5 WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
         AddScope(cmd, scope);
-        cmd.Parameters.Add(Text(OutcomeJson.Write(outcome)));
+        cmd.Parameters.Add(TextParam(OutcomeJson.Write(outcome)));
         cmd.Parameters.Add(Long(AddClamped(_time.GetUtcNow().UtcTicks, _options.Retention)));
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public override async ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand($"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
         AddScope(cmd, scope);
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public override async ValueTask RenewAsync(IdempotencyScope scope, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask RenewAsync(IdempotencyScope scope, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand(
             $"UPDATE {_table} SET claimed_ticks = $4 WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
         AddScope(cmd, scope);
         cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -119,13 +128,13 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
         return timeout != Timeout.InfiniteTimeSpan && timeout > TimeSpan.Zero && AddClamped(claimedTicks, timeout) <= now;
     }
 
-    private async ValueTask<Row?> ReadAsync(IdempotencyScope scope, CancellationToken ct)
+    private async ValueTask<Row?> ReadAsync(IdempotencyScope scope, CancellationToken cancellationToken)
     {
         await using var cmd = _db.CreateCommand(
             $"SELECT hash, claim_id, claimed_ticks, outcome, expires_ticks FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3");
         AddScope(cmd, scope);
-        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        if (!await reader.ReadAsync(ct).ConfigureAwait(false)) return null;
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
         return new Row(
             reader.GetFieldValue<byte[]>(0),
             reader.GetGuid(1),
@@ -134,19 +143,19 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
             reader.IsDBNull(4) ? long.MaxValue : reader.GetInt64(4));
     }
 
-    private async ValueTask DeleteClaimAsync(IdempotencyScope scope, Guid claimId, CancellationToken ct)
+    private async ValueTask DeleteClaimAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken)
     {
         await using var cmd = _db.CreateCommand($"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $4");
         AddScope(cmd, scope);
         cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = claimId });
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static void AddScope(NpgsqlCommand cmd, IdempotencyScope scope)
     {
-        cmd.Parameters.Add(Text(scope.Tenant));
-        cmd.Parameters.Add(Text(scope.Principal));
-        cmd.Parameters.Add(Text(scope.Key));
+        cmd.Parameters.Add(TextParam(scope.Tenant));
+        cmd.Parameters.Add(TextParam(scope.Principal));
+        cmd.Parameters.Add(TextParam(scope.Key));
     }
 
     private readonly record struct Row(byte[] Hash, Guid ClaimId, long ClaimedTicks, string? Outcome, long ExpiresTicks);
@@ -171,7 +180,7 @@ internal static class OutcomeJson
                 case IdempotencyOutcome.DirectMessage m:
                     w.WriteString("kind", "message");
                     w.WritePropertyName("message");
-                    A2AJson.SerializeToElement(m.Message).WriteTo(w);
+                    JsonSerializer.Serialize(w, m.Message, A2AJson.GetTypeInfo<Message>());
                     break;
                 default:
                     throw new ArgumentException($"Unknown outcome type {outcome.GetType().Name}.", nameof(outcome));

@@ -1,6 +1,6 @@
 using System.Net;
 using A2A.Client.Push;
-using A2A.Net;
+using A2A.Security.Http;
 using A2A.Server;
 using A2A.Server.Push;
 using A2A.Server.Storage;

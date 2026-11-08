@@ -75,15 +75,19 @@ public abstract class PushConfigStoreContract
     }
 
     [SkippableFact]
-    public async Task Returned_records_are_copies()
+    public async Task Saved_config_reads_back_with_the_same_content()
     {
+        // Stores own the configs they are given and return; callers never mutate them (a change is a new SaveAsync).
         var s = await CreateStoreAsync();
         var input = Config(Alice, "c1");
         await s.SaveAsync(input);
-        input.Config.Url = "https://changed.example";
         var got = (await s.GetAsync(Alice, "c1"))!;
-        got.Config.Url = "https://changed-again.example";
-        Assert.Equal("https://hooks.example/cb", (await s.GetAsync(Alice, "c1"))!.Config.Url);
+        Assert.Equal(A2A.Json.A2AJson.Serialize(input.Config), A2A.Json.A2AJson.Serialize(got.Config));
+
+        var replaced = Config(Alice, "c1");
+        replaced.Config.Url = "https://changed.example";
+        await s.SaveAsync(replaced);
+        Assert.Equal("https://changed.example", (await s.GetAsync(Alice, "c1"))!.Config.Url);
     }
 
     [SkippableFact]

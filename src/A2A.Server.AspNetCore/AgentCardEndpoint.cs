@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
+using System.Text.Json;
 using A2A.Json;
 using A2A.Server.Agents;
 using A2A.Signing;
@@ -11,13 +13,13 @@ using Microsoft.Extensions.Options;
 namespace A2A.Server.AspNetCore;
 
 /// <summary>
-/// Serves the public Agent Card (spec §8.2) with caching headers (§8.6) and optional JWS signing (§8.4), per tenant: the card
-/// and the signing key come from the <see cref="AgentCardProvider"/> for the tenant the <see cref="ITenantResolver"/> finds.
-/// Cards are never cached across requests, so a provider may change cards at runtime; only signatures are cached, keyed by
-/// the signed content and the key, so a stable card is signed once.
+/// Serves the public Agent Card (spec §8.2; the completed card of <see cref="IAgentCardProvider"/>) with caching headers (§8.6)
+/// and optional JWS signing (§8.4), per tenant: the card and the signing key come from the <see cref="IAgentCardProvider"/> for
+/// the tenant the <see cref="ITenantResolver"/> finds. The encoded body and its entity tag are kept per card instance and key,
+/// so the host's card (the same instance on every call) is encoded and signed once; a provider that returns a new card is
+/// encoded again, and signatures are also cached by the signed content and the key, so a stable card is signed once.
 /// </summary>
-internal sealed class AgentCardEndpoint(IServiceProvider services, IOptions<A2AServerOptions> serverOptions, IOptions<A2AHttpOptions> httpOptions,
-    ILogger<AgentCardEndpoint> logger)
+internal sealed class AgentCardEndpoint(IAgentCardProvider cards, IOptions<A2AHttpOptions> httpOptions, ILogger<AgentCardEndpoint> logger)
 {
     /// <summary>Most distinct pruned-path warnings remembered, so each is logged once and memory stays bounded.</summary>
     private const int MaxWarnings = 256;
@@ -25,33 +27,51 @@ internal sealed class AgentCardEndpoint(IServiceProvider services, IOptions<A2AS
     /// <summary>Most signatures cached. When full, the cache starts over (a simple size cap).</summary>
     private const int MaxSignatures = 256;
 
-    private readonly AgentCardProvider _cards = services.GetService<AgentCardProvider>() ?? new DefaultAgentCardProvider(serverOptions);
+    private readonly ConditionalWeakTable<AgentCard, Encoded> _encoded = new();
     private readonly ConcurrentDictionary<string, byte> _warned = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, AgentCardSignature> _signatures = new(StringComparer.Ordinal);
+
+    /// <summary>The served bytes of one card with one key, and their entity tag.</summary>
+    private sealed record Encoded(AgentCardSigningKey? Key, byte[] Body, string Tag, string ETag);
 
     public async Task GetCardAsync(HttpContext http)
     {
         var tenant = Tenant(http);
-        var card = await _cards.GetCardAsync(new AgentRequestScope(tenant, HttpPlumbing.RouteValues(http)), http.RequestAborted).ConfigureAwait(false);
+        var card = await cards.GetAsync(new AgentRequestScope(tenant, HttpPlumbing.RouteValues(http)), http.RequestAborted).ConfigureAwait(false);
         if (card is null)
         {
             http.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
         var key = await SigningKeyAsync(tenant, http.RequestAborted).ConfigureAwait(false);
-        var unsigned = A2AJson.SerializeToUtf8Bytes(card);
-        var tag = OpaqueTag(unsigned, key);
-        // A signed card is equivalent, not byte-identical, across signings: a weak validator.
-        http.Response.Headers.ETag = key is null ? tag : "W/" + tag;
+        var encoded = Encode(card, key);
+        http.Response.Headers.ETag = encoded.ETag;
         http.Response.Headers.CacheControl = $"public, max-age={(int)httpOptions.Value.AgentCardMaxAge.TotalSeconds}";
-        if (Matches(http.Request.Headers.IfNoneMatch, tag))
+        if (Matches(http.Request.Headers.IfNoneMatch, encoded.Tag))
         {
             http.Response.StatusCode = StatusCodes.Status304NotModified;
             return;
         }
-        var body = key is null ? unsigned : A2AJson.SerializeToUtf8Bytes(Sign(card, key));
         http.Response.ContentType = A2AProtocol.JsonMediaType;
-        await http.Response.Body.WriteAsync(body, http.RequestAborted).ConfigureAwait(false);
+        await http.Response.Body.WriteAsync(encoded.Body, http.RequestAborted).ConfigureAwait(false);
+    }
+
+    /// <summary>The body and tag of <paramref name="card"/> with <paramref name="key"/>, kept while the card instance lives.</summary>
+    private Encoded Encode(AgentCard card, AgentCardSigningKey? key)
+    {
+        if (_encoded.TryGetValue(card, out var cached) && ReferenceEquals(cached.Key, key)) return cached;
+        if (card.SupportedInterfaces.Count == 0)
+            throw new InvalidOperationException(
+                "The Agent Card lists no SupportedInterfaces and none could be completed from the mapped bindings. Map a binding with MapA2A, "
+                + "MapA2AJsonRpc, MapA2AHttpJson or MapA2AGrpc at a pattern without a {tenant} segment (on the application root, not on a group), "
+                + "or list the interfaces in A2AServerOptions.AgentCard.");
+        var unsigned = A2AJson.SerializeToUtf8Bytes(card);
+        var tag = OpaqueTag(unsigned, key);
+        var body = key is null ? unsigned : A2AJson.SerializeToUtf8Bytes(Sign(card, key));
+        // A signed card is equivalent, not byte-identical, across signings: a weak validator.
+        var encoded = new Encoded(key, body, tag, key is null ? tag : "W/" + tag);
+        _encoded.AddOrUpdate(card, encoded);
+        return encoded;
     }
 
     public async Task GetJwksAsync(HttpContext http)
@@ -74,7 +94,7 @@ internal sealed class AgentCardEndpoint(IServiceProvider services, IOptions<A2AS
 
     /// <summary>The tenant's key from the provider, else the host's key (<see cref="A2AHttpOptions.SigningKey"/>).</summary>
     private async ValueTask<AgentCardSigningKey?> SigningKeyAsync(string tenant, CancellationToken ct) =>
-        await _cards.GetSigningKeyAsync(tenant, ct).ConfigureAwait(false) ?? httpOptions.Value.SigningKey;
+        await cards.GetSigningKeyAsync(tenant, ct).ConfigureAwait(false) ?? httpOptions.Value.SigningKey;
 
     /// <summary>
     /// If-None-Match compares weakly (RFC 9110 §13.1.2): <c>W/"x"</c> and <c>"x"</c> both match the tag <c>"x"</c>, as does <c>*</c>.
@@ -130,7 +150,7 @@ internal sealed class AgentCardEndpoint(IServiceProvider services, IOptions<A2AS
             if (_signatures.Count >= MaxSignatures) _signatures.Clear();
             _signatures[cacheKey] = signature;
         }
-        var signed = A2AJson.Clone(card);
+        var signed = JsonSerializer.Deserialize(A2AJson.SerializeToUtf8Bytes(card), A2AJson.GetTypeInfo<AgentCard>())!; // a copy: the card is shared
         signed.Signatures = [.. card.Signatures ?? [], signature];
         return signed;
     }
@@ -141,6 +161,6 @@ internal sealed class AgentCardEndpoint(IServiceProvider services, IOptions<A2AS
         if (pruned.Count == 0) return;
         var paths = string.Join(", ", pruned);
         if (_warned.Count < MaxWarnings && _warned.TryAdd(paths, 0))
-            logger.LogWarning("Agent Card signature does not cover these empty values, which a2a-python/a2a-js canonicalization removes: {PrunedPaths}", paths);
+            AspNetCoreLog.CardSignatureSkipsPrunedValues(logger, paths);
     }
 }

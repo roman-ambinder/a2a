@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using A2A.Json;
 using Google.Protobuf;
@@ -10,42 +11,52 @@ namespace A2A.Grpc;
 /// <remarks>
 /// The conversion goes through ProtoJSON. The .NET model's JSON form is ProtoJSON by design (spec §5.5) and is exercised
 /// by the JSON-RPC/REST bindings and the cross-SDK interop tests, so one well-tested mapping serves all three bindings and
-/// cannot drift from the proto. The cost is one extra JSON encode/decode per message, which is small next to network I/O.
+/// cannot drift from the proto. The cost is one extra JSON encode/decode per message, which is small next to network I/O. Both directions stay in UTF-8 bytes; no whole-message UTF-16 string is built.
 /// </remarks>
 public static class ProtoMapper
 {
     private static readonly JsonFormatter Formatter = new(JsonFormatter.Settings.Default.WithFormatDefaultValues(false));
     private static readonly JsonParser Parser = new(JsonParser.Settings.Default.WithIgnoreUnknownFields(true));
 
+    private static readonly UTF8Encoding Utf8 = new(false);
+    private const int MaxRetainedBytes = 256 * 1024;
+
+    // One reusable buffer per thread. A buffer that grew past MaxRetainedBytes is dropped so one large message does not pin memory.
+    [ThreadStatic]
+    private static MemoryStream? t_buffer;
+
     /// <summary>Proto → model.</summary>
-    public static T ToModel<T>(IMessage proto)
-    {
-        ArgumentNullException.ThrowIfNull(proto);
-        try
-        {
-            return A2AJson.Deserialize<T>(Formatter.Format(proto));
-        }
-        catch (JsonException ex)
-        {
-            throw A2AException.InvalidParams($"Cannot map {proto.Descriptor.Name}: {ex.Message}");
-        }
-    }
+    public static T ToModel<T>(IMessage proto) => ToModelCore<T>(proto, maxDepth: 0);
 
     /// <summary>
     /// Proto → model for an incoming request: nesting deeper than <paramref name="maxDepth"/> (the request depth limit of the
     /// HTTP bindings, applied to the same JSON form) is InvalidParams.
     /// </summary>
-    public static T ToModel<T>(IMessage proto, int maxDepth)
+    public static T ToModel<T>(IMessage proto, int maxDepth) => ToModelCore<T>(proto, maxDepth);
+
+    /// <summary>Formats <paramref name="proto"/> as ProtoJSON into a reused UTF-8 buffer and reads the model from it. <paramref name="maxDepth"/> 0 means the reader's default.</summary>
+    private static T ToModelCore<T>(IMessage proto, int maxDepth)
     {
         ArgumentNullException.ThrowIfNull(proto);
+        var buffer = t_buffer ??= new MemoryStream();
+        buffer.SetLength(0);
         try
         {
-            using var doc = JsonDocument.Parse(Formatter.Format(proto), new JsonDocumentOptions { MaxDepth = maxDepth });
-            return A2AJson.Deserialize<T>(doc.RootElement);
+            // The writer encodes straight into UTF-8 bytes, so no UTF-16 string holds the whole message.
+            using (var writer = new StreamWriter(buffer, Utf8, 4096, leaveOpen: true))
+                Formatter.Format(proto, writer);
+            var json = new ReadOnlySpan<byte>(buffer.GetBuffer(), 0, (int)buffer.Length);
+            var reader = new Utf8JsonReader(json, new JsonReaderOptions { MaxDepth = maxDepth });
+            return JsonSerializer.Deserialize(ref reader, A2AJson.GetTypeInfo<T>()) ?? throw new JsonException($"Null {typeof(T).Name} payload.");
         }
         catch (JsonException ex)
         {
             throw A2AException.InvalidParams($"Cannot map {proto.Descriptor.Name}: {ex.Message}");
+        }
+        finally
+        {
+            if (buffer.Capacity > MaxRetainedBytes) t_buffer = null;
+            else buffer.SetLength(0);
         }
     }
 
@@ -56,7 +67,11 @@ public static class ProtoMapper
         ArgumentNullException.ThrowIfNull(model);
         try
         {
-            return Parser.Parse<TProto>(A2AJson.Serialize(model));
+            // The declared type's metadata writes the wire form (for unions, the member name).
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(model, A2AJson.GetTypeInfo<TModel>());
+            // JsonParser reads only a string or a TextReader; the reader decodes the UTF-8 in small chunks.
+            using var reader = new StreamReader(new MemoryStream(bytes, writable: false), Utf8);
+            return Parser.Parse<TProto>(reader);
         }
         catch (InvalidProtocolBufferException ex)
         {

@@ -76,8 +76,8 @@ internal sealed class PushRig
         return deliveries.Select(d => d with { Sequence = committed.Sequence }).ToList();
     }
 
-    public PushDeliveryService NewService(PushOutbox? outbox = null) => new(outbox ?? Outbox, Configs, Protector, new Factory(_hooks),
-        Microsoft.Extensions.Options.Options.Create(Options), logger: null, time: Time);
+    public PushDeliveryService NewService(PushOutbox? outbox = null) => new(outbox ?? Outbox, Configs, Protector,
+        new HttpMessageInvoker(_hooks, disposeHandler: false), Options, logger: null, time: Time);
 
     /// <summary>Runs passes, moving the clock past every backoff, until the outbox is empty.</summary>
     public async Task DrainAsync(PushDeliveryService service)
@@ -88,11 +88,6 @@ internal sealed class PushRig
             Time.Advance(Options.PushDelivery.MaxBackoff * 2);
         }
         Assert.Equal(0, Outbox.Count);
-    }
-
-    private sealed class Factory(HttpMessageHandler handler) : IHttpClientFactory
-    {
-        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
     }
 }
 
@@ -402,7 +397,7 @@ public class PushOutboxTests
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, l) =>
         {
-            if (instrument.Meter.Name == "A2A" && instrument.Name is PushDeliveryService.DeliveriesCounterName or PushDeliveryService.DeadLettersCounterName)
+            if (instrument.Meter.Name == A2A.Diagnostics.A2ATelemetry.ServerMeterName && instrument.Name is PushDeliveryService.DeliveriesCounterName or PushDeliveryService.DeadLettersCounterName)
                 l.EnableMeasurementEvents(instrument);
         };
         listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
@@ -410,7 +405,7 @@ public class PushOutboxTests
             lock (outcomes)
             {
                 if (instrument.Name == PushDeliveryService.DeadLettersCounterName) deadLetters += value;
-                else foreach (var t in tags) if (t.Key == "outcome") outcomes.Add((string)t.Value!);
+                else foreach (var t in tags) if (t.Key == A2A.Diagnostics.A2ATelemetry.Tags.Outcome) outcomes.Add((string)t.Value!);
             }
         });
         listener.Start();
@@ -587,13 +582,13 @@ public class PushOutboxTests
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, l) =>
         {
-            if (instrument.Meter.Name == "A2A" && instrument.Name == PushDeliveryService.DeliveriesCounterName) l.EnableMeasurementEvents(instrument);
+            if (instrument.Meter.Name == A2A.Diagnostics.A2ATelemetry.ServerMeterName && instrument.Name == PushDeliveryService.DeliveriesCounterName) l.EnableMeasurementEvents(instrument);
         };
         listener.SetMeasurementEventCallback<long>((_, value, tags, _) =>
         {
             foreach (var tag in tags)
             {
-                if (tag.Key != "outcome") continue;
+                if (tag.Key != A2A.Diagnostics.A2ATelemetry.Tags.Outcome) continue;
                 if ((string?)tag.Value == "sent") Interlocked.Add(ref sent, value);
                 if ((string?)tag.Value == "retried") Interlocked.Add(ref retried, value);
             }

@@ -11,7 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace A2A.Tests;
 
 /// <summary>Two agents on one host: "acme" (streaming and push on, own signing key) and "globex" (both off, global key).</summary>
-public sealed class TenantCards : AgentCardProvider
+public sealed class TenantCards : TenantCardProvider
 {
     public static readonly AgentCardSigningKey AcmeKey = new(ECDsa.Create(ECCurve.NamedCurves.nistP256), "acme-key", "ES256");
 
@@ -72,7 +72,7 @@ public class MultiAgentTests : IAsyncLifetime
 
     public async Task InitializeAsync() => _host = await TestAgentHost.StartAsync(
         configureHttp: h => h.SigningKey = GlobalKey,
-        services: s => s.AddA2AServer().AddAgentCardProvider<TenantCards>().AddAgentExecutorResolver<TenantAgents>(),
+        services: s => s.AddA2AServer().AddTenantCardProvider<TenantCards>().AddAgentExecutorResolver<TenantAgents>(),
         grpc: true);
 
     public async Task DisposeAsync() => await _host.DisposeAsync();
@@ -259,7 +259,7 @@ public class MultiAgentTests : IAsyncLifetime
 /// <summary>Card details that only some tenants have: a required extension, another auth scheme.</summary>
 public class MultiAgentCardDetailsTests
 {
-    private sealed class Cards : AgentCardProvider
+    private sealed class Cards : TenantCardProvider
     {
         public override ValueTask<AgentCard?> GetCardAsync(AgentRequestScope scope, CancellationToken cancellationToken)
         {
@@ -276,7 +276,7 @@ public class MultiAgentCardDetailsTests
     [InlineData(ProtocolBindings.Grpc)]
     public async Task Required_extensions_come_from_the_tenants_card(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2AServer().AddAgentCardProvider<Cards>(), grpc: true);
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2AServer().AddTenantCardProvider<Cards>(), grpc: true);
         var strict = host.Client(binding, options: new A2AClientOptions { Tenant = "strict" });
         Assert.Equal(A2AErrorCode.ExtensionSupportRequired, (await Assert.ThrowsAsync<A2AException>(() => strict.SendMessageAsync("hello"))).Code);
         var withExtension = host.Client(binding, options: new A2AClientOptions { Tenant = "strict", Extensions = ["urn:must"] });
@@ -289,7 +289,7 @@ public class MultiAgentCardDetailsTests
     public async Task The_authentication_challenge_names_the_tenants_scheme()
     {
         await using var host = await TestAgentHost.StartAsync(o => o.AllowAnonymous = true,
-            services: s => s.AddA2AServer().AddAgentCardProvider<Cards>(), requireAuth: false);
+            services: s => s.AddA2AServer().AddTenantCardProvider<Cards>(), requireAuth: false);
         var http = host.Http();
         async Task<string> Challenge(string path)
         {
@@ -305,7 +305,7 @@ public class MultiAgentCardDetailsTests
 }
 
 /// <summary>A card provider whose behaviour tests change at runtime: counts calls, can block or throw for one tenant.</summary>
-public sealed class ControlledCards : AgentCardProvider
+public sealed class ControlledCards : TenantCardProvider
 {
     private int _calls;
     public int Calls => Volatile.Read(ref _calls);
@@ -360,7 +360,7 @@ public class MultiAgentResolutionTests : IAsyncLifetime
     public async Task InitializeAsync() => _host = await TestAgentHost.StartAsync(services: s =>
     {
         s.AddA2AServer();
-        s.AddSingleton<AgentCardProvider>(_cards);
+        s.AddSingleton<TenantCardProvider>(_cards);
         s.AddSingleton<AgentExecutorResolver>(_agents);
     }, grpc: true);
 
@@ -472,7 +472,7 @@ public class MultiAgentResolutionTests : IAsyncLifetime
     [Fact]
     public async Task A_slow_card_provider_holds_no_task_lock_during_a_system_commit()
     {
-        var handler = _host.Handler;
+        var handler = _host.Engine;
         var slowKey = await StoreInterruptedTaskAsync("slow", "t-slow");
         // A task of another tenant on the same lock stripe.
         var other = Enumerable.Range(0, 10_000).Select(i => "t-other-" + i)
@@ -503,7 +503,7 @@ public class MultiAgentResolutionTests : IAsyncLifetime
         var sent = _host.Webhooks.Calls.Count;
 
         _cards.FailingTenant = "flaky";
-        Assert.True(await _host.Handler.CommitSystemStatusAsync(new Server.Storage.TaskKey("flaky", "alice", task.Id), TaskState.Canceled, "timed out"));
+        Assert.True(await _host.Engine.CommitSystemStatusAsync(new Server.Storage.TaskKey("flaky", "alice", task.Id), TaskState.Canceled, "timed out"));
         await _host.WaitIdleAsync();
         Assert.Equal(sent, _host.Webhooks.Calls.Count);
         _cards.FailingTenant = null;

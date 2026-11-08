@@ -4,7 +4,7 @@ using System.Text.Json;
 using A2A.Client;
 using A2A.Client.Transports;
 using A2A.Json;
-using A2A.Net;
+using A2A.Security.Http;
 
 namespace A2A.Tests;
 
@@ -123,7 +123,7 @@ public class InteropHardeningTests
         var body = new MemoryStream();
         http.Response.Body = body;
         var primed = await A2A.Server.AspNetCore.HttpPlumbing.PrimeAsync(OneEventThenFail(), TimeSpan.Zero, null, CancellationToken.None);
-        await A2A.Server.AspNetCore.HttpPlumbing.PumpAsync(http, primed!, A2AJson.SerializeToUtf8Bytes,
+        await A2A.Server.AspNetCore.HttpPlumbing.PumpAsync(http, primed!, evt => A2A.Server.Streaming.EventEncoder.EnsureEncoded(evt).Json,
             _ => Encoding.UTF8.GetBytes("""{"error":{"code":13}}"""), TimeSpan.Zero,
             Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, errorEventType);
         return Encoding.UTF8.GetString(body.ToArray());

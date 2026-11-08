@@ -83,22 +83,24 @@ internal sealed class GrpcHost : IAsyncDisposable
     /// <param name="aspNetCore">Calls <c>AddA2AServerAspNetCore()</c>.</param>
     /// <param name="configureEndpoints">Runs on the gRPC endpoint convention builder after mapping.</param>
     /// <param name="configurePipeline">Runs first in the request pipeline.</param>
+    /// <param name="server">Extra server registrations on the <see cref="A2AServerBuilder"/> (filters, stores).</param>
     public static async Task<GrpcHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<IServiceCollection>? services = null,
         bool requireAuth = true, bool useA2A = true, bool aspNetCore = true,
-        Action<IEndpointConventionBuilder>? configureEndpoints = null, Action<WebApplication>? configurePipeline = null)
+        Action<IEndpointConventionBuilder>? configureEndpoints = null, Action<WebApplication>? configurePipeline = null,
+        Action<A2AServerBuilder>? server = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, HeaderAuthHandler>("Test", null);
         builder.Services.AddAuthorization();
-        builder.Services.AddA2AServer(o =>
+        var a2a = builder.Services.AddA2AServer(o =>
         {
             o.AgentCard = Card();
             o.CancelGracePeriod = TimeSpan.FromSeconds(2);
             o.PushNotifications.AllowInsecureUrls = true;
             o.PushNotifications.AllowPrivateNetworks = true;
-            o.ExtendedAgentCardProvider = (call, _) =>
+            o.ExtendedAgentCardProvider = (call, _, _) =>
             {
                 var c = Card();
                 c.Description = $"Extended for {call.Principal}";
@@ -106,6 +108,7 @@ internal sealed class GrpcHost : IAsyncDisposable
             };
             configure?.Invoke(o);
         }).AddAgentExecutor<ScenarioAgent>();
+        server?.Invoke(a2a);
         if (aspNetCore) builder.Services.AddA2AServerAspNetCore();
         builder.Services.AddA2AGrpc();
         services?.Invoke(builder.Services);
@@ -114,6 +117,7 @@ internal sealed class GrpcHost : IAsyncDisposable
         app.UseAuthentication();
         if (useA2A) app.UseA2A();
         app.UseAuthorization();
+        app.MapAgentCard();
         var grpc = app.MapA2AGrpc();
         if (requireAuth) grpc.RequireAuthorization();
         configureEndpoints?.Invoke(grpc);
@@ -135,6 +139,14 @@ internal sealed class GrpcHost : IAsyncDisposable
         if (user is not null) handler = new UserHandler(user) { InnerHandler = handler };
         return GrpcChannel.ForAddress(_app.GetTestServer().BaseAddress, new GrpcChannelOptions { HttpHandler = handler, MaxSendMessageSize = null });
     }
+
+    public HttpMessageHandler Handler(string? user = null)
+    {
+        HttpMessageHandler handler = _app.GetTestServer().CreateHandler();
+        return user is null ? handler : new UserHandler(user) { InnerHandler = handler };
+    }
+
+    public Uri BaseAddress => _app.GetTestServer().BaseAddress;
 
     /// <summary>A raw generated client (no A2A metadata is added for you).</summary>
     public Lf.A2a.V1.A2AService.A2AServiceClient Raw(string? user = "alice") => new(Channel(user));

@@ -10,9 +10,9 @@ Retention is **opt-in**: without `services.AddA2ARetention()` nothing is purged,
 
 Push delivery is a durable outbox sent by `PushDeliveryService` (`A2AServerOptions.PushDelivery`); failed deliveries are listed and re-driven with `A2APushAdmin`. Webhooks can be signed (Standard Webhooks): register the push config with scheme `webhook-signature` and a `whsec_` secret, and verify with `PushNotificationReceiver.VerifySignature` from `RomanAmbinder.A2A.Client`.
 
-Many agents in one host: `AddAgentCardProvider<T>()` and `AddAgentExecutorResolver<T>()` pick the card and executor per tenant. The SDK does not cache cards across requests, so cache in your provider.
+Many agents in one host: `AddTenantCardProvider<T>()` and `AddAgentExecutorResolver<T>()` pick the card and executor per tenant; the `IAgentCardProvider` completes each tenant's card (kept per card instance), so cache in your provider if building a card is expensive.
 
-Upgrading: `IPushNotificationSender` is gone, `MaxAttempts` and `InitialBackoff` moved to `PushDelivery`, and custom stores have new abstract members (`TaskStore.CommitAsync` and more), `InMemoryTaskStore` and `PostgresTaskStore` have new constructors, `WithA2AStartupCheck` is internal, and the push HttpClient name constant is now `PushDeliveryService.HttpClientName` (same value). See the repository README, "Upgrading from 0.x / P0".
+Upgrading: `IPushNotificationSender` is gone, `MaxAttempts` and `InitialBackoff` moved to `PushDelivery`, and custom stores have new abstract members (`TaskStore.CommitAsync` and more), `InMemoryTaskStore` and `PostgresTaskStore` have new constructors, and webhooks go through the keyed `HttpMessageInvoker` `PushDeliveryService.InvokerServiceKey` (same value as before). See the repository README, "Upgrading from 0.x / P0".
 
 Tracing: spans on the `A2A.Server` `ActivitySource` (one per operation, agent run and webhook delivery); see [Observability](https://github.com/roman-ambinder/a2a#observability).
 

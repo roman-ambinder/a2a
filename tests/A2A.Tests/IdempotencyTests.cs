@@ -306,7 +306,7 @@ public class IdempotencyTests
             return _inner.LastSequenceAsync(task, ct);
         }
 
-        public override ValueTask<long> AppendAsync(Server.Storage.TaskKey task, StreamResponse evt, CancellationToken ct = default) => _inner.AppendAsync(task, evt, ct);
+        public override ValueTask<long> AppendAsync(Server.Storage.TaskKey task, Server.Streaming.SequencedEvent evt, CancellationToken ct = default) => _inner.AppendAsync(task, evt, ct);
 
         public override IAsyncEnumerable<Server.Streaming.SequencedEvent> ReadAfterAsync(Server.Storage.TaskKey task, long afterSequence, CancellationToken ct = default) =>
             _inner.ReadAfterAsync(task, afterSequence, ct);

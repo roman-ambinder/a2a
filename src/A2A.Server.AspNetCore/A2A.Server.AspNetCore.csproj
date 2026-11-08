@@ -11,7 +11,5 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="A2A.Tests" />
-    <!-- The gRPC binding (separate package, released together) reuses the call-context, error, registry and rate-limit plumbing. -->
-    <InternalsVisibleTo Include="A2A.Server.Grpc" />
   </ItemGroup>
 </Project>

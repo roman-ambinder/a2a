@@ -16,29 +16,34 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
 
     private readonly string _baseUrl;
 
+    /// <summary>Creates the transport for the HTTP+JSON endpoint at <paramref name="baseUrl"/>. <paramref name="options"/> defaults to a new <see cref="A2AClientOptions"/>.</summary>
     public HttpJsonTransport(HttpClient httpClient, Uri baseUrl, A2AClientOptions? options = null) : base(httpClient, options)
     {
         _baseUrl = (baseUrl ?? throw new ArgumentNullException(nameof(baseUrl))).AbsoluteUri.TrimEnd('/');
     }
 
+    /// <inheritdoc />
     public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var key = PrepareSend(request, options);
         return SendAsync<SendMessageResponse>(HttpMethod.Post, Path(request.Tenant, "/message:send"), request, RetryMode.UnsentOnly, options, key, cancellationToken);
     }
 
+    /// <inheritdoc />
     public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         StreamAsync(HttpMethod.Post, Path(request.Tenant, "/message:stream"), request, options, PrepareSend(request, options), null, cancellationToken).Unframe(cancellationToken);
 
     IAsyncEnumerable<StreamFrame> IResumableTransport.SendStreamingFramesAsync(SendMessageRequest request, A2ARequestOptions? options, CancellationToken cancellationToken) =>
         StreamAsync(HttpMethod.Post, Path(request.Tenant, "/message:stream"), request, options, PrepareSend(request, options), null, cancellationToken);
 
+    /// <inheritdoc />
     public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var q = new Query().Add("historyLength", request.HistoryLength);
         return SendAsync<AgentTask>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.Id)}") + q, null, RetryMode.Idempotent, options, null, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var q = new Query()
@@ -52,9 +57,11 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
         return SendAsync<ListTasksResponse>(HttpMethod.Get, Path(request.Tenant, "/tasks") + q, null, RetryMode.Idempotent, options, null, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendAsync<AgentTask>(HttpMethod.Post, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:cancel"), request, RetryMode.Idempotent, options, null, cancellationToken);
 
+    /// <inheritdoc />
     public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         ((IResumableTransport)this).SubscribeToTaskAsync(request, options, null, cancellationToken).Unframe(cancellationToken);
 
@@ -65,18 +72,22 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
         return StreamAsync(method, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:subscribe"), method == HttpMethod.Get ? null : request, options, null, lastEventId, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendAsync<TaskPushNotificationConfig>(HttpMethod.Post, Path(config.Tenant, $"/tasks/{Esc(config.TaskId)}/pushNotificationConfigs"), config, RetryMode.None, options, null, cancellationToken);
 
+    /// <inheritdoc />
     public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendAsync<TaskPushNotificationConfig>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.TaskId)}/pushNotificationConfigs/{Esc(request.Id)}"), null, RetryMode.Idempotent, options, null, cancellationToken);
 
+    /// <inheritdoc />
     public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var q = new Query().Add("pageSize", request.PageSize).Add("pageToken", request.PageToken);
         return SendAsync<ListTaskPushNotificationConfigsResponse>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.TaskId)}/pushNotificationConfigs") + q, null, RetryMode.Idempotent, options, null, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         ExecuteUnaryAsync(RetryMode.None, options, async attemptCt =>
         {
@@ -87,6 +98,7 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
             return true;
         }, cancellationToken);
 
+    /// <inheritdoc />
     public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendAsync<AgentCard>(HttpMethod.Get, Path(request.Tenant, "/extendedAgentCard"), null, RetryMode.Idempotent, options, null, cancellationToken);
 
@@ -106,8 +118,11 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
             await ApplyHeadersAsync(req, streaming: false, call, key, attemptCt).ConfigureAwait(false);
             using var resp = await SendCheckedAsync(req, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, attemptCt).ConfigureAwait(false);
-            var text = await resp.Content.ReadAsStringAsync(attemptCt).ConfigureAwait(false);
-            try { return A2AJson.Deserialize<T>(text); }
+            try
+            {
+                return await ResponseBody.DeserializeAsync<T>(resp.Content, attemptCt).ConfigureAwait(false)
+                    ?? throw new JsonException($"Null {typeof(T).Name} payload.");
+            }
             catch (JsonException ex) { throw ProtocolError($"Malformed {typeof(T).Name} in agent response: {ex.Message}", ex); }
         }, ct);
 
@@ -126,29 +141,54 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
             StreamResponse? item = null;
             try
             {
-                using var doc = JsonDocument.Parse(evt.Data);
-                var root = doc.RootElement;
-                if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("error", out var err)) throw ParseStatus(err, null);
-                // A2A #1262: some servers name error frames "error" and send a bare google.rpc.Status.
-                if (string.Equals(evt.EventType, "error", StringComparison.Ordinal))
-                    throw root.ValueKind == JsonValueKind.Object ? ParseStatus(root, null) : ProtocolError($"Stream error: {evt.Data}");
-                // A2A #2269: an event of a type this SDK does not know (a newer protocol version) is skipped, not fatal.
-                if (IsKnownStreamEvent(root)) item = root.Deserialize(A2AJson.GetTypeInfo<StreamResponse>()) ?? throw ProtocolError("Empty stream event.");
+                item = ParseStreamEvent(evt.Data, evt.EventType);
             }
             catch (JsonException ex) { throw ProtocolError($"Malformed stream event: {ex.Message}", ex); }
             if (item is not null) yield return new StreamFrame(item, evt.FrameId);
         }
     }
 
-    /// <summary>Parses a google.rpc.Status error body (spec §11.6).</summary>
+    // "error" first: ParseStreamEvent reads found[0] as the error member and the rest as the known event members.
+    private static readonly byte[][] EventMembers =
+        ["error"u8.ToArray(), "task"u8.ToArray(), "message"u8.ToArray(), "statusUpdate"u8.ToArray(), "artifactUpdate"u8.ToArray()];
+
+    /// <summary>
+    /// One stream event, or null for an event of a type this SDK does not know (A2A #2269: a newer protocol version; skipped,
+    /// not fatal). A google.rpc.Status <c>error</c> member, or a frame named <c>error</c> (A2A #1262: a bare google.rpc.Status),
+    /// is thrown. The common case (an object with a known member and no <c>error</c>) binds straight from the event's UTF-8
+    /// bytes; the rest takes the <see cref="JsonDocument"/> path, so malformed events fail exactly as before.
+    /// </summary>
+    private static StreamResponse? ParseStreamEvent(string data, string? eventType)
+    {
+        var errorFrame = string.Equals(eventType, "error", StringComparison.Ordinal);
+        if (!errorFrame)
+        {
+            using var bytes = ResponseBody.FromString(data);
+            Span<(int Start, int End)> found = stackalloc (int, int)[5];
+            if (JsonMembers.TryScan(bytes.Span, EventMembers, found, out var root, out var isObject) && isObject && found[0].Start < 0)
+            {
+                var known = found[1].Start >= 0 || found[2].Start >= 0 || found[3].Start >= 0 || found[4].Start >= 0;
+                return known ? JsonSerializer.Deserialize(bytes.Span[root], A2AJson.GetTypeInfo<StreamResponse>()) ?? throw ProtocolError("Empty stream event.") : null;
+            }
+        }
+        using var doc = JsonDocument.Parse(data);
+        var element = doc.RootElement;
+        if (element.ValueKind == JsonValueKind.Object && element.TryGetProperty("error", out var err)) throw ParseStatus(err, null);
+        if (errorFrame) throw element.ValueKind == JsonValueKind.Object ? ParseStatus(element, null) : ProtocolError($"Stream error: {data}");
+        if (!IsKnownStreamEvent(element)) return null;
+        return element.Deserialize(A2AJson.GetTypeInfo<StreamResponse>()) ?? throw ProtocolError("Empty stream event.");
+    }
+
+    /// <summary>Parses a google.rpc.Status error body (spec §11.6) from its bytes; the text is read only for a non-A2A error.</summary>
     private static async Task<A2AException> ReadErrorAsync(HttpResponseMessage resp, CancellationToken ct)
     {
-        var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        if (IsJson(resp) && !string.IsNullOrWhiteSpace(body))
+        await ResponseBody.BufferAsync(resp.Content, ct).ConfigureAwait(false);
+        if (IsJson(resp))
         {
+            using var body = await ResponseBody.ReadUtf8Async(resp.Content, ct).ConfigureAwait(false);
             try
             {
-                using var doc = JsonDocument.Parse(body);
+                using var doc = JsonDocument.Parse(body.Memory);
                 if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("error", out var err))
                     return ParseStatus(err, resp);
             }
@@ -157,7 +197,7 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
                 // fall through
             }
         }
-        return HttpError(resp, body);
+        return HttpError(resp, await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
     }
 
     private static A2AException ParseStatus(JsonElement err, HttpResponseMessage? resp)

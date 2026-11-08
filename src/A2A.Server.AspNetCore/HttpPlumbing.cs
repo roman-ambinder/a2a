@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using A2A.Diagnostics;
@@ -12,7 +13,7 @@ using Microsoft.Extensions.Primitives;
 
 namespace A2A.Server.AspNetCore;
 
-internal static class HttpPlumbing
+internal static partial class HttpPlumbing
 {
     public static ServerCallContext CreateCallContext(HttpContext http, string? binding)
     {
@@ -98,7 +99,7 @@ internal static class HttpPlumbing
             case BadHttpRequestException bad:
                 return new A2AException(A2AErrorCode.InvalidRequest, bad.Message);
             default:
-                logger.LogError(ex, "Unhandled error in A2A endpoint");
+                AspNetCoreLog.UnhandledError(logger, ex);
                 return includeDetails
                     ? new A2AException(A2AErrorCode.Internal, $"{A2AErrors.DefaultMessage(A2AErrorCode.Internal)}: {ex.GetType().Name}: {ex.Message}")
                     : new A2AException(A2AErrorCode.Internal);
@@ -114,15 +115,30 @@ internal static class HttpPlumbing
 
     /// <summary>
     /// For an Unauthenticated error, sets <c>WWW-Authenticate</c> to the first HTTP auth scheme of the card of the call's tenant
-    /// (else <c>Bearer</c>).
+    /// (else <c>Bearer</c>). The card comes from the <see cref="IAgentCardProvider"/>; a tenant without a card, or a provider that
+    /// fails, falls back to the host's card (and to <c>Bearer</c> when that cannot be built either). Never throws.
     /// </summary>
-    public static async ValueTask SetAuthChallengeAsync(HttpContext http, A2AException ex, A2ARequestHandler handler, ServerCallContext call)
+    public static async ValueTask SetAuthChallengeAsync(HttpContext http, A2AException ex, ServerCallContext call)
     {
         if (ex.Code != A2AErrorCode.Unauthenticated || http.Response.HasStarted) return;
-        var card = await handler.ChallengeCardAsync(call, http.RequestAborted).ConfigureAwait(false);
+        var card = await ChallengeCardAsync(http, call).ConfigureAwait(false);
         if (http.Response.HasStarted) return;
-        var scheme = card.SecuritySchemes?.Values.Select(s => (s as HttpAuthScheme)?.Value.Scheme).FirstOrDefault(s => s is not null) ?? "Bearer";
+        var scheme = card?.SecuritySchemes?.Values.Select(s => (s as HttpAuthScheme)?.Value.Scheme).FirstOrDefault(s => s is not null) ?? "Bearer";
         http.Response.Headers.WWWAuthenticate = new StringValues(scheme);
+    }
+
+    private static async ValueTask<AgentCard?> ChallengeCardAsync(HttpContext http, ServerCallContext call)
+    {
+        if (http.RequestServices.GetService<IAgentCardProvider>() is not { } cards) return null;
+        try
+        {
+            return await cards.GetAsync(new Agents.AgentRequestScope(call.Tenant, call.RouteValues), http.RequestAborted).ConfigureAwait(false) ?? cards.Get();
+        }
+        catch (Exception)
+        {
+            try { return cards.Get(); }
+            catch (InvalidOperationException) { return null; } // no host card either (one agent per tenant)
+        }
     }
 
     public static void StartEventStream(HttpContext http)
@@ -134,11 +150,10 @@ internal static class HttpPlumbing
         http.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()?.DisableBuffering();
     }
 
-    private static readonly byte[] IdPrefix = "id: "u8.ToArray();
-    private static readonly byte[] EventPrefix = "event: "u8.ToArray();
-    private static readonly byte[] DataPrefix = "data: "u8.ToArray();
-    private static readonly byte[] LineEnd = "\n"u8.ToArray();
-    private static readonly byte[] EventSuffix = "\n\n"u8.ToArray();
+    private static ReadOnlySpan<byte> EventPrefix => "event: "u8;
+    private static ReadOnlySpan<byte> IdPrefix => "id: "u8;
+    private static ReadOnlySpan<byte> DataPrefix => "data: "u8;
+    private static ReadOnlySpan<byte> EventSuffix => "\n\n"u8;
     private static readonly byte[] KeepAlive = ": ka\n\n"u8.ToArray();
 
     /// <summary>The header a reconnecting SSE client sends with the id of the last event it saw.</summary>
@@ -164,28 +179,51 @@ internal static class HttpPlumbing
         : UnusableCursor;
 
     /// <summary>
-    /// Writes one SSE frame. <paramref name="id"/> null writes no <c>id:</c> line; <paramref name="eventType"/> null writes
-    /// no <c>event:</c> line.
+    /// Writes one SSE frame (<c>event: {eventType}\n</c>, <c>id: {id}\n</c>, <c>data: {json}\n\n</c>) with a single write, then
+    /// flushes. <paramref name="id"/> null writes no <c>id:</c> line; <paramref name="eventType"/> null writes no <c>event:</c>
+    /// line. The frame is built in a pooled buffer that is returned after the write.
     /// </summary>
-    public static async Task WriteEventAsync(HttpContext http, string? id, byte[] json, string? eventType = null)
+    public static async Task WriteEventAsync(HttpContext http, string? id, ReadOnlyMemory<byte> json, string? eventType = null)
     {
-        var body = http.Response.Body;
+        var length = (eventType is null ? 0 : EventPrefix.Length + Encoding.UTF8.GetByteCount(eventType) + 1)
+            + (id is null ? 0 : IdPrefix.Length + Encoding.UTF8.GetByteCount(id) + 1) + DataPrefix.Length + json.Length + EventSuffix.Length;
+        var frame = ArrayPool<byte>.Shared.Rent(length);
+        try
+        {
+            var written = BuildFrame(frame, eventType, id, json.Span);
+            var body = http.Response.Body;
+            await body.WriteAsync(frame.AsMemory(0, written), http.RequestAborted).ConfigureAwait(false);
+            await body.FlushAsync(http.RequestAborted).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(frame);
+        }
+    }
+
+    private static int BuildFrame(Span<byte> frame, string? eventType, string? id, ReadOnlySpan<byte> json)
+    {
+        var at = 0;
         if (eventType is not null)
         {
-            await body.WriteAsync(EventPrefix, http.RequestAborted).ConfigureAwait(false);
-            await body.WriteAsync(Encoding.UTF8.GetBytes(eventType), http.RequestAborted).ConfigureAwait(false);
-            await body.WriteAsync(LineEnd, http.RequestAborted).ConfigureAwait(false);
+            EventPrefix.CopyTo(frame);
+            at = EventPrefix.Length;
+            at += Encoding.UTF8.GetBytes(eventType, frame[at..]);
+            frame[at++] = (byte)'\n';
         }
         if (id is not null)
         {
-            await body.WriteAsync(IdPrefix, http.RequestAborted).ConfigureAwait(false);
-            await body.WriteAsync(Encoding.UTF8.GetBytes(id), http.RequestAborted).ConfigureAwait(false);
-            await body.WriteAsync(LineEnd, http.RequestAborted).ConfigureAwait(false);
+            IdPrefix.CopyTo(frame[at..]);
+            at += IdPrefix.Length;
+            at += Encoding.UTF8.GetBytes(id, frame[at..]);
+            frame[at++] = (byte)'\n';
         }
-        await body.WriteAsync(DataPrefix, http.RequestAborted).ConfigureAwait(false);
-        await body.WriteAsync(json, http.RequestAborted).ConfigureAwait(false);
-        await body.WriteAsync(EventSuffix, http.RequestAborted).ConfigureAwait(false);
-        await body.FlushAsync(http.RequestAborted).ConfigureAwait(false);
+        DataPrefix.CopyTo(frame[at..]);
+        at += DataPrefix.Length;
+        json.CopyTo(frame[at..]);
+        at += json.Length;
+        EventSuffix.CopyTo(frame[at..]);
+        return at + EventSuffix.Length;
     }
 
     public static async Task WriteKeepAliveAsync(HttpContext http)
@@ -227,9 +265,9 @@ internal static class HttpPlumbing
     /// nothing to send yet) or after <paramref name="keepAlive"/> (1 second when keep-alives are off), so a quiet stream
     /// still starts. Returns null if the sequence is empty.
     /// </summary>
-    public static async Task<PrimedStream?> PrimeAsync(IAsyncEnumerable<SequencedEvent> source, TimeSpan keepAlive, Task? startNow, CancellationToken ct)
+    public static async Task<PrimedStream?> PrimeAsync(IAsyncEnumerable<SequencedEvent> source, TimeSpan keepAlive, Task? startNow, CancellationToken cancellationToken)
     {
-        var e = source.GetAsyncEnumerator(ct);
+        var e = source.GetAsyncEnumerator(cancellationToken);
         Task<bool>? first = null;
         try
         {
@@ -237,7 +275,7 @@ internal static class HttpPlumbing
             if (!first.IsCompleted)
             {
                 var patience = keepAlive > TimeSpan.Zero ? keepAlive : DefaultPrimePatience;
-                using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var delay = Task.Delay(patience, delayCts.Token);
                 await (startNow is null ? Task.WhenAny(first, delay) : Task.WhenAny(first, delay, startNow)).ConfigureAwait(false);
                 delayCts.Cancel();
@@ -258,7 +296,12 @@ internal static class HttpPlumbing
     /// Writes the primed stream as SSE, with an <c>id:</c> line on every stored task event and keep-alive comments when idle.
     /// Always disposes the enumerator, which releases the stream's resources (for example its stream slot).
     /// </summary>
-    public static async Task PumpAsync(HttpContext http, PrimedStream stream, Func<StreamResponse, byte[]> encode,
+    /// <remarks>
+    /// <paramref name="encode"/> returns the <c>data:</c> payload of an event (for example its stored <see cref="SequencedEvent.Json"/>).
+    /// A failure after the stream started is written as one last frame (<paramref name="encodeError"/>), named
+    /// <paramref name="errorEventType"/> when set.
+    /// </remarks>
+    public static async Task PumpAsync(HttpContext http, PrimedStream stream, Func<SequencedEvent, ReadOnlyMemory<byte>> encode,
         Func<Exception, byte[]> encodeError, TimeSpan keepAlive, ILogger logger, string? errorEventType = null)
     {
         var e = stream.Events;
@@ -282,7 +325,8 @@ internal static class HttpPlumbing
                     await WriteKeepAliveAsync(http).ConfigureAwait(false);
                 }
                 if (!await next.ConfigureAwait(false)) break;
-                await WriteEventAsync(http, EventId(e.Current), encode(e.Current.Event)).ConfigureAwait(false);
+                var current = e.Current;
+                await WriteEventAsync(http, EventId(current), encode(current)).ConfigureAwait(false);
                 next = e.MoveNextAsync().AsTask();
             }
         }
@@ -293,7 +337,7 @@ internal static class HttpPlumbing
         catch (Exception ex)
         {
             try { await WriteEventAsync(http, null, encodeError(ex), errorEventType).ConfigureAwait(false); }
-            catch (Exception writeEx) { logger.LogDebug(writeEx, "Could not write stream error event"); }
+            catch (Exception writeEx) { AspNetCoreLog.StreamErrorWriteFailed(logger, writeEx); }
         }
         finally
         {
@@ -314,90 +358,4 @@ internal static class HttpPlumbing
         }
         await e.DisposeAsync().ConfigureAwait(false);
     }
-
-    /// <summary>Reads the request body. More than <paramref name="maxBytes"/> bytes is <see cref="A2AException.PayloadTooLarge"/> (HTTP 413).</summary>
-    public static async Task<byte[]> ReadBodyAsync(HttpRequest request, long maxBytes)
-    {
-        if (request.ContentLength > maxBytes) throw A2AException.PayloadTooLarge(maxBytes);
-        using var ms = new MemoryStream();
-        var buffer = new byte[16 * 1024];
-        int read;
-        while ((read = await request.Body.ReadAsync(buffer, request.HttpContext.RequestAborted).ConfigureAwait(false)) > 0)
-        {
-            if (ms.Length + read > maxBytes) throw A2AException.PayloadTooLarge(maxBytes);
-            ms.Write(buffer, 0, read);
-        }
-        return ms.ToArray();
-    }
-
-    /// <summary>
-    /// Parses a request body once, enforcing <paramref name="maxDepth"/> and rejecting duplicate property names. Valid JSON that
-    /// breaks a limit is InvalidParams (<see cref="A2AException"/>). Malformed JSON throws <see cref="JsonException"/>.
-    /// On .NET 10 the parser rejects duplicates itself. On .NET 8 it cannot, so <see cref="ContainsDuplicateProperties"/> checks after the parse.
-    /// </summary>
-    public static JsonDocument ParseBody(byte[] body, int maxDepth)
-    {
-        try
-        {
-#if NET10_0_OR_GREATER
-            return JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = maxDepth, AllowDuplicateProperties = false });
-#else
-            var doc = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = maxDepth });
-            if (!ContainsDuplicateProperties(body, maxDepth)) return doc;
-            doc.Dispose();
-            throw A2AException.InvalidParams("Invalid request body: duplicate property names are not allowed");
-#endif
-        }
-        catch (JsonException ex) when (IsWellFormed(body))
-        {
-            throw A2AException.InvalidParams($"Invalid request body: {ex.Message}");
-        }
-    }
-
-    /// <summary>Failure path only: tells a limit violation (valid JSON) from a syntax error. Nesting beyond 1024 counts as malformed.</summary>
-    private static bool IsWellFormed(byte[] body)
-    {
-        try
-        {
-            using var _ = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = 1024 });
-            return true;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// True when any JSON object in <paramref name="json"/> repeats a property name (compared after unescaping, case sensitive).
-    /// Used on .NET 8, whose parser accepts duplicates and silently keeps the last value. Throws <see cref="JsonException"/>
-    /// for malformed JSON or nesting deeper than <paramref name="maxDepth"/>.
-    /// </summary>
-    internal static bool ContainsDuplicateProperties(ReadOnlySpan<byte> json, int maxDepth)
-    {
-        var reader = new Utf8JsonReader(json, new JsonReaderOptions { MaxDepth = maxDepth });
-        var scopes = new Stack<HashSet<string>?>(); // one entry per open container; null for arrays
-        while (reader.Read())
-        {
-            switch (reader.TokenType)
-            {
-                case JsonTokenType.StartObject:
-                    scopes.Push(new HashSet<string>(StringComparer.Ordinal));
-                    break;
-                case JsonTokenType.StartArray:
-                    scopes.Push(null);
-                    break;
-                case JsonTokenType.EndObject:
-                case JsonTokenType.EndArray:
-                    scopes.Pop();
-                    break;
-                case JsonTokenType.PropertyName:
-                    if (!scopes.Peek()!.Add(reader.GetString()!)) return true;
-                    break;
-            }
-        }
-        return false;
-    }
-
-    public static string Utf8(byte[] b) => Encoding.UTF8.GetString(b);
 }

@@ -506,12 +506,12 @@ public sealed class RetentionTests
         var record = (await host.App.Services.GetRequiredService<TaskStore>().GetAsync(key))!;
 
         // Seen at an older version (a follow-up committed since): left alone.
-        Assert.False(await host.Handler.CommitSystemStatusAsync(key, TaskState.Canceled, "late", r => r.Version == record.Version - 1));
+        Assert.False(await host.Engine.CommitSystemStatusAsync(key, TaskState.Canceled, "late", r => r.Version == record.Version - 1));
         Assert.Equal(TaskState.InputRequired, await StateAsync(host, key));
 
-        Assert.True(await host.Handler.CommitSystemStatusAsync(key, TaskState.Canceled, "now", r => r.Version == record.Version));
+        Assert.True(await host.Engine.CommitSystemStatusAsync(key, TaskState.Canceled, "now", r => r.Version == record.Version));
         Assert.Equal(TaskState.Canceled, await StateAsync(host, key));
-        Assert.False(await host.Handler.CommitSystemStatusAsync(key, TaskState.Failed, "terminal already"));
+        Assert.False(await host.Engine.CommitSystemStatusAsync(key, TaskState.Failed, "terminal already"));
     }
 
     /// <summary>

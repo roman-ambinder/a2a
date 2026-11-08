@@ -33,7 +33,8 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         NotifyPending();
     }
 
-    public override ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken cancellationToken = default)
     {
         if (max <= 0) return ValueTask.FromResult<IReadOnlyList<OutboxEntry>>([]);
         lock (_gate)
@@ -55,13 +56,15 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         }
     }
 
-    public override ValueTask<bool> CompleteAsync(OutboxEntry leased, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<bool> CompleteAsync(OutboxEntry leased, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(leased);
         lock (_gate) return ValueTask.FromResult(Remove(leased) is not null);
     }
 
-    public override ValueTask<bool> RescheduleAsync(OutboxEntry leased, int attempt, DateTimeOffset dueAt, string error, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<bool> RescheduleAsync(OutboxEntry leased, int attempt, DateTimeOffset dueAt, string error, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(leased);
         lock (_gate)
@@ -76,7 +79,8 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         }
     }
 
-    public override ValueTask<bool> DeadLetterAsync(OutboxEntry leased, string error, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<bool> DeadLetterAsync(OutboxEntry leased, string error, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(leased);
         lock (_gate)
@@ -88,7 +92,8 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         }
     }
 
-    public override ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
@@ -105,7 +110,8 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         }
     }
 
-    public override ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
@@ -118,7 +124,8 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
         return ValueTask.FromResult(true);
     }
 
-    public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {

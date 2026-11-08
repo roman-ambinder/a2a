@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>A2A.Grpc</RootNamespace>
+    <!-- Generated protobuf code is nullable-oblivious; RS0041 cannot be satisfied for it. -->
+    <NoWarn>$(NoWarn);RS0041</NoWarn>
     <IncludeGoogleApiCommonProtos>true</IncludeGoogleApiCommonProtos>
     <Description>A2A (Agent2Agent) gRPC binding: generated protobuf types and stubs for a2a.proto, plus mapping to the A2A .NET model.</Description>
   </PropertyGroup>

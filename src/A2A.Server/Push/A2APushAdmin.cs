@@ -11,16 +11,16 @@ public sealed class A2APushAdmin(PushOutbox outbox)
     private readonly PushOutbox _outbox = outbox ?? throw new ArgumentNullException(nameof(outbox));
 
     /// <summary>The dead letters of <paramref name="tenant"/>, oldest first, at most <paramref name="max"/>.</summary>
-    public ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken ct = default) =>
-        _outbox.ListDeadLettersAsync(tenant, max, ct);
+    public ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken cancellationToken = default) =>
+        _outbox.ListDeadLettersAsync(tenant, max, cancellationToken);
 
     /// <summary>
     /// Queues a dead letter for delivery again (attempt 0, same delivery id, same payload, due now). Returns false when it is
     /// not a dead letter.
     /// </summary>
-    public async ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken ct = default)
+    public async ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken cancellationToken = default)
     {
-        var moved = await _outbox.RedriveAsync(d, ct).ConfigureAwait(false);
+        var moved = await _outbox.RedriveAsync(d, cancellationToken).ConfigureAwait(false);
         if (moved) _outbox.NotifyPending();
         return moved;
     }

@@ -7,6 +7,7 @@ namespace A2A.Server.Push;
 /// <summary>Protects push config secrets (token, credentials) before they reach the store. Unprotect runs only at delivery time.</summary>
 public interface IPushSecretProtector
 {
+    /// <summary>Encrypts a secret for storage and returns the protected text.</summary>
     string Protect(string plaintext);
 
     /// <exception cref="CryptographicException">The value was not produced by this protector.</exception>
@@ -28,6 +29,7 @@ public sealed class EphemeralPushSecretProtector : IPushSecretProtector
     // AesGcm instances are not safe for concurrent use, so each call creates its own from the key.
     private readonly byte[] _key = RandomNumberGenerator.GetBytes(32);
 
+    /// <inheritdoc />
     public string Protect(string plaintext)
     {
         var data = Encoding.UTF8.GetBytes(plaintext);
@@ -39,6 +41,7 @@ public sealed class EphemeralPushSecretProtector : IPushSecretProtector
         return Prefix + Base64Url.Encode(buffer);
     }
 
+    /// <inheritdoc />
     public string Unprotect(string protectedValue)
     {
         if (!protectedValue.StartsWith(Prefix, StringComparison.Ordinal)) throw new CryptographicException("Unrecognized protected value.");

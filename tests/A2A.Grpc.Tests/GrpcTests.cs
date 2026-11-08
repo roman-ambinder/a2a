@@ -8,6 +8,42 @@ namespace A2A.Grpc.Tests;
 
 public class ProtoMapperTests
 {
+    private static readonly Google.Protobuf.JsonFormatter OldFormatter = new(Google.Protobuf.JsonFormatter.Settings.Default.WithFormatDefaultValues(false));
+    private static readonly Google.Protobuf.JsonParser OldParser = new(Google.Protobuf.JsonParser.Settings.Default.WithIgnoreUnknownFields(true));
+
+    private static T OldToModel<T>(Google.Protobuf.IMessage proto) => A2A.Json.A2AJson.Deserialize<T>(OldFormatter.Format(proto));
+
+    private static TProto OldToProto<TProto>(object model) where TProto : Google.Protobuf.IMessage<TProto>, new() =>
+        OldParser.Parse<TProto>(JsonSerializer.Serialize(model, A2A.Json.A2AJson.Options.GetTypeInfo(model.GetType())));
+
+    [Fact]
+    public void Round_trip_equals_previous_mapping()
+    {
+        var task = new AgentTask
+        {
+            Id = "t\u00e9-\U0001F600",
+            ContextId = "c1",
+            Status = new AgentTaskStatus { State = TaskState.Working, Timestamp = new DateTimeOffset(2026, 1, 2, 3, 4, 5, 678, TimeSpan.Zero), Message = Message.FromAgent("h\u00e9llo \u4e16\u754c \U0001F600 \"q\" \n", "c1", "t\u00e9-\U0001F600") },
+            Artifacts = [new Artifact { ArtifactId = "a", Parts = [Part.FromText("x"), Part.FromBytes(new byte[] { 1, 2, 3 }, "application/octet-stream"), Part.FromData(JsonSerializer.SerializeToElement(new { n = 1, s = "\u00fc" })), Part.FromUrl(new Uri("https://x/y"))] }],
+            Metadata = new() { ["k"] = JsonSerializer.SerializeToElement(new { deep = true }) },
+        };
+        var oldProto = OldToProto<Pb.Task>(task);
+        var newProto = ProtoMapper.ToProto<Pb.Task, AgentTask>(task);
+        Assert.Equal(oldProto, newProto);
+        Assert.Equal(
+            A2A.Json.A2AJson.Serialize(OldToModel<AgentTask>(oldProto)),
+            A2A.Json.A2AJson.Serialize(ProtoMapper.ToModel<AgentTask>(newProto)));
+
+        var card = GrpcHost.Card();
+        card.Capabilities.PushNotifications = false;
+        var oldCard = OldToProto<Pb.AgentCard>(card);
+        var newCard = ProtoMapper.ToProto<Pb.AgentCard, AgentCard>(card);
+        Assert.Equal(oldCard, newCard);
+        Assert.Equal(
+            A2A.Json.A2AJson.Serialize(OldToModel<AgentCard>(oldCard)),
+            A2A.Json.A2AJson.Serialize(ProtoMapper.ToModel<AgentCard>(newCard)));
+    }
+
     [Fact]
     public void Task_round_trips_through_proto()
     {

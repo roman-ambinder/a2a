@@ -21,6 +21,7 @@ public static class GrpcErrors
     /// <summary>Metadata key for the idempotency key of SendMessage (the <c>Idempotency-Key</c> header of the HTTP bindings).</summary>
     public const string IdempotencyKeyKey = "idempotency-key";
 
+    /// <summary>Returns the gRPC status code for an A2A error code, for example NotFound for TaskNotFound.</summary>
     public static StatusCode ToStatusCode(A2AErrorCode code) => A2AErrors.GrpcStatus(code) switch
     {
         "NOT_FOUND" => StatusCode.NotFound,
@@ -70,8 +71,13 @@ public static class GrpcErrors
         return status;
     }
 
+    /// <summary>Converts an A2A error into an <see cref="RpcException"/> with a google.rpc.ErrorInfo detail (see <see cref="ToStatus"/>).</summary>
     public static RpcException ToRpcException(A2AException ex) => ToStatus(ex).ToRpcException();
 
+    /// <summary>
+    /// Converts an <see cref="RpcException"/> into an A2A error. The ErrorInfo reason wins; without it the gRPC status code
+    /// decides. A bare RESOURCE_EXHAUSTED (no ErrorInfo) is a message over the gRPC size limit: PAYLOAD_TOO_LARGE.
+    /// </summary>
     public static A2AException FromRpcException(RpcException ex)
     {
         ArgumentNullException.ThrowIfNull(ex);

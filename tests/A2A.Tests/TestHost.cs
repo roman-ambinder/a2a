@@ -154,6 +154,9 @@ public sealed class TestAgentHost : IAsyncDisposable
     public WebApplication App { get; }
     public RecordingHandler Webhooks { get; }
     public A2ARequestHandler Handler => App.Services.GetRequiredService<A2ARequestHandler>();
+
+    /// <summary>The execution engine (system commits, execution leases and cancels live there).</summary>
+    public A2A.Server.Execution.TaskExecutionEngine Engine => App.Services.GetRequiredService<A2A.Server.Execution.TaskExecutionEngine>();
     public InMemoryPushOutbox PushOutbox => (InMemoryPushOutbox)App.Services.GetRequiredService<PushOutbox>();
 
     public static AgentCard DefaultCard() => new()
@@ -195,7 +198,7 @@ public sealed class TestAgentHost : IAsyncDisposable
             o.PushDelivery.InitialBackoff = TimeSpan.FromMilliseconds(10);
             o.PushDelivery.PollInterval = TimeSpan.FromMilliseconds(20);
             o.CancelGracePeriod = TimeSpan.FromSeconds(2);
-            o.ExtendedAgentCardProvider = (call, _) =>
+            o.ExtendedAgentCardProvider = (call, _, _) =>
             {
                 var card = DefaultCard();
                 card.Description = $"Extended card for {call.Principal}";
@@ -207,7 +210,7 @@ public sealed class TestAgentHost : IAsyncDisposable
         if (grpc) builder.Services.AddA2AGrpc();
         services?.Invoke(builder.Services);
         var webhooks = new RecordingHandler();
-        builder.Services.AddHttpClient(PushDeliveryService.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => webhooks);
+        builder.Services.AddKeyedSingleton(PushDeliveryService.InvokerServiceKey, new HttpMessageInvoker(webhooks, disposeHandler: false));
         if (configureHttp is not null) builder.Services.ConfigureA2AHttp(configureHttp);
 
         var app = builder.Build();

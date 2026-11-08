@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using A2A.Json;
 
 namespace A2A.Server.Storage;
 
@@ -8,80 +7,124 @@ public sealed record PushConfigRecord(TaskKey TaskKey, TaskPushNotificationConfi
 
 /// <summary>
 /// Webhook registrations, keyed by tenant, owner and task. A config owned by someone else looks like a missing one.
-/// Implementations must return copies, not shared instances.
 /// </summary>
+/// <remarks>
+/// Ownership: the store owns the config it is given and the instance it returns; callers never mutate them. A caller that
+/// needs different values (for example redacted or unprotected secrets) makes a copy with <see cref="ModelCopies.DeepCopy(TaskPushNotificationConfig)"/>.
+/// </remarks>
 public abstract class PushConfigStore
 {
-    public abstract ValueTask SaveAsync(PushConfigRecord record, CancellationToken ct = default);
+    /// <summary>Stores a registration, replacing one with the same task and id.</summary>
+    public abstract ValueTask SaveAsync(PushConfigRecord record, CancellationToken cancellationToken = default);
 
-    public abstract ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken ct = default);
+    /// <summary>Returns one registration, or null when it does not exist for this owner.</summary>
+    public abstract ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken cancellationToken = default);
 
     /// <summary>Returns the task's configs ordered by <see cref="TaskPushNotificationConfig.Id"/> (ordinal).</summary>
-    public abstract ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken ct = default);
+    public abstract ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken cancellationToken = default);
 
-    public abstract ValueTask<int> CountAsync(TaskKey task, CancellationToken ct = default);
+    /// <summary>Returns the number of registrations of the task.</summary>
+    public abstract ValueTask<int> CountAsync(TaskKey task, CancellationToken cancellationToken = default);
 
-    public abstract ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken ct = default);
+    /// <summary>Deletes a registration. Returns false when it did not exist.</summary>
+    public abstract ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken cancellationToken = default);
 
     /// <summary>Deletes every config of the task. Owner-scoped through <paramref name="task"/>: another owner's key deletes nothing.</summary>
-    public abstract ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default);
+    public abstract ValueTask DeleteAllAsync(TaskKey task, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atomically stores <paramref name="record"/> unless that would take the task over <paramref name="limit"/> configs.
     /// Replacing an existing config id always succeeds; a new id succeeds only when the task has fewer than
     /// <paramref name="limit"/> configs. Returns false (nothing stored) at the limit. Concurrent savers never exceed the limit.
     /// </summary>
-    public abstract ValueTask<bool> SaveIfUnderLimitAsync(PushConfigRecord record, int limit, CancellationToken ct = default);
+    public abstract ValueTask<bool> SaveIfUnderLimitAsync(PushConfigRecord record, int limit, CancellationToken cancellationToken = default);
 }
 
-/// <summary>In-memory <see cref="PushConfigStore"/> for development and tests.</summary>
+/// <summary>In-memory <see cref="PushConfigStore"/> for development and tests. Keeps and returns the instances it is given, without copying.</summary>
+/// <remarks>
+/// Configs are indexed by task, so listing or counting one task's configs never looks at another task's. A task's inner
+/// dictionary is removed when its last config is deleted; save and delete of the same task serialize on that dictionary,
+/// so a save can never land in a dictionary that is being removed.
+/// </remarks>
 public sealed class InMemoryPushConfigStore : PushConfigStore
 {
-    private readonly ConcurrentDictionary<(TaskKey Task, string Id), PushConfigRecord> _configs = new();
-    private readonly object _limitLock = new(); // makes SaveIfUnderLimitAsync atomic (count, then save)
+    private readonly ConcurrentDictionary<TaskKey, ConcurrentDictionary<string, PushConfigRecord>> _configs = new();
 
-    public override ValueTask SaveAsync(PushConfigRecord record, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask SaveAsync(PushConfigRecord record, CancellationToken cancellationToken = default)
     {
-        lock (_limitLock) _configs[(record.TaskKey, record.Config.Id!)] = Copy(record);
-        return ValueTask.CompletedTask;
-    }
-
-    public override ValueTask<bool> SaveIfUnderLimitAsync(PushConfigRecord record, int limit, CancellationToken ct = default)
-    {
-        var copy = Copy(record);
-        var key = (record.TaskKey, record.Config.Id!);
-        lock (_limitLock)
+        while (true)
         {
-            if (!_configs.ContainsKey(key) && _configs.Count(kv => kv.Key.Task == record.TaskKey) >= limit) return ValueTask.FromResult(false);
-            _configs[key] = copy;
-            return ValueTask.FromResult(true);
+            var task = _configs.GetOrAdd(record.TaskKey, static _ => new ConcurrentDictionary<string, PushConfigRecord>(StringComparer.Ordinal));
+            lock (task)
+            {
+                // A delete may have removed this (empty) dictionary after GetOrAdd returned it: try again with the current one.
+                if (!_configs.TryGetValue(record.TaskKey, out var current) || !ReferenceEquals(current, task)) continue;
+                task[record.Config.Id!] = record;
+                return ValueTask.CompletedTask;
+            }
         }
     }
 
-    public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<bool> SaveIfUnderLimitAsync(PushConfigRecord record, int limit, CancellationToken cancellationToken = default)
     {
-        lock (_limitLock)
+        while (true)
         {
-            foreach (var k in _configs.Keys.Where(k => k.Task == task).ToList()) _configs.TryRemove(k, out _);
+            var task = _configs.GetOrAdd(record.TaskKey, static _ => new ConcurrentDictionary<string, PushConfigRecord>(StringComparer.Ordinal));
+            lock (task)
+            {
+                if (!_configs.TryGetValue(record.TaskKey, out var current) || !ReferenceEquals(current, task)) continue;
+                if (!task.ContainsKey(record.Config.Id!) && task.Count >= limit)
+                {
+                    // Do not keep an empty dictionary created only for a refused save.
+                    if (task.IsEmpty) _configs.TryRemove(new KeyValuePair<TaskKey, ConcurrentDictionary<string, PushConfigRecord>>(record.TaskKey, task));
+                    return ValueTask.FromResult(false);
+                }
+                task[record.Config.Id!] = record;
+                return ValueTask.FromResult(true);
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken cancellationToken = default)
+    {
+        if (!_configs.TryGetValue(task, out var configs)) return ValueTask.CompletedTask;
+        lock (configs)
+        {
+            configs.Clear();
+            _configs.TryRemove(new KeyValuePair<TaskKey, ConcurrentDictionary<string, PushConfigRecord>>(task, configs));
         }
         return ValueTask.CompletedTask;
     }
 
-    public override ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken ct = default) =>
-        ValueTask.FromResult(_configs.TryGetValue((task, configId), out var r) ? Copy(r) : null);
+    /// <inheritdoc />
+    public override ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(_configs.TryGetValue(task, out var configs) && configs.TryGetValue(configId, out var r) ? r : null);
 
-    public override ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken ct = default) =>
-        ValueTask.FromResult<IReadOnlyList<PushConfigRecord>>(_configs
-            .Where(kv => kv.Key.Task == task)
-            .Select(kv => Copy(kv.Value))
-            .OrderBy(r => r.Config.Id, StringComparer.Ordinal)
-            .ToList());
+    /// <inheritdoc />
+    public override ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken cancellationToken = default)
+    {
+        if (!_configs.TryGetValue(task, out var configs)) return ValueTask.FromResult<IReadOnlyList<PushConfigRecord>>([]);
+        var list = configs.Values.ToArray();
+        Array.Sort(list, static (a, b) => string.CompareOrdinal(a.Config.Id, b.Config.Id));
+        return ValueTask.FromResult<IReadOnlyList<PushConfigRecord>>(list);
+    }
 
-    public override ValueTask<int> CountAsync(TaskKey task, CancellationToken ct = default) =>
-        ValueTask.FromResult(_configs.Count(kv => kv.Key.Task == task));
+    /// <inheritdoc />
+    public override ValueTask<int> CountAsync(TaskKey task, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(_configs.TryGetValue(task, out var configs) ? configs.Count : 0);
 
-    public override ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken ct = default) =>
-        ValueTask.FromResult(_configs.TryRemove((task, configId), out _));
-
-    private static PushConfigRecord Copy(PushConfigRecord r) => r with { Config = A2AJson.Clone(r.Config) };
+    /// <inheritdoc />
+    public override ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken cancellationToken = default)
+    {
+        if (!_configs.TryGetValue(task, out var configs)) return ValueTask.FromResult(false);
+        lock (configs)
+        {
+            var removed = configs.TryRemove(configId, out _);
+            if (configs.IsEmpty) _configs.TryRemove(new KeyValuePair<TaskKey, ConcurrentDictionary<string, PushConfigRecord>>(task, configs));
+            return ValueTask.FromResult(removed);
+        }
+    }
 }

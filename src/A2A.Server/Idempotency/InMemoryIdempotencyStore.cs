@@ -29,7 +29,8 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
     /// <summary>Entries in use order, most recent first. Locked for every access; its count is the store size.</summary>
     private readonly LinkedList<Entry> _lru = new();
 
-    public override ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(requestHash);
         while (true)
@@ -68,7 +69,8 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
         }
     }
 
-    public override ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(outcome);
         if (_entries.TryGetValue(scope, out var entry))
@@ -79,7 +81,8 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
         return ValueTask.CompletedTask;
     }
 
-    public override ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken cancellationToken = default)
     {
         if (_entries.TryGetValue(scope, out var entry) && !entry.Completion.Task.IsCompleted)
         {
@@ -90,7 +93,7 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
     }
 
     /// <summary>A running entry never expires in this store, so there is nothing to extend.</summary>
-    public override ValueTask RenewAsync(IdempotencyScope scope, CancellationToken ct = default) => ValueTask.CompletedTask;
+    public override ValueTask RenewAsync(IdempotencyScope scope, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
     /// <summary>Entries held, running or finished. For tests.</summary>
     internal int Count

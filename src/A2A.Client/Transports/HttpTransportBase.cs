@@ -11,18 +11,18 @@ namespace A2A.Client.Transports;
 /// <summary>Shared HTTP plumbing for the JSON-RPC and HTTP+JSON transports.</summary>
 public abstract class HttpTransportBase
 {
+    /// <summary>Creates the base. <paramref name="options"/> defaults to a new <see cref="A2AClientOptions"/>.</summary>
     protected HttpTransportBase(HttpClient httpClient, A2AClientOptions? options)
     {
         Http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         Options = options ?? new A2AClientOptions();
     }
 
+    /// <summary>The HTTP client used for all calls.</summary>
     protected HttpClient Http { get; }
 
+    /// <summary>The client options.</summary>
     protected A2AClientOptions Options { get; }
-
-    /// <summary>Default time limit of one unary attempt.</summary>
-    internal static readonly TimeSpan DefaultUnaryTimeout = TimeSpan.FromSeconds(100);
 
     /// <summary>
     /// Sets the request headers in this order: SDK headers (<c>A2A-Version</c>, <c>A2A-Extensions</c>, <c>Accept</c>,
@@ -30,7 +30,7 @@ public abstract class HttpTransportBase
     /// current activity), then <see cref="A2ARequestOptions.Headers"/>, then <see cref="A2ARequestOptions.ConfigureRequest"/>.
     /// The later steps can replace or remove the earlier ones, including <c>A2A-Version</c>.
     /// </summary>
-    protected async Task ApplyHeadersAsync(HttpRequestMessage request, bool streaming, A2ARequestOptions? call, string? idempotencyKey, CancellationToken ct, string? lastEventId = null)
+    protected async Task ApplyHeadersAsync(HttpRequestMessage request, bool streaming, A2ARequestOptions? call, string? idempotencyKey, CancellationToken cancellationToken, string? lastEventId = null)
     {
         request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, Options.ProtocolVersion);
         var extensions = call?.Extensions is { Count: > 0 } perCall ? Options.Extensions.Concat(perCall).Distinct() : Options.Extensions;
@@ -66,7 +66,7 @@ public abstract class HttpTransportBase
                 request.Content.Headers.TryAddWithoutValidation(name, value);
             }
         }
-        if (call.ConfigureRequest is { } configure) await configure(request, ct).ConfigureAwait(false);
+        if (call.ConfigureRequest is { } configure) await configure(request, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The key for <c>SendMessage</c>: the caller's, else the message id. Fills an empty message id first.</summary>
@@ -81,10 +81,11 @@ public abstract class HttpTransportBase
     /// Runs one unary operation: each attempt gets the call timeout, and failed attempts are retried by
     /// <see cref="RetryPolicy"/> under <paramref name="retry"/>, at most <see cref="A2ARequestOptions.MaxRetries"/>
     /// (else <see cref="A2AClientOptions.MaxRetries"/>) times. <paramref name="attempt"/> builds and sends a fresh request every time.
+    /// The span of the call (retries included) is <see cref="A2AClient"/>'s.
     /// </summary>
     private protected async Task<T> ExecuteUnaryAsync<T>(RetryMode retry, A2ARequestOptions? call, Func<CancellationToken, Task<T>> attempt, CancellationToken ct)
     {
-        var timeout = call?.Timeout ?? DefaultUnaryTimeout;
+        var timeout = call?.Timeout ?? A2ARequestOptions.DefaultTimeout;
         var maxAttempts = 1 + (call?.MaxRetries ?? Options.MaxRetries);
         for (var n = 1; ; n++)
         {
@@ -135,6 +136,7 @@ public abstract class HttpTransportBase
         return null;
     }
 
+    /// <summary>Creates a UTF-8 JSON request body with the given media type.</summary>
     protected static HttpContent JsonBody<T>(T body, string mediaType)
     {
         var content = new ByteArrayContent(A2AJson.SerializeToUtf8Bytes(body));
@@ -142,12 +144,14 @@ public abstract class HttpTransportBase
         return content;
     }
 
+    /// <summary>True when the response media type is <c>*/json</c> or <c>*+json</c>.</summary>
     protected static bool IsJson(HttpResponseMessage response)
     {
         var mt = response.Content.Headers.ContentType?.MediaType;
         return mt is not null && (mt.EndsWith("/json", StringComparison.OrdinalIgnoreCase) || mt.EndsWith("+json", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>True when the response media type is <c>text/event-stream</c>.</summary>
     protected static bool IsEventStream(HttpResponseMessage response) =>
         string.Equals(response.Content.Headers.ContentType?.MediaType, A2AProtocol.EventStreamMediaType, StringComparison.OrdinalIgnoreCase);
 
@@ -167,9 +171,11 @@ public abstract class HttpTransportBase
         return new A2AException(code, msg) { HttpStatus = status, RetryAfter = RetryAfterOf(response, null) };
     }
 
+    /// <summary>Creates an InvalidAgentResponse error for a response that breaks the protocol.</summary>
     protected static A2AException ProtocolError(string message, Exception? inner = null) =>
         new(A2AErrorCode.InvalidAgentResponse, message, inner);
 
+    /// <summary>Deserializes <paramref name="element"/>. Throws a protocol error that names <paramref name="what"/> when it is malformed.</summary>
     protected static T Parse<T>(JsonElement element, string what)
     {
         try { return A2AJson.Deserialize<T>(element); }

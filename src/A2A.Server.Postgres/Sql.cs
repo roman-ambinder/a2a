@@ -7,7 +7,7 @@ namespace A2A.Server.Postgres;
 /// <summary>Small helpers shared by the stores.</summary>
 internal static class Sql
 {
-    public static NpgsqlParameter<string> Text(string value) => new() { TypedValue = value, NpgsqlDbType = NpgsqlDbType.Text };
+    public static NpgsqlParameter<string> TextParam(string value) => new() { TypedValue = value, NpgsqlDbType = NpgsqlDbType.Text };
 
     public static NpgsqlParameter<long> Long(long value) => new() { TypedValue = value };
 
@@ -26,7 +26,7 @@ internal static class Sql
     /// after eviction. Used by <see cref="PostgresEventStore.AppendAsync"/> and by <see cref="PostgresTaskStore.CommitAsync"/>.
     /// </summary>
     public static async ValueTask<long> AppendEventAsync(NpgsqlConnection conn, NpgsqlTransaction tx, EventTables tables, TaskKey task,
-        string eventJson, int capacity, long nowTicks, CancellationToken ct)
+        string eventJson, int capacity, long nowTicks, CancellationToken cancellationToken)
     {
         long seq;
         await using (var upsert = new NpgsqlCommand(
@@ -40,7 +40,7 @@ internal static class Sql
         {
             AddKey(upsert.Parameters, task);
             upsert.Parameters.Add(Long(nowTicks));
-            seq = (long)(await upsert.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
+            seq = (long)(await upsert.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
         }
 
         await using var batch = new NpgsqlBatch(conn, tx);
@@ -53,19 +53,19 @@ internal static class Sql
         var insert = new NpgsqlBatchCommand($"INSERT INTO {tables.Events} (tenant, owner, task_id, seq, event) VALUES ($1, $2, $3, $4, $5)");
         AddKey(insert.Parameters, task);
         insert.Parameters.Add(Long(seq));
-        insert.Parameters.Add(Text(eventJson));
+        insert.Parameters.Add(TextParam(eventJson));
         batch.BatchCommands.Add(trim);
         batch.BatchCommands.Add(insert);
-        await batch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await batch.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         return seq;
     }
 
     /// <summary>Adds the task key as the first three positional parameters (tenant, owner, task id).</summary>
     public static void AddKey(NpgsqlParameterCollection parameters, TaskKey task)
     {
-        parameters.Add(Text(task.Tenant));
-        parameters.Add(Text(task.Owner));
-        parameters.Add(Text(task.TaskId));
+        parameters.Add(TextParam(task.Tenant));
+        parameters.Add(TextParam(task.Owner));
+        parameters.Add(TextParam(task.TaskId));
     }
 
     /// <summary><paramref name="ticks"/> + <paramref name="span"/>, clamped to <see cref="DateTimeOffset.MaxValue"/> (an "infinite" span never overflows).</summary>

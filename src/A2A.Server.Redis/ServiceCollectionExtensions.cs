@@ -8,6 +8,7 @@ using StackExchange.Redis;
 
 namespace A2A.Server.Redis;
 
+/// <summary>Registers the Redis event bus (<see cref="RedisTaskEventBus"/>) and execution coordinator (<see cref="RedisExecutionCoordinator"/>) with the A2A server.</summary>
 public static class A2ARedisServiceCollectionExtensions
 {
     /// <summary>
@@ -128,7 +129,9 @@ public static class A2ARedisServiceCollectionExtensions
         Action<RedisEventBusOptions>? configure)
     {
         var options = Configure(configure);
-        services.Replace(ServiceDescriptor.Singleton(sp => new RedisTaskEventBus(redis(sp), options, sp.GetService<ILogger<RedisTaskEventBus>>())));
+        services.AddOptions<A2AServerOptions>();
+        services.Replace(ServiceDescriptor.Singleton(sp => new RedisTaskEventBus(
+            redis(sp), sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming, options, sp.GetService<ILogger<RedisTaskEventBus>>())));
         services.Replace(ServiceDescriptor.Singleton<TaskEventBus>(sp => sp.GetRequiredService<RedisTaskEventBus>()));
         services.AddSingleton<IHostedService>(sp => new RedisEventBusHostedService(sp.GetRequiredService<RedisTaskEventBus>()));
         if (options.RegisterCoordinator) services.AddCoordinatorCore(redis, options);

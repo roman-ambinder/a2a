@@ -40,6 +40,19 @@ public abstract class TaskEventBusContract
     }
 
     [SkippableFact]
+    public async Task Subscriber_gets_the_encoded_bytes_as_published()
+    {
+        // The server encodes an event once; a bus hands subscribers the same bytes (streams write them as they are).
+        var (pub, subBus) = await CreateBusesAsync();
+        using var sub = subBus.Subscribe("t\u001ftask");
+        var sent = EventEncoder.Encode(3, Evt(3).Event);
+        pub.Publish("t\u001ftask", sent);
+        var got = Assert.Single(await ReadAsync(sub, 1));
+        Assert.Equal(3, got.Sequence);
+        Assert.True(sent.Json.Span.SequenceEqual(got.Json.Span), "the event's bytes arrive unchanged");
+    }
+
+    [SkippableFact]
     public async Task Every_subscriber_gets_every_event_and_topics_are_separate()
     {
         var (pub, subBus) = await CreateBusesAsync();
@@ -110,7 +123,7 @@ public sealed class RedisTaskEventBusTests(RedisFixture redis) : TaskEventBusCon
     private async Task<RedisTaskEventBus> NewBusAsync(string prefix)
     {
         var mux = await redis.ConnectAsync();
-        var bus = new RedisTaskEventBus(mux, new RedisEventBusOptions { ChannelPrefix = prefix });
+        var bus = new RedisTaskEventBus(mux, new StreamingOptions(), new RedisEventBusOptions { ChannelPrefix = prefix });
         await bus.StartAsync();
         _cleanup.Add(mux);
         _cleanup.Insert(0, bus);
@@ -149,7 +162,7 @@ public sealed class RedisTaskEventBusTests(RedisFixture redis) : TaskEventBusCon
         options.AbortOnConnectFail = false;
         options.ConnectTimeout = 200;
         await using var mux = await ConnectionMultiplexer.ConnectAsync(options);
-        var bus = new RedisTaskEventBus(mux);
+        var bus = new RedisTaskEventBus(mux, new StreamingOptions());
         using var local = bus.Subscribe("t\u001ftask");
         bus.Publish("t\u001ftask", Evt(1));
         bus.Complete("t\u001ftask");

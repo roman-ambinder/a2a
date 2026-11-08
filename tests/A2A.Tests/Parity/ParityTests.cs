@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using A2A.Client;
 using A2A.Server;
+using A2A.Server.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -39,7 +40,7 @@ public class ParityTests
     {
         public volatile bool Allow = true;
 
-        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperation op, object request, CancellationToken ct) =>
+        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2A.Server.Pipeline.A2AOperationDescriptor op, object request, CancellationToken ct) =>
             ValueTask.FromResult(Allow);
     }
 

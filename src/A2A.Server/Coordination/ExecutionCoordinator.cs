@@ -20,7 +20,7 @@ namespace A2A.Server.Coordination;
 public abstract class ExecutionCoordinator
 {
     /// <summary>Starts the lease of a new execution of <paramref name="task"/>, valid for <see cref="CoordinationOptions.LeaseTtl"/>.</summary>
-    public abstract ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken ct = default);
+    public abstract ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Renews the lease of the execution for another <see cref="CoordinationOptions.LeaseTtl"/> from now. Returns true when
@@ -30,38 +30,38 @@ public abstract class ExecutionCoordinator
     /// On false the request handler re-reads the task: a terminal task (for example one the retention sweep failed) cancels
     /// the execution; otherwise the execution registers again, under the same id, with its next heartbeat.
     /// </remarks>
-    public abstract ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default);
+    public abstract ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken cancellationToken = default);
 
     /// <summary>Ends the lease of the execution (expired or not). Does nothing when it is missing.</summary>
-    public abstract ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default);
+    public abstract ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken cancellationToken = default);
 
     /// <summary>True when any execution of <paramref name="task"/> holds a lease that has not expired.</summary>
-    public abstract ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default);
+    public abstract ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Asks every other instance to cancel its executions of <paramref name="task"/>; the sender cancels its own directly.
     /// Instances read the request from <see cref="CancelRequestsAsync"/>. Fire and forget: delivery is at most once, to the
     /// readers listening now.
     /// </summary>
-    public abstract ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default);
+    public abstract ValueTask RequestCancelAsync(TaskKey task, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The cancel requests of the other instances (never this instance's own), from the moment the enumeration starts until
-    /// <paramref name="ct"/> fires. Every reader gets every request. The reader is registered on the first
+    /// <paramref name="cancellationToken"/> fires. Every reader gets every request. The reader is registered on the first
     /// <c>MoveNextAsync</c> call, before it first waits.
     /// </summary>
-    public abstract IAsyncEnumerable<TaskKey> CancelRequestsAsync(CancellationToken ct);
+    public abstract IAsyncEnumerable<TaskKey> CancelRequestsAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// Up to <paramref name="max"/> leases that expired (by the store's clock) and were not unregistered, the longest expired
     /// first. Their executions stopped without ending: their instance died.
     /// </summary>
-    public abstract ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken ct = default);
+    public abstract ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Takes the named cluster-wide lease for <paramref name="duration"/>, so only one instance runs a periodic job (such as
     /// the retention sweep) per period. True when the lease was free or had expired; false while it is held, also by the
     /// caller. Not released early: a job takes it once per period, for a little less than the period.
     /// </summary>
-    public abstract ValueTask<bool> TryAcquireSweepLeaseAsync(string name, TimeSpan duration, CancellationToken ct = default);
+    public abstract ValueTask<bool> TryAcquireSweepLeaseAsync(string name, TimeSpan duration, CancellationToken cancellationToken = default);
 }

@@ -1,4 +1,5 @@
 using A2A.Server.Coordination;
+using A2A.Server.Execution;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 
@@ -16,21 +17,27 @@ public sealed class A2ATaskAdmin
     private readonly PushConfigStore _pushConfigs;
     private readonly PushOutbox _outbox;
     private readonly ExecutionCoordinator _coordinator;
-    private readonly A2ARequestHandler? _handler;
+    private readonly TaskExecutionEngine? _engine;
 
-    /// <summary>
-    /// Created by DI. The optional <paramref name="handler"/> cancels executions of this instance directly; without it, a
-    /// running task is cancelled only through <see cref="ExecutionCoordinator.RequestCancelAsync"/> (other instances).
-    /// </summary>
+    /// <summary>Creates the admin API. In an app the DI container does this.</summary>
+    /// <param name="tasks">The task store.</param>
+    /// <param name="events">The event store.</param>
+    /// <param name="pushConfigs">The push config store.</param>
+    /// <param name="outbox">The push outbox.</param>
+    /// <param name="coordinator">Asks other instances to cancel a task's executions.</param>
+    /// <param name="engine">
+    /// Cancels executions of this instance directly; without it, a running task is cancelled only through
+    /// <see cref="ExecutionCoordinator.RequestCancelAsync"/> (other instances).
+    /// </param>
     public A2ATaskAdmin(TaskStore tasks, EventStore events, PushConfigStore pushConfigs, PushOutbox outbox, ExecutionCoordinator coordinator,
-        A2ARequestHandler? handler = null)
+        TaskExecutionEngine? engine = null)
     {
         _tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _events = events ?? throw new ArgumentNullException(nameof(events));
         _pushConfigs = pushConfigs ?? throw new ArgumentNullException(nameof(pushConfigs));
         _outbox = outbox ?? throw new ArgumentNullException(nameof(outbox));
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
-        _handler = handler;
+        _engine = engine;
     }
 
     /// <summary>
@@ -39,17 +46,17 @@ public sealed class A2ATaskAdmin
     /// Its context stays until the retention sweep removes it as an orphan. Owner-scoped through <paramref name="key"/>.
     /// </summary>
     /// <returns>True when the task was deleted; false when it does not exist for this tenant and owner.</returns>
-    public async ValueTask<bool> DeleteTaskAsync(TaskKey key, CancellationToken ct = default)
+    public async ValueTask<bool> DeleteTaskAsync(TaskKey key, CancellationToken cancellationToken = default)
     {
-        if (await _tasks.GetAsync(key, ct).ConfigureAwait(false) is null) return false;
+        if (await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) is null) return false;
         // Always: an execution here whose register failed is invisible to the coordinator's running check.
-        if (_handler is not null) await _handler.CancelExecutionsAsync(key, ct).ConfigureAwait(false);
-        else await _coordinator.RequestCancelAsync(key, ct).ConfigureAwait(false);
-        var deleted = await PurgeAsync(key, ct).ConfigureAwait(false);
+        if (_engine is not null) await _engine.CancelExecutionsAsync(key, cancellationToken).ConfigureAwait(false);
+        else await _coordinator.RequestCancelAsync(key, cancellationToken).ConfigureAwait(false);
+        var deleted = await PurgeAsync(key, cancellationToken).ConfigureAwait(false);
         // A cancelled execution may have committed while the purge ran, after its deletes: delete again (idempotent). With
         // the task row gone, no later commit can succeed.
-        await _outbox.DeleteAllAsync(key, ct).ConfigureAwait(false);
-        await _events.DeleteAsync(key, ct).ConfigureAwait(false);
+        await _outbox.DeleteAllAsync(key, cancellationToken).ConfigureAwait(false);
+        await _events.DeleteAsync(key, cancellationToken).ConfigureAwait(false);
         return deleted;
     }
 
@@ -58,11 +65,11 @@ public sealed class A2ATaskAdmin
     /// configs, the event log, and the task row last. Until the row is gone the task is still listed, so the next sweep (or
     /// call) finishes the job; every step is idempotent. Returns whether the task row was deleted by this call.
     /// </summary>
-    internal async ValueTask<bool> PurgeAsync(TaskKey key, CancellationToken ct)
+    internal async ValueTask<bool> PurgeAsync(TaskKey key, CancellationToken cancellationToken)
     {
-        await _outbox.DeleteAllAsync(key, ct).ConfigureAwait(false);
-        await _pushConfigs.DeleteAllAsync(key, ct).ConfigureAwait(false);
-        await _events.DeleteAsync(key, ct).ConfigureAwait(false);
-        return await _tasks.DeleteAsync(key, ct).ConfigureAwait(false);
+        await _outbox.DeleteAllAsync(key, cancellationToken).ConfigureAwait(false);
+        await _pushConfigs.DeleteAllAsync(key, cancellationToken).ConfigureAwait(false);
+        await _events.DeleteAsync(key, cancellationToken).ConfigureAwait(false);
+        return await _tasks.DeleteAsync(key, cancellationToken).ConfigureAwait(false);
     }
 }

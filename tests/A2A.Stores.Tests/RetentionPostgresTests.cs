@@ -61,7 +61,7 @@ public sealed class RetentionPostgresTests(PostgresFixture db)
             await configs.SaveAsync(new PushConfigRecord(key, new TaskPushNotificationConfig { Id = id, TaskId = key.TaskId, Url = $"https://hooks.test/{id}" }));
         PushDelivery[] Deliveries() => [new(key, "c1", 0, Guid.NewGuid().ToString("N")), new(key, "c2", 0, Guid.NewGuid().ToString("N"))];
         var created = TaskStoreContract.NewRecord(key.Tenant, key.Owner, key.TaskId, clock.GetUtcNow());
-        var first = await tasks.CommitAsync(new TaskCommit(created, 0, StreamResponse.Of(A2AJson.Clone(created.Task)), Deliveries()));
+        var first = await tasks.CommitAsync(new TaskCommit(created, 0, StreamResponse.Of(created.Task.DeepCopy()), Deliveries()));
         await tasks.CommitAsync(new TaskCommit(TaskStoreContract.WithState(first.Record, TaskState.Completed), first.Record.Version,
             TaskStoreContract.StatusEvent(key.TaskId, TaskState.Completed), Deliveries()));
     }

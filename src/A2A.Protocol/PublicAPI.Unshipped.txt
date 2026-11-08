@@ -1,0 +1,874 @@
+A2A.A2AErrorCode
+A2A.A2AErrorCode.ContentTypeNotSupported = -32005 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.ExtendedAgentCardNotConfigured = -32007 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.ExtensionSupportRequired = -32008 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.Internal = -32603 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.InvalidAgentResponse = -32006 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.InvalidParams = -32602 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.InvalidRequest = -32600 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.JsonParse = -32700 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.MethodNotFound = -32601 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.PermissionDenied = -2 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.PushNotificationNotSupported = -32003 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.RateLimited = -32000 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.TaskNotCancelable = -32002 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.TaskNotFound = -32001 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.Unauthenticated = -1 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.UnsupportedOperation = -32004 -> A2A.A2AErrorCode
+A2A.A2AErrorCode.VersionNotSupported = -32009 -> A2A.A2AErrorCode
+A2A.A2AErrors
+A2A.A2AException
+A2A.A2AException.A2AException(A2A.A2AErrorCode code, string? message = null, System.Exception? inner = null) -> void
+A2A.A2AException.Code.get -> A2A.A2AErrorCode
+A2A.A2AException.Details.get -> System.Collections.Generic.List<System.Text.Json.JsonElement>?
+A2A.A2AException.Details.init -> void
+A2A.A2AException.HttpStatus.get -> int?
+A2A.A2AException.HttpStatus.init -> void
+A2A.A2AException.IsRetryable.get -> bool
+A2A.A2AException.Metadata.get -> System.Collections.Generic.Dictionary<string!, string!>?
+A2A.A2AException.Metadata.init -> void
+A2A.A2AException.ReasonOverride.get -> string?
+A2A.A2AException.ReasonOverride.init -> void
+A2A.A2AException.Retryable.get -> bool
+A2A.A2AException.Retryable.init -> void
+A2A.A2AException.RetryAfter.get -> System.TimeSpan?
+A2A.A2AException.RetryAfter.init -> void
+A2A.A2AProtocol
+A2A.A2AProtocol.Headers
+A2A.A2AProtocol.Methods
+A2A.AgentCapabilities
+A2A.AgentCapabilities.AgentCapabilities() -> void
+A2A.AgentCapabilities.ExtendedAgentCard.get -> bool?
+A2A.AgentCapabilities.ExtendedAgentCard.set -> void
+A2A.AgentCapabilities.Extensions.get -> System.Collections.Generic.List<A2A.AgentExtension!>?
+A2A.AgentCapabilities.Extensions.set -> void
+A2A.AgentCapabilities.PushNotifications.get -> bool?
+A2A.AgentCapabilities.PushNotifications.set -> void
+A2A.AgentCapabilities.Streaming.get -> bool?
+A2A.AgentCapabilities.Streaming.set -> void
+A2A.AgentCard
+A2A.AgentCard.AgentCard() -> void
+A2A.AgentCard.Capabilities.get -> A2A.AgentCapabilities!
+A2A.AgentCard.Capabilities.set -> void
+A2A.AgentCard.DefaultInputModes.get -> System.Collections.Generic.List<string!>!
+A2A.AgentCard.DefaultInputModes.set -> void
+A2A.AgentCard.DefaultOutputModes.get -> System.Collections.Generic.List<string!>!
+A2A.AgentCard.DefaultOutputModes.set -> void
+A2A.AgentCard.Description.get -> string!
+A2A.AgentCard.Description.set -> void
+A2A.AgentCard.DocumentationUrl.get -> string?
+A2A.AgentCard.DocumentationUrl.set -> void
+A2A.AgentCard.IconUrl.get -> string?
+A2A.AgentCard.IconUrl.set -> void
+A2A.AgentCard.Name.get -> string!
+A2A.AgentCard.Name.set -> void
+A2A.AgentCard.Provider.get -> A2A.AgentProvider?
+A2A.AgentCard.Provider.set -> void
+A2A.AgentCard.SecurityRequirements.get -> System.Collections.Generic.List<A2A.SecurityRequirement!>?
+A2A.AgentCard.SecurityRequirements.set -> void
+A2A.AgentCard.SecuritySchemes.get -> System.Collections.Generic.Dictionary<string!, A2A.SecurityScheme!>?
+A2A.AgentCard.SecuritySchemes.set -> void
+A2A.AgentCard.Signatures.get -> System.Collections.Generic.List<A2A.AgentCardSignature!>?
+A2A.AgentCard.Signatures.set -> void
+A2A.AgentCard.Skills.get -> System.Collections.Generic.List<A2A.AgentSkill!>!
+A2A.AgentCard.Skills.set -> void
+A2A.AgentCard.SupportedInterfaces.get -> System.Collections.Generic.List<A2A.AgentInterface!>!
+A2A.AgentCard.SupportedInterfaces.set -> void
+A2A.AgentCard.Version.get -> string!
+A2A.AgentCard.Version.set -> void
+A2A.AgentCardSignature
+A2A.AgentCardSignature.AgentCardSignature() -> void
+A2A.AgentCardSignature.Header.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.AgentCardSignature.Header.set -> void
+A2A.AgentCardSignature.Protected.get -> string!
+A2A.AgentCardSignature.Protected.set -> void
+A2A.AgentCardSignature.Signature.get -> string!
+A2A.AgentCardSignature.Signature.set -> void
+A2A.AgentExtension
+A2A.AgentExtension.AgentExtension() -> void
+A2A.AgentExtension.Description.get -> string?
+A2A.AgentExtension.Description.set -> void
+A2A.AgentExtension.Params.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.AgentExtension.Params.set -> void
+A2A.AgentExtension.Required.get -> bool
+A2A.AgentExtension.Required.set -> void
+A2A.AgentExtension.Uri.get -> string!
+A2A.AgentExtension.Uri.set -> void
+A2A.AgentInterface
+A2A.AgentInterface.AgentInterface() -> void
+A2A.AgentInterface.ProtocolBinding.get -> string!
+A2A.AgentInterface.ProtocolBinding.set -> void
+A2A.AgentInterface.ProtocolVersion.get -> string!
+A2A.AgentInterface.ProtocolVersion.set -> void
+A2A.AgentInterface.Tenant.get -> string?
+A2A.AgentInterface.Tenant.set -> void
+A2A.AgentInterface.Url.get -> string!
+A2A.AgentInterface.Url.set -> void
+A2A.AgentProvider
+A2A.AgentProvider.AgentProvider() -> void
+A2A.AgentProvider.Organization.get -> string!
+A2A.AgentProvider.Organization.set -> void
+A2A.AgentProvider.Url.get -> string!
+A2A.AgentProvider.Url.set -> void
+A2A.AgentSkill
+A2A.AgentSkill.AgentSkill() -> void
+A2A.AgentSkill.Description.get -> string!
+A2A.AgentSkill.Description.set -> void
+A2A.AgentSkill.Examples.get -> System.Collections.Generic.List<string!>?
+A2A.AgentSkill.Examples.set -> void
+A2A.AgentSkill.Id.get -> string!
+A2A.AgentSkill.Id.set -> void
+A2A.AgentSkill.InputModes.get -> System.Collections.Generic.List<string!>?
+A2A.AgentSkill.InputModes.set -> void
+A2A.AgentSkill.Name.get -> string!
+A2A.AgentSkill.Name.set -> void
+A2A.AgentSkill.OutputModes.get -> System.Collections.Generic.List<string!>?
+A2A.AgentSkill.OutputModes.set -> void
+A2A.AgentSkill.SecurityRequirements.get -> System.Collections.Generic.List<A2A.SecurityRequirement!>?
+A2A.AgentSkill.SecurityRequirements.set -> void
+A2A.AgentSkill.Tags.get -> System.Collections.Generic.List<string!>!
+A2A.AgentSkill.Tags.set -> void
+A2A.AgentTask
+A2A.AgentTask.AgentTask() -> void
+A2A.AgentTask.Artifacts.get -> System.Collections.Generic.List<A2A.Artifact!>?
+A2A.AgentTask.Artifacts.set -> void
+A2A.AgentTask.ContextId.get -> string!
+A2A.AgentTask.ContextId.set -> void
+A2A.AgentTask.History.get -> System.Collections.Generic.List<A2A.Message!>?
+A2A.AgentTask.History.set -> void
+A2A.AgentTask.Id.get -> string!
+A2A.AgentTask.Id.set -> void
+A2A.AgentTask.Metadata.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.AgentTask.Metadata.set -> void
+A2A.AgentTask.Status.get -> A2A.AgentTaskStatus!
+A2A.AgentTask.Status.set -> void
+A2A.AgentTaskStatus
+A2A.AgentTaskStatus.AgentTaskStatus() -> void
+A2A.AgentTaskStatus.Message.get -> A2A.Message?
+A2A.AgentTaskStatus.Message.set -> void
+A2A.AgentTaskStatus.State.get -> A2A.TaskState
+A2A.AgentTaskStatus.State.set -> void
+A2A.AgentTaskStatus.Timestamp.get -> System.DateTimeOffset?
+A2A.AgentTaskStatus.Timestamp.set -> void
+A2A.ApiKeyScheme
+A2A.ApiKeyScheme.ApiKeyScheme(A2A.ApiKeySecurityScheme! Value) -> void
+A2A.ApiKeyScheme.Value.get -> A2A.ApiKeySecurityScheme!
+A2A.ApiKeyScheme.Value.init -> void
+A2A.ApiKeySecurityScheme
+A2A.ApiKeySecurityScheme.ApiKeySecurityScheme() -> void
+A2A.ApiKeySecurityScheme.Description.get -> string?
+A2A.ApiKeySecurityScheme.Description.set -> void
+A2A.ApiKeySecurityScheme.Location.get -> string!
+A2A.ApiKeySecurityScheme.Location.set -> void
+A2A.ApiKeySecurityScheme.Name.get -> string!
+A2A.ApiKeySecurityScheme.Name.set -> void
+A2A.Artifact
+A2A.Artifact.Artifact() -> void
+A2A.Artifact.ArtifactId.get -> string!
+A2A.Artifact.ArtifactId.set -> void
+A2A.Artifact.Description.get -> string?
+A2A.Artifact.Description.set -> void
+A2A.Artifact.Extensions.get -> System.Collections.Generic.List<string!>?
+A2A.Artifact.Extensions.set -> void
+A2A.Artifact.Metadata.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.Artifact.Metadata.set -> void
+A2A.Artifact.Name.get -> string?
+A2A.Artifact.Name.set -> void
+A2A.Artifact.Parts.get -> System.Collections.Generic.List<A2A.Part!>!
+A2A.Artifact.Parts.set -> void
+A2A.ArtifactUpdateEvent
+A2A.ArtifactUpdateEvent.ArtifactUpdate.get -> A2A.TaskArtifactUpdateEvent!
+A2A.ArtifactUpdateEvent.ArtifactUpdate.init -> void
+A2A.ArtifactUpdateEvent.ArtifactUpdateEvent(A2A.TaskArtifactUpdateEvent! ArtifactUpdate) -> void
+A2A.AuthenticationInfo
+A2A.AuthenticationInfo.AuthenticationInfo() -> void
+A2A.AuthenticationInfo.Credentials.get -> string?
+A2A.AuthenticationInfo.Credentials.set -> void
+A2A.AuthenticationInfo.Scheme.get -> string!
+A2A.AuthenticationInfo.Scheme.set -> void
+A2A.AuthorizationCodeOAuthFlow
+A2A.AuthorizationCodeOAuthFlow.AuthorizationCodeOAuthFlow() -> void
+A2A.AuthorizationCodeOAuthFlow.AuthorizationUrl.get -> string!
+A2A.AuthorizationCodeOAuthFlow.AuthorizationUrl.set -> void
+A2A.AuthorizationCodeOAuthFlow.PkceRequired.get -> bool
+A2A.AuthorizationCodeOAuthFlow.PkceRequired.set -> void
+A2A.AuthorizationCodeOAuthFlow.RefreshUrl.get -> string?
+A2A.AuthorizationCodeOAuthFlow.RefreshUrl.set -> void
+A2A.AuthorizationCodeOAuthFlow.Scopes.get -> System.Collections.Generic.Dictionary<string!, string!>!
+A2A.AuthorizationCodeOAuthFlow.Scopes.set -> void
+A2A.AuthorizationCodeOAuthFlow.TokenUrl.get -> string!
+A2A.AuthorizationCodeOAuthFlow.TokenUrl.set -> void
+A2A.CancelTaskRequest
+A2A.CancelTaskRequest.CancelTaskRequest() -> void
+A2A.CancelTaskRequest.Id.get -> string!
+A2A.CancelTaskRequest.Id.set -> void
+A2A.CancelTaskRequest.Metadata.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.CancelTaskRequest.Metadata.set -> void
+A2A.CancelTaskRequest.Tenant.get -> string?
+A2A.CancelTaskRequest.Tenant.set -> void
+A2A.ClientCredentialsOAuthFlow
+A2A.ClientCredentialsOAuthFlow.ClientCredentialsOAuthFlow() -> void
+A2A.ClientCredentialsOAuthFlow.RefreshUrl.get -> string?
+A2A.ClientCredentialsOAuthFlow.RefreshUrl.set -> void
+A2A.ClientCredentialsOAuthFlow.Scopes.get -> System.Collections.Generic.Dictionary<string!, string!>!
+A2A.ClientCredentialsOAuthFlow.Scopes.set -> void
+A2A.ClientCredentialsOAuthFlow.TokenUrl.get -> string!
+A2A.ClientCredentialsOAuthFlow.TokenUrl.set -> void
+A2A.DataPart
+A2A.DataPart.Data.get -> System.Text.Json.JsonElement
+A2A.DataPart.Data.init -> void
+A2A.DataPart.DataPart(System.Text.Json.JsonElement Data) -> void
+A2A.DeleteTaskPushNotificationConfigRequest
+A2A.DeleteTaskPushNotificationConfigRequest.DeleteTaskPushNotificationConfigRequest() -> void
+A2A.DeleteTaskPushNotificationConfigRequest.Id.get -> string!
+A2A.DeleteTaskPushNotificationConfigRequest.Id.set -> void
+A2A.DeleteTaskPushNotificationConfigRequest.TaskId.get -> string!
+A2A.DeleteTaskPushNotificationConfigRequest.TaskId.set -> void
+A2A.DeleteTaskPushNotificationConfigRequest.Tenant.get -> string?
+A2A.DeleteTaskPushNotificationConfigRequest.Tenant.set -> void
+A2A.DeviceCodeOAuthFlow
+A2A.DeviceCodeOAuthFlow.DeviceAuthorizationUrl.get -> string!
+A2A.DeviceCodeOAuthFlow.DeviceAuthorizationUrl.set -> void
+A2A.DeviceCodeOAuthFlow.DeviceCodeOAuthFlow() -> void
+A2A.DeviceCodeOAuthFlow.RefreshUrl.get -> string?
+A2A.DeviceCodeOAuthFlow.RefreshUrl.set -> void
+A2A.DeviceCodeOAuthFlow.Scopes.get -> System.Collections.Generic.Dictionary<string!, string!>!
+A2A.DeviceCodeOAuthFlow.Scopes.set -> void
+A2A.DeviceCodeOAuthFlow.TokenUrl.get -> string!
+A2A.DeviceCodeOAuthFlow.TokenUrl.set -> void
+A2A.GetExtendedAgentCardRequest
+A2A.GetExtendedAgentCardRequest.GetExtendedAgentCardRequest() -> void
+A2A.GetExtendedAgentCardRequest.Tenant.get -> string?
+A2A.GetExtendedAgentCardRequest.Tenant.set -> void
+A2A.GetTaskPushNotificationConfigRequest
+A2A.GetTaskPushNotificationConfigRequest.GetTaskPushNotificationConfigRequest() -> void
+A2A.GetTaskPushNotificationConfigRequest.Id.get -> string!
+A2A.GetTaskPushNotificationConfigRequest.Id.set -> void
+A2A.GetTaskPushNotificationConfigRequest.TaskId.get -> string!
+A2A.GetTaskPushNotificationConfigRequest.TaskId.set -> void
+A2A.GetTaskPushNotificationConfigRequest.Tenant.get -> string?
+A2A.GetTaskPushNotificationConfigRequest.Tenant.set -> void
+A2A.GetTaskRequest
+A2A.GetTaskRequest.GetTaskRequest() -> void
+A2A.GetTaskRequest.HistoryLength.get -> int?
+A2A.GetTaskRequest.HistoryLength.set -> void
+A2A.GetTaskRequest.Id.get -> string!
+A2A.GetTaskRequest.Id.set -> void
+A2A.GetTaskRequest.Tenant.get -> string?
+A2A.GetTaskRequest.Tenant.set -> void
+A2A.HttpAuthScheme
+A2A.HttpAuthScheme.HttpAuthScheme(A2A.HttpAuthSecurityScheme! Value) -> void
+A2A.HttpAuthScheme.Value.get -> A2A.HttpAuthSecurityScheme!
+A2A.HttpAuthScheme.Value.init -> void
+A2A.HttpAuthSecurityScheme
+A2A.HttpAuthSecurityScheme.BearerFormat.get -> string?
+A2A.HttpAuthSecurityScheme.BearerFormat.set -> void
+A2A.HttpAuthSecurityScheme.Description.get -> string?
+A2A.HttpAuthSecurityScheme.Description.set -> void
+A2A.HttpAuthSecurityScheme.HttpAuthSecurityScheme() -> void
+A2A.HttpAuthSecurityScheme.Scheme.get -> string!
+A2A.HttpAuthSecurityScheme.Scheme.set -> void
+A2A.ImplicitOAuthFlow
+A2A.ImplicitOAuthFlow.AuthorizationUrl.get -> string?
+A2A.ImplicitOAuthFlow.AuthorizationUrl.set -> void
+A2A.ImplicitOAuthFlow.ImplicitOAuthFlow() -> void
+A2A.ImplicitOAuthFlow.RefreshUrl.get -> string?
+A2A.ImplicitOAuthFlow.RefreshUrl.set -> void
+A2A.ImplicitOAuthFlow.Scopes.get -> System.Collections.Generic.Dictionary<string!, string!>?
+A2A.ImplicitOAuthFlow.Scopes.set -> void
+A2A.Json.A2AJson
+A2A.Json.OneOfCaseConverter<TUnion, TCase, TConverter>
+A2A.Json.OneOfCaseConverter<TUnion, TCase, TConverter>.OneOfCaseConverter() -> void
+A2A.Json.OneOfConverter<TUnion>
+A2A.Json.OneOfConverter<TUnion>.OneOfConverter() -> void
+A2A.Json.PartConverter
+A2A.Json.PartConverter.PartConverter() -> void
+A2A.Json.PartConverter<TPart>
+A2A.Json.PartConverter<TPart>.PartConverter() -> void
+A2A.Json.ProtoEnumConverter<TEnum>
+A2A.Json.ProtoEnumConverter<TEnum>.ProtoEnumConverter() -> void
+A2A.Json.ProtoNameAttribute
+A2A.Json.ProtoNameAttribute.Name.get -> string!
+A2A.Json.ProtoNameAttribute.ProtoNameAttribute(string! name) -> void
+A2A.Json.SecuritySchemeConverter
+A2A.Json.SecuritySchemeConverter.SecuritySchemeConverter() -> void
+A2A.Json.SendMessageResponseConverter
+A2A.Json.SendMessageResponseConverter.SendMessageResponseConverter() -> void
+A2A.Json.StreamResponseConverter
+A2A.Json.StreamResponseConverter.StreamResponseConverter() -> void
+A2A.Json.TimestampConverter
+A2A.Json.TimestampConverter.TimestampConverter() -> void
+A2A.JsonRpc.JsonRpcError
+A2A.JsonRpc.JsonRpcError.Code.get -> int
+A2A.JsonRpc.JsonRpcError.Code.set -> void
+A2A.JsonRpc.JsonRpcError.Data.get -> System.Collections.Generic.List<System.Text.Json.JsonElement>?
+A2A.JsonRpc.JsonRpcError.Data.set -> void
+A2A.JsonRpc.JsonRpcError.DataRaw.get -> System.Text.Json.JsonElement?
+A2A.JsonRpc.JsonRpcError.DataRaw.set -> void
+A2A.JsonRpc.JsonRpcError.JsonRpcError() -> void
+A2A.JsonRpc.JsonRpcError.Message.get -> string!
+A2A.JsonRpc.JsonRpcError.Message.set -> void
+A2A.JsonRpc.JsonRpcError.ToException() -> A2A.A2AException!
+A2A.JsonRpc.JsonRpcRequest
+A2A.JsonRpc.JsonRpcRequest.Id.get -> System.Text.Json.JsonElement?
+A2A.JsonRpc.JsonRpcRequest.Id.set -> void
+A2A.JsonRpc.JsonRpcRequest.JsonRpc.get -> string!
+A2A.JsonRpc.JsonRpcRequest.JsonRpc.set -> void
+A2A.JsonRpc.JsonRpcRequest.JsonRpcRequest() -> void
+A2A.JsonRpc.JsonRpcRequest.Method.get -> string!
+A2A.JsonRpc.JsonRpcRequest.Method.set -> void
+A2A.JsonRpc.JsonRpcRequest.Params.get -> System.Text.Json.JsonElement?
+A2A.JsonRpc.JsonRpcRequest.Params.set -> void
+A2A.JsonRpc.JsonRpcResponse
+A2A.JsonRpc.JsonRpcResponse.Error.get -> A2A.JsonRpc.JsonRpcError?
+A2A.JsonRpc.JsonRpcResponse.Error.set -> void
+A2A.JsonRpc.JsonRpcResponse.Id.get -> System.Text.Json.JsonElement?
+A2A.JsonRpc.JsonRpcResponse.Id.set -> void
+A2A.JsonRpc.JsonRpcResponse.JsonRpc.get -> string!
+A2A.JsonRpc.JsonRpcResponse.JsonRpc.set -> void
+A2A.JsonRpc.JsonRpcResponse.JsonRpcResponse() -> void
+A2A.JsonRpc.JsonRpcResponse.Result.get -> System.Text.Json.JsonElement?
+A2A.JsonRpc.JsonRpcResponse.Result.set -> void
+A2A.ListTaskPushNotificationConfigsRequest
+A2A.ListTaskPushNotificationConfigsRequest.ListTaskPushNotificationConfigsRequest() -> void
+A2A.ListTaskPushNotificationConfigsRequest.PageSize.get -> int?
+A2A.ListTaskPushNotificationConfigsRequest.PageSize.set -> void
+A2A.ListTaskPushNotificationConfigsRequest.PageToken.get -> string?
+A2A.ListTaskPushNotificationConfigsRequest.PageToken.set -> void
+A2A.ListTaskPushNotificationConfigsRequest.TaskId.get -> string!
+A2A.ListTaskPushNotificationConfigsRequest.TaskId.set -> void
+A2A.ListTaskPushNotificationConfigsRequest.Tenant.get -> string?
+A2A.ListTaskPushNotificationConfigsRequest.Tenant.set -> void
+A2A.ListTaskPushNotificationConfigsResponse
+A2A.ListTaskPushNotificationConfigsResponse.Configs.get -> System.Collections.Generic.List<A2A.TaskPushNotificationConfig!>!
+A2A.ListTaskPushNotificationConfigsResponse.Configs.set -> void
+A2A.ListTaskPushNotificationConfigsResponse.ListTaskPushNotificationConfigsResponse() -> void
+A2A.ListTaskPushNotificationConfigsResponse.NextPageToken.get -> string?
+A2A.ListTaskPushNotificationConfigsResponse.NextPageToken.set -> void
+A2A.ListTasksRequest
+A2A.ListTasksRequest.ContextId.get -> string?
+A2A.ListTasksRequest.ContextId.set -> void
+A2A.ListTasksRequest.HistoryLength.get -> int?
+A2A.ListTasksRequest.HistoryLength.set -> void
+A2A.ListTasksRequest.IncludeArtifacts.get -> bool?
+A2A.ListTasksRequest.IncludeArtifacts.set -> void
+A2A.ListTasksRequest.ListTasksRequest() -> void
+A2A.ListTasksRequest.PageSize.get -> int?
+A2A.ListTasksRequest.PageSize.set -> void
+A2A.ListTasksRequest.PageToken.get -> string?
+A2A.ListTasksRequest.PageToken.set -> void
+A2A.ListTasksRequest.Status.get -> A2A.TaskState?
+A2A.ListTasksRequest.Status.set -> void
+A2A.ListTasksRequest.StatusTimestampAfter.get -> System.DateTimeOffset?
+A2A.ListTasksRequest.StatusTimestampAfter.set -> void
+A2A.ListTasksRequest.Tenant.get -> string?
+A2A.ListTasksRequest.Tenant.set -> void
+A2A.ListTasksResponse
+A2A.ListTasksResponse.ListTasksResponse() -> void
+A2A.ListTasksResponse.NextPageToken.get -> string!
+A2A.ListTasksResponse.NextPageToken.set -> void
+A2A.ListTasksResponse.PageSize.get -> int
+A2A.ListTasksResponse.PageSize.set -> void
+A2A.ListTasksResponse.Tasks.get -> System.Collections.Generic.List<A2A.AgentTask!>!
+A2A.ListTasksResponse.Tasks.set -> void
+A2A.ListTasksResponse.TotalSize.get -> int
+A2A.ListTasksResponse.TotalSize.set -> void
+A2A.Message
+A2A.Message.ContextId.get -> string?
+A2A.Message.ContextId.set -> void
+A2A.Message.Extensions.get -> System.Collections.Generic.List<string!>?
+A2A.Message.Extensions.set -> void
+A2A.Message.GetText() -> string!
+A2A.Message.Message() -> void
+A2A.Message.MessageId.get -> string!
+A2A.Message.MessageId.set -> void
+A2A.Message.Metadata.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.Message.Metadata.set -> void
+A2A.Message.Parts.get -> System.Collections.Generic.List<A2A.Part!>!
+A2A.Message.Parts.set -> void
+A2A.Message.ReferenceTaskIds.get -> System.Collections.Generic.List<string!>?
+A2A.Message.ReferenceTaskIds.set -> void
+A2A.Message.Role.get -> A2A.Role
+A2A.Message.Role.set -> void
+A2A.Message.TaskId.get -> string?
+A2A.Message.TaskId.set -> void
+A2A.MessageEvent
+A2A.MessageEvent.Message.get -> A2A.Message!
+A2A.MessageEvent.Message.init -> void
+A2A.MessageEvent.MessageEvent(A2A.Message! Message) -> void
+A2A.MessageResponse
+A2A.MessageResponse.Message.get -> A2A.Message!
+A2A.MessageResponse.Message.init -> void
+A2A.MessageResponse.MessageResponse(A2A.Message! Message) -> void
+A2A.MutualTlsScheme
+A2A.MutualTlsScheme.MutualTlsScheme(A2A.MutualTlsSecurityScheme! Value) -> void
+A2A.MutualTlsScheme.Value.get -> A2A.MutualTlsSecurityScheme!
+A2A.MutualTlsScheme.Value.init -> void
+A2A.MutualTlsSecurityScheme
+A2A.MutualTlsSecurityScheme.Description.get -> string?
+A2A.MutualTlsSecurityScheme.Description.set -> void
+A2A.MutualTlsSecurityScheme.MutualTlsSecurityScheme() -> void
+A2A.OAuth2Scheme
+A2A.OAuth2Scheme.OAuth2Scheme(A2A.OAuth2SecurityScheme! Value) -> void
+A2A.OAuth2Scheme.Value.get -> A2A.OAuth2SecurityScheme!
+A2A.OAuth2Scheme.Value.init -> void
+A2A.OAuth2SecurityScheme
+A2A.OAuth2SecurityScheme.Description.get -> string?
+A2A.OAuth2SecurityScheme.Description.set -> void
+A2A.OAuth2SecurityScheme.Flows.get -> A2A.OAuthFlows!
+A2A.OAuth2SecurityScheme.Flows.set -> void
+A2A.OAuth2SecurityScheme.Oauth2MetadataUrl.get -> string?
+A2A.OAuth2SecurityScheme.Oauth2MetadataUrl.set -> void
+A2A.OAuth2SecurityScheme.OAuth2SecurityScheme() -> void
+A2A.OAuthFlows
+A2A.OAuthFlows.AuthorizationCode.get -> A2A.AuthorizationCodeOAuthFlow?
+A2A.OAuthFlows.AuthorizationCode.set -> void
+A2A.OAuthFlows.ClientCredentials.get -> A2A.ClientCredentialsOAuthFlow?
+A2A.OAuthFlows.ClientCredentials.set -> void
+A2A.OAuthFlows.DeviceCode.get -> A2A.DeviceCodeOAuthFlow?
+A2A.OAuthFlows.DeviceCode.set -> void
+A2A.OAuthFlows.Implicit.get -> A2A.ImplicitOAuthFlow?
+A2A.OAuthFlows.Implicit.set -> void
+A2A.OAuthFlows.OAuthFlows() -> void
+A2A.OAuthFlows.Password.get -> A2A.PasswordOAuthFlow?
+A2A.OAuthFlows.Password.set -> void
+A2A.OpenIdConnectScheme
+A2A.OpenIdConnectScheme.OpenIdConnectScheme(A2A.OpenIdConnectSecurityScheme! Value) -> void
+A2A.OpenIdConnectScheme.Value.get -> A2A.OpenIdConnectSecurityScheme!
+A2A.OpenIdConnectScheme.Value.init -> void
+A2A.OpenIdConnectSecurityScheme
+A2A.OpenIdConnectSecurityScheme.Description.get -> string?
+A2A.OpenIdConnectSecurityScheme.Description.set -> void
+A2A.OpenIdConnectSecurityScheme.OpenIdConnectSecurityScheme() -> void
+A2A.OpenIdConnectSecurityScheme.OpenIdConnectUrl.get -> string!
+A2A.OpenIdConnectSecurityScheme.OpenIdConnectUrl.set -> void
+A2A.Part
+A2A.Part.Filename.get -> string?
+A2A.Part.Filename.init -> void
+A2A.Part.MediaType.get -> string?
+A2A.Part.MediaType.init -> void
+A2A.Part.Metadata.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.Part.Metadata.init -> void
+A2A.PasswordOAuthFlow
+A2A.PasswordOAuthFlow.PasswordOAuthFlow() -> void
+A2A.PasswordOAuthFlow.RefreshUrl.get -> string?
+A2A.PasswordOAuthFlow.RefreshUrl.set -> void
+A2A.PasswordOAuthFlow.Scopes.get -> System.Collections.Generic.Dictionary<string!, string!>?
+A2A.PasswordOAuthFlow.Scopes.set -> void
+A2A.PasswordOAuthFlow.TokenUrl.get -> string?
+A2A.PasswordOAuthFlow.TokenUrl.set -> void
+A2A.ProtocolBindings
+A2A.RawPart
+A2A.RawPart.Raw.get -> System.ReadOnlyMemory<byte>
+A2A.RawPart.Raw.init -> void
+A2A.RawPart.RawPart(System.ReadOnlyMemory<byte> Raw) -> void
+A2A.RestError
+A2A.RestError.Code.get -> int
+A2A.RestError.Code.set -> void
+A2A.RestError.Details.get -> System.Collections.Generic.List<System.Text.Json.JsonElement>!
+A2A.RestError.Details.set -> void
+A2A.RestError.Message.get -> string!
+A2A.RestError.Message.set -> void
+A2A.RestError.RestError() -> void
+A2A.RestError.Status.get -> string!
+A2A.RestError.Status.set -> void
+A2A.RestErrorBody
+A2A.RestErrorBody.Error.get -> A2A.RestError!
+A2A.RestErrorBody.Error.set -> void
+A2A.RestErrorBody.RestErrorBody() -> void
+A2A.Role
+A2A.Role.Agent = 2 -> A2A.Role
+A2A.Role.Unspecified = 0 -> A2A.Role
+A2A.Role.User = 1 -> A2A.Role
+A2A.SecurityRequirement
+A2A.SecurityRequirement.Schemes.get -> System.Collections.Generic.Dictionary<string!, A2A.StringList!>!
+A2A.SecurityRequirement.Schemes.set -> void
+A2A.SecurityRequirement.SecurityRequirement() -> void
+A2A.SecurityScheme
+A2A.SendMessageConfiguration
+A2A.SendMessageConfiguration.AcceptedOutputModes.get -> System.Collections.Generic.List<string!>?
+A2A.SendMessageConfiguration.AcceptedOutputModes.set -> void
+A2A.SendMessageConfiguration.HistoryLength.get -> int?
+A2A.SendMessageConfiguration.HistoryLength.set -> void
+A2A.SendMessageConfiguration.ReturnImmediately.get -> bool
+A2A.SendMessageConfiguration.ReturnImmediately.set -> void
+A2A.SendMessageConfiguration.SendMessageConfiguration() -> void
+A2A.SendMessageConfiguration.TaskPushNotificationConfig.get -> A2A.TaskPushNotificationConfig?
+A2A.SendMessageConfiguration.TaskPushNotificationConfig.set -> void
+A2A.SendMessageRequest
+A2A.SendMessageRequest.Configuration.get -> A2A.SendMessageConfiguration?
+A2A.SendMessageRequest.Configuration.set -> void
+A2A.SendMessageRequest.Message.get -> A2A.Message!
+A2A.SendMessageRequest.Message.set -> void
+A2A.SendMessageRequest.Metadata.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.SendMessageRequest.Metadata.set -> void
+A2A.SendMessageRequest.SendMessageRequest() -> void
+A2A.SendMessageRequest.Tenant.get -> string?
+A2A.SendMessageRequest.Tenant.set -> void
+A2A.SendMessageResponse
+A2A.Signing.AgentCardCanonicalizer
+A2A.Signing.AgentCardSigner
+A2A.Signing.AgentCardSigningKey
+A2A.Signing.AgentCardSigningKey.AgentCardSigningKey(System.Security.Cryptography.AsymmetricAlgorithm! key, string! keyId, string! algorithm, string? jwksUrl = null) -> void
+A2A.Signing.AgentCardSigningKey.Algorithm.get -> string!
+A2A.Signing.AgentCardSigningKey.JwksUrl.get -> string?
+A2A.Signing.AgentCardSigningKey.Key.get -> System.Security.Cryptography.AsymmetricAlgorithm!
+A2A.Signing.AgentCardSigningKey.KeyId.get -> string!
+A2A.Signing.AgentCardSigningKey.ToPublicJwk() -> A2A.Signing.Jwk!
+A2A.Signing.AgentCardVerificationResult
+A2A.Signing.AgentCardVerificationResult.AgentCardVerificationResult(A2A.Signing.AgentCardVerificationStatus Status, string? KeyId, string? Issuer, string? Reason) -> void
+A2A.Signing.AgentCardVerificationResult.Issuer.get -> string?
+A2A.Signing.AgentCardVerificationResult.Issuer.init -> void
+A2A.Signing.AgentCardVerificationResult.KeyId.get -> string?
+A2A.Signing.AgentCardVerificationResult.KeyId.init -> void
+A2A.Signing.AgentCardVerificationResult.Reason.get -> string?
+A2A.Signing.AgentCardVerificationResult.Reason.init -> void
+A2A.Signing.AgentCardVerificationResult.Status.get -> A2A.Signing.AgentCardVerificationStatus
+A2A.Signing.AgentCardVerificationResult.Status.init -> void
+A2A.Signing.AgentCardVerificationStatus
+A2A.Signing.AgentCardVerificationStatus.Failed = 3 -> A2A.Signing.AgentCardVerificationStatus
+A2A.Signing.AgentCardVerificationStatus.Unsigned = 1 -> A2A.Signing.AgentCardVerificationStatus
+A2A.Signing.AgentCardVerificationStatus.Unverified = 2 -> A2A.Signing.AgentCardVerificationStatus
+A2A.Signing.AgentCardVerificationStatus.Verified = 0 -> A2A.Signing.AgentCardVerificationStatus
+A2A.Signing.AgentCardVerifier
+A2A.Signing.AgentCardVerifier.Policy.get -> A2A.Signing.CardTrustPolicy!
+A2A.Signing.AgentCardVerifier.VerifyAsync(A2A.AgentCard! card, System.Uri! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Signing.AgentCardVerificationResult!>!
+A2A.Signing.AgentCardVerifier.VerifyAsync(string! rawCardJson, System.Uri! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Signing.AgentCardVerificationResult!>!
+A2A.Signing.AgentCardVerifier.VerifyAsync(System.Text.Json.Nodes.JsonObject! card, System.Uri! source, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Signing.AgentCardVerificationResult!>!
+A2A.Signing.Base64Url
+A2A.Signing.CardTrustPolicy
+A2A.Signing.CardTrustPolicy.AcceptedTyp.get -> System.Collections.Generic.ISet<string!>!
+A2A.Signing.CardTrustPolicy.AllowedAlgorithms.get -> System.Collections.Generic.ISet<string!>!
+A2A.Signing.CardTrustPolicy.AllowedJkuHosts.get -> System.Collections.Generic.IDictionary<string!, System.Collections.Generic.ISet<string!>!>!
+A2A.Signing.CardTrustPolicy.AllowJkuHost(string! origin, string! host) -> A2A.Signing.CardTrustPolicy!
+A2A.Signing.CardTrustPolicy.CardTrustPolicy() -> void
+A2A.Signing.CardTrustPolicy.EffectiveRequireSignature.get -> bool
+A2A.Signing.CardTrustPolicy.RequireSignature.get -> bool?
+A2A.Signing.CardTrustPolicy.RequireSignature.set -> void
+A2A.Signing.CardTrustPolicy.TrustedKeys.get -> System.Collections.Generic.IDictionary<string!, A2A.Signing.JwkSet!>!
+A2A.Signing.JsonCanonicalizer
+A2A.Signing.Jwk
+A2A.Signing.Jwk.Alg.get -> string?
+A2A.Signing.Jwk.Alg.set -> void
+A2A.Signing.Jwk.Crv.get -> string?
+A2A.Signing.Jwk.Crv.set -> void
+A2A.Signing.Jwk.E.get -> string?
+A2A.Signing.Jwk.E.set -> void
+A2A.Signing.Jwk.Jwk() -> void
+A2A.Signing.Jwk.Kid.get -> string?
+A2A.Signing.Jwk.Kid.set -> void
+A2A.Signing.Jwk.Kty.get -> string!
+A2A.Signing.Jwk.Kty.set -> void
+A2A.Signing.Jwk.N.get -> string?
+A2A.Signing.Jwk.N.set -> void
+A2A.Signing.Jwk.ToPublicKey() -> System.Security.Cryptography.AsymmetricAlgorithm!
+A2A.Signing.Jwk.Use.get -> string?
+A2A.Signing.Jwk.Use.set -> void
+A2A.Signing.Jwk.X.get -> string?
+A2A.Signing.Jwk.X.set -> void
+A2A.Signing.Jwk.Y.get -> string?
+A2A.Signing.Jwk.Y.set -> void
+A2A.Signing.JwkSet
+A2A.Signing.JwkSet.JwkSet() -> void
+A2A.Signing.JwkSet.Keys.get -> System.Collections.Generic.List<A2A.Signing.Jwk!>!
+A2A.Signing.JwkSet.Keys.set -> void
+A2A.Signing.JwsAlgorithms
+A2A.StatusUpdateEvent
+A2A.StatusUpdateEvent.StatusUpdate.get -> A2A.TaskStatusUpdateEvent!
+A2A.StatusUpdateEvent.StatusUpdate.init -> void
+A2A.StatusUpdateEvent.StatusUpdateEvent(A2A.TaskStatusUpdateEvent! StatusUpdate) -> void
+A2A.StreamResponse
+A2A.StreamResponse.TaskId.get -> string?
+A2A.StringList
+A2A.StringList.List.get -> System.Collections.Generic.List<string!>!
+A2A.StringList.List.set -> void
+A2A.StringList.StringList() -> void
+A2A.SubscribeToTaskRequest
+A2A.SubscribeToTaskRequest.Id.get -> string!
+A2A.SubscribeToTaskRequest.Id.set -> void
+A2A.SubscribeToTaskRequest.SubscribeToTaskRequest() -> void
+A2A.SubscribeToTaskRequest.Tenant.get -> string?
+A2A.SubscribeToTaskRequest.Tenant.set -> void
+A2A.TaskArtifactUpdateEvent
+A2A.TaskArtifactUpdateEvent.Append.get -> bool
+A2A.TaskArtifactUpdateEvent.Append.set -> void
+A2A.TaskArtifactUpdateEvent.Artifact.get -> A2A.Artifact!
+A2A.TaskArtifactUpdateEvent.Artifact.set -> void
+A2A.TaskArtifactUpdateEvent.ContextId.get -> string!
+A2A.TaskArtifactUpdateEvent.ContextId.set -> void
+A2A.TaskArtifactUpdateEvent.LastChunk.get -> bool
+A2A.TaskArtifactUpdateEvent.LastChunk.set -> void
+A2A.TaskArtifactUpdateEvent.Metadata.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.TaskArtifactUpdateEvent.Metadata.set -> void
+A2A.TaskArtifactUpdateEvent.TaskArtifactUpdateEvent() -> void
+A2A.TaskArtifactUpdateEvent.TaskId.get -> string!
+A2A.TaskArtifactUpdateEvent.TaskId.set -> void
+A2A.TaskEvent
+A2A.TaskEvent.Task.get -> A2A.AgentTask!
+A2A.TaskEvent.Task.init -> void
+A2A.TaskEvent.TaskEvent(A2A.AgentTask! Task) -> void
+A2A.TaskPushNotificationConfig
+A2A.TaskPushNotificationConfig.Authentication.get -> A2A.AuthenticationInfo?
+A2A.TaskPushNotificationConfig.Authentication.set -> void
+A2A.TaskPushNotificationConfig.Id.get -> string?
+A2A.TaskPushNotificationConfig.Id.set -> void
+A2A.TaskPushNotificationConfig.TaskId.get -> string?
+A2A.TaskPushNotificationConfig.TaskId.set -> void
+A2A.TaskPushNotificationConfig.TaskPushNotificationConfig() -> void
+A2A.TaskPushNotificationConfig.Tenant.get -> string?
+A2A.TaskPushNotificationConfig.Tenant.set -> void
+A2A.TaskPushNotificationConfig.Token.get -> string?
+A2A.TaskPushNotificationConfig.Token.set -> void
+A2A.TaskPushNotificationConfig.Url.get -> string!
+A2A.TaskPushNotificationConfig.Url.set -> void
+A2A.TaskResponse
+A2A.TaskResponse.Task.get -> A2A.AgentTask!
+A2A.TaskResponse.Task.init -> void
+A2A.TaskResponse.TaskResponse(A2A.AgentTask! Task) -> void
+A2A.TaskState
+A2A.TaskState.AuthRequired = 8 -> A2A.TaskState
+A2A.TaskState.Canceled = 5 -> A2A.TaskState
+A2A.TaskState.Completed = 3 -> A2A.TaskState
+A2A.TaskState.Failed = 4 -> A2A.TaskState
+A2A.TaskState.InputRequired = 6 -> A2A.TaskState
+A2A.TaskState.Rejected = 7 -> A2A.TaskState
+A2A.TaskState.Submitted = 1 -> A2A.TaskState
+A2A.TaskState.Unspecified = 0 -> A2A.TaskState
+A2A.TaskState.Working = 2 -> A2A.TaskState
+A2A.TaskStateExtensions
+A2A.TaskStatusUpdateEvent
+A2A.TaskStatusUpdateEvent.ContextId.get -> string!
+A2A.TaskStatusUpdateEvent.ContextId.set -> void
+A2A.TaskStatusUpdateEvent.Metadata.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.TaskStatusUpdateEvent.Metadata.set -> void
+A2A.TaskStatusUpdateEvent.Status.get -> A2A.AgentTaskStatus!
+A2A.TaskStatusUpdateEvent.Status.set -> void
+A2A.TaskStatusUpdateEvent.TaskId.get -> string!
+A2A.TaskStatusUpdateEvent.TaskId.set -> void
+A2A.TaskStatusUpdateEvent.TaskStatusUpdateEvent() -> void
+A2A.TextPart
+A2A.TextPart.Text.get -> string!
+A2A.TextPart.Text.init -> void
+A2A.TextPart.TextPart(string! Text) -> void
+A2A.UrlPart
+A2A.UrlPart.Url.get -> System.Uri!
+A2A.UrlPart.Url.init -> void
+A2A.UrlPart.UrlPart(System.Uri! Url) -> void
+A2A.Validation.A2AValidator
+abstract A2A.Json.OneOfConverter<TUnion>.MemberNames.get -> System.Collections.Generic.IReadOnlyList<string!>!
+abstract A2A.Json.OneOfConverter<TUnion>.ReadCase(ref System.Text.Json.Utf8JsonReader reader, string! member, System.Text.Json.JsonSerializerOptions! options) -> TUnion!
+abstract A2A.Json.OneOfConverter<TUnion>.UnionName.get -> string!
+abstract A2A.Json.OneOfConverter<TUnion>.WriteCase(System.Text.Json.Utf8JsonWriter! writer, TUnion! value, System.Text.Json.JsonSerializerOptions! options) -> void
+const A2A.A2AErrors.ErrorInfoType = "type.googleapis.com/google.rpc.ErrorInfo" -> string!
+const A2A.A2AErrors.IdempotencyKeyMismatchReason = "IDEMPOTENCY_KEY_MISMATCH" -> string!
+const A2A.A2AErrors.PayloadTooLargeReason = "PAYLOAD_TOO_LARGE" -> string!
+const A2A.A2AProtocol.ErrorDomain = "a2a-protocol.org" -> string!
+const A2A.A2AProtocol.EventStreamMediaType = "text/event-stream" -> string!
+const A2A.A2AProtocol.Headers.DeliveryId = "X-A2A-Delivery-Id" -> string!
+const A2A.A2AProtocol.Headers.Extensions = "A2A-Extensions" -> string!
+const A2A.A2AProtocol.Headers.IdempotencyKey = "Idempotency-Key" -> string!
+const A2A.A2AProtocol.Headers.LastEventId = "Last-Event-ID" -> string!
+const A2A.A2AProtocol.Headers.NotificationSequence = "X-A2A-Notification-Sequence" -> string!
+const A2A.A2AProtocol.Headers.NotificationToken = "X-A2A-Notification-Token" -> string!
+const A2A.A2AProtocol.Headers.Version = "A2A-Version" -> string!
+const A2A.A2AProtocol.ImplicitVersion = "0.3" -> string!
+const A2A.A2AProtocol.JsonMediaType = "application/json" -> string!
+const A2A.A2AProtocol.MediaType = "application/a2a+json" -> string!
+const A2A.A2AProtocol.Methods.CancelTask = "CancelTask" -> string!
+const A2A.A2AProtocol.Methods.CreateTaskPushNotificationConfig = "CreateTaskPushNotificationConfig" -> string!
+const A2A.A2AProtocol.Methods.DeleteTaskPushNotificationConfig = "DeleteTaskPushNotificationConfig" -> string!
+const A2A.A2AProtocol.Methods.GetExtendedAgentCard = "GetExtendedAgentCard" -> string!
+const A2A.A2AProtocol.Methods.GetTask = "GetTask" -> string!
+const A2A.A2AProtocol.Methods.GetTaskPushNotificationConfig = "GetTaskPushNotificationConfig" -> string!
+const A2A.A2AProtocol.Methods.ListTaskPushNotificationConfigs = "ListTaskPushNotificationConfigs" -> string!
+const A2A.A2AProtocol.Methods.ListTasks = "ListTasks" -> string!
+const A2A.A2AProtocol.Methods.SendMessage = "SendMessage" -> string!
+const A2A.A2AProtocol.Methods.SendStreamingMessage = "SendStreamingMessage" -> string!
+const A2A.A2AProtocol.Methods.SubscribeToTask = "SubscribeToTask" -> string!
+const A2A.A2AProtocol.Version = "1.0" -> string!
+const A2A.A2AProtocol.WellKnownAgentCardPath = "/.well-known/agent-card.json" -> string!
+const A2A.Json.A2AJson.MaxJsonDepth = 64 -> int
+const A2A.Json.TimestampConverter.Format = "yyyy-MM-dd'T'HH:mm:ss.fff'Z'" -> string!
+const A2A.ProtocolBindings.Grpc = "GRPC" -> string!
+const A2A.ProtocolBindings.HttpJson = "HTTP+JSON" -> string!
+const A2A.ProtocolBindings.JsonRpc = "JSONRPC" -> string!
+override A2A.Json.OneOfCaseConverter<TUnion, TCase, TConverter>.Read(ref System.Text.Json.Utf8JsonReader reader, System.Type! typeToConvert, System.Text.Json.JsonSerializerOptions! options) -> TCase!
+override A2A.Json.OneOfCaseConverter<TUnion, TCase, TConverter>.Write(System.Text.Json.Utf8JsonWriter! writer, TCase! value, System.Text.Json.JsonSerializerOptions! options) -> void
+override A2A.Json.PartConverter.Read(ref System.Text.Json.Utf8JsonReader reader, System.Type! typeToConvert, System.Text.Json.JsonSerializerOptions! options) -> A2A.Part!
+override A2A.Json.PartConverter.Write(System.Text.Json.Utf8JsonWriter! writer, A2A.Part! value, System.Text.Json.JsonSerializerOptions! options) -> void
+override A2A.Json.PartConverter<TPart>.Read(ref System.Text.Json.Utf8JsonReader reader, System.Type! typeToConvert, System.Text.Json.JsonSerializerOptions! options) -> TPart!
+override A2A.Json.PartConverter<TPart>.Write(System.Text.Json.Utf8JsonWriter! writer, TPart! value, System.Text.Json.JsonSerializerOptions! options) -> void
+override A2A.Json.ProtoEnumConverter<TEnum>.Read(ref System.Text.Json.Utf8JsonReader reader, System.Type! typeToConvert, System.Text.Json.JsonSerializerOptions! options) -> TEnum
+override A2A.Json.ProtoEnumConverter<TEnum>.Write(System.Text.Json.Utf8JsonWriter! writer, TEnum value, System.Text.Json.JsonSerializerOptions! options) -> void
+override A2A.Json.TimestampConverter.Read(ref System.Text.Json.Utf8JsonReader reader, System.Type! typeToConvert, System.Text.Json.JsonSerializerOptions! options) -> System.DateTimeOffset
+override A2A.Json.TimestampConverter.Write(System.Text.Json.Utf8JsonWriter! writer, System.DateTimeOffset value, System.Text.Json.JsonSerializerOptions! options) -> void
+override sealed A2A.Json.OneOfConverter<TUnion>.Read(ref System.Text.Json.Utf8JsonReader reader, System.Type! typeToConvert, System.Text.Json.JsonSerializerOptions! options) -> TUnion!
+override sealed A2A.Json.OneOfConverter<TUnion>.Write(System.Text.Json.Utf8JsonWriter! writer, TUnion! value, System.Text.Json.JsonSerializerOptions! options) -> void
+static A2A.A2AErrors.BuildDetails(A2A.A2AException! ex) -> System.Collections.Generic.List<System.Text.Json.JsonElement>!
+static A2A.A2AErrors.DefaultMessage(A2A.A2AErrorCode code) -> string!
+static A2A.A2AErrors.DefaultRetryable(A2A.A2AErrorCode code) -> bool
+static A2A.A2AErrors.GrpcStatus(A2A.A2AErrorCode code) -> string!
+static A2A.A2AErrors.HttpStatus(A2A.A2AErrorCode code) -> int
+static A2A.A2AErrors.Reason(A2A.A2AErrorCode code) -> string!
+static A2A.A2AErrors.TryGetCodeFromDetails(System.Collections.Generic.IEnumerable<System.Text.Json.JsonElement>? details, out A2A.A2AErrorCode code) -> bool
+static A2A.A2AErrors.TryGetRetryableFromDetails(System.Collections.Generic.IEnumerable<System.Text.Json.JsonElement>? details, out bool retryable) -> bool
+static A2A.A2AErrors.TryParseReason(string? reason, out A2A.A2AErrorCode code) -> bool
+static A2A.A2AException.IdempotencyKeyMismatch() -> A2A.A2AException!
+static A2A.A2AException.InvalidParams(string! message) -> A2A.A2AException!
+static A2A.A2AException.PayloadTooLarge(long limit) -> A2A.A2AException!
+static A2A.A2AException.RateLimited(System.TimeSpan retryAfter) -> A2A.A2AException!
+static A2A.A2AException.TaskNotFound(string! taskId) -> A2A.A2AException!
+static A2A.Json.A2AJson.CreateOptions() -> System.Text.Json.JsonSerializerOptions!
+static A2A.Json.A2AJson.Deserialize<T>(string! json) -> T
+static A2A.Json.A2AJson.Deserialize<T>(System.Text.Json.JsonElement element) -> T
+static A2A.Json.A2AJson.EmptyObject.get -> System.Text.Json.JsonElement
+static A2A.Json.A2AJson.GetTypeInfo<T>() -> System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>!
+static A2A.Json.A2AJson.Options.get -> System.Text.Json.JsonSerializerOptions!
+static A2A.Json.A2AJson.RelaxRequired(System.Text.Json.Serialization.Metadata.JsonTypeInfo! info) -> void
+static A2A.Json.A2AJson.Serialize<T>(T value) -> string!
+static A2A.Json.A2AJson.SerializeToElement<T>(T value) -> System.Text.Json.JsonElement
+static A2A.Json.A2AJson.SerializeToUtf8Bytes<T>(T value) -> byte[]!
+static A2A.Json.OneOfConverter<TUnion>.ReadPayload<T>(ref System.Text.Json.Utf8JsonReader reader, System.Text.Json.JsonSerializerOptions! options) -> T!
+static A2A.Json.OneOfConverter<TUnion>.WriteProperty<T>(System.Text.Json.Utf8JsonWriter! writer, string! name, T! payload, System.Text.Json.JsonSerializerOptions! options) -> void
+static A2A.Json.ProtoEnumConverter<TEnum>.ToProtoName(TEnum value) -> string!
+static A2A.Json.ProtoEnumConverter<TEnum>.TryParse(string? name, out TEnum value) -> bool
+static A2A.Json.TimestampConverter.FormatUtc(System.DateTimeOffset value) -> string!
+static A2A.JsonRpc.JsonRpcResponse.Failure(System.Text.Json.JsonElement? id, A2A.A2AException! ex) -> A2A.JsonRpc.JsonRpcResponse!
+static A2A.JsonRpc.JsonRpcResponse.Success(System.Text.Json.JsonElement? id, System.Text.Json.JsonElement result) -> A2A.JsonRpc.JsonRpcResponse!
+static A2A.Message.FromAgent(string! text, string? contextId = null, string? taskId = null) -> A2A.Message!
+static A2A.Message.FromUser(string! text, string? contextId = null, string? taskId = null) -> A2A.Message!
+static A2A.Message.NewId() -> string!
+static A2A.Part.FromBytes(System.ReadOnlyMemory<byte> bytes, string! mediaType, string? filename = null) -> A2A.RawPart!
+static A2A.Part.FromData(System.Text.Json.JsonElement data, string? mediaType = "application/json") -> A2A.DataPart!
+static A2A.Part.FromText(string! text, string? mediaType = null) -> A2A.TextPart!
+static A2A.Part.FromUrl(System.Uri! url, string? mediaType = null, string? filename = null) -> A2A.UrlPart!
+static A2A.SecurityScheme.ApiKey(string! name, string! location = "header", string? description = null) -> A2A.ApiKeyScheme!
+static A2A.SecurityScheme.Bearer(string? bearerFormat = "JWT", string? description = null) -> A2A.HttpAuthScheme!
+static A2A.Signing.AgentCardCanonicalizer.Canonicalize(System.Text.Json.Nodes.JsonObject! card) -> byte[]!
+static A2A.Signing.AgentCardCanonicalizer.CaseVariantMembers(System.Text.Json.Nodes.JsonObject! card) -> System.Collections.Generic.IReadOnlyList<string!>!
+static A2A.Signing.AgentCardCanonicalizer.PrunedPaths(System.Text.Json.Nodes.JsonObject! card) -> System.Collections.Generic.IReadOnlyList<string!>!
+static A2A.Signing.AgentCardCanonicalizer.SignedContent(System.Text.Json.Nodes.JsonObject! card) -> System.Text.Json.Nodes.JsonObject!
+static A2A.Signing.AgentCardCanonicalizer.ToNode(A2A.AgentCard! card) -> System.Text.Json.Nodes.JsonObject!
+static A2A.Signing.AgentCardSigner.CreateSignature(A2A.AgentCard! card, A2A.Signing.AgentCardSigningKey! key) -> A2A.AgentCardSignature!
+static A2A.Signing.AgentCardSigner.Sign(A2A.AgentCard! card, A2A.Signing.AgentCardSigningKey! key) -> A2A.AgentCard!
+static A2A.Signing.Base64Url.Decode(string! s) -> byte[]!
+static A2A.Signing.Base64Url.Encode(System.ReadOnlySpan<byte> data) -> string!
+static A2A.Signing.CardTrustPolicy.OriginOf(System.Uri! uri) -> string!
+static A2A.Signing.JsonCanonicalizer.Canonicalize(System.Text.Json.Nodes.JsonNode? node) -> byte[]!
+static A2A.Signing.JsonCanonicalizer.CanonicalizeToString(string! json) -> string!
+static A2A.Signing.JsonCanonicalizer.CanonicalizeToString(System.Text.Json.Nodes.JsonNode? node) -> string!
+static A2A.Signing.Jwk.FromPublicKey(System.Security.Cryptography.AsymmetricAlgorithm! key, string! kid, string? alg = null) -> A2A.Signing.Jwk!
+static A2A.Signing.JwsAlgorithms.Hash(string! alg) -> System.Security.Cryptography.HashAlgorithmName
+static A2A.Signing.JwsAlgorithms.IsSupported(string? alg) -> bool
+static A2A.Signing.JwsAlgorithms.KeyMatches(string! alg, A2A.Signing.Jwk! jwk) -> bool
+static A2A.Signing.JwsAlgorithms.Sign(string! alg, System.Security.Cryptography.AsymmetricAlgorithm! key, byte[]! data) -> byte[]!
+static A2A.Signing.JwsAlgorithms.Verify(string! alg, System.Security.Cryptography.AsymmetricAlgorithm! key, byte[]! data, byte[]! signature) -> bool
+static A2A.StreamResponse.Of(A2A.AgentTask! task) -> A2A.TaskEvent!
+static A2A.StreamResponse.Of(A2A.Message! message) -> A2A.MessageEvent!
+static A2A.StreamResponse.Of(A2A.TaskArtifactUpdateEvent! e) -> A2A.ArtifactUpdateEvent!
+static A2A.StreamResponse.Of(A2A.TaskStatusUpdateEvent! e) -> A2A.StatusUpdateEvent!
+static A2A.TaskStateExtensions.IsInterrupted(this A2A.TaskState state) -> bool
+static A2A.TaskStateExtensions.IsTerminal(this A2A.TaskState state) -> bool
+static A2A.Validation.A2AValidator.RequireId(string? id, string! name) -> void
+static A2A.Validation.A2AValidator.ValidateArtifact(A2A.Artifact! artifact, string! path) -> void
+static A2A.Validation.A2AValidator.ValidateIncoming(A2A.SendMessageRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateMessage(A2A.Message! message, string! path) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.SendMessageRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidatePart(A2A.Part! part, string! path) -> void
+static A2A.Validation.A2AValidator.ValidatePushConfig(A2A.TaskPushNotificationConfig! config, string! path, bool requireTaskId) -> void
+static readonly A2A.Signing.JwsAlgorithms.All -> System.Collections.Generic.IReadOnlySet<string!>!
+A2A.Signing.AgentCardVerifier.AgentCardVerifier(A2A.Signing.CardTrustPolicy! policy, A2A.Signing.IJwksFetcher? jwksFetcher = null) -> void
+A2A.Signing.IJwksFetcher
+A2A.Signing.IJwksFetcher.FetchAsync(System.Uri! jku, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Signing.JwkSet!>
+A2A.Text.TextSanitizer
+const A2A.Text.TextSanitizer.MaxHeaderValueLength = 200 -> int
+static A2A.Text.TextSanitizer.ForMessage(string? value) -> string!
+static A2A.Text.TextSanitizer.Sanitize(string! text, int maxLength) -> string!
+A2A.ModelCopies
+static A2A.ModelCopies.CopyForUpdate(this A2A.AgentTask! task) -> A2A.AgentTask!
+static A2A.ModelCopies.CopyWithParts(this A2A.Artifact! artifact, System.Collections.Generic.IEnumerable<A2A.Part!>! extraParts) -> A2A.Artifact!
+static A2A.ModelCopies.DeepCopy(this A2A.AgentTask! task) -> A2A.AgentTask!
+static A2A.ModelCopies.DeepCopy(this A2A.Message! message) -> A2A.Message!
+static A2A.ModelCopies.DeepCopy(this A2A.TaskPushNotificationConfig! config) -> A2A.TaskPushNotificationConfig!
+static A2A.ModelCopies.DeepCopy(this A2A.StreamResponse! response) -> A2A.StreamResponse!
+A2A.JsonRpc.JsonRpcWriter
+static A2A.JsonRpc.JsonRpcWriter.CreateWriterOptions() -> System.Text.Json.JsonWriterOptions
+static A2A.JsonRpc.JsonRpcWriter.Request<T>(string! id, string! method, T params, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! info) -> byte[]!
+static A2A.JsonRpc.JsonRpcWriter.Success<T>(System.Text.Json.JsonElement? id, T result, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! info) -> byte[]!
+static A2A.JsonRpc.JsonRpcWriter.Success(System.Text.Json.JsonElement? id, System.ReadOnlySpan<byte> resultJson) -> byte[]!
+static A2A.JsonRpc.JsonRpcWriter.WriteSuccess<T>(System.Text.Json.Utf8JsonWriter! w, System.Text.Json.JsonElement? id, T result, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! info) -> void
+A2A.Diagnostics.A2ATelemetry
+A2A.Diagnostics.A2ATelemetry.Events
+A2A.Diagnostics.A2ATelemetry.Metrics
+A2A.Diagnostics.A2ATelemetry.Outcomes
+A2A.Diagnostics.A2ATelemetry.SpanNames
+A2A.Diagnostics.A2ATelemetry.Tags
+A2A.Json.ProtoJsonFieldNames
+const A2A.Diagnostics.A2ATelemetry.ClientSourceName = "A2A.Client" -> string!
+const A2A.Diagnostics.A2ATelemetry.ErrorTypeCanceledTag = "a2a.canceled" -> string!
+const A2A.Diagnostics.A2ATelemetry.Events.EventKind = "a2a.event.kind" -> string!
+const A2A.Diagnostics.A2ATelemetry.Events.EventSequence = "a2a.event.sequence" -> string!
+const A2A.Diagnostics.A2ATelemetry.Events.Retry = "a2a.retry" -> string!
+const A2A.Diagnostics.A2ATelemetry.Events.StreamEvent = "a2a.stream.event" -> string!
+const A2A.Diagnostics.A2ATelemetry.Metrics.Events = "a2a.server.events" -> string!
+const A2A.Diagnostics.A2ATelemetry.Metrics.PushDeliveries = "a2a.server.push.deliveries" -> string!
+const A2A.Diagnostics.A2ATelemetry.Metrics.Requests = "a2a.server.requests" -> string!
+const A2A.Diagnostics.A2ATelemetry.Metrics.StreamsOpened = "a2a.server.streams.opened" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.Canceled = "canceled" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.Error = "error" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.Ok = "ok" -> string!
+const A2A.Diagnostics.A2ATelemetry.ServerMeterName = "A2A.Server" -> string!
+const A2A.Diagnostics.A2ATelemetry.ServerSourceName = "A2A.Server" -> string!
+const A2A.Diagnostics.A2ATelemetry.SpanNames.AgentExecution = "a2a.agent.execute" -> string!
+const A2A.Diagnostics.A2ATelemetry.SpanNames.OperationPrefix = "a2a." -> string!
+const A2A.Diagnostics.A2ATelemetry.SpanNames.PushDelivery = "a2a.push.deliver" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.Binding = "a2a.binding" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ContextId = "a2a.context.id" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ErrorCode = "a2a.error.code" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ErrorType = "error.type" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ExecutionKind = "a2a.execution.kind" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.HttpStatusCode = "http.response.status_code" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.Operation = "rpc.method" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.Outcome = "a2a.outcome" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.PushAttempts = "a2a.push.attempts" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.PushConfigId = "a2a.push.config.id" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.PushSequence = "a2a.push.sequence" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.RpcSystem = "rpc.system" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ServerAddress = "server.address" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.StreamEventCount = "a2a.stream.event_count" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.TaskId = "a2a.task.id" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.TaskState = "a2a.task.state" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.Tenant = "a2a.tenant" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.TimedOut = "a2a.execution.timed_out" -> string!
+const A2A.Diagnostics.A2ATelemetry.TraceParentHeader = "traceparent" -> string!
+const A2A.Diagnostics.A2ATelemetry.TraceStateHeader = "tracestate" -> string!
+static A2A.Diagnostics.A2ATelemetry.AddStreamEvent(System.Diagnostics.Activity? activity, A2A.StreamResponse! evt, long? sequence = null) -> void
+static A2A.Diagnostics.A2ATelemetry.EventKindOf(A2A.StreamResponse! evt) -> string!
+static A2A.Diagnostics.A2ATelemetry.InjectTraceContext(System.Diagnostics.Activity? activity, System.Action<string!, string!>! setHeader) -> void
+static A2A.Diagnostics.A2ATelemetry.InjectTraceContext(System.Diagnostics.ActivityContext context, System.Action<string!, string!>! setHeader) -> void
+static A2A.Diagnostics.A2ATelemetry.RecordError(System.Diagnostics.Activity? activity, System.Exception! error, bool callerCanceled = false) -> void
+static A2A.Diagnostics.A2ATelemetry.SetOperationTags(System.Diagnostics.Activity? activity, string! operation, string? binding, string? tenant, string? taskId = null, string? contextId = null) -> void
+static A2A.Diagnostics.A2ATelemetry.SetResult(System.Diagnostics.Activity? activity, object? result) -> void
+static A2A.Diagnostics.A2ATelemetry.SetTask(System.Diagnostics.Activity? activity, string? taskId, string? contextId = null) -> void
+static A2A.Diagnostics.A2ATelemetry.SpanNames.Operation(string! operation) -> string!
+static A2A.Diagnostics.A2ATelemetry.TryExtractTraceContext(string? traceParent, string? traceState, out System.Diagnostics.ActivityContext context) -> bool
+static A2A.Json.ProtoJsonFieldNames.Deserialize<T>(System.ReadOnlySpan<byte> utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! typeInfo) -> T?
+static A2A.Json.ProtoJsonFieldNames.Normalize(System.Text.Json.JsonElement element) -> System.Text.Json.JsonElement
+static A2A.Json.ProtoJsonFieldNames.ToJsonName(string! protoName) -> string!
+A2A.Push.WebhookSignature
+const A2A.A2AProtocol.ApprovalConsumedKey = "a2a.approval.consumed" -> string!
+const A2A.A2AProtocol.ApprovalHashKey = "a2a.approval.hash" -> string!
+const A2A.A2AProtocol.CancelRequestedKey = "a2a.cancelRequested" -> string!
+const A2A.Diagnostics.A2ATelemetry.Metrics.PushDeadLetters = "a2a.server.push.dead_letters" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.DeadLettered = "dead_lettered" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.Retried = "retried" -> string!
+const A2A.Diagnostics.A2ATelemetry.Outcomes.Sent = "sent" -> string!
+const A2A.Push.WebhookSignature.IdHeader = "webhook-id" -> string!
+const A2A.Push.WebhookSignature.MinSecretLength = 16 -> int
+const A2A.Push.WebhookSignature.Scheme = "webhook-signature" -> string!
+const A2A.Push.WebhookSignature.SecretPrefix = "whsec_" -> string!
+const A2A.Push.WebhookSignature.SignatureHeader = "webhook-signature" -> string!
+const A2A.Push.WebhookSignature.TimestampHeader = "webhook-timestamp" -> string!
+static A2A.Push.WebhookSignature.Sign(System.ReadOnlySpan<byte> secret, string! id, long unixSeconds, System.ReadOnlySpan<byte> body) -> string!
+static A2A.Push.WebhookSignature.TryParseSecret(string? credentials, out byte[]! secret) -> bool
+static A2A.Push.WebhookSignature.Matches(string! signatureHeader, System.ReadOnlySpan<byte> secret, string! id, long unixSeconds, System.ReadOnlySpan<byte> body) -> bool

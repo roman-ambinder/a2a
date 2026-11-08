@@ -4,6 +4,10 @@ using System.Security.Claims;
 namespace A2A.Server;
 
 /// <summary>Per-request information supplied by the protocol binding (HTTP layer).</summary>
+/// <remarks>
+/// One instance per call. A custom binding creates a new one for every call and must not reuse it across calls: its
+/// <see cref="Items"/> carry per-call authorization results, such as <see cref="Pipeline.A2AExtensionOperation.PolicySatisfiedItem"/>.
+/// </remarks>
 public sealed class ServerCallContext
 {
     /// <summary>Principal used for anonymous callers.</summary>
@@ -12,6 +16,7 @@ public sealed class ServerCallContext
     /// <summary>Stable id of the caller. Never null; <see cref="AnonymousPrincipal"/> for unauthenticated callers.</summary>
     public string Principal { get; init; } = AnonymousPrincipal;
 
+    /// <summary>The authenticated user from the host, or null for anonymous callers.</summary>
     public ClaimsPrincipal? User { get; init; }
 
     /// <summary>
@@ -50,6 +55,7 @@ public sealed class ServerCallContext
         return new System.Net.IPAddress(bytes).ToString() + "/64";
     }
 
+    /// <summary>True when <see cref="User"/> is set and authenticated.</summary>
     public bool IsAuthenticated => User?.Identity?.IsAuthenticated == true;
 
     /// <summary>Tenant of the request (path segment or <c>tenant</c> field). Never null; <c>""</c> is the default tenant. Compared ordinally.</summary>
@@ -76,7 +82,7 @@ public sealed class ServerCallContext
 
     /// <summary>
     /// The route values of the HTTP request (for example <c>tenant</c>), as strings; empty when the binding has none. Passed to
-    /// <see cref="Agents.AgentCardProvider"/> in <see cref="Agents.AgentRequestScope.RouteValues"/>.
+    /// <see cref="IAgentCardProvider.GetAsync"/> in <see cref="Agents.AgentRequestScope.RouteValues"/>.
     /// </summary>
     public IReadOnlyDictionary<string, string?> RouteValues { get; init; } = Agents.AgentRequestScope.NoRouteValues;
 
@@ -118,5 +124,6 @@ public sealed class ServerCallContext
     /// <summary>Free-form per-request state for bindings and executors.</summary>
     public IDictionary<string, object?> Items { get; } = new Dictionary<string, object?>();
 
+    /// <summary>Creates a context for an anonymous caller. <paramref name="protocolVersion"/> defaults to <see cref="A2AProtocol.Version"/>.</summary>
     public static ServerCallContext Anonymous(string? protocolVersion = A2AProtocol.Version) => new() { ProtocolVersion = protocolVersion };
 }

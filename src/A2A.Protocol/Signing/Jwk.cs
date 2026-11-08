@@ -6,16 +6,26 @@ namespace A2A.Signing;
 /// <summary>Minimal public JSON Web Key (RFC 7517) for EC (P-256/384/521) and RSA keys.</summary>
 public sealed class Jwk
 {
+    /// <summary>Key type: <c>EC</c> or <c>RSA</c>.</summary>
     [JsonPropertyName("kty")] public string Kty { get; set; } = string.Empty;
+    /// <summary>Key id. Null when not set.</summary>
     [JsonPropertyName("kid")] public string? Kid { get; set; }
+    /// <summary>Intended use, for example <c>sig</c>. Null when not set.</summary>
     [JsonPropertyName("use")] public string? Use { get; set; }
+    /// <summary>Algorithm the key is for, for example <c>ES256</c>. Null when not set.</summary>
     [JsonPropertyName("alg")] public string? Alg { get; set; }
+    /// <summary>EC curve name, for example <c>P-256</c>. Null for RSA keys.</summary>
     [JsonPropertyName("crv")] public string? Crv { get; set; }
+    /// <summary>EC public point X coordinate (base64url). Null for RSA keys.</summary>
     [JsonPropertyName("x")] public string? X { get; set; }
+    /// <summary>EC public point Y coordinate (base64url). Null for RSA keys.</summary>
     [JsonPropertyName("y")] public string? Y { get; set; }
+    /// <summary>RSA modulus (base64url). Null for EC keys.</summary>
     [JsonPropertyName("n")] public string? N { get; set; }
+    /// <summary>RSA public exponent (base64url). Null for EC keys.</summary>
     [JsonPropertyName("e")] public string? E { get; set; }
 
+    /// <summary>Builds a public JWK from an EC or RSA key. Throws for other key types.</summary>
     public static Jwk FromPublicKey(AsymmetricAlgorithm key, string kid, string? alg = null)
     {
         switch (key)
@@ -89,15 +99,18 @@ public sealed class Jwk
 /// <summary>JSON Web Key Set.</summary>
 public sealed class JwkSet
 {
+    /// <summary>The keys in the set. Empty by default.</summary>
     [JsonPropertyName("keys")] public List<Jwk> Keys { get; set; } = new();
 }
 
 /// <summary>Base64url without padding (RFC 7515 §2).</summary>
 public static class Base64Url
 {
+    /// <summary>Encodes bytes as base64url without padding.</summary>
     public static string Encode(ReadOnlySpan<byte> data) =>
         Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
+    /// <summary>Decodes base64url text, with or without padding. Throws <see cref="FormatException"/> when the length is invalid.</summary>
     public static byte[] Decode(string s)
     {
         var t = s.Replace('-', '+').Replace('_', '/');

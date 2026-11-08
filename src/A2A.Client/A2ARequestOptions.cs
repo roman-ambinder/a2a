@@ -26,10 +26,13 @@ public sealed class A2ARequestOptions
     public string? IdempotencyKey { get; set; }
 
     /// <summary>
-    /// Time limit for one attempt of a unary call. Default 100 seconds. Streaming calls have no time limit and ignore this.
-    /// Use <see cref="Timeout.InfiniteTimeSpan"/> to disable it.
+    /// Time limit for one attempt of a unary call. Default 100 seconds (<see cref="DefaultTimeout"/>). Streaming calls have no
+    /// time limit and ignore this. Use <see cref="Timeout.InfiniteTimeSpan"/> to disable it.
     /// </summary>
     public TimeSpan? Timeout { get; set; }
+
+    /// <summary>The time limit of one unary attempt when <see cref="Timeout"/> is not set: 100 seconds. Every transport uses it.</summary>
+    public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(100);
 
     /// <summary>
     /// Automatic retries after the first attempt of this unary call. Default: <see cref="A2AClientOptions.MaxRetries"/>

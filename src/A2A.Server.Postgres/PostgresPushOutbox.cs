@@ -24,6 +24,10 @@ public sealed class PostgresPushOutbox : PushOutbox
     private readonly string _outbox;
     private readonly string _dead;
 
+    /// <summary>Creates the outbox over <paramref name="dataSource"/>. Create the tables first (<see cref="PostgresSchema"/>).</summary>
+    /// <param name="dataSource">The database.</param>
+    /// <param name="options">The schema; default <c>public</c>.</param>
+    /// <param name="time">The clock for due times and leases. Default <see cref="TimeProvider.System"/>.</param>
     public PostgresPushOutbox(NpgsqlDataSource dataSource, PostgresStoreOptions? options = null, TimeProvider? time = null)
     {
         _db = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
@@ -47,16 +51,17 @@ public sealed class PostgresPushOutbox : PushOutbox
             ON CONFLICT (tenant, owner, task_id, config_id, seq) DO NOTHING
             """);
         AddKey(cmd.Parameters, d.Task);
-        cmd.Parameters.Add(Text(d.ConfigId));
+        cmd.Parameters.Add(TextParam(d.ConfigId));
         cmd.Parameters.Add(Long(seq));
-        cmd.Parameters.Add(Text(d.DeliveryId));
+        cmd.Parameters.Add(TextParam(d.DeliveryId));
         cmd.Parameters.Add(NullableText(d.TraceParent));
         cmd.Parameters.Add(Long(nowTicks));
         cmd.Parameters.Add(Bytes(payload));
         return cmd;
     }
 
-    public override async ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken cancellationToken = default)
     {
         if (max <= 0) return [];
         var now = _time.GetUtcNow().UtcTicks;
@@ -83,20 +88,22 @@ public sealed class PostgresPushOutbox : PushOutbox
         cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = max });
         cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = Guid.NewGuid() });
         var list = new List<OutboxEntry>();
-        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        while (await reader.ReadAsync(ct).ConfigureAwait(false)) list.Add(ReadEntry(reader));
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) list.Add(ReadEntry(reader));
         return list.OrderBy(e => e.DueAt).ThenBy(e => e.Delivery.Sequence).ToList();
     }
 
-    public override async ValueTask<bool> CompleteAsync(OutboxEntry leased, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<bool> CompleteAsync(OutboxEntry leased, CancellationToken cancellationToken = default)
     {
         if (!AddLeasedKey(leased, out var parameters)) return false;
         await using var cmd = _db.CreateCommand($"DELETE FROM {_outbox} WHERE {LeasedFilter}");
         foreach (var p in parameters) cmd.Parameters.Add(p);
-        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
-    public override async ValueTask<bool> RescheduleAsync(OutboxEntry leased, int attempt, DateTimeOffset dueAt, string error, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<bool> RescheduleAsync(OutboxEntry leased, int attempt, DateTimeOffset dueAt, string error, CancellationToken cancellationToken = default)
     {
         if (!AddLeasedKey(leased, out var parameters)) return false;
         await using var cmd = _db.CreateCommand(
@@ -104,11 +111,12 @@ public sealed class PostgresPushOutbox : PushOutbox
         foreach (var p in parameters) cmd.Parameters.Add(p);
         cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = attempt });
         cmd.Parameters.Add(Long(dueAt.UtcTicks));
-        cmd.Parameters.Add(Text(error));
-        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
+        cmd.Parameters.Add(TextParam(error));
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
-    public override async ValueTask<bool> DeadLetterAsync(OutboxEntry leased, string error, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<bool> DeadLetterAsync(OutboxEntry leased, string error, CancellationToken cancellationToken = default)
     {
         if (!AddLeasedKey(leased, out var parameters)) return false;
         await using var cmd = _db.CreateCommand(
@@ -122,11 +130,12 @@ public sealed class PostgresPushOutbox : PushOutbox
             """);
         foreach (var p in parameters) cmd.Parameters.Add(p);
         cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
-        cmd.Parameters.Add(Text(error));
-        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
+        cmd.Parameters.Add(TextParam(error));
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
-    public override async ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(tenant);
         await using var cmd = _db.CreateCommand(
@@ -134,15 +143,16 @@ public sealed class PostgresPushOutbox : PushOutbox
             SELECT {Columns}, dead_ticks, last_error FROM {_dead}
             WHERE tenant = $1 ORDER BY dead_ticks, owner, task_id, config_id, seq LIMIT $2
             """);
-        cmd.Parameters.Add(Text(tenant));
+        cmd.Parameters.Add(TextParam(tenant));
         cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = Math.Max(0, max) });
         var list = new List<OutboxEntry>();
-        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        while (await reader.ReadAsync(ct).ConfigureAwait(false)) list.Add(ReadEntry(reader));
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) list.Add(ReadEntry(reader));
         return list;
     }
 
-    public override async ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(d);
         // An entry with the same key (a task log that restarted at this sequence) is never touched: its lease and token stay,
@@ -161,7 +171,7 @@ public sealed class PostgresPushOutbox : PushOutbox
         cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
         try
         {
-            return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
+            return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
         }
         catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
         {
@@ -169,7 +179,8 @@ public sealed class PostgresPushOutbox : PushOutbox
         }
     }
 
-    public override async ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask DeleteAllAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         await using var batch = _db.CreateBatch();
         foreach (var table in new[] { _outbox, _dead })
@@ -178,7 +189,7 @@ public sealed class PostgresPushOutbox : PushOutbox
             AddKey(delete.Parameters, task);
             batch.BatchCommands.Add(delete);
         }
-        await batch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await batch.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The parameters of <see cref="LeasedFilter"/> for <paramref name="leased"/>; false when it carries no lease.</summary>
@@ -188,7 +199,7 @@ public sealed class PostgresPushOutbox : PushOutbox
         parameters = [];
         if (leased.LeaseToken is not { } token) return false;
         var d = leased.Delivery;
-        parameters.AddRange([Text(d.Task.Tenant), Text(d.Task.Owner), Text(d.Task.TaskId), Text(d.ConfigId), Long(d.Sequence),
+        parameters.AddRange([TextParam(d.Task.Tenant), TextParam(d.Task.Owner), TextParam(d.Task.TaskId), TextParam(d.ConfigId), Long(d.Sequence),
             new NpgsqlParameter<Guid> { TypedValue = token }]);
         return true;
     }
@@ -197,7 +208,7 @@ public sealed class PostgresPushOutbox : PushOutbox
     private static void AddEntryKey(NpgsqlParameterCollection parameters, PushDelivery d)
     {
         AddKey(parameters, d.Task);
-        parameters.Add(Text(d.ConfigId));
+        parameters.Add(TextParam(d.ConfigId));
         parameters.Add(Long(d.Sequence));
     }
 

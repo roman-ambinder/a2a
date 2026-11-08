@@ -10,8 +10,10 @@ namespace A2A.Json;
 /// </summary>
 public sealed class TimestampConverter : JsonConverter<DateTimeOffset>
 {
+    /// <summary>The write format: UTC with millisecond precision.</summary>
     public const string Format = "yyyy-MM-dd'T'HH:mm:ss.fff'Z'";
 
+    /// <summary>Reads an ISO 8601 string and normalizes it to UTC. Throws <see cref="JsonException"/> when it is not a valid timestamp.</summary>
     public override DateTimeOffset Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         var s = reader.GetString() ?? throw new JsonException("Timestamp must be a string.");
@@ -21,9 +23,11 @@ public sealed class TimestampConverter : JsonConverter<DateTimeOffset>
         return value.ToUniversalTime();
     }
 
+    /// <summary>Writes the timestamp in <see cref="Format"/>.</summary>
     public override void Write(Utf8JsonWriter writer, DateTimeOffset value, JsonSerializerOptions options)
         => writer.WriteStringValue(FormatUtc(value));
 
+    /// <summary>Formats a timestamp in <see cref="Format"/>, after converting it to UTC.</summary>
     public static string FormatUtc(DateTimeOffset value)
         => value.UtcDateTime.ToString(Format, CultureInfo.InvariantCulture);
 }

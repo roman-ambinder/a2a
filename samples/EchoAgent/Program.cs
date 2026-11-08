@@ -15,51 +15,45 @@ var apiKey = builder.Configuration["EchoAgent:ApiKey"];
 if (string.IsNullOrEmpty(apiKey))
     throw new InvalidOperationException("Set EchoAgent:ApiKey (for example: dotnet run -- --EchoAgent:ApiKey=<secret>). Callers send it in the X-Api-Key header.");
 
-// A2A endpoints need authentication. This sample uses one shared API key; every caller is the same user.
+// The A2A endpoints need authentication. This sample uses one shared API key; every caller is the same user.
 builder.Services.AddAuthentication(ApiKeyAuthHandler.SchemeName)
     .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthHandler>(ApiKeyAuthHandler.SchemeName, null);
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(o => o.AddPolicy("ApiKey", p => p.RequireAuthenticatedUser()));
 builder.Services.AddSingleton(new ApiKey(apiKey));
 
-builder.Services.AddA2AServer(o =>
+var card = new AgentCard
 {
-    o.AgentCard = new AgentCard
-    {
-        Name = "Echo Agent",
-        Description = "Echoes your message back, streaming it word by word.",
-        Version = "1.0.0",
-        SupportedInterfaces =
-        [
-            new AgentInterface { Url = baseUrl, ProtocolBinding = ProtocolBindings.JsonRpc },
-            new AgentInterface { Url = baseUrl, ProtocolBinding = ProtocolBindings.HttpJson },
-        ],
-        Capabilities = new AgentCapabilities { Streaming = true, PushNotifications = true },
-        DefaultInputModes = ["text/plain"],
-        DefaultOutputModes = ["text/plain"],
-        Skills = [new AgentSkill { Id = "echo", Name = "Echo", Description = "Repeats the input", Tags = ["echo"], Examples = ["hello world"] }],
-    };
-    // Development convenience: accept requests without the A2A-Version header (e.g. curl).
-    o.TreatMissingVersionAsCurrent = builder.Environment.IsDevelopment();
-}).AddAgentExecutor<EchoAgent>();
-builder.Services.AddA2AServerAspNetCore();
+    Name = "Echo Agent",
+    Description = "Echoes your message back, streaming it word by word.",
+    Version = "1.0.0",
+    // No SupportedInterfaces: the served card lists every mapped binding at the public base URL (set below).
+    Capabilities = new AgentCapabilities { Streaming = true, PushNotifications = true },
+    DefaultInputModes = ["text/plain"],
+    DefaultOutputModes = ["text/plain"],
+    Skills = [new AgentSkill { Id = "echo", Name = "Echo", Description = "Repeats the input", Tags = ["echo"], Examples = ["hello world"] }],
+};
 
 // Optional: sign the Agent Card. Set EchoAgent:SigningKeyFile to a PKCS#8 or SEC1 EC private key in PEM (P-256, ES256).
 // The public key is then served at /.well-known/jwks.json, and clients pin it with a CardTrustPolicy (see EchoClient).
-// Limits (request size, stream duration, rate) keep their secure defaults: nothing to configure here.
+AgentCardSigningKey? signingKey = null;
 if (builder.Configuration["EchoAgent:SigningKeyFile"] is { Length: > 0 } keyFile)
 {
-    var ec = System.Security.Cryptography.ECDsa.Create();
+    var ec = ECDsa.Create();
     ec.ImportFromPem(File.ReadAllText(keyFile));
-    var signingKey = new AgentCardSigningKey(ec, builder.Configuration["EchoAgent:SigningKeyId"] ?? "echo-1", "ES256", $"{baseUrl}/.well-known/jwks.json");
-    builder.Services.ConfigureA2AHttp(h => h.SigningKey = signingKey);
+    signingKey = new AgentCardSigningKey(ec, builder.Configuration["EchoAgent:SigningKeyId"] ?? "echo-1", "ES256", $"{baseUrl}/.well-known/jwks.json");
 }
+
+// Limits (request size, stream duration, rate) keep their secure defaults: nothing to configure here.
+builder.Services.AddA2A(a => a.AddAgentExecutor<EchoAgent>().AddAgentCard(card))
+    // Development convenience: accept requests without the A2A-Version header (e.g. curl).
+    .Configure<A2AServerOptions>(o => o.TreatMissingVersionAsCurrent = builder.Environment.IsDevelopment())
+    .ConfigureA2AHttp(h => { h.PublicBaseUrl = new Uri(baseUrl); h.SigningKey = signingKey; });
 
 var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A();                                // per-caller rate limiting (adds UseRateLimiter)
+app.UseA2A();                                                  // per-caller rate limiting (adds UseRateLimiter)
 app.UseAuthorization();
-app.MapAgentCard();                          // public, anonymous
-app.MapA2A("/").RequireAuthorization();      // JSON-RPC and HTTP+JSON; needs a valid X-Api-Key
+app.MapA2A("/a2a", o => o.AuthorizationPolicy = "ApiKey");     // JSON-RPC, HTTP+JSON and the public Agent Card; needs a valid X-Api-Key
 app.Run(baseUrl);
 
 internal sealed record ApiKey(string Value);

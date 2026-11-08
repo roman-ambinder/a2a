@@ -25,7 +25,7 @@ public abstract class TaskStoreContract
 
     internal static TaskRecord WithState(TaskRecord r, TaskState s)
     {
-        var task = A2AJson.Clone(r.Task);
+        var task = r.Task.CopyForUpdate(); // a new status: the stored task is never changed (stores own their records)
         task.Status.State = s;
         return r with { Task = task };
     }
@@ -41,7 +41,7 @@ public abstract class TaskStoreContract
     {
         var s = await CreateStoreAsync();
         var record = NewRecord("t", "alice", "approval");
-        var task = A2AJson.Clone(record.Task);
+        var task = record.Task.DeepCopy();
         using var hash = System.Text.Json.JsonDocument.Parse("\"abc123\"");
         task.Status.State = TaskState.InputRequired;
         task.Status.Message = new Message
@@ -168,22 +168,25 @@ public abstract class TaskStoreContract
     }
 
     [SkippableFact]
-    public async Task Mutating_returned_record_does_not_change_store()
+    public async Task Update_leaves_an_earlier_returned_record_unchanged()
     {
+        // Stores own their records and callers never mutate them: a change is a new task passed to UpdateAsync.
         var s = await CreateStoreAsync();
         var r = await s.CreateAsync(NewRecord("t", "a", "id1"));
-        r.Task.Status.State = TaskState.Failed;
-        Assert.Equal(TaskState.Submitted, (await s.GetAsync(r.Key))!.Task.Status.State);
+        await s.UpdateAsync(WithState(r, TaskState.Failed), 1);
+        Assert.Equal(TaskState.Submitted, r.Task.Status.State);
+        Assert.Equal(TaskState.Failed, (await s.GetAsync(r.Key))!.Task.Status.State);
     }
 
     [SkippableFact]
-    public async Task Mutating_input_record_after_write_does_not_change_store()
+    public async Task Created_record_reads_back_with_the_same_content()
     {
         var s = await CreateStoreAsync();
         var input = NewRecord("t", "a", "id1");
-        await s.CreateAsync(input);
-        input.Task.Status.State = TaskState.Failed;
-        Assert.Equal(TaskState.Submitted, (await s.GetAsync(input.Key))!.Task.Status.State);
+        var created = await s.CreateAsync(input);
+        var read = (await s.GetAsync(input.Key))!;
+        Assert.Equal(A2AJson.Serialize(input.Task), A2AJson.Serialize(created.Task));
+        Assert.Equal(A2AJson.Serialize(input.Task), A2AJson.Serialize(read.Task));
     }
 
     [SkippableFact]

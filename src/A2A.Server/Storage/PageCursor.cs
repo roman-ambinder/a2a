@@ -7,12 +7,14 @@ namespace A2A.Server.Storage;
 /// <summary>Opaque keyset cursor: (status timestamp ticks, task id).</summary>
 public static class PageCursor
 {
+    /// <summary>Encodes the position after <paramref name="last"/> as an opaque token.</summary>
     public static string Encode(TaskRecord last)
     {
         var ticks = (last.Task.Status.Timestamp ?? last.CreatedAt).UtcTicks;
         return Signing.Base64Url.Encode(Encoding.UTF8.GetBytes($"{ticks.ToString(CultureInfo.InvariantCulture)}|{last.Task.Id}"));
     }
 
+    /// <summary>Decodes a token. Returns null for a null or empty token. Throws InvalidParams for a malformed one.</summary>
     public static (long Ticks, string Id)? Decode(string? token)
     {
         if (string.IsNullOrEmpty(token)) return null;

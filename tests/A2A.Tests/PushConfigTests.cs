@@ -166,17 +166,61 @@ public class PushConfigTests : IAsyncLifetime
         Assert.Equal(10, (await client.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest { TaskId = task.Id })).Configs.Count);
     }
 
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Follow_up_to_a_terminal_task_at_the_config_limit_gets_the_state_error(string binding)
+    {
+        var client = _host.Client(binding, "alice");
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+        for (var i = 0; i < 10; i++) await client.CreateTaskPushNotificationConfigAsync(Secret(task.Id));
+        var done = (await client.SendMessageAsync("finish", task.ContextId, task.Id)).RequireTask();
+        Assert.Equal(TaskState.Completed, done.Status.State);
+        await _host.WaitIdleAsync();
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(
+            Message.FromUser("more", task.ContextId, task.Id),
+            new SendMessageConfiguration { TaskPushNotificationConfig = Secret("") }));
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
+    }
+
+    [Fact]
+    public async Task Inline_config_on_new_task_is_accepted_when_the_limit_is_zero()
+    {
+        await using var host = await TestAgentHost.StartAsync(o => o.Limits.MaxPushConfigsPerTask = 0);
+        var client = host.Client(ProtocolBindings.JsonRpc, "alice");
+        var task = (await client.SendMessageAsync(Message.FromUser("input"),
+            new SendMessageConfiguration { TaskPushNotificationConfig = Secret("") })).RequireTask();
+        Assert.Single(await host.App.Services.GetRequiredService<PushConfigStore>().ListAsync(new TaskKey("", "alice", task.Id)));
+    }
+
+    [Fact]
+    public async Task Service_CreateAsync_rejects_a_private_network_webhook_URL_on_its_own()
+    {
+        await using var host = await TestAgentHost.StartAsync(o => o.PushNotifications.AllowPrivateNetworks = false);
+        var service = host.App.Services.GetRequiredService<PushConfigService>();
+        var config = new TaskPushNotificationConfig { TaskId = "t1", Url = "https://10.0.0.1/hook" };
+        var ex = await Assert.ThrowsAnyAsync<A2AException>(async () =>
+            await service.CreateAsync(new TaskKey("", "alice", "t1"), config, CancellationToken.None));
+
+        var client = host.Client(ProtocolBindings.JsonRpc, "alice");
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+        var viaHandler = await Assert.ThrowsAnyAsync<A2AException>(() => client.CreateTaskPushNotificationConfigAsync(
+            new TaskPushNotificationConfig { TaskId = task.Id, Url = "https://10.0.0.1/hook" }));
+        Assert.Equal(viaHandler.Code, ex.Code);
+        Assert.Equal(viaHandler.Message, ex.Message);
+    }
+
     /// <summary>A store whose count and lookups are stale (a concurrent saver took the last slot): only the atomic save can hold the limit.</summary>
     private sealed class StaleCountPushConfigStore : PushConfigStore
     {
         private readonly InMemoryPushConfigStore _inner = new();
-        public override ValueTask SaveAsync(PushConfigRecord record, CancellationToken ct = default) => _inner.SaveAsync(record, ct);
-        public override ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken ct = default) => _inner.GetAsync(task, configId, ct);
-        public override ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken ct = default) => _inner.ListAsync(task, ct);
+        public override ValueTask SaveAsync(PushConfigRecord record, CancellationToken cancellationToken = default) => _inner.SaveAsync(record, cancellationToken);
+        public override ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken cancellationToken = default) => _inner.GetAsync(task, configId, cancellationToken);
+        public override ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken cancellationToken = default) => _inner.ListAsync(task, cancellationToken);
         public override ValueTask<int> CountAsync(TaskKey task, CancellationToken ct = default) => ValueTask.FromResult(0);
-        public override ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken ct = default) => _inner.DeleteAsync(task, configId, ct);
-        public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default) => _inner.DeleteAllAsync(task, ct);
-        public override ValueTask<bool> SaveIfUnderLimitAsync(PushConfigRecord record, int limit, CancellationToken ct = default) => _inner.SaveIfUnderLimitAsync(record, limit, ct);
+        public override ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken cancellationToken = default) => _inner.DeleteAsync(task, configId, cancellationToken);
+        public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken cancellationToken = default) => _inner.DeleteAllAsync(task, cancellationToken);
+        public override ValueTask<bool> SaveIfUnderLimitAsync(PushConfigRecord record, int limit, CancellationToken cancellationToken = default) => _inner.SaveIfUnderLimitAsync(record, limit, cancellationToken);
     }
 
     [Fact]
@@ -211,5 +255,34 @@ public class PushConfigTests : IAsyncLifetime
         var rec = await host.App.Services.GetRequiredService<PushConfigStore>().GetAsync(new TaskKey("", "alice", task.Id), created.Id!);
         Assert.False(rec!.Config.Token!.StartsWith("e1:", StringComparison.Ordinal));
         Assert.Equal("s3cret", protector.Unprotect(rec.Config.Token!));
+    }
+
+    [Fact]
+    public async Task Config_added_mid_task_receives_only_later_events()
+    {
+        // Deliveries are made when each event is committed, from the configs the task has then (they used to be cached per
+        // delivery batch, with a change listener): a config added while the agent runs gets the events committed after it.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var working = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<IAgentExecutor>(new DelegateAgentExecutor(async (_, u, ct) =>
+        {
+            await u.StartWorkAsync(cancellationToken: ct);
+            working.TrySetResult();
+            await gate.Task.WaitAsync(ct);
+            await u.AddArtifactAsync([Part.FromText("x")], cancellationToken: ct);
+            await u.CompleteAsync("done", ct);
+        })));
+        var client = host.Client(ProtocolBindings.JsonRpc, "alice");
+        var task = (await client.SendMessageAsync(Message.FromUser("go"), new SendMessageConfiguration { ReturnImmediately = true })).RequireTask();
+        await working.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await host.WaitForPushIdleAsync();
+
+        await client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = task.Id, Url = "https://hooks.example/late" });
+        gate.SetResult();
+        await host.WaitIdleAsync();
+
+        var late = host.Webhooks.Calls.Where(c => c.Request.RequestUri!.AbsolutePath == "/late").ToList();
+        Assert.Equal(2, late.Count); // the artifact and COMPLETED, not the task or WORKING committed before the config existed
+        Assert.Contains("TASK_STATE_COMPLETED", late[^1].Body);
     }
 }

@@ -9,6 +9,7 @@ using Npgsql;
 
 namespace A2A.Server.Postgres;
 
+/// <summary>Registers the PostgreSQL stores with the A2A server.</summary>
 public static class A2APostgresServiceCollectionExtensions
 {
     /// <summary>

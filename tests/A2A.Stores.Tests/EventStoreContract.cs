@@ -11,10 +11,11 @@ public abstract class EventStoreContract
 {
     protected abstract Task<EventStore> CreateStoreAsync(StreamingOptions options, TimeProvider? time = null);
 
-    protected static StreamResponse Evt(string taskId, TaskState state = TaskState.Working) => StreamResponse.Of(new AgentTask
+    /// <summary>An encoded event, as the server appends it; its sequence (0) is assigned by the store.</summary>
+    protected static SequencedEvent Evt(string taskId, TaskState state = TaskState.Working) => EventEncoder.Encode(0, StreamResponse.Of(new AgentTask
     {
         Id = taskId, ContextId = "c", Status = new AgentTaskStatus { State = state },
-    });
+    }));
 
     private static async Task<List<SequencedEvent>> ReadAllAsync(EventStore store, TaskKey key, long after = 0)
     {
@@ -60,13 +61,17 @@ public abstract class EventStoreContract
     }
 
     [SkippableFact]
-    public async Task Mutating_a_read_event_does_not_change_the_store()
+    public async Task Stored_bytes_are_returned_unchanged()
     {
+        // The server encodes an event once; replays write the stored bytes to the wire as they are.
         var store = await CreateStoreAsync(new StreamingOptions());
         var key = new TaskKey("", "alice", "x");
-        await store.AppendAsync(key, Evt("x"));
-        ((TaskEvent)(await ReadAllAsync(store, key))[0].Event).Task.Status.State = TaskState.Failed;
-        Assert.Equal(TaskState.Working, ((TaskEvent)(await ReadAllAsync(store, key))[0].Event).Task.Status.State);
+        var appended = Evt("x");
+        await store.AppendAsync(key, appended with { Sequence = 99 }); // the input sequence is ignored
+        var read = Assert.Single(await ReadAllAsync(store, key));
+        Assert.Equal(1, read.Sequence);
+        Assert.True(appended.Json.Span.SequenceEqual(read.Json.Span), "the store returns the bytes it was given");
+        Assert.Equal(TaskState.Working, ((TaskEvent)read.Event).Task.Status.State);
     }
 
     [SkippableFact]

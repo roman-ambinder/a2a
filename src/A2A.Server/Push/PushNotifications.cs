@@ -3,13 +3,14 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using A2A.Diagnostics;
-using A2A.Net;
 using A2A.Push;
+using A2A.Security.Http;
 using A2A.Server.Storage;
 using Microsoft.Extensions.Logging;
 
 namespace A2A.Server.Push;
 
+/// <summary>Settings of push notification delivery: webhook URL policy (SSRF guard) and the timeout of one attempt (retries: <see cref="PushDeliveryOptions"/>).</summary>
 public sealed class PushNotificationOptions
 {
     /// <summary>Allow http:// webhook URLs. Default false (spec §13.2: SHOULD use HTTPS).</summary>
@@ -76,16 +77,16 @@ public static class PushUrlValidator
     /// Registration check: <see cref="Validate"/> plus DNS resolution and the IP check (spec 7.6). Every DNS-based failure
     /// (private, unresolvable) throws the same <see cref="UrlNotAllowed"/> InvalidParams error.
     /// </summary>
-    public static async ValueTask ValidateAsync(string url, PushNotificationOptions options, CancellationToken ct = default)
+    public static async ValueTask ValidateAsync(string url, PushNotificationOptions options, CancellationToken cancellationToken = default)
     {
         Validate(url, options);
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(options.Timeout < DnsTimeout ? options.Timeout : DnsTimeout);
         try
         {
             await ValidateForDeliveryAsync(url, options, cts.Token).AsTask().WaitAsync(cts.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw A2AException.InvalidParams(UrlNotAllowed); // DNS too slow
         }
@@ -99,11 +100,11 @@ public static class PushUrlValidator
     /// Full check run before each delivery attempt: the static rules of <see cref="Validate"/> plus DNS resolution and the IP check.
     /// Throws <see cref="A2AException"/> for policy violations (permanent) and <see cref="HttpRequestException"/> when resolution fails or finds a private address.
     /// </summary>
-    internal static async ValueTask ValidateForDeliveryAsync(string url, PushNotificationOptions options, CancellationToken ct)
+    internal static async ValueTask ValidateForDeliveryAsync(string url, PushNotificationOptions options, CancellationToken cancellationToken)
     {
         Validate(url, options);
         var uri = new Uri(url);
-        await PrivateAddressGuard.EnsureHostAllowedAsync(uri.Host, options.AllowPrivateNetworks, options.AllowedNetworks, "Webhook", ct).ConfigureAwait(false);
+        await PrivateAddressGuard.EnsureHostAllowedAsync(uri.Host, options.AllowPrivateNetworks, options.AllowedNetworks, "Webhook", cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>True for addresses that must not be reached from the agent by default.</summary>
@@ -140,22 +141,22 @@ internal readonly record struct PushSendResult(PushSendOutcome Outcome, string? 
 /// every attempt), the <c>X-A2A-Notification-Sequence</c> (the event store sequence) and the W3C <c>traceparent</c>.
 /// Retries and their timing belong to <see cref="PushDeliveryService"/>.
 /// </summary>
-internal sealed class PushWebhookSender(IHttpClientFactory httpClientFactory, PushNotificationOptions options, ILogger logger, TimeProvider? time = null)
+internal sealed class PushWebhookSender(HttpMessageInvoker http, PushNotificationOptions options, ILogger logger, TimeProvider? time = null)
 {
-    public async Task<PushSendResult> SendAsync(TaskPushNotificationConfig config, PushDelivery delivery, ReadOnlyMemory<byte> body,
-        Activity? activity, ActivityContext traceContext, CancellationToken ct)
+    public async Task<PushSendResult> SendAsync(TaskPushNotificationConfig config, PushDelivery delivery, int attempt, ReadOnlyMemory<byte> body,
+        Activity? activity, ActivityContext traceContext, CancellationToken cancellationToken)
     {
         try
         {
             try
             {
-                using var vcts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                using var vcts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 vcts.CancelAfter(options.Timeout);
                 await PushUrlValidator.ValidateForDeliveryAsync(config.Url, options, vcts.Token).ConfigureAwait(false);
             }
             catch (A2AException ex)
             {
-                logger.LogWarning("Webhook {ConfigId} for task {TaskId} is not allowed: {Reason}", config.Id, delivery.Task.TaskId, ex.Message);
+                ServerLog.PushWebhookSkipped(logger, config.Id, delivery.Task.TaskId, ex.Message);
                 return new PushSendResult(PushSendOutcome.Permanent, "URL not allowed: " + ex.Message, "UrlNotAllowed");
             }
 
@@ -169,7 +170,7 @@ internal sealed class PushWebhookSender(IHttpClientFactory httpClientFactory, Pu
             {
                 if (!WebhookSignature.TryParseSecret(signing.Credentials, out var secret))
                 {
-                    logger.LogWarning("Webhook {ConfigId} for task {TaskId} has no usable signing secret", config.Id, delivery.Task.TaskId);
+                    ServerLog.PushWebhookSkipped(logger, config.Id, delivery.Task.TaskId, "no usable signing secret");
                     return new PushSendResult(PushSendOutcome.Permanent, "Invalid webhook signing secret", "InvalidSigningSecret");
                 }
                 var timestamp = (time ?? TimeProvider.System).GetUtcNow().ToUnixTimeSeconds(); // fresh on every attempt; the id is stable
@@ -186,36 +187,35 @@ internal sealed class PushWebhookSender(IHttpClientFactory httpClientFactory, Pu
             request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.NotificationSequence, delivery.Sequence.ToString(CultureInfo.InvariantCulture));
             A2ATelemetry.InjectTraceContext(traceContext, (name, value) => request.Headers.TryAddWithoutValidation(name, value));
 
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(options.Timeout);
-            var http = httpClientFactory.CreateClient(PushDeliveryService.HttpClientName);
             using var response = await http.SendAsync(request, cts.Token).ConfigureAwait(false);
             var status = (int)response.StatusCode;
             activity?.SetTag(A2ATelemetry.Tags.HttpStatusCode, status);
             if (response.IsSuccessStatusCode) return new PushSendResult(PushSendOutcome.Sent);
 
             var code = status.ToString(CultureInfo.InvariantCulture);
-            logger.LogWarning("Webhook {ConfigId} for task {TaskId} returned {Status}", config.Id, delivery.Task.TaskId, status);
+            ServerLog.PushWebhookStatus(logger, config.Id, delivery.Task.TaskId, status, attempt);
             var retryable = status is 408 or 429 || status >= 500;
             return new PushSendResult(retryable ? PushSendOutcome.Retry : PushSendOutcome.Permanent, "HTTP " + code, code);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
         catch (HttpRequestException ex) when (ex is BlockedAddressException || ex.InnerException is BlockedAddressException)
         {
-            logger.LogWarning("Webhook {ConfigId} for task {TaskId}: target address is not allowed", config.Id, delivery.Task.TaskId);
+            ServerLog.PushWebhookBlocked(logger, config.Id, delivery.Task.TaskId);
             return new PushSendResult(PushSendOutcome.Permanent, "URL not allowed: the target address is not allowed", "UrlNotAllowed");
         }
         catch (HttpRequestException ex)
         {
-            logger.LogWarning(ex, "Webhook {ConfigId} for task {TaskId} failed", config.Id, delivery.Task.TaskId);
+            ServerLog.PushWebhookAttemptFailed(logger, ex, config.Id, delivery.Task.TaskId, attempt);
             return new PushSendResult(PushSendOutcome.Retry, "Request failed: " + ex.HttpRequestError, ex.GetType().FullName);
         }
         catch (OperationCanceledException ex)
         {
-            logger.LogWarning(ex, "Webhook {ConfigId} for task {TaskId} timed out", config.Id, delivery.Task.TaskId);
+            ServerLog.PushWebhookAttemptFailed(logger, ex, config.Id, delivery.Task.TaskId, attempt);
             return new PushSendResult(PushSendOutcome.Retry, "Timed out", "Timeout");
         }
     }

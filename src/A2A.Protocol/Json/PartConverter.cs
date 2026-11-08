@@ -15,6 +15,7 @@ public sealed class PartConverter : JsonConverter<Part>
 
     internal static void WritePart(Utf8JsonWriter writer, Part value) => Shared.Write(writer, value, null!);
 
+    /// <summary>Reads a part from its wire object. The member that is present decides the kind.</summary>
     public override Part Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType != JsonTokenType.StartObject)
@@ -87,6 +88,7 @@ public sealed class PartConverter : JsonConverter<Part>
         return part with { Metadata = metadata, Filename = filename, MediaType = mediaType };
     }
 
+    /// <summary>Writes a part as a wire object with exactly one content member.</summary>
     public override void Write(Utf8JsonWriter writer, Part value, JsonSerializerOptions options)
     {
         writer.WriteStartObject();
@@ -121,12 +123,14 @@ public sealed class PartConverter : JsonConverter<Part>
 /// </summary>
 public sealed class PartConverter<TPart> : JsonConverter<TPart> where TPart : Part
 {
+    /// <summary>Reads a part and requires it to be of type <typeparamref name="TPart"/>.</summary>
     public override TPart Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         var part = PartConverter.ReadPart(ref reader);
         return part as TPart ?? throw new JsonException($"Part content does not match {typeof(TPart).Name}");
     }
 
+    /// <summary>Writes a part of type <typeparamref name="TPart"/>.</summary>
     public override void Write(Utf8JsonWriter writer, TPart value, JsonSerializerOptions options) =>
         PartConverter.WritePart(writer, value);
 }

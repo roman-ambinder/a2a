@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>A2A.Security.Http</RootNamespace>
+    <Description>A2A (Agent2Agent) network security guards: SSRF-safe outbound HTTP handler and Agent Card jku key-set fetching.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\A2A.Protocol\A2A.Protocol.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="A2A.Tests" />
+  </ItemGroup>
+</Project>

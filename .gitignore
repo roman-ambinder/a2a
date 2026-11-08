@@ -7,3 +7,4 @@ TestResults/
 *.nupkg
 .venv/
 __pycache__/
+BenchmarkDotNet.Artifacts/

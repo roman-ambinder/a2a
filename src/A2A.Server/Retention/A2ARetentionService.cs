@@ -1,4 +1,5 @@
 using A2A.Server.Coordination;
+using A2A.Server.Execution;
 using A2A.Server.Storage;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -45,24 +46,32 @@ public sealed class A2ARetentionService : BackgroundService
     private readonly TimeSpan _leaseTtl;
     private readonly TaskStore _tasks;
     private readonly ExecutionCoordinator _coordinator;
-    private readonly A2ARequestHandler _handler;
+    private readonly TaskExecutionEngine _engine;
     private readonly A2ATaskAdmin _admin;
     private readonly ILogger _logger;
     private readonly TimeProvider _time;
 
-    /// <summary>Created by DI. The optional <paramref name="time"/> is the clock for the cut-offs and the sweep interval.</summary>
-    public A2ARetentionService(IOptions<A2ARetentionOptions> options, IOptions<A2AServerOptions> serverOptions, TaskStore tasks,
-        ExecutionCoordinator coordinator, A2ARequestHandler handler, A2ATaskAdmin admin, ILogger<A2ARetentionService>? logger = null,
+    /// <summary>Creates the sweep. In an app the DI container does this (<c>AddA2ARetention</c>).</summary>
+    /// <param name="options">The sweep settings.</param>
+    /// <param name="serverOptions">Server options (<see cref="A2AServerOptions.InterruptedTimeout"/>, <see cref="A2AServerOptions.Coordination"/>).</param>
+    /// <param name="tasks">The task store.</param>
+    /// <param name="coordinator">The execution coordinator (expired leases, the sweep lease).</param>
+    /// <param name="engine">Commits status changes through the normal path and cancels executions.</param>
+    /// <param name="admin">Deletes expired tasks with their data.</param>
+    /// <param name="logger">Optional logger.</param>
+    /// <param name="time">The clock for the cut-offs and the sweep interval. Default <see cref="TimeProvider.System"/>.</param>
+    public A2ARetentionService(IOptions<A2ARetentionOptions> options, A2AServerOptions serverOptions, TaskStore tasks,
+        ExecutionCoordinator coordinator, TaskExecutionEngine engine, A2ATaskAdmin admin, ILogger<A2ARetentionService>? logger = null,
         TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(serverOptions);
         _options = options.Value;
-        _interruptedTimeout = serverOptions.Value.InterruptedTimeout;
-        _leaseTtl = serverOptions.Value.Coordination.LeaseTtl;
+        _interruptedTimeout = serverOptions.InterruptedTimeout;
+        _leaseTtl = serverOptions.Coordination.LeaseTtl;
         _tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
-        _handler = handler ?? throw new ArgumentNullException(nameof(handler));
+        _engine = engine ?? throw new ArgumentNullException(nameof(engine));
         _admin = admin ?? throw new ArgumentNullException(nameof(admin));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _time = time ?? TimeProvider.System;
@@ -106,7 +115,7 @@ public sealed class A2ARetentionService : BackgroundService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Retention sweep failed; the next sweep tries again");
+                    ServerLog.SweepFailed(_logger, ex);
                 }
             }
         }
@@ -119,35 +128,35 @@ public sealed class A2ARetentionService : BackgroundService
     /// Takes the sweep lease for one <see cref="A2ARetentionOptions.SweepInterval"/> and, when it got it, runs one sweep.
     /// Returns false when another instance (or this one) holds the lease.
     /// </summary>
-    internal async Task<bool> SweepAsync(CancellationToken ct)
+    internal async Task<bool> SweepAsync(CancellationToken cancellationToken)
     {
-        if (!await _coordinator.TryAcquireSweepLeaseAsync(SweepLeaseName, _options.SweepInterval, ct).ConfigureAwait(false)) return false;
-        await RunOnceAsync(ct).ConfigureAwait(false);
+        if (!await _coordinator.TryAcquireSweepLeaseAsync(SweepLeaseName, _options.SweepInterval, cancellationToken).ConfigureAwait(false)) return false;
+        await RunOnceAsync(cancellationToken).ConfigureAwait(false);
         return true;
     }
 
     /// <summary>One sweep without the lease: every step, each isolated from the others' failures.</summary>
-    internal async Task RunOnceAsync(CancellationToken ct)
+    internal async Task RunOnceAsync(CancellationToken cancellationToken)
     {
-        await StepAsync("dead executions", RecoverDeadExecutionsAsync, ct).ConfigureAwait(false);
-        if (_interruptedTimeout is { } timeout) await StepAsync("interrupted timeout", c => CancelInterruptedAsync(timeout, c), ct).ConfigureAwait(false);
-        await StepAsync("expired tasks", PurgeExpiredTasksAsync, ct).ConfigureAwait(false);
-        await StepAsync("orphan contexts", DeleteOrphanContextsAsync, ct).ConfigureAwait(false);
+        await StepAsync("dead executions", RecoverDeadExecutionsAsync, cancellationToken).ConfigureAwait(false);
+        if (_interruptedTimeout is { } timeout) await StepAsync("interrupted timeout", c => CancelInterruptedAsync(timeout, c), cancellationToken).ConfigureAwait(false);
+        await StepAsync("expired tasks", PurgeExpiredTasksAsync, cancellationToken).ConfigureAwait(false);
+        await StepAsync("orphan contexts", DeleteOrphanContextsAsync, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task StepAsync(string name, Func<CancellationToken, Task> step, CancellationToken ct)
+    private async Task StepAsync(string name, Func<CancellationToken, Task> step, CancellationToken cancellationToken)
     {
         try
         {
-            await step(ct).ConfigureAwait(false);
+            await step(cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Retention step '{Step}' failed; the next sweep tries again", name);
+            ServerLog.SweepStepFailed(_logger, ex, name);
         }
     }
 
@@ -157,41 +166,41 @@ public sealed class A2ARetentionService : BackgroundService
     /// so items that stay listed (skipped or failed) never make a sweep loop. A failing item is logged and skipped.
     /// </summary>
     private async Task BatchesAsync<T>(string what, Func<CancellationToken, ValueTask<IReadOnlyList<T>>> list,
-        Func<T, CancellationToken, Task<bool>> handle, Func<T, string> describe, CancellationToken ct)
+        Func<T, CancellationToken, Task<bool>> handle, Func<T, string> describe, CancellationToken cancellationToken)
     {
         while (true)
         {
-            var batch = await list(ct).ConfigureAwait(false);
+            var batch = await list(cancellationToken).ConfigureAwait(false);
             var handled = 0;
             foreach (var item in batch)
             {
-                ct.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    if (await handle(item, ct).ConfigureAwait(false)) handled++;
+                    if (await handle(item, cancellationToken).ConfigureAwait(false)) handled++;
                 }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     throw;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Retention could not handle {What} {Item}; the next sweep tries again", what, describe(item));
+                    ServerLog.SweepItemFailed(_logger, ex, what, describe(item));
                 }
             }
             if (batch.Count < _options.BatchSize || handled < batch.Count) return;
         }
     }
 
-    private Task RecoverDeadExecutionsAsync(CancellationToken ct) =>
-        BatchesAsync("expired execution", c => _coordinator.ListExpiredAsync(_options.BatchSize, c), RecoverAsync, e => $"of task {e.Task.TaskId}", ct);
+    private Task RecoverDeadExecutionsAsync(CancellationToken cancellationToken) =>
+        BatchesAsync("expired execution", c => _coordinator.ListExpiredAsync(_options.BatchSize, c), RecoverAsync, e => $"of task {e.Task.TaskId}", cancellationToken);
 
     /// <summary>
     /// An execution's lease expired: its instance died. A task still SUBMITTED or WORKING becomes FAILED, and every instance is
     /// asked to cancel its executions (one that only lapsed may still run). Exceptions:
     /// <list type="bullet">
     /// <item>The execution still runs on this instance (its heartbeats lapsed): nothing changes, and its next heartbeat
-    /// registers it again (<see cref="A2ARequestHandler.TryReclaimLocal"/>).</item>
+    /// registers it again (<c>TaskExecutionEngine.TryReclaimLocal</c>).</item>
     /// <item>Another execution of the task runs: the task is left alone.</item>
     /// <item>The task changed since it was read (read first, so a follow-up that starts meanwhile is seen as a change), or within
     /// the last <see cref="CoordinationOptions.LeaseTtl"/> (a follow-up on another instance may have committed and not
@@ -201,26 +210,26 @@ public sealed class A2ARetentionService : BackgroundService
     /// An interrupted task is left to the interrupted timeout. Otherwise the expired lease is removed, so it is not listed
     /// again. Returns true when the lease was removed.
     /// </summary>
-    private async Task<bool> RecoverAsync((TaskKey Task, string ExecutionId) expired, CancellationToken ct)
+    private async Task<bool> RecoverAsync((TaskKey Task, string ExecutionId) expired, CancellationToken cancellationToken)
     {
         var (key, executionId) = expired;
-        if (_handler.TryReclaimLocal(key, executionId))
+        if (_engine.TryReclaimLocal(key, executionId))
         {
-            _logger.LogWarning("Task {TaskId}: an execution on this instance missed its heartbeats for longer than the lease; it registers again", key.TaskId);
+            ServerLog.SweepReclaimedLocal(_logger, key.TaskId);
             return false; // listed until its next heartbeat registers it again
         }
-        if (await _tasks.GetAsync(key, ct).ConfigureAwait(false) is { Task.Status.State: TaskState.Submitted or TaskState.Working } record
-            && !await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false))
+        if (await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) is { Task.Status.State: TaskState.Submitted or TaskState.Working } record
+            && !await _coordinator.IsRunningAsync(key, cancellationToken).ConfigureAwait(false))
         {
             var seen = record.Version;
             var quietSince = Before(_time.GetUtcNow(), _leaseTtl);
-            if (!await _handler.CommitSystemStatusAsync(key, TaskState.Failed, StoppedUnexpectedlyText,
-                    r => r.Version == seen && r.UpdatedAt < quietSince, ct).ConfigureAwait(false))
+            if (!await _engine.CommitSystemStatusAsync(key, TaskState.Failed, StoppedUnexpectedlyText,
+                    r => r.Version == seen && r.UpdatedAt < quietSince, cancellationToken).ConfigureAwait(false))
                 return false; // changed, recently changed, or runs here: the next sweep checks again
-            _logger.LogWarning("Task {TaskId}: its execution stopped without ending (its instance died); the task failed", key.TaskId);
-            await CancelEverywhereAsync(key, ct).ConfigureAwait(false);
+            ServerLog.SweepFailedDeadExecution(_logger, key.TaskId);
+            await CancelEverywhereAsync(key, cancellationToken).ConfigureAwait(false);
         }
-        await _coordinator.UnregisterAsync(key, executionId, ct).ConfigureAwait(false);
+        await _coordinator.UnregisterAsync(key, executionId, cancellationToken).ConfigureAwait(false);
         return true;
     }
 
@@ -228,23 +237,23 @@ public sealed class A2ARetentionService : BackgroundService
     /// Asks every instance to cancel the task's executions: one that only lapsed (a long pause) may still run its agent. A
     /// failure is logged; that agent then stops at its next heartbeat, which finds its lease lost and the task terminal.
     /// </summary>
-    private async Task CancelEverywhereAsync(TaskKey key, CancellationToken ct)
+    private async Task CancelEverywhereAsync(TaskKey key, CancellationToken cancellationToken)
     {
         try
         {
-            await _handler.CancelExecutionsAsync(key, ct).ConfigureAwait(false);
+            await _engine.CancelExecutionsAsync(key, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning(ex, "Task {TaskId}: could not ask the other instances to cancel its execution", key.TaskId);
+            ServerLog.RequestCancelFailed(_logger, ex, key.TaskId);
         }
     }
 
-    private Task CancelInterruptedAsync(TimeSpan timeout, CancellationToken ct)
+    private Task CancelInterruptedAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
         var cutoff = Before(_time.GetUtcNow(), timeout);
         return BatchesAsync("interrupted task", c => _tasks.ListInterruptedBeforeAsync(cutoff, _options.BatchSize, c),
-            (key, c) => CancelIfWaitingAsync(key, cutoff, c), key => key.TaskId, ct);
+            (key, c) => CancelIfWaitingAsync(key, cutoff, c), key => key.TaskId, cancellationToken);
     }
 
     /// <summary>
@@ -252,17 +261,17 @@ public sealed class A2ARetentionService : BackgroundService
     /// follow-up counts as activity, even before its execution starts), and that no execution runs. The checks are repeated
     /// on the record the commit reads under the task lock. Returns true when the task will not be listed again.
     /// </summary>
-    private async Task<bool> CancelIfWaitingAsync(TaskKey key, DateTimeOffset cutoff, CancellationToken ct)
+    private async Task<bool> CancelIfWaitingAsync(TaskKey key, DateTimeOffset cutoff, CancellationToken cancellationToken)
     {
-        if (await _tasks.GetAsync(key, ct).ConfigureAwait(false) is not { } record) return true;
+        if (await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) is not { } record) return true;
         var status = record.Task.Status;
         if (!status.State.IsInterrupted() || (status.Timestamp ?? record.CreatedAt) >= cutoff) return true; // no longer listed
         if (record.UpdatedAt >= cutoff) return false; // a reply arrived; listed until its execution changes the status
-        if (await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false)) return false;
+        if (await _coordinator.IsRunningAsync(key, cancellationToken).ConfigureAwait(false)) return false;
         var seen = record.Version;
-        if (!await _handler.CommitSystemStatusAsync(key, TaskState.Canceled, InterruptedTimeoutText,
-                r => r.Version == seen && StillWaiting(r, cutoff), ct).ConfigureAwait(false)) return false;
-        _logger.LogInformation("Task {TaskId} waited for input longer than {Timeout}; cancelled", key.TaskId, _interruptedTimeout);
+        if (!await _engine.CommitSystemStatusAsync(key, TaskState.Canceled, InterruptedTimeoutText,
+                r => r.Version == seen && StillWaiting(r, cutoff), cancellationToken).ConfigureAwait(false)) return false;
+        ServerLog.SweepCancelledInterrupted(_logger, key.TaskId, _interruptedTimeout);
         return true;
     }
 
@@ -270,7 +279,7 @@ public sealed class A2ARetentionService : BackgroundService
     private static bool StillWaiting(TaskRecord r, DateTimeOffset cutoff) =>
         r.Task.Status.State.IsInterrupted() && (r.Task.Status.Timestamp ?? r.CreatedAt) < cutoff && r.UpdatedAt < cutoff;
 
-    private Task PurgeExpiredTasksAsync(CancellationToken ct)
+    private Task PurgeExpiredTasksAsync(CancellationToken cancellationToken)
     {
         var cutoff = Before(_time.GetUtcNow(), _options.TaskRetention);
         return BatchesAsync("expired task", c => _tasks.ListExpiredAsync(cutoff, _options.BatchSize, c),
@@ -278,16 +287,16 @@ public sealed class A2ARetentionService : BackgroundService
             {
                 await _admin.PurgeAsync(key, c).ConfigureAwait(false);
                 return true;
-            }, key => key.TaskId, ct);
+            }, key => key.TaskId, cancellationToken);
     }
 
-    private Task DeleteOrphanContextsAsync(CancellationToken ct)
+    private Task DeleteOrphanContextsAsync(CancellationToken cancellationToken)
     {
         var cutoff = Before(_time.GetUtcNow(), _options.OrphanContextRetention);
         // False: a task uses it again, or it is gone already. Either way it is not an orphan to delete now.
         return BatchesAsync("orphan context", c => _tasks.ListOrphanContextsAsync(cutoff, _options.BatchSize, c),
             async (context, c) => await _tasks.DeleteContextAsync(context.Tenant, context.ContextId, c).ConfigureAwait(false),
-            context => context.ContextId, ct);
+            context => context.ContextId, cancellationToken);
     }
 
     /// <summary><paramref name="now"/> minus <paramref name="age"/>, or the earliest time when that is out of range.</summary>

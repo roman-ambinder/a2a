@@ -25,7 +25,7 @@ To manage the schema yourself, set `CreateSchemaOnStartup = false` and apply `Po
 | `a2a_tasks` | `(tenant, task_id)` | Task JSON, owner, context, state, `status_ticks`, version. Index `(tenant, owner, status_ticks DESC, task_id)` serves ListTasks; a second one adds `context_id`. |
 | `a2a_contexts` | `(tenant, context_id)` | The first owner of each context. |
 | `a2a_event_logs` | `(tenant, owner, task_id)` | Last sequence, and when a terminal task's log expires (`purge_ticks`). |
-| `a2a_events` | `(tenant, owner, task_id, seq)` | The retained events (last `Streaming.ReplayBufferSize`). |
+| `a2a_events` | `(tenant, owner, task_id, seq)` | The retained events (last `Streaming.ReplayBufferSize`), each as the bytes the server encoded once, returned unchanged on replay. |
 | `a2a_push_configs` | `(tenant, owner, task_id, config_id)` | Push config JSON with protected secrets. |
 | `a2a_push_outbox` | `(tenant, owner, task_id, config_id, seq)` | Push deliveries waiting to be sent: delivery id, payload (the event JSON), attempt, due time, lease, last error. Index on `due_ticks`. |
 | `a2a_push_dead_letters` | `(tenant, owner, task_id, config_id, seq)` | Push deliveries that failed for good, with their payload, until re-driven. Index `(tenant, dead_ticks)`. |
@@ -46,6 +46,8 @@ Times are UTC ticks (`bigint`), JSON is `text`, and keys use the `"C"` collation
 Same contract as the in-memory stores (the same test suite runs against both): owner and tenant scoping, optimistic concurrency on versions,
 ListTasks newest first with keyset paging, per-task event sequences from 1, trimming to the replay buffer, terminal retention, and idempotency retention.
 A task change, its event and its push deliveries are written in one transaction (`TaskStore.CommitAsync`), so the event log follows the order of task versions, also across instances, and no event loses its webhooks.
+
+Like every store, it owns the records it returns (callers never change them); it returns a freshly deserialized task or config on every read.
 
 Differences, because the store is shared by several instances:
 - A request that waits on an idempotency key held by another instance polls every `IdempotencyPollInterval` (200 ms).

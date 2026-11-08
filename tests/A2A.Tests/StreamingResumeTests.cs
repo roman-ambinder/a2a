@@ -1,3 +1,4 @@
+using A2A.Server.AspNetCore;
 using System.Diagnostics;
 using System.Net;
 using System.Text;
@@ -7,6 +8,7 @@ using A2A.Json;
 using A2A.Server;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
+using A2A.Server.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -373,8 +375,7 @@ public class StreamingResumeTests
         await using var host = await TestAgentHost.StartAsync(o =>
         {
             o.Limits.MaxConcurrentStreamsPerTask = 1;
-            o.EnableRateLimiting = false;
-        });
+        }, services: s => s.AddA2ARateLimiting(o => o.Enabled = false));
         var task = (await host.Client(binding).SendMessageAsync(Message.FromUser("slow"), new SendMessageConfiguration { ReturnImmediately = true })).RequireTask();
 
         var first = await RawSse.OpenAsync(host, Subscribe(binding, task.Id), binding);
@@ -404,8 +405,7 @@ public class StreamingResumeTests
         await using var host = await TestAgentHost.StartAsync(o =>
         {
             o.Limits.MaxConcurrentStreamsPerPrincipal = 1;
-            o.EnableRateLimiting = false;
-        });
+        }, services: s => s.AddA2ARateLimiting(o => o.Enabled = false));
         for (var i = 0; i < 3; i++)
         {
             await using var stream = await RawSse.OpenAsync(host, SendStream(binding, "task"), binding);
@@ -423,8 +423,7 @@ public class StreamingResumeTests
         await using var host = await TestAgentHost.StartAsync(o =>
         {
             o.Limits.MaxConcurrentStreamsPerPrincipal = 1;
-            o.EnableRateLimiting = false;
-        });
+        }, services: s => s.AddA2ARateLimiting(o => o.Enabled = false));
         await using var first = await RawSse.OpenAsync(host, SendStream(binding, "slow"), binding);
         Assert.IsType<TaskEvent>((await first.NextAsync(Timeout))!.Event);
 
@@ -443,7 +442,7 @@ public class StreamingResumeTests
     {
         public volatile bool Allow = true;
 
-        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperation op, object request, CancellationToken ct) =>
+        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2A.Server.Pipeline.A2AOperationDescriptor op, object request, CancellationToken ct) =>
             ValueTask.FromResult(Allow);
     }
 

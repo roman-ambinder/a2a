@@ -21,6 +21,7 @@ public static class A2AJson
     /// </summary>
     public static JsonSerializerOptions Options { get; } = CreateOptions();
 
+    /// <summary>Creates a new, mutable copy of the shared options. Use it to add your own converters or type resolvers. Prefer <see cref="Options"/> when you do not need changes.</summary>
     public static JsonSerializerOptions CreateOptions()
     {
         var o = new JsonSerializerOptions(JsonSerializerDefaults.Web)
@@ -68,20 +69,28 @@ public static class A2AJson
     /// <summary>The empty JSON object <c>{}</c>, the result of operations that return nothing (for example delete).</summary>
     public static JsonElement EmptyObject { get; } = JsonDocument.Parse("{}").RootElement.Clone();
 
+    /// <summary>Serializes <paramref name="value"/> to a JSON string with the generated metadata.</summary>
     public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, GetTypeInfo<T>());
 
+    /// <summary>Serializes <paramref name="value"/> to UTF-8 JSON bytes with the generated metadata.</summary>
     public static byte[] SerializeToUtf8Bytes<T>(T value) => JsonSerializer.SerializeToUtf8Bytes(value, GetTypeInfo<T>());
 
+    /// <summary>Serializes <paramref name="value"/> to a <see cref="JsonElement"/> with the generated metadata.</summary>
     public static JsonElement SerializeToElement<T>(T value) => JsonSerializer.SerializeToElement(value, GetTypeInfo<T>());
 
+    /// <summary>Deserializes a JSON string. Throws <see cref="JsonException"/> on invalid or null input.</summary>
     public static T Deserialize<T>(string json) =>
         JsonSerializer.Deserialize(json, GetTypeInfo<T>()) ?? throw new JsonException($"Null {typeof(T).Name} payload.");
 
+    /// <summary>Deserializes a <see cref="JsonElement"/>. Throws <see cref="JsonException"/> on invalid or null input.</summary>
     public static T Deserialize<T>(JsonElement element) =>
         element.Deserialize(GetTypeInfo<T>()) ?? throw new JsonException($"Null {typeof(T).Name} payload.");
 
-    /// <summary>Deep-copies a model through its wire form. Used by stores to avoid shared mutable state.</summary>
-    public static T Clone<T>(T value)
+    /// <summary>
+    /// Deep-copies a model through its wire form. Costs a full serialization; the server uses the structural copies of
+    /// <see cref="ModelCopies"/> instead. Kept for the card signer, which signs a detached copy of the card.
+    /// </summary>
+    internal static T Clone<T>(T value)
     {
         var info = GetTypeInfo<T>();
         return JsonSerializer.Deserialize(JsonSerializer.SerializeToUtf8Bytes(value, info), info)!;

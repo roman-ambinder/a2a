@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
-using A2A.Json;
 using A2A.Server.Streaming;
 
 namespace A2A.Server.Storage;
@@ -8,24 +7,27 @@ namespace A2A.Server.Storage;
 /// <summary>
 /// Process-local event log. Keeps the last <see cref="StreamingOptions.ReplayBufferSize"/> events per task and drops the
 /// buffer of a terminal task <see cref="StreamingOptions.TerminalRetention"/> after <see cref="MarkTerminalAsync"/>.
+/// It stores the event instances it is given, with their encoded bytes, and returns them without copying or encoding again:
+/// an appended event belongs to the store and nobody changes it. Each retained event holds both the event model and its UTF-8
+/// bytes, so memory per event is roughly double the model alone: size <see cref="StreamingOptions.ReplayBufferSize"/> for that.
 /// </summary>
 public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? time = null) : EventStore
 {
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly ConcurrentDictionary<TaskKey, TaskLog> _logs = new();
 
-    public override ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken ct = default) =>
+    /// <inheritdoc />
+    public override ValueTask<long> AppendAsync(TaskKey task, SequencedEvent evt, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(AppendAfter(task, evt, static () => { }));
 
     /// <summary>
     /// Runs <paramref name="write"/> and then appends <paramref name="evt"/>, both under the task's log lock: if
     /// <paramref name="write"/> throws, nothing is appended. <see cref="InMemoryTaskStore.CommitAsync"/> does its
     /// compare-and-set here, so commits to one task are serialized and the log follows their order. Then, still under the
-    /// lock, <paramref name="appended"/> (which must not fail) gets the new sequence: readers of the log wait for it.
+    /// lock, <paramref name="appended"/> (which must not fail) gets the new sequence.
     /// </summary>
-    internal long AppendAfter(TaskKey task, StreamResponse evt, Action write, Action<long>? appended = null)
+    internal long AppendAfter(TaskKey task, SequencedEvent evt, Action write, Action<long>? appended = null)
     {
-        var copy = A2AJson.Clone(evt); // before the write: nothing that can fail runs after it
         var capacity = Math.Max(1, options.ReplayBufferSize);
         while (true)
         {
@@ -45,7 +47,7 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
                     throw;
                 }
                 var seq = ++log.Last;
-                log.Events.Add(new SequencedEvent(seq, copy));
+                log.Events.Add(evt with { Sequence = seq });
                 if (log.Events.Count > capacity) log.Events.RemoveRange(0, log.Events.Count - capacity);
                 appended?.Invoke(seq);
                 return seq;
@@ -53,8 +55,9 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
         }
     }
 
+    /// <inheritdoc />
     public override async IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence,
-        [EnumeratorCancellation] CancellationToken ct = default)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         SequencedEvent[] snapshot = [];
         if (_logs.TryGetValue(task, out var log))
@@ -63,25 +66,28 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
         }
         foreach (var e in snapshot)
         {
-            ct.ThrowIfCancellationRequested();
-            yield return e with { Event = A2AJson.Clone(e.Event) };
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return e;
         }
         await Task.CompletedTask.ConfigureAwait(false);
     }
 
-    public override ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         if (!_logs.TryGetValue(task, out var log)) return ValueTask.FromResult<long?>(null);
         lock (log) return ValueTask.FromResult<long?>(log.Events.Count == 0 ? null : log.Events[0].Sequence);
     }
 
-    public override ValueTask<long> LastSequenceAsync(TaskKey task, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<long> LastSequenceAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         if (!_logs.TryGetValue(task, out var log)) return ValueTask.FromResult(0L);
         lock (log) return ValueTask.FromResult(log.Last);
     }
 
-    public override ValueTask MarkTerminalAsync(TaskKey task, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask MarkTerminalAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         if (!_logs.TryGetValue(task, out var log)) return ValueTask.CompletedTask;
         lock (log)
@@ -92,7 +98,8 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
         return ValueTask.CompletedTask;
     }
 
-    public override ValueTask DeleteAsync(TaskKey task, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask DeleteAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         if (_logs.TryGetValue(task, out var log)) Evict(task, log);
         return ValueTask.CompletedTask;

@@ -3,17 +3,22 @@ using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Client.Cards;
+using A2A.Client.Transports;
 using A2A.Json;
+using A2A.Security.Http;
 using A2A.Signing;
+using A2A.Text;
 using A2A.Validation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace A2A.Client;
 
+/// <summary>Settings of <see cref="A2ACardResolver"/>: signature trust, card pinning and text limits.</summary>
 public sealed class A2ACardResolverOptions
 {
     /// <summary>
@@ -72,8 +77,11 @@ public sealed record ResolvedSkill(UntrustedText Name, UntrustedText Description
 /// <summary>Raised when an origin serves a card whose canonical content differs from the pinned one.</summary>
 public sealed class CardChangedEventArgs(string origin, string oldHash, string newHash) : EventArgs
 {
+    /// <summary>Origin (<c>https://host[:port]</c>) that served the changed card.</summary>
     public string Origin { get; } = origin;
+    /// <summary>Hash of the pinned card.</summary>
     public string OldHash { get; } = oldHash;
+    /// <summary>Hash of the card that was received.</summary>
     public string NewHash { get; } = newHash;
 }
 
@@ -96,6 +104,7 @@ public sealed class A2ACardResolver
     private readonly ILogger _logger;
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new();
 
+    /// <summary>Creates a resolver. <paramref name="options"/> defaults to a new <see cref="A2ACardResolverOptions"/>.</summary>
     public A2ACardResolver(HttpClient httpClient, A2ACardResolverOptions? options = null, ILogger? logger = null)
     {
         _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
@@ -103,7 +112,9 @@ public sealed class A2ACardResolver
         ArgumentNullException.ThrowIfNull(_options.Trust, "options.Trust");
         ArgumentNullException.ThrowIfNull(_options.PinStore, "options.PinStore");
         ArgumentOutOfRangeException.ThrowIfLessThan(_options.MaxCardTextLength, 1, "options.MaxCardTextLength");
-        _verifier = new AgentCardVerifier(_options.Trust, _options.JwksHttpClient);
+        // jku targets are chosen by the card, so they are fetched through the SSRF guard. The policy is mutable and read live;
+        // the verifier's per-origin allowlist check still prevents any fetch for a host nobody allowed.
+        _verifier = new AgentCardVerifier(_options.Trust, new GuardedJwksFetcher(_options.JwksHttpClient));
         _logger = logger ?? NullLogger.Instance;
     }
 
@@ -117,9 +128,11 @@ public sealed class A2ACardResolver
         return new Uri(agentUrl, A2AProtocol.WellKnownAgentCardPath);
     }
 
+    /// <summary>Fetches the card at <paramref name="agentUrl"/> after the signature and pin checks. Same as <see cref="ResolveAsync"/> but returns only the card.</summary>
     public async Task<AgentCard> GetAgentCardAsync(Uri agentUrl, CancellationToken cancellationToken = default) =>
         (await ResolveAsync(agentUrl, cancellationToken).ConfigureAwait(false)).Card;
 
+    /// <summary>Fetches the card at <paramref name="agentUrl"/>, checks its signatures and pin, and returns the card with its verification result and sanitized text.</summary>
     public async Task<ResolvedAgentCard> ResolveAsync(Uri agentUrl, CancellationToken callerToken = default)
     {
         var uri = GetCardUri(agentUrl);
@@ -148,11 +161,17 @@ public sealed class A2ACardResolver
         if (!response.IsSuccessStatusCode)
             throw new A2AException(A2AErrorCode.Internal, $"Failed to fetch Agent Card from {uri}: HTTP {(int)response.StatusCode}") { HttpStatus = (int)response.StatusCode };
 
-        var raw = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        var node = ParseCard(raw);
+        // The card is parsed from its UTF-8 bytes (no string round trip); the text is decoded once, for ResolvedAgentCard.Raw.
+        string raw;
+        JsonObject node;
         AgentCard card;
-        try { card = A2AJson.Deserialize<AgentCard>(raw); }
-        catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex); }
+        using (var body = await ResponseBody.ReadUtf8Async(response.Content, cancellationToken).ConfigureAwait(false))
+        {
+            raw = Encoding.UTF8.GetString(body.Span);
+            node = ParseCard(body.Span);
+            try { card = JsonSerializer.Deserialize(body.Span, A2AJson.GetTypeInfo<AgentCard>()) ?? throw new JsonException("Null AgentCard payload."); }
+            catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex); }
+        }
 
         var verification = await _verifier.VerifyAsync(node, uri, cancellationToken).ConfigureAwait(false);
         var reject = verification.Status switch
@@ -186,7 +205,7 @@ public sealed class A2ACardResolver
 
     // Parses the card into a fully materialized tree. JsonObject reads lazily and throws ArgumentException on a duplicate
     // member when first touched, which on .NET 8 (no AllowDuplicateProperties) would otherwise escape from verification.
-    private static JsonObject ParseCard(string raw)
+    private static JsonObject ParseCard(ReadOnlySpan<byte> raw)
     {
         try
         {
@@ -240,13 +259,13 @@ public sealed class A2ACardResolver
         {
             if (keyId is not null && keyId != pinned.KeyId)
             {
-                _logger.LogInformation("Agent Card from {Origin} is now signed with key {KeyId} (was {PreviousKeyId}); content unchanged", origin, keyId, pinned.KeyId);
+                ClientLog.CardKeyChanged(_logger, origin, keyId, pinned.KeyId);
                 await _options.PinStore.SetAsync(origin, pinned with { KeyId = keyId }, cancellationToken).ConfigureAwait(false);
             }
             return;
         }
 
-        _logger.LogWarning("Agent Card from {Origin} changed: pinned {OldHash}, received {NewHash}", origin, pinned.Hash, hash);
+        ClientLog.CardChanged(_logger, origin, pinned.Hash, hash);
         CardChangedCounter.Add(1, new KeyValuePair<string, object?>("origin", origin));
         CardChanged?.Invoke(this, new CardChangedEventArgs(origin, pinned.Hash, hash));
 
@@ -268,6 +287,7 @@ public sealed class A2ACardResolver
 public sealed class AgentCardVerificationException(AgentCardVerificationResult result)
     : A2AException(A2AErrorCode.InvalidAgentResponse, $"Agent Card signature check failed ({result.Status}): {result.Reason}")
 {
+    /// <summary>The verification result that caused the failure.</summary>
     public AgentCardVerificationResult Result { get; } = result;
 }
 
@@ -275,7 +295,10 @@ public sealed class AgentCardVerificationException(AgentCardVerificationResult r
 public sealed class AgentCardPinException(string origin, string oldHash, string newHash)
     : A2AException(A2AErrorCode.InvalidAgentResponse, $"Agent Card from {origin} changed: pinned {oldHash}, received {newHash}")
 {
+    /// <summary>Origin that served the changed card.</summary>
     public string Origin { get; } = origin;
+    /// <summary>Hash of the pinned card.</summary>
     public string OldHash { get; } = oldHash;
+    /// <summary>Hash of the card that was received.</summary>
     public string NewHash { get; } = newHash;
 }

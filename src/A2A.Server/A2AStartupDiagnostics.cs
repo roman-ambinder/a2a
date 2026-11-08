@@ -35,7 +35,7 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
         catch (Exception ex)
         {
             // The registrations themselves are broken; the request handler reports that when it is first used.
-            logger.LogDebug(ex, "Skipped the A2A startup diagnostics");
+            ServerLog.StartupDiagnosticsSkipped(logger, ex);
         }
         return Task.CompletedTask;
     }
@@ -44,11 +44,11 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
     {
         var outbox = services.GetService<PushOutbox>();
         if (outbox is not null and not InMemoryPushOutbox && services.GetService<IPushSecretProtector>() is EphemeralPushSecretProtector)
-            logger.LogError(EphemeralProtectorMessage, outbox.GetType().Name);
+            ServerLog.EphemeralProtectorWithDurableOutbox(logger, outbox.GetType().Name);
 
         var tasks = services.GetService<TaskStore>();
         if (tasks is not null and not InMemoryTaskStore && services.GetService<ExecutionCoordinator>() is InMemoryExecutionCoordinator)
-            logger.LogWarning(LocalCoordinatorMessage, tasks.GetType().Name);
+            ServerLog.LocalCoordinatorWithDurableStore(logger, tasks.GetType().Name);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

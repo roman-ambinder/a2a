@@ -10,7 +10,7 @@ namespace A2A.Grpc.Tests;
 /// <summary>Two agents behind one gRPC service, picked by the request's <c>tenant</c> field.</summary>
 public class MultiAgentGrpcTests
 {
-    private sealed class Cards : AgentCardProvider
+    private sealed class Cards : TenantCardProvider
     {
         public override ValueTask<AgentCard?> GetCardAsync(AgentRequestScope scope, CancellationToken cancellationToken)
         {
@@ -37,7 +37,7 @@ public class MultiAgentGrpcTests
     [Fact]
     public async Task Tenant_field_selects_the_agent_and_its_card()
     {
-        await using var host = await GrpcHost.StartAsync(services: s => s.AddA2AServer().AddAgentCardProvider<Cards>().AddAgentExecutorResolver<Agents>());
+        await using var host = await GrpcHost.StartAsync(services: s => s.AddA2AServer().AddTenantCardProvider<Cards>().AddAgentExecutorResolver<Agents>());
         var raw = host.Raw();
         var headers = new Metadata { { "a2a-version", "1.0" } };
         Pb.SendMessageRequest Send(string tenant, string text) => new()

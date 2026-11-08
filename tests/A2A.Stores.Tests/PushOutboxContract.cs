@@ -49,7 +49,7 @@ public abstract class PushOutboxContract
         if (!_records.TryGetValue(task, out var record))
         {
             var created = TaskStoreContract.NewRecord(task.Tenant, task.Owner, task.TaskId, _time.GetUtcNow());
-            result = await tasks.CommitAsync(new TaskCommit(created, 0, StreamResponse.Of(A2AJson.Clone(created.Task)), deliveries));
+            result = await tasks.CommitAsync(new TaskCommit(created, 0, StreamResponse.Of(created.Task.DeepCopy()), deliveries));
         }
         else
         {

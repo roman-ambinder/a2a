@@ -61,7 +61,12 @@ public static class WebhookSignature
     /// True when <paramref name="signatureHeader"/> holds a <c>v1</c> signature equal to the one computed for the message.
     /// Signatures of other versions are skipped; every candidate is compared in constant time.
     /// </summary>
-    internal static bool Matches(string signatureHeader, ReadOnlySpan<byte> secret, string id, long unixSeconds, ReadOnlySpan<byte> body)
+    /// <param name="signatureHeader">The <c>webhook-signature</c> header value.</param>
+    /// <param name="secret">The signing secret (decoded key).</param>
+    /// <param name="id">The <c>webhook-id</c> header value.</param>
+    /// <param name="unixSeconds">The <c>webhook-timestamp</c> header value.</param>
+    /// <param name="body">The raw request body.</param>
+    public static bool Matches(string signatureHeader, ReadOnlySpan<byte> secret, string id, long unixSeconds, ReadOnlySpan<byte> body)
     {
         var expected = Encoding.UTF8.GetBytes(Sign(secret, id, unixSeconds, body));
         var matched = false;

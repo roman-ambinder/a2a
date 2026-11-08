@@ -1,15 +1,17 @@
 using System.Collections.Concurrent;
-using A2A.Json;
 using A2A.Server.Push;
 
 namespace A2A.Server.Storage;
 
 /// <summary>
-/// Process-local task store. For development and tests; data is lost on restart. <see cref="CommitAsync"/> appends to
-/// the given <see cref="InMemoryEventStore"/> and queues push deliveries in the given <see cref="InMemoryPushOutbox"/>,
-/// which must be the server's <see cref="EventStore"/> and <see cref="PushOutbox"/>. Without an outbox, a commit with
-/// deliveries throws <see cref="NotSupportedException"/>.
+/// Process-local task store. For development and tests; data is lost on restart. It keeps the instances it is given and
+/// returns them without copying (see the ownership rule on <see cref="TaskStore"/>). <see cref="CommitAsync"/> appends to the
+/// given <see cref="InMemoryEventStore"/> and queues push deliveries in the given <see cref="InMemoryPushOutbox"/>, which must be
+/// the server's <see cref="EventStore"/> and <see cref="PushOutbox"/>. Without an outbox, a commit with deliveries throws
+/// <see cref="NotSupportedException"/>.
 /// </summary>
+/// <param name="events">The event store that <see cref="CommitAsync"/> appends to.</param>
+/// <param name="outbox">The push outbox that <see cref="CommitAsync"/> queues deliveries in, or null when no push is used.</param>
 public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOutbox? outbox = null) : TaskStore
 {
     private readonly InMemoryEventStore _events = events ?? throw new ArgumentNullException(nameof(events));
@@ -17,43 +19,49 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
     private readonly ConcurrentDictionary<(string Tenant, string ContextId), ContextRecord> _contexts = new();
     private readonly object _contextLock = new(); // DeleteContextAsync checks for tasks and removes under it
 
-    public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) =>
+    /// <inheritdoc />
+    public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(
             _tasks.TryGetValue((key.Tenant, key.TaskId), out var r) && string.Equals(r.Owner, key.Owner, StringComparison.Ordinal)
-                ? Copy(r)
+                ? r
                 : null);
 
-    public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken cancellationToken = default)
     {
         if (record.Version != 0) throw new ArgumentException("A new record must have Version 0.", nameof(record));
-        var stored = Copy(record with { Version = 1 });
+        var stored = record with { Version = 1 };
         if (!_tasks.TryAdd((stored.Tenant, stored.Task.Id), stored)) throw new DuplicateTaskException(record.Key);
-        return ValueTask.FromResult(Copy(stored));
+        return ValueTask.FromResult(stored);
     }
 
-    public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default) =>
-        ValueTask.FromResult(Copy(Replace(record, A2AJson.Clone(record.Task), expectedVersion)));
+    /// <inheritdoc />
+    public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(Replace(record, expectedVersion));
 
-    public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(commit);
         var record = commit.Record;
         ValidateDeliveries(commit);
         if (commit.Deliveries.Count > 0 && outbox is null) throw new NotSupportedException("This store has no push outbox.");
+        var evt = commit.Event;
         Action<long>? enqueue = null;
         if (commit.Deliveries.Count > 0)
         {
-            var payload = A2AJson.SerializeToUtf8Bytes(commit.Event); // the webhook body, captured with the event
+            // The webhook body: the event's bytes, encoded once by the engine (shared with the log, never changed).
+            evt = Streaming.EventEncoder.EnsureEncoded(evt);
+            var payload = evt.Json;
             enqueue = seq => outbox!.Add(commit.Deliveries.Select(d => d with { Sequence = seq }), payload);
         }
-        var task = A2AJson.Clone(record.Task); // before the commit: nothing that can fail runs after the task write
         TaskRecord? stored = null;
         long seq;
         if (commit.IsCreate)
         {
             if (record.Version != 0) throw new ArgumentException("A new record must have Version 0.", nameof(commit));
-            var created = record with { Task = task, Version = 1 };
-            seq = _events.AppendAfter(record.Key, commit.Event, () =>
+            var created = record with { Version = 1 };
+            seq = _events.AppendAfter(record.Key, evt, () =>
             {
                 if (!_tasks.TryAdd((created.Tenant, created.Task.Id), created)) throw new DuplicateTaskException(record.Key);
                 stored = created;
@@ -61,13 +69,13 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
         }
         else
         {
-            seq = _events.AppendAfter(record.Key, commit.Event, () => stored = Replace(record, task, commit.ExpectedVersion), enqueue);
+            seq = _events.AppendAfter(record.Key, evt, () => stored = Replace(record, commit.ExpectedVersion), enqueue);
         }
-        return ValueTask.FromResult(new CommitResult(Copy(stored!), seq));
+        return ValueTask.FromResult(new CommitResult(stored!, seq));
     }
 
-    /// <summary>Compare-and-set: stores <paramref name="record"/> with <paramref name="task"/> (already a copy) as version expected + 1.</summary>
-    private TaskRecord Replace(TaskRecord record, AgentTask task, long expectedVersion)
+    /// <summary>Compare-and-set: stores <paramref name="record"/> as version expected + 1.</summary>
+    private TaskRecord Replace(TaskRecord record, long expectedVersion)
     {
         var id = (record.Tenant, record.Task.Id);
         if (!_tasks.TryGetValue(id, out var current)
@@ -75,12 +83,13 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
             || current.Version != expectedVersion)
             throw new ConcurrencyException(record.Key, expectedVersion);
 
-        var next = record with { Task = task, Version = expectedVersion + 1, CreatedAt = current.CreatedAt, UpdatedAt = DateTimeOffset.UtcNow };
+        var next = record with { Version = expectedVersion + 1, CreatedAt = current.CreatedAt, UpdatedAt = DateTimeOffset.UtcNow };
         if (!_tasks.TryUpdate(id, next, current)) throw new ConcurrencyException(record.Key, expectedVersion);
         return next;
     }
 
-    public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken cancellationToken = default)
     {
         var cursor = PageCursor.Decode(query.PageToken);
         var matching = _tasks.Values
@@ -106,18 +115,21 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
         var hasMore = page.Count > query.PageSize;
         if (hasMore) page.RemoveAt(page.Count - 1);
         var next = hasMore ? PageCursor.Encode(page[^1]) : string.Empty;
-        return ValueTask.FromResult(new TaskPage(page.Select(Copy).ToList(), next, matching.Count));
+        return ValueTask.FromResult(new TaskPage(page, next, matching.Count));
     }
 
-    public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) =>
+    /// <inheritdoc />
+    public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(_contexts.TryGetValue((tenant, contextId), out var c) ? c : null);
 
-    public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken cancellationToken = default)
     {
         lock (_contextLock) return ValueTask.FromResult(_contexts.GetOrAdd((record.Tenant, record.ContextId), record));
     }
 
-    public override ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken cancellationToken = default)
     {
         // Remove only the exact record that is owned by the caller (a concurrent update may replace the entry).
         while (_tasks.TryGetValue((key.Tenant, key.TaskId), out var current))
@@ -128,13 +140,15 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
         return ValueTask.FromResult(false);
     }
 
-    public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default) =>
-        ValueTask.FromResult(ListByStatusTime(r => r.Task.Status.State.IsTerminal(), terminalBefore, max));
+    /// <inheritdoc />
+    public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult<IReadOnlyList<TaskKey>>(ListByStatusTime(r => r.Task.Status.State.IsTerminal(), terminalBefore, max));
 
-    public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) =>
-        ValueTask.FromResult(ListByStatusTime(r => r.Task.Status.State.IsInterrupted(), before, max));
+    /// <inheritdoc />
+    public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult<IReadOnlyList<TaskKey>>(ListByStatusTime(r => r.Task.Status.State.IsInterrupted(), before, max));
 
-    private IReadOnlyList<TaskKey> ListByStatusTime(Func<TaskRecord, bool> state, DateTimeOffset before, int max) => _tasks.Values
+    private List<TaskKey> ListByStatusTime(Func<TaskRecord, bool> state, DateTimeOffset before, int max) => _tasks.Values
         .Where(state)
         .Select(r => (Ticks: (r.Task.Status.Timestamp ?? r.CreatedAt).UtcTicks, r.Key))
         .Where(x => x.Ticks < before.UtcTicks)
@@ -143,7 +157,8 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
         .Select(x => x.Key)
         .ToList();
 
-    public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken cancellationToken = default)
     {
         lock (_contextLock)
         {
@@ -152,7 +167,8 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
         }
     }
 
-    public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken cancellationToken = default)
     {
         var used = _tasks.Values
             .Where(r => !string.IsNullOrEmpty(r.Task.ContextId))
@@ -164,6 +180,4 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
             .Take(Math.Max(0, max))
             .ToList());
     }
-
-    private static TaskRecord Copy(TaskRecord r) => r with { Task = A2AJson.Clone(r.Task) };
 }

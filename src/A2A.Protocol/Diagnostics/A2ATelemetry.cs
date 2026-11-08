@@ -3,9 +3,10 @@ using System.Diagnostics;
 namespace A2A.Diagnostics;
 
 /// <summary>
-/// Names used by the SDK's tracing. The SDK traces with <see cref="ActivitySource"/> only, so it works with OpenTelemetry
-/// (<c>AddSource("A2A.Server", "A2A.Client")</c>) or any other <see cref="ActivityListener"/>, and costs almost nothing when
-/// nobody listens. Tags carry ids and outcomes only: never message content, tokens, credentials or webhook URLs.
+/// Names used by the SDK's tracing and metrics. The SDK traces with <see cref="ActivitySource"/> and counts with
+/// <see cref="System.Diagnostics.Metrics.Meter"/> only, so it works with OpenTelemetry (<c>AddSource("A2A.Server", "A2A.Client")</c>,
+/// <c>AddMeter("A2A.Server")</c>) or any other listener, and costs almost nothing when nobody listens. Tags carry ids and
+/// outcomes only: never message content, tokens, credentials or webhook URLs.
 /// </summary>
 public static class A2ATelemetry
 {
@@ -17,6 +18,11 @@ public static class A2ATelemetry
 
     /// <summary>Source of the client spans: one per <c>A2AClient</c> operation, covering its retries and stream reconnects.</summary>
     public const string ClientSourceName = "A2A.Client";
+
+    /// <summary>
+    /// The server's <see cref="System.Diagnostics.Metrics.Meter"/>, with the counters named in <see cref="Metrics"/>.
+    /// </summary>
+    public const string ServerMeterName = "A2A.Server";
 
     /// <summary>W3C trace context header with the caller's trace and span id.</summary>
     public const string TraceParentHeader = "traceparent";
@@ -52,7 +58,10 @@ public static class A2ATelemetry
         /// <summary>The protocol binding: <c>JSONRPC</c>, <c>HTTP+JSON</c> or <c>GRPC</c> (see <see cref="ProtocolBindings"/>).</summary>
         public const string Binding = "a2a.binding";
 
+        /// <summary>The task id.</summary>
         public const string TaskId = "a2a.task.id";
+
+        /// <summary>The context (conversation) id.</summary>
         public const string ContextId = "a2a.context.id";
 
         /// <summary>The tenant; set only when not the default (empty) tenant.</summary>
@@ -76,6 +85,7 @@ public static class A2ATelemetry
         /// <summary>True when the agent run hit <c>MaxTaskDuration</c>.</summary>
         public const string TimedOut = "a2a.execution.timed_out";
 
+        /// <summary>The push notification config id.</summary>
         public const string PushConfigId = "a2a.push.config.id";
 
         /// <summary>Event store sequence of the delivered event.</summary>
@@ -87,7 +97,55 @@ public static class A2ATelemetry
         /// <summary>The webhook host (never the full URL, which may carry secrets).</summary>
         public const string ServerAddress = "server.address";
 
+        /// <summary>The webhook's HTTP status code.</summary>
         public const string HttpStatusCode = "http.response.status_code";
+
+        /// <summary>The outcome of a call on the counters (<see cref="Outcomes"/>).</summary>
+        public const string Outcome = "a2a.outcome";
+    }
+
+    /// <summary>Counter names on the <see cref="ServerMeterName"/> meter.</summary>
+    public static class Metrics
+    {
+        /// <summary>Operations handled. Tags: <see cref="Tags.Operation"/>, <see cref="Tags.Outcome"/>, and <see cref="Tags.ErrorType"/> on errors.</summary>
+        public const string Requests = "a2a.server.requests";
+
+        /// <summary>Task events stored.</summary>
+        public const string Events = "a2a.server.events";
+
+        /// <summary>Event streams admitted (SendStreamingMessage and SubscribeToTask).</summary>
+        public const string StreamsOpened = "a2a.server.streams.opened";
+
+        /// <summary>
+        /// Webhook delivery attempts of the push outbox. Tag: <see cref="Tags.Outcome"/> (<see cref="Outcomes.Sent"/>,
+        /// <see cref="Outcomes.Retried"/> or <see cref="Outcomes.DeadLettered"/>).
+        /// </summary>
+        public const string PushDeliveries = "a2a.server.push.deliveries";
+
+        /// <summary>Push deliveries that failed for good and were moved to the dead letters.</summary>
+        public const string PushDeadLetters = "a2a.server.push.dead_letters";
+    }
+
+    /// <summary>Values of <see cref="Tags.Outcome"/>.</summary>
+    public static class Outcomes
+    {
+        /// <summary>The call succeeded (for a stream: it ended normally).</summary>
+        public const string Ok = "ok";
+
+        /// <summary>The caller canceled the call, or stopped reading a stream before its end. Not an error.</summary>
+        public const string Canceled = "canceled";
+
+        /// <summary>The call failed; <see cref="Tags.ErrorType"/> says how.</summary>
+        public const string Error = "error";
+
+        /// <summary>A webhook accepted the delivery.</summary>
+        public const string Sent = "sent";
+
+        /// <summary>A webhook delivery attempt failed and the delivery is due again later.</summary>
+        public const string Retried = "retried";
+
+        /// <summary>A webhook delivery failed for good (refused, not allowed, or its last attempt failed) and was dead-lettered.</summary>
+        public const string DeadLettered = "dead_lettered";
     }
 
     /// <summary>Span event names. Stream events are span events on the stream's span, not child spans.</summary>
@@ -99,7 +157,10 @@ public static class A2ATelemetry
         /// <summary>A client stream reconnected (or a webhook delivery attempt failed and is retried).</summary>
         public const string Retry = "a2a.retry";
 
+        /// <summary>Tag of a stream event: <c>task</c>, <c>message</c>, <c>status_update</c> or <c>artifact_update</c>.</summary>
         public const string EventKind = "a2a.event.kind";
+
+        /// <summary>Tag of a stream event: its event store sequence (server).</summary>
         public const string EventSequence = "a2a.event.sequence";
     }
 

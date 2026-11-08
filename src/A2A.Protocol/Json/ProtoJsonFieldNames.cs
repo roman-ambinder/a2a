@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 
 namespace A2A.Json;
 
@@ -34,6 +35,45 @@ public static class ProtoJsonFieldNames
         using (var writer = new Utf8JsonWriter(buffer)) node!.WriteTo(writer);
         using var doc = JsonDocument.Parse(buffer.WrittenMemory, new JsonDocumentOptions { MaxDepth = 1024 });
         return doc.RootElement.Clone();
+    }
+
+    /// <summary>
+    /// Deserializes a JSON value as <typeparamref name="T"/>, accepting proto field names (see <see cref="Normalize(JsonElement)"/>).
+    /// A value without any property name that contains <c>'_'</c> (the usual case) binds straight from <paramref name="utf8Json"/>
+    /// with no intermediate document; only a value with such a name is normalized first.
+    /// </summary>
+    /// <exception cref="JsonException">Malformed JSON, a value that does not bind, or both spellings of one field.</exception>
+    public static T? Deserialize<T>(ReadOnlySpan<byte> utf8Json, JsonTypeInfo<T> typeInfo)
+    {
+        ArgumentNullException.ThrowIfNull(typeInfo);
+        if (!MayHaveProtoNames(utf8Json)) return JsonSerializer.Deserialize(utf8Json, typeInfo);
+        var reader = new Utf8JsonReader(utf8Json, new JsonReaderOptions { MaxDepth = 1024 });
+        return Normalize(JsonElement.ParseValue(ref reader)).Deserialize(typeInfo);
+    }
+
+    /// <summary>
+    /// False when no property name in <paramref name="utf8Json"/> contains <c>'_'</c>, so the value needs no normalization. True
+    /// otherwise (also for names inside free-form values, which <see cref="Normalize(JsonElement)"/> then leaves alone).
+    /// </summary>
+    private static bool MayHaveProtoNames(ReadOnlySpan<byte> utf8Json)
+    {
+        // No underscore and no escape (which could spell one as \u005f) anywhere: nothing to normalize.
+        if (utf8Json.IndexOfAny((byte)'_', (byte)'\\') < 0) return false;
+        var reader = new Utf8JsonReader(utf8Json, new JsonReaderOptions { MaxDepth = 1024 });
+        try
+        {
+            while (reader.Read())
+            {
+                if (reader.TokenType != JsonTokenType.PropertyName) continue;
+                if (reader.ValueIsEscaped ? reader.GetString()!.Contains('_', StringComparison.Ordinal) : reader.ValueSpan.IndexOf((byte)'_') >= 0)
+                    return true;
+            }
+            return false;
+        }
+        catch (JsonException)
+        {
+            return true; // let the slow path report the error as it always did
+        }
     }
 
     /// <summary>Converts a proto field name (<c>history_length</c>) to its JSON name (<c>historyLength</c>).</summary>

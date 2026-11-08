@@ -1,7 +1,7 @@
 namespace A2A.Server.Agents;
 
 /// <summary>
-/// What an <see cref="AgentCardProvider"/> knows about a request when it picks the agent's card. One agent serves one tenant,
+/// What an <see cref="IAgentCardProvider"/> (and a <see cref="TenantCardProvider"/>) knows about a request when it picks the agent's card. One agent serves one tenant,
 /// so <see cref="Tenant"/> alone must identify the agent: background work (retention, cancel requests from other instances,
 /// push delivery) has only the tenant.
 /// </summary>

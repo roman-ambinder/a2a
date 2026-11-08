@@ -55,20 +55,20 @@ public abstract class IdempotencyStore
     /// request with that key: <see cref="IdempotencyResult.InProgress"/>, <see cref="IdempotencyResult.Completed"/>, or
     /// <see cref="IdempotencyResult.Mismatch"/> when its hash differs.
     /// </summary>
-    public abstract ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash, CancellationToken ct = default);
+    public abstract ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash, CancellationToken cancellationToken = default);
 
     /// <summary>Records the outcome of the request that owns <paramref name="scope"/> and releases requests waiting on it.</summary>
-    public abstract ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken ct = default);
+    public abstract ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken cancellationToken = default);
 
     /// <summary>Forgets the claim of a request that failed before any task or message existed. Waiting requests try again.</summary>
-    public abstract ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken ct = default);
+    public abstract ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Extends the timeout of a running claim (claimed, not completed) to start from now, so a live request keeps its key
     /// while a store that abandons stale claims still releases the key of a crashed one. Does nothing for a completed or
     /// missing scope. A store that never expires running claims does nothing at all.
     /// </summary>
-    public abstract ValueTask RenewAsync(IdempotencyScope scope, CancellationToken ct = default);
+    public abstract ValueTask RenewAsync(IdempotencyScope scope, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Settings for idempotent SendMessage.</summary>
@@ -89,23 +89,30 @@ public sealed class IdempotencyOptions
 /// engine can call it from every path without double bookkeeping. <see cref="None"/> is a claim that does nothing (no key,
 /// or the request is a replay).
 /// </summary>
-internal sealed class IdempotencyClaim
+public sealed class IdempotencyClaim
 {
     private readonly IdempotencyStore? _store;
     private readonly IdempotencyScope _scope;
     private int _settled;
 
+    /// <summary>A claim that does nothing: the request has no key, or it is a replay.</summary>
     public static IdempotencyClaim None { get; } = new(null, default);
 
+    /// <summary>Creates the claim of the request that owns <paramref name="scope"/> in <paramref name="store"/>.</summary>
+    /// <param name="store">The store that holds the entry; null for a claim that does nothing.</param>
+    /// <param name="scope">The entry's owner and key.</param>
     public IdempotencyClaim(IdempotencyStore? store, IdempotencyScope scope)
     {
         _store = store;
         _scope = scope;
     }
 
+    /// <summary>Records <paramref name="outcome"/>, unless the claim was already completed or abandoned.</summary>
+    /// <param name="outcome">What the request produced.</param>
     public ValueTask CompleteAsync(IdempotencyOutcome outcome) =>
         _store is not null && Interlocked.Exchange(ref _settled, 1) == 0 ? _store.CompleteAsync(_scope, outcome) : ValueTask.CompletedTask;
 
+    /// <summary>Forgets the entry, unless the claim was already completed or abandoned.</summary>
     public ValueTask AbandonAsync() =>
         _store is not null && Interlocked.Exchange(ref _settled, 1) == 0 ? _store.AbandonAsync(_scope) : ValueTask.CompletedTask;
 

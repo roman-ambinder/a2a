@@ -50,50 +50,50 @@ public abstract class PushOutbox
     /// leased, and that are the oldest pending entry of their task and config. Two callers never get the same entry while its
     /// lease runs. Each returned entry carries a new <see cref="OutboxEntry.LeaseToken"/>.
     /// </summary>
-    public abstract ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken ct = default);
+    public abstract ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Removes a delivered (or dropped) leased entry, which releases the next one of its task and config. Returns false, and
     /// changes nothing, when the entry no longer holds <paramref name="leased"/>'s lease.
     /// </summary>
-    public abstract ValueTask<bool> CompleteAsync(OutboxEntry leased, CancellationToken ct = default);
+    public abstract ValueTask<bool> CompleteAsync(OutboxEntry leased, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Records a failed attempt of a leased entry: sets the attempt count, the next due time and the error, and ends the lease.
     /// Returns false, and changes nothing, when the entry no longer holds <paramref name="leased"/>'s lease.
     /// </summary>
-    public abstract ValueTask<bool> RescheduleAsync(OutboxEntry leased, int attempt, DateTimeOffset dueAt, string error, CancellationToken ct = default);
+    public abstract ValueTask<bool> RescheduleAsync(OutboxEntry leased, int attempt, DateTimeOffset dueAt, string error, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Moves a leased entry to the dead letters after its last attempt failed with <paramref name="error"/> (the dead letter's
     /// <see cref="OutboxEntry.Attempt"/> counts that attempt). This releases the next entry of its task and config. Returns
     /// false, and changes nothing, when the entry no longer holds <paramref name="leased"/>'s lease.
     /// </summary>
-    public abstract ValueTask<bool> DeadLetterAsync(OutboxEntry leased, string error, CancellationToken ct = default);
+    public abstract ValueTask<bool> DeadLetterAsync(OutboxEntry leased, string error, CancellationToken cancellationToken = default);
 
     /// <summary>The dead letters of <paramref name="tenant"/>, oldest first, at most <paramref name="max"/>.</summary>
-    public abstract ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken ct = default);
+    public abstract ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Moves a dead letter back to the outbox, due at once with attempt 0, the same delivery id and the same payload. Returns
     /// false when it is not a dead letter.
     /// </summary>
-    public abstract ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken ct = default);
+    public abstract ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken cancellationToken = default);
 
     /// <summary>Removes every entry and dead letter of <paramref name="task"/> (for example when the task is deleted).</summary>
-    public abstract ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default);
+    public abstract ValueTask DeleteAllAsync(TaskKey task, CancellationToken cancellationToken = default);
 
     /// <summary>Wakes this process's <see cref="PushDeliveryService"/>, so new deliveries do not wait for its next poll.</summary>
     internal void NotifyPending() => Volatile.Read(ref _pending).TrySetResult();
 
     /// <summary>
     /// Completes after the next <see cref="NotifyPending"/> (or at once if one is outstanding), and consumes that signal.
-    /// A wait cancelled by <paramref name="ct"/> consumes nothing, so a signal sent meanwhile wakes the next wait.
+    /// A wait cancelled by <paramref name="cancellationToken"/> consumes nothing, so a signal sent meanwhile wakes the next wait.
     /// </summary>
-    internal async Task WaitForPendingAsync(CancellationToken ct)
+    internal async Task WaitForPendingAsync(CancellationToken cancellationToken)
     {
         var signal = Volatile.Read(ref _pending);
-        await signal.Task.WaitAsync(ct).ConfigureAwait(false);
+        await signal.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         // Consume it. A NotifyPending that still completes the old signal comes before the caller's next pass, which sees its work.
         Interlocked.CompareExchange(ref _pending, NewSignal(), signal);
     }

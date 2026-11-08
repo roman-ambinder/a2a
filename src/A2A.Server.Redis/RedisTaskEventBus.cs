@@ -14,7 +14,8 @@ namespace A2A.Server.Redis;
 /// SubscribeToTask and blocking SendMessage see events produced on any instance.
 /// </summary>
 /// <remarks>
-/// <para>Local subscribers get events straight from the base class, with no Redis round trip. Every event is also published
+/// <para>Local subscribers get events straight from the base class, with no Redis round trip, through the same bounded
+/// subscriptions (<see cref="StreamingOptions.ChannelCapacity"/>, oldest dropped first when a subscriber lags). Every event is also published
 /// on the task's channel (<c>{prefix}{tenant}\u001f{taskId}</c>); other instances deliver it to their own subscribers and
 /// ignore their own messages. <see cref="Publish"/> and <see cref="Complete"/> never block: they queue the message on the
 /// multiplexer (fire and forget).</para>
@@ -23,6 +24,8 @@ namespace A2A.Server.Redis;
 /// handler already tolerates that: it drops duplicates and fills gaps from the <see cref="Storage.EventStore"/>, which
 /// must then be shared too (for example A2A.Server.Postgres).</para>
 /// <para>Owner isolation is enforced by the handler before it subscribes; the bus topic is tenant + task id.</para>
+/// <para>The message carries the event's encoded bytes (<see cref="SequencedEvent.Json"/>) as they are, and the receiving
+/// instance hands its subscribers the same bytes, so no instance encodes an event again.</para>
 /// <para>Call <see cref="StartAsync"/> before serving (the DI extension registers a hosted service that does).</para>
 /// </remarks>
 public sealed class RedisTaskEventBus : TaskEventBus, IAsyncDisposable
@@ -33,7 +36,13 @@ public sealed class RedisTaskEventBus : TaskEventBus, IAsyncDisposable
     private readonly ILogger _logger;
     private ChannelMessageQueue? _queue;
 
-    public RedisTaskEventBus(IConnectionMultiplexer redis, RedisEventBusOptions? options = null, ILogger<RedisTaskEventBus>? logger = null)
+    /// <summary>Creates the bus. Call <see cref="StartAsync"/> before serving.</summary>
+    /// <param name="redis">The Redis connection.</param>
+    /// <param name="streaming">Local subscription size (<see cref="StreamingOptions.ChannelCapacity"/>), as for <see cref="TaskEventBus"/>.</param>
+    /// <param name="options">The channel prefix.</param>
+    /// <param name="logger">Optional logger.</param>
+    public RedisTaskEventBus(IConnectionMultiplexer redis, StreamingOptions streaming, RedisEventBusOptions? options = null, ILogger<RedisTaskEventBus>? logger = null)
+        : base(streaming)
     {
         _redis = redis ?? throw new ArgumentNullException(nameof(redis));
         _prefix = (options ?? new()).ChannelPrefix;
@@ -42,10 +51,10 @@ public sealed class RedisTaskEventBus : TaskEventBus, IAsyncDisposable
     }
 
     /// <summary>Subscribes to the other instances' events. Idempotent.</summary>
-    public async Task StartAsync(CancellationToken ct = default)
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         if (_queue is not null) return;
-        var queue = await _redis.GetSubscriber().SubscribeAsync(RedisChannel.Pattern(EscapeGlob(_prefix) + "*")).WaitAsync(ct).ConfigureAwait(false);
+        var queue = await _redis.GetSubscriber().SubscribeAsync(RedisChannel.Pattern(EscapeGlob(_prefix) + "*")).WaitAsync(cancellationToken).ConfigureAwait(false);
         if (Interlocked.CompareExchange(ref _queue, queue, null) is not null)
         {
             await queue.UnsubscribeAsync().ConfigureAwait(false);
@@ -61,14 +70,20 @@ public sealed class RedisTaskEventBus : TaskEventBus, IAsyncDisposable
         if (Interlocked.Exchange(ref _queue, null) is { } queue) await queue.UnsubscribeAsync().ConfigureAwait(false);
     }
 
+    /// <summary>As <see cref="StopAsync"/>.</summary>
     public ValueTask DisposeAsync() => new(StopAsync());
 
+    /// <summary>Delivers the event to this instance's subscribers, then queues it for the other instances (fire and forget).</summary>
+    /// <param name="taskId">The bus topic (tenant and task id).</param>
+    /// <param name="evt">The stored event.</param>
     public override void Publish(string taskId, SequencedEvent evt)
     {
         base.Publish(taskId, evt);
         Send(taskId, Encode(evt));
     }
 
+    /// <summary>Ends this instance's subscriptions of the topic, then tells the other instances (fire and forget).</summary>
+    /// <param name="taskId">The bus topic (tenant and task id).</param>
     public override void Complete(string taskId)
     {
         base.Complete(taskId);
@@ -84,7 +99,7 @@ public sealed class RedisTaskEventBus : TaskEventBus, IAsyncDisposable
         catch (Exception ex)
         {
             // Never fail the task because the fan-out failed: subscribers elsewhere fill gaps from the event store.
-            _logger.LogWarning(ex, "Could not publish an A2A task event to Redis");
+            RedisLog.PublishFailed(_logger, ex);
         }
     }
 
@@ -104,7 +119,7 @@ public sealed class RedisTaskEventBus : TaskEventBus, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Dropped a malformed A2A task event from Redis");
+            RedisLog.MalformedMessage(_logger, ex);
         }
     }
 
@@ -120,7 +135,8 @@ public sealed class RedisTaskEventBus : TaskEventBus, IAsyncDisposable
             {
                 w.WriteNumber("s", e.Sequence);
                 w.WritePropertyName("e");
-                JsonSerializer.Serialize(w, e.Event, A2AJson.GetTypeInfo<StreamResponse>());
+                // The bytes the server encoded once (encoded here only for an event made without them).
+                w.WriteRawValue(EventEncoder.EnsureEncoded(e).Json.Span, skipInputValidation: true);
             }
             else
             {
@@ -139,6 +155,7 @@ public sealed class RedisTaskEventBus : TaskEventBus, IAsyncDisposable
         if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return false;
         long? seq = null;
         StreamResponse? payload = null;
+        byte[]? payloadBytes = null;
         var complete = false;
         while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
         {
@@ -149,14 +166,20 @@ public sealed class RedisTaskEventBus : TaskEventBus, IAsyncDisposable
                 case "o": origin = reader.GetString(); break;
                 case "s": seq = reader.GetInt64(); break;
                 case "c": complete = reader.GetBoolean(); break;
-                case "e": payload = JsonSerializer.Deserialize(ref reader, A2AJson.GetTypeInfo<StreamResponse>()); break;
+                case "e":
+                    // Keep the event's bytes as sent, so local subscribers write them without encoding again.
+                    var start = (int)reader.TokenStartIndex;
+                    reader.Skip();
+                    payloadBytes = data[start..(int)reader.BytesConsumed].ToArray();
+                    payload = JsonSerializer.Deserialize(payloadBytes, A2AJson.GetTypeInfo<StreamResponse>());
+                    break;
                 default: reader.Skip(); break;
             }
         }
         if (origin is null) return false;
         if (complete) return true;
         if (seq is not { } s || payload is null) return false;
-        evt = new SequencedEvent(s, payload);
+        evt = new SequencedEvent(s, payload, payloadBytes);
         return true;
     }
 
@@ -171,4 +194,24 @@ public sealed class RedisTaskEventBus : TaskEventBus, IAsyncDisposable
         }
         return sb.ToString();
     }
+}
+
+/// <summary>Source-generated log messages of A2A.Server.Redis (event ids 1100-1199).</summary>
+internal static partial class RedisLog
+{
+    [LoggerMessage(EventId = 1100, Level = LogLevel.Warning, Message = "Could not publish an A2A task event to Redis")]
+    public static partial void PublishFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 1101, Level = LogLevel.Warning, Message = "Dropped a malformed A2A task event from Redis")]
+    public static partial void MalformedMessage(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 1102, Level = LogLevel.Warning, Message = "Skipped a malformed A2A execution lease in Redis")]
+    public static partial void MalformedLease(ILogger logger);
+
+    [LoggerMessage(EventId = 1103, Level = LogLevel.Warning, Message = "Dropped a malformed A2A cancel request from Redis")]
+    public static partial void MalformedCancelRequest(ILogger logger);
+
+    [LoggerMessage(EventId = 1104, Level = LogLevel.Warning,
+        Message = "Dropped an A2A cancel request for task {TaskId}: the cancel reader was {Capacity} requests behind")]
+    public static partial void CancelRequestDropped(ILogger logger, string taskId, int capacity);
 }

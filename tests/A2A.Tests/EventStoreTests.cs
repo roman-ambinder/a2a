@@ -8,11 +8,34 @@ namespace A2A.Tests;
 /// <summary>Event sequences seen end to end. The store behavior itself is in the contract suite (tests/A2A.Stores.Tests).</summary>
 public class EventStoreTests
 {
+    /// <summary>An encoded event; its sequence (0) is assigned by the store.</summary>
+    private static SequencedEvent Evt(string taskId) => EventEncoder.Encode(0, StreamResponse.Of(new AgentTask
+    {
+        Id = taskId, ContextId = "c", Status = new AgentTaskStatus { State = TaskState.Working },
+    }));
+
     private static async Task<List<SequencedEvent>> ReadAllAsync(EventStore store, TaskKey key, long after = 0)
     {
         var list = new List<SequencedEvent>();
         await foreach (var e in store.ReadAfterAsync(key, after)) list.Add(e);
         return list;
+    }
+
+    /// <summary>In-memory specific: the store keeps the instance and bytes it is given (other stores return copies).</summary>
+    [Fact]
+    public async Task Append_keeps_event_and_bytes_with_assigned_sequence()
+    {
+        var store = new InMemoryEventStore(new StreamingOptions());
+        var key = new TaskKey("", "alice", "t");
+        await store.AppendAsync(key, Evt("t"));
+        var appended = Evt("t") with { Sequence = 99 }; // the input sequence is ignored
+
+        Assert.Equal(2, await store.AppendAsync(key, appended));
+
+        var stored = (await ReadAllAsync(store, key, after: 1)).Single();
+        Assert.Equal(2, stored.Sequence);
+        Assert.Same(appended.Event, stored.Event);
+        Assert.True(appended.Json.Equals(stored.Json), "the store keeps the bytes it is given, not a new encoding");
     }
 
     [Theory]

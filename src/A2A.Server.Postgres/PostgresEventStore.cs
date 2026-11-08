@@ -1,4 +1,6 @@
 using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
 using A2A.Json;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
@@ -13,6 +15,11 @@ namespace A2A.Server.Postgres;
 /// <see cref="StreamingOptions.TerminalRetention"/> after <see cref="MarkTerminalAsync"/>. A dropped log reads as empty
 /// (sequence 0) at once; the rows are deleted later by <see cref="PostgresMaintenance"/>.
 /// </summary>
+/// <remarks>
+/// The payload stored for an event is its encoded bytes (<see cref="SequencedEvent.Json"/>, the server encodes each event
+/// once), kept as <c>text</c> and returned unchanged: replays write them to the wire as they are. Reads return events
+/// rebuilt from those bytes, with <see cref="SequencedEvent.Json"/> set.
+/// </remarks>
 public sealed class PostgresEventStore : EventStore
 {
     private readonly NpgsqlDataSource _db;
@@ -22,6 +29,11 @@ public sealed class PostgresEventStore : EventStore
     private readonly string _logs;
     private readonly string _events;
 
+    /// <summary>Creates the store over <paramref name="dataSource"/>. Create the tables first (<see cref="PostgresSchema"/>).</summary>
+    /// <param name="dataSource">The database.</param>
+    /// <param name="options">Retention: <see cref="StreamingOptions.ReplayBufferSize"/> and <see cref="StreamingOptions.TerminalRetention"/>.</param>
+    /// <param name="storeOptions">The schema; default <c>public</c>.</param>
+    /// <param name="time">The clock for retention. Default <see cref="TimeProvider.System"/>.</param>
     public PostgresEventStore(NpgsqlDataSource dataSource, StreamingOptions options, PostgresStoreOptions? storeOptions = null, TimeProvider? time = null)
     {
         _db = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
@@ -32,21 +44,24 @@ public sealed class PostgresEventStore : EventStore
         _events = _tables.Events;
     }
 
-    public override async ValueTask<long> AppendAsync(TaskKey task, StreamResponse evt, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<long> AppendAsync(TaskKey task, SequencedEvent evt, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(evt);
-        var json = A2AJson.Serialize(evt);
+        ArgumentNullException.ThrowIfNull(evt.Event, nameof(evt));
+        // The bytes the server encoded, as they are (encoded here only for an event made without them).
+        var json = Encoding.UTF8.GetString(EventEncoder.EnsureEncoded(evt).Json.Span);
 
-        await using var conn = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
-        await using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
-        var seq = await AppendEventAsync(conn, tx, _tables, task, json, Math.Max(1, _options.ReplayBufferSize), _time.GetUtcNow().UtcTicks, ct)
+        await using var conn = await _db.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var tx = await conn.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var seq = await AppendEventAsync(conn, tx, _tables, task, json, Math.Max(1, _options.ReplayBufferSize), _time.GetUtcNow().UtcTicks, cancellationToken)
             .ConfigureAwait(false);
-        await tx.CommitAsync(ct).ConfigureAwait(false);
+        await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
         return seq;
     }
 
+    /// <inheritdoc />
     public override async IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence,
-        [EnumeratorCancellation] CancellationToken ct = default)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         // Read the retained events (at most ReplayBufferSize) in one go, so a slow consumer does not hold a connection.
         var snapshot = new List<SequencedEvent>();
@@ -62,19 +77,28 @@ public sealed class PostgresEventStore : EventStore
             AddKey(cmd, task);
             cmd.Parameters.Add(Long(afterSequence));
             cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
-            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            while (await reader.ReadAsync(ct).ConfigureAwait(false))
-                snapshot.Add(new SequencedEvent(reader.GetInt64(0), A2AJson.Deserialize<StreamResponse>(reader.GetString(1))));
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                snapshot.Add(FromStored(reader.GetInt64(0), reader.GetString(1)));
         }
 
         foreach (var e in snapshot)
         {
-            ct.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
             yield return e;
         }
     }
 
-    public override async ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken ct = default)
+    /// <summary>The stored bytes and the event rebuilt from them.</summary>
+    private static SequencedEvent FromStored(long sequence, string text)
+    {
+        var bytes = Encoding.UTF8.GetBytes(text);
+        var evt = JsonSerializer.Deserialize(bytes, A2AJson.GetTypeInfo<StreamResponse>()) ?? throw new JsonException("Null stored event.");
+        return new SequencedEvent(sequence, evt, bytes);
+    }
+
+    /// <inheritdoc />
+    public override async ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand(
             $"""
@@ -84,33 +108,36 @@ public sealed class PostgresEventStore : EventStore
             """);
         AddKey(cmd, task);
         cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
-        return await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is long oldest ? oldest : null;
+        return await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is long oldest ? oldest : null;
     }
 
-    public override async ValueTask<long> LastSequenceAsync(TaskKey task, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask<long> LastSequenceAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand(
             $"SELECT last_seq FROM {_logs} WHERE tenant = $1 AND owner = $2 AND task_id = $3 AND (purge_ticks IS NULL OR purge_ticks > $4)");
         AddKey(cmd, task);
         cmd.Parameters.Add(Long(_time.GetUtcNow().UtcTicks));
-        return await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is long last ? last : 0;
+        return await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is long last ? last : 0;
     }
 
-    public override async ValueTask MarkTerminalAsync(TaskKey task, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask MarkTerminalAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         // Like the in-memory store: only an existing log, and only the first call sets the deadline.
         await using var cmd = _db.CreateCommand(
             $"UPDATE {_logs} SET purge_ticks = $4 WHERE tenant = $1 AND owner = $2 AND task_id = $3 AND purge_ticks IS NULL");
         AddKey(cmd, task);
         cmd.Parameters.Add(Long(AddClamped(_time.GetUtcNow().UtcTicks, _options.TerminalRetention)));
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public override async ValueTask DeleteAsync(TaskKey task, CancellationToken ct = default)
+    /// <inheritdoc />
+    public override async ValueTask DeleteAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         // Events and the log header go together: the sequence counter lives in the header, so a later append restarts at 1.
-        await using var conn = await _db.OpenConnectionAsync(ct).ConfigureAwait(false);
-        await using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
+        await using var conn = await _db.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var tx = await conn.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (var batch = new NpgsqlBatch(conn, tx))
         {
             var events = new NpgsqlBatchCommand($"DELETE FROM {_events} WHERE tenant = $1 AND owner = $2 AND task_id = $3");
@@ -119,10 +146,13 @@ public sealed class PostgresEventStore : EventStore
             Sql.AddKey(logs.Parameters, task);
             batch.BatchCommands.Add(events);
             batch.BatchCommands.Add(logs);
-            await batch.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            await batch.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
-        await tx.CommitAsync(ct).ConfigureAwait(false);
+        await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>The stored bytes and the event rebuilt from them.</summary>
+    internal static SequencedEvent FromStoredText(long sequence, string text) => FromStored(sequence, text);
 
     private static void AddKey(NpgsqlCommand cmd, TaskKey task) => Sql.AddKey(cmd.Parameters, task);
 }

@@ -13,7 +13,8 @@ builder.Services.AddA2AServer(o => o.AgentCard = card)
 
 ## How it works
 
-- Local subscribers get events directly, with no Redis round trip. Each event is also published on the channel `{ChannelPrefix}{tenant}\u001f{taskId}`.
+- Local subscribers get events directly, with no Redis round trip, through the same bounded subscriptions as the in-memory bus (`StreamingOptions.ChannelCapacity`; a lagging subscriber loses its oldest queued events and fills the gap from the event store). Each event is also published on the channel `{ChannelPrefix}{tenant}\u001f{taskId}`.
+- The message carries the event's encoded bytes as the server encoded them, and the receiving instance passes the same bytes on: no instance encodes an event again.
 - Every instance subscribes to `{ChannelPrefix}*`, drops its own messages, and skips topics it has no subscriber for without decoding them.
 - `Publish` and `Complete` never block (they run under the task lock): messages are queued fire-and-forget on the multiplexer.
 - Per-task order holds: an instance publishes a task's events in sequence order on one connection, and reads its subscription in order.

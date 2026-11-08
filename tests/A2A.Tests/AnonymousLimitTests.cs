@@ -111,9 +111,9 @@ public class AnonymousLimitTests
         await using var host = await TestAgentHost.StartAsync(o =>
         {
             o.AllowAnonymous = true;
-            o.EnableRateLimiting = false;
             o.Limits.MaxConcurrentStreamsPerPrincipal = 1;
-        }, requireAuth: false, configurePipeline: RemoteIpFromHeader);
+        }, requireAuth: false, configurePipeline: RemoteIpFromHeader,
+            services: s => s.AddA2ARateLimiting(o => o.Enabled = false));
         using var http = host.Http();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 

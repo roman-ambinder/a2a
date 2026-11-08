@@ -11,13 +11,17 @@ namespace A2A.Server.Postgres;
 /// finished idempotency entries past theirs. Safe to run from every instance at once. Tasks, contexts, push configs and
 /// push deliveries are not touched here: the retention sweep (<c>AddA2ARetention</c>) deletes them through the stores.
 /// </summary>
+/// <param name="dataSource">The database.</param>
+/// <param name="options">The schema; default <c>public</c>.</param>
+/// <param name="time">The clock that decides what has expired. Default <see cref="TimeProvider.System"/>.</param>
 public sealed class PostgresMaintenance(NpgsqlDataSource dataSource, PostgresStoreOptions? options = null, TimeProvider? time = null)
 {
     private readonly string _schema = PostgresSchema.Quote((options ?? new()).Schema);
     private readonly TimeProvider _time = time ?? TimeProvider.System;
 
     /// <summary>Deletes expired rows. Returns how many event logs and idempotency entries were removed.</summary>
-    public async Task<(int EventLogs, int IdempotencyEntries)> PurgeExpiredAsync(CancellationToken ct = default)
+    /// <param name="cancellationToken">Cancellation.</param>
+    public async Task<(int EventLogs, int IdempotencyEntries)> PurgeExpiredAsync(CancellationToken cancellationToken = default)
     {
         var now = _time.GetUtcNow().UtcTicks;
         await using var batch = dataSource.CreateBatch();
@@ -39,11 +43,11 @@ public sealed class PostgresMaintenance(NpgsqlDataSource dataSource, PostgresSto
         batch.BatchCommands.Add(logs);
         batch.BatchCommands.Add(idem);
 
-        await using var reader = await batch.ExecuteReaderAsync(ct).ConfigureAwait(false);
-        await reader.ReadAsync(ct).ConfigureAwait(false);
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         var logCount = (int)reader.GetInt64(0);
-        await reader.NextResultAsync(ct).ConfigureAwait(false);
-        await reader.ReadAsync(ct).ConfigureAwait(false);
+        await reader.NextResultAsync(cancellationToken).ConfigureAwait(false);
+        await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         return (logCount, (int)reader.GetInt64(0));
     }
 }
@@ -79,11 +83,11 @@ internal sealed class PostgresStoreHostedService(
                 try
                 {
                     var (logs, keys) = await maintenance.PurgeExpiredAsync(stoppingToken).ConfigureAwait(false);
-                    if (logs + keys > 0) _logger.LogDebug("A2A Postgres cleanup removed {EventLogs} event logs and {Keys} idempotency entries", logs, keys);
+                    if (logs + keys > 0) PostgresLog.CleanupRemoved(_logger, logs, keys);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    _logger.LogWarning(ex, "A2A Postgres cleanup failed; will retry");
+                    PostgresLog.CleanupFailed(_logger, ex);
                 }
             }
         }
@@ -91,4 +95,14 @@ internal sealed class PostgresStoreHostedService(
         {
         }
     }
+}
+
+/// <summary>Source-generated log messages of A2A.Server.Postgres (event ids 1000-1099).</summary>
+internal static partial class PostgresLog
+{
+    [LoggerMessage(EventId = 1000, Level = LogLevel.Debug, Message = "A2A Postgres cleanup removed {EventLogs} event logs and {Keys} idempotency entries")]
+    public static partial void CleanupRemoved(ILogger logger, int eventLogs, int keys);
+
+    [LoggerMessage(EventId = 1001, Level = LogLevel.Warning, Message = "A2A Postgres cleanup failed; will retry")]
+    public static partial void CleanupFailed(ILogger logger, Exception exception);
 }

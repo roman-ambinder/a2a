@@ -186,10 +186,14 @@ public class GrpcSecurityTests
     }
 
     [Fact]
-    public async Task Mapping_requires_the_aspnetcore_registration()
+    public async Task AddA2AGrpc_registers_the_aspnetcore_services()
     {
+        // AddA2AGrpc includes AddA2AServerAspNetCore (one registration call per binding package), so the startup check and the
+        // rate limit still apply without the explicit call.
+        await using var host = await GrpcHost.StartAsync(aspNetCore: false);
+        Assert.IsType<MessageResponse>(await host.Client().SendMessageAsync("hello"));
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => GrpcHost.StartAsync(aspNetCore: false, useA2A: false));
-        Assert.Contains("AddA2AServerAspNetCore", ex.Message);
+        Assert.Contains("UseA2A", ex.Message);
     }
 
     [Fact]
@@ -309,9 +313,9 @@ public class GrpcSecurityTests
 
     // ------------------------------------------------------------------ unexpected errors
 
-    private sealed class ThrowingAuthorization : A2AAuthorizationHandler
+    private sealed class ThrowingAuthorization : A2A.Server.Authorization.A2AAuthorizationHandler
     {
-        public override ValueTask<bool> AuthorizeAsync(A2A.Server.ServerCallContext call, A2AOperation op, object request, CancellationToken ct) =>
+        public override ValueTask<bool> AuthorizeAsync(A2A.Server.ServerCallContext call, A2A.Server.Pipeline.A2AOperationDescriptor operation, object request, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("secret-detail");
     }
 
@@ -321,7 +325,7 @@ public class GrpcSecurityTests
     public async Task Unexpected_errors_are_generic_internal_unless_details_are_enabled(bool includeDetails)
     {
         await using var host = await GrpcHost.StartAsync(o => o.IncludeExceptionDetails = includeDetails,
-            services: s => s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler, ThrowingAuthorization>()));
+            services: s => s.Replace(ServiceDescriptor.Singleton<A2A.Server.Authorization.A2AAuthorizationHandler, ThrowingAuthorization>()));
         var ex = await Assert.ThrowsAsync<RpcException>(() => host.Raw().GetTaskAsync(new Pb.GetTaskRequest { Id = "x" }, V()).ResponseAsync);
         Assert.Equal(StatusCode.Internal, ex.StatusCode);
         Assert.Equal("INTERNAL", Info(ex).Reason);

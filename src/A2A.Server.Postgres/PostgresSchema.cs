@@ -27,20 +27,20 @@ public static class PostgresSchema
     }
 
     /// <summary>Creates the tables and indexes if missing. Serialized across instances with a transaction-level advisory lock.</summary>
-    public static async Task EnsureSchemaAsync(NpgsqlDataSource dataSource, string schema = "public", CancellationToken ct = default)
+    public static async Task EnsureSchemaAsync(NpgsqlDataSource dataSource, string schema = "public", CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         var script = ScriptFor(schema);
-        await using var conn = await dataSource.OpenConnectionAsync(ct).ConfigureAwait(false);
-        await using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
+        await using var conn = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var tx = await conn.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (var lockCmd = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtext('a2a_schema:' || @s))", conn, tx))
         {
             lockCmd.Parameters.AddWithValue("s", schema);
-            await lockCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            await lockCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         await using (var cmd = new NpgsqlCommand(script, conn, tx))
-            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-        await tx.CommitAsync(ct).ConfigureAwait(false);
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     internal static string Quote(string identifier) => "\"" + identifier + "\"";

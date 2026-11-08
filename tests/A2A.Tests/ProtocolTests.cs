@@ -4,6 +4,7 @@ using A2A.Client.Sse;
 using A2A.Json;
 using A2A.JsonRpc;
 using A2A.Server.Push;
+using A2A.Security.Http;
 using A2A.Signing;
 
 namespace A2A.Tests;
@@ -245,7 +246,7 @@ public class SigningTests
     {
         var policy = new CardTrustPolicy();
         policy.AllowJkuHost(Origin, "agent.example");
-        var verifier = new AgentCardVerifier(policy, new HttpClient(new ThrowingHandler()));
+        var verifier = new AgentCardVerifier(policy, new GuardedJwksFetcher(new HttpMessageInvoker(new ThrowingHandler())));
 
         var crossHost = AgentCardSigner.Sign(SampleCard(), NewKey("ES256", jku: "https://evil.example/jwks.json"));
         Assert.Equal(AgentCardVerificationStatus.Unverified, (await verifier.VerifyAsync(crossHost, CardUri)).Status);
@@ -257,20 +258,6 @@ public class SigningTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("must not fetch");
-    }
-}
-
-public class SseReaderTests
-{
-    [Fact]
-    public async Task Parses_multiline_data_comments_crlf_and_drops_incomplete_event()
-    {
-        var text = ": hello\r\ndata: a\r\ndata: b\r\n\r\nevent: x\nid: 7\ndata:c\n\ndata: incomplete";
-        var events = new List<SseEvent>();
-        await foreach (var e in SseReader.ReadAsync(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text)))) events.Add(e);
-        Assert.Equal(2, events.Count);
-        Assert.Equal("a\nb", events[0].Data);
-        Assert.Equal(new SseEvent("c", "x", "7"), events[1]);
     }
 }
 

@@ -27,7 +27,7 @@ public sealed class InMemoryExecutionCoordinator : ExecutionCoordinator
     }
 
     /// <inheritdoc />
-    public override ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken ct = default)
+    public override ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(executionId);
         lock (_gate)
@@ -39,7 +39,7 @@ public sealed class InMemoryExecutionCoordinator : ExecutionCoordinator
     }
 
     /// <inheritdoc />
-    public override ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default)
+    public override ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
@@ -52,7 +52,7 @@ public sealed class InMemoryExecutionCoordinator : ExecutionCoordinator
     }
 
     /// <inheritdoc />
-    public override ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default)
+    public override ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
@@ -62,7 +62,7 @@ public sealed class InMemoryExecutionCoordinator : ExecutionCoordinator
     }
 
     /// <inheritdoc />
-    public override ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default)
+    public override ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
@@ -72,17 +72,17 @@ public sealed class InMemoryExecutionCoordinator : ExecutionCoordinator
     }
 
     /// <summary>Does nothing: this process is the only instance, and the sender cancels its own executions directly.</summary>
-    public override ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default) => ValueTask.CompletedTask;
+    public override ValueTask RequestCancelAsync(TaskKey task, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
-    /// <summary>Yields nothing (there are no other instances) and ends when <paramref name="ct"/> fires.</summary>
-    public override async IAsyncEnumerable<TaskKey> CancelRequestsAsync([EnumeratorCancellation] CancellationToken ct)
+    /// <summary>Yields nothing (there are no other instances) and ends when <paramref name="cancellationToken"/> fires.</summary>
+    public override async IAsyncEnumerable<TaskKey> CancelRequestsAsync([EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        await Task.Delay(Timeout.Infinite, ct).ConfigureAwait(false);
+        await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
         yield break;
     }
 
     /// <inheritdoc />
-    public override ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken ct = default)
+    public override ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(max);
         lock (_gate)
@@ -99,7 +99,7 @@ public sealed class InMemoryExecutionCoordinator : ExecutionCoordinator
     }
 
     /// <inheritdoc />
-    public override ValueTask<bool> TryAcquireSweepLeaseAsync(string name, TimeSpan duration, CancellationToken ct = default)
+    public override ValueTask<bool> TryAcquireSweepLeaseAsync(string name, TimeSpan duration, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(duration, TimeSpan.Zero);
