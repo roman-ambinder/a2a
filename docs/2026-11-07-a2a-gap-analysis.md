@@ -68,7 +68,7 @@ Status: S17 is done (actorChain model and echo, `ITokenExchanger`, `OAuthTokenEx
 | S33 | 0.3/1.0 payload shapes mixed in the wild. | Med | #2277; Google compat post | Strict `A2A-Version` handling; clear `UnsupportedVersion` error; optional 0.3 read-compat shim behind flag. |
 | S34 | No trace propagation defined. | Med | [A2A#2103](https://github.com/a2aproject/A2A/issues/2103) | W3C `traceparent` in HTTP headers **and** message metadata; ActivitySource spans tagged with taskId/contextId; OpenTelemetry semantic conventions for gen_ai where applicable. |
 
-Status: S22, S23, S25, S26, S30, S32 and S33 are done (`TaskStreamer` and SSE resume, `FollowUpPolicy`, `A2AProtocol.CancelRequestedKey`, `TaskStateMachine`, `A2AException.IsRetryable`, `A2ARetentionOptions` and `A2ATaskAdmin`, `CallValidator` and the v0.3 compat packages). S31: S31_STATUS Still partial: S21 (no client key persistence or `ListTasks` recovery), S24 (no client auto-fallback to stream or poll), S28 (metadata merge is artifact-only and undocumented), S34 (no `traceparent` in message metadata, though Part 3 item 17 says done).
+Status: S22, S23, S25, S26, S30, S32 and S33 are done (`TaskStreamer` and SSE resume, `FollowUpPolicy`, `A2AProtocol.CancelRequestedKey`, `TaskStateMachine`, `A2AException.IsRetryable`, `A2ARetentionOptions` and `A2ATaskAdmin`, `CallValidator` and the v0.3 compat packages). S31 is done (comma-list and repeated headers in `HttpPlumbing.CreateCallContext`; the Agent Card's declared extensions are the allowlist in `CallValidator.ApplyExtensions`, unknown non-required URIs are ignored, a missing required one is `ExtensionSupportRequired`; echo on unary and on streams before the first event, on all bindings and on errors). The row's "first SSE event metadata" is deliberately not built: the header is sent before the first event, A2A#2428 is unsettled, and no SDK copies the echo into events. Still partial: S21 (no client key persistence or `ListTasks` recovery), S24 (no client auto-fallback to stream or poll), S28 (metadata merge is artifact-only and undocumented), S34 (no `traceparent` in message metadata, though Part 3 item 17 says done).
 
 ### 1.5 Missing capabilities (do via extensions, not core)
 
@@ -133,7 +133,7 @@ Status: D12 to D18 are done (`A2AAuthorizationHandler` with policy on all bindin
 | D24 | V0_3Compat silently drops final message/artifacts when `blocking` absent. | High for interop | #386 open | If 0.3 supported at all: behaviour-preserving mapping (default blocking) or loud error. Decision: ship 0.3 **read** compat only behind flag (S33). |
 | D25 | No netstandard2.0. | Med | #197 open | `A2A.Protocol` and `A2A.Client` target netstandard2.0 + net8.0 + net10.0. Server stays net8+. |
 
-Status: D19, D20, D21, D22 and D24 are done (`IAgentCardProvider` and `TenantCardProvider`, `{tenant}` routes, `Parity/ParityTests` over all three bindings, closed `Part` hierarchy, default-blocking mapping in `V03Codec`). D23: D23_STATUS
+Status: D19, D20, D21, D22 and D24 are done (`IAgentCardProvider` and `TenantCardProvider`, `{tenant}` routes, `Parity/ParityTests` over all three bindings, closed `Part` hierarchy, default-blocking mapping in `V03Codec`). D23 is done (`AddExtensionOperation` registers the operation and its card entry together; `A2AOperationTable` for JSON-RPC and HTTP+JSON; `A2AGrpcExtensionService` and `MapA2AGrpcExtensions` for gRPC, with the same `a2a.extensions.v1` service as the official SDK). Extension operations are unary on every binding, and the client has no helper to call them.
 
 ### 2.4 API design and DX
 
@@ -148,7 +148,7 @@ Status: D19, D20, D21, D22 and D24 are done (`IAgentCardProvider` and `TenantCar
 | D32 | Mandatory path param, surface noise, duplicated error maps, 5 copies of streaming lifecycle. | Low/Med | #186, #556 | Default `/` route; one error-code map in `A2A.Protocol`; one streaming pipeline. |
 | D33 | AF hosting: `ReferenceTaskIds` unsupported, message-only mode cannot cancel/resume, scoped lifetimes ignored, context memory lifecycle unresolved. | Med | AF #7733, #4876, #9481 | Not our bug, but: scoped DI per request, `referenceTaskIds` passed through to handler, context lifecycle policy hook. |
 
-Status: D27, D28, D30 and D32 are done (abstract extension points and sealed options, `A2ARequestOptions`, `ObserveTaskAsync`, default `/` route with one error map and one streamer). D26: D26_STATUS D33 is partial (no context lifecycle policy hook).
+Status: D27, D28, D30 and D32 are done (abstract extension points and sealed options, `A2ARequestOptions`, `ObserveTaskAsync`, default `/` route with one error map and one streamer). D26 is done (policy in `docs/site/guides/versioning.md`; `[Experimental]` with `A2AEXP001` to `A2AEXP004`; CHANGELOG current; `PublicAPI.*.txt` enforced on all 15 packable projects by warnings as errors). Package validation against a baseline version needs a first published version. D33 is partial (no context lifecycle policy hook).
 
 ---
 
@@ -178,12 +178,12 @@ Status: D27, D28, D30 and D32 are done (abstract extension points and sealed opt
 
 **P2: ecosystem**
 19. actorChain / token exchange for delegation (S17). Done.
-20. Extension registry, operation registry (S31, D23).
+20. Extension registry, operation registry (S31, D23). Done.
 21. netstandard2.0 for Protocol + Client (D25).
 22. 0.3 read-compat shim behind flag (S33, D24). Done.
 23. Artifact chunk hashing (S27). Done.
 24. Skill-selection and elicitation extension packages (S35, S38). S35 done, in the existing packages.
-25. Analyzer package, PublicAPI baseline (D26, D29).
+25. Analyzer package, PublicAPI baseline (D26, D29). PublicAPI baseline done; no analyzer package.
 
 ---
 
