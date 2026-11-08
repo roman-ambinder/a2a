@@ -18,9 +18,12 @@ SUITES="${SUITES:-tck acts}"
 
 # Pinned suite versions. Change these on purpose, then update conformance/README.md.
 TCK_REPO=https://github.com/a2aproject/a2a-tck.git
-TCK_REF=104a7b4ae0d83f65c075e3793e322953a830eaba   # main, 2026-11-06 (after tag 1.0.0.alpha3)
+TCK_REF=70f6f73c30208e80c889141907e094899e6e9f05   # after tag 1.0.0.alpha3. The next commit only moves to Python 3.15, where grpcio has no wheels (30+ min source build).
 ITK_REPO=https://github.com/a2aproject/a2a-itk.git
 ITK_REF=d53108aaf378a38eaff64ea39029a3d795591827   # main, 2026-10-26 (same pin as a2a-dotnet)
+
+# Python with prebuilt grpcio wheels; uv downloads it if missing.
+export UV_PYTHON="${UV_PYTHON:-3.12}"
 
 PORT=9999; REDUCED_PORT=9100; AUTH_PORT=9200
 setup_failed=0
