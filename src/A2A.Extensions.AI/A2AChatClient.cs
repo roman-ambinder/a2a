@@ -37,6 +37,7 @@ public sealed class A2AChatClient : IChatClient
     public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
         var request = BuildMessage(messages, options);
+        var known = await KnownArtifactIdsAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
         var response = await _client.SendMessageAsync(request, null, _options.RequestOptions, cancellationToken).ConfigureAwait(false);
         switch (response)
         {
@@ -59,15 +60,17 @@ public sealed class A2AChatClient : IChatClient
                 ThrowIfFailed(task.Status.State);
 
                 var chatMessages = new List<ChatMessage>();
-                if (task.Artifacts is { } artifacts)
+                var fresh = task.Artifacts?.Where(a => !known.Contains(a.ArtifactId)).ToList();
+                if (fresh is not null)
                 {
-                    foreach (var artifact in artifacts)
+                    foreach (var artifact in fresh)
                     {
                         if (_options.OnArtifactReceived is { } hook) await hook(artifact, cancellationToken).ConfigureAwait(false);
                         chatMessages.Add(artifact.ToChatMessage());
                     }
                 }
-                if (task.Status.State.IsInterrupted() && task.Status.Message is { } status) chatMessages.Add(AgentMessage(status));
+                if (task.Status.State.IsInterrupted() && task.Status.Message is { } status && !EchoesArtifacts(status.Parts, ArtifactText(fresh)))
+                    chatMessages.Add(AgentMessage(status));
                 return new ChatResponse(chatMessages)
                 {
                     ConversationId = task.ContextId,
@@ -88,6 +91,7 @@ public sealed class A2AChatClient : IChatClient
         var request = BuildMessage(messages, options);
         var chunked = new HashSet<string>(StringComparer.Ordinal);
         var emitted = new HashSet<string>(StringComparer.Ordinal);
+        var artifactText = new System.Text.StringBuilder();
 
         await foreach (var evt in _client.SendStreamingMessageAsync(request, null, _options.RequestOptions, cancellationToken).ConfigureAwait(false))
         {
@@ -100,11 +104,12 @@ public sealed class A2AChatClient : IChatClient
                 case ArtifactUpdateEvent { ArtifactUpdate: var chunk }:
                     if (_options.OnArtifactReceived is { } chunkHook) await chunkHook(chunk.Artifact, cancellationToken).ConfigureAwait(false);
                     chunked.Add(chunk.Artifact.ArtifactId);
+                    artifactText.Append(TextOf(chunk.Artifact.Parts));
                     yield return Update(chunk.ContextId, chunk.TaskId, null, chunk.Artifact.ArtifactId, chunk.Artifact.Parts, finish: null);
                     break;
 
                 case StatusUpdateEvent { StatusUpdate: var change }:
-                    foreach (var update in StatusUpdates(change.ContextId, change.TaskId, change.Status)) yield return update;
+                    foreach (var update in StatusUpdates(change.ContextId, change.TaskId, change.Status, artifactText.ToString())) yield return update;
                     break;
 
                 case TaskEvent { Task: var snapshot }:
@@ -114,23 +119,54 @@ public sealed class A2AChatClient : IChatClient
                         {
                             if (chunked.Contains(artifact.ArtifactId) || !emitted.Add(artifact.ArtifactId)) continue;
                             if (_options.OnArtifactReceived is { } hook) await hook(artifact, cancellationToken).ConfigureAwait(false);
+                            artifactText.Append(TextOf(artifact.Parts));
                             yield return Update(snapshot.ContextId, snapshot.Id, null, artifact.ArtifactId, artifact.Parts, finish: null);
                         }
                     }
-                    foreach (var update in StatusUpdates(snapshot.ContextId, snapshot.Id, snapshot.Status)) yield return update;
+                    foreach (var update in StatusUpdates(snapshot.ContextId, snapshot.Id, snapshot.Status, artifactText.ToString())) yield return update;
                     break;
             }
         }
     }
 
-    private static IEnumerable<ChatResponseUpdate> StatusUpdates(string? contextId, string? taskId, AgentTaskStatus status)
+    private static IEnumerable<ChatResponseUpdate> StatusUpdates(string? contextId, string? taskId, AgentTaskStatus status, string artifactText)
     {
         var state = status.State;
         ThrowIfFailed(state);
         if (state is TaskState.Working or TaskState.Submitted or TaskState.Unspecified) yield break; // progress is not surfaced
-        var parts = state.IsInterrupted() && status.Message is { } message ? message.Parts : [];
+        // A ChatClientAgentExecutor with KeepConversationOpen sends its reply as artifact chunks and again as the status message.
+        // The caller must not see the same text twice, so an interrupted status that only repeats the artifacts adds no content.
+        var parts = state.IsInterrupted() && status.Message is { } message && !EchoesArtifacts(message.Parts, artifactText) ? message.Parts : [];
         yield return Update(contextId, taskId, state, status.Message?.MessageId, parts, state == TaskState.Completed ? ChatFinishReason.Stop : null);
     }
+
+    /// <summary>
+    /// A task keeps the artifacts of every turn, and a unary reply returns all of them. When continuing a task, the caller has
+    /// already seen the earlier ones, so remember their ids. Best effort: if the lookup fails, the send reports the real error.
+    /// </summary>
+    private async Task<HashSet<string>> KnownArtifactIdsAsync(string? taskId, CancellationToken cancellationToken)
+    {
+        var known = new HashSet<string>(StringComparer.Ordinal);
+        if (string.IsNullOrEmpty(taskId)) return known;
+        try
+        {
+            var existing = await _client.GetTaskAsync(taskId, 0, _options.RequestOptions, cancellationToken).ConfigureAwait(false);
+            if (existing.Artifacts is { } artifacts)
+                foreach (var artifact in artifacts) known.Add(artifact.ArtifactId);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+        }
+        return known;
+    }
+
+    private static string TextOf(IEnumerable<Part> parts) => string.Concat(parts.OfType<TextPart>().Select(p => p.Text));
+
+    private static string ArtifactText(IEnumerable<Artifact>? artifacts) =>
+        artifacts is null ? string.Empty : string.Concat(artifacts.Select(a => TextOf(a.Parts)));
+
+    private static bool EchoesArtifacts(List<Part> statusParts, string artifactText) =>
+        artifactText.Length > 0 && string.Equals(TextOf(statusParts), artifactText, StringComparison.Ordinal);
 
     private static ChatResponseUpdate Update(string? contextId, string? taskId, TaskState? state, string? messageId, List<Part> parts, ChatFinishReason? finish)
     {
