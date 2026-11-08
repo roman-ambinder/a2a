@@ -43,6 +43,8 @@ Severity: **High** = breaks or endangers real deployments today. **Med** = needs
 | S19 | Circular delegation deadlock; interrupted states can hang forever. | Med | A2ABreak 10-11 | Configurable TTL for `INPUT_REQUIRED`/`AUTH_REQUIRED` → auto `CANCELED`/`FAILED` with reason; actorChain hop limit (S17). |
 | S20 | Rate limiting MAY only; no size limits. | Med | a2a-serve #180 | Defaults: max body, max part, max parts/message, max history returned, max ListTasks page, max concurrent streams/task, per-principal rate limit (ASP.NET Core rate limiter integration). |
 
+Status: S17 is done (actorChain model and echo, `ITokenExchanger`, `OAuthTokenExchanger`, no forwarding of the inbound token; design: `docs/superpowers/specs/2026-11-08-delegation-identity-design.md`). The actorChain hop limit part of S19 is done (`A2ALimits.MaxActorChainHops`); the interrupted-state timeout part was already done.
+
 ### 1.4 Messaging and task semantics
 
 | # | Gap | Sev | Evidence | SDK addition |
@@ -159,7 +161,7 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 18. Task retention sweeper (S32, D11).
 
 **P2: ecosystem**
-19. actorChain / token exchange for delegation (S17).
+19. actorChain / token exchange for delegation (S17). Done.
 20. Extension registry, operation registry (S31, D23).
 21. netstandard2.0 for Protocol + Client (D25).
 22. 0.3 read-compat shim behind flag (S33, D24).

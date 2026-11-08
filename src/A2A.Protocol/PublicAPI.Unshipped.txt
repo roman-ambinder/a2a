@@ -1,1 +1,69 @@
 #nullable enable
+A2A.Delegation.ActorChainEntry
+A2A.Delegation.ActorChainEntry.ActorChainEntry() -> void
+A2A.Delegation.ActorChainEntry.Sub.get -> string!
+A2A.Delegation.ActorChainEntry.Sub.set -> void
+A2A.Delegation.ActorChainEntry.Iss.get -> string?
+A2A.Delegation.ActorChainEntry.Iss.set -> void
+A2A.Delegation.ActorChainEntry.Scopes.get -> System.Collections.Generic.List<string!>?
+A2A.Delegation.ActorChainEntry.Scopes.set -> void
+A2A.Delegation.ActorChainEntry.AdditionalProperties.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.Delegation.ActorChainEntry.AdditionalProperties.set -> void
+A2A.Delegation.ActorChain
+A2A.Delegation.ActorChain.ActorChain() -> void
+A2A.Delegation.ActorChain.Origin.get -> A2A.Delegation.ActorChainEntry?
+A2A.Delegation.ActorChain.Origin.set -> void
+A2A.Delegation.ActorChain.Actors.get -> System.Collections.Generic.List<A2A.Delegation.ActorChainEntry!>!
+A2A.Delegation.ActorChain.Actors.set -> void
+A2A.Delegation.ActorChain.AdditionalProperties.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.Delegation.ActorChain.AdditionalProperties.set -> void
+A2A.Delegation.ActorChain.AppendHop(A2A.Delegation.ActorChainEntry! hop) -> A2A.Delegation.ActorChain!
+const A2A.Delegation.ActorChain.MetadataKey = "actorChain" -> string!
+const A2A.Delegation.ActorChain.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/actor-chain/v1" -> string!
+static A2A.Delegation.ActorChain.Start(A2A.Delegation.ActorChainEntry! origin) -> A2A.Delegation.ActorChain!
+static A2A.Delegation.ActorChain.CreateExtension() -> A2A.AgentExtension!
+static A2A.Delegation.ActorChain.TryReadActorChain(System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata, out A2A.Delegation.ActorChain? chain) -> bool
+A2A.Delegation.ActorChainMessageExtensions
+static A2A.Delegation.ActorChainMessageExtensions.GetActorChain(this A2A.Message! message) -> A2A.Delegation.ActorChain?
+static A2A.Delegation.ActorChainMessageExtensions.GetActorChain(this A2A.AgentTask! task) -> A2A.Delegation.ActorChain?
+static A2A.Delegation.ActorChainMessageExtensions.SetActorChain(this A2A.Message! message, A2A.Delegation.ActorChain! chain) -> A2A.Message!
+A2A.Delegation.ITokenExchanger
+A2A.Delegation.ITokenExchanger.ExchangeAsync(A2A.Delegation.TokenExchangeRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Delegation.TokenExchangeResult!>
+A2A.Delegation.TokenTypes
+const A2A.Delegation.TokenTypes.AccessToken = "urn:ietf:params:oauth:token-type:access_token" -> string!
+const A2A.Delegation.TokenTypes.Jwt = "urn:ietf:params:oauth:token-type:jwt" -> string!
+A2A.Delegation.TokenExchangeRequest
+A2A.Delegation.TokenExchangeRequest.TokenExchangeRequest() -> void
+A2A.Delegation.TokenExchangeRequest.SubjectToken.get -> string!
+A2A.Delegation.TokenExchangeRequest.SubjectToken.init -> void
+A2A.Delegation.TokenExchangeRequest.SubjectTokenType.get -> string!
+A2A.Delegation.TokenExchangeRequest.SubjectTokenType.init -> void
+A2A.Delegation.TokenExchangeRequest.Audience.get -> string?
+A2A.Delegation.TokenExchangeRequest.Audience.init -> void
+A2A.Delegation.TokenExchangeRequest.Resource.get -> string?
+A2A.Delegation.TokenExchangeRequest.Resource.init -> void
+A2A.Delegation.TokenExchangeRequest.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>?
+A2A.Delegation.TokenExchangeRequest.Scopes.init -> void
+A2A.Delegation.TokenExchangeRequest.RequestedTokenType.get -> string?
+A2A.Delegation.TokenExchangeRequest.RequestedTokenType.init -> void
+A2A.Delegation.TokenExchangeRequest.ActorToken.get -> string?
+A2A.Delegation.TokenExchangeRequest.ActorToken.init -> void
+A2A.Delegation.TokenExchangeRequest.ActorTokenType.get -> string?
+A2A.Delegation.TokenExchangeRequest.ActorTokenType.init -> void
+override A2A.Delegation.TokenExchangeRequest.ToString() -> string!
+A2A.Delegation.TokenExchangeResult
+A2A.Delegation.TokenExchangeResult.TokenExchangeResult() -> void
+A2A.Delegation.TokenExchangeResult.AccessToken.get -> string!
+A2A.Delegation.TokenExchangeResult.AccessToken.init -> void
+A2A.Delegation.TokenExchangeResult.TokenType.get -> string!
+A2A.Delegation.TokenExchangeResult.TokenType.init -> void
+A2A.Delegation.TokenExchangeResult.IssuedTokenType.get -> string?
+A2A.Delegation.TokenExchangeResult.IssuedTokenType.init -> void
+A2A.Delegation.TokenExchangeResult.ExpiresIn.get -> System.TimeSpan?
+A2A.Delegation.TokenExchangeResult.ExpiresIn.init -> void
+A2A.Delegation.TokenExchangeResult.Scope.get -> string?
+A2A.Delegation.TokenExchangeResult.Scope.init -> void
+override A2A.Delegation.TokenExchangeResult.ToString() -> string!
+A2A.Delegation.TokenExchangeException
+A2A.Delegation.TokenExchangeException.TokenExchangeException(string! message, string? error = null, System.Exception? inner = null) -> void
+A2A.Delegation.TokenExchangeException.Error.get -> string?

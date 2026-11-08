@@ -5,6 +5,7 @@ using A2A.Diagnostics;
 using A2A.Server.Agents;
 using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
+using A2A.Server.Pipeline;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
@@ -492,6 +493,9 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                                 ContextId = contextId,
                                 Status = new AgentTaskStatus { State = TaskState.Submitted, Timestamp = (evt as StatusUpdateEvent)?.StatusUpdate.Status.Timestamp ?? now },
                                 History = historyMessage is null ? null : [historyMessage],
+                                Metadata = historyMessage is not null && ActorChainValidator.WellFormedChain(historyMessage) is { } chain
+                                    ? new() { [A2A.Delegation.ActorChain.MetadataKey] = chain }
+                                    : null,
                             },
                             Version: 0, CreatedAt: now, UpdatedAt: now);
                         // The task, its first event (the snapshot) and the snapshot's push delivery are committed together. The
