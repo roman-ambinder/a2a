@@ -1,3 +1,4 @@
+using A2A.Client.Credentials;
 using A2A.Client.Transports;
 
 namespace A2A.Client;
@@ -14,8 +15,7 @@ public static class A2AClientFactory
         ArgumentNullException.ThrowIfNull(card);
         options = Copy(options ?? new A2AClientOptions());
         var selected = SelectInterface(card, options)
-            ?? throw new A2AException(A2AErrorCode.UnsupportedOperation,
-                $"No supported interface in Agent Card '{card.Name}'. Client supports: {string.Join(", ", options.SupportedBindings)} (v{Major(options.ProtocolVersion)}.x).");
+            ?? throw NoInterface(card, options);
 
         if (!string.IsNullOrEmpty(selected.Tenant)) options.Tenant = selected.Tenant;
         options.ProtocolVersion = selected.ProtocolVersion is { Length: > 0 } v && Major(v) == Major(options.ProtocolVersion) ? v : options.ProtocolVersion;
@@ -39,6 +39,45 @@ public static class A2AClientFactory
         var card = await resolver.GetAgentCardAsync(agentUrl, cancellationToken).ConfigureAwait(false);
         return Create(card, httpClient, options);
     }
+
+    /// <summary>
+    /// Resolves the card at <paramref name="agentUrl"/> and creates a client that applies the credentials the card asks for.
+    /// Credentials go only to the card's origin, and never follow a redirect. The card fetch carries no credentials.
+    /// </summary>
+    /// <param name="agentUrl">The agent's URL.</param>
+    /// <param name="credentialProviders">Providers, in order of preference. Must not be empty.</param>
+    /// <param name="handler">The primary handler. Defaults to a <see cref="SocketsHttpHandler"/> that does not follow redirects or keep cookies. Must not follow redirects.</param>
+    /// <param name="options">Client options.</param>
+    /// <param name="resolverOptions">Card resolver options.</param>
+    /// <param name="cancellationToken">Cancels the card fetch.</param>
+    public static async Task<A2AClient> CreateAsync(Uri agentUrl, IEnumerable<IA2ACredentialProvider> credentialProviders,
+        HttpMessageHandler? handler = null, A2AClientOptions? options = null, A2ACardResolverOptions? resolverOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(agentUrl);
+        ArgumentNullException.ThrowIfNull(credentialProviders);
+        var providers = credentialProviders.ToList();
+        if (providers.Count == 0) throw new ArgumentException("At least one credential provider is required.", nameof(credentialProviders));
+        var primary = handler ?? new SocketsHttpHandler { UseCookies = false, AllowAutoRedirect = false };
+        A2ACredentialHandler.EnsureNoAutoRedirect(primary);
+
+        using var cardClient = new HttpClient(primary, disposeHandler: false) { Timeout = Timeout.InfiniteTimeSpan };
+        var resolved = await new A2ACardResolver(cardClient, resolverOptions).ResolveAsync(agentUrl, cancellationToken).ConfigureAwait(false);
+
+        var copy = Copy(options ?? new A2AClientOptions());
+        var selected = SelectInterface(resolved.Card, copy) ?? throw NoInterface(resolved.Card, copy);
+        var binding = A2ACredentialBinding.Create(resolved, selected, providers, resolverOptions?.RequireHttps ?? true);
+        var client = new HttpClient(new A2ACredentialHandler(binding, primary))
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+            MaxResponseContentBufferSize = 16 * 1024 * 1024,
+        };
+        return Create(resolved.Card, client, options);
+    }
+
+    private static A2AException NoInterface(AgentCard card, A2AClientOptions options) =>
+        new(A2AErrorCode.UnsupportedOperation,
+            $"No supported interface in Agent Card '{card.Name}'. Client supports: {string.Join(", ", options.SupportedBindings)} (v{Major(options.ProtocolVersion)}.x).");
 
     /// <summary>Picks the first interface of the card that matches the client's supported bindings and protocol major version. Returns null when none fits.</summary>
     public static AgentInterface? SelectInterface(AgentCard card, A2AClientOptions options)

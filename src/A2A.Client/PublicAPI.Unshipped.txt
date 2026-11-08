@@ -259,3 +259,20 @@ A2A.Client.Push.PushNotificationReceiver.VerifySignature(System.Collections.Gene
 A2A.Client.Push.PushValidationResult.InvalidSignature = 3 -> A2A.Client.Push.PushValidationResult
 A2A.Client.Push.PushValidationResult.Stale = 4 -> A2A.Client.Push.PushValidationResult
 static readonly A2A.Client.Push.PushNotificationReceiver.DefaultSignatureTolerance -> System.TimeSpan
+static A2A.Client.A2AClientFactory.CreateAsync(System.Uri! agentUrl, System.Collections.Generic.IEnumerable<A2A.Client.Credentials.IA2ACredentialProvider!>! credentialProviders, System.Net.Http.HttpMessageHandler? handler = null, A2A.Client.A2AClientOptions? options = null, A2A.Client.A2ACardResolverOptions? resolverOptions = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.A2AClient!>!
+A2A.Client.Credentials.A2ACredentialBinding
+A2A.Client.Credentials.A2ACredentialBinding.CardOrigin.get -> System.Uri!
+A2A.Client.Credentials.A2ACredentialBinding.Schemes.get -> System.Collections.Generic.IReadOnlyList<A2A.Client.Credentials.A2ACredentialContext!>!
+A2A.Client.Credentials.A2ACredentialContext
+A2A.Client.Credentials.A2ACredentialContext.A2ACredentialContext(string! schemeName, A2A.SecurityScheme! scheme, System.Collections.Generic.IReadOnlyList<string!>! scopes, System.Uri! cardOrigin) -> void
+A2A.Client.Credentials.A2ACredentialContext.CardOrigin.get -> System.Uri!
+A2A.Client.Credentials.A2ACredentialContext.Scheme.get -> A2A.SecurityScheme!
+A2A.Client.Credentials.A2ACredentialContext.SchemeName.get -> string!
+A2A.Client.Credentials.A2ACredentialContext.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+A2A.Client.Credentials.A2ACredentialHandler
+A2A.Client.Credentials.A2ACredentialHandler.A2ACredentialHandler(A2A.Client.Credentials.A2ACredentialBinding! binding, System.Net.Http.HttpMessageHandler! innerHandler) -> void
+A2A.Client.Credentials.IA2ACredentialProvider
+A2A.Client.Credentials.IA2ACredentialProvider.ApplyAsync(System.Net.Http.HttpRequestMessage! request, A2A.Client.Credentials.A2ACredentialContext! context, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Client.Credentials.IA2ACredentialProvider.CanHandle(A2A.Client.Credentials.A2ACredentialContext! context) -> bool
+static A2A.Client.Credentials.A2ACredentialBinding.Create(A2A.Client.ResolvedAgentCard! card, A2A.AgentInterface! selectedInterface, System.Collections.Generic.IEnumerable<A2A.Client.Credentials.IA2ACredentialProvider!>! providers, bool requireHttps = true) -> A2A.Client.Credentials.A2ACredentialBinding!
+static A2A.Client.Credentials.A2ACredentialHandler.EnsureNoAutoRedirect(System.Net.Http.HttpMessageHandler! handler) -> void
