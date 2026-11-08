@@ -33,6 +33,13 @@ To manage the schema yourself, set `CreateSchemaOnStartup = false` and apply `Po
 
 Times are UTC ticks (`bigint`), JSON is `text`, and keys use the `"C"` collation, so values round-trip exactly and sort like the in-memory stores.
 
+## Upgrading
+
+- New tables `a2a_push_outbox` and `a2a_push_dead_letters` (plus indexes). They are created at startup; apply `PostgresSchema.ScriptFor("<schema>")` yourself if `CreateSchemaOnStartup = false`.
+- `IdempotencyClaimTimeout` default: 1 hour -> 2 minutes (see Behavior).
+- If you wrote your own stores, the base classes have new abstract members (`TaskStore.CommitAsync` and the retention members); see "Upgrading from 0.x / P0" in the repository README.
+- Purges, the interrupted-state timeout and dead-execution recovery run only with `services.AddA2ARetention()`. It is opt-in.
+
 ## Behavior
 
 Same contract as the in-memory stores (the same test suite runs against both): owner and tenant scoping, optimistic concurrency on versions,
@@ -41,7 +48,7 @@ A task change, its event and its push deliveries are written in one transaction 
 
 Differences, because the store is shared by several instances:
 - A request that waits on an idempotency key held by another instance polls every `IdempotencyPollInterval` (200 ms).
-- A running idempotency claim older than `IdempotencyClaimTimeout` (2 minutes by default, a long-running holder extends it with `IdempotencyStore.RenewAsync`) counts as abandoned, so a crashed instance does not hold its keys forever.
+- A running idempotency claim older than `IdempotencyClaimTimeout` counts as abandoned, so a crashed instance does not hold its keys forever. **The default is now 2 minutes (it was 1 hour).** The execution heartbeat renews the claim (`IdempotencyStore.RenewAsync`), so a live, long-running request keeps its key.
 - There is no `Idempotency.MaxEntries` cap; rows live until their retention ends.
 - Every instance's `PushDeliveryService` polls the shared outbox (`PushDelivery.PollInterval`, 1 s). A delivery is leased (`FOR UPDATE SKIP LOCKED`, then hidden for `PushDelivery.Lease`, 1 minute), so two instances never send it at the same time, and a crashed instance's deliveries are sent by another one after the lease. Results are written with the lease's token, so an instance whose lease was taken over changes nothing. The lease must be longer than 2 × `PushNotifications.Timeout` + 5 s (checked at startup).
 - Expired rows are hidden from reads at once and deleted by a background cleanup every `CleanupInterval` (5 minutes). `PostgresMaintenance.PurgeExpiredAsync()` runs it by hand.

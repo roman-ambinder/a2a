@@ -29,7 +29,14 @@ builder.Services.AddA2AServer(o => o.AgentCard = card)
 - cancel requests on the channel `{prefix}cancel`, tagged with the sender, which ignores its own echo: CancelTask on any instance stops the agent wherever it runs;
 - the leases of dead instances (`{prefix}leases`, a sorted set by expiry) for the retention sweep, and named sweep leases (`{prefix}sweep:{name}`).
 
-Lease expiry uses Redis `TIME` inside Lua scripts, never the instance clock, so skewed clocks do not expire live executions. The heartbeat also renews the request's idempotency claim, so a long direct reply keeps its key. On Redis Cluster, keep the prefix in one hash slot (for example `{a2a}:`).
+Lease expiry uses Redis `TIME` inside Lua scripts, never the instance clock, so skewed clocks do not expire live executions. The heartbeat also renews the request's idempotency claim, so a long direct reply keeps its key. On Redis Cluster, the key prefix must map to one hash slot (for example `{a2a}:`), because the scripts touch several keys at once.
+
+Registration rules:
+- The coordinator is **in memory by default**. `AddRedisEventBus` replaces it with the Redis one unless `RegisterCoordinator = false`; `AddRedisExecutionCoordinator` registers it alone.
+- Pass the **same connection string** to `AddRedisEventBus` and `AddRedisExecutionCoordinator`. They share one connection, and a different string throws `InvalidOperationException`. (With your own `IConnectionMultiplexer`, pass the same instance.)
+- Timing is `A2AServerOptions.Coordination` (`CoordinationOptions`): `LeaseTtl` 30 s, `Heartbeat` 10 s, `RunningPollInterval` 1 s. `LeaseTtl` must be longer than 2 x `Heartbeat`. An execution whose heartbeats lapse past `LeaseTtl` is treated as dead: with `services.AddA2ARetention()` its task is marked `FAILED`. Without retention nobody recovers it.
+
+A runnable example with two instances is in [samples/MultiInstance](https://github.com/roman-ambinder/a2a/tree/main/samples/MultiInstance).
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 8 and .NET 10.
 See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.
