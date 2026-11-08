@@ -37,6 +37,28 @@ public abstract class TaskStoreContract
     private static string[] Ids(TaskPage page) => page.Records.Select(r => r.Task.Id).ToArray();
 
     [SkippableFact]
+    public async Task Status_message_metadata_survives_a_round_trip()
+    {
+        var s = await CreateStoreAsync();
+        var record = NewRecord("t", "alice", "approval");
+        var task = A2AJson.Clone(record.Task);
+        using var hash = System.Text.Json.JsonDocument.Parse("\"abc123\"");
+        task.Status.State = TaskState.InputRequired;
+        task.Status.Message = new Message
+        {
+            MessageId = "m1", Role = Role.Agent, Parts = [Part.FromText("ok?")],
+            Metadata = new() { [A2AProtocol.ApprovalHashKey] = hash.RootElement.Clone() },
+        };
+        task.Metadata = new() { [A2AProtocol.ApprovalConsumedKey] = hash.RootElement.Clone() };
+        var created = await s.CreateAsync(record with { Task = task });
+
+        var loaded = (await s.GetAsync(created.Key))!.Task;
+
+        Assert.Equal("abc123", loaded.Status.Message!.Metadata![A2AProtocol.ApprovalHashKey].GetString());
+        Assert.Equal("abc123", loaded.Metadata![A2AProtocol.ApprovalConsumedKey].GetString());
+    }
+
+    [SkippableFact]
     public async Task Get_with_wrong_owner_returns_null()
     {
         var s = await CreateStoreAsync();

@@ -697,7 +697,7 @@ public sealed class A2ARequestHandler : IDisposable
                             Metadata = new() { ["taskId"] = taskId },
                         };
                     EnsureTurnCapacity(record.Task);
-                    approval = ResolveApproval(record.Task, message);
+                    approval = ResolveApproval(record.Task, message, out var consume);
                     if (push is not null)
                     {
                         // Saved atomically under the limit before the message is committed, so a refused request leaves no message.
@@ -709,6 +709,8 @@ public sealed class A2ARequestHandler : IDisposable
                     contextId = record.Task.ContextId;
                     message.ContextId = contextId;
                     (record.Task.History ??= []).Add(message);
+                    // Same update as the approving message: the approval cannot be used twice, also across instances (CAS).
+                    if (consume is not null) (record.Task.Metadata ??= [])[A2AProtocol.ApprovalConsumedKey] = StringElement(consume);
                     try
                     {
                         await _tasks.UpdateAsync(record, record.Version, ct).ConfigureAwait(false);
@@ -757,30 +759,32 @@ public sealed class A2ARequestHandler : IDisposable
 
     /// <summary>
     /// Approval binding (spec design §6.6). The pending approval is the hash in the metadata of the status message of a task
-    /// waiting in an interrupted state, so it is stored with the task and every instance sees it. A follow-up without a hash
-    /// is accepted (<see cref="ApprovalState.NotApproved"/> while one is pending); a hash that does not match the pending one
-    /// (or when none is pending) is InvalidParams.
+    /// waiting in an interrupted state, so it is stored with the task and every instance sees it. It is used at most once:
+    /// the commit of the approving message also records the status message's id in the task metadata
+    /// (<see cref="A2AProtocol.ApprovalConsumedKey"/>), and a used approval is no longer pending. A follow-up without a hash is
+    /// accepted (<see cref="ApprovalState.NotApproved"/> while an approval is pending); a hash that does not match the pending
+    /// one, or when none is pending, is InvalidParams. <paramref name="consume"/> is the status message id to record when the
+    /// result is <see cref="ApprovalState.Approved"/>.
     /// </summary>
-    private static ApprovalState ResolveApproval(AgentTask task, Message message)
+    private static ApprovalState ResolveApproval(AgentTask task, Message message, out string? consume)
     {
+        consume = null;
         string? pending = null;
-        if (task.Status.State.IsInterrupted() && task.Status.Message?.Metadata is { } statusMetadata
+        var status = task.Status.Message;
+        if (task.Status.State.IsInterrupted() && status?.Metadata is { } statusMetadata
             && statusMetadata.TryGetValue(A2AProtocol.ApprovalHashKey, out var p) && p.ValueKind == JsonValueKind.String)
             pending = p.GetString();
+        var used = pending is not null && task.Metadata is { } taskMetadata
+            && taskMetadata.TryGetValue(A2AProtocol.ApprovalConsumedKey, out var c) && c.ValueKind == JsonValueKind.String
+            && string.Equals(c.GetString(), status!.MessageId, StringComparison.Ordinal);
 
-        string? supplied = null;
-        var hasHash = message.Metadata?.ContainsKey(A2AProtocol.ApprovalHashKey) == true;
-        if (hasHash)
-        {
-            var value = message.Metadata![A2AProtocol.ApprovalHashKey];
-            supplied = value.ValueKind == JsonValueKind.String ? value.GetString() : null;
-            if (supplied is null) throw A2AException.InvalidParams("Approval does not match the pending request.");
-        }
-
-        if (!hasHash) return pending is null ? ApprovalState.None : ApprovalState.NotApproved;
-        if (pending is not null && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(pending), Encoding.UTF8.GetBytes(supplied!)))
-            return ApprovalState.Approved;
-        throw A2AException.InvalidParams("Approval does not match the pending request.");
+        if (message.Metadata is null || !message.Metadata.TryGetValue(A2AProtocol.ApprovalHashKey, out var value))
+            return pending is null ? ApprovalState.None : ApprovalState.NotApproved;
+        if (pending is null || used || value.ValueKind != JsonValueKind.String
+            || !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(pending), Encoding.UTF8.GetBytes(value.GetString()!)))
+            throw A2AException.InvalidParams("Approval does not match the pending request.");
+        consume = status!.MessageId;
+        return ApprovalState.Approved;
     }
 
     /// <summary>
@@ -914,6 +918,14 @@ public sealed class A2ARequestHandler : IDisposable
             return pending;
         }
         throw NotCancelable(request.Id); // the agent refused and nothing runs, or the task ended otherwise
+    }
+
+    private static JsonElement StringElement(string value)
+    {
+        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer)) writer.WriteStringValue(value);
+        using var doc = JsonDocument.Parse(buffer.WrittenMemory);
+        return doc.RootElement.Clone();
     }
 
     private static readonly JsonElement TrueElement = JsonDocument.Parse("true").RootElement.Clone();
