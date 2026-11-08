@@ -1,3 +1,4 @@
+using System.Text.Json;
 using A2A.Server.Streaming;
 
 namespace A2A.Server;
@@ -124,4 +125,17 @@ public interface IA2ARequestHandler
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The extended Agent Card for the caller.</returns>
     Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Runs the extension operation registered as <paramref name="method"/> (see <see cref="Pipeline.A2AExtensionOperation"/>)
+    /// through the operation pipeline, with <see cref="Pipeline.A2AOperationDescriptor.Extension"/> as its descriptor. When
+    /// <paramref name="parameters"/> is an object with a string <c>tenant</c> property, that tenant is bound like the tenant
+    /// of a built-in request. Throws MethodNotFound when no extension operation has that name.
+    /// </summary>
+    /// <param name="method">The registered method name (case-sensitive).</param>
+    /// <param name="parameters">The request params.</param>
+    /// <param name="call">The caller. A binding that evaluated the operation's authorization policy sets <see cref="Pipeline.A2AExtensionOperation.PolicySatisfiedItem"/> in its <see cref="ServerCallContext.Items"/>.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The operation's result.</returns>
+    Task<JsonElement> InvokeExtensionAsync(string method, JsonElement parameters, ServerCallContext call, CancellationToken cancellationToken = default);
 }

@@ -1,6 +1,9 @@
 using System.Globalization;
 using System.Text.Json;
 using A2A.Json;
+using A2A.Server.AspNetCore.Operations;
+using A2A.Server.Authorization;
+using A2A.Server.Pipeline;
 using A2A.Server.Streaming;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -11,39 +14,63 @@ using Microsoft.Extensions.Options;
 
 namespace A2A.Server.AspNetCore;
 
-/// <summary>HTTP+JSON/REST binding (spec §11). Errors use the google.rpc.Status shape (§11.6).</summary>
-internal sealed class RestEndpoint(IA2ARequestHandler handler,
+/// <summary>
+/// HTTP+JSON/REST binding (spec §11). Errors use the google.rpc.Status shape (§11.6). The routes come from the
+/// <see cref="A2AOperationTable"/>: the 11 built-in routes and <c>POST /ext/{method}</c> per extension operation.
+/// </summary>
+/// <remarks>
+/// <c>MapA2A</c> and <c>MapA2AHttpJson</c> create and map it; a host that maps its own route groups can create one with
+/// <c>ActivatorUtilities.CreateInstance</c> and call <see cref="Map"/>.
+/// </remarks>
+/// <param name="handler">The server core.</param>
+/// <param name="table">The operations to serve.</param>
+/// <param name="serverOptions">The server options (limits, streaming, error details).</param>
+/// <param name="environment">The host environment (error details in Development).</param>
+/// <param name="logger">The logger.</param>
+public sealed class RestEndpoint(IA2ARequestHandler handler, A2AOperationTable table,
     IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<RestEndpoint> logger)
 {
     private readonly A2ALimits _limits = serverOptions.Value.Limits;
     private readonly TimeSpan _keepAlive = serverOptions.Value.Streaming.KeepAliveInterval;
     private readonly bool _includeDetails = HttpPlumbing.ShouldIncludeDetails(serverOptions.Value, environment);
+    private readonly bool _allowAnonymous = serverOptions.Value.AllowAnonymous;
 
     /// <summary>
-    /// Maps the routes under <paramref name="group"/>. Unless the group's own pattern already has a <c>{tenant}</c> segment
-    /// (<paramref name="tenantInPattern"/>), every route also gets a <c>/{tenant}</c> variant.
+    /// Maps the routes of the <see cref="A2AOperationTable"/> under <paramref name="group"/>. Unless the group's own pattern
+    /// already has a <c>{tenant}</c> segment (<paramref name="tenantInPattern"/>), every route also gets a <c>/{tenant}</c> variant.
     /// </summary>
+    /// <param name="group">The route group (or app) to map into.</param>
+    /// <param name="tenantInPattern">True when the group's pattern has a <c>{tenant}</c> segment.</param>
     public void Map(IEndpointRouteBuilder group, bool tenantInPattern = false)
     {
+        ArgumentNullException.ThrowIfNull(group);
         foreach (var prefix in tenantInPattern ? new[] { "" } : new[] { "", "/{tenant}" })
         {
-            Add(group.MapPost(prefix + "/message:send", SendMessage), "POST", prefix + "/message:send");
-            Add(group.MapPost(prefix + "/message:stream", SendStreamingMessage), "POST", prefix + "/message:stream");
-            Add(group.MapGet(prefix + "/tasks", ListTasks), "GET", prefix + "/tasks");
-            Add(group.MapGet(prefix + "/tasks/{id}", GetTask), "GET", prefix + "/tasks/{id}");
-            Add(group.MapPost(prefix + "/tasks/{id}:cancel", CancelTask), "POST", prefix + "/tasks/{id}:cancel");
-            // The spec text says POST, the normative proto says GET: accept both.
-            Add(group.MapMethods(prefix + "/tasks/{id}:subscribe", ["GET", "POST"], Subscribe), "GET|POST", prefix + "/tasks/{id}:subscribe");
-            Add(group.MapPost(prefix + "/tasks/{id}/pushNotificationConfigs", CreatePushConfig), "POST", prefix + "/tasks/{id}/pushNotificationConfigs");
-            Add(group.MapGet(prefix + "/tasks/{id}/pushNotificationConfigs", ListPushConfigs), "GET", prefix + "/tasks/{id}/pushNotificationConfigs");
-            Add(group.MapGet(prefix + "/tasks/{id}/pushNotificationConfigs/{configId}", GetPushConfig), "GET", prefix + "/tasks/{id}/pushNotificationConfigs/{configId}");
-            Add(group.MapDelete(prefix + "/tasks/{id}/pushNotificationConfigs/{configId}", DeletePushConfig), "DELETE", prefix + "/tasks/{id}/pushNotificationConfigs/{configId}");
-            Add(group.MapGet(prefix + "/extendedAgentCard", GetExtendedAgentCard), "GET", prefix + "/extendedAgentCard");
+            foreach (var (method, route, operation) in table.RestRoutes)
+            {
+                // The display name starts with "A2A " so the startup check can find every A2A endpoint.
+                group.MapMethods(prefix + route, method.Split('|'), HandlerFor(operation))
+                    .WithDisplayName($"A2A HTTP+JSON {method} {prefix + route}");
+            }
         }
-
-        // The display name starts with "A2A " so the startup check can find every A2A endpoint.
-        static void Add(IEndpointConventionBuilder builder, string method, string route) => builder.WithDisplayName($"A2A HTTP+JSON {method} {route}");
     }
+
+    private RequestDelegate HandlerFor(A2AOperationDescriptor operation) => operation.Kind switch
+    {
+        A2AOperation.SendMessage => SendMessage,
+        A2AOperation.SendStreamingMessage => SendStreamingMessage,
+        A2AOperation.ListTasks => ListTasks,
+        A2AOperation.GetTask => GetTask,
+        A2AOperation.CancelTask => CancelTask,
+        A2AOperation.SubscribeToTask => Subscribe,
+        A2AOperation.CreateTaskPushNotificationConfig => CreatePushConfig,
+        A2AOperation.ListTaskPushNotificationConfigs => ListPushConfigs,
+        A2AOperation.GetTaskPushNotificationConfig => GetPushConfig,
+        A2AOperation.DeleteTaskPushNotificationConfig => DeletePushConfig,
+        A2AOperation.GetExtendedAgentCard => GetExtendedAgentCard,
+        A2AOperation.Extension => ExtensionHandler(table.GetExtension(operation.Name)),
+        _ => throw new InvalidOperationException($"No HTTP+JSON handler for {operation.Kind}."),
+    };
 
     private Task SendMessage(HttpContext http) => Run(http, async (call, ct) =>
     {
@@ -140,6 +167,13 @@ internal sealed class RestEndpoint(IA2ARequestHandler handler,
     private Task GetExtendedAgentCard(HttpContext http) => Run(http, (call, ct) =>
         Box(handler.GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest { Tenant = call.Tenant }, call, ct)));
 
+    private RequestDelegate ExtensionHandler(A2AExtensionOperation extension) => http => Run(http, async (call, ct) =>
+    {
+        await ExtensionPolicy.RequireAsync(http, extension, call, _allowAnonymous).ConfigureAwait(false);
+        var parameters = await JsonBody(http).ConfigureAwait(false);
+        return await handler.InvokeExtensionAsync(extension.Method, parameters, call, ct).ConfigureAwait(false);
+    });
+
     // ---- plumbing ----
 
     private static async Task<object?> Box<T>(Task<T> t) => await t.ConfigureAwait(false);
@@ -231,6 +265,19 @@ internal sealed class RestEndpoint(IA2ARequestHandler handler,
         {
             using var doc = HttpPlumbing.ParseBody(bytes, _limits.MaxJsonDepth);
             return doc.RootElement.Deserialize(A2AJson.GetTypeInfo<T>());
+        }
+        catch (JsonException ex) { throw A2AException.InvalidParams($"Invalid request body: {ex.Message}"); }
+    }
+
+    /// <summary>The body as JSON (any value); an empty body is an empty object.</summary>
+    private async Task<JsonElement> JsonBody(HttpContext http)
+    {
+        var bytes = await HttpPlumbing.ReadBodyAsync(http.Request, _limits.MaxRequestBodyBytes).ConfigureAwait(false);
+        if (bytes.Length == 0) return A2AJson.EmptyObject;
+        try
+        {
+            using var doc = HttpPlumbing.ParseBody(bytes, _limits.MaxJsonDepth);
+            return doc.RootElement.Clone();
         }
         catch (JsonException ex) { throw A2AException.InvalidParams($"Invalid request body: {ex.Message}"); }
     }

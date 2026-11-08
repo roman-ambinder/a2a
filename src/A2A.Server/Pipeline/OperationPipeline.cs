@@ -15,7 +15,8 @@ namespace A2A.Server.Pipeline;
 /// The chain of delegates is built once, here. A call allocates only its <see cref="A2AOperationContext"/>; the operation
 /// delegate travels in the context and a shared <see cref="OperationInvoker{TRequest, TResponse}"/> runs it. Without host
 /// filters there is no chain at all: telemetry, authorization, then the operation, with no context and no copies; and while
-/// nobody listens to telemetry, just authorization and the operation.
+/// nobody listens to telemetry, just authorization and the operation. Extension operations (<see cref="RunExtensionAsync"/>)
+/// always get a context, since their handler takes it, and run through the same steps.
 /// With host filters, the result passes through <see cref="ResponseDetacher"/> before it reaches the innermost host filter,
 /// so host filters get their own copy of anything that may share instances with the stores. Built-in steps inside that
 /// point see the shared instances.
@@ -24,15 +25,26 @@ internal sealed class OperationPipeline
 {
     private readonly AuthorizationFilter _authorization;
     private readonly A2AOperationDelegate? _chain;
+    private readonly A2AOperationDelegate _extensionChain;
 
     public OperationPipeline(AuthorizationFilter authorization, IEnumerable<A2AOperationFilterRegistration> registrations)
     {
         _authorization = authorization;
+        _chain = BuildChain(authorization, registrations);
+        // Extension operations always run with a context (their handler takes it): without host filters, through a chain of
+        // the built-in steps alone.
+        _extensionChain = _chain ?? Link(TelemetryFilter.Instance, Link(authorization, Innermost));
+    }
+
+    private static readonly A2AOperationDelegate Innermost = static (context, request, ct) => context.InvokeOperationAsync(request, ct);
+
+    private static A2AOperationDelegate? BuildChain(AuthorizationFilter authorization, IEnumerable<A2AOperationFilterRegistration> registrations)
+    {
         var before = new List<IA2AOperationFilter>();
         var after = new List<IA2AOperationFilter>();
         foreach (var registration in registrations)
             (registration.Stage == A2AFilterStage.BeforeAuthorization ? before : after).Add(registration.Filter);
-        if (before.Count + after.Count == 0) return;
+        if (before.Count + after.Count == 0) return null;
 
         // Outermost first. The innermost host filter gets detached results from the steps inside it.
         var steps = new List<(IA2AOperationFilter Filter, bool Host)>(before.Count + after.Count + 2) { (TelemetryFilter.Instance, false) };
@@ -41,13 +53,13 @@ internal sealed class OperationPipeline
         steps.AddRange(after.Select(f => (f, true)));
         var innermostHost = steps.FindLastIndex(s => s.Host);
 
-        A2AOperationDelegate next = static (context, request, ct) => context.InvokeOperationAsync(request, ct);
+        var next = Innermost;
         for (var i = steps.Count - 1; i >= 0; i--)
         {
             if (i == innermostHost) next = Detaching(next);
             next = Link(steps[i].Filter, next);
         }
-        _chain = next;
+        return next;
     }
 
     /// <summary>True when host filters are registered (and results are copied for them).</summary>
@@ -77,6 +89,21 @@ internal sealed class OperationPipeline
         var context = new A2AOperationContext(descriptor, call, operation, OperationInvoker<TRequest, TResponse>.Instance);
         var result = _chain(context, request, cancellationToken);
         return result.IsCompletedSuccessfully ? new ValueTask<TResponse>(Cast<TResponse>(result.Result)) : CastAsync<TResponse>(result);
+    }
+
+    /// <summary>
+    /// Runs the extension operation <paramref name="handler"/> through the pipeline (telemetry, host filters, authorization)
+    /// with <paramref name="parameters"/> as its request. The tenant must be bound already. The handler gets the same
+    /// <see cref="A2AOperationContext"/> the filters saw; its <see cref="A2AOperationContext.Items"/> start with
+    /// <see cref="A2AExtensionOperation.PolicySatisfiedItem"/> when the binding set it in <see cref="ServerCallContext.Items"/>.
+    /// </summary>
+    public async ValueTask<JsonElement> RunExtensionAsync(A2AOperationDescriptor descriptor, ServerCallContext call, JsonElement parameters,
+        Func<A2AOperationContext, JsonElement, CancellationToken, ValueTask<JsonElement>> handler, CancellationToken cancellationToken)
+    {
+        var context = new A2AOperationContext(descriptor, call, handler, ExtensionInvoker.Instance);
+        if (call.Items.TryGetValue(A2AExtensionOperation.PolicySatisfiedItem, out var satisfied))
+            context.Items[A2AExtensionOperation.PolicySatisfiedItem] = satisfied;
+        return Cast<JsonElement>(await _extensionChain(context, parameters, cancellationToken).ConfigureAwait(false));
     }
 
     private static async ValueTask<TResponse> AuthorizeThenRunAsync<TRequest, TResponse>(Task authorized,
@@ -122,6 +149,23 @@ internal static class OperationInvoker<TRequest, TResponse> where TRequest : cla
         return result.IsCompletedSuccessfully ? new ValueTask<object?>(result.Result) : BoxAsync(result);
 
         static async ValueTask<object?> BoxAsync(ValueTask<TResponse> result) => await result.ConfigureAwait(false);
+    }
+}
+
+/// <summary>The innermost step for an extension operation: runs the registered handler the context carries with the params.</summary>
+internal static class ExtensionInvoker
+{
+    public static readonly Func<A2AOperationContext, object, CancellationToken, ValueTask<object?>> Instance = Invoke;
+
+    private static ValueTask<object?> Invoke(A2AOperationContext context, object request, CancellationToken ct)
+    {
+        var handler = (Func<A2AOperationContext, JsonElement, CancellationToken, ValueTask<JsonElement>>)context.OperationDelegate!;
+        var parameters = request is JsonElement element ? element : throw new InvalidOperationException(
+            $"An operation filter passed {request.GetType().Name} where JsonElement was expected.");
+        var result = handler(context, parameters, ct);
+        return result.IsCompletedSuccessfully ? new ValueTask<object?>(result.Result) : BoxAsync(result);
+
+        static async ValueTask<object?> BoxAsync(ValueTask<JsonElement> result) => await result.ConfigureAwait(false);
     }
 }
 

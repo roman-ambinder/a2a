@@ -14,7 +14,8 @@ namespace A2A.Server.AspNetCore;
 public static class A2AServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the ASP.NET Core side of the A2A server: the default <see cref="ITenantResolver"/> (<see cref="RouteTenantResolver"/>)
+    /// Registers the ASP.NET Core side of the A2A server: the <see cref="Operations.A2AOperationTable"/> the endpoints dispatch
+    /// through, the default <see cref="ITenantResolver"/> (<see cref="RouteTenantResolver"/>),
     /// the startup check that fails the app when A2A endpoints have no authorization policy (see
     /// <see cref="A2AServerOptions.AllowAnonymous"/>), and the default rate limit policy (see <see cref="A2ARateLimitingExtensions.AddA2ARateLimiting"/>; the host
     /// adds the middleware with <c>app.UseA2A()</c>). Call it once next to <c>AddA2AServer(...)</c>. <c>MapA2A</c> throws
@@ -23,6 +24,7 @@ public static class A2AServiceCollectionExtensions
     public static IServiceCollection AddA2AServerAspNetCore(this IServiceCollection services)
     {
         services.TryAddSingleton<A2AEndpointRegistry>();
+        services.TryAddSingleton<Operations.A2AOperationTable>();
         services.TryAddSingleton<ITenantResolver, RouteTenantResolver>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, A2AStartupValidator>());
         services.AddA2ARateLimiting();

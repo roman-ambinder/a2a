@@ -17,7 +17,10 @@ public abstract class A2AAuthorizationHandler
     /// <summary>
     /// Decides whether <paramref name="call"/> may perform <paramref name="operation"/>. The default allows every built-in
     /// operation and denies extension operations (<see cref="A2AOperation.Extension"/>): override it to decide by
-    /// <see cref="A2AOperationDescriptor.Kind"/> and <see cref="A2AOperationDescriptor.Name"/>.
+    /// <see cref="A2AOperationDescriptor.Kind"/> and <see cref="A2AOperationDescriptor.Name"/>. For an extension operation with an
+    /// <see cref="A2AExtensionOperation.AuthorizationPolicy"/>, <c>call.Items[</c><see cref="A2AExtensionOperation.PolicySatisfiedItem"/><c>]</c>
+    /// is <c>true</c> when the HTTP binding evaluated the policy and it succeeded. (The handler registered by default also allows
+    /// an extension operation registered with <see cref="A2AExtensionOperation.Allow"/>, or whose policy succeeded.)
     /// </summary>
     /// <param name="call">The caller, with its tenant.</param>
     /// <param name="operation">The operation: its kind, and its name (the registered name for an extension operation).</param>
@@ -27,5 +30,17 @@ public abstract class A2AAuthorizationHandler
         ValueTask.FromResult(operation.Kind != A2AOperation.Extension);
 }
 
-/// <summary>Default handler: allows every built-in operation, denies extension operations (fail closed).</summary>
-internal sealed class AllowAllAuthorizationHandler : A2AAuthorizationHandler;
+/// <summary>
+/// Default handler: allows every built-in operation. Allows an extension operation only when it was registered with
+/// <see cref="A2AExtensionOperation.Allow"/> or its <see cref="A2AExtensionOperation.AuthorizationPolicy"/> succeeded (see
+/// <see cref="A2AExtensionOperation.PolicySatisfiedItem"/>); denies every other extension operation (fail closed).
+/// </summary>
+internal sealed class AllowAllAuthorizationHandler(IEnumerable<A2AExtensionOperation> extensions) : A2AAuthorizationHandler
+{
+    private readonly HashSet<string> _allowed = extensions.Where(e => e.Allow).Select(e => e.Method).ToHashSet(StringComparer.Ordinal);
+
+    public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, CancellationToken cancellationToken) =>
+        ValueTask.FromResult(operation.Kind != A2AOperation.Extension
+            || _allowed.Contains(operation.Name)
+            || (call.Items.TryGetValue(A2AExtensionOperation.PolicySatisfiedItem, out var satisfied) && satisfied is true));
+}

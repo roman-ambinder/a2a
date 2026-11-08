@@ -157,5 +157,8 @@ public sealed class FakeHandlerBindingTests
 
         public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken ct = default) =>
             System.Threading.Tasks.Task.FromResult(Record(nameof(GetExtendedAgentCardAsync), request, AgentCard));
+
+        public Task<System.Text.Json.JsonElement> InvokeExtensionAsync(string method, System.Text.Json.JsonElement parameters, ServerCallContext call, CancellationToken ct = default) =>
+            System.Threading.Tasks.Task.FromResult(Record(nameof(InvokeExtensionAsync), parameters, parameters));
     }
 }

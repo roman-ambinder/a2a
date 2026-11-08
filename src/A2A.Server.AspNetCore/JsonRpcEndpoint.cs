@@ -2,6 +2,8 @@ using System.Text.Json;
 using A2A.Json;
 using A2A.Server.Streaming;
 using A2A.JsonRpc;
+using A2A.Server.AspNetCore.Operations;
+using A2A.Server.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -9,8 +11,20 @@ using Microsoft.Extensions.Options;
 
 namespace A2A.Server.AspNetCore;
 
-/// <summary>JSON-RPC 2.0 binding (spec §9): one POST endpoint, SSE for streaming methods.</summary>
-internal sealed class JsonRpcEndpoint(IA2ARequestHandler handler,
+/// <summary>
+/// JSON-RPC 2.0 binding (spec §9): one POST endpoint, SSE for streaming methods. Methods are looked up in the
+/// <see cref="A2AOperationTable"/>: the 11 built-in methods and the registered extension operations.
+/// </summary>
+/// <remarks>
+/// <c>MapA2A</c> and <c>MapA2AJsonRpc</c> create and map it; a host that maps its own routes can create one with
+/// <c>ActivatorUtilities.CreateInstance</c> and map <see cref="HandleAsync"/>.
+/// </remarks>
+/// <param name="handler">The server core.</param>
+/// <param name="table">The operations to serve.</param>
+/// <param name="serverOptions">The server options (limits, streaming, error details).</param>
+/// <param name="environment">The host environment (error details in Development).</param>
+/// <param name="logger">The logger.</param>
+public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTable table,
     IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<JsonRpcEndpoint> logger)
 {
     /// <summary>Display name of the JSON-RPC endpoints. The rate limiter uses it to pick the error format.</summary>
@@ -19,7 +33,11 @@ internal sealed class JsonRpcEndpoint(IA2ARequestHandler handler,
     private readonly A2ALimits _limits = serverOptions.Value.Limits;
     private readonly TimeSpan _keepAlive = serverOptions.Value.Streaming.KeepAliveInterval;
     private readonly bool _includeDetails = HttpPlumbing.ShouldIncludeDetails(serverOptions.Value, environment);
+    private readonly bool _allowAnonymous = serverOptions.Value.AllowAnonymous;
 
+    /// <summary>Handles one JSON-RPC request: a single JSON-RPC object (no batches) in the body of a POST.</summary>
+    /// <param name="http">The HTTP request.</param>
+    /// <returns>A task that completes when the response is written.</returns>
     public async Task HandleAsync(HttpContext http)
     {
         var ct = http.RequestAborted;
@@ -56,12 +74,15 @@ internal sealed class JsonRpcEndpoint(IA2ARequestHandler handler,
             handler.ValidateCall(call);
             var p = rpc.Params ?? A2AJson.EmptyObject;
 
-            switch (rpc.Method)
+            if (!table.JsonRpcMethods.TryGetValue(rpc.Method, out var operation))
+                throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{rpc.Method}' not found");
+
+            switch (operation.Kind)
             {
-                case A2AProtocol.Methods.SendMessage:
+                case A2AOperation.SendMessage:
                     await Ok(http, call, id, await handler.SendMessageAsync(Params<SendMessageRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
-                case A2AProtocol.Methods.SendStreamingMessage:
+                case A2AOperation.SendStreamingMessage:
                 {
                     var caughtUp = HttpPlumbing.CaughtUpSignal();
                     await StreamAsync(http, call, id,
@@ -69,16 +90,16 @@ internal sealed class JsonRpcEndpoint(IA2ARequestHandler handler,
                         caughtUp.Fired).ConfigureAwait(false);
                     break;
                 }
-                case A2AProtocol.Methods.GetTask:
+                case A2AOperation.GetTask:
                     await Ok(http, call, id, await handler.GetTaskAsync(Params<GetTaskRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
-                case A2AProtocol.Methods.ListTasks:
+                case A2AOperation.ListTasks:
                     await Ok(http, call, id, await handler.ListTasksAsync(Params<ListTasksRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
-                case A2AProtocol.Methods.CancelTask:
+                case A2AOperation.CancelTask:
                     await Ok(http, call, id, await handler.CancelTaskAsync(Params<CancelTaskRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
-                case A2AProtocol.Methods.SubscribeToTask:
+                case A2AOperation.SubscribeToTask:
                 {
                     var subscribe = Params<SubscribeToTaskRequest>(p);
                     var caughtUp = HttpPlumbing.CaughtUpSignal();
@@ -87,22 +108,29 @@ internal sealed class JsonRpcEndpoint(IA2ARequestHandler handler,
                         caughtUp.Fired).ConfigureAwait(false);
                     break;
                 }
-                case A2AProtocol.Methods.CreateTaskPushNotificationConfig:
+                case A2AOperation.CreateTaskPushNotificationConfig:
                     await Ok(http, call, id, await handler.CreateTaskPushNotificationConfigAsync(Params<TaskPushNotificationConfig>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
-                case A2AProtocol.Methods.GetTaskPushNotificationConfig:
+                case A2AOperation.GetTaskPushNotificationConfig:
                     await Ok(http, call, id, await handler.GetTaskPushNotificationConfigAsync(Params<GetTaskPushNotificationConfigRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
-                case A2AProtocol.Methods.ListTaskPushNotificationConfigs:
+                case A2AOperation.ListTaskPushNotificationConfigs:
                     await Ok(http, call, id, await handler.ListTaskPushNotificationConfigsAsync(Params<ListTaskPushNotificationConfigsRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
-                case A2AProtocol.Methods.DeleteTaskPushNotificationConfig:
+                case A2AOperation.DeleteTaskPushNotificationConfig:
                     await handler.DeleteTaskPushNotificationConfigAsync(Params<DeleteTaskPushNotificationConfigRequest>(p), call, ct).ConfigureAwait(false);
                     await Ok(http, call, id, A2AJson.EmptyObject).ConfigureAwait(false);
                     break;
-                case A2AProtocol.Methods.GetExtendedAgentCard:
+                case A2AOperation.GetExtendedAgentCard:
                     await Ok(http, call, id, await handler.GetExtendedAgentCardAsync(Params<GetExtendedAgentCardRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
+                case A2AOperation.Extension:
+                {
+                    var extension = table.GetExtension(operation.Name);
+                    await ExtensionPolicy.RequireAsync(http, extension, call, _allowAnonymous).ConfigureAwait(false);
+                    await Ok(http, call, id, await handler.InvokeExtensionAsync(extension.Method, p, call, ct).ConfigureAwait(false)).ConfigureAwait(false);
+                    break;
+                }
                 default:
                     throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{rpc.Method}' not found");
             }

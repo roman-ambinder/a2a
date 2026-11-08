@@ -40,3 +40,14 @@ static A2A.Server.AspNetCore.A2ARateLimitingExtensions.UseA2A(this Microsoft.Asp
 static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2ADataProtectionPushSecrets(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2AServerAspNetCore(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.ConfigureA2AHttp(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<A2A.Server.AspNetCore.A2AHttpOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+A2A.Server.AspNetCore.JsonRpcEndpoint
+A2A.Server.AspNetCore.JsonRpcEndpoint.JsonRpcEndpoint(A2A.Server.IA2ARequestHandler! handler, A2A.Server.AspNetCore.Operations.A2AOperationTable! table, Microsoft.Extensions.Options.IOptions<A2A.Server.A2AServerOptions!>! serverOptions, Microsoft.Extensions.Hosting.IHostEnvironment! environment, Microsoft.Extensions.Logging.ILogger<A2A.Server.AspNetCore.JsonRpcEndpoint!>! logger) -> void
+A2A.Server.AspNetCore.JsonRpcEndpoint.HandleAsync(Microsoft.AspNetCore.Http.HttpContext! http) -> System.Threading.Tasks.Task!
+A2A.Server.AspNetCore.RestEndpoint
+A2A.Server.AspNetCore.RestEndpoint.RestEndpoint(A2A.Server.IA2ARequestHandler! handler, A2A.Server.AspNetCore.Operations.A2AOperationTable! table, Microsoft.Extensions.Options.IOptions<A2A.Server.A2AServerOptions!>! serverOptions, Microsoft.Extensions.Hosting.IHostEnvironment! environment, Microsoft.Extensions.Logging.ILogger<A2A.Server.AspNetCore.RestEndpoint!>! logger) -> void
+A2A.Server.AspNetCore.RestEndpoint.Map(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! group, bool tenantInPattern = false) -> void
+A2A.Server.AspNetCore.Operations.A2AOperationTable
+A2A.Server.AspNetCore.Operations.A2AOperationTable.A2AOperationTable(System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensions) -> void
+A2A.Server.AspNetCore.Operations.A2AOperationTable.Extensions.get -> System.Collections.Generic.IReadOnlyList<A2A.Server.Pipeline.A2AExtensionOperation!>!
+A2A.Server.AspNetCore.Operations.A2AOperationTable.JsonRpcMethods.get -> System.Collections.Generic.IReadOnlyDictionary<string!, A2A.Server.Pipeline.A2AOperationDescriptor!>!
+A2A.Server.AspNetCore.Operations.A2AOperationTable.RestRoutes.get -> System.Collections.Generic.IReadOnlyList<(string! Method, string! Route, A2A.Server.Pipeline.A2AOperationDescriptor! Op)>!

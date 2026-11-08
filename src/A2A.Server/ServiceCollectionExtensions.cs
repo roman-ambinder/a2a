@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using A2A.Server.Push;
 using A2A.Server.Authorization;
 using Microsoft.Extensions.DependencyInjection;
@@ -104,6 +105,38 @@ public sealed class A2AServerBuilder
     {
         Services.TryAddSingleton<T>();
         Services.AddSingleton(sp => new Pipeline.A2AOperationFilterRegistration(sp.GetRequiredService<T>(), stage));
+        return this;
+    }
+
+    /// <summary>
+    /// Adds an extension operation (see <see cref="Pipeline.A2AExtensionOperation"/>): the JSON-RPC method
+    /// <paramref name="method"/> and the HTTP+JSON route <c>POST {pattern}/ext/{method}</c>. Calls run through the operation
+    /// pipeline with <see cref="Pipeline.A2AOperationDescriptor.Extension"/>. The public Agent Card lists
+    /// <paramref name="extensionUri"/> in its capabilities. The gRPC binding does not serve extension operations.
+    /// </summary>
+    /// <param name="method">The method name: letters, digits, <c>.</c>, <c>_</c> and <c>-</c>; not a built-in method name.</param>
+    /// <param name="extensionUri">The absolute URI of the extension.</param>
+    /// <param name="handler">Runs the operation with the pipeline context and the request params; returns the result.</param>
+    /// <param name="authorizationPolicy">An ASP.NET Core authorization policy the HTTP bindings evaluate first (see <see cref="Pipeline.A2AExtensionOperation.AuthorizationPolicy"/>).</param>
+    /// <param name="allow">True to let the default authorization handler allow the call (see <see cref="Pipeline.A2AExtensionOperation.Allow"/>).</param>
+    /// <exception cref="ArgumentException">
+    /// The method name is not valid, is a built-in method, or is already registered (compared ignoring case, as HTTP routes are);
+    /// or the extension URI is not absolute.
+    /// </exception>
+    public A2AServerBuilder AddExtensionOperation(string method, string extensionUri,
+        Func<Pipeline.A2AOperationContext, JsonElement, CancellationToken, ValueTask<JsonElement>> handler,
+        string? authorizationPolicy = null, bool allow = false)
+    {
+        Pipeline.A2AExtensionOperation.Validate(method, extensionUri, handler);
+        foreach (var descriptor in Services)
+        {
+            if (descriptor.ServiceType == typeof(Pipeline.A2AExtensionOperation) && !descriptor.IsKeyedService
+                && descriptor.ImplementationInstance is Pipeline.A2AExtensionOperation existing
+                && string.Equals(existing.Method, method, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException($"An extension operation named '{existing.Method}' is already registered.", nameof(method));
+        }
+        Services.AddSingleton(new Pipeline.A2AExtensionOperation(method, extensionUri, handler, authorizationPolicy, allow));
+        Services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<A2AServerOptions>, Pipeline.ExtensionCardEntries>());
         return this;
     }
 

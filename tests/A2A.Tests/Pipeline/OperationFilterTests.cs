@@ -440,7 +440,7 @@ public sealed class OperationFilterTests
     [Fact]
     public async Task Default_authorization_denies_extension_operations()
     {
-        var allowAll = new AllowAllAuthorizationHandler();
+        var allowAll = new AllowAllAuthorizationHandler([]);
         Assert.True(await allowAll.AuthorizeAsync(AliceCall(), A2AOperationDescriptor.For(A2AOperation.GetTask), new GetTaskRequest(), default));
         Assert.False(await allowAll.AuthorizeAsync(AliceCall(), A2AOperationDescriptor.Extension("x.echo"), new object(), default));
     }

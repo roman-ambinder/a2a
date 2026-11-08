@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using A2A.Server.Execution;
 using A2A.Server.Idempotency;
 using A2A.Server.Pipeline;
@@ -45,6 +46,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private readonly Func<DeleteTaskPushNotificationConfigRequest, ServerCallContext, CancellationToken, ValueTask<object?>> _deletePush;
     private readonly Func<GetExtendedAgentCardRequest, ServerCallContext, CancellationToken, ValueTask<AgentCard>> _extendedCard;
 
+    /// <summary>The registered extension operations by method name (case-sensitive), each with its descriptor.</summary>
+    private readonly Dictionary<string, (A2AExtensionOperation Operation, A2AOperationDescriptor Descriptor)> _extensions;
+
     private static readonly A2AOperationDescriptor SendStreamingOperation = A2AOperationDescriptor.For(A2AOperation.SendStreamingMessage);
     private static readonly A2AOperationDescriptor SubscribeOperation = A2AOperationDescriptor.For(A2AOperation.SubscribeToTask);
 
@@ -52,7 +56,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// <remarks>
     /// The handler does not own <paramref name="engine"/>: its owner (the DI container) disposes it. The pipeline is built here,
     /// once, from <paramref name="filters"/> in their order (registered with <see cref="A2AServerBuilder.AddOperationFilter{T}"/>).
+    /// <paramref name="extensionOperations"/> are the operations registered with <see cref="A2AServerBuilder.AddExtensionOperation"/>.
     /// </remarks>
+    /// <exception cref="InvalidOperationException">Two extension operations have the same method name.</exception>
     public A2ARequestHandler(
         TaskStore tasks,
         EventStore events,
@@ -63,8 +69,16 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         PushConfigService pushConfigs,
         TaskExecutionEngine engine,
         TaskStreamer streamer,
-        IEnumerable<A2AOperationFilterRegistration> filters)
+        IEnumerable<A2AOperationFilterRegistration> filters,
+        IEnumerable<A2AExtensionOperation> extensionOperations)
     {
+        ArgumentNullException.ThrowIfNull(extensionOperations);
+        _extensions = new(StringComparer.Ordinal);
+        foreach (var extension in extensionOperations)
+        {
+            if (!_extensions.TryAdd(extension.Method, (extension, A2AOperationDescriptor.Extension(extension.Method))))
+                throw new InvalidOperationException($"More than one extension operation is registered as '{extension.Method}'.");
+        }
         _tasks = tasks;
         _events = events;
         _idempotency = idempotency;
@@ -516,6 +530,24 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         if (!call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated, "The extended agent card requires authentication.");
         var card = _options.ExtendedAgentCardProvider is null ? null : await _options.ExtendedAgentCardProvider(call, cancellationToken).ConfigureAwait(false);
         return card ?? throw new A2AException(A2AErrorCode.ExtendedAgentCardNotConfigured);
+    }
+
+    // =====================================================================
+    // Extension operations
+    // =====================================================================
+
+    /// <summary>
+    /// Runs the extension operation registered as <paramref name="method"/> through the operation pipeline (see
+    /// <see cref="IA2ARequestHandler.InvokeExtensionAsync"/>). Throws MethodNotFound when no extension operation has that name.
+    /// </summary>
+    public async Task<JsonElement> InvokeExtensionAsync(string method, JsonElement parameters, ServerCallContext call, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        if (method is null || !_extensions.TryGetValue(method, out var extension))
+            throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{method}' not found");
+        if (parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("tenant", out var tenant) && tenant.ValueKind == JsonValueKind.String)
+            call.BindTenant(tenant.GetString());
+        return await _pipeline.RunExtensionAsync(extension.Descriptor, call, parameters, extension.Operation.Handler, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Status text of a task failed because its updates could not be stored (see <see cref="TaskExecutionEngine"/>).</summary>
