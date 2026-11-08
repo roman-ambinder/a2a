@@ -230,6 +230,26 @@ public sealed class S3ArtifactObjectStoreTests(MinioFixture minio) : ArtifactObj
             return ms.ToArray();
         }
     }
+
+    [Fact]
+    public async Task A_prefix_does_not_list_the_objects_of_a_longer_prefix()
+    {
+        var client = minio.NewClient();
+        _disposables.Add(client);
+        var bucket = await minio.NewBucketAsync(client);
+        var prod = new S3ArtifactObjectStore(new S3ArtifactStoreOptions { BucketName = bucket, KeyPrefix = "prod", Client = client });
+        var prod2 = new S3ArtifactObjectStore(new S3ArtifactStoreOptions { BucketName = bucket, KeyPrefix = "prod2", Client = client });
+        var key = NewKey();
+        await prod2.PutAsync(key, new MemoryStream(Bytes(10)), Info, 1_000);
+        await prod.PutAsync(NewKey(), new MemoryStream(Bytes(10)), Info, 1_000);
+
+        var listed = new List<string>();
+        await foreach (var entry in prod.ListAsync("")) listed.Add(entry.Key);
+
+        Assert.Single(listed);
+        Assert.DoesNotContain(key, listed);
+        Assert.False(await prod.ExistsAsync(key));
+    }
 }
 
 public sealed class S3ArtifactStoreRegistrationTests

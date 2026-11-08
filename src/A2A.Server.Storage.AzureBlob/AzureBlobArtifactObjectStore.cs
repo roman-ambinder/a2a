@@ -48,7 +48,8 @@ public sealed class AzureBlobArtifactObjectStore : ArtifactObjectStore
                 throw new ArgumentException("Set ContainerClient, or both ContainerName and ConnectionString.", nameof(options));
             _container = new BlobContainerClient(options.ConnectionString, options.ContainerName);
         }
-        _keyPrefix = options.KeyPrefix ?? "";
+        // A prefix always ends with "/", so "prod" does not also cover "prod2".
+        _keyPrefix = options.KeyPrefix is { Length: > 0 } prefix ? (prefix.EndsWith('/') ? prefix : prefix + "/") : "";
     }
 
     /// <inheritdoc />
@@ -105,7 +106,7 @@ public sealed class AzureBlobArtifactObjectStore : ArtifactObjectStore
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
         }
     }
 

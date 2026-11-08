@@ -7,7 +7,7 @@ builder.Services.AddA2AAzureBlobArtifactStore(o =>
 {
     o.ConnectionString = builder.Configuration["Storage:ConnectionString"];  // needs the account key for download links
     o.ContainerName = "a2a-artifacts";                                       // must exist
-    o.KeyPrefix = "prod/";                                                   // optional, to share a container
+    o.KeyPrefix = "prod/";                                                   // optional, to share a container; one container + prefix = one task store
 });
 ```
 

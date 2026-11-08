@@ -6,7 +6,7 @@ An Amazon S3 (or S3-compatible, such as MinIO) object store for large A2A artifa
 builder.Services.AddA2AS3ArtifactStore(o =>
 {
     o.BucketName = "my-a2a-artifacts";   // must exist
-    o.KeyPrefix = "prod/";               // optional, to share a bucket
+    o.KeyPrefix = "prod/";               // optional, to share a bucket; one bucket + prefix = one task store
 });
 
 // S3-compatible service:

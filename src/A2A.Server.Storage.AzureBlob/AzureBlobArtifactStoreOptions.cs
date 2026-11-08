@@ -14,7 +14,7 @@ public sealed class AzureBlobArtifactStoreOptions
     /// </summary>
     public string? ConnectionString { get; set; }
 
-    /// <summary>Text put in front of every blob name, for example <c>a2a/</c>, so one container can be shared. Default empty.</summary>
+    /// <summary>Text put in front of every blob name, for example <c>a2a/</c>, so one container can be shared. A prefix that does not end with <c>/</c> gets one. A container plus prefix belongs to exactly one task store: two task stores must not share it, or the orphan sweep deletes the other store's objects. Default empty.</summary>
     public string KeyPrefix { get; set; } = "";
 
     /// <summary>

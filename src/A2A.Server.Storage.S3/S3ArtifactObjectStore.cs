@@ -39,7 +39,8 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrEmpty(options.BucketName, nameof(options));
         _bucket = options.BucketName;
-        _keyPrefix = options.KeyPrefix ?? "";
+        // A prefix always ends with "/", so "prod" does not also cover "prod2".
+        _keyPrefix = options.KeyPrefix is { Length: > 0 } prefix ? (prefix.EndsWith('/') ? prefix : prefix + "/") : "";
         if (options.Client is { } client)
         {
             _client = client;
@@ -142,7 +143,7 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
         }
     }
 

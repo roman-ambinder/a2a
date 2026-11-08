@@ -196,6 +196,24 @@ public sealed class AzureBlobArtifactObjectStoreTests(AzuriteFixture azurite) : 
             return ms.ToArray();
         }
     }
+
+    [Fact]
+    public async Task A_prefix_does_not_list_the_objects_of_a_longer_prefix()
+    {
+        var container = await azurite.NewContainerAsync();
+        var prod = new AzureBlobArtifactObjectStore(new AzureBlobArtifactStoreOptions { KeyPrefix = "prod", ContainerClient = container });
+        var prod2 = new AzureBlobArtifactObjectStore(new AzureBlobArtifactStoreOptions { KeyPrefix = "prod2", ContainerClient = container });
+        var key = NewKey();
+        await prod2.PutAsync(key, new MemoryStream(Bytes(10)), Info, 1_000);
+        await prod.PutAsync(NewKey(), new MemoryStream(Bytes(10)), Info, 1_000);
+
+        var listed = new List<string>();
+        await foreach (var entry in prod.ListAsync("")) listed.Add(entry.Key);
+
+        Assert.Single(listed);
+        Assert.DoesNotContain(key, listed);
+        Assert.False(await prod.ExistsAsync(key));
+    }
 }
 
 public sealed class AzureBlobArtifactStoreRegistrationTests
