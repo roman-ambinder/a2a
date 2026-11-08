@@ -143,6 +143,49 @@ public class ApiKeyCredentialProviderTests
         if (key.Length > 0) Assert.DoesNotContain(key, ex.Message);
     }
 
+    [Theory]
+    [InlineData("Host", "header")]
+    [InlineData("Content-Length", "header")]
+    [InlineData("api_key", "query")]
+    [InlineData("X-Key", "body")]
+    public async Task Apply_enforces_the_CanHandle_policy(string name, string location)
+    {
+        var p = new ApiKeyCredentialProvider("SECRET");
+        var r = Req();
+        var ex = await Assert.ThrowsAsync<A2AException>(async () =>
+            await p.ApplyAsync(r, Ctx(SecurityScheme.ApiKey(name, location)), default));
+        Assert.Equal(A2AErrorCode.Unauthenticated, ex.Code);
+        Assert.DoesNotContain("SECRET", ex.Message);
+        Assert.Empty(r.Headers);
+    }
+
+    [Fact]
+    public async Task Apply_enforces_the_scheme_name_filter()
+    {
+        var p = new ApiKeyCredentialProvider("k", "wanted");
+        var r = Req();
+        await Assert.ThrowsAsync<A2AException>(async () =>
+            await p.ApplyAsync(r, Ctx(SecurityScheme.ApiKey("X-Key"), "other"), default));
+        Assert.Empty(r.Headers);
+    }
+
+    [Fact]
+    public async Task Applying_twice_replaces_the_same_cookie_and_keeps_others()
+    {
+        var key = "one";
+        var p = new ApiKeyCredentialProvider(_ => ValueTask.FromResult(key));
+        var ctx = Ctx(SecurityScheme.ApiKey("sid", "cookie"));
+        var r = Req();
+        r.Headers.TryAddWithoutValidation("Cookie", "other=1");
+        await p.ApplyAsync(r, ctx, default);
+        key = "two";
+        await p.ApplyAsync(r, ctx, default);
+        var values = r.Headers.GetValues("Cookie").ToList();
+        Assert.Single(values, v => v.StartsWith("sid=", StringComparison.Ordinal));
+        Assert.Contains("sid=two", values);
+        Assert.Contains("other=1", values);
+    }
+
     [Fact]
     public void Constructors_validate_arguments()
     {

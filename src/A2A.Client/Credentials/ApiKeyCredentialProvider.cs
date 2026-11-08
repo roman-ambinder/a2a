@@ -53,8 +53,8 @@ public sealed class ApiKeyCredentialProvider : IA2ACredentialProvider
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
-        if (context.Scheme is not ApiKeyScheme { Value: var v } || !IsToken(v.Name))
-            throw new A2AException(A2AErrorCode.Unauthenticated, "The security scheme is not a usable API key scheme.");
+        if (!CanHandle(context) || context.Scheme is not ApiKeyScheme { Value: var v })
+            throw new A2AException(A2AErrorCode.Unauthenticated, "The security scheme is not one this API key provider can apply.");
 
         var isCookie = string.Equals(v.Location, "cookie", StringComparison.OrdinalIgnoreCase);
         var key = await _source(cancellationToken).ConfigureAwait(false);
@@ -63,7 +63,19 @@ public sealed class ApiKeyCredentialProvider : IA2ACredentialProvider
 
         if (isCookie)
         {
-            if (!request.Headers.TryAddWithoutValidation("Cookie", $"{v.Name}={key}"))
+            var prefix = v.Name + "=";
+            if (request.Headers.TryGetValues("Cookie", out var existing))
+            {
+                var all = existing.ToList();
+                var kept = all.Where(c => !c.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+                if (kept.Count != all.Count)
+                {
+                    request.Headers.Remove("Cookie");
+                    foreach (var c in kept) request.Headers.TryAddWithoutValidation("Cookie", c);
+                }
+            }
+
+            if (!request.Headers.TryAddWithoutValidation("Cookie", prefix + key))
                 throw new A2AException(A2AErrorCode.Unauthenticated, "The API key could not be added as a cookie.");
             return;
         }
