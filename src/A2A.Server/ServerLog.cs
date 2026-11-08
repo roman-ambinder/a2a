@@ -142,6 +142,12 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 235, Level = LogLevel.Information, Message = "Task {TaskId} waited for input longer than {Timeout}; cancelled")]
     public static partial void SweepCancelledInterrupted(ILogger logger, string taskId, TimeSpan? timeout);
 
+    [LoggerMessage(EventId = 240, Level = LogLevel.Debug, Message = "Task {TaskId}: not continued ({Status})")]
+    public static partial void ContinuationRefused(ILogger logger, string taskId, TaskContinuationStatus status);
+
+    [LoggerMessage(EventId = 241, Level = LogLevel.Warning, Message = "Task {TaskId}: could not release the lease claim of a continuation; it expires")]
+    public static partial void ContinuationClaimReleaseFailed(ILogger logger, Exception exception, string taskId);
+
     [LoggerMessage(EventId = 250, Level = LogLevel.Debug, Message = "Skipped the A2A startup diagnostics")]
     public static partial void StartupDiagnosticsSkipped(ILogger logger, Exception exception);
 

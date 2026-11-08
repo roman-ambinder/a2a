@@ -287,7 +287,7 @@ public sealed class A2ARetentionService : BackgroundService
     }
 
     /// <summary>Interrupted, with its status and its last update both older than <paramref name="cutoff"/>.</summary>
-    private static bool StillWaiting(TaskRecord r, DateTimeOffset cutoff) =>
+    internal static bool StillWaiting(TaskRecord r, DateTimeOffset cutoff) =>
         r.Task.Status.State.IsInterrupted() && (r.Task.Status.Timestamp ?? r.CreatedAt) < cutoff && r.UpdatedAt < cutoff;
 
     private Task PurgeExpiredTasksAsync(CancellationToken cancellationToken)
@@ -311,6 +311,6 @@ public sealed class A2ARetentionService : BackgroundService
     }
 
     /// <summary><paramref name="now"/> minus <paramref name="age"/>, or the earliest time when that is out of range.</summary>
-    private static DateTimeOffset Before(DateTimeOffset now, TimeSpan age) =>
+    internal static DateTimeOffset Before(DateTimeOffset now, TimeSpan age) =>
         now - DateTimeOffset.MinValue > age ? now - age : DateTimeOffset.MinValue;
 }

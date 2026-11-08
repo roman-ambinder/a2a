@@ -147,7 +147,8 @@ public sealed class TaskUpdater
 
     /// <summary>
     /// The <c>metadata</c> of the request that started this run: the SendMessage metadata for
-    /// <see cref="IAgentExecutor.ExecuteAsync"/>, the CancelTask metadata for <see cref="IAgentExecutor.CancelAsync"/>.
+    /// <see cref="IAgentExecutor.ExecuteAsync"/>, the CancelTask metadata for <see cref="IAgentExecutor.CancelAsync"/>, the
+    /// metadata passed to <c>ContinueTaskAsync</c> for <see cref="IContinuableAgentExecutor.ContinueAsync"/>.
     /// Null when the request had none.
     /// </summary>
     public IReadOnlyDictionary<string, JsonElement>? RequestMetadata { get; }
