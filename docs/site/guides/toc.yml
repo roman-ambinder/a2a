@@ -4,12 +4,22 @@
   href: bindings.md
 - name: Authentication and ownership
   href: auth-and-ownership.md
+- name: Client credentials
+  href: client-credentials.md
 - name: Streaming and resume
   href: streaming.md
 - name: Push notifications
   href: push-notifications.md
 - name: Agent card signing
   href: agent-card-signing.md
+- name: Peer identity and registry
+  href: peer-identity.md
+- name: Skill selection
+  href: skill-selection.md
+- name: Microsoft.Extensions.AI
+  href: extensions-ai.md
+- name: v0.3 compatibility
+  href: v03-compatibility.md
 - name: Multi-tenancy
   href: multi-tenancy.md
 - name: Durable stores

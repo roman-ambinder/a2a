@@ -49,12 +49,12 @@ Skips are capability tests that need an agent without the capability, or optiona
 
 | TCK requirement | Bindings | Why |
 |---|---|---|
-| `CORE-SEND-003` | all | TCK bug. The requirement says the call must fail, but the entry has no `expected_error`, so the runner demands success. The SDK returns `ContentTypeNotSupported`. `HTTP_JSON-STATUS-001` and ACTS `CORE-SEND-004` check this and pass. |
-| `CORE-MULTI-002a` | all | TCK bug, same cause. The requirement says to reject a `contextId` the agent cannot accept, and the SDK does. |
+| `CORE-SEND-003` | all | TCK bug ([#202](https://github.com/a2aproject/a2a-tck/issues/202), fix in [PR #203](https://github.com/a2aproject/a2a-tck/pull/203)). The requirement says the call must fail, but the entry has no `expected_error`, so the runner demands success. The SDK returns `ContentTypeNotSupported`. `HTTP_JSON-STATUS-001` and ACTS `CORE-SEND-004` check this and pass. |
+| `CORE-MULTI-002a` | all | TCK bug, same issue and fix as above. The requirement says to reject a `contextId` the agent cannot accept, and the SDK does. |
 | `CORE-MULTI-002` | all | SDK choice, `MAY` in spec 3.4.1. Unknown client `contextId`s are rejected by default. `ClientContextIdPolicy.AdoptIfUnknown` accepts them. |
-| `HTTP_JSON-ERR-001` | HTTP+JSON | TCK bug. One test wants `application/json` on errors. Spec 11.6 shows `application/a2a+json`, and another TCK check expects that too. |
+| `HTTP_JSON-ERR-001` | HTTP+JSON | TCK bug (fix in [PR #238](https://github.com/a2aproject/a2a-tck/pull/238)). One test wants `application/json` on errors. Spec 11.6 shows `application/a2a+json`, and another TCK check expects that too. |
 
-No upstream issues are filed for these yet.
+When those fixes land and the pin moves, `check.py` will report which entries to remove.
 
 The false failures known from the TCK tracker (a2a-tck #141, #146, #201, #242, #244, #264) did not show up at this pin.
 
@@ -62,7 +62,7 @@ The false failures known from the TCK tracker (a2a-tck #141, #146, #201, #242, #
 
 `dotnet/ConformanceAgent` is the system under test. Differences that affect results:
 
-- **TCK pass only: message-ID dedupe is off** (`SUT_DISABLE_MESSAGE_DEDUPE=1`). The TCK helpers reuse one `messageId` for every task they create, and the SDK treats `messageId` as an idempotency key (spec 3.3.1 allows this). With dedupe on, the TCK gets replays of old tasks or `IdempotencyKeyMismatch`, and about 30 requirements fail or go untested. ACTS runs with SDK defaults.
+- **TCK pass only: message-ID dedupe is off** (`SUT_DISABLE_MESSAGE_DEDUPE=1`). The TCK helpers reuse one `messageId` for every task they create ([a2a-tck #267](https://github.com/a2aproject/a2a-tck/issues/267)), and the SDK treats `messageId` as an idempotency key (spec 3.3.1 allows this). With dedupe on, the TCK gets replays of old tasks or `IdempotencyKeyMismatch`, and about 30 requirements fail or go untested. ACTS runs with SDK defaults.
 - **Default pass: only the extended card reads the bearer token.** ACTS starts some tasks with a token and reads them without one, and the SDK scopes tasks to their owner.
 - ACTS also runs two more agent instances: `ITK_ACTS_AUTH=1` (every operation needs a token) and `ITK_ACTS_REDUCED_CAPABILITIES=1`.
 - The gRPC interface URL is `host:port` with no scheme, because both suites pass it straight to a gRPC channel.

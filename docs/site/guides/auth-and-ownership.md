@@ -91,7 +91,9 @@ With DI, <xref:A2A.Client.A2AClientServiceCollectionExtensions.AddA2AClient*> re
 
 [!code-csharp[](../snippets/AuthAndOwnership.cs#Client)]
 
-<xref:A2A.Client.A2AClientServiceCollectionExtensions.AddBearerToken*> sets `Authorization: Bearer` on every request. The token provider runs per request, so cache inside it.
+<xref:A2A.Client.A2AClientServiceCollectionExtensions.AddBearerToken*> sets `Authorization: Bearer` on every request. The token provider runs per request, so cache inside it. On an `AddA2AClient` builder it refuses to send the token to an origin other than the `AgentUrl` origin.
+
+To let the client fetch tokens and attach API keys or client certificates from the card's security schemes, see [Client credentials](client-credentials.md).
 
 A2A clients do not follow redirects. `AddA2AClient` turns off redirects and cookies. A client that follows a redirect can send your credential headers to another host. If a response arrives through a redirect, the client refuses it with `InvalidAgentResponse`. That check runs after the response, so it cannot undo what a redirecting handler already sent. If you pass your own `HttpClient`, turn redirects off:
 
@@ -103,25 +105,44 @@ An agent often calls another agent for the caller. Two things help: the actor ch
 
 ### The actor chain
 
-`metadata["actorChain"]` on a message says who the agent acts for. Read it with `GetActorChain()`, add your hop with `AppendHop`, and set it on the next message with `SetActorChain`.
+`metadata["actorChain"]` on a message says who the agent acts for. It has the party the work is for (`origin`) and the agents that passed it on (`actors`, first hop first):
 
-- The chain is audit, not authorization. The caller writes it, so it proves nothing. Do not grant access because of it.
-- The server refuses a chain with more than <xref:A2A.Server.A2ALimits.MaxActorChainHops> hops (default 8) with `InvalidRequest`, before the agent runs. This only stops loops of honest agents. It is a loop brake, not a security boundary: a caller can drop the chain.
-- A well-formed chain is echoed on `Task.metadata`.
+```json
+{
+  "actorChain": {
+    "origin": { "sub": "user:alice@example.com" },
+    "actors": [
+      { "sub": "agent:coordinator", "scopes": ["repo:read", "ci:trigger"] },
+      { "sub": "agent:rebase-worker", "scopes": ["repo:read"] }
+    ]
+  }
+}
+```
+
+Each entry has a required `sub`, and an optional `iss` and `scopes`. Fields the SDK does not know, such as `proof_ref`, are kept when you read and write the chain.
+
+Read it with `GetActorChain()`. It returns `null` when there is no chain or the shape is wrong. Start a chain with `ActorChain.Start(origin)`, add your hop with `AppendHop`, and set it on the next message with `SetActorChain`. `AppendHop` returns a new chain. It shares the earlier hops and does not change them.
+
+- The chain is audit, not authorization. The caller writes it, so it proves nothing. Do not grant access because of it. Treat its text as untrusted when you log it or put it in a prompt.
+- A hop is an entry in `actors`. The server refuses a chain with more than <xref:A2A.Server.A2ALimits.MaxActorChainHops> hops (default 8) with `InvalidRequest`, before the agent runs and with nothing stored. It counts whenever `actors` is an array. This only stops loops of honest agents. It is a loop brake, not a security boundary: a caller can drop the chain.
+- A well-formed chain is echoed on `Task.metadata`: when the task is created, and again when a follow-up message carries one (the latest wins). A follow-up without a chain leaves the echo as it is. A value with the wrong shape is ignored and not echoed.
+- The chain is an optional extension, `ActorChain.ExtensionUri`. `ActorChain.CreateExtension()` gives the entry for your card. The server does not add it for you. If the caller activated the extension, a chain with the wrong shape is refused with `InvalidParams`.
 
 ### The inbound token
 
-Agent code never gets the caller's token. `ServerCallContext.InboundBearerToken` can be read only inside `A2A.Server`. The server keeps the token only when an <xref:A2A.Delegation.ITokenExchanger> is registered and the caller is authenticated.
+Agent code never gets the caller's token. `ServerCallContext.InboundBearerToken` can be read only inside `A2A.Server`. The server keeps the token only when an <xref:A2A.Delegation.ITokenExchanger> is registered, the caller is authenticated and the header is `Authorization: Bearer <token>`.
 
-- The token lives in memory for the agent run. The run can outlive the HTTP request, and the token can expire before the run ends.
-- To call the next agent, exchange the token and use the result. `ExchangeTokenAsync` on the agent context does this. `CanExchangeToken` tells you if it can run.
-- Do not copy the `Authorization` header from your own `HttpContext`. That forwards the caller's token to the next agent. `A2AClient` never adds one by itself.
+- The token lives in memory for the agent run. It is not stored or logged. The run can outlive the HTTP request, and the token can expire before the run ends. A run recovered on another instance has no token.
+- To call the next agent, exchange the token and use the result. `ExchangeTokenAsync(audience, scopes)` on the agent context does this. The audience is required. `CanExchangeToken` tells you if it can run. When it is false, the call throws `InvalidOperationException`.
+- Do not copy the `Authorization` header from your own `HttpContext`. That forwards the caller's token to the next agent. The client has no access to the inbound token and does not forward it.
 
 ### Register an exchanger
 
 [!code-csharp[](../snippets/AuthAndOwnership.cs#Exchanger)]
 
-<xref:A2A.Client.Delegation.OAuthTokenExchanger> never follows redirects. A redirect (a 307 or 308 re-posts the form) would send the client secret and the subject token to another host. The constructor with only options uses a built-in handler that does not follow redirects. To use your own handler (a proxy, or `IHttpMessageHandlerFactory.CreateHandler`), pass it to `new OAuthTokenExchanger(handler, options)`. The constructor throws when a `SocketsHttpHandler` or `HttpClientHandler` in the chain has `AllowAutoRedirect = true`. It cannot check a custom terminal handler, so that one must not follow redirects.
+<xref:A2A.Client.Delegation.OAuthTokenExchanger> never follows redirects. A redirect (a 307 or 308 re-posts the form) would send the client secret and the subject token to another host. The constructor with only options uses a built-in handler that does not follow redirects. To use your own handler (a proxy, or `IHttpMessageHandlerFactory.CreateHandler`), pass it to `new OAuthTokenExchanger(handler, options)`. The constructor throws when a `SocketsHttpHandler` or `HttpClientHandler` in the chain has `AllowAutoRedirect = true`. It cannot check a custom terminal handler, so that one must not follow redirects. A 3xx response is refused.
+
+The exchanger needs an HTTPS token endpoint (loopback may use HTTP) and reads at most 64 KiB of response. A refused exchange throws `TokenExchangeException`. Its message and its `Error` property (the RFC 6749 `error` code) never contain a token or the server's text.
 
 Warning: the server sends the caller's `Authorization: Bearer` value to the exchanger whenever any scheme authenticated the caller. Register an exchanger only when a Bearer handler validates that header on these endpoints. On a host that authenticates with cookies, API keys or mTLS, that header is not checked.
 
@@ -129,9 +150,9 @@ Warning: the server sends the caller's `Authorization: Bearer` value to the exch
 
 [!code-csharp[](../snippets/AuthAndOwnership.cs#Delegate)]
 
-`UseBearerToken(token, workerUrl)` needs the URL of the agent the token was issued for. It throws before sending if the call goes to another origin. It cannot stop a redirect, so the client must not follow redirects: `A2AClientFactory.CreateAsync` with credential providers and `AddA2AClient` already guarantee that. If you build the `HttpClient` yourself, use `AllowAutoRedirect = false`.
+`UseBearerToken(token, workerUrl)` needs the URL of the agent the token was issued for. It throws `A2AException` before sending if the call goes to another origin. It throws `InvalidOperationException` if the token type is not `Bearer`. It cannot stop a redirect, so the client must not follow redirects: `A2AClientFactory.CreateAsync` with credential providers and `AddA2AClient` already guarantee that. If you build the `HttpClient` yourself, use `AllowAutoRedirect = false`.
 
-`AddBearerToken` on a DI client overwrites `Authorization`, so it replaces a token set with `UseBearerToken`. Do not combine them on one client.
+`AddBearerToken` on a DI client overwrites `Authorization`, so it replaces a token set with `UseBearerToken`. A credential provider that sets `Authorization` (for example the OAuth2 one) does the same. Do not combine them on one client.
 
 ## What can go wrong
 
@@ -142,6 +163,7 @@ Warning: the server sends the caller's `Authorization: Bearer` value to the exch
 
 ## See also
 
+- [Client credentials](client-credentials.md)
 - [Multi-tenancy](multi-tenancy.md)
 - [Limits and rate limiting](limits-and-rate-limiting.md)
 - [Task safety](task-safety.md)
