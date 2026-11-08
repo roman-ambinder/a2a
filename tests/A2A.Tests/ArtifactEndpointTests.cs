@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using A2A.Client;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Authorization;
@@ -366,6 +367,48 @@ public sealed class ArtifactEndpointTests
         using var response = await host.Http("alice").SendAsync(request);
 
         Assert.Equal(HttpStatusCode.RequestedRangeNotSatisfiable, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Range_to_the_largest_long_is_open_ended()
+    {
+        var store = new InMemoryArtifactObjectStore();
+        await using var host = await StartAsync(store, o => o.ArtifactStorage.Delivery = ArtifactDelivery.Proxy);
+        var seed = await SeedAsync(host, store);
+        using var request = new HttpRequestMessage(HttpMethod.Get, seed.Url());
+        request.Headers.Range = new RangeHeaderValue(0, long.MaxValue);
+
+        using var response = await host.Http("alice").SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.PartialContent, response.StatusCode);
+        Assert.Equal(new ContentRangeHeaderValue(0, 999, 1000), response.Content.Headers.ContentRange);
+        Assert.Equal(Payload, await response.Content.ReadAsByteArrayAsync());
+    }
+
+    [Fact]
+    public void ParseRange_treats_a_last_byte_that_overflows_the_length_as_open_ended()
+    {
+        var range = ArtifactEndpoint.ParseRange("bytes=0-9223372036854775807");
+
+        Assert.NotNull(range);
+        Assert.Equal(0, range.Offset);
+        Assert.Null(range.Length);
+    }
+
+    [Fact]
+    public async Task Download_does_not_need_the_required_extensions_header()
+    {
+        var store = new InMemoryArtifactObjectStore();
+        await using var host = await StartAsync(store, o => o.AgentCard.Capabilities.Extensions = [new AgentExtension { Uri = "urn:must", Required = true }]);
+        var task = (await host.Client(ProtocolBindings.JsonRpc, "alice", new A2AClientOptions { Extensions = ["urn:must"] }).SendMessageAsync("task")).RequireTask();
+        var seed = await PutAsync(store, task.Id);
+
+        using var response = await host.Http("alice").GetAsync(seed.Url()); // a plain GET: no A2A-Extensions header
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(Payload, await response.Content.ReadAsByteArrayAsync());
+        using var anonymous = await host.Http().GetAsync(seed.Url());
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
     }
 
     [Fact]

@@ -40,7 +40,7 @@ public sealed class CallValidator(A2AServerOptions options, IAgentCardProvider c
     internal static void ApplyExtensions(AgentCard card, ServerCallContext call)
     {
         var declared = card.Capabilities.Extensions ?? [];
-        foreach (var ext in declared.Where(e => e.Required))
+        foreach (var ext in declared.Where(e => e.Required && !call.SkipRequiredExtensions))
         {
             if (!call.RequestedExtensions.Contains(ext.Uri, StringComparer.Ordinal))
                 throw new A2AException(A2AErrorCode.ExtensionSupportRequired, $"Extension '{ext.Uri}' is required.")

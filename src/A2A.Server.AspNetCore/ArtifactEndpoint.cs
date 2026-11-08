@@ -39,8 +39,9 @@ internal sealed class ArtifactEndpoint(A2ARequestHandler handler, IOptions<A2ASe
         response.Headers[HeaderNames.CacheControl] = "private, no-store";
 
         ServerCallContext call;
-        // A download is a plain GET by a downloader or a browser, which sends no A2A-Version header: it is always a current-version call.
-        try { call = HttpPlumbing.CreateCallContext(http, ProtocolBindings.HttpJson, versionOverride: A2AProtocol.Version); }
+        // A download is a plain GET by a downloader or a browser, which sends no A2A-Version or A2A-Extensions header: it is always a
+        // current-version call, and the card's required extensions are not enforced. Authentication and ownership still are.
+        try { call = HttpPlumbing.CreateCallContext(http, ProtocolBindings.HttpJson, versionOverride: A2AProtocol.Version, skipRequiredExtensions: true); }
         catch (Exception ex) when (!response.HasStarted)
         {
             await WriteErrorAsync(http, ServerCallContext.Anonymous(), HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
@@ -119,7 +120,7 @@ internal sealed class ArtifactEndpoint(A2ARequestHandler handler, IOptions<A2ASe
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
             if (total > 0) BytesServed.Add(total);
         }
     }
@@ -134,7 +135,8 @@ internal sealed class ArtifactEndpoint(A2ARequestHandler handler, IOptions<A2ASe
         if (!string.Equals(parsed.Unit.Value, "bytes", StringComparison.OrdinalIgnoreCase) || parsed.Ranges.Count != 1) return null;
         var range = parsed.Ranges.Single();
         if (range.From is not { } from || range.To is { } to && to < from) return null;
-        return new ArtifactByteRange(from, range.To is { } last ? last - from + 1 : null);
+        // A last byte so far past the first that the length does not fit in a long means "to the end".
+        return new ArtifactByteRange(from, range.To is { } last && last - from < long.MaxValue ? last - from + 1 : null);
     }
 
     private static string RouteString(HttpContext http, string name) => Convert.ToString(http.Request.RouteValues[name], System.Globalization.CultureInfo.InvariantCulture) ?? "";

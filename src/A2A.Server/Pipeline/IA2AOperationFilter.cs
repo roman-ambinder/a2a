@@ -48,6 +48,11 @@ public delegate ValueTask<object?> A2AOperationDelegate(A2AOperationContext cont
 /// A replacement request, or a change to <see cref="ServerCallContext.Tenant"/>, made after authorization (by an
 /// <see cref="A2AFilterStage.AfterAuthorization"/> filter) is not authorized again: the operation runs with it as it is.
 /// </para>
+/// <para>
+/// An artifact download (<see cref="A2ARequestHandler.OpenArtifactAsync"/>) runs as a GetTask operation, and its result is an
+/// <see cref="ArtifactDownload"/>, not an <see cref="AgentTask"/>. A filter that casts a GetTask result must check the type first.
+/// The result is not copied: it holds an open stream, so a filter that replaces it must dispose it.
+/// </para>
 /// <para>One filter instance serves every call, concurrently: keep per-call state in <see cref="A2AOperationContext.Items"/>.</para>
 /// </remarks>
 public interface IA2AOperationFilter
