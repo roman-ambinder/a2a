@@ -38,3 +38,5 @@
   href: interop-and-conformance.md
 - name: Spec decisions
   href: spec-decisions.md
+- name: Versioning
+  href: versioning.md

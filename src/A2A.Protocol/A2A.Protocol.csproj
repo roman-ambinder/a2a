@@ -3,6 +3,24 @@
     <RootNamespace>A2A</RootNamespace>
     <Description>A2A (Agent2Agent) protocol v1.0 data model, JSON serialization, errors, and Agent Card signing.</Description>
   </PropertyGroup>
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0;net10.0</TargetFrameworks>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="PolySharp" PrivateAssets="all" />
+    <PackageReference Include="System.Text.Json" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
+    <PackageReference Include="Microsoft.Bcl.HashCode" />
+    <PackageReference Include="Microsoft.Bcl.TimeProvider" />
+    <PackageReference Include="System.Diagnostics.DiagnosticSource" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <Compile Include="..\Shared\*.cs" Link="Shared\%(Filename)%(Extension)" />
+  </ItemGroup>
+  <!-- netstandard2.0 surface is a subset of net8.0 by design; package validation proves it. CS1574/CS1580: doc crefs to SocketsHttpHandler. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <NoWarn>$(NoWarn);RS0016;RS0017;CS1574;CS1580</NoWarn>
+  </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="A2A.Tests" />
   </ItemGroup>

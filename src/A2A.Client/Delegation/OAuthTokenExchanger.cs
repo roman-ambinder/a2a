@@ -53,12 +53,21 @@ public sealed class OAuthTokenExchanger : ITokenExchanger, IDisposable
     private const string GrantType = "urn:ietf:params:oauth:grant-type:token-exchange";
 
     // Shared by every exchanger that does not bring its own handler. It has no state per caller (no cookies, no credentials).
+#if NETSTANDARD2_0
+    // No SocketsHttpHandler on netstandard2.0.
+    private static readonly Lazy<HttpClientHandler> DefaultHandler = new(static () => new HttpClientHandler
+    {
+        AllowAutoRedirect = false,
+        UseCookies = false,
+    });
+#else
     private static readonly Lazy<SocketsHttpHandler> DefaultHandler = new(static () => new SocketsHttpHandler
     {
         AllowAutoRedirect = false,
         UseCookies = false,
         PooledConnectionLifetime = TimeSpan.FromMinutes(2),
     });
+#endif
 
     private readonly HttpClient _httpClient;
     private readonly OAuthTokenExchangerOptions _options;
@@ -181,13 +190,13 @@ public sealed class OAuthTokenExchanger : ITokenExchanger, IDisposable
         }
 
         var accessToken = GetString(root, "access_token");
-        if (string.IsNullOrEmpty(accessToken))
+        if (accessToken is null || accessToken.Length == 0)
         {
             throw new TokenExchangeException("The token endpoint response has no access_token.");
         }
 
         var tokenType = GetString(root, "token_type");
-        if (string.IsNullOrEmpty(tokenType))
+        if (tokenType is null || tokenType.Length == 0)
         {
             throw new TokenExchangeException("The token endpoint response has no token_type.");
         }
@@ -221,7 +230,7 @@ public sealed class OAuthTokenExchanger : ITokenExchanger, IDisposable
     private static string? ReadErrorCode(JsonElement root)
     {
         var error = GetString(root, "error");
-        if (string.IsNullOrEmpty(error))
+        if (error is null || error.Length == 0)
         {
             return null;
         }
@@ -249,7 +258,12 @@ public sealed class OAuthTokenExchanger : ITokenExchanger, IDisposable
             throw new TokenExchangeException("The token endpoint response is too large.");
         }
 
+#if NETSTANDARD2_0
+        // Stream has no DisposeAsync on netstandard2.0.
+        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+#else
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+#endif
         using var buffer = new MemoryStream();
         var chunk = new byte[8192];
         int read;

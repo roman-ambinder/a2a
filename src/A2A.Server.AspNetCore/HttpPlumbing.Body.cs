@@ -161,6 +161,11 @@ internal static partial class HttpPlumbing
         {
             throw A2AException.InvalidParams($"Invalid request body: {ex.Message}");
         }
+        catch (InvalidOperationException)
+        {
+            // A property name that cannot be unescaped to text, such as a lone surrogate escape. Valid JSON, but not a valid request.
+            throw A2AException.InvalidParams("Invalid request body: a property name is not valid text");
+        }
     }
 
     /// <summary>Failure path only: tells a limit violation (valid JSON) from a syntax error. Nesting beyond 1024 counts as malformed.</summary>

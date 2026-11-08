@@ -74,7 +74,7 @@ public abstract class HttpTransportBase
     {
         if (request.Message is not { } message) return call?.IdempotencyKey;
         if (string.IsNullOrWhiteSpace(message.MessageId)) message.MessageId = Message.NewId();
-        return string.IsNullOrEmpty(call?.IdempotencyKey) ? message.MessageId : call.IdempotencyKey;
+        return call?.IdempotencyKey is not { Length: > 0 } key ? message.MessageId : key;
     }
 
     /// <summary>
@@ -113,7 +113,12 @@ public abstract class HttpTransportBase
         }
         catch (OperationCanceledException ex) when (cts.IsCancellationRequested && !ct.IsCancellationRequested)
         {
+#if NETSTANDARD2_0
+            // The three-argument constructor is not available, so the exception does not carry the token.
+            throw new TaskCanceledException($"The request timed out after {timeout.TotalSeconds:0.###} s.", new TimeoutException(null, ex));
+#else
             throw new TaskCanceledException($"The request timed out after {timeout.TotalSeconds:0.###} s.", new TimeoutException(null, ex), cts.Token);
+#endif
         }
     }
 
@@ -167,7 +172,7 @@ public abstract class HttpTransportBase
             _ => A2AErrorCode.Internal,
         };
         var msg = $"HTTP {status} {response.ReasonPhrase}";
-        if (!string.IsNullOrWhiteSpace(body) && body.Length < 2048) msg += $": {body}";
+        if (body is not null && !string.IsNullOrWhiteSpace(body) && body.Length < 2048) msg += $": {body}";
         return new A2AException(code, msg) { HttpStatus = status, RetryAfter = RetryAfterOf(response, null) };
     }
 

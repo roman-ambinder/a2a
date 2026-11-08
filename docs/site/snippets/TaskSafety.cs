@@ -1,4 +1,5 @@
 using A2A.Client;
+using A2A.Elicitations;
 using A2A.Security.Http;
 using A2A.Server;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,6 +24,32 @@ internal sealed class DeleteFilesAgent : IAgentExecutor
                 await updater.RequireApprovalAsync(approval, "Delete 3 files in /reports?", cancellationToken);
                 break;
         }
+    }
+    #endregion
+}
+
+internal sealed class BookingAgent : IAgentExecutor
+{
+    #region ElicitServer
+    public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken)
+    {
+        if (context.ElicitationAnswer is { } answer)
+        {
+            // The server checked the answer against the form. The agent decides what each action means.
+            if (answer.Action == ElicitationAction.Accept)
+                await updater.CompleteAsync($"Booked {answer.GetInt64("nights")} nights in {answer.GetString("city")}.", cancellationToken);
+            else
+                await updater.FailAsync("No booking without details.", cancellationToken);
+            return;
+        }
+
+        var form = new ElicitationForm(
+        [
+            ElicitationField.Text("city", "City", required: true, maxLength: 100),
+            ElicitationField.Integer("nights", "Nights", required: true, minimum: 1, maximum: 30),
+        ]);
+        // The text is the question in words. A client that cannot read the form answers it in plain text.
+        await updater.RequireInputAsync(context, form, "Which city, and how many nights?", cancellationToken);
     }
     #endregion
 }
@@ -90,5 +117,21 @@ internal static class Samples
         var description = resolved.Description.ToString();
         #endregion
         return description;
+    }
+
+    public static async Task Elicit(A2AClient client)
+    {
+        #region ElicitClient
+        var started = await client.SendMessageAsync(Message.FromUser("Book me a room"), options: new A2ARequestOptions().UseElicitation());
+        var task = ((TaskResponse)started).Task;
+
+        var form = task.GetElicitationForm(); // null when the agent sent no form, or a form this client cannot read
+        if (form is not null)
+        {
+            // Show the user who is asking and the text, then the fields. The user fills them in, not a model.
+            var answer = ElicitationAnswer.Accept(form, new ElicitationValues { { "city", "Oslo" }, { "nights", 2 } });
+            await client.AnswerElicitationAsync(task, answer); // or ElicitationAnswer.Decline(form) / .Cancel(form)
+        }
+        #endregion
     }
 }

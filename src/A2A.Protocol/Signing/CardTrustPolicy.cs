@@ -48,7 +48,7 @@ public sealed class CardTrustPolicy
     public ISet<string> AcceptedTyp { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "JOSE", "JOSE+JSON" };
 
     /// <summary>Accepted <c>alg</c> values. Defaults to <see cref="JwsAlgorithms.All"/>; values outside that set are never accepted.</summary>
-    public ISet<string> AllowedAlgorithms { get; } = new HashSet<string>(JwsAlgorithms.All, StringComparer.Ordinal);
+    public ISet<string> AllowedAlgorithms { get; } = new HashSet<string>(JwsAlgorithms.Supported, StringComparer.Ordinal);
 
     /// <summary><see cref="RequireSignature"/> with its default applied.</summary>
     public bool EffectiveRequireSignature => RequireSignature ?? (TrustedKeys.Count > 0 || AllowedJkuHosts.Count > 0);

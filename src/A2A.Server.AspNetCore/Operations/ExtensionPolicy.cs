@@ -7,15 +7,20 @@ namespace A2A.Server.AspNetCore.Operations;
 
 /// <summary>
 /// Evaluates the ASP.NET Core authorization policy of an extension operation (<see cref="A2AExtensionOperation.AuthorizationPolicy"/>)
-/// before the HTTP bindings call it, and passes the result to the core in <see cref="ServerCallContext.Items"/>.
+/// before the HTTP bindings and the gRPC extension service call it, and passes the result to the core in
+/// <see cref="ServerCallContext.Items"/>.
 /// </summary>
-internal static class ExtensionPolicy
+public static class ExtensionPolicy
 {
     /// <summary>
     /// Does nothing when the operation has no policy. Otherwise evaluates it for <c>HttpContext.User</c>: on success sets
     /// <see cref="A2AExtensionOperation.PolicySatisfiedItem"/>; on failure throws the error an authorization handler denial
     /// gets (Unauthenticated for an anonymous caller the server refuses anyway, otherwise PermissionDenied).
     /// </summary>
+    /// <param name="http">The request; its <c>User</c> is checked.</param>
+    /// <param name="operation">The extension operation.</param>
+    /// <param name="call">The call context that receives <see cref="A2AExtensionOperation.PolicySatisfiedItem"/>.</param>
+    /// <param name="allowAnonymous">The server's <see cref="A2AServerOptions.AllowAnonymous"/>.</param>
     public static async Task RequireAsync(HttpContext http, A2AExtensionOperation operation, ServerCallContext call, bool allowAnonymous)
     {
         if (operation.AuthorizationPolicy is not { } policy) return;

@@ -378,27 +378,21 @@ public sealed class OperationTableTests
     // ---------------------------------------------------------------- gRPC
 
     /// <summary>
-    /// The gRPC binding is exempt (its proto is fixed, spec D21): its service never consults the table or calls extension
-    /// operations. A source check, because this test project does not reference the gRPC assembly.
+    /// The built-in gRPC service (<c>lf.a2a.v1.A2AService</c>, its proto is fixed, spec D21) never consults the table or calls
+    /// extension operations; they are served by the separate <c>A2AGrpcExtensionService</c>. A source check, because this test
+    /// project does not reference the gRPC assembly.
     /// </summary>
     [Fact]
-    public void Grpc_ignores_extensions()
+    public void Grpc_service_ignores_extensions()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "A2A.slnx"))) dir = dir.Parent;
         Assert.NotNull(dir);
-        var grpc = Path.Combine(dir.FullName, "src", "A2A.Server.Grpc");
-        var files = Directory.GetFiles(grpc, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-                        && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
-            .ToArray();
-        Assert.NotEmpty(files);
-        foreach (var file in files)
-        {
-            var text = File.ReadAllText(file);
-            Assert.DoesNotContain(nameof(A2AOperationTable), text);
-            Assert.DoesNotContain(nameof(A2AExtensionOperation), text);
-            Assert.DoesNotContain(nameof(IA2ARequestHandler.InvokeExtensionAsync), text);
-        }
+        var file = Path.Combine(dir.FullName, "src", "A2A.Server.Grpc", "A2AGrpcService.cs");
+        Assert.True(File.Exists(file));
+        var text = File.ReadAllText(file);
+        Assert.DoesNotContain(nameof(A2AOperationTable), text);
+        Assert.DoesNotContain(nameof(A2AExtensionOperation), text);
+        Assert.DoesNotContain(nameof(IA2ARequestHandler.InvokeExtensionAsync), text);
     }
 }

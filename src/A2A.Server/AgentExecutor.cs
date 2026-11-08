@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Channels;
 using A2A.Delegation;
+using A2A.Elicitations;
 using A2A.Integrity;
 using A2A.Skills;
 
@@ -76,8 +77,24 @@ public sealed class AgentRequestContext
     /// This is a hint from the caller. Unless the card opts in with <see cref="SkillSelection.CreateExtension"/> (<c>rejectUnknownSkills: true</c>), it may name a skill
     /// the agent does not have. Do not use it for authorization.
     /// </remarks>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP001", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
     public string? RequestedSkillId =>
         Call.ActivatedExtensions.Contains(SkillSelection.ExtensionUri) ? Message.GetRequestedSkillId() : null;
+
+    /// <summary>
+    /// True when a form passed to <see cref="TaskUpdater.RequireInputAsync(AgentRequestContext, ElicitationForm, string, CancellationToken)"/>
+    /// reaches the client: the caller activated the elicitation extension and the agent card declares it. When false, the client
+    /// gets the text question only.
+    /// </summary>
+    public bool CanElicit => Call.ActivatedExtensions.Contains(Elicitation.ExtensionUri);
+
+    /// <summary>
+    /// The answer to a form (<see cref="TaskUpdater.RequireInputAsync(AgentRequestContext, ElicitationForm, string, CancellationToken)"/>),
+    /// already checked against that form. Null when the message is not an answer, including a plain text reply to a form, or when
+    /// the caller did not activate the extension. Decline and cancel are answers too: check <see cref="ElicitationAnswer.Action"/>.
+    /// </summary>
+    /// <remarks>The values are what the user typed. Treat them as untrusted input, and do not use them for authorization.</remarks>
+    public ElicitationAnswer? ElicitationAnswer { get; init; }
 
     /// <summary>The registered token exchanger, set by the server. Null when none is registered.</summary>
     internal ITokenExchanger? TokenExchanger { get; init; }
@@ -210,6 +227,27 @@ public sealed class TaskUpdater
     public ValueTask RequireInputAsync(string text, CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(TaskState.InputRequired, NewAgentMessage(text), null, cancellationToken);
 
+    /// <summary>
+    /// Asks the client for more input, with a typed form. The form goes in the metadata of the status message only when
+    /// <see cref="AgentRequestContext.CanElicit"/> is true; otherwise the client sees <paramref name="text"/> and nothing else. A
+    /// client that cannot read the form can always answer in words, so <paramref name="text"/> must say what you need. The answer
+    /// arrives as <see cref="AgentRequestContext.ElicitationAnswer"/>.
+    /// </summary>
+    /// <param name="context">The context of the request that runs now. Activation is per call.</param>
+    /// <param name="form">The form to ask.</param>
+    /// <param name="text">The question in words. Not empty.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <exception cref="ArgumentException"><paramref name="text"/> is empty.</exception>
+    public ValueTask RequireInputAsync(AgentRequestContext context, ElicitationForm form, string text, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(form);
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        var message = NewAgentMessage(text);
+        if (context.CanElicit) message.SetElicitationForm(form);
+        return UpdateStatusAsync(TaskState.InputRequired, message, null, cancellationToken);
+    }
+
     /// <summary>Asks the client to obtain authorization (spec §7.6). Streams stay open while you wait for out-of-band credentials.</summary>
     public ValueTask RequireAuthAsync(string text, CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(TaskState.AuthRequired, NewAgentMessage(text), null, cancellationToken);
@@ -332,6 +370,7 @@ public sealed class TaskUpdater
     /// </remarks>
     /// <exception cref="InvalidOperationException">The artifact is sealed and <paramref name="append"/> is true; the earlier content of the artifact is not known; or a data part cannot be put in canonical JSON form.</exception>
     /// <exception cref="ArgumentException"><paramref name="parts"/> is empty and the event is not an append to an artifact that exists, or a part is null.</exception>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP003", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
     public async ValueTask<string> AddHashedArtifactAsync(IEnumerable<Part> parts, string? artifactId = null, string? name = null,
         string? description = null, bool append = false, bool lastChunk = false, Dictionary<string, JsonElement>? metadata = null,
         CancellationToken cancellationToken = default)

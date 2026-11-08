@@ -18,6 +18,7 @@
   </ItemGroup>
   <ItemGroup>
     <Protobuf Include="..\..\docs\a2a.proto" ProtoRoot="..\..\docs" GrpcServices="Both" Access="Public" />
+    <Protobuf Include="Protos\a2a_extensions.proto" ProtoRoot="Protos" GrpcServices="Both" Access="Public" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="A2A.Tests" />

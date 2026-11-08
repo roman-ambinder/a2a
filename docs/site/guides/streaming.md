@@ -149,7 +149,7 @@ A number outside the range of a double cannot be put in canonical JSON form. The
 
 #### Producer
 
-Use `TaskUpdater.AddHashedArtifactAsync` for every chunk. It takes the same arguments as `AddArtifactAsync`, sets `sha256` for you, and overwrites any `sha256` in your metadata. It does not keep the content: the hash continues from chunk to chunk. For an append to an artifact that an earlier run stored, it first hashes the stored parts.
+Use `TaskUpdater.AddHashedArtifactAsync` for every chunk. It takes the same arguments as `AddArtifactAsync`, sets `sha256` for you, and overwrites any `sha256` in your metadata. It does not keep the content: the hash continues from chunk to chunk. For an append to an artifact that an earlier run stored, it first hashes the stored parts. The hash API (`AddHashedArtifactAsync`, `ArtifactVerifier`, `ArtifactHash`) is marked `[Experimental]` (`A2AEXP003`). To use it, add `<NoWarn>A2AEXP003</NoWarn>` to your project. See [Versioning](versioning.md#a2aexp003).
 
 [!code-csharp[](../snippets/Streaming.cs#HashedChunks)]
 

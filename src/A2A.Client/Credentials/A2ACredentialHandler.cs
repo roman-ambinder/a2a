@@ -31,7 +31,9 @@ public sealed class A2ACredentialHandler : DelegatingHandler
         {
             switch (h)
             {
+#if !NETSTANDARD2_0
                 case SocketsHttpHandler { AllowAutoRedirect: true }:
+#endif
                 case HttpClientHandler { AllowAutoRedirect: true }:
                     throw new ArgumentException(
                         "The handler follows redirects, which could send credentials to another origin. Set AllowAutoRedirect = false.",

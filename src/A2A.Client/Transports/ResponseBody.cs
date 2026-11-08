@@ -50,7 +50,7 @@ internal static class ResponseBody
     public static bool IsUtf8(HttpContent content)
     {
         var charset = content.Headers.ContentType?.CharSet?.Trim('"');
-        return string.IsNullOrEmpty(charset)
+        return charset is null || charset.Length == 0
             || charset.Equals("utf-8", StringComparison.OrdinalIgnoreCase)
             || charset.Equals("utf8", StringComparison.OrdinalIgnoreCase);
     }

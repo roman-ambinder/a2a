@@ -103,7 +103,7 @@ public static class JsonCanonicalizer
         if (d == 0) return "0";
 
         // Shortest round-trip digits and exponent.
-        var shortest = Math.Abs(d).ToString("R", CultureInfo.InvariantCulture);
+        var shortest = ShortestRoundTrip(Math.Abs(d));
         ParseDigits(shortest, out var digits, out var exp10);
 
         var k = digits.Length;      // number of significant digits
@@ -131,6 +131,19 @@ public static class JsonCanonicalizer
             sb.Append('e').Append(e >= 0 ? "+" : "-").Append(Math.Abs(e).ToString(CultureInfo.InvariantCulture));
         }
         return sb.ToString();
+    }
+
+    private static string ShortestRoundTrip(double abs)
+    {
+#if NETSTANDARD2_0
+        // On .NET Framework "R" is not the shortest form (it tries 15 digits, then 17). Try each precision, shortest first.
+        for (var precision = 1; precision <= 17; precision++)
+        {
+            var candidate = abs.ToString("G" + precision.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+            if (double.Parse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture) == abs) return candidate;
+        }
+#endif
+        return abs.ToString("R", CultureInfo.InvariantCulture);
     }
 
     /// <summary>Splits a .NET "R" formatted positive number into significant digits and a base-10 exponent of the first digit.</summary>

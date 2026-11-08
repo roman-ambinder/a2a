@@ -133,7 +133,12 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         }
         else
         {
+            #if NETSTANDARD2_0
+            // No SocketsHttpHandler on netstandard2.0.
+            handler = _ownedHandler = new HttpClientHandler { AllowAutoRedirect = false };
+#else
             handler = _ownedHandler = new SocketsHttpHandler { AllowAutoRedirect = false };
+#endif
         }
 
         _clientId = options.ClientId;
@@ -300,7 +305,12 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
     {
         try
         {
+            #if NETSTANDARD2_0
+            // No CancellationTokenSource(TimeSpan, TimeProvider) constructor on netstandard2.0.
+            using var cts = _time.CreateCancellationTokenSource(_requestTimeout);
+#else
             using var cts = new CancellationTokenSource(_requestTimeout, _time);
+#endif
             var token = await RequestTokenAsync(endpoint, scope, cts.Token).ConfigureAwait(false);
             lock (slot.Gate)
             {

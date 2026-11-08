@@ -1,11 +1,9 @@
-using System.Text.Json;
 using A2A.Grpc;
 using A2A.Server.AspNetCore;
 using A2A.Server.Streaming;
 using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -34,18 +32,15 @@ namespace A2A.Server.Grpc;
 public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
 {
     private readonly IA2ARequestHandler _handler;
-    private readonly ILogger<A2AGrpcService> _logger;
+    private readonly GrpcCallSupport _support;
     private readonly int _maxDepth;
-    private readonly bool _includeDetails;
 
     /// <summary>Creates the service. The DI container does this.</summary>
     public A2AGrpcService(IA2ARequestHandler handler, IOptions<A2AServerOptions> serverOptions, IHostEnvironment environment, ILogger<A2AGrpcService> logger)
     {
         _handler = handler;
-        _logger = logger;
         _maxDepth = serverOptions.Value.Limits.MaxJsonDepth;
-        // As the HTTP bindings decide it: the option, else true only in Development.
-        _includeDetails = serverOptions.Value.IncludeExceptionDetails ?? environment.IsDevelopment();
+        _support = new GrpcCallSupport(logger, GrpcCallSupport.ShouldIncludeDetails(serverOptions, environment));
     }
 
     /// <summary>SendMessage (spec §3.1.1) over gRPC.</summary>
@@ -111,34 +106,36 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
 
     private async Task<T> Unary<T>(GrpcContext context, Func<ServerCallContext, CancellationToken, Task<T>> action)
     {
+        ServerCallContext? call = null;
         try
         {
-            var call = context.GetHttpContext().CreateA2ACallContext(ProtocolBindings.Grpc);
+            call = context.GetHttpContext().CreateA2ACallContext(ProtocolBindings.Grpc);
             _handler.ValidateCall(call);
             var result = await action(call, context.CancellationToken).ConfigureAwait(false);
-            await WriteExtensionsHeaderAsync(context, call).ConfigureAwait(false);
+            await GrpcCallSupport.WriteExtensionsHeaderAsync(context, call).ConfigureAwait(false);
             return result;
         }
         catch (Exception ex) when (ex is not RpcException)
         {
-            throw Translate(ex, context);
+            throw _support.Fail(ex, context, call, headersSent: false);
         }
     }
 
     private async Task Stream(GrpcContext context, IServerStreamWriter<Pb.StreamResponse> writer,
         Func<ServerCallContext, CancellationToken, IAsyncEnumerable<SequencedEvent>> source)
     {
+        ServerCallContext? call = null;
+        var headersSent = false;
         try
         {
-            var call = context.GetHttpContext().CreateA2ACallContext(ProtocolBindings.Grpc);
+            call = context.GetHttpContext().CreateA2ACallContext(ProtocolBindings.Grpc);
             _handler.ValidateCall(call);
-            var first = true;
             await foreach (var evt in source(call, context.CancellationToken).ConfigureAwait(false))
             {
-                if (first)
+                if (!headersSent)
                 {
-                    await WriteExtensionsHeaderAsync(context, call).ConfigureAwait(false);
-                    first = false;
+                    headersSent = true;
+                    await GrpcCallSupport.WriteExtensionsHeaderAsync(context, call).ConfigureAwait(false);
                 }
                 await writer.WriteAsync(ProtoMapper.ToProto<Pb.StreamResponse, StreamResponse>(evt.Event)).ConfigureAwait(false);
             }
@@ -146,39 +143,8 @@ public sealed class A2AGrpcService : Pb.A2AService.A2AServiceBase
         catch (Exception ex) when (ex is not RpcException)
         {
             // gRPC carries the status in trailers, so errors after the first message still reach the client cleanly.
-            throw Translate(ex, context);
+            // A stream that sent its first event already echoed the extensions in the initial metadata.
+            throw _support.Fail(ex, context, call, headersSent);
         }
-    }
-
-    private static Task WriteExtensionsHeaderAsync(GrpcContext context, ServerCallContext call) =>
-        call.ActivatedExtensions.Count == 0
-            ? Task.CompletedTask
-            : context.WriteResponseHeadersAsync(new Metadata { { GrpcErrors.ExtensionsKey, string.Join(",", call.ActivatedExtensions) } });
-
-    /// <summary>
-    /// The gRPC status for a failure: A2A errors through the shared table; unexpected errors are logged and sent as a generic
-    /// INTERNAL (with the exception text only when <see cref="A2AServerOptions.IncludeExceptionDetails"/> allows it).
-    /// </summary>
-    private RpcException Translate(Exception ex, GrpcContext context)
-    {
-        if (ex is OperationCanceledException && context.CancellationToken.IsCancellationRequested)
-            return new RpcException(new global::Grpc.Core.Status(StatusCode.Cancelled, "Call canceled by the client"));
-        // The same normalization as the HTTP bindings: the request's own errors keep their code, anything else is a generic
-        // INTERNAL (with the exception text only when IncludeExceptionDetails allows it).
-        var a2a = ex switch
-        {
-            A2AException e => e,
-            JsonException json => A2AException.InvalidParams($"Invalid request body: {json.Message}"),
-            BadHttpRequestException bad => new A2AException(A2AErrorCode.InvalidRequest, bad.Message),
-            _ => null,
-        };
-        if (a2a is null)
-        {
-            GrpcServerLog.UnhandledError(_logger, ex, context.Method);
-            a2a = _includeDetails
-                ? new A2AException(A2AErrorCode.Internal, $"{A2AErrors.DefaultMessage(A2AErrorCode.Internal)}: {ex.GetType().Name}: {ex.Message}")
-                : new A2AException(A2AErrorCode.Internal);
-        }
-        return GrpcErrors.ToRpcException(a2a);
     }
 }

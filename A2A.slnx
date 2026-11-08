@@ -17,6 +17,7 @@
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/ChatAgent/ChatAgent.csproj" />
+    <Project Path="samples/ElicitationAgent/ElicitationAgent.csproj" />
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
     <Project Path="samples/EchoClient/EchoClient.csproj" />
     <Project Path="samples/MultiInstance/Agent/MultiInstanceAgent.csproj" />
@@ -43,6 +44,7 @@
     <Project Path="tests/A2A.Benchmarks/A2A.Benchmarks.csproj" />
     <Project Path="tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj" />
     <Project Path="tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj" />
+    <Project Path="tests/A2A.NetStandard.Smoke/A2A.NetStandard.Smoke.csproj" />
     <Project Path="tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj" />
     <Project Path="tests/A2A.Tests/A2A.Tests.csproj" />
     <Project Path="tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj" />

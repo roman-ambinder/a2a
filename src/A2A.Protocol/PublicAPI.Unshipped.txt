@@ -103,6 +103,80 @@ static A2A.Skills.SkillSelection.CreateExtension(bool rejectUnknownSkills = fals
 static A2A.Skills.SkillSelection.RejectsUnknownSkills(A2A.AgentCard! card) -> bool
 static A2A.Skills.SkillSelectionMessageExtensions.GetRequestedSkillId(this A2A.Message! message) -> string?
 static A2A.Skills.SkillSelectionMessageExtensions.SetRequestedSkillId(this A2A.Message! message, string! skillId) -> A2A.Message!
+A2A.Elicitations.Elicitation
+A2A.Elicitations.ElicitationAction
+A2A.Elicitations.ElicitationAction.Accept = 0 -> A2A.Elicitations.ElicitationAction
+A2A.Elicitations.ElicitationAction.Cancel = 2 -> A2A.Elicitations.ElicitationAction
+A2A.Elicitations.ElicitationAction.Decline = 1 -> A2A.Elicitations.ElicitationAction
+A2A.Elicitations.ElicitationAnswer
+A2A.Elicitations.ElicitationAnswer.Action.get -> A2A.Elicitations.ElicitationAction
+A2A.Elicitations.ElicitationAnswer.Content.get -> System.Collections.Generic.IReadOnlyDictionary<string!, System.Text.Json.JsonElement>!
+A2A.Elicitations.ElicitationAnswer.FormId.get -> string!
+A2A.Elicitations.ElicitationAnswer.GetBoolean(string! name) -> bool?
+A2A.Elicitations.ElicitationAnswer.GetDouble(string! name) -> double?
+A2A.Elicitations.ElicitationAnswer.GetInt64(string! name) -> long?
+A2A.Elicitations.ElicitationAnswer.GetString(string! name) -> string?
+A2A.Elicitations.ElicitationAnswer.ToMessage(string! taskId, string? contextId = null, string? text = null) -> A2A.Message!
+A2A.Elicitations.ElicitationField
+A2A.Elicitations.ElicitationField.Description.get -> string?
+A2A.Elicitations.ElicitationField.Format.get -> A2A.Elicitations.ElicitationFormat?
+A2A.Elicitations.ElicitationField.LooksSensitive.get -> bool
+A2A.Elicitations.ElicitationField.Maximum.get -> double?
+A2A.Elicitations.ElicitationField.MaxLength.get -> int?
+A2A.Elicitations.ElicitationField.Minimum.get -> double?
+A2A.Elicitations.ElicitationField.MinLength.get -> int?
+A2A.Elicitations.ElicitationField.Name.get -> string!
+A2A.Elicitations.ElicitationField.Options.get -> System.Collections.Generic.IReadOnlyList<string!>?
+A2A.Elicitations.ElicitationField.Required.get -> bool
+A2A.Elicitations.ElicitationField.Title.get -> string?
+A2A.Elicitations.ElicitationField.Type.get -> A2A.Elicitations.ElicitationFieldType
+A2A.Elicitations.ElicitationFieldType
+A2A.Elicitations.ElicitationFieldType.Boolean = 3 -> A2A.Elicitations.ElicitationFieldType
+A2A.Elicitations.ElicitationFieldType.Integer = 1 -> A2A.Elicitations.ElicitationFieldType
+A2A.Elicitations.ElicitationFieldType.Number = 2 -> A2A.Elicitations.ElicitationFieldType
+A2A.Elicitations.ElicitationFieldType.String = 0 -> A2A.Elicitations.ElicitationFieldType
+A2A.Elicitations.ElicitationForm
+A2A.Elicitations.ElicitationForm.ElicitationForm(System.Collections.Generic.IEnumerable<A2A.Elicitations.ElicitationField!>! fields, string? id = null, bool allowSensitiveFields = false) -> void
+A2A.Elicitations.ElicitationForm.Fields.get -> System.Collections.Generic.IReadOnlyList<A2A.Elicitations.ElicitationField!>!
+A2A.Elicitations.ElicitationForm.HasSensitiveFields.get -> bool
+A2A.Elicitations.ElicitationForm.Id.get -> string!
+A2A.Elicitations.ElicitationForm.Validate(System.Collections.Generic.IReadOnlyDictionary<string!, System.Text.Json.JsonElement>! content) -> void
+A2A.Elicitations.ElicitationFormat
+A2A.Elicitations.ElicitationFormat.Date = 1 -> A2A.Elicitations.ElicitationFormat
+A2A.Elicitations.ElicitationFormat.DateTime = 2 -> A2A.Elicitations.ElicitationFormat
+A2A.Elicitations.ElicitationFormat.Email = 0 -> A2A.Elicitations.ElicitationFormat
+A2A.Elicitations.ElicitationMessageExtensions
+A2A.Elicitations.ElicitationValues
+A2A.Elicitations.ElicitationValues.Add(string! name, bool value) -> void
+A2A.Elicitations.ElicitationValues.Add(string! name, double value) -> void
+A2A.Elicitations.ElicitationValues.Add(string! name, long value) -> void
+A2A.Elicitations.ElicitationValues.Add(string! name, string! value) -> void
+A2A.Elicitations.ElicitationValues.ElicitationValues() -> void
+A2A.Elicitations.ElicitationValues.GetEnumerator() -> System.Collections.Generic.IEnumerator<System.Collections.Generic.KeyValuePair<string!, System.Text.Json.JsonElement>>!
+const A2A.Elicitations.Elicitation.AnsweredKey = "a2a.elicitation.answered" -> string!
+const A2A.Elicitations.Elicitation.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/elicitation/v1" -> string!
+const A2A.Elicitations.Elicitation.MaxDescriptionLength = 1000 -> int
+const A2A.Elicitations.Elicitation.MaxFields = 32 -> int
+const A2A.Elicitations.Elicitation.MaxFormIdLength = 128 -> int
+const A2A.Elicitations.Elicitation.MaxNameLength = 64 -> int
+const A2A.Elicitations.Elicitation.MaxOptionLength = 256 -> int
+const A2A.Elicitations.Elicitation.MaxOptions = 64 -> int
+const A2A.Elicitations.Elicitation.MaxStringLength = 4096 -> int
+const A2A.Elicitations.Elicitation.MaxTitleLength = 200 -> int
+const A2A.Elicitations.Elicitation.MetadataKey = "https://github.com/roman-ambinder/a2a/extensions/elicitation/v1" -> string!
+static A2A.Elicitations.Elicitation.CreateExtension() -> A2A.AgentExtension!
+static A2A.Elicitations.ElicitationAnswer.Accept(A2A.Elicitations.ElicitationForm! form, A2A.Elicitations.ElicitationValues! values, bool allowSensitive = false) -> A2A.Elicitations.ElicitationAnswer!
+static A2A.Elicitations.ElicitationAnswer.Cancel(A2A.Elicitations.ElicitationForm! form) -> A2A.Elicitations.ElicitationAnswer!
+static A2A.Elicitations.ElicitationAnswer.Decline(A2A.Elicitations.ElicitationForm! form) -> A2A.Elicitations.ElicitationAnswer!
+static A2A.Elicitations.ElicitationField.Boolean(string! name, string? title = null, string? description = null, bool required = false) -> A2A.Elicitations.ElicitationField!
+static A2A.Elicitations.ElicitationField.Choice(string! name, System.Collections.Generic.IEnumerable<string!>! options, string? title = null, string? description = null, bool required = false) -> A2A.Elicitations.ElicitationField!
+static A2A.Elicitations.ElicitationField.Integer(string! name, string? title = null, string? description = null, bool required = false, double? minimum = null, double? maximum = null) -> A2A.Elicitations.ElicitationField!
+static A2A.Elicitations.ElicitationField.Number(string! name, string? title = null, string? description = null, bool required = false, double? minimum = null, double? maximum = null) -> A2A.Elicitations.ElicitationField!
+static A2A.Elicitations.ElicitationField.Text(string! name, string? title = null, string? description = null, bool required = false, int? minLength = null, int? maxLength = null, A2A.Elicitations.ElicitationFormat? format = null) -> A2A.Elicitations.ElicitationField!
+static A2A.Elicitations.ElicitationMessageExtensions.GetElicitationAnswer(this A2A.Message! message) -> A2A.Elicitations.ElicitationAnswer?
+static A2A.Elicitations.ElicitationMessageExtensions.GetElicitationForm(this A2A.AgentTask! task) -> A2A.Elicitations.ElicitationForm?
+static A2A.Elicitations.ElicitationMessageExtensions.GetElicitationForm(this A2A.Message! message) -> A2A.Elicitations.ElicitationForm?
+static A2A.Elicitations.ElicitationMessageExtensions.SetElicitationForm(this A2A.Message! message, A2A.Elicitations.ElicitationForm! form) -> A2A.Message!
 const A2A.A2AProtocol.ArtifactSealedKey = "a2a.artifact.sealed" -> string!
 A2A.Integrity.ArtifactHash
 const A2A.Integrity.ArtifactHash.MetadataKey = "sha256" -> string!

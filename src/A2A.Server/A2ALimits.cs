@@ -19,6 +19,7 @@ public sealed class A2ALimits
     /// agent runs. This is a brake against loops between agents, not a security boundary: the chain is claimed by the caller.
     /// Default 8.
     /// </summary>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP002", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
     public int MaxActorChainHops { get; set; } = 8;
 
     /// <summary>Largest decoded <c>raw</c> part in bytes. Larger parts get HTTP 413 (PAYLOAD_TOO_LARGE). Default 8 MB.</summary>

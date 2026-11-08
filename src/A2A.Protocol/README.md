@@ -6,5 +6,5 @@ The A2A (Agent2Agent) protocol v1.0 data model for .NET: types generated from th
 var json = A2AJson.Serialize(Message.FromUser("hello"));
 ```
 
-Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 8 and .NET 10.
+Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets netstandard2.0, .NET 8 and .NET 10.
 See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.
