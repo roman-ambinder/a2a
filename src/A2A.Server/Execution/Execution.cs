@@ -56,6 +56,16 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
     /// <summary>Whether the tenant's card had push notifications when the execution started; decides its push deliveries.</summary>
     public bool PushEnabled { get; init; }
 
+    /// <summary>
+    /// The last task this execution measured (<c>TaskSize.Measure</c>) and its size. The next event is measured as this size
+    /// plus what it adds when the stored task is that same instance (it is never changed), so the cap check does not walk the
+    /// task again for every appended chunk. Used only by the loop that applies this execution's events.
+    /// </summary>
+    public AgentTask? MeasuredTask { get; set; }
+
+    /// <summary>The size of <see cref="MeasuredTask"/>.</summary>
+    public long MeasuredBytes { get; set; }
+
     /// <summary>The run's span (<see cref="A2ATelemetry.SpanNames.AgentExecution"/>), or null when nobody listens.</summary>
     public Activity? Activity { get; init; }
 

@@ -26,6 +26,17 @@ internal static class TaskSize
     }
 
     /// <summary>
+    /// The bytes a stored event adds to the measured size of the task, when that is exactly the size of the parts it carries: an
+    /// append to an artifact that changes nothing else (no artifact name, description or metadata, no event metadata). Then
+    /// <c>Measure(after) == Measure(before) + AppendedBytes(event)</c>, and the caller need not walk the whole task again. Null
+    /// for every other event (the caller measures the task).
+    /// </summary>
+    public static long? AppendedBytes(StreamResponse evt) =>
+        evt is ArtifactUpdateEvent { ArtifactUpdate: { Append: true, Metadata: null or { Count: 0 }, Artifact: { Name: null, Description: null, Metadata: null or { Count: 0 } } artifact } }
+            ? Measure(artifact.Parts)
+            : null;
+
+    /// <summary>
     /// The length of the key names and the JSON text length of the values of <paramref name="metadata"/>. Only a key the server
     /// overwrites or owns at that level is skipped (<paramref name="level"/>); the same key anywhere else is the caller's content.
     /// </summary>
