@@ -48,6 +48,19 @@ public class GrpcTransportTests
         new(invoker, new A2AClientOptions { MaxRetries = maxRetries, Extensions = ["urn:a"] });
 
     [Fact]
+    public async Task Missing_required_field_fails_before_the_call()
+    {
+        var invoker = new ScriptedInvoker().ThenReturn(ATask());
+        var client = new A2AClient(Transport(invoker));
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync(""));
+
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        Assert.Equal("id is required", ex.Message);
+        Assert.Empty(invoker.Calls);
+    }
+
+    [Fact]
     public async Task Sends_version_extensions_idempotency_key_and_per_call_headers_as_metadata()
     {
         var invoker = new ScriptedInvoker().ThenReturn(AReply());

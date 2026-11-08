@@ -67,6 +67,13 @@ override A2A.Delegation.TokenExchangeResult.ToString() -> string!
 A2A.Delegation.TokenExchangeException
 A2A.Delegation.TokenExchangeException.TokenExchangeException(string! message, string? error = null, System.Exception? inner = null) -> void
 A2A.Delegation.TokenExchangeException.Error.get -> string?
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.GetTaskRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.CancelTaskRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.SubscribeToTaskRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.TaskPushNotificationConfig! config) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.GetTaskPushNotificationConfigRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.DeleteTaskPushNotificationConfigRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.ListTaskPushNotificationConfigsRequest! request) -> void
 A2A.Skills.SkillSelection
 A2A.Skills.SkillSelectionMessageExtensions
 const A2A.Skills.SkillSelection.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/skill-selection/v1" -> string!
