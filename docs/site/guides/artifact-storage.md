@@ -44,7 +44,6 @@ A store is a class that derives from <xref:A2A.Server.Storage.ArtifactObjectStor
 | Package | Backend |
 |---|---|
 | `A2A.Server` | `InMemoryArtifactObjectStore`: tests and development. Objects are lost on restart. |
-
 | `A2A.Server.Storage.S3` | `S3ArtifactObjectStore`: Amazon S3 and S3-compatible services such as MinIO. Register with `AddA2AS3ArtifactStore`. |
 | `A2A.Server.Storage.AzureBlob` | `AzureBlobArtifactObjectStore`: Azure Blob Storage block blobs. Register with `AddA2AAzureBlobArtifactStore`. |
 
