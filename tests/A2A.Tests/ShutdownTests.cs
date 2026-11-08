@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using A2A.Server;
+using A2A.Server.Coordination;
 using A2A.Server.Execution;
+using A2A.Server.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -191,6 +193,55 @@ public sealed class ShutdownTests
 
         host.Engine.Shutdown();
         await host.Engine.WhenIdleAsync().WaitAsync(Wait);
+    }
+
+    [Fact]
+    public async Task Shutdown_keeps_the_lease_so_it_expires_and_the_sweep_can_list_it()
+    {
+        var worker = new Worker();
+        var clock = new FakeTimeProvider();
+        var coordinator = new A2A.Server.Coordination.InMemoryExecutionCoordinator(new CoordinationOptions(), clock);
+        await using var host = await TestAgentHost.StartAsync(services: s =>
+        {
+            s.AddSingleton<TimeProvider>(clock);
+            s.AddSingleton<A2A.Server.Coordination.ExecutionCoordinator>(coordinator);
+            s.Replace(ServiceDescriptor.Singleton(worker.Executor));
+        });
+        var task = await SendAsync(host);
+        await worker.Started.Task.WaitAsync(Wait);
+        var key = new TaskKey("", "alice", task.Id);
+        Assert.True(await coordinator.IsRunningAsync(key));
+
+        host.Engine.Shutdown();
+        await host.Engine.WhenIdleAsync().WaitAsync(Wait);
+
+        Assert.True(await coordinator.IsRunningAsync(key)); // the lease is still there, no heartbeat renews it
+        clock.Advance(new CoordinationOptions().LeaseTtl + TimeSpan.FromSeconds(1));
+        Assert.False(await coordinator.IsRunningAsync(key));
+        Assert.Contains(await coordinator.ListExpiredAsync(10), e => e.Task == key);
+    }
+
+    [Fact]
+    public async Task A_run_that_finished_normally_leaves_no_lease()
+    {
+        var worker = new Worker();
+        var clock = new FakeTimeProvider();
+        var coordinator = new A2A.Server.Coordination.InMemoryExecutionCoordinator(new CoordinationOptions(), clock);
+        await using var host = await TestAgentHost.StartAsync(services: s =>
+        {
+            s.AddSingleton<TimeProvider>(clock);
+            s.AddSingleton<A2A.Server.Coordination.ExecutionCoordinator>(coordinator);
+            s.Replace(ServiceDescriptor.Singleton(worker.Executor));
+        });
+        var task = await SendAsync(host);
+        await worker.Started.Task.WaitAsync(Wait);
+        worker.Release.SetResult();
+        await host.Engine.WhenIdleAsync().WaitAsync(Wait);
+
+        var key = new TaskKey("", "alice", task.Id);
+        Assert.False(await coordinator.IsRunningAsync(key));
+        clock.Advance(new CoordinationOptions().LeaseTtl + TimeSpan.FromSeconds(1));
+        Assert.DoesNotContain(await coordinator.ListExpiredAsync(10), e => e.Task == key);
     }
 
     [Fact]

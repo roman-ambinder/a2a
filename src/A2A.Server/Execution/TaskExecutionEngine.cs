@@ -431,10 +431,26 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         try { await Task.WhenAll(producer, consumer).ConfigureAwait(false); }
         catch (Exception ex) { ServerLog.ExecutionEndedWithError(_logger, ex, exec.TaskId); }
         await heartbeat.DisposeAsync().ConfigureAwait(false);
-        await UnregisterAsync(exec).ConfigureAwait(false);
+        // Stopped only by the engine's shutdown with the task still open: keep the lease, so it expires and the sweep or a
+        // continuation recovers the task (as after a crash). Deleting it would strand the task as WORKING.
+        await UnregisterAsync(exec, keepLease: await EndedByShutdownLeavingTaskOpenAsync(exec).ConfigureAwait(false)).ConfigureAwait(false);
         _running.Remove(scope, exec);
         exec.EndActivity();
         exec.MarkDone();
+    }
+
+    private async Task<bool> EndedByShutdownLeavingTaskOpenAsync(Execution exec)
+    {
+        if (exec.CancelRequested || !_shutdown.IsCancellationRequested || !exec.Registered) return false;
+        try
+        {
+            var record = await _tasks.GetAsync(exec.Key, CancellationToken.None).ConfigureAwait(false);
+            return record is not null && !record.Task.Status.State.IsTerminal();
+        }
+        catch (Exception)
+        {
+            return true; // unknown: a lease that expires is safe, a deleted one may strand the task
+        }
     }
 
     /// <summary>

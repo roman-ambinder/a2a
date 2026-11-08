@@ -25,9 +25,10 @@ public sealed partial class TaskExecutionEngine
     /// Ends the execution's lease. Waits for a heartbeat still under way and keeps later ones out (the gate is held for good), so
     /// a late register cannot outlive the unregister. Fenced by the execution id: never ends a newer execution's lease.
     /// </summary>
-    private async Task UnregisterAsync(Execution exec)
+    private async Task UnregisterAsync(Execution exec, bool keepLease = false)
     {
-        await exec.HeartbeatGate.WaitAsync().ConfigureAwait(false);
+        await exec.HeartbeatGate.WaitAsync().ConfigureAwait(false); // for good: no heartbeat renews the lease again
+        if (keepLease) return;
         try
         {
             await _coordinator.UnregisterAsync(exec.Key, exec.Id, CancellationToken.None).ConfigureAwait(false);
