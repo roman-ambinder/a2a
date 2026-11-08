@@ -80,6 +80,7 @@ public sealed class EventMetadataMergeTests
             [A2AProtocol.ApprovalConsumedKey] = Str("reset"),
             [A2AProtocol.CancelRequestedKey] = Str("true"),
             [A2A.Delegation.ActorChain.MetadataKey] = Str("forged"),
+            [A2A.Elicitations.Elicitation.AnsweredKey] = Str("reset"),
             ["ok"] = Str("yes"),
         };
         var next = TaskExecutionEngine.ApplyToCopy(current, Status(TaskState.Working, update))!;
@@ -87,6 +88,7 @@ public sealed class EventMetadataMergeTests
         Assert.Equal("m1", next.Metadata![A2AProtocol.ApprovalConsumedKey].GetString());
         Assert.DoesNotContain(A2AProtocol.CancelRequestedKey, next.Metadata.Keys);
         Assert.DoesNotContain(A2A.Delegation.ActorChain.MetadataKey, next.Metadata.Keys);
+        Assert.DoesNotContain(A2A.Elicitations.Elicitation.AnsweredKey, next.Metadata.Keys);
         Assert.Equal("yes", next.Metadata["ok"].GetString());
     }
 

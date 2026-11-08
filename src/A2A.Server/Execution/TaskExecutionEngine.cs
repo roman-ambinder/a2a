@@ -860,7 +860,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         if (update is null) return;
         foreach (var kv in update)
         {
-            if (kv.Key is A2AProtocol.ApprovalConsumedKey or A2AProtocol.CancelRequestedKey or A2A.Delegation.ActorChain.MetadataKey) continue;
+            if (kv.Key is A2AProtocol.ApprovalConsumedKey or A2AProtocol.CancelRequestedKey or A2A.Delegation.ActorChain.MetadataKey
+                or A2A.Elicitations.Elicitation.AnsweredKey) continue;
             (next.Metadata ??= [])[kv.Key] = kv.Value.Clone();
         }
     }

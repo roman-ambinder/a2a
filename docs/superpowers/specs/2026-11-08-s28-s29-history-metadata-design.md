@@ -26,7 +26,7 @@ One rule: **shallow merge, last write wins**. A key in the update adds or overwr
 
 - An event that is dropped (terminal task, invalid transition, sealed artifact) merges nothing. The merge runs on the fresh record, so a version-conflict retry is correct.
 - **Removal: not supported.** JSON `null` is a value like any other and is stored. This matches #1374. Null-as-delete would make this server's task differ from what another SDK computes from the same events. An agent that needs to clear a key writes a value that means "cleared".
-- **Server-owned keys are skipped in the merge**: `a2a.approval.consumed`, `a2a.cancelRequested`, `actorChain`. Without this, an agent could reset `a2a.approval.consumed` and reuse an approval. The existing skip of `a2a.artifact.sealed` on artifacts stays.
+- **Server-owned keys are skipped in the merge**: `a2a.approval.consumed`, `a2a.cancelRequested`, `a2a.elicitation.answered`, `actorChain`. Without this, an agent could reset `a2a.approval.consumed` and reuse an approval, or reset `a2a.elicitation.answered`. The existing skip of `a2a.artifact.sealed` on artifacts stays.
 - Merged values are cloned (`JsonElement.Clone`), so they do not depend on a document the agent disposes.
 - **Difference from #1374:** the proposal calls `TaskArtifactUpdateEvent.metadata` transient. Here it merges, so there is one rule for both event types. If upstream settles on transient, removing one call changes it.
 

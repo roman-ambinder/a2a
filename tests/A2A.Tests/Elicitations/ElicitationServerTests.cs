@@ -326,7 +326,7 @@ public class ElicitationServerTests
         await using var _ = host;
         var task = await AskAsync(ClientFor(host, binding), activate: false);
         Assert.Equal("Which city, and how many nights?", task.Status.Message!.GetText());
-        Assert.Null(task.Status.Message.Metadata);
+        Assert.Equal(A2AProtocol.MessageRecordedAtKey, Assert.Single(task.Status.Message.Metadata!).Key); // the form is gone; only the server stamp remains
         Assert.Null(task.GetElicitationForm());
         Assert.False(agent.NewTaskCanElicit);
     }
@@ -337,7 +337,7 @@ public class ElicitationServerTests
         var (host, agent) = await StartAsync(declare: false);
         await using var _ = host;
         var task = await AskAsync(ClientFor(host, binding));
-        Assert.Null(task.Status.Message!.Metadata);
+        Assert.Equal(A2AProtocol.MessageRecordedAtKey, Assert.Single(task.Status.Message!.Metadata!).Key); // the form is gone; only the server stamp remains
         Assert.Null(task.GetElicitationForm());
         Assert.False(agent.NewTaskCanElicit);
     }
@@ -390,7 +390,7 @@ public class ElicitationServerTests
 
         // A task that waits with a plain text question.
         var plain = await AskAsync(client, "plain-input");
-        Assert.Null(plain.Status.Message!.Metadata);
+        Assert.Equal(A2AProtocol.MessageRecordedAtKey, Assert.Single(plain.Status.Message!.Metadata!).Key); // the form is gone; only the server stamp remains
         var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Raw(plain, "{\"id\":\"f1\",\"action\":\"decline\"}"), options: Activated()));
         Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
         await host.WaitIdleAsync();
@@ -526,6 +526,6 @@ public class ElicitationServerTests
 
         var without = await AskAsync(Tenant("without"));
         Assert.False(agent.NewTaskCanElicit);
-        Assert.Null(without.Status.Message!.Metadata);
+        Assert.Equal(A2AProtocol.MessageRecordedAtKey, Assert.Single(without.Status.Message!.Metadata!).Key); // the form is gone; only the server stamp remains
     }
 }
