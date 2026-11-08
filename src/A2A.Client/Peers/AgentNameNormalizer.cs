@@ -16,7 +16,11 @@ internal static class AgentNameNormalizer
     /// <summary>Key for duplicate checks: NFKC, invariant lower case, whitespace collapsed. Empty when nothing remains.</summary>
     public static string NameKey(string? name, int maxLength)
     {
-        var normalized = Prepare(name, maxLength).Normalize(NormalizationForm.FormKC);
+        if (!TryNormalize(Prepare(name, maxLength), NormalizationForm.FormKC, out var normalized))
+        {
+            return "";
+        }
+
         var sb = new StringBuilder(normalized.Length);
         var pendingSpace = false;
         foreach (var rune in normalized.EnumerateRunes())
@@ -49,7 +53,11 @@ internal static class AgentNameNormalizer
     /// <summary>Key for lookalike checks. Empty when no letters or digits remain.</summary>
     public static string Skeleton(string? name, int maxLength)
     {
-        var decomposed = Prepare(name, maxLength).Normalize(NormalizationForm.FormKD);
+        if (!TryNormalize(Prepare(name, maxLength), NormalizationForm.FormKD, out var decomposed))
+        {
+            return "";
+        }
+
         var sb = new StringBuilder(decomposed.Length);
         foreach (var rune in decomposed.EnumerateRunes())
         {
@@ -99,18 +107,51 @@ internal static class AgentNameNormalizer
         return false;
     }
 
-    // Sanitize, replace invalid UTF-16 (Normalize throws on it) and fold fullwidth ASCII.
+    // string.Normalize throws on input it dislikes. A name that still breaks it counts as empty.
+    private static bool TryNormalize(string text, NormalizationForm form, out string normalized)
+    {
+        try
+        {
+            normalized = text.Normalize(form);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            normalized = "";
+            return false;
+        }
+    }
+
+    // Order matters: sanitize, replace what Normalize rejects (invalid UTF-16, noncharacters), drop invisibles, fold fullwidth.
     private static string Prepare(string? name, int maxLength)
     {
         var sanitized = TextSanitizer.Sanitize(name ?? "", maxLength);
         var sb = new StringBuilder(sanitized.Length);
         foreach (var rune in sanitized.EnumerateRunes())
         {
-            sb.Append(rune.Value is >= 0xFF01 and <= 0xFF5E ? new Rune(rune.Value - 0xFEE0).ToString() : rune.ToString());
+            var value = rune.Value;
+            if (value is >= 0xFDD0 and <= 0xFDEF || (value & 0xFFFE) == 0xFFFE)
+            {
+                sb.Append('\uFFFD');
+                continue;
+            }
+
+            if (IsInvisible(rune))
+            {
+                continue;
+            }
+
+            sb.Append(value is >= 0xFF01 and <= 0xFF5E ? new Rune(value - 0xFEE0).ToString() : rune.ToString());
         }
 
         return sb.ToString();
     }
+
+    // Characters the sanitizer keeps that render as nothing, so they must not make two names differ.
+    private static bool IsInvisible(Rune rune) =>
+        Rune.GetUnicodeCategory(rune) == UnicodeCategory.Format || rune.Value is
+            0x034F or 0x115F or 0x1160 or 0x17B4 or 0x17B5 or (>= 0x180B and <= 0x180F) or 0x2800 or 0x3164
+            or (>= 0xFE00 and <= 0xFE0F) or 0xFFA0 or (>= 0xE0100 and <= 0xE01EF);
 
     [Flags]
     private enum Script
@@ -195,8 +236,8 @@ internal static class AgentNameNormalizer
         Add('a', 0x0251); // ɑ
         Add('g', 0x0261); // ɡ
         Add('f', 0x0192); // ƒ
-        Add('l', 0x0142); // ł
-        Add('d', 0x0111); // đ
+        Add('l', 0x0142, 0x0141); // ł Ł
+        Add('d', 0x0111, 0x0110); // đ Đ
         Add('o', 0x00F8, 0x00D8); // ø Ø
         return map;
     }

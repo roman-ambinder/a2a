@@ -36,13 +36,13 @@ public class AgentRegistryTests
 
         Assert.Equal(new PeerIdentity("https://a.example", "k1"), registration.Identity);
         Assert.Equal("Billing", registration.Name.ToString());
-        Assert.Same(card, registration.Card);
+        Assert.Same(card, registration.Resolved);
         Assert.Empty(registration.LookalikeOf);
         Assert.False(registration.MixedScriptName);
         Assert.Null(registration.PreviousIdentity);
         Assert.Equal(1, registry.Count);
         Assert.True(registry.TryGet(registration.Identity, out var byIdentity));
-        Assert.Same(card, byIdentity!.Card);
+        Assert.Same(card, byIdentity!.Resolved);
         Assert.True(registry.TryGetByName("billing", out var byName));
         Assert.Equal(registration.Identity, byName!.Identity);
         Assert.False(registry.TryGetByName("other", out _));
@@ -205,7 +205,7 @@ public class AgentRegistryTests
         Assert.Equal(1, registry.Count);
         Assert.Null(registration.PreviousIdentity);
         Assert.True(registry.TryGet(identity, out var found));
-        Assert.Same(newer, found!.Card);
+        Assert.Same(newer, found!.Resolved);
     }
 
     [Fact]
@@ -239,7 +239,7 @@ public class AgentRegistryTests
         Assert.Equal(AgentRegistrationRejection.DuplicateName, ex.Reason);
         Assert.Equal(holder.Identity, ex.ConflictingIdentity);
         Assert.True(registry.TryGetByName("Mine", out var mine));
-        Assert.Same(original, mine!.Card);
+        Assert.Same(original, mine!.Resolved);
         Assert.True(registry.TryGetByName("Taken", out var taken));
         Assert.Equal(holder.Identity, taken!.Identity);
         Assert.Equal(2, registry.Count);
@@ -294,7 +294,7 @@ public class AgentRegistryTests
         Assert.Equal(signed.Identity, ex.ConflictingIdentity);
         Assert.Equal(1, registry.Count);
         Assert.True(registry.TryGet(signed.Identity, out var found));
-        Assert.Same(signed.Card, found!.Card);
+        Assert.Same(signed.Resolved, found!.Resolved);
     }
 
     [Theory]
@@ -363,6 +363,66 @@ public class AgentRegistryTests
         Assert.Equal(20, registry.Count);
         Assert.Equal(16, last!.LookalikeOf.Count);
     }
+
+    [Fact]
+    public void Rename_to_a_mixed_script_name_warns()
+    {
+        var logger = new CardTrustTests.ListLogger();
+        var registry = new AgentRegistry(logger: logger);
+        var source = SourceOf("a.example");
+        registry.Register(Card("Paypal", source));
+        Assert.DoesNotContain(logger.Entries, e => e.Level >= LogLevel.Warning);
+
+        var renamed = registry.Register(Card("P\u0430ypal", source)); // Cyrillic a
+
+        Assert.True(renamed.MixedScriptName);
+        Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning);
+    }
+
+    [Fact]
+    public void Rename_to_a_lookalike_warns_and_counts()
+    {
+        const string origin = "https://b.example";
+        var logger = new CardTrustTests.ListLogger();
+        var registry = new AgentRegistry(logger: logger);
+        var a = registry.Register(Card("Paypal", SourceOf("a.example")));
+        var source = SourceOf("b.example");
+        registry.Register(Card("Billing", source));
+        var measured = new List<long>();
+        using var listener = CounterListener("a2a.registry.name_lookalike", origin, measured);
+
+        var renamed = registry.Register(Card("Paypa1", source));
+
+        Assert.Equal([a.Identity], renamed.LookalikeOf);
+        Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Equal([1L], measured);
+    }
+
+    [Fact]
+    public void Hostile_name_gets_a_registration_exception_or_registers()
+    {
+        var registry = new AgentRegistry();
+
+        var ex = Record.Exception(() => registry.Register(Card("\uFFFE", SourceOf("a.example"))));
+
+        Assert.True(ex is null or AgentRegistrationException);
+        Assert.False(registry.TryGetByName("a\uFFFEb", out _));
+    }
+
+    [Fact]
+    public void Invisible_variant_is_a_duplicate()
+    {
+        var registry = new AgentRegistry();
+        registry.Register(Card("Agent", SourceOf("a.example")));
+
+        var ex = Rejected(registry, Card("Agent\u3164", SourceOf("b.example")));
+
+        Assert.Equal(AgentRegistrationRejection.DuplicateName, ex.Reason);
+    }
+
+    [Fact]
+    public void TryGetByName_rejects_null() =>
+        Assert.Throws<ArgumentNullException>(() => new AgentRegistry().TryGetByName(null!, out _));
 
     [Fact]
     public void Remove_frees_identity_name_and_source()

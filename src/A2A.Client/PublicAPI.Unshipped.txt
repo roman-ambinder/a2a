@@ -131,9 +131,7 @@ A2A.Client.IA2ATransportFactory.CanCreate(A2A.AgentInterface! agentInterface) ->
 A2A.Client.IA2ATransportFactory.Create(A2A.AgentInterface! agentInterface, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions! options) -> A2A.Client.IA2AClient!
 A2A.Client.IA2ATransportFactory.ProtocolBinding.get -> string!
 A2A.Client.Peers.AgentRegistration
-A2A.Client.Peers.AgentRegistration.AgentRegistration(A2A.Client.Peers.PeerIdentity! Identity, A2A.Client.Cards.UntrustedText Name, A2A.Client.ResolvedAgentCard! Card) -> void
-A2A.Client.Peers.AgentRegistration.Card.get -> A2A.Client.ResolvedAgentCard!
-A2A.Client.Peers.AgentRegistration.Card.init -> void
+A2A.Client.Peers.AgentRegistration.AgentRegistration(A2A.Client.Peers.PeerIdentity! Identity, A2A.Client.Cards.UntrustedText Name, A2A.Client.ResolvedAgentCard! Resolved) -> void
 A2A.Client.Peers.AgentRegistration.Identity.get -> A2A.Client.Peers.PeerIdentity!
 A2A.Client.Peers.AgentRegistration.Identity.init -> void
 A2A.Client.Peers.AgentRegistration.LookalikeOf.get -> System.Collections.Generic.IReadOnlyList<A2A.Client.Peers.PeerIdentity!>!
@@ -144,6 +142,8 @@ A2A.Client.Peers.AgentRegistration.Name.get -> A2A.Client.Cards.UntrustedText
 A2A.Client.Peers.AgentRegistration.Name.init -> void
 A2A.Client.Peers.AgentRegistration.PreviousIdentity.get -> A2A.Client.Peers.PeerIdentity?
 A2A.Client.Peers.AgentRegistration.PreviousIdentity.init -> void
+A2A.Client.Peers.AgentRegistration.Resolved.get -> A2A.Client.ResolvedAgentCard!
+A2A.Client.Peers.AgentRegistration.Resolved.init -> void
 A2A.Client.Peers.AgentRegistrationException
 A2A.Client.Peers.AgentRegistrationException.AgentRegistrationException(A2A.Client.Peers.AgentRegistrationRejection reason, A2A.Client.Peers.PeerIdentity! identity, A2A.Client.Peers.PeerIdentity? conflictingIdentity, string! message) -> void
 A2A.Client.Peers.AgentRegistrationException.ConflictingIdentity.get -> A2A.Client.Peers.PeerIdentity?

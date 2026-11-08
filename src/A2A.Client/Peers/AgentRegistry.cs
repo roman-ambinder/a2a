@@ -20,8 +20,8 @@ public sealed class AgentRegistryOptions
 /// <summary>One registered agent.</summary>
 /// <param name="Identity">Who the peer is.</param>
 /// <param name="Name">The card name, for display only.</param>
-/// <param name="Card">The resolved card.</param>
-public sealed record AgentRegistration(PeerIdentity Identity, UntrustedText Name, ResolvedAgentCard Card)
+/// <param name="Resolved">The resolved card.</param>
+public sealed record AgentRegistration(PeerIdentity Identity, UntrustedText Name, ResolvedAgentCard Resolved)
 {
     /// <summary>Other identities whose names look like this one (at most 16). Set when the entry was registered.</summary>
     public IReadOnlyList<PeerIdentity> LookalikeOf { get; init; } = [];
@@ -29,7 +29,10 @@ public sealed record AgentRegistration(PeerIdentity Identity, UntrustedText Name
     /// <summary>The name mixes Latin, Greek or Cyrillic letters in one word.</summary>
     public bool MixedScriptName { get; init; }
 
-    /// <summary>The identity this entry replaced at the same card URL (key rotation or upgrade), or <see langword="null"/>.</summary>
+    /// <summary>
+    /// The identity this entry replaced at the same card URL (key rotation or upgrade). Set only on the <see cref="AgentRegistry.Register"/>
+    /// call that changed the identity; <see langword="null"/> otherwise.
+    /// </summary>
     public PeerIdentity? PreviousIdentity { get; init; }
 }
 
@@ -66,7 +69,7 @@ public sealed class AgentRegistry
         public string NameKey { get; } = nameKey;
         public string Skeleton { get; } = skeleton;
         public PeerIdentity Identity => Registration.Identity;
-        public Uri Source => Registration.Card.Source;
+        public Uri Source => Registration.Resolved.Source;
     }
 
     private readonly object _gate = new();
@@ -167,7 +170,7 @@ public sealed class AgentRegistry
 
             var lookalikes = skeleton.Length == 0 || !_bySkeleton.TryGetValue(skeleton, out var sameSkeleton)
                 ? []
-                : sameSkeleton.Where(e => !ReferenceEquals(e, replaced)).Take(MaxLookalikes).Select(e => e.Identity).ToList();
+                : sameSkeleton.Where(e => !ReferenceEquals(e, replaced)).Take(MaxLookalikes).Select(e => e.Identity).ToArray();
             registration = new AgentRegistration(identity, name, resolved)
             {
                 LookalikeOf = lookalikes,
@@ -188,7 +191,7 @@ public sealed class AgentRegistry
             ClientLog.AgentIdentityChanged(_logger, sourceText, oldText, identityText);
         }
 
-        if (replaced is null || replaced.Skeleton != skeleton)
+        if (replaced is null || replaced.NameKey != nameKey)
         {
             if (registration.LookalikeOf.Count > 0)
             {
@@ -220,11 +223,13 @@ public sealed class AgentRegistry
     /// <summary>Finds the agent whose name matches <paramref name="name"/> by name key (case, width and spacing are ignored).</summary>
     public bool TryGetByName(string name, [NotNullWhen(true)] out AgentRegistration? registration)
     {
+        ArgumentNullException.ThrowIfNull(name);
         var key = AgentNameNormalizer.NameKey(name, _maxNameLength);
         lock (_gate)
         {
-            var found = key.Length > 0 && _byName.TryGetValue(key, out var entry);
-            registration = found ? _byName[key].Registration : null;
+            Entry? entry = null;
+            var found = key.Length > 0 && _byName.TryGetValue(key, out entry);
+            registration = found ? entry!.Registration : null;
             return found;
         }
     }

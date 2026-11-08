@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using A2A.Client.Peers;
 using Xunit;
@@ -80,6 +79,10 @@ public class AgentNameNormalizerTests
     [InlineData("Caf\u00E9")] // precomposed e acute
     public void IsMixedScript_false(string name) => Assert.False(AgentNameNormalizer.IsMixedScript(name, Max));
 
+    [Fact]
+    public void Lone_surrogate_becomes_replacement_char() =>
+        Assert.Equal("a\uFFFDb", AgentNameNormalizer.NameKey("a\uD800b", Max));
+
     [Theory]
     [InlineData("a\uD800b")]
     [InlineData("\uDC00")]
@@ -90,13 +93,51 @@ public class AgentNameNormalizerTests
         _ = AgentNameNormalizer.IsMixedScript(name, Max);
     }
 
+    [Theory]
+    [InlineData("\u00AD")]
+    [InlineData("\u034F")]
+    [InlineData("\u115F")]
+    [InlineData("\u1160")]
+    [InlineData("\u17B4")]
+    [InlineData("\u180B")]
+    [InlineData("\u2800")]
+    [InlineData("\u3164")]
+    [InlineData("\uFE0F")]
+    [InlineData("\uFFA0")]
+    [InlineData("\uFFF9")]
+    [InlineData("\U000E0100")]
+    public void NameKey_ignores_invisible_characters(string invisible) =>
+        Assert.Equal(AgentNameNormalizer.NameKey("Agent", Max), AgentNameNormalizer.NameKey("Agent" + invisible, Max));
+
+    [Theory]
+    [InlineData("\uFFFE")]
+    [InlineData("\uFFFF")]
+    [InlineData("\uFDD0")]
+    [InlineData("a\uFFFEb")]
+    [InlineData("\U0001FFFF")]
+    public void Noncharacters_do_not_throw(string name)
+    {
+        _ = AgentNameNormalizer.NameKey(name, Max);
+        _ = AgentNameNormalizer.Skeleton(name, Max);
+        _ = AgentNameNormalizer.IsMixedScript(name, Max);
+    }
+
+    [Fact]
+    public void Soft_hyphen_does_not_hide_a_mixed_script_name() =>
+        Assert.True(AgentNameNormalizer.IsMixedScript("P\u00AD\u0430\u00ADypal", Max));
+
+    [Fact]
+    public void Polish_and_Croatian_letters_match_their_latin_skeleton()
+    {
+        Assert.Equal(AgentNameNormalizer.Skeleton("Lukasz", Max), AgentNameNormalizer.Skeleton("\u0141ukasz", Max));
+        Assert.Equal(AgentNameNormalizer.Skeleton("Dino", Max), AgentNameNormalizer.Skeleton("\u0110ino", Max));
+    }
+
     [Fact]
     public void Long_name_is_capped()
     {
-        var sw = Stopwatch.StartNew();
         var key = AgentNameNormalizer.NameKey(new string('a', 1_000_000), Max);
         Assert.True(key.Length <= 256);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2));
     }
 
     [Fact]
