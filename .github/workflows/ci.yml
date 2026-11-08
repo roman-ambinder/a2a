@@ -50,6 +50,8 @@ jobs:
 
       - name: Test v0.3 compat (net8.0 + net10.0)
         run: dotnet test tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=v03-results" --results-directory TestResults
+      - name: Test Extensions.AI (net8.0 + net10.0)
+        run: dotnet test tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=ai-results" --results-directory TestResults
 
       - name: Upload test results
         if: always()
