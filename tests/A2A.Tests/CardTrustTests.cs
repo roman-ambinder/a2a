@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Client;
+using A2A.Client.Peers;
 using A2A.Client.Cards;
 using A2A.Json;
 using A2A.Security.Http;
@@ -74,7 +75,7 @@ public class CardTrustTests
         Assert.Equal(AgentCardVerificationStatus.Unverified, result.Status);
         var resolved = await Resolver(new CardServer(raw), jwks: evil).ResolveAsync(AgentUrl);
         Assert.Equal(AgentCardVerificationStatus.Unverified, resolved.Verification.Status);
-        Assert.Equal((Origin, (string?)null), resolved.Identity);
+        Assert.Equal(new PeerIdentity(Origin), resolved.Identity);
 
         // (b) The real key is pinned for the origin: the attacker kid is not trusted, and signatures are now required.
         var real = NewKey("real");
@@ -125,7 +126,7 @@ public class CardTrustTests
         var resolved = await Resolver(new CardServer(Signed(key)), o => o.Trust.AllowJkuHost(Origin, "keys.example"), new JwksServer(Set(key)))
             .ResolveAsync(AgentUrl);
         Assert.Equal(AgentCardVerificationStatus.Verified, resolved.Verification.Status);
-        Assert.Equal((Origin, (string?)"k1"), resolved.Identity);
+        Assert.Equal(new PeerIdentity(Origin, "k1"), resolved.Identity);
     }
 
     [Fact]
@@ -272,11 +273,11 @@ public class CardTrustTests
         }, logger: logger);
         resolver.CardChanged += (_, e) => changes.Add(e);
 
-        Assert.Equal((Origin, (string?)"k1"), (await resolver.ResolveAsync(AgentUrl)).Identity);
+        Assert.Equal(new PeerIdentity(Origin, "k1"), (await resolver.ResolveAsync(AgentUrl)).Identity);
         server.Json = Signed(k2);
         var rotated = await resolver.ResolveAsync(AgentUrl);
 
-        Assert.Equal((Origin, (string?)"k2"), rotated.Identity);
+        Assert.Equal(new PeerIdentity(Origin, "k2"), rotated.Identity);
         Assert.Empty(changes);
         Assert.DoesNotContain(logger.Entries, e => e.Level >= LogLevel.Warning);
         Assert.Contains(logger.Entries, e => e.Level == LogLevel.Information && e.Message.Contains("k2"));
@@ -331,7 +332,7 @@ public class CardTrustTests
         var resolved = await new A2ACardResolver(new HttpClient(new CardServer(Unsigned()))).ResolveAsync(AgentUrl);
 
         Assert.Equal(AgentCardVerificationStatus.Unsigned, resolved.Verification.Status);
-        Assert.Equal((Origin, (string?)null), resolved.Identity);
+        Assert.Equal(new PeerIdentity(Origin), resolved.Identity);
         Assert.Equal("Signer", resolved.Card.Name);
     }
 

@@ -7,6 +7,8 @@ A2A.Client.A2ACardResolverOptions
 A2A.Client.A2ACardResolverOptions.A2ACardResolverOptions() -> void
 A2A.Client.A2ACardResolverOptions.DefaultCacheDuration.get -> System.TimeSpan
 A2A.Client.A2ACardResolverOptions.DefaultCacheDuration.set -> void
+A2A.Client.A2ACardResolverOptions.IdentityResolver.get -> A2A.Client.Peers.IPeerIdentityResolver!
+A2A.Client.A2ACardResolverOptions.IdentityResolver.set -> void
 A2A.Client.A2ACardResolverOptions.MaxCardTextLength.get -> int
 A2A.Client.A2ACardResolverOptions.MaxCardTextLength.set -> void
 A2A.Client.A2ACardResolverOptions.PinPolicy.get -> A2A.Client.Cards.PinPolicy
@@ -128,6 +130,30 @@ A2A.Client.IA2ATransportFactory
 A2A.Client.IA2ATransportFactory.CanCreate(A2A.AgentInterface! agentInterface) -> bool
 A2A.Client.IA2ATransportFactory.Create(A2A.AgentInterface! agentInterface, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions! options) -> A2A.Client.IA2AClient!
 A2A.Client.IA2ATransportFactory.ProtocolBinding.get -> string!
+A2A.Client.Peers.CardPeerIdentityResolver
+A2A.Client.Peers.CardPeerIdentityResolver.ResolveAsync(A2A.Client.Peers.PeerIdentityContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Client.Peers.PeerIdentity!>
+A2A.Client.Peers.IPeerIdentityResolver
+A2A.Client.Peers.IPeerIdentityResolver.ResolveAsync(A2A.Client.Peers.PeerIdentityContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Client.Peers.PeerIdentity!>
+A2A.Client.Peers.PeerIdentity
+A2A.Client.Peers.PeerIdentity.Assurance.get -> A2A.Client.Peers.PeerIdentityAssurance
+A2A.Client.Peers.PeerIdentity.ExternalId.get -> string?
+A2A.Client.Peers.PeerIdentity.ExternalId.init -> void
+A2A.Client.Peers.PeerIdentity.KeyId.get -> string?
+A2A.Client.Peers.PeerIdentity.Origin.get -> string!
+A2A.Client.Peers.PeerIdentity.PeerIdentity(string! origin, string? keyId = null) -> void
+A2A.Client.Peers.PeerIdentityAssurance
+A2A.Client.Peers.PeerIdentityAssurance.OriginOnly = 0 -> A2A.Client.Peers.PeerIdentityAssurance
+A2A.Client.Peers.PeerIdentityAssurance.Verified = 1 -> A2A.Client.Peers.PeerIdentityAssurance
+A2A.Client.Peers.PeerIdentityContext
+A2A.Client.Peers.PeerIdentityContext.Baseline.get -> A2A.Client.Peers.PeerIdentity!
+A2A.Client.Peers.PeerIdentityContext.Baseline.init -> void
+A2A.Client.Peers.PeerIdentityContext.Card.get -> A2A.AgentCard!
+A2A.Client.Peers.PeerIdentityContext.Card.init -> void
+A2A.Client.Peers.PeerIdentityContext.PeerIdentityContext(A2A.AgentCard! Card, System.Uri! Source, A2A.Signing.AgentCardVerificationResult! Verification, A2A.Client.Peers.PeerIdentity! Baseline) -> void
+A2A.Client.Peers.PeerIdentityContext.Source.get -> System.Uri!
+A2A.Client.Peers.PeerIdentityContext.Source.init -> void
+A2A.Client.Peers.PeerIdentityContext.Verification.get -> A2A.Signing.AgentCardVerificationResult!
+A2A.Client.Peers.PeerIdentityContext.Verification.init -> void
 A2A.Client.Push.PushNotificationReceiver
 A2A.Client.Push.PushNotificationReceiver.PushNotificationReceiver(System.TimeProvider? time = null) -> void
 A2A.Client.Push.PushNotificationReceiver.Validate(System.Collections.Generic.IReadOnlyDictionary<string!, string!>! headers, string! expectedToken) -> A2A.Client.Push.PushValidationResult
@@ -140,7 +166,7 @@ A2A.Client.ResolvedAgentCard.Card.get -> A2A.AgentCard!
 A2A.Client.ResolvedAgentCard.Card.init -> void
 A2A.Client.ResolvedAgentCard.Description.get -> A2A.Client.Cards.UntrustedText
 A2A.Client.ResolvedAgentCard.Description.init -> void
-A2A.Client.ResolvedAgentCard.Identity.get -> (string! Origin, string? KeyId)
+A2A.Client.ResolvedAgentCard.Identity.get -> A2A.Client.Peers.PeerIdentity!
 A2A.Client.ResolvedAgentCard.Identity.init -> void
 A2A.Client.ResolvedAgentCard.RawJson.get -> string!
 A2A.Client.ResolvedAgentCard.RawJson.init -> void
@@ -214,11 +240,13 @@ A2A.Client.Transports.JsonRpcTransport.SendStreamingMessageAsync(A2A.SendMessage
 A2A.Client.Transports.JsonRpcTransport.SubscribeToTaskAsync(A2A.SubscribeToTaskRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.StreamResponse!>!
 const A2A.Client.Cards.UntrustedText.DefaultMaxLength = 2000 -> int
 override A2A.Client.Cards.UntrustedText.ToString() -> string!
+override A2A.Client.Peers.PeerIdentity.ToString() -> string!
 override A2A.Client.Sse.SseEvent.GetHashCode() -> int
 static A2A.Client.A2ACardResolver.GetCardUri(System.Uri! agentUrl) -> System.Uri!
 static A2A.Client.A2AClientFactory.Create(A2A.AgentCard! card, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions? options = null) -> A2A.Client.A2AClient!
 static A2A.Client.A2AClientFactory.CreateAsync(System.Uri! agentUrl, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions? options = null, A2A.Client.A2ACardResolverOptions? resolverOptions = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.A2AClient!>!
 static A2A.Client.A2AClientFactory.SelectInterface(A2A.AgentCard! card, A2A.Client.A2AClientOptions! options) -> A2A.AgentInterface?
+static A2A.Client.Peers.CardPeerIdentityResolver.Instance.get -> A2A.Client.Peers.CardPeerIdentityResolver!
 static A2A.Client.Sse.SseReader.ReadAsync(System.IO.Stream! stream, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Client.Sse.SseEvent!>!
 static A2A.Client.Transports.HttpTransportBase.HttpError(System.Net.Http.HttpResponseMessage! response, string? body) -> A2A.A2AException!
 static A2A.Client.Transports.HttpTransportBase.IsEventStream(System.Net.Http.HttpResponseMessage! response) -> bool

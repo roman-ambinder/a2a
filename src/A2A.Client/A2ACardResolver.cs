@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Client.Cards;
+using A2A.Client.Peers;
 using A2A.Client.Transports;
 using A2A.Json;
 using A2A.Security.Http;
@@ -36,6 +37,9 @@ public sealed class A2ACardResolverOptions
     /// <summary>Where card pins are kept. Default: a new <see cref="InMemoryCardPinStore"/>.</summary>
     public ICardPinStore PinStore { get; set; } = new InMemoryCardPinStore();
 
+    /// <summary>Adds an external id (DID, SPIFFE) to the peer identity. Default <see cref="CardPeerIdentityResolver.Instance"/>.</summary>
+    public IPeerIdentityResolver IdentityResolver { get; set; } = CardPeerIdentityResolver.Instance;
+
     /// <summary>Length cap of the sanitized <see cref="UntrustedText"/> values of <see cref="ResolvedAgentCard"/>. Default 2000.</summary>
     public int MaxCardTextLength { get; set; } = UntrustedText.DefaultMaxLength;
 
@@ -58,6 +62,7 @@ public sealed class A2ACardResolverOptions
 /// <summary>
 /// The resolved card plus how it was checked. <see cref="Card"/> keeps plain strings for wire use; show or prompt with the
 /// <see cref="UntrustedText"/> views. Peer identity is <see cref="Identity"/>; the card's <c>name</c> is display only.
+/// <see cref="PeerIdentity.Assurance"/> says how strong the identity is.
 /// </summary>
 public sealed record ResolvedAgentCard(AgentCard Card, string RawJson, Uri Source, AgentCardVerificationResult Verification)
 {
@@ -67,8 +72,11 @@ public sealed record ResolvedAgentCard(AgentCard Card, string RawJson, Uri Sourc
     /// <summary>The card's skills, in card order.</summary>
     public IReadOnlyList<ResolvedSkill> Skills { get; init; } = [];
 
-    /// <summary>The card origin, and the <c>kid</c> that verified it (<see langword="null"/> unless <see cref="AgentCardVerificationStatus.Verified"/>).</summary>
-    public (string Origin, string? KeyId) Identity { get; init; }
+    /// <summary>
+    /// The peer identity: card origin, the <c>kid</c> that verified it (<see langword="null"/> unless <see cref="AgentCardVerificationStatus.Verified"/>)
+    /// and an optional external id.
+    /// </summary>
+    public PeerIdentity Identity { get; init; } = PeerIdentity.FromCard(Source, Verification);
 }
 
 /// <summary>Untrusted text of one card skill.</summary>
@@ -111,6 +119,7 @@ public sealed class A2ACardResolver
         _options = options ?? new A2ACardResolverOptions();
         ArgumentNullException.ThrowIfNull(_options.Trust, "options.Trust");
         ArgumentNullException.ThrowIfNull(_options.PinStore, "options.PinStore");
+        ArgumentNullException.ThrowIfNull(_options.IdentityResolver, "options.IdentityResolver");
         ArgumentOutOfRangeException.ThrowIfLessThan(_options.MaxCardTextLength, 1, "options.MaxCardTextLength");
         // jku targets are chosen by the card, so they are fetched through the SSRF guard. The policy is mutable and read live;
         // the verifier's per-origin allowlist check still prevents any fetch for a host nobody allowed.
@@ -189,6 +198,11 @@ public sealed class A2ACardResolver
         var keyId = verification.Status == AgentCardVerificationStatus.Verified ? verification.KeyId : null;
         await CheckPinAsync(origin, node, keyId, cancellationToken).ConfigureAwait(false);
 
+        var baseline = PeerIdentity.FromCard(uri, verification);
+        var identity = await _options.IdentityResolver.ResolveAsync(new PeerIdentityContext(card, uri, verification, baseline), cancellationToken).ConfigureAwait(false);
+        if (identity is null || identity.Origin != baseline.Origin || identity.KeyId != baseline.KeyId)
+            throw new InvalidOperationException($"{_options.IdentityResolver.GetType().Name} must keep the card origin and signing key of the baseline identity; it may only add ExternalId.");
+
         var max = _options.MaxCardTextLength;
         var result = new ResolvedAgentCard(card, raw, uri, verification)
         {
@@ -197,7 +211,7 @@ public sealed class A2ACardResolver
                 new UntrustedText(s.Name, max),
                 new UntrustedText(s.Description, max),
                 (s.Examples ?? []).Select(e => new UntrustedText(e, max)).ToList())).ToList(),
-            Identity = (origin, keyId),
+            Identity = identity,
         };
         _cache[key] = new CacheEntry(result, response.Headers.ETag, Expiry(response));
         return result;

@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using A2A.Client;
+using A2A.Client.Peers;
 using A2A.Json;
 using A2A.Signing;
 
@@ -427,7 +428,7 @@ public class HostConfigurationTests
         var resolver = new A2ACardResolver(http, trusted);
         var resolved = await resolver.ResolveAsync(new Uri("http://localhost/"));
         Assert.Equal(AgentCardVerificationStatus.Verified, resolved.Verification.Status);
-        Assert.Equal(("http://localhost", (string?)"card-key"), resolved.Identity);
+        Assert.Equal(new PeerIdentity("http://localhost", "card-key"), resolved.Identity);
 
         // A different trusted key with the same kid must not validate the card.
         var wrong = new A2ACardResolverOptions();
