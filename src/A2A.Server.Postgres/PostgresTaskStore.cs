@@ -19,6 +19,7 @@ public sealed class PostgresTaskStore : TaskStore
     private readonly NpgsqlDataSource _db;
     private readonly StreamingOptions _streaming;
     private readonly TimeProvider _time;
+    private readonly DbClock _clock;
     private readonly string _tasks;
     private readonly string _contexts;
     private readonly EventTables _eventTables;
@@ -36,6 +37,7 @@ public sealed class PostgresTaskStore : TaskStore
         _db = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _streaming = streaming ?? throw new ArgumentNullException(nameof(streaming));
         _time = time ?? TimeProvider.System;
+        _clock = new DbClock(_time, options);
         var s = PostgresSchema.Quote((options ?? new()).Schema);
         _tasks = $"{s}.a2a_tasks";
         _contexts = $"{s}.a2a_contexts";
@@ -124,7 +126,7 @@ public sealed class PostgresTaskStore : TaskStore
             stored = stored with { CreatedAt = new DateTimeOffset(createdTicks, TimeSpan.Zero) };
         }
 
-        var now = _time.GetUtcNow().UtcTicks;
+        var now = _clock.NowTicks; // log and outbox deadlines; null = the database clock
         var seq = await AppendEventAsync(conn, tx, _eventTables, key, eventJson, Math.Max(1, _streaming.ReplayBufferSize), now, cancellationToken).ConfigureAwait(false);
         if (commit.Deliveries.Count > 0)
         {

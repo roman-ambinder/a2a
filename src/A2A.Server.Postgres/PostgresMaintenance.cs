@@ -13,22 +13,23 @@ namespace A2A.Server.Postgres;
 /// </summary>
 /// <param name="dataSource">The database.</param>
 /// <param name="options">The schema; default <c>public</c>.</param>
-/// <param name="time">The clock that decides what has expired. Default <see cref="TimeProvider.System"/>.</param>
+/// <param name="time">The clock that decides what has expired when <see cref="PostgresStoreOptions.UseDatabaseClock"/> is off.
+/// Default <see cref="TimeProvider.System"/>.</param>
 public sealed class PostgresMaintenance(NpgsqlDataSource dataSource, PostgresStoreOptions? options = null, TimeProvider? time = null)
 {
     private readonly string _schema = PostgresSchema.Quote((options ?? new()).Schema);
-    private readonly TimeProvider _time = time ?? TimeProvider.System;
+    private readonly DbClock _clock = new(time, options);
 
     /// <summary>Deletes expired rows. Returns how many event logs and idempotency entries were removed.</summary>
     /// <param name="cancellationToken">Cancellation.</param>
     public async Task<(int EventLogs, int IdempotencyEntries)> PurgeExpiredAsync(CancellationToken cancellationToken = default)
     {
-        var now = _time.GetUtcNow().UtcTicks;
+        var now = _clock.NowTicks;
         await using var batch = dataSource.CreateBatch();
         var logs = new NpgsqlBatchCommand(
             $"""
             WITH gone AS (
-                DELETE FROM {_schema}.a2a_event_logs WHERE purge_ticks IS NOT NULL AND purge_ticks <= $1
+                DELETE FROM {_schema}.a2a_event_logs WHERE purge_ticks IS NOT NULL AND purge_ticks <= {DbClock.Now(1)}
                 RETURNING tenant, owner, task_id
             ), events AS (
                 DELETE FROM {_schema}.a2a_events e USING gone g
@@ -36,10 +37,10 @@ public sealed class PostgresMaintenance(NpgsqlDataSource dataSource, PostgresSto
             )
             SELECT count(*) FROM gone
             """);
-        logs.Parameters.Add(Long(now));
+        logs.Parameters.Add(NullableLong(now));
         var idem = new NpgsqlBatchCommand(
-            $"WITH gone AS (DELETE FROM {_schema}.a2a_idempotency WHERE expires_ticks IS NOT NULL AND expires_ticks <= $1 RETURNING 1) SELECT count(*) FROM gone");
-        idem.Parameters.Add(Long(now));
+            $"WITH gone AS (DELETE FROM {_schema}.a2a_idempotency WHERE expires_ticks IS NOT NULL AND expires_ticks <= {DbClock.Now(1)} RETURNING 1) SELECT count(*) FROM gone");
+        idem.Parameters.Add(NullableLong(now));
         batch.BatchCommands.Add(logs);
         batch.BatchCommands.Add(idem);
 

@@ -26,20 +26,20 @@ internal static class Sql
     /// after eviction. Used by <see cref="PostgresEventStore.AppendAsync"/> and by <see cref="PostgresTaskStore.CommitAsync"/>.
     /// </summary>
     public static async ValueTask<long> AppendEventAsync(NpgsqlConnection conn, NpgsqlTransaction tx, EventTables tables, TaskKey task,
-        string eventJson, int capacity, long nowTicks, CancellationToken cancellationToken)
+        string eventJson, int capacity, long? nowTicks, CancellationToken cancellationToken)
     {
         long seq;
         await using (var upsert = new NpgsqlCommand(
             $"""
             INSERT INTO {tables.Logs} AS l (tenant, owner, task_id, last_seq, purge_ticks) VALUES ($1, $2, $3, 1, NULL)
             ON CONFLICT (tenant, owner, task_id) DO UPDATE SET
-                last_seq    = CASE WHEN l.purge_ticks IS NOT NULL AND l.purge_ticks <= $4 THEN 1 ELSE l.last_seq + 1 END,
-                purge_ticks = CASE WHEN l.purge_ticks IS NOT NULL AND l.purge_ticks <= $4 THEN NULL ELSE l.purge_ticks END
+                last_seq    = CASE WHEN l.purge_ticks IS NOT NULL AND l.purge_ticks <= {DbClock.Now(4)} THEN 1 ELSE l.last_seq + 1 END,
+                purge_ticks = CASE WHEN l.purge_ticks IS NOT NULL AND l.purge_ticks <= {DbClock.Now(4)} THEN NULL ELSE l.purge_ticks END
             RETURNING last_seq
             """, conn, tx))
         {
             AddKey(upsert.Parameters, task);
-            upsert.Parameters.Add(Long(nowTicks));
+            upsert.Parameters.Add(NullableLong(nowTicks));
             seq = (long)(await upsert.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
         }
 
@@ -68,6 +68,13 @@ internal static class Sql
         parameters.Add(TextParam(task.TaskId));
     }
 
+    /// <summary>
+    /// A span as ticks for SQL arithmetic: zero for a zero or negative span (<see cref="Timeout.InfiniteTimeSpan"/> too, like
+    /// <see cref="AddClamped"/>), at most 100 years so adding it to a timestamp never overflows.
+    /// </summary>
+    public static NpgsqlParameter<long> Span(TimeSpan span) =>
+        Long(span <= TimeSpan.Zero ? 0 : Math.Min(span.Ticks, TimeSpan.FromDays(36525).Ticks));
+
     /// <summary><paramref name="ticks"/> + <paramref name="span"/>, clamped to <see cref="DateTimeOffset.MaxValue"/> (an "infinite" span never overflows).</summary>
     public static long AddClamped(long ticks, TimeSpan span)
     {
@@ -75,6 +82,38 @@ internal static class Sql
         var max = DateTimeOffset.MaxValue.UtcTicks;
         return span.Ticks >= max - ticks ? max : ticks + span.Ticks;
     }
+}
+
+/// <summary>
+/// The clock that decides deadlines (due times, leases, claim timeouts, retention ends). With
+/// <see cref="PostgresStoreOptions.UseDatabaseClock"/> (the default) it is the database's clock, so instances whose clocks
+/// disagree still agree on what has expired: a store passes a NULL "now" parameter and the SQL uses <see cref="Now"/>, which
+/// falls back to <c>statement_timestamp()</c>. Otherwise the store passes the <see cref="TimeProvider"/>'s ticks.
+/// </summary>
+internal sealed class DbClock(TimeProvider? time, PostgresStoreOptions? options)
+{
+    /// <summary>The database's time as .NET UTC ticks (microsecond precision).</summary>
+    public const string NowTicksSql = "((extract(epoch from statement_timestamp()) * 10000000)::bigint + 621355968000000000)";
+
+    public TimeProvider Time { get; } = time ?? TimeProvider.System;
+
+    public bool UsesDatabase { get; } = (options ?? new()).UseDatabaseClock;
+
+    /// <summary>The value of a "now" parameter: null (the database decides) or the instance's ticks.</summary>
+    public long? NowTicks => UsesDatabase ? null : Time.GetUtcNow().UtcTicks;
+
+    /// <summary>A "now" parameter for <see cref="Now"/>.</summary>
+    public NpgsqlParameter NowParam() => Sql.NullableLong(NowTicks);
+
+    /// <summary>SQL for "now" in ticks: positional parameter <paramref name="parameter"/>, or the database clock when it is NULL.</summary>
+    public static string Now(int parameter) => $"COALESCE(${parameter}::bigint, {NowTicksSql})";
+
+    /// <summary>
+    /// An absolute time computed on the instance's clock (<paramref name="at"/>) as a "now" parameter value and an offset in
+    /// ticks: on the database clock, the time left until it (never negative) is added to the database's now.
+    /// </summary>
+    public (long? Now, long Offset) Relative(DateTimeOffset at) =>
+        UsesDatabase ? (null, Math.Max(0, (at - Time.GetUtcNow()).Ticks)) : (at.UtcTicks, 0);
 }
 
 /// <summary>The quoted names of the event-log tables in one schema.</summary>

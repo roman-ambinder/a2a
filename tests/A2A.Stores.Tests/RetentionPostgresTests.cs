@@ -19,8 +19,8 @@ public sealed class RetentionPostgresTests(PostgresFixture db)
     [SkippableFact]
     public async Task Purge_removes_the_task_with_its_events_push_configs_outbox_and_dead_letters()
     {
-        var schema = await db.NewSchemaAsync();
         var clock = new FakeTimeProvider();
+        var schema = await db.NewSchemaAsync(clock);
         var streaming = new StreamingOptions();
         var tasks = new PostgresTaskStore(db.DataSource, streaming, schema, clock);
         var events = new PostgresEventStore(db.DataSource, streaming, schema, clock);

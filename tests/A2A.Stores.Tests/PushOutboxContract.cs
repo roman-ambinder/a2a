@@ -378,7 +378,7 @@ public sealed class PostgresPushOutboxTests(PostgresFixture db) : PushOutboxCont
 
     protected override async Task<(TaskStore Tasks, EventStore Events, PushOutbox Outbox)> CreateWithEventsAsync(TimeProvider time)
     {
-        _schema = await db.NewSchemaAsync();
+        _schema = await db.NewSchemaAsync(time);
         var streaming = new StreamingOptions();
         return (new PostgresTaskStore(db.DataSource, streaming, _schema, time), new PostgresEventStore(db.DataSource, streaming, _schema, time),
             new PostgresPushOutbox(db.DataSource, _schema, time));
