@@ -1,0 +1,20 @@
+{
+  "message": {
+    "kind": "message",
+    "messageId": "m1",
+    "role": "user",
+    "parts": [ { "kind": "text", "text": "hello" } ]
+  },
+  "configuration": {
+    "acceptedOutputModes": [ "text/plain" ],
+    "blocking": false,
+    "historyLength": 5,
+    "pushNotificationConfig": {
+      "id": "cfg-1",
+      "url": "https://hooks.example/a2a",
+      "token": "t0k3n",
+      "authentication": { "schemes": [ "Bearer" ], "credentials": "secret" }
+    }
+  },
+  "metadata": { "trace": "abc" }
+}

@@ -1,0 +1,9 @@
+{
+  "taskId": "task-1",
+  "pushNotificationConfig": {
+    "id": "cfg-1",
+    "url": "https://hooks.example/a2a",
+    "token": "t0k3n",
+    "authentication": { "schemes": [ "Bearer" ], "credentials": "secret" }
+  }
+}
