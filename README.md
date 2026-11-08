@@ -257,6 +257,24 @@ Also done by the sweep: tasks waiting in `INPUT_REQUIRED`/`AUTH_REQUIRED` longer
 - **Cancel requested.** If the agent has not stopped within `CancelGracePeriod`, CancelTask answers with the task still `WORKING` and metadata `a2a.cancelRequested = true` (never stored). The `CANCELED` state arrives later on the stream.
 - **Follow-up de-duplication.** A follow-up whose `messageId` is already in the task's history is not run again: the caller gets the task as it is, with no new turn, push config or execution.
 
+### Structured input (elicitation)
+
+An agent that needs input can ask for a small typed form instead of free text. This is an optional extension (`Elicitation.ExtensionUri`). A client that does not activate it gets the question as plain text and answers in words. Design: [S38](docs/superpowers/specs/2026-11-08-s38-elicitation-design.md). Runnable: [samples/ElicitationAgent](samples/ElicitationAgent/Program.cs).
+
+```csharp
+// Server: declare the extension on the card (Capabilities.Extensions = [Elicitation.CreateExtension()]), then ask.
+var form = new ElicitationForm([ElicitationField.Text("city", required: true), ElicitationField.Integer("nights", minimum: 1)]);
+await updater.RequireInputAsync(context, form, "Which city, and how many nights?");
+// Next turn: context.ElicitationAnswer (Accept, Decline or Cancel). The server checked it against the form.
+
+// Client: activate, read the form, answer.
+var task = ((TaskResponse)await client.SendMessageAsync(Message.FromUser("Book"), options: new A2ARequestOptions().UseElicitation())).Task;
+var answer = ElicitationAnswer.Accept(task.GetElicitationForm()!, new ElicitationValues { { "city", "Oslo" }, { "nights", 2 } });
+await client.AnswerElicitationAsync(task, answer);
+```
+
+Do not collect secrets in a form. Answers are stored in the task history and sent to webhooks. Fields that look like secrets are refused by default. Show the user which agent is asking, and never let a model fill a form alone. See [task safety](docs/site/guides/task-safety.md).
+
 ### Several agents in one host
 
 One agent serves one tenant. By default one card and one executor serve every tenant. To host many agents, register a card provider and an executor resolver:

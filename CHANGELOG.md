@@ -58,6 +58,14 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
   field in the error (`InvalidParams`). No member became C# `required`.
   v0.3 clients must give a config id to get a push config; use the list operation otherwise.
 
+### Structured elicitation
+
+- Optional extension that lets an agent in `INPUT_REQUIRED` ask for a small typed form. `TaskUpdater.RequireInputAsync(context, form, text)` on
+  the server, `UseElicitation`, `GetElicitationForm` and `AnswerElicitationAsync` on the client. All bindings. A client that does not
+  activate it sees the text only.
+- The server checks an answer against the form before the agent runs. A refused answer is `InvalidParams`, is not stored and uses no turn.
+  Fields that look like requests for secrets are refused by default.
+
 ### Durable stores and running several instances
 
 - `A2A.Server.Postgres` stores tasks, event logs, push configs, the push outbox and idempotency keys. Npgsql, no EF. (#10, #12)

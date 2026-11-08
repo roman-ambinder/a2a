@@ -17,6 +17,7 @@
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/ChatAgent/ChatAgent.csproj" />
+    <Project Path="samples/ElicitationAgent/ElicitationAgent.csproj" />
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
     <Project Path="samples/EchoClient/EchoClient.csproj" />
     <Project Path="samples/MultiInstance/Agent/MultiInstanceAgent.csproj" />
