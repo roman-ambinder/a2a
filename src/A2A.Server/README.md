@@ -12,7 +12,7 @@ Push delivery is a durable outbox sent by `PushDeliveryService` (`A2AServerOptio
 
 Many agents in one host: `AddAgentCardProvider<T>()` and `AddAgentExecutorResolver<T>()` pick the card and executor per tenant. The SDK does not cache cards across requests, so cache in your provider.
 
-Upgrading: `IPushNotificationSender` is gone, `MaxAttempts` and `InitialBackoff` moved to `PushDelivery`, and custom stores have new abstract members (`TaskStore.CommitAsync` and more). See the repository README, "Upgrading from 0.x / P0".
+Upgrading: `IPushNotificationSender` is gone, `MaxAttempts` and `InitialBackoff` moved to `PushDelivery`, and custom stores have new abstract members (`TaskStore.CommitAsync` and more), `InMemoryTaskStore` and `PostgresTaskStore` have new constructors, `WithA2AStartupCheck` is internal, and the push HttpClient name constant is now `PushDeliveryService.HttpClientName` (same value). See the repository README, "Upgrading from 0.x / P0".
 
 Tracing: spans on the `A2A.Server` `ActivitySource` (one per operation, agent run and webhook delivery); see [Observability](https://github.com/roman-ambinder/a2a#observability).
 

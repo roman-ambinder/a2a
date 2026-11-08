@@ -38,6 +38,7 @@ Times are UTC ticks (`bigint`), JSON is `text`, and keys use the `"C"` collation
 - New tables `a2a_push_outbox` and `a2a_push_dead_letters` (plus indexes). They are created at startup; apply `PostgresSchema.ScriptFor("<schema>")` yourself if `CreateSchemaOnStartup = false`.
 - `IdempotencyClaimTimeout` default: 1 hour -> 2 minutes (see Behavior).
 - If you wrote your own stores, the base classes have new abstract members (`TaskStore.CommitAsync` and the retention members); see "Upgrading from 0.x / P0" in the repository README.
+- `PostgresTaskStore` constructor now takes `StreamingOptions` second: `PostgresTaskStore(NpgsqlDataSource, StreamingOptions, PostgresStoreOptions?, TimeProvider?)`. Prefer `AddPostgresStores`.
 - Purges, the interrupted-state timeout and dead-execution recovery run only with `services.AddA2ARetention()`. It is opt-in.
 
 ## Behavior

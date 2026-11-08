@@ -45,6 +45,9 @@ jobs:
       - name: Test (net8.0 + net10.0)
         run: dotnet test tests/A2A.Tests/A2A.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=results" --results-directory TestResults
 
+      - name: Test gRPC (net8.0 + net10.0)
+        run: dotnet test tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=grpc" --results-directory TestResults
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

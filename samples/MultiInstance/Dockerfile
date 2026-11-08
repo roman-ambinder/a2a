@@ -7,5 +7,6 @@ RUN dotnet publish samples/MultiInstance/Agent/MultiInstanceAgent.csproj -c Rele
 FROM mcr.microsoft.com/dotnet/aspnet:10.0.0
 WORKDIR /app
 COPY --from=build /app .
+USER $APP_UID
 ENV ASPNETCORE_URLS=http://+:8080
 ENTRYPOINT ["dotnet", "MultiInstanceAgent.dll"]
