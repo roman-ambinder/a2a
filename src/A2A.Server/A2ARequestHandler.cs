@@ -370,6 +370,8 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         // A copy: the caller's message is never changed (a retry with the same instance must hash the same). This copy goes to
         // the executor; the stored history gets copies of its own.
         var message = request.Message.DeepCopy();
+        // The time the server accepted it, before any copy: the history and the agent see this value; a client-sent one is overwritten.
+        MessageStamp.Set(message, _engine.UtcNow);
         var isFollowUp = !string.IsNullOrEmpty(message.TaskId);
         var taskId = isFollowUp ? message.TaskId! : newTaskId ?? TaskIds.New();
         AgentTask? existing = null;

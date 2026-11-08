@@ -40,6 +40,13 @@ public static class A2AProtocol
     /// <summary>Metadata key on a CancelTask response: the cancel was requested but the execution has not stopped yet. Never stored.</summary>
     public const string CancelRequestedKey = "a2a.cancelRequested";
 
+    /// <summary>
+    /// Message metadata key, written only by the server: when the message was added to the task history, as a UTC ISO 8601
+    /// string in the same form as <c>TaskStatus.timestamp</c>. Informational: the order of the history is the order of the list.
+    /// Read it with <see cref="MessageRecordedAtExtensions.GetRecordedAt"/>. Messages stored before this key existed do not have it.
+    /// </summary>
+    public const string MessageRecordedAtKey = "a2a.message.recordedAt";
+
     /// <summary>HTTP header names used by the protocol and by SDK extensions.</summary>
     public static class Headers
     {

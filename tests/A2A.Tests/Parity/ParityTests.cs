@@ -446,6 +446,94 @@ public class ParityTests
         Assert.Equal(3, Assert.Single((await client.ListTasksAsync(new ListTasksRequest())).Tasks).History!.Count);
     }
 
+    // ================================================================== event metadata and history stamps (S28, S29)
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task GetTask_event_metadata_is_merged_into_the_task(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
+        var client = host.Client(binding);
+        var task = (await client.SendMessageAsync("meta")).RequireTask();
+        var read = await client.GetTaskAsync(task.Id);
+        Assert.Equal(100, read.Metadata!["progress"].GetInt32()); // last write wins
+        Assert.Equal("a", read.Metadata["owner"].GetString());    // a key not in the later update stays
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task GetTask_every_history_message_has_a_recordedAt_and_no_other_new_key(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
+        var client = host.Client(binding);
+        var before = DateTimeOffset.UtcNow.AddSeconds(-5);
+        var task = (await client.SendMessageAsync("task")).RequireTask();
+        var history = (await client.GetTaskAsync(task.Id)).History!;
+        Assert.Equal(3, history.Count);
+        foreach (var m in history)
+        {
+            Assert.True(m.GetRecordedAt() >= before);
+            Assert.Equal([A2AProtocol.MessageRecordedAtKey], m.Metadata!.Keys);
+        }
+        // The status message is the same record as the last history message.
+        Assert.Equal(history[^1].GetRecordedAt(), task.Status.Message!.GetRecordedAt());
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task SendMessage_a_client_sent_recordedAt_is_overwritten(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
+        var client = host.Client(binding);
+        var message = Message.FromUser("task");
+        message.Metadata = new() { [A2AProtocol.MessageRecordedAtKey] = JsonSerializer.SerializeToElement("1999-01-01T00:00:00.000Z"), ["keep"] = JsonSerializer.SerializeToElement("me") };
+        var task = (await client.SendMessageAsync(message)).RequireTask();
+        var first = (await client.GetTaskAsync(task.Id)).History![0];
+        Assert.True(first.GetRecordedAt() > DateTimeOffset.Parse("2020-01-01T00:00:00Z"));
+        Assert.Equal("me", first.Metadata!["keep"].GetString());
+    }
+
+    private static async Task<AgentTask> FirstTaskAsync(A2AClient client, Message message, int? historyLength)
+    {
+        using var cts = new CancellationTokenSource(Wait);
+        await using var e = client.SendStreamingMessageAsync(message, new SendMessageConfiguration { HistoryLength = historyLength }, null, cts.Token).GetAsyncEnumerator(cts.Token);
+        Assert.True(await e.MoveNextAsync());
+        return Assert.IsType<TaskEvent>(e.Current).Task;
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task SendStreamingMessage_historyLength_new_task(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
+        var client = host.Client(binding);
+        Assert.Null((await FirstTaskAsync(client, Message.FromUser("task"), 0)).History);
+        Assert.Single((await FirstTaskAsync(client, Message.FromUser("task"), 1)).History!);
+        Assert.Single((await FirstTaskAsync(client, Message.FromUser("task"), null)).History!); // only the user message so far
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task SendStreamingMessage_historyLength_follow_up_snapshot(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
+        var client = host.Client(binding);
+        async Task<AgentTask> FollowUp(int? length)
+        {
+            var task = (await client.SendMessageAsync("input")).RequireTask(); // history: user, agent question
+            return await FirstTaskAsync(client, Message.FromUser("more", null, task.Id), length);
+        }
+        Assert.Null((await FollowUp(0)).History);
+        Assert.Single((await FollowUp(1)).History!);
+        Assert.Equal(3, (await FollowUp(null)).History!.Count); // user, agent, the follow-up
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task SendStreamingMessage_follow_up_snapshot_is_capped(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync(o => o.Limits.MaxHistoryLengthReturned = 2, grpc: true);
+        var client = host.Client(binding);
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+        var snapshot = await FirstTaskAsync(client, Message.FromUser("more", null, task.Id), null);
+        Assert.Equal(2, snapshot.History!.Count);
+        Assert.Equal("more", snapshot.History[^1].GetText()); // the newest messages
+    }
+
     // ================================================================== foreign owner
 
     private static async Task ForeignAsync(Op op, string binding)

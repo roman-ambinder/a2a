@@ -75,7 +75,19 @@ internal sealed class TaskStreamer
     internal IAsyncEnumerable<SequencedEvent> StreamExecutionAsync(SendMessageRequest request, ServerCallContext call, AcceptMessage accept,
         A2AOperationDescriptor operation, CancellationToken cancellationToken) =>
         // CancellationToken.None: LimitStreamAsync owns the token ([EnumeratorCancellation]) and passes its linked token to the core.
-        LimitStreamAsync(SendStreamingCoreAsync(request, call, accept, CancellationToken.None), call, operation, request, cancellationToken);
+        LimitStreamAsync(ShapeHistoryAsync(SendStreamingCoreAsync(request, call, accept, CancellationToken.None), request.Configuration?.HistoryLength, CancellationToken.None),
+            call, operation, request, cancellationToken);
+
+    /// <summary>
+    /// Applies <c>historyLength</c> and the history cap to every task event of SendStreamingMessage (the first event, gap
+    /// snapshots and replays), like every other path that returns a task. Stored events are not changed.
+    /// </summary>
+    private async IAsyncEnumerable<SequencedEvent> ShapeHistoryAsync(IAsyncEnumerable<SequencedEvent> source, int? historyLength,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await foreach (var evt in source.WithCancellation(cancellationToken).ConfigureAwait(false))
+            yield return TaskShaper.ShapeEvent(evt, historyLength, _options.Limits);
+    }
 
     /// <summary>
     /// SubscribeToTask, fresh or resumed (see <see cref="A2ARequestHandler.SubscribeToTaskAsync"/>),

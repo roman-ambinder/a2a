@@ -110,3 +110,6 @@ static A2A.Integrity.ArtifactHash.Compute(System.Collections.Generic.IEnumerable
 static A2A.Integrity.ArtifactHash.Update(System.Security.Cryptography.IncrementalHash! hash, System.Collections.Generic.IEnumerable<A2A.Part!>! parts) -> void
 static A2A.Integrity.ArtifactHash.Format(System.ReadOnlySpan<byte> digest) -> string!
 static A2A.Validation.A2AValidator.ValidateArtifact(A2A.Artifact! artifact, string! path, bool allowEmptyParts) -> void
+const A2A.A2AProtocol.MessageRecordedAtKey = "a2a.message.recordedAt" -> string!
+A2A.MessageRecordedAtExtensions
+static A2A.MessageRecordedAtExtensions.GetRecordedAt(this A2A.Message! message) -> System.DateTimeOffset?
