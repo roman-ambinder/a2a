@@ -210,4 +210,8 @@ internal static partial class RedisLog
 
     [LoggerMessage(EventId = 1103, Level = LogLevel.Warning, Message = "Dropped a malformed A2A cancel request from Redis")]
     public static partial void MalformedCancelRequest(ILogger logger);
+
+    [LoggerMessage(EventId = 1104, Level = LogLevel.Warning,
+        Message = "Dropped an A2A cancel request for task {TaskId}: the cancel reader was {Capacity} requests behind")]
+    public static partial void CancelRequestDropped(ILogger logger, string taskId, int capacity);
 }

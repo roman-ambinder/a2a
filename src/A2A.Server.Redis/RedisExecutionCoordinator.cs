@@ -164,15 +164,15 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
     /// <inheritdoc />
     /// <remarks>
     /// Each reader has a bounded queue of <see cref="CancelReaderCapacity"/> requests. A reader that falls that far behind loses
-    /// the oldest ones (delivery is at most once anyway); the execution then still stops when its lease is found lost or the
-    /// task terminal.
+    /// the oldest ones (delivery is at most once anyway), each logged as a warning; the execution then still stops when its
+    /// lease is found lost or the task terminal.
     /// </remarks>
     public override async IAsyncEnumerable<TaskKey> CancelRequestsAsync([EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var channel = Channel.CreateBounded<TaskKey>(new BoundedChannelOptions(CancelReaderCapacity)
         {
             SingleReader = true, FullMode = BoundedChannelFullMode.DropOldest,
-        });
+        }, dropped => RedisLog.CancelRequestDropped(_logger, dropped.TaskId, CancelReaderCapacity));
         lock (_gate) _cancelReaders.Add(channel);
         try
         {
