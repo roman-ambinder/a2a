@@ -46,6 +46,8 @@ Existing `required` members stay.
 
 **D3. One call site per operation, in `A2AClient`.** Each `IA2AClient` method on `A2AClient` gets one line, first in the method, before tenant fill. Convenience overloads already funnel into these. Every factory (`A2AClientFactory`, `A2AGrpcClientFactory`, `V03CompatClientFactory`) returns an `A2AClient`, so JSON-RPC, HTTP+JSON, gRPC, v0.3 and third-party `IA2ATransportFactory` transports are all covered. A decorator around the transport was rejected: it hides `IResumableTransport`, and it would re-check internal resume calls whose ids came from the server.
 
+Known limit on v0.3: the list comes from the 1.0 proto and applies to v0.3 clients too. v0.3 lets `tasks/pushNotificationConfig/get` omit the config id; here a blank `Id` is refused. `GetTaskPushNotificationConfigRequest.Id` is non-nullable and documented as the registration to fetch, so the omission was only reachable through `Id = null!`. Use `ListTaskPushNotificationConfigsAsync` instead. A per-binding exemption in `A2AClient` was rejected as not worth a mode flag for that call.
+
 **D4. Transports stay raw.** `new JsonRpcTransport(...)` used directly is not validated. It is the low-level layer; the docs only show the factories, and checking there would double the work on the normal path.
 
 **D5. Presence only.** Outgoing checks refuse only what the spec requires. They do not apply `ValidatePushConfig`'s URL-form and signing-secret rules, which are this SDK's server policy. A foreign server may accept what ours refuses, and refusing locally would be a false failure.
