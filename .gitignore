@@ -8,3 +8,6 @@ TestResults/
 .venv/
 __pycache__/
 BenchmarkDotNet.Artifacts/
+docs/site/_site/
+docs/site/api/*
+!docs/site/api/index.md

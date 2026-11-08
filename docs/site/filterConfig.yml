@@ -1,0 +1,9 @@
+apiRules:
+  # Generated protobuf types and gRPC stubs (from docs/a2a.proto). Hand-written
+  # public types in A2A.Grpc (ProtoMapper, GrpcErrors) live in namespace A2A.Grpc and stay.
+  - exclude:
+      uidRegex: ^Lf\.A2a\.V1(\.|$)
+      type: Namespace
+  - exclude:
+      uidRegex: ^Lf\.A2a\.V1\.
+      type: Type
