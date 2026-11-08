@@ -71,6 +71,15 @@ public sealed class EncodedEventTests
     }
 
     [Fact]
+    public void SequencedEvent_event_and_json_have_no_init_accessor()
+    {
+        // A `with { Event = ... }` would keep stale bytes, so only Sequence stays settable through `with`.
+        foreach (var name in new[] { nameof(SequencedEvent.Event), nameof(SequencedEvent.Json) })
+            Assert.Null(typeof(SequencedEvent).GetProperty(name)!.SetMethod);
+        Assert.NotNull(typeof(SequencedEvent).GetProperty(nameof(SequencedEvent.Sequence))!.SetMethod);
+    }
+
+    [Fact]
     public async Task Event_at_limit_is_accepted_one_over_fails()
     {
         var atLimit = NewTask();
@@ -253,7 +262,7 @@ public sealed class EncodedEventTests
         private readonly InMemoryEventStore _inner = new(options);
 
         public override ValueTask<long> AppendAsync(TaskKey task, SequencedEvent evt, CancellationToken cancellationToken = default) =>
-            _inner.AppendAsync(task, evt with { Json = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(evt.Json.Span) + " ") }, cancellationToken);
+            _inner.AppendAsync(task, new SequencedEvent(evt.Sequence, evt.Event, Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(evt.Json.Span) + " ")), cancellationToken);
 
         public override IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence, CancellationToken cancellationToken = default) =>
             _inner.ReadAfterAsync(task, afterSequence, cancellationToken);

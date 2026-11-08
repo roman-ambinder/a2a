@@ -310,12 +310,10 @@ A2A.Server.Storage.TaskStore
 A2A.Server.Storage.TaskStore.TaskStore() -> void
 A2A.Server.Streaming.SequencedEvent
 A2A.Server.Streaming.SequencedEvent.Event.get -> A2A.StreamResponse!
-A2A.Server.Streaming.SequencedEvent.Event.init -> void
 A2A.Server.Streaming.SequencedEvent.Sequence.get -> long
 A2A.Server.Streaming.SequencedEvent.Sequence.init -> void
 A2A.Server.Streaming.SequencedEvent.SequencedEvent() -> void
 A2A.Server.Streaming.SequencedEvent.Json.get -> System.ReadOnlyMemory<byte>
-A2A.Server.Streaming.SequencedEvent.Json.init -> void
 A2A.Server.Streaming.SequencedEvent.SequencedEvent(long Sequence, A2A.StreamResponse! Event, System.ReadOnlyMemory<byte> Json) -> void
 A2A.Server.Streaming.SequencedEvent.SequencedEvent(long sequence, A2A.StreamResponse! evt) -> void
 A2A.Server.Streaming.EventEncoder

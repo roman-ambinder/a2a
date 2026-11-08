@@ -13,8 +13,9 @@ namespace A2A.Server.Streaming;
 /// </para>
 /// <para>
 /// The bytes are immutable by contract, like the event: nobody changes either once the event is stored. They never contain
-/// the sequence, so an event can be encoded before its sequence is known. When you replace <see cref="Event"/> (for example
-/// with a <c>with</c> expression), also set <see cref="Json"/> to <c>default</c>, or consumers write the old event's bytes.
+/// the sequence, so an event can be encoded before its sequence is known. <see cref="Event"/> and <see cref="Json"/> are
+/// get-only, so <c>evt with { Event = ... }</c> does not compile (it would keep the old bytes); build a new
+/// <see cref="SequencedEvent(long, StreamResponse, ReadOnlyMemory{byte})"/> instead. <c>with { Sequence = ... }</c> still works.
 /// </para>
 /// </remarks>
 /// <param name="Sequence">The per-task sequence number; 0 when the event was not stored.</param>
@@ -22,6 +23,12 @@ namespace A2A.Server.Streaming;
 /// <param name="Json">The ProtoJSON of <paramref name="Event"/>, or empty when it was not encoded.</param>
 public readonly record struct SequencedEvent(long Sequence, StreamResponse Event, ReadOnlyMemory<byte> Json)
 {
+    /// <summary>The event.</summary>
+    public StreamResponse Event { get; } = Event;
+
+    /// <summary>The ProtoJSON of <see cref="Event"/>, or empty when it was not encoded.</summary>
+    public ReadOnlyMemory<byte> Json { get; } = Json;
+
     /// <summary>An event that is not encoded yet (<see cref="Json"/> is empty). Consumers encode it on demand with <see cref="EventEncoder.EnsureEncoded"/>.</summary>
     /// <param name="sequence">The per-task sequence number; 0 when the event was not stored.</param>
     /// <param name="evt">The event.</param>
