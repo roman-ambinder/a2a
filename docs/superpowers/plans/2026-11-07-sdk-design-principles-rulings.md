@@ -97,3 +97,12 @@ Every decision the controller made on the user's behalf while executing docs/sup
 - Task 28: minor (deferred): AgentCardProvider.Get reads CanCache after Build (tiny window can cache a pre-start card; read it before Build); AgentCardEndpoint Lazy keeps a provisional card if hit before start (requests arrive after start).
 - Task 30: minor (deferred): using order in StreamingResumeTests; some hosts set Enabled=false while still registering the limiter (harmless).
 - Task 31: minor (deferred): card-signing path in the rewritten EchoAgent not run end to end.
+
+## Closed before v0.1.0 (follow-up PR to #13 and #14)
+
+- Ruling: `TaskStreamer` is internal. `A2ARequestHandler` builds it from the services its constructor already takes, so the handler's public constructor drops the `TaskStreamer` parameter and DI no longer registers it (#14 had made only its constructor internal) — cost if wrong: a host that wanted to share one streamer between handlers cannot (none can today: its members were internal).
+- Ruling: a follow-up's outcome on a trimmed event store is decided by the status timestamp captured at accept: an interrupted state counts only once the stored status timestamp differs. The timestamp travels in `IdempotencyOutcome.TaskCreated.AcceptedStatusTimestamp` (Postgres outcome JSON `acceptedStatusTimestamp`, optional on read) so idempotent replays use it too; `TaskExecutionEngine.WaitUntilSettledAsync` takes it. Every status the engine commits has a timestamp — cost if wrong: an agent that sets the same explicit timestamp again is not seen as a change on a trimmed store (the live bus and a stored status event still are).
+- Ruling: a follow-up whose execution fails to start after its message was committed fails the task (`StartFailureText`) through `CommitSystemStatusAsync`, only while the status is still the one at accept and nothing runs here; log event 223 when that commit fails.
+- Ruling: `RedisExecutionCoordinator` keeps its cancel readers copy-on-write and fans a cancel request out without the lock, so the dropped-request warning is logged outside it (no rate limit).
+- Ruling: `AddA2AClient` sets `HttpClient.MaxResponseContentBufferSize` from `A2ANamedClientOptions.MaxResponseContentBufferSize`, default 16 MiB, validated 1..int.MaxValue when the client is created.
+- Ruling: benchmark baseline regenerated from the ubuntu-latest `benchmark-results` artifact of the #13 merge run (42454484104); allocations of two other CI runs were within 1% of it, so the job's `continue-on-error` is removed.
