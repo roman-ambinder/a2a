@@ -79,6 +79,8 @@ A runnable version is in `samples/ElicitationAgent`.
 
 A follow-up whose `messageId` is already in the task's history is not run again. The caller gets the task as it is: no new turn, no push config, no execution. The check runs before the state check, so a retry after the task has finished still gets its outcome.
 
+**A message the agent never saw.** The follow-up is committed before its agent starts. If the process dies in between, the message is in the history and nothing runs. The client's retry of the same `messageId` then starts the agent, once. This happens only when all of these hold: the task is not final and still accepts a follow-up, the message is the last one in the history, no agent runs for the task on any instance (an unreachable coordinator counts as running), and the event store has no event after the one the commit recorded (an agent that wrote anything, an artifact included, leaves one). Two retries at once start one execution. The commit records a server-owned key, `a2a.followUp.pendingStart`, in the task metadata; agents cannot write it. If the client never retries, nothing starts: the task stays in its state, with no lease, until the [retention](retention.md) sweep times it out. An agent that ran and wrote nothing at all looks the same as one that never started, so a retry runs it again.
+
 ## Executor errors
 
 If the executor throws, the task becomes `FAILED` with the fixed text "The agent failed to process the request." The exception goes to the log, not to the caller. If you want a specific message, call `updater.FailAsync` yourself with text you are happy to show.

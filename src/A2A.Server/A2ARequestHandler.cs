@@ -235,8 +235,16 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// <param name="LastSequence">For a follow-up, the task's last event sequence right after the message was appended; 0 for a new task.</param>
     /// <param name="Duplicate">The follow-up's message id was already in the task's history: nothing was appended and no agent must start.</param>
     /// <param name="AcceptedStatus">For a follow-up, the task's status when its message was committed (a follow-up does not change it).</param>
+    /// <param name="StartPending">The engine counts this request's start as pending (see <see cref="TaskExecutionEngine.BeginStart"/>): it ends it once the execution is registered or the start failed.</param>
     private sealed record Prepared(AgentRequestContext Context, TaskPushNotificationConfig? PushConfig, long LastSequence, bool Duplicate = false,
-        AgentTaskStatus? AcceptedStatus = null);
+        AgentTaskStatus? AcceptedStatus = null, bool StartPending = false);
+
+    /// <summary>
+    /// Task metadata key (server-owned: the agent cannot write it) a committed follow-up leaves: <c>sequence:messageId</c>, the
+    /// task's last event sequence just before the message was committed, and the message's id. While the task has no event
+    /// after that sequence, the agent did not run for the message (see <see cref="PendingStartAsync"/>).
+    /// </summary>
+    internal const string PendingStartKey = "a2a.followUp.pendingStart";
 
     /// <summary>
     /// Accepts the message and starts the agent. The idempotency claim is abandoned when the message is refused or the agent
@@ -258,37 +266,45 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         try
         {
             var prepared = await PrepareAsync(request, call, ct, newTaskId).ConfigureAwait(false);
-            // The request resolved the tenant's card already; its push capability holds for the whole execution, so no card
-            // provider call happens per event (or under a task lock).
-            var pushEnabled = call.ResolvedCard?.Card?.Capabilities.PushNotifications == true;
-            if (prepared.Context.IsNewTask)
-                return (await _engine.StartAsync(prepared.Context, prepared.PushConfig, claim, agent, pushEnabled).ConfigureAwait(false), 0, null);
-            if (prepared.Duplicate)
-            {
-                // The message is already in the history (an earlier request of it failed after the commit): its outcome is
-                // the task as it is. A retry with this claim gets the task as it is too.
-                await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(prepared.Context.TaskId, 0), prepared.Context.TaskId).ConfigureAwait(false);
-                return (null, 0, null);
-            }
-
-            // Record after the execution is registered (on every instance), so a blocking retry sees it running and waits for
-            // its outcome.
-            var taskId = prepared.Context.TaskId;
-            var acceptedStatus = prepared.AcceptedStatus!;
-            Execution.Execution exec;
             try
             {
-                exec = await _engine.StartAsync(prepared.Context, prepared.PushConfig, IdempotencyClaim.None, agent, pushEnabled).ConfigureAwait(false);
+                // The request resolved the tenant's card already; its push capability holds for the whole execution, so no card
+                // provider call happens per event (or under a task lock).
+                var pushEnabled = call.ResolvedCard?.Card?.Capabilities.PushNotifications == true;
+                if (prepared.Context.IsNewTask)
+                    return (await _engine.StartAsync(prepared.Context, prepared.PushConfig, claim, agent, pushEnabled).ConfigureAwait(false), 0, null);
+                if (prepared.Duplicate)
+                {
+                    // The message is already in the history (an earlier request of it failed after the commit): its outcome is
+                    // the task as it is. A retry with this claim gets the task as it is too.
+                    await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(prepared.Context.TaskId, 0), prepared.Context.TaskId).ConfigureAwait(false);
+                    return (null, 0, null);
+                }
+
+                // Record after the execution is registered (on every instance), so a blocking retry sees it running and waits for
+                // its outcome.
+                var taskId = prepared.Context.TaskId;
+                var acceptedStatus = prepared.AcceptedStatus!;
+                Execution.Execution exec;
+                try
+                {
+                    exec = await _engine.StartAsync(prepared.Context, prepared.PushConfig, IdempotencyClaim.None, agent, pushEnabled).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // The message is committed, but no agent runs for it: fail the task rather than leave it waiting for good.
+                    await _engine.TryFailUnstartedAsync(Key(call, taskId), acceptedStatus).ConfigureAwait(false);
+                    throw;
+                }
+                await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId, prepared.LastSequence, acceptedStatus.Timestamp), taskId)
+                    .ConfigureAwait(false);
+                return (exec, prepared.LastSequence, acceptedStatus.Timestamp);
             }
-            catch
+            finally
             {
-                // The message is committed, but no agent runs for it: fail the task rather than leave it waiting for good.
-                await _engine.TryFailUnstartedAsync(Key(call, taskId), acceptedStatus).ConfigureAwait(false);
-                throw;
+                // The execution is registered (or the start failed): a retry now sees it running (or the failed task).
+                if (prepared.StartPending) _engine.EndStart(Key(call, prepared.Context.TaskId));
             }
-            await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId, prepared.LastSequence, acceptedStatus.Timestamp), taskId)
-                .ConfigureAwait(false);
-            return (exec, prepared.LastSequence, acceptedStatus.Timestamp);
         }
         catch
         {
@@ -384,6 +400,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         long lastSequence = 0;
         string contextId;
         var duplicate = false;
+        var startPending = false;
         var approval = ApprovalState.None;
         ElicitationAnswer? elicitation = null;
 
@@ -418,9 +435,20 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     {
                         // Already accepted (an earlier request of it failed after the commit): no push config, no append, no
                         // new execution. Checked before the state, so a retry after the task settled gets its outcome.
-                        duplicate = true;
                         existing = record.Task;
                         contextId = record.Task.ContextId;
+                        message.ContextId = contextId;
+                        // The earlier request committed the message but evidently never started the agent (it crashed, or its
+                        // start failed and could not even fail the task): start it now, once.
+                        if (await PendingStartAsync(key, record.Task, message, answersForm, ct).ConfigureAwait(false) is { } pendingSequence
+                            && await _engine.TryClaimStartAsync(key, ct).ConfigureAwait(false))
+                        {
+                            approval = ResolveApproval(record.Task, message, out _, recovering: true);
+                            elicitation = answersForm ? message.GetElicitationAnswer() : null;
+                            lastSequence = pendingSequence;
+                            startPending = true;
+                        }
+                        else duplicate = true;
                         break;
                     }
                     if (state.IsTerminal())
@@ -450,6 +478,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     if (answeredForm is not null) (next.Metadata ??= [])[Elicitation.AnsweredKey] = StringElement(answeredForm);
                     // The latest well-formed chain wins; a follow-up without one leaves the echo as it is.
                     if (ActorChainValidator.WellFormedChain(message) is { } chain) (next.Metadata ??= [])[A2A.Delegation.ActorChain.MetadataKey] = chain;
+                    // The last sequence before the commit: no event can land between this read and the commit (an event commit changes
+                    // the task's version, so the commit below would conflict and this loop would read again). Read before the commit,
+                    // so a failing read leaves nothing committed; the marker lets a retry tell that the agent never started.
+                    var sequenceBefore = await _events.LastSequenceAsync(key, ct).ConfigureAwait(false);
+                    (next.Metadata ??= [])[PendingStartKey] = StringElement(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{sequenceBefore}:{message.MessageId}"));
                     EnsureTaskSizeCapacity(next);
                     if (push is not null && !pushSaved)
                     {
@@ -462,9 +495,10 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                         await _tasks.UpdateAsync(record with { Task = next }, record.Version, ct).ConfigureAwait(false);
                         existing = next;
                         committed = true;
-                        // Still under the task lock. The message is committed: a cancelled request must not stop here, or
-                        // the idempotency entry would be abandoned and a retry would append the message again.
-                        lastSequence = await _events.LastSequenceAsync(key, CancellationToken.None).ConfigureAwait(false);
+                        lastSequence = sequenceBefore;
+                        // Until the execution is registered, a retry must not start the message a second time.
+                        _engine.BeginStart(key);
+                        startPending = true;
                         break;
                     }
                     catch (ConcurrencyException) when (attempt < TaskExecutionEngine.MaxConflictRetries)
@@ -491,20 +525,51 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
         // A new task saves its push config when the task is created; a follow-up saved it above, before its message was committed.
 
-        var context = new AgentRequestContext
+        try
         {
-            Message = message,
-            TaskId = taskId,
-            ContextId = contextId,
-            Task = existing?.DeepCopy(), // the executor's own view: changing it never changes the stored task
-            Configuration = request.Configuration,
-            Metadata = request.Metadata,
-            Call = call,
-            Approval = approval,
-            ElicitationAnswer = elicitation,
-            TokenExchanger = _tokenExchanger,
-        };
-        return new Prepared(context, existing is null ? push : null, lastSequence, duplicate, isFollowUp ? existing?.Status : null);
+            var context = new AgentRequestContext
+            {
+                Message = message,
+                TaskId = taskId,
+                ContextId = contextId,
+                Task = existing?.DeepCopy(), // the executor's own view: changing it never changes the stored task
+                Configuration = request.Configuration,
+                Metadata = request.Metadata,
+                Call = call,
+                Approval = approval,
+                ElicitationAnswer = elicitation,
+                TokenExchanger = _tokenExchanger,
+            };
+            return new Prepared(context, existing is null ? push : null, lastSequence, duplicate, isFollowUp ? existing?.Status : null, startPending);
+        }
+        catch
+        {
+            if (startPending) _engine.EndStart(Key(call, taskId));
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Whether the agent evidently never started for <paramref name="message"/>, which is already in the history of
+    /// <paramref name="task"/>: the sequence the follow-up commit recorded (<see cref="PendingStartKey"/>), or null when the retry
+    /// is a plain duplicate. All of these must hold: the task is not final and still accepts a follow-up (it is as the commit left
+    /// it), the message is the last in the history, the marker is this message's, and the event store has no event after the
+    /// recorded sequence (an agent that ran and wrote anything, an artifact included, leaves one). The caller then checks that no
+    /// execution runs and claims the start, under the task lock.
+    /// </summary>
+    private async ValueTask<long?> PendingStartAsync(TaskKey key, AgentTask task, Message message, bool answersForm, CancellationToken ct)
+    {
+        var state = task.Status.State;
+        if (state.IsTerminal() || !TaskStateMachine.AcceptsFollowUp(state, _options.FollowUpPolicy)) return null;
+        if (task.History is not { Count: > 0 } history || !string.Equals(history[^1].MessageId, message.MessageId, StringComparison.Ordinal)) return null;
+        if (task.Metadata is null || !task.Metadata.TryGetValue(PendingStartKey, out var marker) || marker.ValueKind != JsonValueKind.String) return null;
+        var text = marker.GetString()!;
+        var colon = text.IndexOf(':', StringComparison.Ordinal);
+        if (colon <= 0 || !long.TryParse(text.AsSpan(0, colon), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var sequence)) return null;
+        if (!string.Equals(text[(colon + 1)..], message.MessageId, StringComparison.Ordinal)) return null;
+        if (answersForm && message.GetElicitationAnswer() is null) return null;
+        // A read that fails fails this retry: the client retries again (nothing is started on a guess).
+        return await _events.LastSequenceAsync(key, ct).ConfigureAwait(false) == sequence ? sequence : null;
     }
 
     /// <summary>
@@ -517,7 +582,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// closed (treated as used). <paramref name="consume"/> is the status message id to record when the result is
     /// <see cref="ApprovalState.Approved"/>.
     /// </summary>
-    private static ApprovalState ResolveApproval(AgentTask task, Message message, out string? consume)
+    private static ApprovalState ResolveApproval(AgentTask task, Message message, out string? consume, bool recovering = false)
     {
         consume = null;
         string? pending = null;
@@ -526,9 +591,10 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             && statusMetadata.TryGetValue(A2AProtocol.ApprovalHashKey, out var p) && p.ValueKind == JsonValueKind.String)
             pending = p.GetString();
         // A status message without an id could never be marked used: fail closed, as if it were.
+        // Recovering a committed message: the task is unchanged since, so the approval it consumed is this message's own.
         var used = pending is not null
             && (string.IsNullOrEmpty(status!.MessageId)
-                || (task.Metadata is { } taskMetadata
+                || (!recovering && task.Metadata is { } taskMetadata
                     && taskMetadata.TryGetValue(A2AProtocol.ApprovalConsumedKey, out var c) && c.ValueKind == JsonValueKind.String
                     && string.Equals(c.GetString(), status.MessageId, StringComparison.Ordinal)));
 
