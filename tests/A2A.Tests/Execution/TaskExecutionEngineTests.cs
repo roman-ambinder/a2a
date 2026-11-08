@@ -26,19 +26,28 @@ public sealed class TaskExecutionEngineTests
         public void Enqueue(TaskKey task, SequencedEvent evt) { }
     }
 
+    private sealed class RecordingPush : IPushNotificationSender
+    {
+        private int _count;
+        public int Count => Volatile.Read(ref _count);
+        public void Enqueue(TaskKey task, SequencedEvent evt) => Interlocked.Increment(ref _count);
+    }
+
     private static TaskExecutionEngine Engine(TaskStore tasks, Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> execute,
-        A2AServerOptions? options = null)
+        A2AServerOptions? options = null, IPushNotificationSender? push = null)
     {
         options ??= new A2AServerOptions();
+        if (string.IsNullOrEmpty(options.AgentCard.Name)) options.AgentCard.Name = "Engine Test Agent";
         return new TaskExecutionEngine(
             tasks,
             new InMemoryEventStore(options.Streaming),
             new DelegateFactory(execute),
             new TaskEventBus(),
-            new NoPush(),
+            push ?? new NoPush(),
             new IdempotencyCoordinator(new InMemoryIdempotencyStore(options.Idempotency), tasks, options),
             new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options),
-            options);
+            options,
+            new AgentCardProvider(options, []));
     }
 
     private static AgentRequestContext NewTask(ServerCallContext call) => new()
@@ -140,5 +149,28 @@ public sealed class TaskExecutionEngineTests
         Assert.NotNull(record);
         Assert.Equal(TaskState.Failed, record.Task.Status.State);
         Assert.Equal(TaskExecutionEngine.StoreFailureText, record.Task.Status.Message!.GetText());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Events_reach_the_push_sender_only_when_the_card_declares_push(bool? declared)
+    {
+        var options = new A2AServerOptions();
+        options.AgentCard.Capabilities.PushNotifications = declared;
+        var push = new RecordingPush();
+        var tasks = new InMemoryTaskStore();
+        await using var engine = Engine(tasks, async (_, updater, ct) =>
+        {
+            await updater.StartWorkAsync("working", ct);
+            await updater.CompleteAsync("done", ct);
+        }, options, push);
+        var exec = engine.Start(NewTask(ServerCallContext.Anonymous()), push: null, IdempotencyClaim.None);
+        exec.Detach();
+        await exec.Completion.WaitAsync(Wait);
+
+        if (declared == true) Assert.True(push.Count > 0);
+        else Assert.Equal(0, push.Count);
     }
 }

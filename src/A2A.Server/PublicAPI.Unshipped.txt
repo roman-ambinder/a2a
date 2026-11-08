@@ -456,7 +456,7 @@ A2A.Server.Idempotency.IdempotencyClaim.AbandonAsync() -> System.Threading.Tasks
 static A2A.Server.Idempotency.IdempotencyClaim.None.get -> A2A.Server.Idempotency.IdempotencyClaim!
 const A2A.Server.Idempotency.IdempotencyCoordinator.MaxIdempotencyKeyLength = 256 -> int
 A2A.Server.Execution.TaskExecutionEngine
-A2A.Server.Execution.TaskExecutionEngine.TaskExecutionEngine(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.IAgentExecutorFactory! executors, A2A.Server.TaskEventBus! bus, A2A.Server.Push.IPushNotificationSender! push, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.A2AServerOptions! options, Microsoft.Extensions.Logging.ILogger<A2A.Server.Execution.TaskExecutionEngine!>? logger = null) -> void
+A2A.Server.Execution.TaskExecutionEngine.TaskExecutionEngine(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.IAgentExecutorFactory! executors, A2A.Server.TaskEventBus! bus, A2A.Server.Push.IPushNotificationSender! push, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider! cards, Microsoft.Extensions.Logging.ILogger<A2A.Server.Execution.TaskExecutionEngine!>? logger = null) -> void
 A2A.Server.Execution.TaskExecutionEngine.Dispose() -> void
 A2A.Server.Execution.TaskExecutionEngine.DisposeAsync() -> System.Threading.Tasks.ValueTask
 A2A.Server.Execution.TaskExecutionEngine.WaitUntilSettledAsync(A2A.Server.Storage.TaskKey key, long afterSequence, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.AgentTask!>

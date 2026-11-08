@@ -161,6 +161,7 @@ public sealed class BoundedChannelTests
     public async Task Fast_agent_is_throttled_not_dropped()
     {
         var options = new A2AServerOptions();
+        options.AgentCard.Name = "Bounded Channel Test Agent";
         options.Streaming.ChannelCapacity = 2;
         var tasks = new InMemoryTaskStore();
         var events = new InMemoryEventStore(options.Streaming);
@@ -179,7 +180,8 @@ public sealed class BoundedChannelTests
         });
         await using var engine = new TaskExecutionEngine(tasks, events, factory, new TaskEventBus(options.Streaming), new NoPush(),
             new IdempotencyCoordinator(new InMemoryIdempotencyStore(options.Idempotency), tasks, options),
-            new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options), options);
+            new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options), options,
+            new AgentCardProvider(options, []));
         var context = new AgentRequestContext
         {
             Message = Message.FromUser("go"), TaskId = TaskIds.New(), ContextId = TaskIds.New(), Call = Call(),
@@ -315,7 +317,8 @@ public sealed class BoundedChannelTests
             var bus = new TaskEventBus(options.Streaming);
             var idempotency = new IdempotencyCoordinator(new InMemoryIdempotencyStore(options.Idempotency), tasks, options);
             var engine = new TaskExecutionEngine(tasks, events, new DelegateFactory(agent), bus, new NoPush(), idempotency,
-                new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options), options, logger);
+                new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options), options,
+                new AgentCardProvider(options, []), logger);
             var streamer = new TaskStreamer(tasks, events, engine, idempotency, new AllowAllAuthorizationHandler([]), options, new AgentCardProvider(options, []));
             return new Rig(engine, streamer, bus);
         }
@@ -336,6 +339,7 @@ public sealed class BoundedChannelTests
         // Capacity 1: the request's own channel keeps only the new task (sequence 1), the bus only the newest event. The
         // INPUT_REQUIRED outcome (sequence 3) reaches neither, and the agent emits nothing more until released.
         var options = new A2AServerOptions();
+        options.AgentCard.Name = "Bounded Channel Test Agent";
         options.Streaming.ChannelCapacity = 1;
         if (trimmed) options.Streaming.ReplayBufferSize = 2; // the store keeps only the two artifacts after it
         var tasks = new InMemoryTaskStore();
@@ -416,6 +420,7 @@ public sealed class BoundedChannelTests
     public async Task Replay_wait_finds_a_status_the_bus_dropped(bool trimmed)
     {
         var options = new A2AServerOptions();
+        options.AgentCard.Name = "Bounded Channel Test Agent";
         options.Streaming.ChannelCapacity = 1;
         if (trimmed) options.Streaming.ReplayBufferSize = 2;
         var tasks = new InMemoryTaskStore();
@@ -530,6 +535,7 @@ public sealed class BoundedChannelTests
         // The second update fails. The engine stops reading and closes the agent's channel; the agent, which ignores
         // cancellation, gets ChannelClosedException on its next write. That is logged at Debug, not as an agent failure.
         var options = new A2AServerOptions();
+        options.AgentCard.Name = "Bounded Channel Test Agent";
         options.Streaming.ChannelCapacity = 1;
         var tasks = new FailOnNthUpdateStore(failOn: 2);
         var logger = new CaptureLogger();

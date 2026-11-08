@@ -33,11 +33,14 @@ public sealed class EncodedEventTests
     }
 
     private static TaskExecutionEngine Engine(TaskStore tasks, EventStore events, Func<AgentRequestContext, TaskUpdater, CancellationToken, Task> execute,
-        A2AServerOptions options) =>
-        new(tasks, events, new DelegateFactory(execute), new TaskEventBus(), new NoPush(),
+        A2AServerOptions options)
+    {
+        if (string.IsNullOrEmpty(options.AgentCard.Name)) options.AgentCard.Name = "Encoded Event Test Agent";
+        return new(tasks, events, new DelegateFactory(execute), new TaskEventBus(), new NoPush(),
             new IdempotencyCoordinator(new InMemoryIdempotencyStore(options.Idempotency), tasks, options),
             new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options),
-            options);
+            options, new AgentCardProvider(options, []));
+    }
 
     private static AgentRequestContext NewTask() => new()
     {

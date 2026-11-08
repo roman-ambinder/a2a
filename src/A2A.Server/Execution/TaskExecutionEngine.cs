@@ -26,6 +26,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     private readonly IdempotencyCoordinator _idempotency;
     private readonly PushConfigService _pushConfigs;
     private readonly A2AServerOptions _options;
+    private readonly IAgentCardProvider _cards;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly TaskLocks _locks = new();
@@ -42,6 +43,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         IdempotencyCoordinator idempotency,
         PushConfigService pushConfigs,
         A2AServerOptions options,
+        IAgentCardProvider cards,
         ILogger<TaskExecutionEngine>? logger = null)
     {
         _tasks = tasks;
@@ -52,6 +54,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
         _idempotency = idempotency;
         _pushConfigs = pushConfigs;
         _options = options;
+        _cards = cards;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
     }
 
@@ -371,7 +374,7 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 var failed = Encode(StreamResponse.Of(FailureEvent(key.TaskId, contextId, StoreFailureText)));
                 if (await ApplyAndStoreAsync(key, record, failed).ConfigureAwait(false) is not { } stored) return;
                 _bus.Publish(scope, stored);
-                _push.Enqueue(key, stored);
+                if (PushDeclared) _push.Enqueue(key, stored);
                 await _events.MarkTerminalAsync(key).ConfigureAwait(false);
                 _bus.Complete(scope);
             }
@@ -437,8 +440,14 @@ public sealed class TaskExecutionEngine : IDisposable, IAsyncDisposable
     {
         exec.Emit(evt);
         _bus.Publish(ScopeKey(key.Tenant, key.TaskId), evt);
-        _push.Enqueue(key, evt);
+        if (PushDeclared) _push.Enqueue(key, evt);
     }
+
+    /// <summary>
+    /// Whether the public card declares push notifications. When it does not, no push config can exist, so events are not handed to
+    /// the <see cref="IPushNotificationSender"/>.
+    /// </summary>
+    private bool PushDeclared => _cards.Get().Capabilities.PushNotifications == true;
 
     /// <summary>
     /// Returns a copy of <paramref name="current"/> (<see cref="ModelCopies.CopyForUpdate"/>) with the event applied, or null
