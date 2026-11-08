@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using A2A.Client.Credentials;
 using A2A.Integrity;
 using A2A.Security.Http;
 
@@ -11,35 +12,39 @@ namespace A2A.Client;
 /// that URL is fetched once with a separate client that has no credentials and the <see cref="SafeHttp"/> address guard.
 /// </summary>
 /// <remarks>
-/// Pass the caller's credentialed <see cref="HttpClient"/>, the one used for A2A calls. It must not follow redirects
-/// (for example <c>AllowAutoRedirect = false</c>). If it did, the class throws. The <c>sizeBytes</c> and <c>sha256</c> metadata of the
-/// part are checked when present.
+/// Pass the handler stack that adds the caller's A2A credentials, the one used for A2A calls. The constructor rejects a
+/// <see cref="SocketsHttpHandler"/> or <see cref="HttpClientHandler"/> (also nested under a <see cref="DelegatingHandler"/>) that follows
+/// redirects, because such a client would send the request on to the new target before this class could see it. The SDK cannot inspect
+/// a handler of any other type: such a handler must not follow redirects. As a backstop, the class throws when a response shows that
+/// a redirect was followed. The handler is not disposed. The <c>sizeBytes</c> and <c>sha256</c> metadata of the part are checked when present.
 /// </remarks>
 public sealed class A2AArtifactDownloader
 {
     private const string Sha256Key = "sha256";
     private const string SizeBytesKey = "sizeBytes";
 
-    private readonly HttpClient agentHttpClient;
+    private readonly HttpMessageHandler agentHandler;
     private readonly string agentOrigin;
     private readonly SafeHttpOptions? storageOptions;
     private readonly Func<HttpClient> storageClientFactory;
 
     /// <summary>Creates a downloader.</summary>
-    /// <param name="agentHttpClient">The caller's credentialed client for the agent. It must not follow redirects.</param>
+    /// <exception cref="ArgumentException">The handler is a known type that follows redirects.</exception>
+    /// <param name="agentHandler">The caller's handler stack that adds credentials for the agent. It must not follow redirects.</param>
     /// <param name="agentOrigin">The agent's origin, from its card. Part URLs on any other origin are refused.</param>
     /// <param name="storageOptions">The URL policy for the storage redirect. Default: HTTPS only, no private targets. Set it to allow a private store such as MinIO.</param>
-    public A2AArtifactDownloader(HttpClient agentHttpClient, Uri agentOrigin, SafeHttpOptions? storageOptions = null)
-        : this(agentHttpClient, agentOrigin, storageOptions, null)
+    public A2AArtifactDownloader(HttpMessageHandler agentHandler, Uri agentOrigin, SafeHttpOptions? storageOptions = null)
+        : this(agentHandler, agentOrigin, storageOptions, null)
     {
     }
 
-    internal A2AArtifactDownloader(HttpClient agentHttpClient, Uri agentOrigin, SafeHttpOptions? storageOptions, Func<HttpClient>? storageClientFactory)
+    internal A2AArtifactDownloader(HttpMessageHandler agentHandler, Uri agentOrigin, SafeHttpOptions? storageOptions, Func<HttpClient>? storageClientFactory)
     {
-        ArgumentNullException.ThrowIfNull(agentHttpClient);
+        ArgumentNullException.ThrowIfNull(agentHandler);
         ArgumentNullException.ThrowIfNull(agentOrigin);
+        A2ACredentialHandler.EnsureNoAutoRedirect(agentHandler);
         if (!agentOrigin.IsAbsoluteUri) throw new ArgumentException("The agent origin must be an absolute URL.", nameof(agentOrigin));
-        this.agentHttpClient = agentHttpClient;
+        this.agentHandler = agentHandler;
         this.agentOrigin = agentOrigin.GetLeftPart(UriPartial.Authority);
         this.storageOptions = storageOptions;
         this.storageClientFactory = storageClientFactory ?? (() => SafeHttp.CreateClient(storageOptions));
@@ -62,10 +67,11 @@ public sealed class A2AArtifactDownloader
         if (!url.IsAbsoluteUri || !string.Equals(url.GetLeftPart(UriPartial.Authority), agentOrigin, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("The artifact URL is not on the agent's origin; credentials are never sent to another origin.");
 
+        using var agentHttpClient = new HttpClient(agentHandler, disposeHandler: false);
         using var response = await agentHttpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         var finalUri = response.RequestMessage?.RequestUri;
         if (finalUri is not null && finalUri != url)
-            throw new InvalidOperationException("The agent HttpClient followed a redirect. It must not, or credentials could cross origins.");
+            throw new InvalidOperationException("The agent handler followed a redirect. It must not, or credentials could cross origins.");
 
         if (response.StatusCode is System.Net.HttpStatusCode.Found or System.Net.HttpStatusCode.TemporaryRedirect)
         {

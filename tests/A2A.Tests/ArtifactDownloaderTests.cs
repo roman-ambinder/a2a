@@ -26,6 +26,16 @@ public sealed class ArtifactDownloaderTests
         }
     }
 
+    private sealed class CredentialStub(HttpMessageHandler inner) : DelegatingHandler(inner)
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "secret");
+            request.Headers.Add("X-Api-Key", "key");
+            return base.SendAsync(request, cancellationToken);
+        }
+    }
+
     private sealed class CountingContent(long length, int chunk) : HttpContent
     {
         public long BytesRead;
@@ -89,7 +99,7 @@ public sealed class ArtifactDownloaderTests
     }
 
     private static A2AArtifactDownloader Downloader(HttpMessageHandler agent, HttpMessageHandler? store = null) =>
-        new(new HttpClient(agent), Origin, null, () => new HttpClient(store ?? new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError))));
+        new(agent, Origin, null, () => new HttpClient(store ?? new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError))));
 
     [Fact]
     public async Task Foreign_origin_throws_and_sends_nothing()
@@ -138,17 +148,17 @@ public sealed class ArtifactDownloaderTests
         var agent = new FakeHandler(_ => Redirect(HttpStatusCode.Found, StoreLink));
         var store = new FakeHandler(_ => Ok(content));
         using var destination = new MemoryStream();
-        var agentClient = new HttpClient(agent);
-        agentClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "secret");
-        var downloader = new A2AArtifactDownloader(agentClient, Origin, null, () => new HttpClient(store));
+        var downloader = new A2AArtifactDownloader(new CredentialStub(agent), Origin, null, () => new HttpClient(store));
 
         await downloader.DownloadAsync(Part(content: content), destination, 100, CancellationToken.None);
 
         Assert.Single(agent.Requests);
         Assert.NotNull(agent.Requests[0].Headers.Authorization);
+        Assert.True(agent.Requests[0].Headers.Contains("X-Api-Key"));
         var second = Assert.Single(store.Requests);
         Assert.Equal(new Uri(StoreLink), second.RequestUri);
         Assert.Null(second.Headers.Authorization);
+        Assert.False(second.Headers.Contains("X-Api-Key"));
         Assert.Equal(content, destination.ToArray());
     }
 
@@ -257,9 +267,72 @@ public sealed class ArtifactDownloaderTests
     }
 
     [Fact]
-    public void Public_constructor_accepts_storage_options()
+    public void Handler_that_follows_redirects_is_rejected_at_construction()
     {
-        using var http = new HttpClient();
-        _ = new A2AArtifactDownloader(http, Origin, new SafeHttpOptions { AllowPrivateNetworks = true });
+        using var bare = new SocketsHttpHandler { AllowAutoRedirect = true };
+        using var nested = new CredentialStub(new SocketsHttpHandler { AllowAutoRedirect = true });
+
+        Assert.Throws<ArgumentException>(() => new A2AArtifactDownloader(bare, Origin));
+        Assert.Throws<ArgumentException>(() => new A2AArtifactDownloader(nested, Origin));
+    }
+
+    [Fact]
+    public async Task Public_constructor_fetches_the_store_once_without_credentials_and_refuses_a_second_redirect()
+    {
+        using var listener = new HttpListener();
+        var port = GetFreePort();
+        var prefix = $"http://127.0.0.1:{port}/";
+        listener.Prefixes.Add(prefix);
+        listener.Start();
+        var seen = new List<(string? Auth, string? ApiKey)>();
+        var content = "from the store"u8.ToArray();
+        var mode = "ok";
+        var server = Task.Run(async () =>
+        {
+            while (listener.IsListening)
+            {
+                HttpListenerContext ctx;
+                try { ctx = await listener.GetContextAsync(); }
+                catch { return; }
+                seen.Add((ctx.Request.Headers["Authorization"], ctx.Request.Headers["X-Api-Key"]));
+                if (mode == "redirect")
+                {
+                    ctx.Response.StatusCode = 302;
+                    ctx.Response.RedirectLocation = prefix + "elsewhere";
+                }
+                else
+                {
+                    ctx.Response.OutputStream.Write(content);
+                }
+                ctx.Response.Close();
+            }
+        });
+
+        var agent = new CredentialStub(new FakeHandler(_ => Redirect(HttpStatusCode.Found, prefix + "obj")));
+        var downloader = new A2AArtifactDownloader(agent, Origin, new SafeHttpOptions { AllowHttp = true, AllowPrivateNetworks = true });
+
+        using var destination = new MemoryStream();
+        await downloader.DownloadAsync(Part(content: content), destination, 100, CancellationToken.None);
+        Assert.Equal(content, destination.ToArray());
+        var only = Assert.Single(seen);
+        Assert.Null(only.Auth);
+        Assert.Null(only.ApiKey);
+
+        mode = "redirect";
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            downloader.DownloadAsync(Part(), new MemoryStream(), 100, CancellationToken.None));
+        Assert.Equal(2, seen.Count);
+
+        listener.Stop();
+        await server;
+    }
+
+    private static int GetFreePort()
+    {
+        var l = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        l.Start();
+        var port = ((IPEndPoint)l.LocalEndpoint).Port;
+        l.Stop();
+        return port;
     }
 }
