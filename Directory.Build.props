@@ -53,6 +53,10 @@
 
   <ItemGroup Condition="$(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\'))">
     <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Skipped for DocFX metadata (docs/site/docfx.json sets DocfxMetadata=true): DocFX lists these files twice and warns. -->
+  <ItemGroup Condition="($(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\'))) And '$(DocfxMetadata)' != 'true'">
     <AdditionalFiles Include="PublicAPI.Shipped.txt" />
     <AdditionalFiles Include="PublicAPI.Unshipped.txt" />
   </ItemGroup>

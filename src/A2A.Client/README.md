@@ -7,7 +7,7 @@ var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.c
 var reply = await client.SendMessageAsync("hello");
 ```
 
-Peer identity: `ResolvedAgentCard.Identity` is a `PeerIdentity` (origin and key id), and `AgentRegistry` rejects duplicate agent names and warns on lookalikes; see [Security](https://github.com/roman-ambinder/a2a#behavior-and-spec-decisions).
+Peer identity: `ResolvedAgentCard.Identity` is a `PeerIdentity` (origin and key id), and `AgentRegistry` rejects duplicate agent names and warns on lookalikes; see [Security](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/spec-decisions.md).
 
 Tracing: spans on the `A2A.Client` `ActivitySource`, with W3C `traceparent` sent on every call; see [Observability](https://github.com/roman-ambinder/a2a#observability).
 
