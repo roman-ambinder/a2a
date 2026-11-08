@@ -86,6 +86,26 @@ public abstract class EventStoreContract
     }
 
     [SkippableFact]
+    public async Task ReadAfter_keeps_event_metadata_and_returns_nothing_for_another_owner()
+    {
+        // The supported server-side read path of a task's raw events: event-level metadata is part of what comes back.
+        var store = await CreateStoreAsync(new StreamingOptions());
+        var key = new TaskKey("t", "alice", "x");
+        foreach (var n in new[] { 1, 2 })
+            await store.AppendAsync(key, EventEncoder.Encode(0, StreamResponse.Of(new TaskStatusUpdateEvent
+            {
+                TaskId = "x", ContextId = "c", Status = new AgentTaskStatus { State = TaskState.Working },
+                Metadata = new() { ["step"] = System.Text.Json.JsonSerializer.SerializeToElement(n) },
+            })));
+
+        var read = await ReadAllAsync(store, key);
+        Assert.Equal([1L, 2], read.Select(e => e.Sequence));
+        Assert.Equal([1, 2], read.Select(e => ((StatusUpdateEvent)e.Event).StatusUpdate.Metadata!["step"].GetInt32()));
+        Assert.Empty(await ReadAllAsync(store, new TaskKey("t", "bob", "x")));
+        Assert.Empty(await ReadAllAsync(store, new TaskKey("other", "alice", "x")));
+    }
+
+    [SkippableFact]
     public async Task Buffer_trims_to_replay_size()
     {
         var store = await CreateStoreAsync(new StreamingOptions { ReplayBufferSize = 3 });

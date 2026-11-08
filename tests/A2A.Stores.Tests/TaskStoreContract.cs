@@ -59,6 +59,31 @@ public abstract class TaskStoreContract
     }
 
     [SkippableFact]
+    public async Task Stamped_history_messages_and_merged_task_metadata_survive_a_round_trip()
+    {
+        var s = await CreateStoreAsync();
+        var record = NewRecord("t", "alice", "stamped");
+        var task = record.Task.DeepCopy();
+        const string at = "2026-11-08T10:11:12.345Z";
+        task.History =
+        [
+            new Message { MessageId = "m1", Role = Role.User, Parts = [Part.FromText("hi")],
+                Metadata = new() { [A2AProtocol.MessageRecordedAtKey] = System.Text.Json.JsonSerializer.SerializeToElement(at) } },
+            new Message { MessageId = "old", Role = Role.Agent, Parts = [Part.FromText("before the stamp existed")] }, // no key
+        ];
+        task.Metadata = new() { ["progress"] = System.Text.Json.JsonSerializer.SerializeToElement(100), ["cleared"] = System.Text.Json.JsonSerializer.SerializeToElement<string?>(null) };
+        var created = await s.CreateAsync(record with { Task = task });
+
+        var loaded = (await s.GetAsync(created.Key))!.Task;
+
+        Assert.Equal(DateTimeOffset.Parse(at), loaded.History![0].GetRecordedAt());
+        Assert.Null(loaded.History[1].GetRecordedAt());
+        Assert.Null(loaded.History[1].Metadata);
+        Assert.Equal(100, loaded.Metadata!["progress"].GetInt32());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, loaded.Metadata["cleared"].ValueKind);
+    }
+
+    [SkippableFact]
     public async Task Get_with_wrong_owner_returns_null()
     {
         var s = await CreateStoreAsync();

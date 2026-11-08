@@ -32,7 +32,10 @@ public abstract class EventStore
     /// </summary>
     public abstract ValueTask<long> AppendAsync(TaskKey task, SequencedEvent evt, CancellationToken cancellationToken = default);
 
-    /// <summary>Reads the retained events with a sequence greater than <paramref name="afterSequence"/>, in order.</summary>
+    /// <summary>
+    /// Reads the retained events with a sequence greater than <paramref name="afterSequence"/>, in order. This is the supported
+    /// server-side read path for a task's raw events, with their event metadata; only the retained events are there.
+    /// </summary>
     public abstract IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence, CancellationToken cancellationToken = default);
 
     /// <summary>The lowest retained sequence, or null when no events are retained.</summary>

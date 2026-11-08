@@ -47,6 +47,9 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     private readonly IAgentCardProvider _cards;
     private readonly ILogger _logger;
     private readonly TimeProvider _time;
+
+    /// <summary>The current time of the engine's clock, UTC. The request handler stamps accepted messages with it.</summary>
+    internal DateTimeOffset UtcNow => _time.GetUtcNow();
     private readonly ExecutionCoordinator _coordinator;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly TaskLocks _locks = new();
@@ -775,7 +778,12 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// </summary>
     private static SequencedEvent Encode(StreamResponse evt)
     {
-        if (evt is StatusUpdateEvent { StatusUpdate.Status: var status }) status.Timestamp ??= DateTimeOffset.UtcNow;
+        if (evt is StatusUpdateEvent { StatusUpdate.Status: var status })
+        {
+            status.Timestamp ??= DateTimeOffset.UtcNow;
+            // The message goes into the history with the time of the status. A copy: the agent's message and its metadata stay as they are.
+            if (status.Message is { } message) status.Message = MessageStamp.Copy(message, status.Timestamp.Value);
+        }
         return EventEncoder.Encode(0, evt);
     }
 
@@ -792,8 +800,10 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// status or artifact update. Never changes <paramref name="current"/> or anything reachable from it; an appended artifact
     /// is replaced in the copy by a new artifact. The event's status message and artifact go into the copy as they are: from
     /// here on the event and the stored task share them, and the server owns both (see <see cref="TaskUpdater"/>).
+    /// The event's own <c>Metadata</c> (status or artifact update event) is shallow-merged into the task's metadata, last write
+    /// wins; <see cref="MergeMetadata"/> says which keys are skipped.
     /// </summary>
-    private static AgentTask? ApplyToCopy(AgentTask current, StreamResponse evt)
+    internal static AgentTask? ApplyToCopy(AgentTask current, StreamResponse evt)
     {
         if (current.Status.State.IsTerminal()) return null;
         if (evt is StatusUpdateEvent { StatusUpdate: var su })
@@ -803,6 +813,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             var next = current.CopyForUpdate();
             next.Status = new AgentTaskStatus { State = su.Status.State, Message = su.Status.Message, Timestamp = su.Status.Timestamp };
             if (su.Status.Message is { } m) (next.History ??= []).Add(m);
+            MergeMetadata(next, su.Metadata);
             return next;
         }
         if (evt is ArtifactUpdateEvent { ArtifactUpdate: var au })
@@ -833,9 +844,26 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 artifacts[existing] = merged;
             }
             else artifacts[existing] = ArtifactSeal.Stamp(incoming, au.LastChunk); // replaces, also a sealed artifact
+            MergeMetadata(next, au.Metadata);
             return next;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Shallow merge of an event's metadata into the task copy: a key adds or overwrites, a key not in the update stays, null is a
+    /// value. Values are cloned. The server-owned keys are skipped, so an agent cannot reset an approval or fake a cancel.
+    /// Nothing is created when nothing is merged.
+    /// </summary>
+    private static void MergeMetadata(AgentTask next, Dictionary<string, JsonElement>? update)
+    {
+        if (update is null) return;
+        foreach (var kv in update)
+        {
+            if (kv.Key is A2AProtocol.ApprovalConsumedKey or A2AProtocol.CancelRequestedKey or A2A.Delegation.ActorChain.MetadataKey
+                or A2A.Elicitations.Elicitation.AnsweredKey) continue;
+            (next.Metadata ??= [])[kv.Key] = kv.Value.Clone();
+        }
     }
 
     private static TaskStatusUpdateEvent FailureEvent(string taskId, string contextId, string text = OversizedEventText) =>

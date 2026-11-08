@@ -159,7 +159,7 @@ public class GrpcElicitationTests
         var client = ClientFor(host);
         var task = (await client.SendMessageAsync(Message.FromUser("book"))).RequireTask();
         Assert.Equal("Which city?", task.Status.Message!.GetText());
-        Assert.Null(task.Status.Message.Metadata);
+        Assert.Equal(A2AProtocol.MessageRecordedAtKey, Assert.Single(task.Status.Message.Metadata!).Key); // the form is gone; only the server stamp remains
 
         var ignored = new Message
         {
