@@ -176,6 +176,7 @@ internal static class OutcomeJson
                     w.WriteString("kind", "task");
                     w.WriteString("taskId", t.TaskId);
                     w.WriteNumber("afterSequence", t.AfterSequence);
+                    if (t.AcceptedStatusTimestamp is { } at) w.WriteString("acceptedStatusTimestamp", at);
                     break;
                 case IdempotencyOutcome.DirectMessage m:
                     w.WriteString("kind", "message");
@@ -196,7 +197,8 @@ internal static class OutcomeJson
         var root = doc.RootElement;
         return root.GetProperty("kind").GetString() switch
         {
-            "task" => new IdempotencyOutcome.TaskCreated(root.GetProperty("taskId").GetString()!, root.GetProperty("afterSequence").GetInt64()),
+            "task" => new IdempotencyOutcome.TaskCreated(root.GetProperty("taskId").GetString()!, root.GetProperty("afterSequence").GetInt64(),
+                root.TryGetProperty("acceptedStatusTimestamp", out var at) ? at.GetDateTimeOffset() : null),
             "message" => new IdempotencyOutcome.DirectMessage(A2AJson.Deserialize<Message>(root.GetProperty("message"))),
             var kind => throw new JsonException($"Unknown idempotency outcome kind '{kind}'."),
         };

@@ -64,10 +64,11 @@ public sealed class IdempotencyCoordinator(IdempotencyStore store, TaskStore tas
     /// The answer to a retried SendMessage: the same direct reply, or the task. Like the first request, a blocking retry
     /// returns the task once it is terminal or interrupted (or the request is cancelled); a <c>returnImmediately</c> retry
     /// returns it as it is now. <paramref name="waitUntilSettled"/> waits for a blocking task (tenant/principal/task key,
-    /// sequence after which a status event counts) and returns the task.
+    /// sequence after which a status event counts, status timestamp at accept: see
+    /// <see cref="Execution.TaskExecutionEngine.WaitUntilSettledAsync"/>) and returns the task.
     /// </summary>
     public async ValueTask<SendMessageResponse> ReplayAsync(IdempotencyOutcome outcome, SendMessageRequest request, ServerCallContext call,
-        Func<TaskKey, long, CancellationToken, ValueTask<AgentTask>> waitUntilSettled, CancellationToken cancellationToken)
+        Func<TaskKey, long, DateTimeOffset?, CancellationToken, ValueTask<AgentTask>> waitUntilSettled, CancellationToken cancellationToken)
     {
         switch (outcome)
         {
@@ -77,7 +78,7 @@ public sealed class IdempotencyCoordinator(IdempotencyStore store, TaskStore tas
                 var key = new TaskKey(call.Tenant, call.Principal, created.TaskId);
                 var task = request.Configuration?.ReturnImmediately == true
                     ? (await tasks.GetAsync(key, cancellationToken).ConfigureAwait(false))?.Task ?? throw A2AException.TaskNotFound(created.TaskId)
-                    : await waitUntilSettled(key, created.AfterSequence, cancellationToken).ConfigureAwait(false);
+                    : await waitUntilSettled(key, created.AfterSequence, created.AcceptedStatusTimestamp, cancellationToken).ConfigureAwait(false);
                 return new TaskResponse(TaskShaper.Shape(task, request.Configuration?.HistoryLength, options.Limits));
             default:
                 throw new UnreachableException();

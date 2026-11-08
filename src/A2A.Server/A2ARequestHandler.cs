@@ -73,7 +73,6 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         CallValidator validator,
         PushConfigService pushConfigs,
         TaskExecutionEngine engine,
-        TaskStreamer streamer,
         IEnumerable<A2AOperationFilterRegistration> filters,
         IEnumerable<A2AExtensionOperation> extensionOperations,
         IAgentCardProvider cards)
@@ -95,7 +94,8 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         _validator = validator;
         _pushConfigs = pushConfigs;
         _engine = engine;
-        _streamer = streamer;
+        // Built here, not registered: it shares the handler's services and has no public surface of its own.
+        _streamer = new TaskStreamer(tasks, events, engine, idempotency, authorization, options, cards);
         _accept = AcceptAsync; // one delegate for every stream
         _pipeline = new OperationPipeline(new AuthorizationFilter(authorization, options), filters);
         _sendMessage = SendMessageCoreAsync;
@@ -174,15 +174,16 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         var scope = ScopeKey(call.Tenant, taskId);
         // Subscribe before the agent starts, so no event of another execution is missed.
         using var sub = _bus.Subscribe(scope);
-        var (accepted, afterSequence) = await AcceptAsync(request, call, claim, taskId, agent, cancellationToken).ConfigureAwait(false);
+        var (accepted, afterSequence, acceptedStatusTimestamp) = await AcceptAsync(request, call, claim, taskId, agent, cancellationToken)
+            .ConfigureAwait(false);
         if (accepted is not { } exec)
         {
             // A duplicate follow-up: nothing started, so there is nothing to wait for.
             var current = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
             return new TaskResponse(Shape(current.Task, request.Configuration?.HistoryLength));
         }
-        var reply = await _streamer.WaitForOutcomeAsync(exec, key, sub, afterSequence, request.Configuration?.ReturnImmediately == true,
-            cancellationToken).ConfigureAwait(false);
+        var reply = await _streamer.WaitForOutcomeAsync(exec, key, sub, afterSequence, acceptedStatusTimestamp,
+            request.Configuration?.ReturnImmediately == true, cancellationToken).ConfigureAwait(false);
         if (reply is not null) return new MessageResponse(reply);
 
         var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false)
@@ -224,7 +225,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// <param name="PushConfig">The push config to save when a new task is created.</param>
     /// <param name="LastSequence">For a follow-up, the task's last event sequence right after the message was appended; 0 for a new task.</param>
     /// <param name="Duplicate">The follow-up's message id was already in the task's history: nothing was appended and no agent must start.</param>
-    private sealed record Prepared(AgentRequestContext Context, TaskPushNotificationConfig? PushConfig, long LastSequence, bool Duplicate = false);
+    /// <param name="AcceptedStatus">For a follow-up, the task's status when its message was committed (a follow-up does not change it).</param>
+    private sealed record Prepared(AgentRequestContext Context, TaskPushNotificationConfig? PushConfig, long LastSequence, bool Duplicate = false,
+        AgentTaskStatus? AcceptedStatus = null);
 
     /// <summary>
     /// Accepts the message and starts the agent. The idempotency claim is abandoned when the message is refused or the agent
@@ -232,11 +235,16 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// records it when it is first stored.
     /// </summary>
     /// <returns>
-    /// The execution, and the task's last sequence before it (0 for a new task; see <see cref="Prepared.LastSequence"/>). The
-    /// execution is null for a duplicate follow-up (see <see cref="Prepared.Duplicate"/>): nothing was started.
+    /// The execution, the task's last sequence before it (0 for a new task; see <see cref="Prepared.LastSequence"/>), and for a
+    /// follow-up the timestamp of the task's status when the message was committed. The execution is null for a duplicate
+    /// follow-up (see <see cref="Prepared.Duplicate"/>): nothing was started.
     /// </returns>
-    private async Task<(Execution.Execution? Execution, long AfterSequence)> AcceptAsync(SendMessageRequest request, ServerCallContext call,
-        IdempotencyClaim claim, string? newTaskId, RentedAgent agent, CancellationToken ct)
+    /// <remarks>
+    /// When a follow-up's execution cannot start after its message was committed, the task is failed
+    /// (<see cref="TaskExecutionEngine.StartFailureText"/>), so it does not wait for good for an agent that never runs.
+    /// </remarks>
+    private async Task<(Execution.Execution? Execution, long AfterSequence, DateTimeOffset? AcceptedStatusTimestamp)> AcceptAsync(
+        SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string? newTaskId, RentedAgent agent, CancellationToken ct)
     {
         try
         {
@@ -245,21 +253,33 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             // provider call happens per event (or under a task lock).
             var pushEnabled = call.ResolvedCard?.Card?.Capabilities.PushNotifications == true;
             if (prepared.Context.IsNewTask)
-                return (await _engine.StartAsync(prepared.Context, prepared.PushConfig, claim, agent, pushEnabled).ConfigureAwait(false), 0);
+                return (await _engine.StartAsync(prepared.Context, prepared.PushConfig, claim, agent, pushEnabled).ConfigureAwait(false), 0, null);
             if (prepared.Duplicate)
             {
                 // The message is already in the history (an earlier request of it failed after the commit): its outcome is
                 // the task as it is. A retry with this claim gets the task as it is too.
                 await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(prepared.Context.TaskId, 0), prepared.Context.TaskId).ConfigureAwait(false);
-                return (null, 0);
+                return (null, 0, null);
             }
 
             // Record after the execution is registered (on every instance), so a blocking retry sees it running and waits for
             // its outcome.
-            var exec = await _engine.StartAsync(prepared.Context, prepared.PushConfig, IdempotencyClaim.None, agent, pushEnabled).ConfigureAwait(false);
             var taskId = prepared.Context.TaskId;
-            await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId, prepared.LastSequence), taskId).ConfigureAwait(false);
-            return (exec, prepared.LastSequence);
+            var acceptedStatus = prepared.AcceptedStatus!;
+            Execution.Execution exec;
+            try
+            {
+                exec = await _engine.StartAsync(prepared.Context, prepared.PushConfig, IdempotencyClaim.None, agent, pushEnabled).ConfigureAwait(false);
+            }
+            catch
+            {
+                // The message is committed, but no agent runs for it: fail the task rather than leave it waiting for good.
+                await _engine.TryFailUnstartedAsync(Key(call, taskId), acceptedStatus).ConfigureAwait(false);
+                throw;
+            }
+            await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId, prepared.LastSequence, acceptedStatus.Timestamp), taskId)
+                .ConfigureAwait(false);
+            return (exec, prepared.LastSequence, acceptedStatus.Timestamp);
         }
         catch
         {
@@ -391,7 +411,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             Call = call,
             Approval = approval,
         };
-        return new Prepared(context, existing is null ? push : null, lastSequence, duplicate);
+        return new Prepared(context, existing is null ? push : null, lastSequence, duplicate, isFollowUp ? existing?.Status : null);
     }
 
     /// <summary>
