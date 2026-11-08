@@ -62,6 +62,14 @@ public sealed class A2AServerOptions
     public TimeSpan CancelGracePeriod { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
+    /// How long a host stop waits for running executions to finish before the engine stops them. Agents still running after
+    /// that are asked to stop, and their tasks stay as they are (not <see cref="TaskState.Canceled"/>): the lease expiry, the
+    /// retention sweep or a continuation deals with them. Keep it below the host's shutdown timeout (30 seconds by default).
+    /// <see cref="TimeSpan.Zero"/> (or less) turns the wait off. Default 20 seconds.
+    /// </summary>
+    public TimeSpan ShutdownDrainTimeout { get; set; } = TimeSpan.FromSeconds(20);
+
+    /// <summary>
     /// Longest one execution of the agent (one incoming message) may run. When it runs longer, the task moves to
     /// <see cref="TaskState.Failed"/> with the status text "Task exceeded its time limit" (sent to streams and webhooks like
     /// any final event), and the execution's cancellation token fires. Events the agent sends after that are dropped.

@@ -62,6 +62,11 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<A2ARequestHandler>();
         services.TryAddSingleton<IA2ARequestHandler>(sp => sp.GetRequiredService<A2ARequestHandler>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, A2AStartupDiagnostics>());
+        // Registered after the push delivery service, so on stop it drains first (hosted services stop in reverse order).
+        services.TryAddSingleton(sp => new Execution.TaskExecutionDrainService(
+            sp.GetRequiredService<Execution.TaskExecutionEngine>(), sp.GetRequiredService<A2AServerOptions>(),
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<Execution.TaskExecutionDrainService>>(), sp.GetService<TimeProvider>()));
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Execution.TaskExecutionDrainService>(sp => sp.GetRequiredService<Execution.TaskExecutionDrainService>()));
         return new A2AServerBuilder(services);
     }
 

@@ -322,7 +322,10 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     {
         var taskId = key.TaskId;
         claim ??= IdempotencyClaim.None;
-        var exec = new Execution(key, Guid.NewGuid().ToString("N"), kind == CancelKind, CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token),
+        var exec = new Execution(key, Guid.NewGuid().ToString("N"), kind == CancelKind,
+            // A CancelTask run is not stopped by the shutdown: it records a cancellation somebody asked for, also one that arrives
+            // while the host stops (its token would be cancelled from the start, and it could not write the CANCELED status).
+            kind == CancelKind ? new CancellationTokenSource() : CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token),
             _options.Streaming.ChannelCapacity)
         {
             // A child of the operation's span; ends when the agent has returned and every event is stored.
@@ -387,7 +390,10 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             catch (OperationCanceledException) when (exec.Cts.IsCancellationRequested)
             {
                 exec.Activity?.SetTag(A2ATelemetry.ErrorTypeCanceledTag, true);
-                await TryFinishAsync(updater, TaskState.Canceled, null).ConfigureAwait(false);
+                // Only the engine's shutdown fired the token: nobody cancelled the task, so it stays as it is (non-terminal) for
+                // the lease expiry, the sweep or a continuation.
+                if (exec.CancelRequested)
+                    await TryFinishAsync(updater, TaskState.Canceled, null).ConfigureAwait(false);
             }
             catch (ChannelClosedException ex) when (exec.Failed)
             {
