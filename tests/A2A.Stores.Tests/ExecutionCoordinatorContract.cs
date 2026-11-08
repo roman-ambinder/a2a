@@ -83,6 +83,55 @@ public abstract class ExecutionCoordinatorContract
     }
 
     [SkippableFact]
+    public async Task Exclusive_register_succeeds_on_a_free_task_and_counts_as_running()
+    {
+        var (a, b) = await CreatePairAsync();
+        Assert.True(await a.TryRegisterExclusiveAsync(Key(), "e1"));
+        Assert.True(await a.IsRunningAsync(Key()));
+        Assert.True(await b.IsRunningAsync(Key()));
+    }
+
+    [SkippableFact]
+    public async Task Exclusive_register_is_refused_while_another_lease_runs()
+    {
+        var (a, b) = await CreatePairAsync();
+        await a.RegisterAsync(Key(), "e1");
+        Assert.False(await b.TryRegisterExclusiveAsync(Key(), "e2"));
+        Assert.False(await b.HeartbeatAsync(Key(), "e2")); // the refused call left no lease
+        await a.UnregisterAsync(Key(), "e1");
+        Assert.True(await b.TryRegisterExclusiveAsync(Key(), "e2"));
+    }
+
+    [SkippableFact]
+    public async Task Exclusive_register_ignores_an_expired_lease()
+    {
+        var (a, b) = await CreatePairAsync();
+        await a.RegisterAsync(Key(), "e1");
+        await PassLeaseTtlAsync();
+        Assert.True(await b.TryRegisterExclusiveAsync(Key(), "e2"));
+    }
+
+    [SkippableFact]
+    public async Task Exclusive_register_is_scoped_to_tenant_owner_and_task()
+    {
+        var (a, b) = await CreatePairAsync();
+        await a.RegisterAsync(Key("x"), "e1");
+        Assert.True(await b.TryRegisterExclusiveAsync(Key("x", tenant: "u"), "e2"));
+        Assert.True(await b.TryRegisterExclusiveAsync(Key("x", owner: "bob"), "e3"));
+        Assert.True(await b.TryRegisterExclusiveAsync(Key("y"), "e4"));
+        Assert.False(await b.TryRegisterExclusiveAsync(Key("x"), "e5"));
+    }
+
+    [SkippableFact]
+    public async Task Concurrent_exclusive_registers_have_one_winner()
+    {
+        var (a, b) = await CreatePairAsync();
+        var results = await Task.WhenAll(Enumerable.Range(0, 20).Select(i =>
+            Task.Run(async () => await (i % 2 == 0 ? a : b).TryRegisterExclusiveAsync(Key(), $"e{i}"))));
+        Assert.Equal(1, results.Count(won => won));
+    }
+
+    [SkippableFact]
     public async Task Stale_execution_id_never_touches_a_newer_lease()
     {
         var (a, b) = await CreatePairAsync();

@@ -23,6 +23,22 @@ public abstract class ExecutionCoordinator
     public abstract ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Starts the lease of a new execution of <paramref name="task"/> only when no other execution of it holds an unexpired
+    /// lease. True: the lease is now held, valid for <see cref="CoordinationOptions.LeaseTtl"/>. False: another unexpired
+    /// lease exists and nothing changed.
+    /// </summary>
+    /// <remarks>
+    /// This default checks <see cref="IsRunningAsync"/> and then calls <see cref="RegisterAsync"/>. It is not atomic: two
+    /// callers can both win. A coordinator that several instances share must override it with an atomic check.
+    /// </remarks>
+    public virtual async ValueTask<bool> TryRegisterExclusiveAsync(TaskKey task, string executionId, CancellationToken cancellationToken = default)
+    {
+        if (await IsRunningAsync(task, cancellationToken).ConfigureAwait(false)) return false;
+        await RegisterAsync(task, executionId, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>
     /// Renews the lease of the execution for another <see cref="CoordinationOptions.LeaseTtl"/> from now. Returns true when
     /// the lease was held (and is now renewed); false when it is missing or already expired, and then does nothing.
     /// </summary>
