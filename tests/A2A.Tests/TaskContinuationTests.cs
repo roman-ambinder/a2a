@@ -1,9 +1,11 @@
+using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Text.Json;
 using A2A.Diagnostics;
 using A2A.Server;
 using A2A.Server.Coordination;
 using A2A.Server.Execution;
+using A2A.Server.Push;
 using A2A.Server.Retention;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
@@ -722,5 +724,273 @@ public sealed class TaskContinuationTests
         var run = await trace.WaitForAsync(a => a.OperationName == A2ATelemetry.SpanNames.AgentExecution
             && a.GetTagItem(A2ATelemetry.Tags.ExecutionKind)?.ToString() == "continue");
         Assert.Equal(key.TaskId, run.GetTagItem(A2ATelemetry.Tags.TaskId)?.ToString());
+    }
+
+    // ---------------------------------------------------------------- across instances
+
+    private static readonly TimeSpan HeartbeatStep = new CoordinationOptions().Heartbeat;
+
+    /// <summary>
+    /// Two instances that share in-memory stores, one coordinator and one <see cref="TaskEventBus"/> (the in-memory bus is
+    /// process-local, so the instances must share it to see each other's events). Instance A reaches the coordinator through
+    /// a <see cref="DyingCoordinator"/>, so a test can stop its heartbeats as if A died. Each instance has its own agent.
+    /// </summary>
+    private static async Task<(TestAgentHost A, TestAgentHost B, InMemoryExecutionCoordinator Shared, DyingCoordinator Dying)> TwoInstancesAsync(
+        FakeTimeProvider clock, TestAgent agentA, TestAgent agentB, Action<A2AServerOptions>? configure = null, CoordinationOptions? coordination = null)
+    {
+        var events = new InMemoryEventStore(new StreamingOptions { TerminalRetention = TimeSpan.FromDays(30) }, clock);
+        var outbox = new InMemoryPushOutbox(clock);
+        var tasks = new InMemoryTaskStore(events, outbox);
+        var configs = new InMemoryPushConfigStore();
+        var bus = new TaskEventBus();
+        var shared = new InMemoryExecutionCoordinator(coordination ?? new CoordinationOptions(), clock);
+        var dying = new DyingCoordinator(shared);
+        void Common(IServiceCollection s)
+        {
+            s.AddSingleton<TaskStore>(tasks);
+            s.AddSingleton<EventStore>(events);
+            s.AddSingleton<PushOutbox>(outbox);
+            s.AddSingleton<PushConfigStore>(configs);
+            s.AddSingleton(bus);
+        }
+        void Options(A2AServerOptions o)
+        {
+            o.Streaming.TerminalRetention = TimeSpan.FromDays(30);
+            configure?.Invoke(o);
+        }
+        var a = await StartAsync(new FixedFactory(agentA), clock, Options, s => { Common(s); s.AddSingleton<ExecutionCoordinator>(dying); });
+        var b = await StartAsync(new FixedFactory(agentB), clock, Options, s => { Common(s); s.AddSingleton<ExecutionCoordinator>(shared); });
+        return (a, b, shared, dying);
+    }
+
+    [Fact]
+    public async Task Continuation_on_A_reaches_a_stream_on_B()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var (a, b, _, _) = await TwoInstancesAsync(clock, new TestAgent(), new TestAgent());
+        await using var _a = a;
+        await using var _b = b;
+        var key = await SeedAsync(b, "input");
+        var before = await LastSequenceAsync(b, key);
+
+        var snapshot = NewSignal();
+        var received = new List<SequencedEvent>();
+        var subscriber = Task.Run(async () =>
+        {
+            await foreach (var e in b.Handler.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = key.TaskId }, Call()))
+            {
+                lock (received) received.Add(e);
+                snapshot.TrySetResult();
+            }
+        });
+        await snapshot.Task.WaitAsync(Wait);
+
+        var result = await ContinueAsync(a, key);
+        Assert.True(result.Started);
+        await result.Completion.WaitAsync(Wait);
+        await subscriber.WaitAsync(Wait); // the stream ends with the terminal event
+
+        Assert.Equal(["Working", "artifact", "Completed"], received.Where(e => e.Sequence > before).Select(Describe));
+        Assert.Equal(TaskState.Completed, (await TaskAsync(b, key)).Status.State);
+    }
+
+    [Fact]
+    public async Task Continuation_runs_on_an_instance_that_never_saw_the_task()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var agentB = new TestAgent();
+        var (a, b, _, _) = await TwoInstancesAsync(clock, new TestAgent(), agentB);
+        await using var _b = b;
+        var key = await SeedAsync(a, "input");
+        await a.DisposeAsync(); // the instance that created the task is gone
+
+        var result = await ContinueAsync(b, key);
+        Assert.Equal(TaskContinuationStatus.Started, result.Status);
+        await result.Completion.WaitAsync(Wait);
+
+        Assert.Equal(1, agentB.Continues);
+        Assert.Equal(TaskState.Completed, (await TaskAsync(b, key)).Status.State);
+    }
+
+    [Fact]
+    public async Task Every_instance_firing_gives_one_winner()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var agentA = new TestAgent();
+        var agentB = new TestAgent();
+        var gate = NewSignal();
+        Task Gated(TaskContinuationContext _, TaskUpdater updater, CancellationToken ct) => Run(updater, ct);
+        async Task Run(TaskUpdater updater, CancellationToken ct)
+        {
+            await updater.StartWorkAsync("resuming", ct);
+            await gate.Task.WaitAsync(ct);
+            await updater.CompleteAsync("finished", ct);
+        }
+        agentA.OnContinue = Gated;
+        agentB.OnContinue = Gated;
+        var (a, b, _, _) = await TwoInstancesAsync(clock, agentA, agentB);
+        await using var _a = a;
+        await using var _b = b;
+        var key = await SeedAsync(a, "input");
+
+        var results = await Task.WhenAll(ContinueAsync(a, key).AsTask(), ContinueAsync(b, key).AsTask());
+        gate.TrySetResult();
+        foreach (var r in results) await r.Completion.WaitAsync(Wait);
+
+        Assert.Equal(1, results.Count(r => r.Status == TaskContinuationStatus.Started));
+        Assert.Equal(1, results.Count(r => r.Status == TaskContinuationStatus.AlreadyRunning));
+        Assert.Equal(1, agentA.Continues + agentB.Continues);
+        Assert.Equal(TaskState.Completed, (await TaskAsync(a, key)).Status.State);
+    }
+
+    [Fact]
+    public async Task Execution_on_another_instance_refuses_a_continuation()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var agentA = new TestAgent();
+        var agentB = new TestAgent();
+        var (a, b, _, _) = await TwoInstancesAsync(clock, agentA, agentB);
+        await using var _a = a;
+        await using var _b = b;
+        var response = await a.Handler.SendMessageAsync(new SendMessageRequest
+        {
+            Message = Message.FromUser("gate"),
+            Configuration = new SendMessageConfiguration { ReturnImmediately = true },
+        }, Call());
+        var key = Key(response.RequireTask().Id);
+        await EventuallyAsync(async () => (await TaskAsync(b, key)).Status.State == TaskState.Working, "the task is working");
+        var before = await SnapshotAsync(b, key);
+
+        var result = await ContinueAsync(b, key);
+
+        Assert.Equal(TaskContinuationStatus.AlreadyRunning, result.Status);
+        Assert.Equal(0, agentB.Continues);
+        Assert.Equal(before, await SnapshotAsync(b, key));
+        agentA.ExecuteGate.TrySetResult();
+        await a.Handler.WhenIdleAsync().WaitAsync(Wait);
+    }
+
+    [Fact]
+    public async Task Dead_continuation_is_recovered_by_the_sweep()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var agentA = new TestAgent();
+        var entered = NewSignal();
+        agentA.OnContinue = async (_, updater, ct) =>
+        {
+            await updater.StartWorkAsync("resuming", ct);
+            entered.TrySetResult();
+            await Task.Delay(Timeout.Infinite, ct); // never finishes: its instance dies
+        };
+        var (a, b, shared, dying) = await TwoInstancesAsync(clock, agentA, new TestAgent());
+        await using var _a = a;
+        await using var _b = b;
+        var key = await SeedAsync(a, "working");
+        Assert.Equal(TaskState.Working, (await TaskAsync(b, key)).Status.State);
+
+        var result = await ContinueAsync(a, key);
+        Assert.True(result.Started);
+        await entered.Task.WaitAsync(Wait);
+        Assert.True(await shared.IsRunningAsync(key));
+
+        dying.Die();
+        var sweeper = Sweeper(b);
+        clock.Advance(HeartbeatStep);
+        await sweeper.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(TaskState.Working, (await TaskAsync(b, key)).Status.State); // the lease has not expired yet
+
+        clock.Advance(new CoordinationOptions().LeaseTtl); // deliberate expiry: no heartbeat renewed it
+        Assert.False(await shared.IsRunningAsync(key));
+        Assert.Single(await shared.ListExpiredAsync(10));
+        await sweeper.RunOnceAsync(CancellationToken.None);
+
+        var task = await TaskAsync(b, key);
+        Assert.Equal(TaskState.Failed, task.Status.State);
+        Assert.Equal("The agent stopped unexpectedly.", task.Status.Message!.GetText());
+        Assert.Empty(await shared.ListExpiredAsync(10)); // the swept lease is gone
+    }
+
+    [Fact]
+    public async Task Claim_of_a_dead_instance_blocks_nothing_after_the_ttl()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var agentB = new TestAgent();
+        var (a, b, shared, _) = await TwoInstancesAsync(clock, new TestAgent(), agentB);
+        await using var _a = a;
+        await using var _b = b;
+        var key = await SeedAsync(a, "input");
+        await shared.RegisterAsync(key, "stray-execution"); // a lease nobody renews: its instance died
+
+        var blocked = await ContinueAsync(b, key);
+        Assert.Equal(TaskContinuationStatus.AlreadyRunning, blocked.Status);
+        Assert.Equal(0, agentB.Continues);
+
+        clock.Advance(new CoordinationOptions().LeaseTtl + TimeSpan.FromSeconds(1));
+        var result = await ContinueAsync(b, key);
+
+        Assert.Equal(TaskContinuationStatus.Started, result.Status);
+        await result.Completion.WaitAsync(Wait);
+        Assert.Equal(TaskState.Completed, (await TaskAsync(b, key)).Status.State);
+    }
+
+    [Fact]
+    public async Task Sweep_leaves_a_running_continuation_alone()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var agentA = new TestAgent();
+        var entered = NewSignal();
+        var gate = NewSignal();
+        agentA.OnContinue = async (_, updater, ct) =>
+        {
+            entered.TrySetResult();
+            await gate.Task.WaitAsync(ct); // writes nothing: the task stays INPUT_REQUIRED
+        };
+        // A long TTL, so the lease outlives the clock jump below: the sweep must see a running execution, not an expired one.
+        var coordination = new CoordinationOptions { LeaseTtl = TimeSpan.FromDays(7) };
+        var (a, b, shared, _) = await TwoInstancesAsync(clock, agentA, new TestAgent(), o => o.InterruptedTimeout = TimeSpan.FromHours(1), coordination);
+        await using var _a = a;
+        await using var _b = b;
+        var key = await SeedAsync(a, "input");
+
+        clock.Advance(TimeSpan.FromMinutes(30)); // within the timeout: the continuation starts
+        var result = await ContinueAsync(a, key);
+        Assert.True(result.Started);
+        await entered.Task.WaitAsync(Wait);
+
+        clock.Advance(TimeSpan.FromHours(2)); // past the timeout
+        Assert.True(await shared.IsRunningAsync(key));
+        await Sweeper(b).RunOnceAsync(CancellationToken.None);
+
+        Assert.Equal(TaskState.InputRequired, (await TaskAsync(b, key)).Status.State);
+        Assert.False(result.Completion.IsCompleted);
+        gate.TrySetResult();
+        await result.Completion.WaitAsync(Wait);
+        Assert.False(await shared.IsRunningAsync(key));
+        // Once the run ended, the overdue task is the sweep's again.
+        await Sweeper(b).RunOnceAsync(CancellationToken.None);
+        Assert.Equal(TaskState.Canceled, (await TaskAsync(b, key)).Status.State);
+    }
+
+    /// <summary>Delegates to a shared coordinator; after <see cref="Die"/> its heartbeats stop, like a dead instance's.</summary>
+    private sealed class DyingCoordinator(ExecutionCoordinator inner) : ExecutionCoordinator
+    {
+        private volatile bool _dead;
+
+        public void Die() => _dead = true;
+
+        public override ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken ct = default) => inner.RegisterAsync(task, executionId, ct);
+        // A dead instance makes no calls, so it never learns that its lease is gone: as if the lease were held.
+        public override ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default) =>
+            _dead ? ValueTask.FromResult(true) : inner.HeartbeatAsync(task, executionId, ct);
+        public override ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default) =>
+            _dead ? ValueTask.CompletedTask : inner.UnregisterAsync(task, executionId, ct);
+        public override ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default) => inner.IsRunningAsync(task, ct);
+        public override ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default) => inner.RequestCancelAsync(task, ct);
+        public override async IAsyncEnumerable<TaskKey> CancelRequestsAsync([EnumeratorCancellation] CancellationToken ct)
+        {
+            await foreach (var key in inner.CancelRequestsAsync(ct)) yield return key;
+        }
+        public override ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken ct = default) => inner.ListExpiredAsync(max, ct);
+        public override ValueTask<bool> TryAcquireSweepLeaseAsync(string name, TimeSpan duration, CancellationToken ct = default) => inner.TryAcquireSweepLeaseAsync(name, duration, ct);
     }
 }
