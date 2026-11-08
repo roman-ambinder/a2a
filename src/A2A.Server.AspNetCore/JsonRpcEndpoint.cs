@@ -4,6 +4,7 @@ using A2A.Server.Streaming;
 using A2A.JsonRpc;
 using A2A.Server.AspNetCore.Operations;
 using A2A.Server.Authorization;
+using A2A.Server.Pipeline;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -51,57 +52,84 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
         }
         try
         {
-            JsonRpcRequest rpc;
-            try
+            A2AOperationDescriptor operation;
+            object request;
+            // The body lives in a pooled buffer for this block only. Everything that leaves it is a copy: the id and the
+            // extension params are JsonElements with their own documents, and typed params are plain objects (any JsonElement
+            // inside them is copied by the serializer). The buffer goes back to the pool before the handler runs.
+            using (var body = await HttpPlumbing.ReadBodyAsync(http.Request, _limits.MaxRequestBodyBytes).ConfigureAwait(false))
             {
-                var body = await HttpPlumbing.ReadBodyAsync(http.Request, _limits.MaxRequestBodyBytes).ConfigureAwait(false);
-                using var doc = HttpPlumbing.ParseBody(body, _limits.MaxJsonDepth);
-                if (doc.RootElement.ValueKind != JsonValueKind.Object)
-                    throw new A2AException(A2AErrorCode.InvalidRequest, "Batch requests are not supported");
-                if (doc.RootElement.TryGetProperty("id", out var rawId)) id = rawId.Clone();
-                rpc = doc.RootElement.Deserialize(A2AJson.GetTypeInfo<JsonRpcRequest>())!;
+                var json = body.Memory;
+                string? jsonRpc, method;
+                EnvelopeMembers members;
+                try
+                {
+                    var root = HttpPlumbing.CheckJsonRpcBody(json, _limits.MaxJsonDepth, out members);
+                    if (json.Span[root][0] != (byte)'{')
+                        throw new A2AException(A2AErrorCode.InvalidRequest, "Batch requests are not supported");
+                    // The id is read first, so a request whose other members do not bind still gets its id back.
+                    if (members.Id.Start >= 0) id = Member<JsonElement>(json.Span, members.Id);
+                    jsonRpc = members.JsonRpc.Start >= 0 ? Member<string>(json.Span, members.JsonRpc) : "2.0";
+                    method = members.Method.Start >= 0 ? Member<string>(json.Span, members.Method) : string.Empty;
+                }
+                catch (JsonException)
+                {
+                    throw new A2AException(A2AErrorCode.JsonParse);
+                }
+
+                if (jsonRpc != "2.0" || string.IsNullOrEmpty(method))
+                    throw new A2AException(A2AErrorCode.InvalidRequest);
+                if (id is { } idv && idv.ValueKind is not (JsonValueKind.String or JsonValueKind.Number or JsonValueKind.Null))
+                    throw new A2AException(A2AErrorCode.InvalidRequest, "id must be a string, number, or null");
+
+                handler.ValidateCall(call);
+
+                if (!table.JsonRpcMethods.TryGetValue(method, out operation!))
+                    throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{method}' not found");
+
+                var p = members.Params;
+                request = operation.Kind switch
+                {
+                    A2AOperation.SendMessage or A2AOperation.SendStreamingMessage => Params<SendMessageRequest>(json.Span, p),
+                    A2AOperation.GetTask => Params<GetTaskRequest>(json.Span, p),
+                    A2AOperation.ListTasks => Params<ListTasksRequest>(json.Span, p),
+                    A2AOperation.CancelTask => Params<CancelTaskRequest>(json.Span, p),
+                    A2AOperation.SubscribeToTask => Params<SubscribeToTaskRequest>(json.Span, p),
+                    A2AOperation.CreateTaskPushNotificationConfig => Params<TaskPushNotificationConfig>(json.Span, p),
+                    A2AOperation.GetTaskPushNotificationConfig => Params<GetTaskPushNotificationConfigRequest>(json.Span, p),
+                    A2AOperation.ListTaskPushNotificationConfigs => Params<ListTaskPushNotificationConfigsRequest>(json.Span, p),
+                    A2AOperation.DeleteTaskPushNotificationConfig => Params<DeleteTaskPushNotificationConfigRequest>(json.Span, p),
+                    A2AOperation.GetExtendedAgentCard => Params<GetExtendedAgentCardRequest>(json.Span, p),
+                    A2AOperation.Extension => ParamsElement(json.Span, p),
+                    _ => throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{method}' not found"),
+                };
             }
-            catch (JsonException)
-            {
-                throw new A2AException(A2AErrorCode.JsonParse);
-            }
-
-            if (rpc.JsonRpc != "2.0" || string.IsNullOrEmpty(rpc.Method))
-                throw new A2AException(A2AErrorCode.InvalidRequest);
-            if (id is { } idv && idv.ValueKind is not (JsonValueKind.String or JsonValueKind.Number or JsonValueKind.Null))
-                throw new A2AException(A2AErrorCode.InvalidRequest, "id must be a string, number, or null");
-
-            handler.ValidateCall(call);
-            var p = rpc.Params ?? A2AJson.EmptyObject;
-
-            if (!table.JsonRpcMethods.TryGetValue(rpc.Method, out var operation))
-                throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{rpc.Method}' not found");
 
             switch (operation.Kind)
             {
                 case A2AOperation.SendMessage:
-                    await Ok(http, call, id, await handler.SendMessageAsync(Params<SendMessageRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
+                    await Ok(http, call, id, await handler.SendMessageAsync((SendMessageRequest)request, call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
                 case A2AOperation.SendStreamingMessage:
                 {
                     var caughtUp = HttpPlumbing.CaughtUpSignal();
                     await StreamAsync(http, call, id,
-                        handler.SendStreamingMessageAsync(Params<SendMessageRequest>(p), call, HttpPlumbing.LastEventId(http), caughtUp.Signal, ct),
+                        handler.SendStreamingMessageAsync((SendMessageRequest)request, call, HttpPlumbing.LastEventId(http), caughtUp.Signal, ct),
                         caughtUp.Fired).ConfigureAwait(false);
                     break;
                 }
                 case A2AOperation.GetTask:
-                    await Ok(http, call, id, await handler.GetTaskAsync(Params<GetTaskRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
+                    await Ok(http, call, id, await handler.GetTaskAsync((GetTaskRequest)request, call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
                 case A2AOperation.ListTasks:
-                    await Ok(http, call, id, await handler.ListTasksAsync(Params<ListTasksRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
+                    await Ok(http, call, id, await handler.ListTasksAsync((ListTasksRequest)request, call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
                 case A2AOperation.CancelTask:
-                    await Ok(http, call, id, await handler.CancelTaskAsync(Params<CancelTaskRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
+                    await Ok(http, call, id, await handler.CancelTaskAsync((CancelTaskRequest)request, call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
                 case A2AOperation.SubscribeToTask:
                 {
-                    var subscribe = Params<SubscribeToTaskRequest>(p);
+                    var subscribe = (SubscribeToTaskRequest)request;
                     var caughtUp = HttpPlumbing.CaughtUpSignal();
                     await StreamAsync(http, call, id,
                         handler.SubscribeToTaskAsync(subscribe, call, HttpPlumbing.ResumeAfter(http, subscribe.Id), caughtUp.Signal, ct),
@@ -109,30 +137,30 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
                     break;
                 }
                 case A2AOperation.CreateTaskPushNotificationConfig:
-                    await Ok(http, call, id, await handler.CreateTaskPushNotificationConfigAsync(Params<TaskPushNotificationConfig>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
+                    await Ok(http, call, id, await handler.CreateTaskPushNotificationConfigAsync((TaskPushNotificationConfig)request, call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
                 case A2AOperation.GetTaskPushNotificationConfig:
-                    await Ok(http, call, id, await handler.GetTaskPushNotificationConfigAsync(Params<GetTaskPushNotificationConfigRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
+                    await Ok(http, call, id, await handler.GetTaskPushNotificationConfigAsync((GetTaskPushNotificationConfigRequest)request, call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
                 case A2AOperation.ListTaskPushNotificationConfigs:
-                    await Ok(http, call, id, await handler.ListTaskPushNotificationConfigsAsync(Params<ListTaskPushNotificationConfigsRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
+                    await Ok(http, call, id, await handler.ListTaskPushNotificationConfigsAsync((ListTaskPushNotificationConfigsRequest)request, call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
                 case A2AOperation.DeleteTaskPushNotificationConfig:
-                    await handler.DeleteTaskPushNotificationConfigAsync(Params<DeleteTaskPushNotificationConfigRequest>(p), call, ct).ConfigureAwait(false);
+                    await handler.DeleteTaskPushNotificationConfigAsync((DeleteTaskPushNotificationConfigRequest)request, call, ct).ConfigureAwait(false);
                     await Ok(http, call, id, A2AJson.EmptyObject).ConfigureAwait(false);
                     break;
                 case A2AOperation.GetExtendedAgentCard:
-                    await Ok(http, call, id, await handler.GetExtendedAgentCardAsync(Params<GetExtendedAgentCardRequest>(p), call, ct).ConfigureAwait(false)).ConfigureAwait(false);
+                    await Ok(http, call, id, await handler.GetExtendedAgentCardAsync((GetExtendedAgentCardRequest)request, call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
                 case A2AOperation.Extension:
                 {
                     var extension = table.GetExtension(operation.Name);
                     await ExtensionPolicy.RequireAsync(http, extension, call, _allowAnonymous).ConfigureAwait(false);
-                    await Ok(http, call, id, await handler.InvokeExtensionAsync(extension.Method, p, call, ct).ConfigureAwait(false)).ConfigureAwait(false);
+                    await Ok(http, call, id, await handler.InvokeExtensionAsync(extension.Method, (JsonElement)request, call, ct).ConfigureAwait(false)).ConfigureAwait(false);
                     break;
                 }
                 default:
-                    throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{rpc.Method}' not found");
+                    throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{operation.Name}' not found");
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -165,18 +193,31 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
         await HttpPlumbing.WriteJsonAsync(http, JsonRpcResponse.Failure(id, a2a), A2AProtocol.JsonMediaType, status).ConfigureAwait(false);
     }
 
-    private static T Params<T>(JsonElement p)
+    /// <summary>A member of the envelope, bound as the envelope type would bind it (a <see cref="JsonElement"/> is a copy).</summary>
+    private static T? Member<T>(ReadOnlySpan<byte> json, (int Start, int End) member) =>
+        JsonSerializer.Deserialize(json[member.Start..member.End], A2AJson.GetTypeInfo<T>());
+
+    /// <summary>The params slice; an absent or null <c>params</c> is the empty object.</summary>
+    private static ReadOnlySpan<byte> ParamsJson(ReadOnlySpan<byte> json, (int Start, int End) p) =>
+        p.Start < 0 || json[p.Start] == (byte)'n' ? "{}"u8 : json[p.Start..p.End];
+
+    private static T Params<T>(ReadOnlySpan<byte> json, (int Start, int End) member)
     {
-        if (p.ValueKind != JsonValueKind.Object) throw A2AException.InvalidParams("params must be an object");
+        var p = ParamsJson(json, member);
+        if (p[0] != (byte)'{') throw A2AException.InvalidParams("params must be an object");
         try
         {
-            return p.Deserialize(A2AJson.GetTypeInfo<T>()) ?? throw A2AException.InvalidParams("params are required");
+            return JsonSerializer.Deserialize(p, A2AJson.GetTypeInfo<T>()) ?? throw A2AException.InvalidParams("params are required");
         }
         catch (JsonException ex)
         {
             throw A2AException.InvalidParams($"Invalid params: {ex.Message}");
         }
     }
+
+    /// <summary>The params of an extension operation as a <see cref="JsonElement"/> of its own (any JSON value).</summary>
+    private static JsonElement ParamsElement(ReadOnlySpan<byte> json, (int Start, int End) member) =>
+        member.Start < 0 || json[member.Start] == (byte)'n' ? A2AJson.EmptyObject : Member<JsonElement>(json, member);
 
     private static async Task Ok<T>(HttpContext http, ServerCallContext call, JsonElement? id, T result)
     {

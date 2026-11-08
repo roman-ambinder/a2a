@@ -104,6 +104,75 @@ public class LimitsTests
         Assert.Equal(HttpStatusCode.OK, status);
     }
 
+    [Fact]
+    public async Task Body_over_limit_is_rejected_without_reading_the_rest()
+    {
+        // The guard stream never ends and throws if it is read again once it has handed out more than the limit.
+        const int limit = 1000;
+        await using var host = await TestAgentHost.StartAsync(o => o.Limits.MaxRequestBodyBytes = limit);
+        var endpoint = ActivatorUtilities.CreateInstance<JsonRpcEndpoint>(host.App.Services);
+        foreach (var chunk in new[] { 1, 100, 999, 1000, 4096 })
+        {
+            var guard = new EndlessGuardStream(limit, chunk);
+            var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = host.App.Services };
+            http.Request.Method = "POST";
+            http.Request.ContentType = "application/json";
+            http.Request.Body = guard;
+            http.Response.Body = new MemoryStream();
+            await endpoint.HandleAsync(http);
+
+            Assert.Equal(413, http.Response.StatusCode);
+            http.Response.Body.Position = 0;
+            var error = JsonDocument.Parse(http.Response.Body).RootElement.GetProperty("error");
+            Assert.Equal($"Request body exceeds the limit of {limit} bytes", error.GetProperty("message").GetString());
+            Assert.Contains("PAYLOAD_TOO_LARGE", error.GetRawText());
+            Assert.InRange(guard.Delivered, limit + 1, limit + chunk);
+        }
+    }
+
+    [Fact]
+    public async Task Declared_content_length_over_limit_is_rejected_before_reading()
+    {
+        const int limit = 1000;
+        await using var host = await TestAgentHost.StartAsync(o => o.Limits.MaxRequestBodyBytes = limit);
+        var endpoint = ActivatorUtilities.CreateInstance<JsonRpcEndpoint>(host.App.Services);
+        var guard = new EndlessGuardStream(-1, 1); // any read throws
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = host.App.Services };
+        http.Request.Method = "POST";
+        http.Request.ContentLength = limit + 1;
+        http.Request.Body = guard;
+        http.Response.Body = new MemoryStream();
+        await endpoint.HandleAsync(http);
+        Assert.Equal(413, http.Response.StatusCode);
+        Assert.Equal(0, guard.Delivered);
+    }
+
+    /// <summary>An endless body of spaces, <c>chunk</c> bytes per read, that throws if read again after passing <c>limit</c>.</summary>
+    private sealed class EndlessGuardStream(long limit, int chunk) : Stream
+    {
+        public long Delivered { get; private set; }
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+        public override int Read(Span<byte> buffer)
+        {
+            if (Delivered > limit) throw new InvalidOperationException($"read past the limit: {Delivered} bytes already delivered");
+            var n = Math.Min(buffer.Length, chunk);
+            buffer[..n].Fill((byte)' ');
+            Delivered += n;
+            return n;
+        }
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => Task.FromResult(Read(buffer.AsSpan(offset, count)));
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => ValueTask.FromResult(Read(buffer.Span));
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     // ---- parts ----
 
     [Theory]
@@ -205,6 +274,109 @@ public class LimitsTests
         Assert.Equal(HttpStatusCode.OK, status);
     }
 
+    public static TheoryData<string, string> DuplicateBodies()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var binding in new[] { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson })
+        {
+            data.Add(binding, """{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"a"}]},"message":{"messageId":"m2","role":"ROLE_USER","parts":[{"text":"b"}]}}""");
+            data.Add(binding, """{"message":{"messageId":"m1","messageId":"m2","role":"ROLE_USER","parts":[{"text":"a"}]}}""");
+            data.Add(binding, """{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"a","text":"b"}]}}""");
+            data.Add(binding, """{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"a"}],"metadata":{"x":[[{"y":{"z":1,"z":2}}]]}}}""");
+            data.Add(binding, """{"message":{"messageId":"m1","\u006dessageId":"m2","role":"ROLE_USER","parts":[{"text":"a"}]}}""");
+            data.Add(binding, "{\"message\":{\"messageId\":\"m1\",\"role\":\"ROLE_USER\",\"parts\":[{\"text\":\"a\"}],\"metadata\":{"
+                + string.Join(",", Enumerable.Range(0, 100).Select(i => $"\"k{i}\":{i}")) + ",\"k42\":0}}}"); // a large object
+        }
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(DuplicateBodies))]
+    public async Task Duplicate_keys_rejected_at_any_depth(string binding, string json)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var (status, body) = await Send(host, SendRequest(binding, json));
+        AssertInvalidParams(binding, status, body);
+        Assert.StartsWith("Invalid request body: ", body.GetProperty("error").GetProperty("message").GetString());
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Same_names_in_other_objects_or_other_case_are_not_duplicates(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        foreach (var json in new[]
+        {
+            """{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"a"},{"text":"b"}],"metadata":{"messageId":{"messageId":1}}}}""",
+            """{"message":{"messageId":"m2","role":"ROLE_USER","parts":[{"text":"a"}],"metadata":{"k":1,"K":2}}}""",
+        })
+        {
+            var (status, _) = await Send(host, SendRequest(binding, json));
+            Assert.Equal(HttpStatusCode.OK, status);
+        }
+    }
+
+    // Raw JSON-RPC bodies: the error code, message and echoed id for each kind of bad body.
+    public static TheoryData<string, int, string, string> RpcBodies() => new()
+    {
+        { "", -32700, "Invalid JSON payload", "null" },
+        { "{", -32700, "Invalid JSON payload", "null" },
+        { """{"jsonrpc":"2.0","id":1,"method":"GetTask","params":{"id":"x"},}""", -32700, "Invalid JSON payload", "null" },
+        { """{"jsonrpc":"2.0","id":1,"method":"GetTask","params":{"id":"x"}} x""", -32700, "Invalid JSON payload", "null" },
+        { "\uFEFF" + """{"jsonrpc":"2.0","id":1,"method":"GetTask","params":{"id":"x"}}""", -32700, "Invalid JSON payload", "null" },
+        { """{"jsonrpc":"2.0","id":1,"id":1,"method":"GetTask","params":{"id":"x"} """, -32700, "Invalid JSON payload", "null" }, // duplicate, then malformed
+        { """{"jsonrpc":"2.0","id":1,"method":"GetTask","params":""" + Deep(1100) + "}", -32700, "Invalid JSON payload", "null" }, // past 1024 is malformed
+        { """{"jsonrpc":"2.0","id":1,"method":"GetTask","params":""" + Deep(40) + "}", -32602,
+            "Invalid request body: The maximum configured depth of 32 has been exceeded. Cannot read next JSON object. LineNumber: 0 | BytePositionInLine: 207.", "null" },
+        { """[{"jsonrpc":"2.0","id":1,"method":"GetTask","params":{"id":"x"}}]""", -32600, "Batch requests are not supported", "null" },
+        { """{"jsonrpc":2,"id":7,"method":"GetTask","params":{"id":"x"}}""", -32700, "Invalid JSON payload", "7" },
+        { """{"jsonrpc":"2.0","id":"s","method":5,"params":{"id":"x"}}""", -32700, "Invalid JSON payload", "\"s\"" },
+        { """{"jsonrpc":null,"id":7,"method":"GetTask","params":{"id":"x"}}""", -32600, "Request payload validation error", "7" },
+        { """{"jsonrpc":"2.0","id":{"a":1},"method":"GetTask","params":{"id":"x"}}""", -32600, "id must be a string, number, or null", "{\"a\":1}" },
+        { """{"jsonrpc":"2.0","id":1,"method":"Nope","params":[1]}""", -32601, "Method 'Nope' not found", "1" },
+        { """{"jsonrpc":"2.0","id":1,"method":"GetTask","params":[1]}""", -32602, "params must be an object", "1" },
+        { "  \n{\"jsonrpc\":\"2.0\",\n\"id\":1,\n\"method\":\"GetTask\",\n\"params\":  {\n \"id\": 5}}", -32602,
+            "Invalid params: The JSON value could not be converted to System.String. Path: $.id | LineNumber: 1 | BytePositionInLine: 8.", "1" },
+        { """{"jsonrpc":"2.0","id":1,"method":"SendMessage"}""", -32602,
+            "Invalid params: JSON deserialization for type 'A2A.SendMessageRequest' was missing required properties including: 'message'.", "1" },
+        { """{"jsonrpc":"2.0","\u0069d":"esc","\u006dethod":"GetTask","params":{"id":"x"}}""", -32001, "The specified task ID does not exist or is not accessible", "\"esc\"" },
+    };
+
+    [Theory]
+    [MemberData(nameof(RpcBodies))]
+    public async Task Malformed_vs_invalid_error_codes_unchanged(string json, int code, string message, string id)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var req = new HttpRequestMessage(HttpMethod.Post, "/a2a") { Content = new StringContent(json, new UTF8Encoding(false), "application/json") };
+        req.Headers.Add(A2AProtocol.Headers.Version, A2AProtocol.Version);
+        req.Headers.Add("X-Test-User", "alice");
+        var (status, body) = await Send(host, req);
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(code, body.GetProperty("error").GetProperty("code").GetInt32());
+        Assert.Equal(message, body.GetProperty("error").GetProperty("message").GetString());
+        Assert.Equal(id, body.GetProperty("id").GetRawText());
+    }
+
+    // HTTP+JSON: malformed and invalid bodies are both InvalidParams (400); the message names the problem.
+    public static TheoryData<string, string> RestBodies() => new()
+    {
+        { "{", "Invalid request body: Expected depth to be zero at the end of the JSON payload. There is an open JSON object or array that should be closed. LineNumber: 0 | BytePositionInLine: 1." },
+        { "[1]", "Invalid request body: The JSON value could not be converted to A2A.SendMessageRequest. Path: $ | LineNumber: 0 | BytePositionInLine: 1." },
+        { "null", "A request body is required" },
+        { "{\"message\":" + Deep(40) + "}", "Invalid request body: The maximum configured depth of 32 has been exceeded. Cannot read next JSON object. LineNumber: 0 | BytePositionInLine: 166." },
+        { "\n  {\"message\":{\"messageId\":5}}", "Invalid request body: The JSON value could not be converted to A2A.Message. Path: $.message.messageId | LineNumber: 0 | BytePositionInLine: 25." },
+    };
+
+    [Theory]
+    [MemberData(nameof(RestBodies))]
+    public async Task Rest_malformed_and_invalid_bodies_keep_their_messages(string json, string message)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var (status, body) = await Send(host, SendRequest(ProtocolBindings.HttpJson, json));
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal(message, body.GetProperty("error").GetProperty("message").GetString());
+    }
+
     private static void AssertInvalidParams(string binding, HttpStatusCode status, JsonElement body)
     {
         if (binding == ProtocolBindings.JsonRpc)
@@ -233,6 +405,37 @@ public class LimitsTests
         Assert.False(Check("[{\"a\":1},{\"a\":2}]"));            // same name in sibling objects
         Assert.False(Check("{\"a\":1,\"A\":2}"));                // names are case sensitive
         Assert.False(Check("{}"));
+    }
+
+    [Fact]
+    public void Single_pass_check_agrees_with_the_duplicate_checker()
+    {
+        static string Big(int n, string extra = "") =>
+            "{" + string.Join(",", Enumerable.Range(0, n).Select(i => $"\"k{i}\":{{\"k{i}\":[{i}]}}")) + extra + "}";
+        var inputs = new[]
+        {
+            "{\"a\":1,\"a\":2}", "{\"x\":{\"a\":1,\"a\":2}}", "{\"a\":1,\"\\u0061\":2}", "[{\"b\":[{\"c\":1,\"c\":2}]}]",
+            "{\"a\":1,\"b\":{\"a\":2}}", "[{\"a\":1},{\"a\":2}]", "{\"a\":1,\"A\":2}", "{}", "[]", "1", "\"s\"",
+            "{\"a\":{\"b\":1},\"b\":2}", "{\"a\":{\"x\":1},\"a\":2}", "{\"a\":[{\"a\":1,\"b\":2}],\"b\":{\"a\":[]},\"c\":3}",
+            "{\"\\u0062\":1,\"\\u0063\":{\"\\u0062\":2},\"b\":3}",
+            Big(10), Big(16), Big(17), Big(100), Big(100, ",\"k5\":0"), Big(100, ",\"\\u006b99\":0"), Big(20, ",\"x\":{\"k1\":1}"),
+            "[" + Big(40) + "," + Big(40) + "]", "{\"o\":" + Big(30) + ",\"o2\":" + Big(30, ",\"k29\":1") + "}",
+        };
+        foreach (var json in inputs)
+        {
+            var bytes = Encoding.UTF8.GetBytes(json);
+            var duplicate = HttpPlumbing.ContainsDuplicateProperties(bytes, 32);
+            if (duplicate)
+            {
+                var ex = Assert.Throws<A2AException>(() => HttpPlumbing.CheckDepthAndDuplicates(bytes, 32));
+                Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+            }
+            else
+            {
+                var root = HttpPlumbing.CheckDepthAndDuplicates(Encoding.UTF8.GetBytes("  \n" + json + " \r\n"), 32);
+                Assert.Equal(json, Encoding.UTF8.GetString(Encoding.UTF8.GetBytes("  \n" + json + " \r\n")[root]));
+            }
+        }
     }
 
     [Fact]

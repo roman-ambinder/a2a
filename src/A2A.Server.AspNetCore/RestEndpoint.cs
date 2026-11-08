@@ -258,14 +258,16 @@ public sealed class RestEndpoint(IA2ARequestHandler handler, A2AOperationTable t
     private async Task<T> Body<T>(HttpContext http) =>
         await OptionalBody<T>(http).ConfigureAwait(false) ?? throw A2AException.InvalidParams("A request body is required");
 
+    // The body is read into a pooled buffer, checked in one pass, and deserialized from the same bytes; the buffer is
+    // returned before the caller runs. The result never points into it (the serializer copies any JsonElement it builds).
     private async Task<T?> OptionalBody<T>(HttpContext http)
     {
-        var bytes = await HttpPlumbing.ReadBodyAsync(http.Request, _limits.MaxRequestBodyBytes).ConfigureAwait(false);
-        if (bytes.Length == 0) return default;
+        using var body = await HttpPlumbing.ReadBodyAsync(http.Request, _limits.MaxRequestBodyBytes).ConfigureAwait(false);
+        if (body.Length == 0) return default;
         try
         {
-            using var doc = HttpPlumbing.ParseBody(bytes, _limits.MaxJsonDepth);
-            return doc.RootElement.Deserialize(A2AJson.GetTypeInfo<T>());
+            var root = HttpPlumbing.CheckDepthAndDuplicates(body.Memory, _limits.MaxJsonDepth);
+            return JsonSerializer.Deserialize(body.Memory.Span[root], A2AJson.GetTypeInfo<T>());
         }
         catch (JsonException ex) { throw A2AException.InvalidParams($"Invalid request body: {ex.Message}"); }
     }
@@ -273,12 +275,12 @@ public sealed class RestEndpoint(IA2ARequestHandler handler, A2AOperationTable t
     /// <summary>The body as JSON (any value); an empty body is an empty object.</summary>
     private async Task<JsonElement> JsonBody(HttpContext http)
     {
-        var bytes = await HttpPlumbing.ReadBodyAsync(http.Request, _limits.MaxRequestBodyBytes).ConfigureAwait(false);
-        if (bytes.Length == 0) return A2AJson.EmptyObject;
+        using var body = await HttpPlumbing.ReadBodyAsync(http.Request, _limits.MaxRequestBodyBytes).ConfigureAwait(false);
+        if (body.Length == 0) return A2AJson.EmptyObject;
         try
         {
-            using var doc = HttpPlumbing.ParseBody(bytes, _limits.MaxJsonDepth);
-            return doc.RootElement.Clone();
+            var root = HttpPlumbing.CheckDepthAndDuplicates(body.Memory, _limits.MaxJsonDepth);
+            return JsonSerializer.Deserialize(body.Memory.Span[root], A2AJson.GetTypeInfo<JsonElement>());
         }
         catch (JsonException ex) { throw A2AException.InvalidParams($"Invalid request body: {ex.Message}"); }
     }
