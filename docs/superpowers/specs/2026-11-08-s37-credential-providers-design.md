@@ -9,9 +9,9 @@ A card declares how to authenticate (`SecuritySchemes`, `SecurityRequirements`),
 
 ## 2. Rules (the safety floor of this feature)
 
-R1. A credential is attached only to a request whose origin equals the origin the card was resolved from (scheme, host, port with default ports normalized). A card interface on another origin fails client creation; a request to another origin at send time is refused.
+R1. A credential is attached only to a request whose origin equals the origin the card was resolved from (scheme, port with default ports normalized, and the dialed host: `Uri.IdnHost`, ordinal ignore case; `Uri.Host` is not used because case folding equates Greek sigma and final sigma). `A2ACredentialBinding.IsSameOrigin` is the one public helper, used by the binding, the handler, the OAuth provider and the DI bearer guard. Origins shown in messages or stored drop user info. A card interface on another origin fails client creation; a request to another origin at send time is refused.
 R2. No credential crosses a redirect. A credential-bearing client refuses, at construction, any handler chain that follows redirects. Redirect following is a property of the handler below the client and cannot be seen on an `HttpClient`, so credentials are only accepted with a handler (section 4), never with an opaque `HttpClient`.
-R3. The card fetch never carries credentials from this feature.
+R3. The card fetch never carries credentials from this feature. With mTLS the certificate belongs to the connection, so it is offered to the agent host during the card fetch too.
 R4. A client secret is a credential too. The card cannot choose where it goes: the token endpoint is the locally configured `TokenEndpoint`, or the card's `tokenUrl` only when it is on the card's origin. Token requests use HTTPS (loopback exempt) and do not follow redirects.
 R5. Credentials travel over HTTPS only (loopback exempt), unless `A2ACardResolverOptions.RequireHttps` was turned off by the caller.
 R6. Secrets never appear in exception messages, logs or `ToString`.
@@ -30,13 +30,13 @@ public interface IA2ACredentialProvider
 public sealed class A2ACredentialContext  // SchemeName, Scheme, Scopes, CardOrigin
 ```
 
-`A2ACredentialBinding.Create(ResolvedAgentCard, AgentInterface, providers, requireHttps = true)` selects what to apply once, at client creation:
+`A2ACredentialBinding.Create(ResolvedAgentCard, AgentInterface, providers, requireHttps = true, forGrpcChannel = false)` selects what to apply once, at client creation:
 
 - Walk `card.SecurityRequirements` in card order. A requirement is an AND of schemes; the list is an OR.
 - Take the first non-empty requirement where every named scheme exists in `card.SecuritySchemes` and some provider `CanHandle` it (first provider in registration order wins).
 - None satisfied, and an empty requirement (`{}`) exists or no requirements are declared: anonymous, no credentials.
 - None satisfied otherwise: `A2AException(Unauthenticated)` naming the declared schemes. Failing at creation beats a 401 on the first call.
-- Selected interface must pass R1, and R5 when credentials are selected. gRPC is refused (section 6).
+- Selected interface must pass R1, and R5 when credentials are selected. gRPC is refused unless `forGrpcChannel` is true (section 6). Null entries in the card (a null requirement, null `schemes`, a null scheme) are unsatisfiable, not an error.
 
 `A2ACredentialHandler : DelegatingHandler` applies the binding on every attempt, so retries and stream resumes get a fresh token. It checks R1 before applying and that the provider left `RequestUri` alone after applying. Its constructor calls `EnsureNoAutoRedirect` on the inner chain, walking `DelegatingHandler.InnerHandler` and refusing `SocketsHttpHandler` or `HttpClientHandler` with `AllowAutoRedirect = true`. An unknown terminal handler is accepted (test doubles, custom transports) and documented.
 
@@ -57,7 +57,7 @@ With DI, on the builder `AddA2AClient` returns: `AddCredentialProvider(factory)`
 
 ## 5. Built-in providers
 
-`OAuth2ClientCredentialsProvider` handles `OAuth2Scheme` with a client credentials flow, and HTTP Bearer or OpenID Connect schemes when `TokenEndpoint` is configured. Client authentication is `client_secret_basic` by default, `client_secret_post` by option. Scopes: `Options.Scopes` when set, else the card requirement's scopes.
+`OAuth2ClientCredentialsProvider` handles `OAuth2Scheme` with a client credentials flow, and HTTP Bearer or OpenID Connect schemes when `TokenEndpoint` is configured. Client authentication is `client_secret_basic` by default, `client_secret_post` by option. Scopes: `Options.Scopes` when set, else the card requirement's scopes (the card chooses, so set `Scopes` when one client id serves several APIs). Without `TokenEndpoint`, the provider binds to the first card origin it accepts (`CanHandle` or `ApplyAsync`) and refuses every other origin, so one client secret never goes to token endpoints of different agents.
 
 Token cache per (token endpoint, card origin, scopes), bounded to 256 slots. A token is reused until `RefreshBeforeExpiry` (default 60 s, capped at half its lifetime) before it expires. Concurrent callers share one fetch. The fetch runs on its own timeout (`TokenRequestTimeout`, default 30 s), so one caller's cancellation does not fail the others. If a refresh fails while the old token is still valid, the old token is used and the next call retries. No `expires_in`: `DefaultTokenLifetime` (5 min). Only `token_type` Bearer (or absent) is accepted. The token response is capped at 64 KiB.
 
@@ -67,7 +67,7 @@ Token cache per (token endpoint, card origin, scopes), bounded to 256 slots. A t
 
 ## 6. Non-goals
 
-- gRPC. `GrpcTransport` owns its channel and never uses the `HttpClient`, so a binding would silently not apply. Selecting a gRPC interface with providers fails with guidance: build `GrpcChannelOptions.HttpHandler` over `A2ACredentialHandler`.
+- gRPC through the client factory. `GrpcTransport` owns its channel and never uses the `HttpClient`, so a binding would silently not apply. Selecting a gRPC interface with providers fails with guidance. The supported route: `A2ACredentialBinding.Create(resolved, grpcInterface, providers, forGrpcChannel: true)`, then `GrpcChannelOptions.HttpHandler = new A2ACredentialHandler(binding, handler)` over a non-redirecting handler. Origin and HTTPS checks still apply.
 - Skill-level `SecurityRequirements`; card-level only.
 - Reactive refresh on 401, authorization code and device flows, `private_key_jwt`, OIDC discovery.
 - Cross-origin endpoints by allowlist. R1 has no opt-out in this change.

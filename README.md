@@ -79,19 +79,24 @@ Every client method takes optional `A2ARequestOptions` (headers, timeout, idempo
 
 DI (package `A2A.Client.DependencyInjection`, which adds DI, Options and `IHttpClientFactory`): `services.AddA2AClient("weather", o => o.AgentUrl = ...).AddBearerToken(...)`, then `IA2AClientFactory.GetClientAsync("weather")`. The clients are cached per name; the returned `IHttpClientBuilder` takes auth handlers and resilience. See [samples/EchoClient](samples/EchoClient/Program.cs).
 
-Authentication: pass providers instead of an `HttpClient`. The client picks providers by the schemes the card requires, in the card's order. If the card requires a scheme no provider handles, client creation fails. Credentials go only to the origin the card came from and never across a redirect. A card whose interface is on another origin fails client creation, and there is no opt-out. The handler chain must not follow redirects: a `SocketsHttpHandler` or `HttpClientHandler` with `AllowAutoRedirect = true` is refused, which is why credentials are not accepted with a plain `HttpClient`. OAuth2 sends the client secret to the configured `TokenEndpoint`, or to the card's token URL only when it is on the card's origin. Most identity providers are on another origin, so set `TokenEndpoint`. API keys go in a header or cookie as the card declares; query strings are refused. For mutual TLS use `A2AMutualTls.CreateHandler` (no DI) or `AddMutualTls` (DI). gRPC is not covered: `GrpcTransport` owns its channel, so selecting a gRPC interface with providers fails. To wire it yourself, set `GrpcChannelOptions.HttpHandler` over an `A2ACredentialHandler`. `AddBearerToken` on an `AddA2AClient` builder refuses to send the token off the `AgentUrl` origin.
+Authentication: pass providers instead of an `HttpClient`. The client picks providers by the schemes the card requires, in the card's order. Creation fails when none of the card's requirement sets can be met by the providers and the card does not allow anonymous access. Credentials go only to the origin the card came from and never across a redirect. Origins are compared by scheme, port and the dialed (IDN) host name. A custom terminal handler of an unknown type cannot be checked, so it must not follow redirects. A card whose interface is on another origin fails client creation, and there is no opt-out. The handler chain must not follow redirects: a `SocketsHttpHandler` or `HttpClientHandler` with `AllowAutoRedirect = true` is refused, which is why credentials are not accepted with a plain `HttpClient`. OAuth2 sends the client secret to the configured `TokenEndpoint`, or to the card's token URL only when it is on the card's origin. Most identity providers are on another origin, so set `TokenEndpoint`. A provider without `TokenEndpoint` binds to the first card origin it accepts and refuses every other origin, so use one provider per agent. When `Scopes` is not set, the card chooses the scopes: set `Scopes` when one client id serves several APIs. API keys go in a header or cookie as the card declares; query strings are refused. For mutual TLS use `A2AMutualTls.CreateHandler` (no DI) or `AddMutualTls` (DI). With mTLS the certificate is also offered to the agent host during the card fetch, because the certificate belongs to the connection. gRPC: when the card requires credentials, `CreateAsync` refuses a gRPC interface, because `GrpcTransport` owns its channel. Wire it yourself: `var binding = A2ACredentialBinding.Create(resolved, grpcInterface, providers, forGrpcChannel: true);` then set `GrpcChannelOptions.HttpHandler = new A2ACredentialHandler(binding, handler)` over a non-redirecting handler. In DI, `AddA2AClient` redacts every logged header value, so keys and tokens stay out of logs. `AddBearerToken` on an `AddA2AClient` builder refuses to send the token off the `AgentUrl` origin.
 
 ```csharp
 // No DI
 var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"),
     [new OAuth2ClientCredentialsProvider(new OAuth2ClientCredentialsOptions
     {
-        ClientId = "id", ClientSecret = secret, TokenEndpoint = new Uri("https://idp.example.com/token")
+        ClientId = "id", ClientSecret = secret, TokenEndpoint = new Uri("https://idp.example.com/token"),
+        Scopes = ["agent.invoke"]
     })]);
+
+// No DI, mutual TLS
+var mtls = await A2AClientFactory.CreateAsync(agentUrl, [new MutualTlsCredentialProvider()],
+    handler: A2AMutualTls.CreateHandler(cert, agentUrl));
 
 // DI
 services.AddA2AClient("weather", o => o.AgentUrl = new Uri("https://agent.example.com/"))
-        .AddOAuth2ClientCredentials(o => { o.ClientId = "id"; o.ClientSecret = secret; o.TokenEndpoint = new Uri("https://idp.example.com/token"); });
+        .AddOAuth2ClientCredentials(o => { o.ClientId = "id"; o.ClientSecret = secret; o.TokenEndpoint = new Uri("https://idp.example.com/token"); o.Scopes = ["agent.invoke"]; });
 ```
 
 The factory picks the first interface **in the card's order** that the client supports (spec §8.3.2), and sets `tenant` from it.
