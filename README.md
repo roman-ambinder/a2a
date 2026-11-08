@@ -158,6 +158,7 @@ Every seam below is a DI registration or a builder call. Defaults are safe and i
 - `A2AAuthorizationHandler`: decides per operation; it receives an `A2AOperationDescriptor`.
 - Telemetry: the `ActivitySource` names `A2A.Server` and `A2A.Client` and the `Meter` `A2A.Server` (constants on `A2ATelemetry`).
 - `IA2ARejectionWriter` (ASP.NET Core): writes the rate limit rejection in a binding's own format (the gRPC binding registers one).
+- `ITokenExchanger` (`A2A.Delegation`): swaps the caller's token for a down-scoped one (RFC 8693) before a delegating agent calls the next agent. `A2AServerBuilder.AddTokenExchanger<T>()` or `AddTokenExchanger(instance)`; `A2A.Client.Delegation.OAuthTokenExchanger` is the ready-made implementation. See [Delegation](docs/site/guides/auth-and-ownership.md).
 - Client: `ITransportBinding` names a custom transport's binding on `A2AClient` spans; `RetryPolicy`/`RetryMode` are the retry rules every transport shares; `A2AClientOptions.OnMessageReceived` sees every agent message.
 
 ## Observability

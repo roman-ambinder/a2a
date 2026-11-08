@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Threading.Channels;
+using A2A.Delegation;
 
 namespace A2A.Server;
 
@@ -62,6 +63,37 @@ public sealed class AgentRequestContext
 
     /// <summary>Concatenated text of the incoming message.</summary>
     public string UserText => Message.GetText();
+
+    /// <summary>The registered token exchanger, set by the server. Null when none is registered.</summary>
+    internal ITokenExchanger? TokenExchanger { get; init; }
+
+    /// <summary>
+    /// True when <see cref="ExchangeTokenAsync"/> can run: a token exchanger is registered and the caller sent a bearer token.
+    /// </summary>
+    public bool CanExchangeToken => TokenExchanger is not null && !string.IsNullOrEmpty(Call.InboundBearerToken);
+
+    /// <summary>
+    /// Exchanges the caller's token for a new token for another agent (RFC 8693). The caller's own token is never given to
+    /// agent code: use the result with <c>A2ARequestOptions.UseBearerToken</c> on the next call.
+    /// </summary>
+    /// <param name="audience">Logical name of the target service. Not empty.</param>
+    /// <param name="scopes">Scopes wanted for the new token, or null.</param>
+    /// <param name="cancellationToken">Cancels the exchange.</param>
+    /// <exception cref="ArgumentException"><paramref name="audience"/> is null or empty.</exception>
+    /// <exception cref="InvalidOperationException"><see cref="CanExchangeToken"/> is false.</exception>
+    /// <exception cref="TokenExchangeException">The exchange failed.</exception>
+    public ValueTask<TokenExchangeResult> ExchangeTokenAsync(string audience, IReadOnlyList<string>? scopes = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(audience);
+        if (TokenExchanger is not { } exchanger || string.IsNullOrEmpty(Call.InboundBearerToken))
+            throw new InvalidOperationException("No token exchange is possible: register an ITokenExchanger and call with a bearer token.");
+        return exchanger.ExchangeAsync(new TokenExchangeRequest
+        {
+            SubjectToken = Call.InboundBearerToken,
+            Audience = audience,
+            Scopes = scopes,
+        }, cancellationToken);
+    }
 }
 
 /// <summary>

@@ -42,8 +42,14 @@ internal static partial class HttpPlumbing
                 throw new A2AException(A2AErrorCode.Unauthenticated);
         }
 
+        // Kept only when a token exchanger is registered and the caller is authenticated. Never logged or stored.
+        var bearer = principal != ServerCallContext.AnonymousPrincipal && services.GetService<A2A.Delegation.ITokenExchanger>() is not null
+            ? BearerToken(http.Request.Headers.Authorization)
+            : null;
+
         return new ServerCallContext
         {
+            InboundBearerToken = bearer,
             User = user,
             Principal = principal,
             RemoteAddress = http.Connection.RemoteIpAddress?.ToString(),
@@ -57,6 +63,23 @@ internal static partial class HttpPlumbing
             TraceParent = A2ATelemetry.TryExtractTraceContext(
                 http.Request.Headers[A2ATelemetry.TraceParentHeader], http.Request.Headers[A2ATelemetry.TraceStateHeader], out var parent) ? parent : default,
         };
+    }
+
+    /// <summary>
+    /// The token of an <c>Authorization: Bearer</c> header (scheme ignoring case). Null when there is not exactly one header
+    /// value, the value is empty, or the token holds whitespace or a comma. Values are never joined.
+    /// </summary>
+    private static string? BearerToken(StringValues values)
+    {
+        if (values.Count != 1 || values[0] is not { } header) return null;
+        const string scheme = "Bearer";
+        if (header.Length <= scheme.Length || !header.StartsWith(scheme, StringComparison.OrdinalIgnoreCase) || !char.IsWhiteSpace(header[scheme.Length]))
+            return null;
+        var token = header[scheme.Length..].Trim();
+        if (token.Length == 0) return null;
+        foreach (var c in token)
+            if (c == ',' || char.IsWhiteSpace(c)) return null;
+        return token;
     }
 
     /// <summary>The request's route values as strings (invariant culture).</summary>
