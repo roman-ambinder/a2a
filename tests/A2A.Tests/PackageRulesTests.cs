@@ -75,7 +75,8 @@ public sealed class PackageRulesTests
         var srcNames = SrcProjects().Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
         var offenders = SrcProjects().SelectMany(p => p.Doc.Descendants("InternalsVisibleTo")
                 .Select(e => (Owner: p.Name, Friend: (string?)e.Attribute("Include") ?? "")))
-            .Where(x => srcNames.Contains(x.Friend));
+            // The v0.3 compat family (A2A.V0_3Compat, A2A.Server.V0_3Compat, A2A.Client.V0_3Compat) is built on core internals on purpose.
+            .Where(x => srcNames.Contains(x.Friend) && !x.Friend.Contains("V0_3Compat", StringComparison.Ordinal));
         Assert.Empty(offenders);
     }
 
@@ -94,6 +95,22 @@ public sealed class PackageRulesTests
                 if (rel[0] is "bin" or "obj") continue;
                 if (File.ReadAllText(file).Contains("SerializeToElement", StringComparison.Ordinal)) offenders.Add(Path.GetRelativePath(RepoRoot(), file));
             }
+        }
+        Assert.Empty(offenders);
+    }
+
+    [Fact]
+    public void Client_sources_do_not_read_ambient_http_context()
+    {
+        // A client must never pick up the caller's Authorization header from the host's HttpContext: that would forward it.
+        var src = Path.Combine(RepoRoot(), "src");
+        var offenders = new List<string>();
+        foreach (var project in Directory.GetDirectories(src, "A2A.Client*"))
+        foreach (var file in Directory.EnumerateFiles(project, "*.cs", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetRelativePath(project, file).Split(Path.DirectorySeparatorChar);
+            if (rel.Contains("bin") || rel.Contains("obj")) continue;
+            if (File.ReadAllText(file).Contains("IHttpContextAccessor", StringComparison.Ordinal)) offenders.Add(Path.GetRelativePath(RepoRoot(), file));
         }
         Assert.Empty(offenders);
     }

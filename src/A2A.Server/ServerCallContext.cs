@@ -55,6 +55,12 @@ public sealed class ServerCallContext
         return new System.Net.IPAddress(bytes).ToString() + "/64";
     }
 
+    /// <summary>
+    /// The caller's bearer token. Set by a binding only when a token exchanger is registered; readable only by the server core,
+    /// so agent code never sees it and cannot forward it. Never logged or stored.
+    /// </summary>
+    public string? InboundBearerToken { internal get; init; }
+
     /// <summary>True when <see cref="User"/> is set and authenticated.</summary>
     public bool IsAuthenticated => User?.Identity?.IsAuthenticated == true;
 

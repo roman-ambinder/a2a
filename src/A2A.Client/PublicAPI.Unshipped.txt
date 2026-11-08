@@ -68,3 +68,18 @@ A2A.Client.Peers.PeerIdentityContext.Verification.init -> void
 A2A.Client.ResolvedAgentCard.Identity.get -> A2A.Client.Peers.PeerIdentity!
 override A2A.Client.Peers.PeerIdentity.ToString() -> string!
 static A2A.Client.Peers.CardPeerIdentityResolver.Instance.get -> A2A.Client.Peers.CardPeerIdentityResolver!
+A2A.Client.Delegation.OAuthTokenExchangerOptions
+A2A.Client.Delegation.OAuthTokenExchangerOptions.OAuthTokenExchangerOptions() -> void
+A2A.Client.Delegation.OAuthTokenExchangerOptions.TokenEndpoint.get -> System.Uri!
+A2A.Client.Delegation.OAuthTokenExchangerOptions.TokenEndpoint.init -> void
+A2A.Client.Delegation.OAuthTokenExchangerOptions.ClientId.get -> string?
+A2A.Client.Delegation.OAuthTokenExchangerOptions.ClientId.init -> void
+A2A.Client.Delegation.OAuthTokenExchangerOptions.ClientSecret.get -> string?
+A2A.Client.Delegation.OAuthTokenExchangerOptions.ClientSecret.init -> void
+A2A.Client.Delegation.OAuthTokenExchangerOptions.ConfigureRequest.get -> System.Func<System.Net.Http.HttpRequestMessage!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask>?
+A2A.Client.Delegation.OAuthTokenExchangerOptions.ConfigureRequest.init -> void
+A2A.Client.Delegation.OAuthTokenExchanger
+A2A.Client.Delegation.OAuthTokenExchanger.OAuthTokenExchanger(System.Net.Http.HttpClient! httpClient, A2A.Client.Delegation.OAuthTokenExchangerOptions! options) -> void
+A2A.Client.Delegation.OAuthTokenExchanger.ExchangeAsync(A2A.Delegation.TokenExchangeRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Delegation.TokenExchangeResult!>
+A2A.Client.Delegation.DelegationRequestOptionsExtensions
+static A2A.Client.Delegation.DelegationRequestOptionsExtensions.UseBearerToken(this A2A.Client.A2ARequestOptions! options, A2A.Delegation.TokenExchangeResult! token) -> A2A.Client.A2ARequestOptions!

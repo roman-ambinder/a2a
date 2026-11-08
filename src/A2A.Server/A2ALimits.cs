@@ -14,6 +14,13 @@ public sealed class A2ALimits
     /// <summary>Most parts in one message. More is InvalidRequest. Default 100.</summary>
     public int MaxPartsPerMessage { get; set; } = 100;
 
+    /// <summary>
+    /// Most hops (entries in <c>actors</c>) in the actor chain of <c>metadata["actorChain"]</c>. More is InvalidRequest, before the
+    /// agent runs. This is a brake against loops between agents, not a security boundary: the chain is claimed by the caller.
+    /// Default 8.
+    /// </summary>
+    public int MaxActorChainHops { get; set; } = 8;
+
     /// <summary>Largest decoded <c>raw</c> part in bytes. Larger parts get HTTP 413 (PAYLOAD_TOO_LARGE). Default 8 MB.</summary>
     public int MaxRawPartBytes { get; set; } = 8 * 1024 * 1024;
 
