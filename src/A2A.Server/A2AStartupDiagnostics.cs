@@ -31,6 +31,11 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
         "their data are never deleted, tasks waiting for input never time out (InterruptedTimeout does nothing), and tasks whose " +
         "instance died while running stay WORKING. Call services.AddA2ARetention() to turn it on; ignore this if you clean up yourself.";
 
+    internal const string InMemoryObjectsMessage =
+        "The task store is durable ({TaskStore}), but artifact objects are kept by the process-local InMemoryArtifactObjectStore. " +
+        "Objects are lost on restart and other instances cannot read them, so stored tasks keep links that no longer download. " +
+        "Register a durable ArtifactObjectStore; use the in-memory one for tests and development only.";
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         try
@@ -57,6 +62,9 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
 
         if (tasks is not null and not InMemoryTaskStore && services.GetService<Retention.A2ARetentionService>() is null)
             ServerLog.RetentionOffWithDurableStore(logger, tasks.GetType().Name);
+
+        if (tasks is not null and not InMemoryTaskStore && services.GetService<ArtifactObjectStore>() is InMemoryArtifactObjectStore)
+            ServerLog.InMemoryObjectsWithDurableStore(logger, tasks.GetType().Name);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

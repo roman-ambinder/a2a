@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using A2A.Delegation;
 using A2A.Elicitations;
 using A2A.Integrity;
+using A2A.Server.Storage;
 using A2A.Skills;
 
 namespace A2A.Server;
@@ -149,10 +150,12 @@ public sealed class TaskUpdater
     private bool _taskEmitted;
     private bool _replied;
     private bool _terminal;
+    private readonly ArtifactOffload? _offload;
 
     internal TaskUpdater(string taskId, string contextId, bool isNewTask, ChannelWriter<StreamResponse> writer,
-        Dictionary<string, JsonElement>? requestMetadata = null)
+        Dictionary<string, JsonElement>? requestMetadata = null, ArtifactOffload? offload = null)
     {
+        _offload = offload;
         TaskId = taskId;
         ContextId = contextId;
         _isNewTask = isNewTask;
@@ -336,16 +339,17 @@ public sealed class TaskUpdater
     /// </summary>
     /// <exception cref="InvalidOperationException">The artifact is sealed and <paramref name="append"/> is true, or the artifact is being hashed (<see cref="AddHashedArtifactAsync"/>) and <paramref name="append"/> is true.</exception>
     /// <exception cref="ArgumentException"><paramref name="artifact"/> has no parts and the event is not an append to an artifact that exists.</exception>
-    public ValueTask AddArtifactAsync(Artifact artifact, Dictionary<string, JsonElement>? eventMetadata, bool append = false, bool lastChunk = false, CancellationToken cancellationToken = default)
+    public async ValueTask AddArtifactAsync(Artifact artifact, Dictionary<string, JsonElement>? eventMetadata, bool append = false, bool lastChunk = false, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(artifact);
+        await OffloadAsync(artifact, append, cancellationToken).ConfigureAwait(false);
         lock (_gate)
         {
             CheckCanEmit();
             Track(artifact, append, lastChunk, hashing: false);
             MarkTaskEvent(false); // last: a rejected call must not count as an emitted task event
         }
-        return WriteArtifact(artifact, append, lastChunk, cancellationToken, eventMetadata);
+        await WriteArtifact(artifact, append, lastChunk, cancellationToken, eventMetadata).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -384,6 +388,7 @@ public sealed class TaskUpdater
             Parts = parts.ToList(),
             Metadata = metadata is null ? new() : new(metadata),
         };
+        await OffloadAsync(artifact, append, cancellationToken).ConfigureAwait(false);
         lock (_gate)
         {
             CheckCanEmit();
@@ -392,6 +397,48 @@ public sealed class TaskUpdater
         }
         await WriteArtifact(artifact, append, lastChunk, cancellationToken).ConfigureAwait(false);
         return artifact.ArtifactId;
+    }
+
+    /// <summary>
+    /// Uploads the content of <paramref name="content"/> to the artifact object store and adds a sealed artifact with one URL part
+    /// that points to it, without passing the bytes through an event, so <see cref="A2ALimits.MaxEventBytes"/> does not apply.
+    /// The part carries <c>sha256</c> (of the bytes) and <c>sizeBytes</c> in its metadata, and the artifact carries the hash of
+    /// its delivered parts (<see cref="AddHashedArtifactAsync"/>). Returns the artifact id.
+    /// </summary>
+    /// <remarks>
+    /// The upload comes first and the event after it. When the event is dropped later (the task ended, the artifact was sealed),
+    /// the object stays until the retention sweep removes it. A failed upload throws and emits nothing.
+    /// </remarks>
+    /// <param name="content">The bytes to store. Read once to the end; not disposed.</param>
+    /// <param name="mediaType">The media type of the file.</param>
+    /// <param name="artifactId">The artifact id. A new one when null.</param>
+    /// <param name="name">Human-readable artifact name, also used as the file name of the part.</param>
+    /// <param name="description">What the artifact is.</param>
+    /// <param name="metadata">Artifact metadata. Copied.</param>
+    /// <param name="cancellationToken">Cancels the upload.</param>
+    /// <exception cref="InvalidOperationException">No <see cref="ArtifactObjectStore"/> is registered, or the task is already terminal.</exception>
+    /// <exception cref="ArtifactObjectTooLargeException">The stream is longer than <see cref="ArtifactStorageOptions.MaxObjectBytes"/>.</exception>
+    public async ValueTask<string> AddArtifactFromStreamAsync(Stream content, string mediaType, string? artifactId = null, string? name = null,
+        string? description = null, Dictionary<string, JsonElement>? metadata = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentException.ThrowIfNullOrWhiteSpace(mediaType);
+        var offload = _offload ?? throw new InvalidOperationException(
+            "AddArtifactFromStreamAsync needs an ArtifactObjectStore. Register one (services.AddSingleton<ArtifactObjectStore>(...)) and set A2AServerOptions.ArtifactStorage.PublicBaseUrl.");
+        lock (_gate) CheckCanEmit(); // no upload for an event that cannot be sent
+        var part = await offload.UploadAsync(content, mediaType, name, null, cancellationToken).ConfigureAwait(false);
+        return await AddHashedArtifactAsync([part], artifactId, name, description, append: false, lastChunk: true, metadata, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Before the artifact is tracked and hashed: checks the task can take an event, then (outside any lock) replaces the large raw
+    /// parts of a new artifact with URL parts. Appended chunks stay inline.
+    /// </summary>
+    private async ValueTask OffloadAsync(Artifact artifact, bool append, CancellationToken cancellationToken)
+    {
+        if (_offload is null || append || artifact.Parts is not { Count: > 0 } parts) return;
+        lock (_gate) CheckCanEmit();
+        artifact.Parts = await _offload.PrepareAsync(parts, cancellationToken).ConfigureAwait(false);
     }
 
     private ValueTask WriteArtifact(Artifact artifact, bool append, bool lastChunk, CancellationToken cancellationToken, Dictionary<string, JsonElement>? eventMetadata = null)

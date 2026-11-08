@@ -33,6 +33,14 @@ internal static class ServerTelemetry
     public static readonly Counter<long> PushDeadLetters =
         Meter.CreateCounter<long>(A2ATelemetry.Metrics.PushDeadLetters, description: "Push deliveries that failed for good and were moved to the dead letters.");
 
+    /// <summary>Span of one upload to the artifact object store.</summary>
+    public const string UploadSpanName = "a2a.artifact.upload";
+
+    public static readonly Counter<long> ObjectsWritten =
+        Meter.CreateCounter<long>("a2a.server.artifact.objects.written", description: "Objects written to the artifact object store.");
+    public static readonly Counter<long> ObjectBytesWritten =
+        Meter.CreateCounter<long>("a2a.server.artifact.bytes.written", unit: "By", description: "Bytes written to the artifact object store.");
+
     /// <summary>
     /// The outcome of a call: <see cref="A2ATelemetry.Outcomes.Ok"/>; <see cref="A2ATelemetry.Outcomes.Canceled"/> for an
     /// <see cref="OperationCanceledException"/> when the caller canceled (<paramref name="cancellationToken"/>); otherwise

@@ -47,6 +47,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     private readonly IAgentCardProvider _cards;
     private readonly ILogger _logger;
     private readonly TimeProvider _time;
+    private readonly ArtifactObjectStore? _objects;
 
     /// <summary>The current time of the engine's clock, UTC. The request handler stamps accepted messages with it.</summary>
     internal DateTimeOffset UtcNow => _time.GetUtcNow();
@@ -73,7 +74,11 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// <param name="coordinator">
     /// Tracks running executions across instances. Default a process-local <see cref="InMemoryExecutionCoordinator"/>.
     /// </param>
-    /// <exception cref="InvalidOperationException"><see cref="A2AServerOptions.Coordination"/> is invalid.</exception>
+    /// <param name="objects">
+    /// Where large raw parts of artifacts go (<see cref="A2AServerOptions.ArtifactStorage"/>). Null keeps every part inline.
+    /// </param>
+    /// <exception cref="InvalidOperationException"><see cref="A2AServerOptions.Coordination"/> is invalid, or <paramref name="objects"/> is set and
+    /// neither <see cref="ArtifactStorageOptions.PublicBaseUrl"/> nor <see cref="ArtifactStorageOptions.PublicBaseUrlResolver"/> is.</exception>
     public TaskExecutionEngine(
         TaskStore tasks,
         EventStore events,
@@ -86,9 +91,13 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         IAgentCardProvider cards,
         ILogger<TaskExecutionEngine>? logger = null,
         TimeProvider? timeProvider = null,
-        ExecutionCoordinator? coordinator = null)
+        ExecutionCoordinator? coordinator = null,
+        ArtifactObjectStore? objects = null)
     {
         ArgumentNullException.ThrowIfNull(options);
+        if (objects is not null && options.ArtifactStorage.PublicBaseUrl is null && options.ArtifactStorage.PublicBaseUrlResolver is null)
+            throw new InvalidOperationException("An ArtifactObjectStore is registered, but A2AServerOptions.ArtifactStorage.PublicBaseUrl (or PublicBaseUrlResolver) is not set. Artifact links need a base URL.");
+        _objects = objects;
         _tasks = tasks;
         _events = events;
         _executors = executors;
@@ -322,7 +331,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             TaskStored = !isNewTask,
         };
         var scope = ScopeKey(key.Tenant, taskId);
-        var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
+        var offload = _objects is null ? null : new ArtifactOffload(_objects, _options.ArtifactStorage, key.Tenant, taskId);
+        var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata, offload);
         // The first history entry of a new task, copied before the executor starts: the executor may change its message.
         var historyMessage = isNewTask && userMessage is not null ? WithTask(userMessage, taskId) : null;
         // Here first, then cluster-wide: whenever the coordinator lists the execution, this instance has it too.
