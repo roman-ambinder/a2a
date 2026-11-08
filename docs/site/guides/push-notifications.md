@@ -20,6 +20,16 @@ You can also register the webhook in the first message. Leave `TaskId` empty; th
 
 The server returns the config with `Token` and `Credentials` blanked. A task can have at most <xref:A2A.Server.A2ALimits.MaxPushConfigsPerTask> configs (default 10). A new config gets deliveries from the next event on. A pending delivery uses the config as it is when it is sent.
 
+### Late registration
+
+A webhook registered with `CreateTaskPushNotificationConfig` after the task stopped moving still hears about it. If the task is terminal, `INPUT_REQUIRED` or `AUTH_REQUIRED` when the config is created, the server queues one delivery for that config only. Its body is a `StreamResponse` with `task`: the task as it is now. `X-A2A-Notification-Sequence` is the task's latest event sequence. For a running task nothing is sent; the config gets the next event as usual.
+
+The server saves the config first, then reads the task. The engine also lists the task's webhooks again after an event that ends or interrupts the task, and queues the same snapshot for any config it had missed. So a registration that lands while that event is committed is not lost, on one instance or several, without locks. When both paths fire for one config, the outbox keeps one delivery (the key is task, config id and sequence), and its delivery id is derived from that key, so a receiver that drops duplicate ids sees it once.
+
+Set `PushNotifications.CatchUpOnRegistration = false` to turn this off (both the snapshot and the second listing). A webhook then only sees later events.
+
+For a new task, put the config inline in `SendMessage`. It is saved before the task exists, so it sees every event, with no race at all.
+
 ## How delivery works
 
 - Each event creates one delivery per push config. The body is the event as committed (a `StreamResponse`), so delivery does not depend on event log retention.
@@ -37,7 +47,8 @@ The server returns the config with `Token` and `Credentials` blanked. A task can
 | 408, 429, 5xx, timeout, connection error | Retried with backoff. |
 | Any other status (other 4xx, and 3xx, because redirects are not followed) | Dead-lettered. |
 | URL refused by the SSRF guard, unusable signing secret, secrets that cannot be unprotected | Dead-lettered. |
-| Last attempt fails | Dead-lettered. |
+| `MaxAttempts` is set and the last attempt fails | Dead-lettered. |
+| The delivery is older than `MaxDeliveryAge` | Dead-lettered, without another attempt. |
 
 The wait before retry *n* is `InitialBackoff × 2^(n-1)`, with ±20 % jitter, capped at `MaxBackoff`.
 
@@ -51,18 +62,21 @@ Set these on <xref:A2A.Server.A2AServerOptions.PushDelivery> (<xref:A2A.Server.P
 |---|---|---|
 | `PushDelivery.InitialBackoff` | 1 second | Wait before the first retry. |
 | `PushDelivery.MaxBackoff` | 5 minutes | Longest wait between attempts. |
-| `PushDelivery.MaxAttempts` | 10 | Attempts per delivery, the first included. |
+| `PushDelivery.MaxAttempts` | null | Attempts per delivery, the first included. null: no count limit. |
+| `PushDelivery.MaxDeliveryAge` | 24 hours | Longest time a delivery may stay queued, from when it was queued. null: no limit. |
+| `PushDelivery.OnDeadLetter` | null | Callback when a delivery is dead-lettered. |
 | `PushDelivery.Lease` | 1 minute | How long a leased delivery is hidden from other instances. |
 | `PushDelivery.PollInterval` | 1 second | How often the outbox is checked for due deliveries. |
 | `PushDelivery.BatchSize` | 50 | Most deliveries one instance sends at the same time. |
 | `PushNotifications.Timeout` | 15 seconds | Timeout of one POST, and of the DNS check before it. |
+| `PushNotifications.CatchUpOnRegistration` | true | Send the task snapshot to a webhook registered on a final or interrupted task. |
 | `PushNotifications.AllowInsecureUrls` | false | Allow `http://` URLs. |
 | `PushNotifications.AllowPrivateNetworks` | false | Turn the private-address block off. |
 | `PushNotifications.AllowedHosts` | empty | If not empty, only these hosts are allowed. |
 | `PushNotifications.AllowedNetworks` | empty | Networks that bypass the private-range block. |
 | `PushNotifications.Proxy` | null | Proxy for webhook calls. With null, the system proxy is ignored. |
 
-The service checks the options at startup. `Timeout` must be positive and finite, `PollInterval` must be above zero, and `Lease` must be longer than `2 × Timeout + 5 s`. Otherwise startup throws `InvalidOperationException`.
+The service checks the options at startup. `Timeout` must be positive and finite, `PollInterval` must be above zero, `MaxDeliveryAge` (when set) must be above zero, `MaxAttempts` (when set) must be at least 1, and `Lease` must be longer than `2 × Timeout + 5 s`. Otherwise startup throws `InvalidOperationException`.
 
 ### Headers on each POST
 
@@ -136,6 +150,16 @@ Use ASP.NET Core Data Protection with a key ring that is saved and shared by eve
 A dead letter keeps the payload and the last error (never secrets). <xref:A2A.Server.Push.A2APushAdmin> lists them per tenant and sends one again. It is not exposed over A2A, so protect your own endpoint.
 
 [!code-csharp[](../snippets/PushNotifications.cs#DeadLetters)]
+
+### Delivery age
+
+A delivery that keeps failing used to end only when it ran out of attempts. Now it also ends by age. `MaxDeliveryAge` (default 24 hours) counts from the moment the delivery was queued. The check runs when the delivery is next leased: if it is older, it is dead-lettered without another attempt, and the dead letter keeps the last error. With PostgreSQL the age is measured on the database clock, so instances whose clocks differ agree. A redriven dead letter starts again at age 0. `MaxAttempts` is null by default; set it to also cap the number of attempts.
+
+### Dead-letter hook
+
+`PushDelivery.OnDeadLetter` is called after a delivery was dead-lettered, for any reason. It gets a <xref:A2A.Server.Push.PushDeadLetterInfo>: the task, config id, sequence and last error. It never gets secrets. Use it to alert or to redrive. If it throws, the exception is logged and nothing else changes. The send slot is held while it runs, so keep it short.
+
+[!code-csharp[](../snippets/PushNotifications.cs#DeadLetterHook)]
 
 A redriven delivery starts again at attempt 0 with the same delivery id. It is sent after newer events of the same config that were delivered in the meantime, not in its original place. Retention deletes dead letters with their task.
 

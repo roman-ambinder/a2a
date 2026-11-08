@@ -48,8 +48,8 @@ public sealed class PostgresPushOutbox : PushOutbox
     {
         var cmd = new NpgsqlBatchCommand(
             $"""
-            INSERT INTO {outboxTable} (tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt, payload, due_ticks, lease_ticks, last_error)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $9, {DbClock.Now(8)}, NULL, NULL)
+            INSERT INTO {outboxTable} (tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt, payload, due_ticks, queued_ticks, lease_ticks, last_error)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $9, {DbClock.Now(8)}, {DbClock.Now(8)}, NULL, NULL)
             ON CONFLICT (tenant, owner, task_id, config_id, seq) DO NOTHING
             """);
         AddKey(cmd.Parameters, d.Task);
@@ -60,6 +60,27 @@ public sealed class PostgresPushOutbox : PushOutbox
         cmd.Parameters.Add(NullableLong(nowTicks));
         cmd.Parameters.Add(Bytes(payload));
         return cmd;
+    }
+
+    /// <inheritdoc />
+    public override async ValueTask<bool> EnqueueAsync(PushDelivery delivery, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(delivery);
+        // Same insert as a commit's, but skipped when a dead letter has the key. A concurrent insert of the same key is a no-op
+        // through ON CONFLICT, so the second of two racing catch-ups returns false.
+        await using var cmd = _db.CreateCommand(
+            $"""
+            INSERT INTO {_outbox} (tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt, payload, due_ticks, queued_ticks, lease_ticks, last_error)
+            SELECT $1, $2, $3, $4, $5, $6, $7, 0, $9, {DbClock.Now(8)}, {DbClock.Now(8)}, NULL, NULL
+            WHERE NOT EXISTS (SELECT 1 FROM {_dead} x WHERE x.tenant = $1 AND x.owner = $2 AND x.task_id = $3 AND x.config_id = $4 AND x.seq = $5)
+            ON CONFLICT (tenant, owner, task_id, config_id, seq) DO NOTHING
+            """);
+        AddEntryKey(cmd.Parameters, delivery);
+        cmd.Parameters.Add(TextParam(delivery.DeliveryId));
+        cmd.Parameters.Add(NullableText(delivery.TraceParent));
+        cmd.Parameters.Add(_clock.NowParam());
+        cmd.Parameters.Add(Bytes(payload.ToArray()));
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
     /// <inheritdoc />
@@ -82,7 +103,8 @@ public sealed class PostgresPushOutbox : PushOutbox
             )
             UPDATE {_outbox} o SET lease_ticks = {DbClock.Now(1)} + $2, lease_token = $4 FROM picked p
             WHERE o.tenant = p.tenant AND o.owner = p.owner AND o.task_id = p.task_id AND o.config_id = p.config_id AND o.seq = p.seq
-            RETURNING o.tenant, o.owner, o.task_id, o.config_id, o.seq, o.delivery_id, o.trace_parent, o.attempt, o.payload, o.due_ticks, o.last_error, o.lease_token
+            RETURNING o.tenant, o.owner, o.task_id, o.config_id, o.seq, o.delivery_id, o.trace_parent, o.attempt, o.payload, o.due_ticks, o.last_error, o.lease_token,
+                {DbClock.Now(1)} - COALESCE(o.queued_ticks, o.due_ticks) AS age_ticks
             """);
         cmd.Parameters.Add(_clock.NowParam());
         cmd.Parameters.Add(Span(lease));
@@ -167,8 +189,8 @@ public sealed class PostgresPushOutbox : PushOutbox
                 DELETE FROM {_dead} WHERE {KeyFilter}
                   AND NOT EXISTS (SELECT 1 FROM {_outbox} o WHERE o.tenant = $1 AND o.owner = $2 AND o.task_id = $3 AND o.config_id = $4 AND o.seq = $5)
                 RETURNING {Columns})
-            INSERT INTO {_outbox} ({Columns}, due_ticks, lease_ticks, last_error)
-            SELECT tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, 0, payload, {DbClock.Now(6)}, NULL, NULL FROM moved
+            INSERT INTO {_outbox} ({Columns}, due_ticks, queued_ticks, lease_ticks, last_error)
+            SELECT tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, 0, payload, {DbClock.Now(6)}, {DbClock.Now(6)}, NULL, NULL FROM moved
             """);
         AddEntryKey(cmd.Parameters, d);
         cmd.Parameters.Add(_clock.NowParam());
@@ -226,6 +248,7 @@ public sealed class PostgresPushOutbox : PushOutbox
         {
             Payload = r.GetFieldValue<byte[]>(8),
             LeaseToken = r.FieldCount > 11 && !r.IsDBNull(11) ? r.GetGuid(11) : null,
+            Age = r.FieldCount > 12 && !r.IsDBNull(12) ? TimeSpan.FromTicks(Math.Max(0, r.GetInt64(12))) : TimeSpan.Zero,
         };
     }
 }

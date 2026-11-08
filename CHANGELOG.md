@@ -120,6 +120,21 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - Standard Webhooks signatures (`webhook-signature`) with replay protection, and `PushNotificationReceiver.VerifySignature`
   for receivers. (#12)
 - Webhook requests send `A2A-Version`. (#8)
+- A webhook registered late is not lost. `CreateTaskPushNotificationConfig` on a task that is terminal, `INPUT_REQUIRED` or
+  `AUTH_REQUIRED` queues one delivery of the task snapshot (a `StreamResponse` with `task`) for that config, at the task's
+  latest event sequence. The engine also lists a task's webhooks again after an event that leaves it final-for-now, so a
+  config saved between its first listing and the commit gets that event too. No locks, so it works across instances. Both
+  paths can queue the same config; the outbox keeps one (new `PushOutbox.EnqueueAsync`, idempotent on task, config and
+  sequence, in the in-memory and PostgreSQL outboxes), and the delivery id is derived from that key.
+  `PushNotifications.CatchUpOnRegistration` (default true) turns both off. Inline config on `SendMessage` is still the
+  race-free way to register for a new task.
+- `PushDelivery.MaxDeliveryAge` (default 24 hours): a delivery older than this, counted from when it was queued, is
+  dead-lettered. PostgreSQL uses the database clock; the new nullable `a2a_push_outbox.queued_ticks` column is added by the
+  schema script and is safe on existing rows. `PushDelivery.MaxAttempts` is now `int?` and defaults to null (no count
+  limit; it caps attempts when set). Before, the default was 10 attempts.
+- `PushDelivery.OnDeadLetter`: an optional callback with the task, config id, sequence and last error (never secrets),
+  called when a delivery is dead-lettered. An exception it throws is logged and has no other effect.
+- Custom `PushOutbox` classes must implement the new abstract `EnqueueAsync`.
 
 ### Proactive continuation
 

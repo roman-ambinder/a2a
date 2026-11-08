@@ -743,7 +743,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         A2AValidator.ValidatePushConfig(config, "config", requireTaskId: true);
         var key = Key(call, config.TaskId!);
         _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(config.TaskId!);
-        return await _pushConfigs.CreateAsync(key, config, cancellationToken).ConfigureAwait(false);
+        // Save first, then read the task (inside CatchUpAsync): an event committed after that read lists this config itself or
+        // finds it when it lists again (see TaskExecutionEngine), so no final state is missed.
+        var created = await _pushConfigs.CreateAsync(key, config, cancellationToken).ConfigureAwait(false);
+        await _engine.CatchUpAsync(key, created.Id!, cancellationToken).ConfigureAwait(false);
+        return created;
     }
 
     /// <summary>GetTaskPushNotificationConfig (spec §3.1.8). Returns one registration with secrets removed.</summary>

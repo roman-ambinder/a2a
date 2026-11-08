@@ -49,6 +49,44 @@ public sealed class PostgresClockSkewTests(PostgresFixture db)
     }
 
     [SkippableFact]
+    public async Task Delivery_age_is_measured_on_the_database_clock()
+    {
+        var schema = await db.NewSchemaAsync();
+        var tasks = new PostgresTaskStore(db.DataSource, new StreamingOptions(), schema);
+        await CommitWithDeliveryAsync(tasks, new TaskKey("t", "alice", "task1"));
+        var late = new PostgresPushOutbox(db.DataSource, schema, Ahead);
+        Assert.True(await late.EnqueueAsync(new PushDelivery(new TaskKey("t", "alice", "task1"), "c2", 1, "d2"), new byte[] { 1 }));
+
+        // An instance an hour ahead (or behind) does not make a delivery queued just now look old (or negative).
+        foreach (var outbox in new[] { late, new PostgresPushOutbox(db.DataSource, schema, Behind) })
+        {
+            var entries = await outbox.LeaseDueAsync(10, TimeSpan.Zero);
+            Assert.Equal(2, entries.Count);
+            Assert.All(entries, e => Assert.InRange(e.Age, TimeSpan.Zero, TimeSpan.FromMinutes(1)));
+        }
+    }
+
+    [SkippableFact]
+    public async Task Outbox_rows_from_before_the_queued_column_are_still_leased_and_aged_from_their_due_time()
+    {
+        var schema = await db.NewSchemaAsync();
+        var key = new TaskKey("t", "alice", "task1");
+        var table = $"\"{schema.Schema}\".a2a_push_outbox";
+        await using (var cmd = db.DataSource.CreateCommand($"ALTER TABLE {table} DROP COLUMN queued_ticks"))
+            await cmd.ExecuteNonQueryAsync();
+        await using (var cmd = db.DataSource.CreateCommand(
+            $"INSERT INTO {table} (tenant, owner, task_id, config_id, seq, delivery_id, attempt, payload, due_ticks) VALUES ('t', 'alice', 'task1', 'c1', 1, 'old', 0, '\\x01', 1)"))
+            await cmd.ExecuteNonQueryAsync();
+
+        await PostgresSchema.EnsureSchemaAsync(db.DataSource, schema.Schema); // the upgrade: adds the column, keeps the row
+
+        var entry = Assert.Single(await new PostgresPushOutbox(db.DataSource, schema).LeaseDueAsync(10, TimeSpan.FromMinutes(1)));
+        Assert.Equal("old", entry.Delivery.DeliveryId);
+        Assert.True(entry.Age > TimeSpan.FromDays(365)); // due_ticks 1 is the year 1: a NULL queued time reads as the due time
+        await PostgresSchema.EnsureSchemaAsync(db.DataSource, schema.Schema); // and the script stays idempotent
+    }
+
+    [SkippableFact]
     public async Task Delivery_committed_by_an_instance_whose_clock_runs_ahead_is_due_at_once()
     {
         var schema = await db.NewSchemaAsync();

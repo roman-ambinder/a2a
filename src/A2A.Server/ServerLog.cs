@@ -126,6 +126,12 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 313, Level = LogLevel.Debug, Message = "Push delivery {Sequence} of task {TaskId} to webhook {ConfigId} lost its lease; result not recorded")]
     public static partial void PushLeaseLost(ILogger logger, long sequence, string taskId, string configId);
 
+    [LoggerMessage(EventId = 314, Level = LogLevel.Error, Message = "The OnDeadLetter callback failed for delivery {Sequence} of task {TaskId} to webhook {ConfigId}")]
+    public static partial void PushDeadLetterHookFailed(ILogger logger, Exception exception, long sequence, string taskId, string configId);
+
+    [LoggerMessage(EventId = 315, Level = LogLevel.Warning, Message = "Could not queue the catch-up push delivery of task {TaskId}; a webhook registered just now may miss the final event")]
+    public static partial void PushCatchUpFailed(ILogger logger, Exception exception, string taskId);
+
     // A2ARetentionService: 230-249; A2AStartupDiagnostics: 250-259
     [LoggerMessage(EventId = 230, Level = LogLevel.Warning, Message = "Retention sweep failed; the next sweep tries again")]
     public static partial void SweepFailed(ILogger logger, Exception exception);

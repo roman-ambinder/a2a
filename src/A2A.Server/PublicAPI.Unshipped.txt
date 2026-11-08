@@ -41,3 +41,25 @@ A2A.Server.TaskContinuationResult.Completion.get -> System.Threading.Tasks.Task!
 A2A.Server.Execution.TaskExecutionEngine.ContinueTaskAsync(A2A.Server.Storage.TaskKey key, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.TaskContinuationResult!>
 A2A.Server.TaskUpdater.AddHashedArtifactAsync(System.Collections.Generic.IEnumerable<A2A.Part!>! parts, string? artifactId = null, string? name = null, string? description = null, bool append = false, bool lastChunk = false, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<string!>
 A2A.Server.TaskUpdater.AddArtifactAsync(A2A.Artifact! artifact, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? eventMetadata, bool append = false, bool lastChunk = false, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+*REMOVED*A2A.Server.Push.PushDeliveryOptions.MaxAttempts.get -> int
+A2A.Server.Push.PushDeliveryOptions.MaxAttempts.get -> int?
+A2A.Server.Push.PushDeliveryOptions.MaxDeliveryAge.get -> System.TimeSpan?
+A2A.Server.Push.PushDeliveryOptions.MaxDeliveryAge.set -> void
+A2A.Server.Push.PushDeliveryOptions.OnDeadLetter.get -> System.Func<A2A.Server.Push.PushDeadLetterInfo!, System.Threading.Tasks.ValueTask>?
+A2A.Server.Push.PushDeliveryOptions.OnDeadLetter.set -> void
+A2A.Server.Push.PushDeadLetterInfo
+A2A.Server.Push.PushDeadLetterInfo.ConfigId.get -> string!
+A2A.Server.Push.PushDeadLetterInfo.ConfigId.init -> void
+A2A.Server.Push.PushDeadLetterInfo.LastError.get -> string?
+A2A.Server.Push.PushDeadLetterInfo.LastError.init -> void
+A2A.Server.Push.PushDeadLetterInfo.PushDeadLetterInfo(A2A.Server.Storage.TaskKey Task, string! ConfigId, long Sequence, string? LastError) -> void
+A2A.Server.Push.PushDeadLetterInfo.Sequence.get -> long
+A2A.Server.Push.PushDeadLetterInfo.Sequence.init -> void
+A2A.Server.Push.PushDeadLetterInfo.Task.get -> A2A.Server.Storage.TaskKey
+A2A.Server.Push.PushDeadLetterInfo.Task.init -> void
+A2A.Server.Push.PushNotificationOptions.CatchUpOnRegistration.get -> bool
+A2A.Server.Push.PushNotificationOptions.CatchUpOnRegistration.set -> void
+A2A.Server.Push.OutboxEntry.Age.get -> System.TimeSpan
+A2A.Server.Push.OutboxEntry.Age.init -> void
+abstract A2A.Server.Push.PushOutbox.EnqueueAsync(A2A.Server.Storage.PushDelivery! delivery, System.ReadOnlyMemory<byte> payload, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Server.Push.InMemoryPushOutbox.EnqueueAsync(A2A.Server.Storage.PushDelivery! delivery, System.ReadOnlyMemory<byte> payload, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
