@@ -87,6 +87,13 @@ static A2A.Diagnostics.A2ATelemetry.SetOperationTags(System.Diagnostics.Activity
 static A2A.Diagnostics.A2ATelemetry.SetMessage(System.Diagnostics.Activity? activity, A2A.Message? message) -> void
 static A2A.Diagnostics.A2ATelemetry.SetAgent(System.Diagnostics.Activity? activity, A2A.AgentCard? card) -> void
 static A2A.Diagnostics.A2ATelemetry.SetStreamResult(System.Diagnostics.Activity? activity, A2A.StreamResponse! evt) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.GetTaskRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.CancelTaskRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.SubscribeToTaskRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.TaskPushNotificationConfig! config) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.GetTaskPushNotificationConfigRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.DeleteTaskPushNotificationConfigRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.ListTaskPushNotificationConfigsRequest! request) -> void
 A2A.Skills.SkillSelection
 A2A.Skills.SkillSelectionMessageExtensions
 const A2A.Skills.SkillSelection.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/skill-selection/v1" -> string!
