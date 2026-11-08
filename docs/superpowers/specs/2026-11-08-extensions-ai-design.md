@@ -66,7 +66,7 @@ Registration: `A2AServerBuilder.AddChatClientAgent(Action<ChatClientAgentOptions
 Flow:
 
 1. If the incoming message has a `UrlPart` and `AllowUrlParts` is false: `RejectAsync` with fixed text, return.
-2. Build the prompt: system message, then `context.Task.History` (or just `context.Message` for a new task). `History` already includes the new message; add it only if the last entry has a different `MessageId`. Trim to `MaxHistoryMessages`.
+2. Build the prompt: system message, then `context.Task.History` (or just `context.Message` for a new task). `History` already includes the new message; add it only if the last entry has a different `MessageId`. Trim to `MaxHistoryMessages`, then drop leading agent messages, because some providers refuse a conversation that does not start with a user turn.
 3. `StartWorkAsync()` with no text.
 4. Read `GetStreamingResponseAsync`. Collect text. Before adding new content, if pending text has reached `StreamChunkSize` or a non-text part is pending, emit the pending parts as an artifact chunk (`append` after the first). Writing before adding means something is always held back, so the final chunk can carry `lastChunk: true`. Per-chunk batching matters: durable stores write on every event.
 5. At the end: `CompleteAsync()`, or with `KeepConversationOpen`, `UpdateStatusAsync(InputRequired, agent message with the full reply)`. `History` only records status messages, so this is what makes the next turn see the reply.
@@ -108,7 +108,8 @@ Result is a `JsonElement`:
 {"state":"completed","taskId":"…","contextId":"…","remoteContent":"…","truncated":false,"nonTextParts":0,"notice":"…"}
 ```
 
-- `remoteContent`: text and JSON of the artifacts; if none, the status message text; for a direct reply, the message text.
+- `remoteContent`: for an interrupted task (input-required, auth-required), the status message text, because that is what the agent is asking now. Otherwise text and JSON of the artifacts; if none, the status message text. For a direct reply, the message text.
+- When continuing with `taskId`, only artifacts new in this turn count. A task keeps every turn's artifacts, so one `GetTask` before the send records the ids already there. If that lookup fails, it is ignored and the send reports the real error.
 - `MaxResultCharacters` default 32000. Longer text is cut and `truncated` is true.
 - `notice` (option `UntrustedContentNotice`, not nullable) tells the model the content is untrusted data from a remote agent and not instructions. This reduces risk but does not remove it. The README must say so and point to `OnMessageReceived` and human approval for sensitive tools.
 - Non-text parts are counted, never inlined: no bytes or URLs reach the model.
@@ -123,6 +124,8 @@ Result is a `JsonElement`:
 - `AdditionalProperties` key `A2AChatKeys.TaskId` carries the task id in both directions, and `A2AChatKeys.TaskState` the state on responses, for continuing an `INPUT_REQUIRED` task.
 - Streaming uses `SendStreamingMessageAsync`: artifact chunks become text updates; a direct reply or interrupted-state status message becomes a text update; progress (`WORKING`) messages are not surfaced. A task snapshot's artifacts are emitted only if that artifact id had no chunks.
 - `GetResponseAsync` uses unary `SendMessageAsync` plus wait, same content rules.
+- Continuing a task returns only that turn's content, on both paths. The same `GetTask` lookup records earlier artifact ids and the current status message id, and neither is repeated. An interrupted status message that only repeats the turn's artifact text (`KeepConversationOpen`) adds no content.
+- Message and content `AdditionalProperties` are not sent to the remote agent: they are local data.
 - Failed, rejected or canceled: throw `InvalidOperationException` with the state only, not the remote text.
 - `GetService`: `ChatClientMetadata("a2a", null, card name)` and self. `Dispose` does not dispose the `A2AClient`.
 
