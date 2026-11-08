@@ -78,7 +78,7 @@ public sealed class ArtifactCleanupTests
         public ValueTask DisposeAsync() => Host.DisposeAsync();
     }
 
-    private static async Task<Rig> StartAsync(bool withStore = true)
+    private static async Task<Rig> StartAsync(bool withStore = true, TimeSpan? grace = null)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var log = new List<string>();
@@ -88,7 +88,7 @@ public sealed class ArtifactCleanupTests
             o =>
             {
                 o.ArtifactStorage.PublicBaseUrl = Base;
-                o.ArtifactStorage.OrphanGracePeriod = Grace;
+                o.ArtifactStorage.OrphanGracePeriod = grace ?? Grace;
             },
             services: s =>
             {
@@ -319,5 +319,31 @@ public sealed class ArtifactCleanupTests
 
         Assert.Equal(0, rig.Tasks.MaintenanceReads);
         Assert.NotNull(await rig.Tasks.GetForMaintenanceAsync("", "t1")); // nothing else changed
+    }
+
+    [Fact]
+    public async Task Zero_grace_period_is_rejected_at_start()
+    {
+        await using var rig = await StartAsync(grace: TimeSpan.Zero);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Sweeper().StartAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Negative_grace_period_is_rejected_at_start()
+    {
+        await using var rig = await StartAsync(grace: TimeSpan.FromMinutes(-5));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Sweeper().StartAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Non_positive_grace_period_without_a_store_still_starts()
+    {
+        await using var rig = await StartAsync(withStore: false, grace: TimeSpan.Zero);
+        var sweeper = rig.Sweeper();
+
+        await sweeper.StartAsync(CancellationToken.None);
+        await sweeper.StopAsync(CancellationToken.None);
     }
 }

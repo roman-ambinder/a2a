@@ -98,11 +98,16 @@ public sealed class A2ARetentionService : BackgroundService
 
     /// <summary>
     /// Throws <see cref="InvalidOperationException"/> when <see cref="A2ARetentionOptions.Validate"/> does, or when
-    /// <see cref="A2AServerOptions.InterruptedTimeout"/> is set and not positive.
+    /// <see cref="A2AServerOptions.InterruptedTimeout"/> is set and not positive, or when an artifact object store is registered and
+    /// <see cref="ArtifactStorageOptions.OrphanGracePeriod"/> is not positive.
     /// </summary>
     internal void ValidateOptions()
     {
         _options.Validate();
+        // A grace period of zero or less puts the cut-off at now or later: an object written but not yet committed would be
+        // deleted, and the commit would then create a task that points at nothing.
+        if (_objects is not null && _orphanGracePeriod <= TimeSpan.Zero)
+            throw new InvalidOperationException($"ArtifactStorage.OrphanGracePeriod ({_orphanGracePeriod}) must be greater than zero.");
         if (_interruptedTimeout is { } timeout && timeout <= TimeSpan.Zero)
             throw new InvalidOperationException($"InterruptedTimeout ({timeout}) must be greater than zero, or null to turn it off.");
     }
