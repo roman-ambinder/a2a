@@ -76,9 +76,10 @@ internal sealed partial class V03Surface
 
         PooledBody body;
         try { body = await HttpPlumbing.ReadBodyAsync(http.Request, _limits.MaxRequestBodyBytes).ConfigureAwait(false); }
-        catch (A2AException ex)
+        catch (Exception ex)
         {
-            // Too large: the core endpoint answers it. It reads the body again, so give it a stream that fails the same way.
+            // Any read failure (too large, bad request, client abort): the core endpoint answers it.
+            // It reads the body again, so give it a stream that fails the same way.
             http.Request.Body = new FailingStream(ex);
             await core(http).ConfigureAwait(false);
             return;

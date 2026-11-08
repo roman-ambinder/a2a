@@ -143,6 +143,47 @@ public class ServerSecurityAndCompatibilityTests
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
     }
 
+    /// <summary>A body that throws a plain exception (not an A2AException) when read, like a client abort or a bad request.</summary>
+    private sealed class ThrowingBody : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new IOException("body read failed");
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => throw new IOException("body read failed");
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    private static async Task<(int Status, string Body)> PostThrowingBodyAsync(V03Host host)
+    {
+        var context = await host.App.GetTestServer().SendAsync(c =>
+        {
+            c.Request.Method = "POST";
+            c.Request.Path = "/a2a";
+            c.Request.ContentType = "application/json";
+            c.Request.Headers["X-Test-User"] = "alice";
+            c.Request.Body = new ThrowingBody();
+        });
+        using var reader = new StreamReader(context.Response.Body);
+        return (context.Response.StatusCode, await reader.ReadToEndAsync());
+    }
+
+    [Fact]
+    public async Task A_body_read_failure_is_answered_the_same_with_compat_on_and_off()
+    {
+        await using var on = await V03Host.StartAsync(compat: true);
+        await using var off = await V03Host.StartAsync(compat: false);
+        var (onStatus, onBody) = await PostThrowingBodyAsync(on);
+        var (offStatus, offBody) = await PostThrowingBodyAsync(off);
+        Assert.Equal(offStatus, onStatus);
+        Assert.Equal(offBody, onBody);
+    }
+
     private sealed class ChunkedContent(byte[] bytes) : HttpContent
     {
         protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => stream.WriteAsync(bytes, 0, bytes.Length);
