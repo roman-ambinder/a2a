@@ -13,7 +13,7 @@ public sealed class AgentCard : IJsonOnDeserialized
     public required string Description { get; set; } = string.Empty;
 
     /// <summary>Ordered list of interfaces; the first entry is preferred.</summary>
-    public required List<AgentInterface> SupportedInterfaces { get; set; } = new();
+    public List<AgentInterface> SupportedInterfaces { get; set; } = new();
 
     /// <summary>The organization that runs the agent. Null when not stated.</summary>
     public AgentProvider? Provider { get; set; }
@@ -22,17 +22,17 @@ public sealed class AgentCard : IJsonOnDeserialized
     /// <summary>URL of documentation for the agent. Null when none.</summary>
     public string? DocumentationUrl { get; set; }
     /// <summary>Optional features the agent supports.</summary>
-    public required AgentCapabilities Capabilities { get; set; } = new();
+    public AgentCapabilities Capabilities { get; set; } = new();
     /// <summary>Security schemes the agent accepts, by name. Null when the agent needs no authentication.</summary>
     public Dictionary<string, SecurityScheme>? SecuritySchemes { get; set; }
     /// <summary>Alternative sets of schemes that grant access to the agent. A caller satisfies any one entry. Null when none.</summary>
     public List<SecurityRequirement>? SecurityRequirements { get; set; }
     /// <summary>Media types the agent accepts as input when a skill does not say otherwise.</summary>
-    public required List<string> DefaultInputModes { get; set; } = new();
+    public List<string> DefaultInputModes { get; set; } = new();
     /// <summary>Media types the agent produces when a skill does not say otherwise.</summary>
-    public required List<string> DefaultOutputModes { get; set; } = new();
+    public List<string> DefaultOutputModes { get; set; } = new();
     /// <summary>Skills the agent offers.</summary>
-    public required List<AgentSkill> Skills { get; set; } = new();
+    public List<AgentSkill> Skills { get; set; } = new();
     /// <summary>JWS signatures over the card. Null when the card is unsigned.</summary>
     public List<AgentCardSignature>? Signatures { get; set; }
     /// <summary>URL of an icon for the agent. Null when none.</summary>

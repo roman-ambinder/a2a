@@ -47,6 +47,9 @@ app.UseAuthorization();
 app.MapAgentCard();                         // GET /.well-known/agent-card.json (anonymous, cacheable)
 app.MapA2A("/a2a").RequireAuthorization();  // JSON-RPC at POST /a2a, REST at /a2a/message:send, /a2a/tasks/...
 // Without RequireAuthorization() the app refuses to start, unless you set o.AllowAnonymous = true.
+// SupportedInterfaces may be left empty: the served card then lists every mapped binding (MapA2A, MapA2AJsonRpc, MapA2AHttpJson,
+// MapA2AGrpc) at A2AHttpOptions.PublicBaseUrl (else the first listen address) + its pattern. Patterns with {tenant} are not listed,
+// and a card that ends up with no interface fails at first serve with an InvalidOperationException.
 // Limits (o.Limits): body 10 MB, 100 parts per message, JSON depth 32, history 100, page size 100. Rate limit per tenant and
 // principal (anonymous: per remote IP): 20 burst, 60 per minute (services.AddA2ARateLimiting(o => ...) to change). Both answer 429/413 with the right headers.
 // Tenants: MapA2A("/{tenant}/a2a") or the default /a2a/{tenant} variants set ServerCallContext.Tenant.

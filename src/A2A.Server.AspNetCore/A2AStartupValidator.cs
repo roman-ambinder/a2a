@@ -28,6 +28,23 @@ internal sealed class A2AEndpointRegistry
         }
     }
 
+    private readonly List<(string Binding, string Pattern)> _bindings = [];
+
+    /// <summary>Records that <paramref name="binding"/> (a <see cref="ProtocolBindings"/> value) is mapped at <paramref name="pattern"/>.</summary>
+    public void AddBinding(string binding, string pattern)
+    {
+        lock (_bindings)
+        {
+            if (!_bindings.Contains((binding, pattern))) _bindings.Add((binding, pattern));
+        }
+    }
+
+    /// <summary>The recorded <c>(Binding, Pattern)</c> pairs, in mapping order.</summary>
+    public IReadOnlyList<(string Binding, string Pattern)> Bindings()
+    {
+        lock (_bindings) return _bindings.ToList();
+    }
+
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ICollection<EndpointDataSource>, object> _cardMapped = new();
 
     /// <summary>True the first time it is called for <paramref name="source"/> (the route builder's data sources); false after.</summary>

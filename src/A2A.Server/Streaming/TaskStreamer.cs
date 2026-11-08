@@ -34,6 +34,7 @@ public sealed class TaskStreamer
     private readonly IdempotencyCoordinator _idempotency;
     private readonly A2AAuthorizationHandler _authorization;
     private readonly A2AServerOptions _options;
+    private readonly IAgentCardProvider _cards;
     private readonly StreamAdmission _admission;
 
     /// <summary>Creates the streamer. In an ASP.NET Core app the DI container does this; the parameters are the registered services.</summary>
@@ -43,8 +44,10 @@ public sealed class TaskStreamer
         TaskExecutionEngine engine,
         IdempotencyCoordinator idempotency,
         A2AAuthorizationHandler authorization,
-        A2AServerOptions options)
+        A2AServerOptions options,
+        IAgentCardProvider? cards = null)
     {
+        _cards = cards ?? Pipeline.DefaultAgentCardProvider.For(options);
         _tasks = tasks;
         _events = events;
         _bus = engine.Bus; // the bus the engine publishes to: streams subscribe to the same one
@@ -585,7 +588,7 @@ public sealed class TaskStreamer
 
     private void RequireStreaming()
     {
-        if (_options.AgentCard.Capabilities.Streaming != true)
+        if (_cards.Get().Capabilities.Streaming != true)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "Streaming is not supported by this agent.");
     }
 }

@@ -58,3 +58,6 @@ A2A.Server.AspNetCore.A2AEndpointOptions.AuthorizationPolicy.set -> void
 A2A.Server.AspNetCore.A2AEndpointOptions.MapAgentCard.get -> bool
 A2A.Server.AspNetCore.A2AEndpointOptions.MapAgentCard.set -> void
 static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2A(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<A2A.Server.A2AServerBuilder!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl.get -> System.Uri?
+A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl.set -> void
+static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.RegisterA2ABinding(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! binding, string! pattern) -> void

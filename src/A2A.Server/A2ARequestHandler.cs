@@ -27,6 +27,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private readonly IdempotencyCoordinator _idempotency;
     private readonly TaskEventBus _bus;
     private readonly A2AServerOptions _options;
+    private readonly IAgentCardProvider _cards;
     private readonly CallValidator _validator;
     private readonly PushConfigService _pushConfigs;
     private readonly TaskExecutionEngine _engine;
@@ -70,8 +71,10 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         TaskExecutionEngine engine,
         TaskStreamer streamer,
         IEnumerable<A2AOperationFilterRegistration> filters,
-        IEnumerable<A2AExtensionOperation> extensionOperations)
+        IEnumerable<A2AExtensionOperation> extensionOperations,
+        IAgentCardProvider? cards = null)
     {
+        _cards = cards ?? DefaultAgentCardProvider.For(options);
         ArgumentNullException.ThrowIfNull(extensionOperations);
         _extensions = new(StringComparer.Ordinal);
         foreach (var extension in extensionOperations)
@@ -102,8 +105,8 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         _extendedCard = GetExtendedAgentCardCoreAsync;
     }
 
-    /// <summary>The public Agent Card from <see cref="A2AServerOptions.AgentCard"/>.</summary>
-    public AgentCard AgentCard => _options.AgentCard;
+    /// <summary>The public Agent Card: <see cref="IAgentCardProvider.Get"/>, the completed copy of <see cref="A2AServerOptions.AgentCard"/>.</summary>
+    public AgentCard AgentCard => _cards.Get();
 
     // =====================================================================
     // Call validation: version, extensions, authentication
@@ -525,7 +528,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private async ValueTask<AgentCard> GetExtendedAgentCardCoreAsync(GetExtendedAgentCardRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
-        if (_options.AgentCard.Capabilities.ExtendedAgentCard != true)
+        if (_cards.Get().Capabilities.ExtendedAgentCard != true)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "This agent does not provide an extended agent card.");
         if (!call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated, "The extended agent card requires authentication.");
         var card = _options.ExtendedAgentCardProvider is null ? null : await _options.ExtendedAgentCardProvider(call, cancellationToken).ConfigureAwait(false);
@@ -564,7 +567,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private void RequirePush()
     {
-        if (_options.AgentCard.Capabilities.PushNotifications != true)
+        if (_cards.Get().Capabilities.PushNotifications != true)
             throw new A2AException(A2AErrorCode.PushNotificationNotSupported);
     }
 

@@ -24,6 +24,7 @@ public static class A2AServiceCollectionExtensions
     public static IServiceCollection AddA2AServerAspNetCore(this IServiceCollection services)
     {
         services.TryAddSingleton<A2AEndpointRegistry>();
+        services.Replace(ServiceDescriptor.Singleton<IAgentCardProvider, AgentCardCompleter>());
         services.TryAddSingleton<Operations.A2AOperationTable>();
         services.TryAddSingleton<ITenantResolver, RouteTenantResolver>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, A2AStartupValidator>());
@@ -95,6 +96,8 @@ public static partial class A2AEndpointRouteBuilderExtensions
         var tenantInPattern = HasTenantSegment(pattern);
         MapJsonRpc(endpoints, group, tenantInPattern);
         ActivatorUtilities.CreateInstance<RestEndpoint>(endpoints.ServiceProvider).Map(group, tenantInPattern);
+        Record(endpoints, ProtocolBindings.JsonRpc, pattern);
+        Record(endpoints, ProtocolBindings.HttpJson, pattern);
         ApplyRateLimiting(endpoints, group);
         if (options.AuthorizationPolicy is { } policy) group.RequireAuthorization(policy);
         if (options.MapAgentCard && endpoints is not RouteGroupBuilder) MapAgentCard(endpoints);
@@ -110,6 +113,7 @@ public static partial class A2AEndpointRouteBuilderExtensions
         RequireRegistration(endpoints);
         var group = endpoints.MapGroup(pattern);
         MapJsonRpc(endpoints, group, HasTenantSegment(pattern));
+        Record(endpoints, ProtocolBindings.JsonRpc, pattern);
         ApplyRateLimiting(endpoints, group);
         return group;
     }
@@ -123,6 +127,7 @@ public static partial class A2AEndpointRouteBuilderExtensions
         RequireRegistration(endpoints);
         var group = endpoints.MapGroup(prefix);
         ActivatorUtilities.CreateInstance<RestEndpoint>(endpoints.ServiceProvider).Map(group, HasTenantSegment(prefix));
+        Record(endpoints, ProtocolBindings.HttpJson, prefix);
         ApplyRateLimiting(endpoints, group);
         return group;
     }
@@ -157,6 +162,33 @@ public static partial class A2AEndpointRouteBuilderExtensions
         RequireRegistration(endpoints);
         builder.Add(b => b.DisplayName = $"A2A {bindingName} {b.DisplayName}");
         return builder;
+    }
+
+    /// <summary>
+    /// Tells the Agent Card completion that <paramref name="binding"/> (a <see cref="ProtocolBindings"/> value, for example
+    /// <see cref="ProtocolBindings.Grpc"/>) is mapped at <paramref name="pattern"/>, so an Agent Card without
+    /// <see cref="AgentCard.SupportedInterfaces"/> lists it. For binding packages: <c>MapA2A</c>, <c>MapA2AJsonRpc</c>,
+    /// <c>MapA2AHttpJson</c> and <c>MapA2AGrpc</c> call it; application code does not need to. Patterns with a <c>{</c> (a tenant
+    /// template) are not listed, and nothing is recorded when <paramref name="endpoints"/> is a <see cref="RouteGroupBuilder"/>,
+    /// because the group's prefix is not known here.
+    /// </summary>
+    /// <param name="endpoints">The route builder the binding is mapped on.</param>
+    /// <param name="binding">The protocol binding name.</param>
+    /// <param name="pattern">The mapped path pattern; use <c>"/"</c> for a binding served at the origin.</param>
+    /// <exception cref="InvalidOperationException"><c>services.AddA2AServerAspNetCore()</c> was not called.</exception>
+    public static void RegisterA2ABinding(this IEndpointRouteBuilder endpoints, string binding, string pattern)
+    {
+        ArgumentNullException.ThrowIfNull(endpoints);
+        ArgumentException.ThrowIfNullOrWhiteSpace(binding);
+        ArgumentNullException.ThrowIfNull(pattern);
+        RequireRegistration(endpoints);
+        Record(endpoints, binding, pattern);
+    }
+
+    private static void Record(IEndpointRouteBuilder endpoints, string binding, string pattern)
+    {
+        if (endpoints is RouteGroupBuilder || pattern.Contains('{', StringComparison.Ordinal)) return;
+        endpoints.ServiceProvider.GetRequiredService<A2AEndpointRegistry>().AddBinding(binding, pattern);
     }
 
     private static bool HasTenantSegment(string pattern) => TenantSegment().IsMatch(pattern);

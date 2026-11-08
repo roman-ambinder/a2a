@@ -39,7 +39,7 @@ A2A.Server.Authorization.A2AOperation.SendMessage = 0 -> A2A.Server.Authorizatio
 A2A.Server.Authorization.A2AOperation.SendStreamingMessage = 1 -> A2A.Server.Authorization.A2AOperation
 A2A.Server.Authorization.A2AOperation.SubscribeToTask = 5 -> A2A.Server.Authorization.A2AOperation
 A2A.Server.A2ARequestHandler
-A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Streaming.TaskStreamer! streamer, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AOperationFilterRegistration!>! filters, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensionOperations) -> void
+A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Streaming.TaskStreamer! streamer, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AOperationFilterRegistration!>! filters, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensionOperations, A2A.Server.IAgentCardProvider? cards = null) -> void
 A2A.Server.A2ARequestHandler.AgentCard.get -> A2A.AgentCard!
 A2A.Server.A2ARequestHandler.CancelTaskAsync(A2A.CancelTaskRequest! request, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
 A2A.Server.A2ARequestHandler.CreateTaskPushNotificationConfigAsync(A2A.TaskPushNotificationConfig! config, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TaskPushNotificationConfig!>!
@@ -434,7 +434,7 @@ A2A.Server.ScopedAgentExecutorFactory.RentAsync(System.Threading.CancellationTok
 A2A.Server.ScopedAgentExecutorFactory.ScopedAgentExecutorFactory(Microsoft.Extensions.DependencyInjection.IServiceScopeFactory! scopes) -> void
 const A2A.Server.Push.HttpPushNotificationSender.InvokerServiceKey = "A2A.PushNotifications" -> string!
 A2A.Server.Pipeline.CallValidator
-A2A.Server.Pipeline.CallValidator.CallValidator(A2A.Server.A2AServerOptions! options) -> void
+A2A.Server.Pipeline.CallValidator.CallValidator(A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider? cards = null) -> void
 A2A.Server.Pipeline.CallValidator.Validate(A2A.Server.ServerCallContext! call) -> void
 A2A.Server.Push.PushConfigService
 A2A.Server.Push.PushConfigService.CreateAsync(A2A.Server.Storage.TaskKey key, A2A.TaskPushNotificationConfig! config, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.TaskPushNotificationConfig!>
@@ -464,7 +464,7 @@ A2A.Server.Execution.TaskExecutionEngine.DisposeAsync() -> System.Threading.Task
 A2A.Server.Execution.TaskExecutionEngine.WaitUntilSettledAsync(A2A.Server.Storage.TaskKey key, long afterSequence, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.AgentTask!>
 A2A.Server.Execution.TaskExecutionEngine.WhenIdleAsync() -> System.Threading.Tasks.Task!
 A2A.Server.Streaming.TaskStreamer
-A2A.Server.Streaming.TaskStreamer.TaskStreamer(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options) -> void
+A2A.Server.Streaming.TaskStreamer.TaskStreamer(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider? cards = null) -> void
 A2A.Server.A2ARequestHandler.SendStreamingMessageAsync(A2A.SendMessageRequest! request, A2A.Server.ServerCallContext! call, string? lastEventId = null, System.Action? onCaughtUp = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!
 A2A.Server.A2ARequestHandler.SubscribeToTaskAsync(A2A.SubscribeToTaskRequest! request, A2A.Server.ServerCallContext! call, long? resumeAfter = null, System.Action? onCaughtUp = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!
 A2A.Server.IA2ARequestHandler
@@ -525,3 +525,5 @@ A2A.Server.Pipeline.A2AExtensionOperation.Handler.init -> void
 A2A.Server.Pipeline.A2AExtensionOperation.Method.get -> string!
 A2A.Server.Pipeline.A2AExtensionOperation.Method.init -> void
 const A2A.Server.Pipeline.A2AExtensionOperation.PolicySatisfiedItem = "a2a.extension.policySatisfied" -> string!
+A2A.Server.IAgentCardProvider
+A2A.Server.IAgentCardProvider.Get() -> A2A.AgentCard!

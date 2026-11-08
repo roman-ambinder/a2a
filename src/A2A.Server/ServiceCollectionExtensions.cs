@@ -44,6 +44,7 @@ public static class A2AServerServiceCollectionExtensions
         // when a host has replaced IPushNotificationSender.
         services.TryAddSingleton<IPushConfigChangeListener>(sp =>
             sp.GetRequiredService<IPushNotificationSender>() as IPushConfigChangeListener ?? NoOpPushConfigChangeListener.Instance);
+        services.TryAddSingleton<IAgentCardProvider, Pipeline.DefaultAgentCardProvider>();
         services.TryAddSingleton<Pipeline.CallValidator>();
         services.TryAddSingleton<PushConfigService>();
         services.TryAddSingleton<Idempotency.IdempotencyCoordinator>();
@@ -136,7 +137,6 @@ public sealed class A2AServerBuilder
                 throw new ArgumentException($"An extension operation named '{existing.Method}' is already registered.", nameof(method));
         }
         Services.AddSingleton(new Pipeline.A2AExtensionOperation(method, extensionUri, handler, authorizationPolicy, allow));
-        Services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<A2AServerOptions>, Pipeline.ExtensionCardEntries>());
         return this;
     }
 
