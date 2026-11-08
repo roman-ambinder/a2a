@@ -204,41 +204,54 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         return null;
     }
 
-    private sealed class Slot
+    internal sealed class Slot
     {
         public readonly object Gate = new();
+        public bool Evicted;
         public CachedToken? Token;
         public Task<CachedToken>? InFlight;
     }
 
-    private sealed record CachedToken(string Value, DateTimeOffset RefreshAt, DateTimeOffset ExpiresAt);
+    internal sealed record CachedToken(string Value, DateTimeOffset RefreshAt, DateTimeOffset ExpiresAt);
 
-    private Slot GetSlot((string Endpoint, string Origin, string Scope) key)
+    internal int SlotCount => _slots.Count;
+
+    internal Slot GetSlot((string Endpoint, string Origin, string Scope) key)
     {
-        if (_slots.Count >= MaxSlots)
+        if (_slots.Count >= MaxSlots) EvictIdleSlots();
+        return _slots.GetOrAdd(key, static _ => new Slot());
+    }
+
+    internal void EvictIdleSlots()
+    {
+        foreach (var (k, s) in _slots)
         {
-            foreach (var (k, s) in _slots)
+            lock (s.Gate)
             {
-                lock (s.Gate)
-                {
-                    if (s.InFlight is null) _slots.TryRemove(new KeyValuePair<(string, string, string), Slot>(k, s));
-                }
+                if (s.InFlight is not null) continue;
+                s.Evicted = true;
+                _slots.TryRemove(new KeyValuePair<(string, string, string), Slot>(k, s));
             }
         }
-        return _slots.GetOrAdd(key, static _ => new Slot());
     }
 
     private async ValueTask<string> GetTokenAsync((string Endpoint, string Origin, string Scope) key, Uri endpoint,
         string scope, CancellationToken cancellationToken)
     {
-        var slot = GetSlot(key);
+        Slot slot;
         Task<CachedToken> fetch;
         CachedToken? current;
-        lock (slot.Gate)
+        while (true)
         {
-            current = slot.Token;
-            if (current is not null && Now < current.RefreshAt) return current.Value;
-            fetch = slot.InFlight ??= Task.Run(() => FetchAndStoreAsync(slot, endpoint, scope));
+            slot = GetSlot(key);
+            lock (slot.Gate)
+            {
+                if (slot.Evicted) continue; // removed by an eviction scan since GetSlot: take the replacement
+                current = slot.Token;
+                if (current is not null && Now < current.RefreshAt) return current.Value;
+                fetch = slot.InFlight ??= Task.Run(() => FetchAndStoreAsync(slot, endpoint, scope));
+                break;
+            }
         }
         try
         {

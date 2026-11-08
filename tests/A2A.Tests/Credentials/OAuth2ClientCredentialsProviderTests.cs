@@ -18,7 +18,7 @@ public class OAuth2ClientCredentialsProviderTests
         private int _calls;
         public int Calls => Volatile.Read(ref _calls);
         public ConcurrentQueue<Seen> Requests { get; } = new();
-        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Entered { get; set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource? Gate { get; set; }
         public Func<int, HttpResponseMessage> Respond { get; set; } = n => Json(HttpStatusCode.OK, $$"""{"access_token":"tok{{n}}","token_type":"Bearer","expires_in":3600}""");
 
@@ -101,8 +101,27 @@ public class OAuth2ClientCredentialsProviderTests
         Assert.Equal(2, h.Calls);
     }
 
+    private static Task<string?> Start(OAuth2ClientCredentialsProvider p, CancellationToken ct = default) => Apply(p, null, ct);
+
     [Fact]
-    public async Task Fifty_concurrent_callers_share_one_fetch()
+    public async Task Fifty_callers_join_one_gated_fetch()
+    {
+        var (p, h, _) = Make();
+        h.Gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = Start(p);
+        await h.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        // Each call runs synchronously through the lock: it has joined (or started) a fetch when it returns.
+        var joined = Enumerable.Range(0, 50).Select(_ => Start(p)).ToList();
+        Assert.All(joined, t => Assert.False(t.IsCompleted));
+        Assert.False(first.IsCompleted);
+        h.Gate.SetResult();
+        var results = await Task.WhenAll(joined.Append(first)).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.All(results, r => Assert.Equal("Bearer tok1", r));
+        Assert.Equal(1, h.Calls);
+    }
+
+    [Fact]
+    public async Task Parallel_callers_make_one_fetch()
     {
         var (p, h, _) = Make();
         h.Gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -115,19 +134,54 @@ public class OAuth2ClientCredentialsProviderTests
     }
 
     [Fact]
-    public async Task Caller_cancelled_mid_fetch_gets_OperationCanceled_and_others_succeed()
+    public async Task Cancelling_the_caller_that_started_the_fetch_does_not_cancel_it_for_others()
     {
         var (p, h, _) = Make();
         h.Gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cts = new CancellationTokenSource();
-        var cancelled = Task.Run(() => Apply(p, null, cts.Token));
-        var other = Task.Run(() => Apply(p));
+        var creator = Start(p, cts.Token);
         await h.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var other = Start(p);
+        Assert.False(other.IsCompleted);
         cts.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => creator);
+        Assert.False(other.IsCompleted);
         h.Gate.SetResult();
         Assert.Equal("Bearer tok1", await other.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.Equal(1, h.Calls);
+    }
+
+    [Fact]
+    public async Task Evicted_slot_is_not_used_and_in_flight_slot_survives_eviction()
+    {
+        var (p, h, _) = Make();
+        var key = ("https://agent.example/oauth/token", Origin.AbsoluteUri, "");
+        await Apply(p);
+        var old = p.GetSlot(key);
+        p.EvictIdleSlots();
+        Assert.True(old.Evicted);
+        Assert.Equal(0, p.SlotCount);
+        await Apply(p); // must start a fetch on a fresh slot, not reuse the evicted one
+        var fresh = p.GetSlot(key);
+        Assert.NotSame(old, fresh);
+        Assert.NotNull(fresh.Token);
+        Assert.Equal(2, h.Calls);
+
+        // An in-flight slot is left alone by eviction scans.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Gate = gate;
+        h.Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inflight = Apply(p, OAuth(scopes: ["busy"]));
+        await h.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        h.Gate = null;
+        for (var i = 0; i < 300; i++) await Apply(p, OAuth(scopes: [$"s{i}"]));
+        Assert.True(p.SlotCount <= 257);
+        var joiner = Apply(p, OAuth(scopes: ["busy"]));
+        Assert.False(joiner.IsCompleted);
+        gate.SetResult();
+        await inflight.WaitAsync(TimeSpan.FromSeconds(10));
+        await joiner.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(3 + 300, h.Calls);
     }
 
     [Fact]
