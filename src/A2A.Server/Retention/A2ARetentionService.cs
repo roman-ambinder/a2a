@@ -25,9 +25,10 @@ namespace A2A.Server.Retention;
 /// (<see cref="A2ATaskAdmin.DeleteTaskAsync"/>);</item>
 /// <item>deletes the contexts older than <see cref="A2ARetentionOptions.OrphanContextRetention"/> that no task uses.</item>
 /// </list>
-/// Status changes go through the normal commit path, so subscribers and webhooks see them. Each step reads batches of up to
-/// <see cref="A2ARetentionOptions.BatchSize"/> items. A failing step or item is logged as a warning and the sweep goes on;
-/// the next sweep tries again. Every change is idempotent, so a sweep that overlaps another does no harm. Store-specific
+/// Status changes go through the normal commit path, so subscribers and webhooks see them. Each step reads batches of
+/// <see cref="A2ARetentionOptions.BatchSize"/> new items (plus the items it skipped, which stay listed). A failing step or item is logged as a warning and the sweep goes on;
+/// the next sweep tries again. Items a step skips (for example a task whose follow-up runs) do not hold back the items
+/// listed after them. Every change is idempotent, so a sweep that overlaps another does no harm. Store-specific
 /// cleanup (for example expired idempotency entries in PostgreSQL) stays with the store.
 /// </summary>
 public sealed class A2ARetentionService : BackgroundService
@@ -162,22 +163,31 @@ public sealed class A2ARetentionService : BackgroundService
 
     /// <summary>
     /// Reads batches with <paramref name="list"/> and handles each item with <paramref name="handle"/> (true when the item
-    /// will not be listed again). Reads the next batch only while the last one was full and every item in it was handled,
-    /// so items that stay listed (skipped or failed) never make a sweep loop. A failing item is logged and skipped.
+    /// will not be listed again). An item that stays listed (skipped or failed) stays at the head of every later read, so the
+    /// next read asks for that many more items and only the ones not seen yet are handled: a head of skipped items (for
+    /// example interrupted tasks whose follow-up runs) never hides the items behind it. Reading stops when a read returns
+    /// fewer items than asked for (the end) or nothing new. A failing item is logged and skipped.
     /// </summary>
-    private async Task BatchesAsync<T>(string what, Func<CancellationToken, ValueTask<IReadOnlyList<T>>> list,
+    private async Task BatchesAsync<T>(string what, Func<int, CancellationToken, ValueTask<IReadOnlyList<T>>> list,
         Func<T, CancellationToken, Task<bool>> handle, Func<T, string> describe, CancellationToken cancellationToken)
+        where T : notnull
     {
+        var seen = new HashSet<T>();
+        var skipped = 0;
         while (true)
         {
-            var batch = await list(cancellationToken).ConfigureAwait(false);
-            var handled = 0;
+            var max = (int)Math.Min(int.MaxValue, (long)skipped + _options.BatchSize);
+            var batch = await list(max, cancellationToken).ConfigureAwait(false);
+            var fresh = 0;
             foreach (var item in batch)
             {
+                if (!seen.Add(item)) continue;
+                fresh++;
                 cancellationToken.ThrowIfCancellationRequested();
+                var handled = false;
                 try
                 {
-                    if (await handle(item, cancellationToken).ConfigureAwait(false)) handled++;
+                    handled = await handle(item, cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -187,13 +197,14 @@ public sealed class A2ARetentionService : BackgroundService
                 {
                     ServerLog.SweepItemFailed(_logger, ex, what, describe(item));
                 }
+                if (!handled) skipped++;
             }
-            if (batch.Count < _options.BatchSize || handled < batch.Count) return;
+            if (batch.Count < max || fresh == 0) return;
         }
     }
 
     private Task RecoverDeadExecutionsAsync(CancellationToken cancellationToken) =>
-        BatchesAsync("expired execution", c => _coordinator.ListExpiredAsync(_options.BatchSize, c), RecoverAsync, e => $"of task {e.Task.TaskId}", cancellationToken);
+        BatchesAsync("expired execution", (max, c) => _coordinator.ListExpiredAsync(max, c), RecoverAsync, e => $"of task {e.Task.TaskId}", cancellationToken);
 
     /// <summary>
     /// An execution's lease expired: its instance died. A task still SUBMITTED or WORKING becomes FAILED, and every instance is
@@ -252,7 +263,7 @@ public sealed class A2ARetentionService : BackgroundService
     private Task CancelInterruptedAsync(TimeSpan timeout, CancellationToken cancellationToken)
     {
         var cutoff = Before(_time.GetUtcNow(), timeout);
-        return BatchesAsync("interrupted task", c => _tasks.ListInterruptedBeforeAsync(cutoff, _options.BatchSize, c),
+        return BatchesAsync("interrupted task", (max, c) => _tasks.ListInterruptedBeforeAsync(cutoff, max, c),
             (key, c) => CancelIfWaitingAsync(key, cutoff, c), key => key.TaskId, cancellationToken);
     }
 
@@ -282,7 +293,7 @@ public sealed class A2ARetentionService : BackgroundService
     private Task PurgeExpiredTasksAsync(CancellationToken cancellationToken)
     {
         var cutoff = Before(_time.GetUtcNow(), _options.TaskRetention);
-        return BatchesAsync("expired task", c => _tasks.ListExpiredAsync(cutoff, _options.BatchSize, c),
+        return BatchesAsync("expired task", (max, c) => _tasks.ListExpiredAsync(cutoff, max, c),
             async (key, c) =>
             {
                 await _admin.PurgeAsync(key, c).ConfigureAwait(false);
@@ -294,7 +305,7 @@ public sealed class A2ARetentionService : BackgroundService
     {
         var cutoff = Before(_time.GetUtcNow(), _options.OrphanContextRetention);
         // False: a task uses it again, or it is gone already. Either way it is not an orphan to delete now.
-        return BatchesAsync("orphan context", c => _tasks.ListOrphanContextsAsync(cutoff, _options.BatchSize, c),
+        return BatchesAsync("orphan context", (max, c) => _tasks.ListOrphanContextsAsync(cutoff, max, c),
             async (context, c) => await _tasks.DeleteContextAsync(context.Tenant, context.ContextId, c).ConfigureAwait(false),
             context => context.ContextId, cancellationToken);
     }

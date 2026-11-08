@@ -305,6 +305,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             Activity = ServerTelemetry.StartExecution(kind, key.Tenant, taskId, contextId),
             Claim = claim,
             PushEnabled = pushEnabled,
+            TaskStored = !isNewTask,
         };
         var scope = ScopeKey(key.Tenant, taskId);
         var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
@@ -513,6 +514,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         ServerTelemetry.Events.Add(1);
                         record = committed.Record;
                         created = true;
+                        exec.TaskStored = true;
                         Publish(exec, key, snapshot with { Sequence = committed.Sequence });
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
                         await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);

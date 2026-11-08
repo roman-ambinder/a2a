@@ -371,6 +371,34 @@ public sealed class RetentionTests
     }
 
     /// <summary>
+    /// A new task is stored with its first event. An execution that loses its lease before that finds no task: that is not a
+    /// task that ended, so the execution registers again and goes on, and its task completes.
+    /// </summary>
+    [Fact]
+    public async Task Lost_lease_of_a_new_task_before_its_first_event_is_registered_again()
+    {
+        var clock = NewClock();
+        var coordinator = new InMemoryExecutionCoordinator(new CoordinationOptions(), clock);
+        await using var host = await StartAsync(clock, services: s => s.AddSingleton<ExecutionCoordinator>(coordinator));
+        var text = "quiet " + Guid.NewGuid().ToString("N");
+        var send = host.Handler.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser(text) }, Call());
+        await EventuallyAsync(() => Task.FromResult(ScenarioAgent.QuietStarted.ContainsKey(text)), "the agent started");
+        var key = Key(ScenarioAgent.QuietStarted[text]);
+        Assert.Null(await StateAsync(host, key)); // not stored yet
+
+        clock.Advance(HeartbeatStep + new CoordinationOptions().LeaseTtl); // one heartbeat, after the lease expired
+        await EventuallyAsync(async () =>
+        {
+            clock.Advance(HeartbeatStep);
+            return await coordinator.IsRunningAsync(key);
+        }, "a heartbeat registered the execution again");
+
+        ScenarioAgent.Gate(text).SetResult();
+        var response = await send.WaitAsync(Wait);
+        Assert.Equal(TaskState.Completed, response.RequireTask().Status.State);
+    }
+
+    /// <summary>
     /// Instance A misses its heartbeats (a long pause) while instance B's sweep fails the task. When A's next heartbeat finds
     /// its lease lost and the task terminal, A cancels its agent.
     /// </summary>
@@ -541,6 +569,41 @@ public sealed class RetentionTests
         clock.Advance(TimeSpan.FromHours(24)); // no execution ever started, and the reply is old now too
         await Sweeper(host).RunOnceAsync(CancellationToken.None);
         Assert.Equal(TaskState.Canceled, await StateAsync(host, key));
+    }
+
+    /// <summary>
+    /// The oldest interrupted task has a follow-up running, so the sweep skips it (it stays listed). With a batch of one, the
+    /// sweep must still read past it and cancel the next task that waited too long.
+    /// </summary>
+    [Fact]
+    public async Task Interrupted_step_reads_past_tasks_whose_follow_up_runs()
+    {
+        var clock = NewClock();
+        await using var host = await StartAsync(clock, o => o.InterruptedTimeout = TimeSpan.FromSeconds(30));
+        var busy = Key(await SendAsync(host, "input"));
+        await host.WaitIdleAsync();
+        await Task.Delay(20); // the next status timestamp is later, so busy is listed first
+        var idle = Key(await SendAsync(host, "input"));
+        await host.WaitIdleAsync();
+
+        var text = $"gate {Guid.NewGuid():N}"; // waits at the gate without leaving INPUT_REQUIRED
+        await host.Handler.SendMessageAsync(new SendMessageRequest
+        {
+            Message = new Message { MessageId = Message.NewId(), Role = Role.User, TaskId = busy.TaskId, Parts = [Part.FromText(text)] },
+            Configuration = new SendMessageConfiguration { ReturnImmediately = true },
+        }, Call());
+        var coordinator = host.App.Services.GetRequiredService<ExecutionCoordinator>();
+        await EventuallyAsync(async () => await coordinator.IsRunningAsync(busy), "the follow-up runs");
+
+        for (var i = 0; i < 6; i++) clock.Advance(HeartbeatStep); // a minute: both waited longer than 30 s, the lease lives
+        await Sweeper(host, o => o.BatchSize = 1).RunOnceAsync(CancellationToken.None);
+
+        Assert.Equal(TaskState.InputRequired, await StateAsync(host, busy)); // its follow-up runs
+        Assert.Equal(TaskState.Canceled, await StateAsync(host, idle));
+
+        ScenarioAgent.Gate(text).TrySetResult();
+        await host.Handler.WhenIdleAsync().WaitAsync(Wait);
+        Assert.Equal(TaskState.Completed, await StateAsync(host, busy));
     }
 
     /// <summary>A follow-up's execution runs here but its RegisterAsync failed: the coordinator does not see it, the instance does.</summary>

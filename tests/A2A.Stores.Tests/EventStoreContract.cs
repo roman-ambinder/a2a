@@ -215,13 +215,13 @@ public sealed class InMemoryEventStoreTests : EventStoreContract
 public sealed class PostgresEventStoreTests(PostgresFixture db) : EventStoreContract
 {
     protected override async Task<EventStore> CreateStoreAsync(StreamingOptions options, TimeProvider? time = null) =>
-        new PostgresEventStore(db.DataSource, options, await db.NewSchemaAsync(), time);
+        new PostgresEventStore(db.DataSource, options, await db.NewSchemaAsync(time), time);
 
     [SkippableFact]
     public async Task Maintenance_deletes_expired_logs_and_keeps_live_ones()
     {
-        var schema = await db.NewSchemaAsync();
         var clock = new FakeTimeProvider();
+        var schema = await db.NewSchemaAsync(clock);
         var store = new PostgresEventStore(db.DataSource, new StreamingOptions { TerminalRetention = TimeSpan.FromMinutes(1) }, schema, clock);
         var done = new TaskKey("", "alice", "done");
         var live = new TaskKey("", "alice", "live");

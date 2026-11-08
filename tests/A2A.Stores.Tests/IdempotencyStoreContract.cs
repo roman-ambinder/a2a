@@ -190,7 +190,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
 {
     protected override async Task<IdempotencyStore> CreateStoreAsync(IdempotencyOptions options, TimeProvider? time = null)
     {
-        var schema = await db.NewSchemaAsync();
+        var schema = await db.NewSchemaAsync(time);
         schema.IdempotencyPollInterval = TimeSpan.FromMilliseconds(20);
         return new PostgresIdempotencyStore(db.DataSource, options, schema, time);
     }
@@ -199,7 +199,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
     public async Task Stale_claim_of_a_crashed_instance_can_be_taken_over()
     {
         var clock = new FakeTimeProvider();
-        var schema = await db.NewSchemaAsync();
+        var schema = await db.NewSchemaAsync(clock);
         schema.IdempotencyClaimTimeout = TimeSpan.FromMinutes(5);
         var crashed = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
         var other = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
@@ -228,7 +228,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
     public async Task Renew_pushes_the_claim_timeout_out_from_now()
     {
         var clock = new FakeTimeProvider();
-        var schema = await db.NewSchemaAsync();
+        var schema = await db.NewSchemaAsync(clock);
         schema.IdempotencyClaimTimeout = TimeSpan.FromMinutes(5);
         var owner = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
         var other = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
@@ -246,7 +246,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
     public async Task Renew_by_another_principal_or_tenant_does_not_extend_the_claim()
     {
         var clock = new FakeTimeProvider();
-        var schema = await db.NewSchemaAsync();
+        var schema = await db.NewSchemaAsync(clock);
         schema.IdempotencyClaimTimeout = TimeSpan.FromMinutes(5);
         var s = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
 

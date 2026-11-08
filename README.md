@@ -215,7 +215,7 @@ A runnable two-instance setup (Postgres, Redis, docker compose) is in [samples/M
 - `A2A.Server.Postgres` stores tasks, event logs, push configs, the push outbox and idempotency keys, and creates its tables at startup ([README](src/A2A.Server.Postgres/README.md)).
 - `A2A.Server.Redis` fans live events out to every instance, and `AddRedisEventBus` also registers its execution coordinator ([README](src/A2A.Server.Redis/README.md)).
 - Push secrets need a protector with persisted, shared keys; the default one (`EphemeralPushSecretProtector`) is per process. With a durable push outbox and the default protector, startup logs an **error**: push configs with a token or credentials would be dead-lettered after a restart or when another instance sends them. Register `AddDataProtection()` with a persisted key ring shared by every instance, then `AddA2ADataProtectionPushSecrets()` (or your own `IPushSecretProtector`). Startup does not fail, so a host that does not use push keeps working.
-- The Postgres push outbox leases and idempotency claims are timed on each instance's clock, not the database's. Keep instance clocks in sync (NTP). Skew larger than `PushDelivery.Lease` can make two instances send the same delivery (same `webhook-id`, so receivers see a `Duplicate`); skew larger than `IdempotencyClaimTimeout` can make another instance treat a running claim as abandoned. Per-task order and lease-token fencing still hold.
+- Deadlines in the Postgres stores use the database clock (`statement_timestamp()`), not each instance's clock: push outbox due times and leases, idempotency claim timeouts and retention, and event log retention. Instances whose clocks disagree still agree on what has expired, so skew cannot make two instances own one lease or delay a delivery. `PostgresStoreOptions.UseDatabaseClock = false` switches back to the `TimeProvider` (for tests with a fake clock). Task timestamps (`UpdatedAt`, status times) still come from the instance that wrote them, because they are part of the task; skew shifts when retention and `InterruptedTimeout` act on a task by that much. Skew larger than `Coordination.LeaseTtl` also weakens the sweep's "changed within the last `LeaseTtl`" guard for dead executions, so still keep instance clocks in sync (NTP).
 - The handler's per-task lock is per process. Across instances, each task change, its event and its push deliveries are written in one transaction (`TaskStore.CommitAsync`) with a version check, so the event log follows the order of task versions.
 - Both packages pass the same contract tests as the in-memory versions (`tests/A2A.Stores.Tests`, Docker via Testcontainers).
 
@@ -232,19 +232,19 @@ The coordinator answers "is this task running anywhere?", delivers CancelTask to
 - On Redis Cluster the key prefix must map to one hash slot, for example `{a2a}:` (the Lua scripts touch several keys).
 - `A2AServerOptions.Coordination` (`CoordinationOptions`): `LeaseTtl` 30 s, `Heartbeat` 10 s, `RunningPollInterval` 1 s. `LeaseTtl` must be longer than 2 x `Heartbeat`. The heartbeat also renews the request's idempotency claim.
 - An execution whose heartbeats lapse past `LeaseTtl` (instance crash, long pause, Redis outage) is treated as **dead**. The retention sweep marks its task `FAILED`, drops its late events, and asks every instance to cancel it. An agent that is in fact still alive also stops at its next heartbeat, which finds its lease lost and the task ended. Exceptions: a lapsed execution on the sweeping instance itself is still seen running and registers again; a task that changed within the last `LeaseTtl` waits for a later sweep (a follow-up on another instance may not have registered yet).
-- A heartbeat that finds its lease lost while the task still runs registers the execution again, under the same id.
+- A heartbeat that finds its lease lost while the task still runs registers the execution again, under the same id. This includes a new task whose agent has sent no event yet (a new task is stored with its first event, so no stored task there does not mean it was deleted).
 - With a durable task store and the in-memory coordinator, startup logs a **warning**: CancelTask, running checks and dead-execution recovery then stay on the instance that runs the agent. One instance can ignore it.
 
 ### Retention (opt-in)
 
-`services.AddA2ARetention(o => ...)` adds a background sweep. **It is not on by default. Without it nothing is purged, `InterruptedTimeout` does nothing, and executions whose instance died are never recovered** (their tasks stay `WORKING`).
+`services.AddA2ARetention(o => ...)` adds a background sweep. **It is not on by default. Without it nothing is purged (terminal tasks and their data are never deleted), `InterruptedTimeout` does nothing (tasks waiting for input never time out), and executions whose instance died are never recovered** (their tasks stay `WORKING`). With a durable task store and no retention, startup logs a **warning** (event 253) that says so.
 
 | Option (`A2ARetentionOptions`) | Default | Meaning |
 |---|---|---|
 | `TaskRetention` | 7 days | Terminal tasks are deleted after this, with events, push configs, deliveries and dead letters |
 | `OrphanContextRetention` | 7 days | Contexts no task uses |
 | `SweepInterval` | 5 minutes | One instance sweeps per interval (a cluster-wide lease) |
-| `BatchSize` | 500 | Items read per step |
+| `BatchSize` | 500 | New items read per batch. Items a step skips (for example a task whose follow-up still runs) stay listed and do not hold back the items after them |
 
 Also done by the sweep: tasks waiting in `INPUT_REQUIRED`/`AUTH_REQUIRED` longer than `A2AServerOptions.InterruptedTimeout` (24 hours, `null` = never) are cancelled, and tasks of dead executions are failed. `A2ATaskAdmin.DeleteTaskAsync(key)` deletes one task and all its data on demand (a running task is cancelled first). Both `A2ATaskAdmin` and `A2APushAdmin` (dead letters: `ListDeadLettersAsync`, `RedriveAsync`) are plain services for your own admin endpoint: not exposed over A2A, so protect that endpoint.
 

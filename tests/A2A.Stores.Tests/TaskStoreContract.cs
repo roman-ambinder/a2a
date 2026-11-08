@@ -573,7 +573,7 @@ public sealed class PostgresTaskStoreTests(PostgresFixture db) : TaskStoreContra
 {
     protected override async Task<(TaskStore Tasks, EventStore Events)> CreateStoresAsync(TimeProvider? time = null)
     {
-        var schema = await db.NewSchemaAsync();
+        var schema = await db.NewSchemaAsync(time);
         return Create(schema, time);
     }
 

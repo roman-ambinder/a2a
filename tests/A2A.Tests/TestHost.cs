@@ -28,6 +28,9 @@ public sealed class ScenarioAgent : IAgentExecutor
     /// <summary>Signals for the <c>gate</c> scenario, keyed by the whole user text.</summary>
     public static readonly ConcurrentDictionary<string, TaskCompletionSource> GateSignals = new();
 
+    /// <summary>Task ids of <c>quiet ...</c> runs that started, keyed by the whole user text.</summary>
+    public static readonly ConcurrentDictionary<string, string> QuietStarted = new();
+
     /// <summary>The signal for <paramref name="text"/> (a <c>gate ...</c> message).</summary>
     public static TaskCompletionSource Gate(string text) =>
         GateSignals.GetOrAdd(text, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
@@ -49,6 +52,11 @@ public sealed class ScenarioAgent : IAgentExecutor
 
         switch (text.Split(' ')[0])
         {
+            case "quiet": // a new task that sends no event until its gate opens (so it is not stored yet), then completes
+                QuietStarted[text] = updater.TaskId;
+                await Gate(text).Task.WaitAsync(ct);
+                await updater.CompleteAsync("done", ct);
+                break;
             case "hello":
                 await updater.ReplyAsync("hi there", ct);
                 break;

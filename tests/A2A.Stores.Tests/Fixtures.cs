@@ -52,11 +52,14 @@ public sealed class PostgresFixture : ContainerFixture
     /// <summary>A data source of its own (for example for an instance whose death cuts its database access). Dispose it.</summary>
     public NpgsqlDataSource NewDataSource() => NpgsqlDataSource.Create(_container!.GetConnectionString());
 
-    /// <summary>A fresh schema with the A2A tables, so every test starts empty.</summary>
-    public async Task<PostgresStoreOptions> NewSchemaAsync()
+    /// <summary>
+    /// A fresh schema with the A2A tables, so every test starts empty. Pass the test's clock when it moves a fake one: the
+    /// stores then use it for deadlines instead of the database clock (<see cref="PostgresStoreOptions.UseDatabaseClock"/>).
+    /// </summary>
+    public async Task<PostgresStoreOptions> NewSchemaAsync(TimeProvider? clock = null)
     {
         SkipIfUnavailable();
-        var options = new PostgresStoreOptions { Schema = "t_" + Guid.NewGuid().ToString("N") };
+        var options = new PostgresStoreOptions { Schema = "t_" + Guid.NewGuid().ToString("N"), UseDatabaseClock = clock is null };
         await PostgresSchema.EnsureSchemaAsync(DataSource, options.Schema);
         return options;
     }

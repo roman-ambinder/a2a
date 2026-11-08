@@ -51,6 +51,15 @@ public sealed partial class PostgresStoreOptions
     /// </summary>
     public TimeSpan IdempotencyPollInterval { get; set; } = TimeSpan.FromMilliseconds(200);
 
+    /// <summary>
+    /// When true (the default), deadlines are decided by the database's clock (<c>statement_timestamp()</c>): push outbox due
+    /// times and leases, idempotency claim timeouts and retention, and event log retention. Instances that share the database
+    /// then agree on what has expired even when their own clocks are off. When false, the stores use the
+    /// <see cref="TimeProvider"/> they are given, which is meant for tests that move a fake clock.
+    /// Task timestamps (<c>UpdatedAt</c>, status times) always come from the instance's clock, because they are part of the task.
+    /// </summary>
+    public bool UseDatabaseClock { get; set; } = true;
+
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,62}$", RegexOptions.CultureInvariant)]
     private static partial Regex IdentifierPattern();
 }
