@@ -31,6 +31,19 @@ public abstract class ArtifactObjectStoreContract
         }
     }
 
+    [Fact]
+    public async Task Exists_is_true_for_a_stored_object_and_false_for_a_missing_one()
+    {
+        var store = await CreateStoreAsync();
+        var key = NewKey();
+        Assert.False(await store.ExistsAsync(key));
+
+        await store.PutAsync(key, new MemoryStream(Bytes(10)), Info, 100);
+
+        Assert.True(await store.ExistsAsync(key));
+        Assert.False(await store.ExistsAsync(NewKey()));
+    }
+
     /// <summary>A stream that cannot seek and returns data in small pieces; it can fail after some bytes.</summary>
     private sealed class OneWayStream(byte[] data, int failAfter = -1) : Stream
     {

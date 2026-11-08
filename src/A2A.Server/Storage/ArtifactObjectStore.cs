@@ -24,6 +24,20 @@ public abstract class ArtifactObjectStore
     /// <param name="cancellationToken">Cancels the call.</param>
     public abstract ValueTask<ArtifactObjectContent?> OpenReadAsync(string key, ArtifactByteRange? range = null, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// True when the object exists. The default opens the object and disposes it; providers with a cheaper check (a HEAD request)
+    /// should override it.
+    /// </summary>
+    /// <param name="key">The object key.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    public virtual async ValueTask<bool> ExistsAsync(string key, CancellationToken cancellationToken = default)
+    {
+        var content = await OpenReadAsync(key, null, cancellationToken).ConfigureAwait(false);
+        if (content is null) return false;
+        await content.DisposeAsync().ConfigureAwait(false);
+        return true;
+    }
+
     /// <summary>Deletes an object. Does nothing when it does not exist.</summary>
     public abstract ValueTask DeleteAsync(string key, CancellationToken cancellationToken = default);
 

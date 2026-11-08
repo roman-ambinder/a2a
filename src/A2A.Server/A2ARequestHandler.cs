@@ -662,9 +662,13 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         if (_objects is null || call.Tenant == "_" || !ArtifactObjectKey.IsValidObjectId(objectId)) throw A2AException.TaskNotFound(taskId);
         _ = await _tasks.GetAsync(Key(call, taskId), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
         var key = ArtifactObjectKey.Create(call.Tenant, taskId, objectId);
-        if (range is null && _options.ArtifactStorage.Delivery == ArtifactDelivery.Redirect
-            && await _objects.TryCreateDownloadUrlAsync(key, _options.ArtifactStorage.DownloadUrlLifetime, cancellationToken).ConfigureAwait(false) is { } url)
-            return new ArtifactDownload(url, null);
+        if (range is null && _options.ArtifactStorage.Delivery == ArtifactDelivery.Redirect)
+        {
+            // A presigned URL does not prove the object exists, so a miss must be found here to answer 404 instead of a redirect.
+            if (!await _objects.ExistsAsync(key, cancellationToken).ConfigureAwait(false)) throw A2AException.TaskNotFound(taskId);
+            if (await _objects.TryCreateDownloadUrlAsync(key, _options.ArtifactStorage.DownloadUrlLifetime, cancellationToken).ConfigureAwait(false) is { } url)
+                return new ArtifactDownload(url, null);
+        }
         var content = await _objects.OpenReadAsync(key, range, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
         return new ArtifactDownload(null, content);
     }

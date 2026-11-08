@@ -300,6 +300,19 @@ public sealed class ArtifactEndpointTests
     }
 
     [Fact]
+    public async Task Redirect_mode_missing_object_gets_404()
+    {
+        var store = new WrappedStore { Presigned = new Uri("https://cdn.test/o?sig=1") };
+        await using var host = await StartAsync(store);
+        var seed = await SeedAsync(host, store);
+
+        using var response = await host.Http("alice").GetAsync($"/a2a/artifacts/_/{seed.TaskId}/{ArtifactObjectKey.NewObjectId()}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Null(store.RequestedLifetime);
+    }
+
+    [Fact]
     public async Task Redirect_mode_proxies_when_store_has_no_presigned_url()
     {
         var store = new WrappedStore { Presigned = null };
