@@ -154,4 +154,34 @@ public class CredentialHandlerTests
         Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
         Assert.Equal(viaCreate.Message.Replace("'agent'", "'a'"), ex.Message);
     }
+
+    [Fact]
+    public async Task Handler_refuses_a_sigma_lookalike_origin()
+    {
+        Assert.NotEqual(new Uri("https://σagent.example/").IdnHost, new Uri("https://ςagent.example/a2a").IdnHost);
+        var card = Card("https://σagent.example/a2a", schemes: TwoSchemes(), requirements: [Req(("key", []))]);
+        var binding = A2ACredentialBinding.Create(Resolved(card, "https://σagent.example/.well-known/agent-card.json"),
+            card.SupportedInterfaces[0], [new RecordingProvider("p")]);
+        var provider = new RecordingProvider("p");
+        var inner = new FakeHandler();
+        using var http = new HttpClient(new A2ACredentialHandler(binding, inner));
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => http.SendAsync(Get("https://ςagent.example/a2a")));
+
+        Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
+        Assert.Empty(inner.Requests);
+        Assert.Empty(provider.Applied);
+        await http.SendAsync(Get("https://σagent.example/a2a")); // the real origin still works
+        Assert.Single(inner.Requests);
+    }
+
+    [Fact]
+    public async Task Handler_message_has_no_user_info()
+    {
+        var provider = new RecordingProvider("p");
+        using var http = new HttpClient(new A2ACredentialHandler(Credentialed(provider), new FakeHandler()));
+        var ex = await Assert.ThrowsAsync<A2AException>(() => http.SendAsync(Get("https://user:hunter2@other.example/a2a")));
+        Assert.DoesNotContain("hunter2", ex.Message);
+        Assert.Contains("other.example", ex.Message);
+    }
 }

@@ -319,6 +319,7 @@ A2A.Client.Credentials.OAuth2ClientCredentialsProvider.ApplyAsync(System.Net.Htt
 A2A.Client.Credentials.OAuth2ClientCredentialsProvider.CanHandle(A2A.Client.Credentials.A2ACredentialContext! context) -> bool
 A2A.Client.Credentials.OAuth2ClientCredentialsProvider.Dispose() -> void
 A2A.Client.Credentials.OAuth2ClientCredentialsProvider.OAuth2ClientCredentialsProvider(A2A.Client.Credentials.OAuth2ClientCredentialsOptions! options) -> void
-static A2A.Client.Credentials.A2ACredentialBinding.Create(A2A.Client.ResolvedAgentCard! card, A2A.AgentInterface! selectedInterface, System.Collections.Generic.IEnumerable<A2A.Client.Credentials.IA2ACredentialProvider!>! providers, bool requireHttps = true) -> A2A.Client.Credentials.A2ACredentialBinding!
+static A2A.Client.Credentials.A2ACredentialBinding.Create(A2A.Client.ResolvedAgentCard! card, A2A.AgentInterface! selectedInterface, System.Collections.Generic.IEnumerable<A2A.Client.Credentials.IA2ACredentialProvider!>! providers, bool requireHttps = true, bool forGrpcChannel = false) -> A2A.Client.Credentials.A2ACredentialBinding!
+static A2A.Client.Credentials.A2ACredentialBinding.IsSameOrigin(System.Uri! a, System.Uri! b) -> bool
 static A2A.Client.Credentials.A2ACredentialHandler.EnsureNoAutoRedirect(System.Net.Http.HttpMessageHandler! handler) -> void
 static A2A.Client.Credentials.A2AMutualTls.CreateHandler(System.Security.Cryptography.X509Certificates.X509Certificate2! certificate, System.Uri! agentUrl) -> System.Net.Http.SocketsHttpHandler!

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using A2A.Text;
@@ -28,11 +29,16 @@ public sealed class OAuth2ClientCredentialsOptions
 
     /// <summary>
     /// The token endpoint. When null, the provider uses the <c>tokenUrl</c> of the card's client credentials flow, but only
-    /// when it is on the card's origin.
+    /// when it is on the card's origin. In that case the provider binds to the origin of the first card it accepts and refuses
+    /// every other card origin, so one client secret is never sent to the token endpoints of different agents. Create one
+    /// provider per agent origin, or set this property. It has no effect when this property is set.
     /// </summary>
     public Uri? TokenEndpoint { get; set; }
 
-    /// <summary>Scopes to request. When null or empty, the scopes of the card's security requirement are used.</summary>
+    /// <summary>
+    /// Scopes to request. When null or empty, the card chooses the scopes: those of its security requirement are used. Set
+    /// <c>Scopes</c> when one client id serves several APIs, so that a card cannot ask for more than you intend.
+    /// </summary>
     public IList<string>? Scopes { get; set; }
 
     /// <summary>How the client authenticates to the token endpoint. Defaults to HTTP Basic.</summary>
@@ -68,7 +74,9 @@ public sealed class OAuth2ClientCredentialsOptions
 
 /// <summary>
 /// Gets OAuth2 client credentials access tokens and adds them as <c>Authorization: Bearer</c>. Tokens are cached per token
-/// endpoint, card origin and scope set. Concurrent callers share one token request.
+/// endpoint, card origin and scope set. Concurrent callers share one token request. When
+/// <see cref="OAuth2ClientCredentialsOptions.TokenEndpoint"/> is not set, the provider binds to the first card origin it
+/// accepts and handles no other origin.
 /// </summary>
 public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, IDisposable
 {
@@ -79,6 +87,9 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
     private readonly string _clientSecret;
     private readonly Uri? _tokenEndpoint;
     private readonly string[]? _scopes;
+    private readonly string? _fixedScope;
+    private readonly ConditionalWeakTable<A2ACredentialContext, string> _contextScopes = new();
+    private Uri? _boundOrigin;
     private readonly OAuth2ClientAuthentication _clientAuthentication;
     private readonly KeyValuePair<string, string>[] _additional;
     private readonly string? _schemeName;
@@ -129,6 +140,7 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         _clientSecret = options.ClientSecret;
         _tokenEndpoint = options.TokenEndpoint;
         _scopes = options.Scopes is { Count: > 0 } ? [.. options.Scopes] : null;
+        _fixedScope = _scopes is null ? null : ScopeString(_scopes);
         _clientAuthentication = options.ClientAuthentication;
         _additional = [.. options.AdditionalParameters];
         _schemeName = options.SchemeName;
@@ -151,7 +163,7 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
     {
         ArgumentNullException.ThrowIfNull(context);
         if (_schemeName is not null && !string.Equals(context.SchemeName, _schemeName, StringComparison.Ordinal)) return false;
-        return context.Scheme switch
+        var handles = context.Scheme switch
         {
             OAuth2Scheme { Value.Flows.ClientCredentials: { } flow } =>
                 _tokenEndpoint is not null || CardEndpoint(flow.TokenUrl, context.CardOrigin) is not null,
@@ -160,6 +172,14 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
             OpenIdConnectScheme => _tokenEndpoint is not null,
             _ => false,
         };
+        return handles && (_tokenEndpoint is not null || TryBindOrigin(context.CardOrigin));
+    }
+
+    /// <summary>Binds the provider to the first origin it sees. True when <paramref name="origin"/> is the bound origin.</summary>
+    private bool TryBindOrigin(Uri origin)
+    {
+        var bound = Interlocked.CompareExchange(ref _boundOrigin, origin, null) ?? origin;
+        return A2ACredentialBinding.IsSameOrigin(bound, origin);
     }
 
     /// <inheritdoc />
@@ -168,13 +188,16 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
         var endpoint = _tokenEndpoint;
+        if (endpoint is null && !TryBindOrigin(context.CardOrigin))
+            throw new A2AException(A2AErrorCode.Unauthenticated,
+                $"This provider has no TokenEndpoint and is bound to another card origin, so it will not send its client secret to {A2ACredentialBinding.OriginText(context.CardOrigin)}. Use one provider per agent origin, or set TokenEndpoint.");
         if (endpoint is null && context.Scheme is OAuth2Scheme { Value.Flows.ClientCredentials: { } flow })
             endpoint = CardEndpoint(flow.TokenUrl, context.CardOrigin);
         if (endpoint is null)
             throw new A2AException(A2AErrorCode.Unauthenticated,
                 $"No token endpoint for scheme '{TextSanitizer.Sanitize(context.SchemeName, TextSanitizer.MaxHeaderValueLength)}'. Set TokenEndpoint.");
 
-        var scopes = string.Join(' ', (_scopes ?? [.. context.Scopes]).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+        var scopes = _fixedScope ?? _contextScopes.GetValue(context, static c => ScopeString(c.Scopes));
         var key = (endpoint.AbsoluteUri, context.CardOrigin.AbsoluteUri, scopes);
         var token = await GetTokenAsync(key, endpoint, scopes, cancellationToken).ConfigureAwait(false);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -186,6 +209,9 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         _http.Dispose();
         _ownedHandler?.Dispose();
     }
+
+    private static string ScopeString(IEnumerable<string> scopes) =>
+        string.Join(' ', scopes.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
 
     private Uri? CardEndpoint(string tokenUrl, Uri cardOrigin) =>
         Uri.TryCreate(tokenUrl, UriKind.Absolute, out var uri)
@@ -212,12 +238,19 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         public Task<CachedToken>? InFlight;
     }
 
-    internal sealed record CachedToken(string Value, DateTimeOffset RefreshAt, DateTimeOffset ExpiresAt);
+    // A class, not a record: a record's ToString would print the token.
+    internal sealed class CachedToken(string value, DateTimeOffset refreshAt, DateTimeOffset expiresAt)
+    {
+        public string Value { get; } = value;
+        public DateTimeOffset RefreshAt { get; } = refreshAt;
+        public DateTimeOffset ExpiresAt { get; } = expiresAt;
+    }
 
     internal int SlotCount => _slots.Count;
 
     internal Slot GetSlot((string Endpoint, string Origin, string Scope) key)
     {
+        if (_slots.TryGetValue(key, out var existing)) return existing;
         if (_slots.Count >= MaxSlots) EvictIdleSlots();
         return _slots.GetOrAdd(key, static _ => new Slot());
     }
@@ -280,7 +313,7 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         {
             lock (slot.Gate) slot.InFlight = null;
             if (ex is A2AException) throw;
-            var where = endpoint.GetLeftPart(UriPartial.Path);
+            var where = endpoint.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped);
             var reason = ex is OperationCanceledException
                 ? $"timed out after {_requestTimeout.TotalSeconds:0.##} seconds"
                 : $"failed ({ex.GetType().Name})";
@@ -318,7 +351,7 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
 
     private string ErrorMessage(Uri endpoint, int status, string body)
     {
-        var sb = new StringBuilder($"The token endpoint {endpoint.GetLeftPart(UriPartial.Path)} answered HTTP {status}.");
+        var sb = new StringBuilder($"The token endpoint {endpoint.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped)} answered HTTP {status}.");
         try
         {
             using var doc = JsonDocument.Parse(body);

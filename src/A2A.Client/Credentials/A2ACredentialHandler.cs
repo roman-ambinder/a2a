@@ -7,7 +7,11 @@ public sealed class A2ACredentialHandler : DelegatingHandler
 {
     private readonly A2ACredentialBinding _binding;
 
-    /// <summary>Creates the handler. Throws <see cref="ArgumentException"/> when <paramref name="innerHandler"/> follows redirects.</summary>
+    /// <summary>
+    /// Creates the handler. Throws <see cref="ArgumentException"/> when <paramref name="innerHandler"/> is a known handler type
+    /// that follows redirects. The SDK cannot check a handler of an unknown type: a custom terminal handler must not follow
+    /// redirects.
+    /// </summary>
     public A2ACredentialHandler(A2ACredentialBinding binding, HttpMessageHandler innerHandler) : base(innerHandler)
     {
         ArgumentNullException.ThrowIfNull(binding);
@@ -43,11 +47,9 @@ public sealed class A2ACredentialHandler : DelegatingHandler
         if (_binding.Pairs.Count > 0)
         {
             var uri = request.RequestUri;
-            if (uri is null || !uri.IsAbsoluteUri
-                || Uri.Compare(uri, _binding.CardOrigin, UriComponents.Scheme | UriComponents.Host | UriComponents.StrongPort,
-                    UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) != 0)
+            if (uri is null || !A2ACredentialBinding.IsSameOrigin(uri, _binding.CardOrigin))
                 throw new A2AException(A2AErrorCode.InvalidAgentResponse,
-                    $"Refusing to send credentials to {uri?.GetLeftPart(UriPartial.Authority) ?? "(no URI)"}: not the card origin {_binding.CardOrigin.GetLeftPart(UriPartial.Authority)}.");
+                    $"Refusing to send credentials to {(uri is { IsAbsoluteUri: true } ? A2ACredentialBinding.OriginText(uri) : "(no absolute URI)")}: not the card origin {A2ACredentialBinding.OriginText(_binding.CardOrigin)}.");
 
             foreach (var (context, provider) in _binding.Pairs)
             {

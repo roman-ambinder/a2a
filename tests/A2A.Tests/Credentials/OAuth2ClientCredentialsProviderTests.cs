@@ -28,8 +28,9 @@ public class OAuth2ClientCredentialsProviderTests
             var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
             Requests.Enqueue(new Seen(request.Method, request.RequestUri!, request.Headers.Authorization?.ToString(), body,
                 request.Content?.Headers.ContentType?.MediaType, request.Headers.Accept.ToString()));
+            var gate = Gate; // read before signalling Entered: a test may null Gate right after Entered completes
             Entered.TrySetResult();
-            if (Gate is { } gate) await gate.Task.WaitAsync(cancellationToken);
+            if (gate is not null) await gate.Task.WaitAsync(cancellationToken);
             return Respond(n);
         }
     }
@@ -529,5 +530,81 @@ public class OAuth2ClientCredentialsProviderTests
         for (var i = 0; i < 600; i++) await Apply(p, OAuth(scopes: [$"s{i}"]));
         Assert.Equal(600, h.Calls);
         Assert.StartsWith("Bearer tok", await Apply(p, OAuth(scopes: ["s0"]))); // evicted or cached, both fine
+    }
+
+    [Fact]
+    public async Task Provider_without_TokenEndpoint_binds_to_the_first_origin_and_refuses_others()
+    {
+        var (p, h, _) = Make();
+        var a = new Uri("https://a.example/");
+        var b = new Uri("https://b.example/");
+
+        Assert.True(p.CanHandle(OAuth("https://a.example/token", origin: a)));
+        Assert.False(p.CanHandle(OAuth("https://b.example/token", origin: b)));
+        Assert.True(p.CanHandle(OAuth("https://a.example/token", origin: a)));
+
+        Assert.Equal("Bearer tok1", await Apply(p, OAuth("https://a.example/token", origin: a)));
+        await Fails(p, OAuth("https://b.example/token", origin: b));
+        Assert.Equal(1, h.Calls);
+        Assert.All(h.Requests, r => Assert.Equal("a.example", r.Uri.Host));
+    }
+
+    [Fact]
+    public async Task Binding_happens_on_first_apply_when_CanHandle_was_not_called()
+    {
+        var (p, h, _) = Make();
+        await Apply(p, OAuth("https://a.example/token", origin: new Uri("https://a.example/")));
+        await Fails(p, OAuth("https://b.example/token", origin: new Uri("https://b.example/")));
+        Assert.Equal(1, h.Calls);
+    }
+
+    [Fact]
+    public async Task Provider_with_TokenEndpoint_serves_every_origin()
+    {
+        var (p, h, _) = Make(o => o.TokenEndpoint = new Uri("https://auth.example/token"));
+        Assert.True(p.CanHandle(OAuth(origin: new Uri("https://a.example/"))));
+        Assert.True(p.CanHandle(OAuth(origin: new Uri("https://b.example/"))));
+        await Apply(p, OAuth(origin: new Uri("https://a.example/")));
+        await Apply(p, OAuth(origin: new Uri("https://b.example/")));
+        Assert.Equal(2, h.Calls);
+    }
+
+    [Fact]
+    public async Task Origin_binding_uses_IdnHost_so_sigma_and_final_sigma_differ()
+    {
+        Assert.NotEqual(new Uri("https://σagent.example/").IdnHost, new Uri("https://ςagent.example/").IdnHost);
+        var (p, _, _) = Make();
+        var sigma = new Uri("https://σagent.example/");
+        var final = new Uri("https://ςagent.example/");
+        Assert.True(p.CanHandle(OAuth("https://σagent.example/token", origin: sigma)));
+        Assert.False(p.CanHandle(OAuth("https://ςagent.example/token", origin: final)));
+        await Fails(p, OAuth("https://ςagent.example/token", origin: final));
+    }
+
+    [Fact]
+    public void Card_token_url_on_a_sigma_lookalike_host_is_not_on_the_card_origin()
+    {
+        Assert.NotEqual(new Uri("https://σagent.example/").IdnHost, new Uri("https://ςagent.example/").IdnHost);
+        var (p, _, _) = Make();
+        Assert.False(p.CanHandle(OAuth("https://ςagent.example/token", origin: new Uri("https://σagent.example/"))));
+    }
+
+    [Fact]
+    public void CachedToken_ToString_does_not_print_the_token()
+    {
+        var t = new OAuth2ClientCredentialsProvider.CachedToken("SECRET-TOKEN", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
+        Assert.DoesNotContain("SECRET-TOKEN", t.ToString());
+    }
+
+    [Fact]
+    public async Task Scope_string_is_cached_per_context_and_slots_found_without_scanning()
+    {
+        var (p, h, _) = Make();
+        var ctx = OAuth(scopes: ["b", "a"]);
+        await Apply(p, ctx);
+        await Apply(p, ctx);
+        await Apply(p, OAuth(scopes: ["a", "b"]));
+        Assert.Equal(1, h.Calls);
+        Assert.Contains("scope=a+b", Assert.Single(h.Requests).Body);
     }
 }

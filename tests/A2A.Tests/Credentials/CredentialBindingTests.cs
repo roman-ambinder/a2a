@@ -148,4 +148,125 @@ public class CredentialBindingTests
 
         Assert.Empty(Bind(Card(binding: ProtocolBindings.Grpc), [new RecordingProvider("p")]).Schemes);
     }
+
+    private const string SigmaSource = "https://σagent.example/.well-known/agent-card.json";
+
+    private static void AssertSigmaHostsDiffer()
+    {
+        // Guard against a vacuous test: the two names fold together by ordinal ignore case but are dialed as different hosts.
+        Assert.NotEqual(new Uri("https://σagent.example/").IdnHost, new Uri("https://ςagent.example/a2a").IdnHost);
+    }
+
+    [Fact]
+    public void Sigma_and_final_sigma_are_different_origins()
+    {
+        AssertSigmaHostsDiffer();
+        Assert.False(A2ACredentialBinding.IsSameOrigin(new Uri("https://σagent.example/"), new Uri("https://ςagent.example/a2a")));
+        Assert.True(A2ACredentialBinding.IsSameOrigin(new Uri("https://σagent.example/"), new Uri("https://σagent.example/a2a")));
+
+        var card = Card("https://ςagent.example/a2a", schemes: TwoSchemes(), requirements: [Req(("key", []))]);
+        var ex = Assert.Throws<A2AException>(() => Bind(card, [new RecordingProvider("p")], source: SigmaSource));
+        Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
+    }
+
+    [Fact]
+    public void Unicode_host_and_its_punycode_form_are_the_same_origin()
+    {
+        Assert.True(A2ACredentialBinding.IsSameOrigin(new Uri("https://bücher.example/a"), new Uri("https://xn--bcher-kva.example/b")));
+        Assert.True(A2ACredentialBinding.IsSameOrigin(new Uri("https://BÜCHER.example/a"), new Uri("https://xn--bcher-kva.example:443/b")));
+    }
+
+    [Fact]
+    public void Ipv6_zone_ids_must_match()
+    {
+        Assert.False(A2ACredentialBinding.IsSameOrigin(new Uri("https://[fe80::1%25eth0]/"), new Uri("https://[fe80::1%25eth1]/")));
+        Assert.True(A2ACredentialBinding.IsSameOrigin(new Uri("https://[fe80::1%25eth0]/"), new Uri("https://[fe80::1%25eth0]/x")));
+    }
+
+    [Fact]
+    public void IsSameOrigin_compares_scheme_and_port_and_rejects_relative_uris()
+    {
+        Assert.False(A2ACredentialBinding.IsSameOrigin(new Uri("https://a.example/"), new Uri("http://a.example/")));
+        Assert.False(A2ACredentialBinding.IsSameOrigin(new Uri("https://a.example/"), new Uri("https://a.example:8443/")));
+        Assert.False(A2ACredentialBinding.IsSameOrigin(new Uri("/x", UriKind.Relative), new Uri("https://a.example/")));
+        Assert.Throws<ArgumentNullException>(() => A2ACredentialBinding.IsSameOrigin(null!, new Uri("https://a.example/")));
+    }
+
+    [Fact]
+    public void User_info_never_reaches_messages_or_CardOrigin()
+    {
+        var card = Card("https://user:hunter2@other.example/a2a", schemes: TwoSchemes(), requirements: [Req(("key", []))]);
+        var ex = Assert.Throws<A2AException>(() =>
+            Bind(card, [new RecordingProvider("p")], source: "https://user:hunter2@agent.example/.well-known/agent-card.json"));
+        Assert.DoesNotContain("hunter2", ex.Message);
+        Assert.Contains("other.example", ex.Message);
+
+        var ok = Card("https://agent.example/a2a", schemes: TwoSchemes(), requirements: [Req(("key", []))]);
+        var binding = Bind(ok, [new RecordingProvider("p")], source: "https://user:hunter2@agent.example/.well-known/agent-card.json");
+        Assert.DoesNotContain("hunter2", binding.CardOrigin.ToString());
+        Assert.DoesNotContain("hunter2", Assert.Single(binding.Schemes).CardOrigin.ToString());
+        Assert.Equal("https://agent.example/", binding.CardOrigin.AbsoluteUri);
+
+        var http = Card("http://agent.example/a2a", schemes: TwoSchemes(), requirements: [Req(("key", []))]);
+        var plain = Assert.Throws<A2AException>(() =>
+            Bind(http, [new RecordingProvider("p")], source: "http://user:hunter2@agent.example/.well-known/agent-card.json"));
+        Assert.DoesNotContain("hunter2", plain.Message);
+    }
+
+    [Fact]
+    public void Grpc_is_refused_by_default_and_allowed_for_a_grpc_channel()
+    {
+        var card = Card("https://agent.example:443/grpc", binding: ProtocolBindings.Grpc, schemes: TwoSchemes(), requirements: [Req(("key", []))]);
+        var itf = card.SupportedInterfaces[0];
+        var providers = new[] { new RecordingProvider("p") };
+        var ex = Assert.Throws<NotSupportedException>(() => A2ACredentialBinding.Create(Resolved(card), itf, providers));
+        Assert.Contains("forGrpcChannel", ex.Message);
+
+        var b = A2ACredentialBinding.Create(Resolved(card), itf, providers, forGrpcChannel: true);
+        Assert.Single(b.Schemes);
+    }
+
+    [Fact]
+    public void Grpc_for_a_channel_still_refuses_another_origin_and_plain_http()
+    {
+        var other = Card("https://other.example/grpc", binding: ProtocolBindings.Grpc, schemes: TwoSchemes(), requirements: [Req(("key", []))]);
+        var ex = Assert.Throws<A2AException>(() =>
+            A2ACredentialBinding.Create(Resolved(other), other.SupportedInterfaces[0], [new RecordingProvider("p")], forGrpcChannel: true));
+        Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
+
+        var plain = Card("http://agent.example/grpc", binding: ProtocolBindings.Grpc, schemes: TwoSchemes(), requirements: [Req(("key", []))]);
+        var http = Assert.Throws<A2AException>(() =>
+            A2ACredentialBinding.Create(Resolved(plain, "http://agent.example/.well-known/agent-card.json"), plain.SupportedInterfaces[0],
+                [new RecordingProvider("p")], forGrpcChannel: true));
+        Assert.Equal(A2AErrorCode.InvalidRequest, http.Code);
+    }
+
+    [Fact]
+    public void Null_entries_in_the_card_are_unsatisfiable_not_a_crash()
+    {
+        var nullRequirement = Card(schemes: TwoSchemes(), requirements: [null!]);
+        Assert.Equal(A2AErrorCode.Unauthenticated, Assert.Throws<A2AException>(() => Bind(nullRequirement, [new RecordingProvider("p")])).Code);
+
+        var nullSchemes = Card(schemes: TwoSchemes(), requirements: [new SecurityRequirement { Schemes = null! }]);
+        Assert.Equal(A2AErrorCode.Unauthenticated, Assert.Throws<A2AException>(() => Bind(nullSchemes, [new RecordingProvider("p")])).Code);
+
+        var nullScheme = Card(schemes: new() { ["k"] = null! }, requirements: [Req(("k", []))]);
+        Assert.Equal(A2AErrorCode.Unauthenticated, Assert.Throws<A2AException>(() => Bind(nullScheme, [new RecordingProvider("p")])).Code);
+
+        // A later, satisfiable requirement still wins over a null one.
+        var mixed = Card(schemes: TwoSchemes(), requirements: [null!, Req(("key", []))]);
+        Assert.Equal("key", Assert.Single(Bind(mixed, [new RecordingProvider("p")]).Schemes).SchemeName);
+    }
+
+    [Fact]
+    public void Hostile_scheme_names_do_not_reach_the_message_raw()
+    {
+        var schemes = new Dictionary<string, SecurityScheme> { ["bad\r\nInjected: yes\u202Ename"] = SecurityScheme.ApiKey("X-Key") };
+        var card = Card(schemes: schemes, requirements: [Req(("bad\r\nInjected: yes\u202Ename", []))]);
+        var ex = Assert.Throws<A2AException>(() => Bind(card, [new RecordingProvider("none", _ => false)]));
+        Assert.DoesNotContain('\r', ex.Message);
+        Assert.DoesNotContain('\n', ex.Message);
+        Assert.DoesNotContain('\u202E', ex.Message);
+        Assert.Contains("Injected", ex.Message);
+    }
 }

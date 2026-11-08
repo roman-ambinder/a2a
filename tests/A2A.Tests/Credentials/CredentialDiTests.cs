@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using A2A.Client;
 using A2A.Client.Credentials;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace A2A.Tests.Credentials;
@@ -243,5 +244,122 @@ public class CredentialDiTests
         await sp.GetRequiredService<IHttpClientFactory>().CreateClient("plain").GetAsync(other.Uri("/x"));
 
         Assert.Equal("Bearer bt", other.At("/x").Single().Header("Authorization"));
+    }
+
+    private sealed class CaptureProvider : ILoggerProvider
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<string> Lines { get; } = new();
+        public ILogger CreateLogger(string categoryName) => new Capture(this);
+        public void Dispose() { }
+
+        private sealed class Capture(CaptureProvider owner) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+            public bool IsEnabled(LogLevel logLevel) => true;
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+                owner.Lines.Enqueue(formatter(state, exception) + " " + state);
+        }
+    }
+
+    [Fact]
+    public async Task Api_key_never_reaches_a_log_line_at_trace()
+    {
+        const string key = "api-key-LEAK-CHECK";
+        var capture = new CaptureProvider();
+        await using var origin = await Serve(Key(), KeyReq());
+        var services = new ServiceCollection();
+        services.AddLogging(b => b.SetMinimumLevel(LogLevel.Trace).AddProvider(capture));
+        services.AddA2AClient("agent", o => { o.AgentUrl = origin.Url; o.Client.MaxRetries = 0; }).AddApiKey(key);
+        using var sp = services.BuildServiceProvider();
+
+        await (await Get(sp)).SendMessageAsync("hi");
+
+        Assert.Equal(key, origin.At("/a2a").Single().Header("X-Key"));
+        var lines = capture.Lines.ToList();
+        Assert.Contains(lines, l => l.Contains("X-Key", StringComparison.OrdinalIgnoreCase)); // headers are logged, so the check is not vacuous
+        Assert.DoesNotContain(lines, l => l.Contains(key, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Bearer_token_never_reaches_a_log_line_at_trace()
+    {
+        const string token = "tok-LEAK-CHECK";
+        var capture = new CaptureProvider();
+        await using var origin = await TestOrigin.StartAsync(async (context, o) =>
+        {
+            if (context.Request.Path == "/token")
+                await TestOrigin.WriteJson(context, $$"""{"access_token":"{{token}}","token_type":"Bearer","expires_in":3600}""");
+            else if (context.Request.Path == "/.well-known/agent-card.json")
+            {
+                var s = new Dictionary<string, SecurityScheme>
+                {
+                    ["oauth"] = new OAuth2Scheme(new OAuth2SecurityScheme { Flows = new OAuthFlows { ClientCredentials = new ClientCredentialsOAuthFlow { TokenUrl = o.Uri("/token").ToString() } } }),
+                };
+                await TestOrigin.WriteCard(context, TestOrigin.Card(o.Url, s, [Cards.Req(("oauth", []))]));
+            }
+            else await TestOrigin.WriteJson(context, TestOrigin.RpcOk);
+        });
+        var services = new ServiceCollection();
+        services.AddLogging(b => b.SetMinimumLevel(LogLevel.Trace).AddProvider(capture));
+        services.AddA2AClient("agent", o => { o.AgentUrl = origin.Url; o.Client.MaxRetries = 0; })
+            .AddOAuth2ClientCredentials(o => { o.ClientId = "id"; o.ClientSecret = "secret"; })
+            .AddBearerToken((_, _) => ValueTask.FromResult(token)); // a second route for a bearer token, above the logging handlers
+        using var sp = services.BuildServiceProvider();
+
+        await (await Get(sp)).SendMessageAsync("hi");
+
+        Assert.Contains(origin.At("/a2a").Single().Header("Authorization")!, new[] { "Bearer " + token });
+        var lines = capture.Lines.ToList();
+        Assert.Contains(lines, l => l.Contains("Authorization", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(lines, l => l.Contains(token, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AddBearerToken_refuses_a_sigma_lookalike_host_and_message_has_no_user_info()
+    {
+        Assert.NotEqual(new Uri("https://σagent.example/").IdnHost, new Uri("https://ςagent.example/x").IdnHost);
+        var services = new ServiceCollection();
+        services.AddA2AClient("agent", o => o.AgentUrl = new Uri("https://user:hunter2@σagent.example/"))
+            .AddBearerToken((_, _) => ValueTask.FromResult("bt"));
+        using var sp = services.BuildServiceProvider();
+        var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("A2A:agent");
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => http.GetAsync("https://user:hunter2@ςagent.example/x"));
+
+        Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
+        Assert.DoesNotContain("hunter2", ex.Message);
+    }
+
+    [Fact]
+    public async Task Redirecting_primary_handler_with_credentials_sends_no_request_at_all()
+    {
+        await using var origin = await Serve(Key(), KeyReq());
+        using var sp = Build(origin, b => b.AddApiKey("k")
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = true }));
+
+        await Assert.ThrowsAsync<ArgumentException>(() => Get(sp));
+
+        Assert.Empty(origin.Requests);
+    }
+
+    [Fact]
+    public async Task AddMutualTls_primary_handler_offers_the_certificate_to_the_agent_host_only()
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var req = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=client", rsa,
+            System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+        using var cert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(1));
+        var services = new ServiceCollection();
+        services.AddA2AClient("agent", o => o.AgentUrl = new Uri("https://agent.example/")).AddMutualTls(_ => cert);
+        using var sp = services.BuildServiceProvider();
+
+        // The primary handler is the innermost one of the chain the factory builds.
+        System.Net.Http.HttpMessageHandler h = sp.GetRequiredService<IHttpMessageHandlerFactory>().CreateHandler("A2A:agent");
+        while (h is DelegatingHandler { InnerHandler: { } inner }) h = inner;
+        var sockets = Assert.IsType<SocketsHttpHandler>(h);
+        var select = sockets.SslOptions.LocalCertificateSelectionCallback!;
+
+        Assert.Same(cert, select(new object(), "agent.example", new(), null, []));
+        Assert.Null(select(new object(), "other.example", new(), null, []));
     }
 }
