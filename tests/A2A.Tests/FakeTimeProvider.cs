@@ -9,6 +9,12 @@ public sealed class FakeTimeProvider(DateTimeOffset? start = null) : TimeProvide
 
     public override DateTimeOffset GetUtcNow() { lock (_gate) return _now; }
 
+    /// <summary>Timers that are set to fire (created or changed, and not yet fired, stopped or disposed).</summary>
+    public int PendingTimers
+    {
+        get { lock (_gate) return _timers.Count(t => t.Due is not null); }
+    }
+
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
         var timer = new FakeTimer(this, callback, state);

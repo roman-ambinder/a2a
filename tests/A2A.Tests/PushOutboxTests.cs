@@ -452,6 +452,44 @@ public class PushOutboxTests
         }
     }
 
+    /// <summary>
+    /// The poll wins the service's wait. The first pass then misses a delivery whose commit was not visible yet, and the
+    /// commit's signal comes just after the wake-up, before the service waits again. The signal must still wake it: the
+    /// delivery goes out without another poll (the clock does not move). Repeated, because the lost wake-up this guards
+    /// against depended on thread-pool timing.
+    /// </summary>
+    [Fact]
+    public async Task Signal_just_after_a_poll_wake_is_not_lost()
+    {
+        for (var i = 0; i < 20; i++)
+        {
+            var hooks = new ScriptedHooks(HttpStatusCode.OK);
+            var rig = new PushRig(hooks);
+            await rig.SaveConfigAsync(Hook());
+            await rig.CommitAsync("c1");
+            var outbox = new MissesFirstPass(rig.Outbox);
+            using var service = rig.NewService(outbox);
+            await service.StartAsync(CancellationToken.None);
+            try
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                while (rig.Time.PendingTimers == 0 && clock.Elapsed < TimeSpan.FromSeconds(5)) await Task.Delay(1); // the poll delay is set
+                Assert.Equal(1, rig.Time.PendingTimers);
+                rig.Time.Advance(rig.Options.PushDelivery.PollInterval); // the poll wins; the first pass signals at once
+
+                clock.Restart();
+                while (rig.Outbox.Count != 0 && clock.Elapsed < TimeSpan.FromSeconds(5)) await Task.Delay(1);
+                Assert.True(outbox.Passes > 0, $"run {i}: the poll did not wake the service");
+                Assert.True(rig.Outbox.Count == 0, $"run {i}: the signal was lost; the delivery waits for the next poll");
+                Assert.Single(hooks.Requests);
+            }
+            finally
+            {
+                await service.StopAsync(CancellationToken.None);
+            }
+        }
+    }
+
     [Fact]
     public async Task Lease_must_outlast_a_send()
     {
@@ -495,6 +533,30 @@ public class PushOutboxTests
         using var service = rig.NewService();
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartAsync(CancellationToken.None));
         Assert.Contains("PushDelivery.PollInterval", ex.Message);
+    }
+
+    /// <summary>
+    /// Delegates to <paramref name="inner"/>, except that its first <see cref="LeaseDueAsync"/> (the service's first pass)
+    /// leases nothing, as if the pending delivery's commit were not visible yet, and signals at once, as that commit does.
+    /// </summary>
+    private sealed class MissesFirstPass(InMemoryPushOutbox inner) : PushOutbox
+    {
+        private int _passes;
+        public int Passes => Volatile.Read(ref _passes);
+
+        public override ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken ct = default)
+        {
+            if (Interlocked.Increment(ref _passes) > 1) return inner.LeaseDueAsync(max, lease, ct);
+            NotifyPending();
+            return ValueTask.FromResult<IReadOnlyList<OutboxEntry>>([]);
+        }
+
+        public override ValueTask<bool> CompleteAsync(OutboxEntry leased, CancellationToken ct = default) => inner.CompleteAsync(leased, ct);
+        public override ValueTask<bool> RescheduleAsync(OutboxEntry leased, int attempt, DateTimeOffset dueAt, string error, CancellationToken ct = default) => inner.RescheduleAsync(leased, attempt, dueAt, error, ct);
+        public override ValueTask<bool> DeadLetterAsync(OutboxEntry leased, string error, CancellationToken ct = default) => inner.DeadLetterAsync(leased, error, ct);
+        public override ValueTask<IReadOnlyList<OutboxEntry>> ListDeadLettersAsync(string tenant, int max, CancellationToken ct = default) => inner.ListDeadLettersAsync(tenant, max, ct);
+        public override ValueTask<bool> RedriveAsync(PushDelivery d, CancellationToken ct = default) => inner.RedriveAsync(d, ct);
+        public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default) => inner.DeleteAllAsync(task, ct);
     }
 
     /// <summary>An outbox whose CompleteAsync fails once, then works. Everything else goes to the inner outbox.</summary>

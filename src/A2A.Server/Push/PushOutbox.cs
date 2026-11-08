@@ -41,7 +41,9 @@ public sealed record OutboxEntry(PushDelivery Delivery, int Attempt, DateTimeOff
 /// </remarks>
 public abstract class PushOutbox
 {
-    private readonly SemaphoreSlim _pending = new(0, 1);
+    // Set by NotifyPending, swapped for a new one by the waiter that consumes it. Not a SemaphoreSlim: a cancelled
+    // SemaphoreSlim wait leaves its waiter queued for a moment, and a Release in that window is lost.
+    private TaskCompletionSource _pending = NewSignal();
 
     /// <summary>
     /// Leases up to <paramref name="max"/> due entries for <paramref name="lease"/>: those whose due time has come, that are not
@@ -82,13 +84,19 @@ public abstract class PushOutbox
     public abstract ValueTask DeleteAllAsync(TaskKey task, CancellationToken ct = default);
 
     /// <summary>Wakes this process's <see cref="PushDeliveryService"/>, so new deliveries do not wait for its next poll.</summary>
-    internal void NotifyPending()
+    internal void NotifyPending() => Volatile.Read(ref _pending).TrySetResult();
+
+    /// <summary>
+    /// Completes after the next <see cref="NotifyPending"/> (or at once if one is outstanding), and consumes that signal.
+    /// A wait cancelled by <paramref name="ct"/> consumes nothing, so a signal sent meanwhile wakes the next wait.
+    /// </summary>
+    internal async Task WaitForPendingAsync(CancellationToken ct)
     {
-        if (_pending.CurrentCount > 0) return;
-        try { _pending.Release(); }
-        catch (SemaphoreFullException) { } // lost a race with another notifier: already signalled
+        var signal = Volatile.Read(ref _pending);
+        await signal.Task.WaitAsync(ct).ConfigureAwait(false);
+        // Consume it. A NotifyPending that still completes the old signal comes before the caller's next pass, which sees its work.
+        Interlocked.CompareExchange(ref _pending, NewSignal(), signal);
     }
 
-    /// <summary>Completes after the next <see cref="NotifyPending"/> (or at once if one is outstanding).</summary>
-    internal Task WaitForPendingAsync(CancellationToken ct) => _pending.WaitAsync(ct);
+    private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 }
