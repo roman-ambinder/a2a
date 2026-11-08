@@ -1,2 +1,1 @@
 #nullable enable
-override A2A.Server.Redis.RedisExecutionCoordinator.TryRegisterExclusiveAsync(A2A.Server.Storage.TaskKey task, string! executionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>

@@ -1,2 +1,1 @@
 #nullable enable
-override A2A.Server.Postgres.PostgresPushOutbox.EnqueueAsync(A2A.Server.Storage.PushDelivery! delivery, System.ReadOnlyMemory<byte> payload, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>

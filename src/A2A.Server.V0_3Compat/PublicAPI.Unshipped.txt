@@ -1,3 +1,1 @@
 #nullable enable
-A2A.Server.V0_3Compat.A2AV03CompatExtensions
-static A2A.Server.V0_3Compat.A2AV03CompatExtensions.EnableV03Compat(this A2A.Server.AspNetCore.A2AEndpointOptions! options) -> A2A.Server.AspNetCore.A2AEndpointOptions!

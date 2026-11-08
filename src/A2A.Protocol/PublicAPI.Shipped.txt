@@ -820,20 +820,16 @@ const A2A.Diagnostics.A2ATelemetry.Outcomes.Ok = "ok" -> string!
 const A2A.Diagnostics.A2ATelemetry.ServerMeterName = "A2A.Server" -> string!
 const A2A.Diagnostics.A2ATelemetry.ServerSourceName = "A2A.Server" -> string!
 const A2A.Diagnostics.A2ATelemetry.SpanNames.AgentExecution = "a2a.agent.execute" -> string!
-const A2A.Diagnostics.A2ATelemetry.SpanNames.OperationPrefix = "a2a." -> string!
 const A2A.Diagnostics.A2ATelemetry.SpanNames.PushDelivery = "a2a.push.deliver" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.Binding = "a2a.binding" -> string!
-const A2A.Diagnostics.A2ATelemetry.Tags.ContextId = "a2a.context.id" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.ErrorCode = "a2a.error.code" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.ErrorType = "error.type" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.ExecutionKind = "a2a.execution.kind" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.HttpStatusCode = "http.response.status_code" -> string!
-const A2A.Diagnostics.A2ATelemetry.Tags.Operation = "rpc.method" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.Outcome = "a2a.outcome" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.PushAttempts = "a2a.push.attempts" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.PushConfigId = "a2a.push.config.id" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.PushSequence = "a2a.push.sequence" -> string!
-const A2A.Diagnostics.A2ATelemetry.Tags.RpcSystem = "rpc.system" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.ServerAddress = "server.address" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.StreamEventCount = "a2a.stream.event_count" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.TaskId = "a2a.task.id" -> string!
@@ -847,10 +843,8 @@ static A2A.Diagnostics.A2ATelemetry.EventKindOf(A2A.StreamResponse! evt) -> stri
 static A2A.Diagnostics.A2ATelemetry.InjectTraceContext(System.Diagnostics.Activity? activity, System.Action<string!, string!>! setHeader) -> void
 static A2A.Diagnostics.A2ATelemetry.InjectTraceContext(System.Diagnostics.ActivityContext context, System.Action<string!, string!>! setHeader) -> void
 static A2A.Diagnostics.A2ATelemetry.RecordError(System.Diagnostics.Activity? activity, System.Exception! error, bool callerCanceled = false) -> void
-static A2A.Diagnostics.A2ATelemetry.SetOperationTags(System.Diagnostics.Activity? activity, string! operation, string? binding, string? tenant, string? taskId = null, string? contextId = null) -> void
 static A2A.Diagnostics.A2ATelemetry.SetResult(System.Diagnostics.Activity? activity, object? result) -> void
 static A2A.Diagnostics.A2ATelemetry.SetTask(System.Diagnostics.Activity? activity, string? taskId, string? contextId = null) -> void
-static A2A.Diagnostics.A2ATelemetry.SpanNames.Operation(string! operation) -> string!
 static A2A.Diagnostics.A2ATelemetry.TryExtractTraceContext(string? traceParent, string? traceState, out System.Diagnostics.ActivityContext context) -> bool
 static A2A.Json.ProtoJsonFieldNames.Deserialize<T>(System.ReadOnlySpan<byte> utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>! typeInfo) -> T?
 static A2A.Json.ProtoJsonFieldNames.Normalize(System.Text.Json.JsonElement element) -> System.Text.Json.JsonElement
@@ -872,3 +866,185 @@ const A2A.Push.WebhookSignature.TimestampHeader = "webhook-timestamp" -> string!
 static A2A.Push.WebhookSignature.Sign(System.ReadOnlySpan<byte> secret, string! id, long unixSeconds, System.ReadOnlySpan<byte> body) -> string!
 static A2A.Push.WebhookSignature.TryParseSecret(string? credentials, out byte[]! secret) -> bool
 static A2A.Push.WebhookSignature.Matches(string! signatureHeader, System.ReadOnlySpan<byte> secret, string! id, long unixSeconds, System.ReadOnlySpan<byte> body) -> bool
+A2A.Delegation.ActorChainEntry
+A2A.Delegation.ActorChainEntry.ActorChainEntry() -> void
+A2A.Delegation.ActorChainEntry.Sub.get -> string!
+A2A.Delegation.ActorChainEntry.Sub.set -> void
+A2A.Delegation.ActorChainEntry.Iss.get -> string?
+A2A.Delegation.ActorChainEntry.Iss.set -> void
+A2A.Delegation.ActorChainEntry.Scopes.get -> System.Collections.Generic.List<string!>?
+A2A.Delegation.ActorChainEntry.Scopes.set -> void
+A2A.Delegation.ActorChainEntry.AdditionalProperties.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.Delegation.ActorChainEntry.AdditionalProperties.set -> void
+A2A.Delegation.ActorChain
+A2A.Delegation.ActorChain.ActorChain() -> void
+A2A.Delegation.ActorChain.Origin.get -> A2A.Delegation.ActorChainEntry?
+A2A.Delegation.ActorChain.Origin.set -> void
+A2A.Delegation.ActorChain.Actors.get -> System.Collections.Generic.List<A2A.Delegation.ActorChainEntry!>!
+A2A.Delegation.ActorChain.Actors.set -> void
+A2A.Delegation.ActorChain.AdditionalProperties.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+A2A.Delegation.ActorChain.AdditionalProperties.set -> void
+A2A.Delegation.ActorChain.AppendHop(A2A.Delegation.ActorChainEntry! hop) -> A2A.Delegation.ActorChain!
+const A2A.Delegation.ActorChain.MetadataKey = "actorChain" -> string!
+const A2A.Delegation.ActorChain.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/actor-chain/v1" -> string!
+static A2A.Delegation.ActorChain.Start(A2A.Delegation.ActorChainEntry! origin) -> A2A.Delegation.ActorChain!
+static A2A.Delegation.ActorChain.CreateExtension() -> A2A.AgentExtension!
+static A2A.Delegation.ActorChain.TryReadActorChain(System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata, out A2A.Delegation.ActorChain? chain) -> bool
+A2A.Delegation.ActorChainMessageExtensions
+static A2A.Delegation.ActorChainMessageExtensions.GetActorChain(this A2A.Message! message) -> A2A.Delegation.ActorChain?
+static A2A.Delegation.ActorChainMessageExtensions.GetActorChain(this A2A.AgentTask! task) -> A2A.Delegation.ActorChain?
+static A2A.Delegation.ActorChainMessageExtensions.SetActorChain(this A2A.Message! message, A2A.Delegation.ActorChain! chain) -> A2A.Message!
+A2A.Delegation.ITokenExchanger
+A2A.Delegation.ITokenExchanger.ExchangeAsync(A2A.Delegation.TokenExchangeRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Delegation.TokenExchangeResult!>
+A2A.Delegation.TokenTypes
+const A2A.Delegation.TokenTypes.AccessToken = "urn:ietf:params:oauth:token-type:access_token" -> string!
+const A2A.Delegation.TokenTypes.Jwt = "urn:ietf:params:oauth:token-type:jwt" -> string!
+A2A.Delegation.TokenExchangeRequest
+A2A.Delegation.TokenExchangeRequest.TokenExchangeRequest() -> void
+A2A.Delegation.TokenExchangeRequest.SubjectToken.get -> string!
+A2A.Delegation.TokenExchangeRequest.SubjectToken.init -> void
+A2A.Delegation.TokenExchangeRequest.SubjectTokenType.get -> string!
+A2A.Delegation.TokenExchangeRequest.SubjectTokenType.init -> void
+A2A.Delegation.TokenExchangeRequest.Audience.get -> string?
+A2A.Delegation.TokenExchangeRequest.Audience.init -> void
+A2A.Delegation.TokenExchangeRequest.Resource.get -> string?
+A2A.Delegation.TokenExchangeRequest.Resource.init -> void
+A2A.Delegation.TokenExchangeRequest.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>?
+A2A.Delegation.TokenExchangeRequest.Scopes.init -> void
+A2A.Delegation.TokenExchangeRequest.RequestedTokenType.get -> string?
+A2A.Delegation.TokenExchangeRequest.RequestedTokenType.init -> void
+A2A.Delegation.TokenExchangeRequest.ActorToken.get -> string?
+A2A.Delegation.TokenExchangeRequest.ActorToken.init -> void
+A2A.Delegation.TokenExchangeRequest.ActorTokenType.get -> string?
+A2A.Delegation.TokenExchangeRequest.ActorTokenType.init -> void
+override A2A.Delegation.TokenExchangeRequest.ToString() -> string!
+A2A.Delegation.TokenExchangeResult
+A2A.Delegation.TokenExchangeResult.TokenExchangeResult() -> void
+A2A.Delegation.TokenExchangeResult.AccessToken.get -> string!
+A2A.Delegation.TokenExchangeResult.AccessToken.init -> void
+A2A.Delegation.TokenExchangeResult.TokenType.get -> string!
+A2A.Delegation.TokenExchangeResult.TokenType.init -> void
+A2A.Delegation.TokenExchangeResult.IssuedTokenType.get -> string?
+A2A.Delegation.TokenExchangeResult.IssuedTokenType.init -> void
+A2A.Delegation.TokenExchangeResult.ExpiresIn.get -> System.TimeSpan?
+A2A.Delegation.TokenExchangeResult.ExpiresIn.init -> void
+A2A.Delegation.TokenExchangeResult.Scope.get -> string?
+A2A.Delegation.TokenExchangeResult.Scope.init -> void
+override A2A.Delegation.TokenExchangeResult.ToString() -> string!
+A2A.Delegation.TokenExchangeException
+A2A.Delegation.TokenExchangeException.TokenExchangeException(string! message, string? error = null, System.Exception? inner = null) -> void
+A2A.Delegation.TokenExchangeException.Error.get -> string?
+const A2A.Diagnostics.A2ATelemetry.Tags.Operation = "a2a.method.name" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ContextId = "gen_ai.conversation.id" -> string!
+static A2A.Diagnostics.A2ATelemetry.TaskStateValue(A2A.TaskState state) -> string!
+static A2A.Diagnostics.A2ATelemetry.ErrorTypeOf(System.Exception! error) -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.MessageId = "a2a.message.id" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ReferenceTaskIds = "a2a.message.reference_task_ids" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.ProtocolVersion = "a2a.protocol.version" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.AgentName = "gen_ai.agent.name" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.AgentDescription = "gen_ai.agent.description" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.AgentVersion = "gen_ai.agent.version" -> string!
+static A2A.Diagnostics.A2ATelemetry.SetOperationTags(System.Diagnostics.Activity? activity, string! operation, string? binding, string? tenant, string? taskId = null, string? contextId = null, string? protocolVersion = null) -> void
+static A2A.Diagnostics.A2ATelemetry.SetMessage(System.Diagnostics.Activity? activity, A2A.Message? message) -> void
+static A2A.Diagnostics.A2ATelemetry.SetAgent(System.Diagnostics.Activity? activity, A2A.AgentCard? card) -> void
+static A2A.Diagnostics.A2ATelemetry.SetStreamResult(System.Diagnostics.Activity? activity, A2A.StreamResponse! evt) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.GetTaskRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.CancelTaskRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.SubscribeToTaskRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.TaskPushNotificationConfig! config) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.GetTaskPushNotificationConfigRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.DeleteTaskPushNotificationConfigRequest! request) -> void
+static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.ListTaskPushNotificationConfigsRequest! request) -> void
+A2A.Skills.SkillSelection
+A2A.Skills.SkillSelectionMessageExtensions
+const A2A.Skills.SkillSelection.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/skill-selection/v1" -> string!
+const A2A.Skills.SkillSelection.MetadataKey = "skillId" -> string!
+const A2A.Skills.SkillSelection.RejectUnknownSkillsParam = "rejectUnknownSkills" -> string!
+static A2A.Skills.SkillSelection.CreateExtension(bool rejectUnknownSkills = false) -> A2A.AgentExtension!
+static A2A.Skills.SkillSelection.RejectsUnknownSkills(A2A.AgentCard! card) -> bool
+static A2A.Skills.SkillSelectionMessageExtensions.GetRequestedSkillId(this A2A.Message! message) -> string?
+static A2A.Skills.SkillSelectionMessageExtensions.SetRequestedSkillId(this A2A.Message! message, string! skillId) -> A2A.Message!
+A2A.Elicitations.Elicitation
+A2A.Elicitations.ElicitationAction
+A2A.Elicitations.ElicitationAction.Accept = 0 -> A2A.Elicitations.ElicitationAction
+A2A.Elicitations.ElicitationAction.Cancel = 2 -> A2A.Elicitations.ElicitationAction
+A2A.Elicitations.ElicitationAction.Decline = 1 -> A2A.Elicitations.ElicitationAction
+A2A.Elicitations.ElicitationAnswer
+A2A.Elicitations.ElicitationAnswer.Action.get -> A2A.Elicitations.ElicitationAction
+A2A.Elicitations.ElicitationAnswer.Content.get -> System.Collections.Generic.IReadOnlyDictionary<string!, System.Text.Json.JsonElement>!
+A2A.Elicitations.ElicitationAnswer.FormId.get -> string!
+A2A.Elicitations.ElicitationAnswer.GetBoolean(string! name) -> bool?
+A2A.Elicitations.ElicitationAnswer.GetDouble(string! name) -> double?
+A2A.Elicitations.ElicitationAnswer.GetInt64(string! name) -> long?
+A2A.Elicitations.ElicitationAnswer.GetString(string! name) -> string?
+A2A.Elicitations.ElicitationAnswer.ToMessage(string! taskId, string? contextId = null, string? text = null) -> A2A.Message!
+A2A.Elicitations.ElicitationField
+A2A.Elicitations.ElicitationField.Description.get -> string?
+A2A.Elicitations.ElicitationField.Format.get -> A2A.Elicitations.ElicitationFormat?
+A2A.Elicitations.ElicitationField.LooksSensitive.get -> bool
+A2A.Elicitations.ElicitationField.Maximum.get -> double?
+A2A.Elicitations.ElicitationField.MaxLength.get -> int?
+A2A.Elicitations.ElicitationField.Minimum.get -> double?
+A2A.Elicitations.ElicitationField.MinLength.get -> int?
+A2A.Elicitations.ElicitationField.Name.get -> string!
+A2A.Elicitations.ElicitationField.Options.get -> System.Collections.Generic.IReadOnlyList<string!>?
+A2A.Elicitations.ElicitationField.Required.get -> bool
+A2A.Elicitations.ElicitationField.Title.get -> string?
+A2A.Elicitations.ElicitationField.Type.get -> A2A.Elicitations.ElicitationFieldType
+A2A.Elicitations.ElicitationFieldType
+A2A.Elicitations.ElicitationFieldType.Boolean = 3 -> A2A.Elicitations.ElicitationFieldType
+A2A.Elicitations.ElicitationFieldType.Integer = 1 -> A2A.Elicitations.ElicitationFieldType
+A2A.Elicitations.ElicitationFieldType.Number = 2 -> A2A.Elicitations.ElicitationFieldType
+A2A.Elicitations.ElicitationFieldType.String = 0 -> A2A.Elicitations.ElicitationFieldType
+A2A.Elicitations.ElicitationForm
+A2A.Elicitations.ElicitationForm.ElicitationForm(System.Collections.Generic.IEnumerable<A2A.Elicitations.ElicitationField!>! fields, string? id = null, bool allowSensitiveFields = false) -> void
+A2A.Elicitations.ElicitationForm.Fields.get -> System.Collections.Generic.IReadOnlyList<A2A.Elicitations.ElicitationField!>!
+A2A.Elicitations.ElicitationForm.HasSensitiveFields.get -> bool
+A2A.Elicitations.ElicitationForm.Id.get -> string!
+A2A.Elicitations.ElicitationForm.Validate(System.Collections.Generic.IReadOnlyDictionary<string!, System.Text.Json.JsonElement>! content) -> void
+A2A.Elicitations.ElicitationFormat
+A2A.Elicitations.ElicitationFormat.Date = 1 -> A2A.Elicitations.ElicitationFormat
+A2A.Elicitations.ElicitationFormat.DateTime = 2 -> A2A.Elicitations.ElicitationFormat
+A2A.Elicitations.ElicitationFormat.Email = 0 -> A2A.Elicitations.ElicitationFormat
+A2A.Elicitations.ElicitationMessageExtensions
+A2A.Elicitations.ElicitationValues
+A2A.Elicitations.ElicitationValues.Add(string! name, bool value) -> void
+A2A.Elicitations.ElicitationValues.Add(string! name, double value) -> void
+A2A.Elicitations.ElicitationValues.Add(string! name, long value) -> void
+A2A.Elicitations.ElicitationValues.Add(string! name, string! value) -> void
+A2A.Elicitations.ElicitationValues.ElicitationValues() -> void
+A2A.Elicitations.ElicitationValues.GetEnumerator() -> System.Collections.Generic.IEnumerator<System.Collections.Generic.KeyValuePair<string!, System.Text.Json.JsonElement>>!
+const A2A.Elicitations.Elicitation.AnsweredKey = "a2a.elicitation.answered" -> string!
+const A2A.Elicitations.Elicitation.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/elicitation/v1" -> string!
+const A2A.Elicitations.Elicitation.MaxDescriptionLength = 1000 -> int
+const A2A.Elicitations.Elicitation.MaxFields = 32 -> int
+const A2A.Elicitations.Elicitation.MaxFormIdLength = 128 -> int
+const A2A.Elicitations.Elicitation.MaxNameLength = 64 -> int
+const A2A.Elicitations.Elicitation.MaxOptionLength = 256 -> int
+const A2A.Elicitations.Elicitation.MaxOptions = 64 -> int
+const A2A.Elicitations.Elicitation.MaxStringLength = 4096 -> int
+const A2A.Elicitations.Elicitation.MaxTitleLength = 200 -> int
+const A2A.Elicitations.Elicitation.MetadataKey = "https://github.com/roman-ambinder/a2a/extensions/elicitation/v1" -> string!
+static A2A.Elicitations.Elicitation.CreateExtension() -> A2A.AgentExtension!
+static A2A.Elicitations.ElicitationAnswer.Accept(A2A.Elicitations.ElicitationForm! form, A2A.Elicitations.ElicitationValues! values, bool allowSensitive = false) -> A2A.Elicitations.ElicitationAnswer!
+static A2A.Elicitations.ElicitationAnswer.Cancel(A2A.Elicitations.ElicitationForm! form) -> A2A.Elicitations.ElicitationAnswer!
+static A2A.Elicitations.ElicitationAnswer.Decline(A2A.Elicitations.ElicitationForm! form) -> A2A.Elicitations.ElicitationAnswer!
+static A2A.Elicitations.ElicitationField.Boolean(string! name, string? title = null, string? description = null, bool required = false) -> A2A.Elicitations.ElicitationField!
+static A2A.Elicitations.ElicitationField.Choice(string! name, System.Collections.Generic.IEnumerable<string!>! options, string? title = null, string? description = null, bool required = false) -> A2A.Elicitations.ElicitationField!
+static A2A.Elicitations.ElicitationField.Integer(string! name, string? title = null, string? description = null, bool required = false, double? minimum = null, double? maximum = null) -> A2A.Elicitations.ElicitationField!
+static A2A.Elicitations.ElicitationField.Number(string! name, string? title = null, string? description = null, bool required = false, double? minimum = null, double? maximum = null) -> A2A.Elicitations.ElicitationField!
+static A2A.Elicitations.ElicitationField.Text(string! name, string? title = null, string? description = null, bool required = false, int? minLength = null, int? maxLength = null, A2A.Elicitations.ElicitationFormat? format = null) -> A2A.Elicitations.ElicitationField!
+static A2A.Elicitations.ElicitationMessageExtensions.GetElicitationAnswer(this A2A.Message! message) -> A2A.Elicitations.ElicitationAnswer?
+static A2A.Elicitations.ElicitationMessageExtensions.GetElicitationForm(this A2A.AgentTask! task) -> A2A.Elicitations.ElicitationForm?
+static A2A.Elicitations.ElicitationMessageExtensions.GetElicitationForm(this A2A.Message! message) -> A2A.Elicitations.ElicitationForm?
+static A2A.Elicitations.ElicitationMessageExtensions.SetElicitationForm(this A2A.Message! message, A2A.Elicitations.ElicitationForm! form) -> A2A.Message!
+const A2A.A2AProtocol.ArtifactSealedKey = "a2a.artifact.sealed" -> string!
+A2A.Integrity.ArtifactHash
+const A2A.Integrity.ArtifactHash.MetadataKey = "sha256" -> string!
+static A2A.Integrity.ArtifactHash.Compute(System.Collections.Generic.IEnumerable<A2A.Part!>! parts) -> string!
+static A2A.Integrity.ArtifactHash.Update(System.Security.Cryptography.IncrementalHash! hash, System.Collections.Generic.IEnumerable<A2A.Part!>! parts) -> void
+static A2A.Integrity.ArtifactHash.Format(System.ReadOnlySpan<byte> digest) -> string!
+static A2A.Validation.A2AValidator.ValidateArtifact(A2A.Artifact! artifact, string! path, bool allowEmptyParts) -> void
+const A2A.A2AProtocol.MessageRecordedAtKey = "a2a.message.recordedAt" -> string!
+A2A.MessageRecordedAtExtensions
+static A2A.MessageRecordedAtExtensions.GetRecordedAt(this A2A.Message! message) -> System.DateTimeOffset?
