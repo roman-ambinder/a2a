@@ -5,6 +5,7 @@
     <Project Path="interop/dotnet/InteropClient/InteropClient.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/ChatAgent/ChatAgent.csproj" />
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
     <Project Path="samples/EchoClient/EchoClient.csproj" />
     <Project Path="samples/MultiInstance/Agent/MultiInstanceAgent.csproj" />
@@ -26,6 +27,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/A2A.Benchmarks/A2A.Benchmarks.csproj" />
+    <Project Path="tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj" />
     <Project Path="tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj" />
     <Project Path="tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj" />
     <Project Path="tests/A2A.Tests/A2A.Tests.csproj" />
