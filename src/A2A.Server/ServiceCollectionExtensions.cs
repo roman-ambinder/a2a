@@ -18,7 +18,9 @@ public static class A2AServerServiceCollectionExtensions
     /// and <see cref="A2AServerBuilder.AddAgentExecutorResolver{T}"/> for one agent per tenant). Register your
     /// own <see cref="Storage.TaskStore"/> (with the <see cref="Storage.EventStore"/> and <see cref="PushOutbox"/> it commits
     /// to), <see cref="Storage.PushConfigStore"/>, <see cref="Idempotency.IdempotencyStore"/> or
-    /// <see cref="Coordination.ExecutionCoordinator"/> before or after to replace them.
+    /// <see cref="Coordination.ExecutionCoordinator"/> before or after to replace them. At startup it logs an error when the push
+    /// outbox is durable but push secrets use the per-process <see cref="EphemeralPushSecretProtector"/>, and a warning when the
+    /// task store is durable but the coordinator is the process-local one.
     /// </summary>
     public static A2AServerBuilder AddA2AServer(this IServiceCollection services, Action<A2AServerOptions>? configure = null)
     {
@@ -45,6 +47,7 @@ public static class A2AServerServiceCollectionExtensions
         services.TryAddSingleton<A2APushAdmin>();
         services.TryAddSingleton<Retention.A2ATaskAdmin>();
         services.TryAddSingleton<A2ARequestHandler>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, A2AStartupDiagnostics>());
         return new A2AServerBuilder(services);
     }
 
