@@ -70,8 +70,7 @@ public sealed class A2ACredentialBinding
         }
 
         if (!Uri.TryCreate(selectedInterface.Url, UriKind.Absolute, out var itfUrl)
-            || Uri.Compare(itfUrl, origin, UriComponents.Scheme | UriComponents.Host | UriComponents.StrongPort,
-                UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) != 0)
+            || !IsSameOrigin(itfUrl, origin))
         {
             var itfOrigin = itfUrl is null ? "(invalid URL)" : itfUrl.GetLeftPart(UriPartial.Authority);
             throw new A2AException(A2AErrorCode.InvalidAgentResponse,
@@ -89,4 +88,8 @@ public sealed class A2ACredentialBinding
 
         return new A2ACredentialBinding(origin, chosen);
     }
+
+    internal static bool IsSameOrigin(Uri a, Uri b) =>
+        Uri.Compare(a, b, UriComponents.Scheme | UriComponents.Host | UriComponents.StrongPort,
+            UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) == 0;
 }
