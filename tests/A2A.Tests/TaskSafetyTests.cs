@@ -91,13 +91,18 @@ public class TaskSafetyTests
             {
                 // A second stream on the same task sees the same final event.
                 var taskId = ((StatusUpdateEvent)evt).StatusUpdate.TaskId;
+                var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 var subscriber = Task.Run(async () =>
                 {
                     StreamResponse? last = null;
-                    await foreach (var e in host.Client(binding).SubscribeToTaskAsync(taskId)) last = e;
+                    await foreach (var e in host.Client(binding).SubscribeToTaskAsync(taskId))
+                    {
+                        last = e;
+                        connected.TrySetResult(); // the first event is the task snapshot: the subscriber is attached
+                    }
                     return last;
                 });
-                await Task.Delay(100);
+                await connected.Task.WaitAsync(TimeSpan.FromSeconds(10));
                 time.FireAll();
                 var lastSeen = await subscriber.WaitAsync(TimeSpan.FromSeconds(10));
                 AssertTimedOut(Assert.IsType<StatusUpdateEvent>(lastSeen).StatusUpdate.Status);
@@ -139,8 +144,8 @@ public class TaskSafetyTests
         Assert.Equal(TaskState.InputRequired, task.Status.State);
         await host.WaitIdleAsync();
 
-        time.FireAll(); // the timer of the finished execution is disposed: nothing happens
-        await Task.Delay(100);
+        Assert.Equal(0, time.Live); // the timer of the finished execution is disposed, so firing it does nothing
+        time.FireAll();
         Assert.Equal(TaskState.InputRequired, (await client.GetTaskAsync(task.Id)).Status.State);
 
         // A follow-up is a new execution with its own time limit.
