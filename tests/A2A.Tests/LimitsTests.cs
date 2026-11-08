@@ -693,7 +693,7 @@ public class LimitsTests
     public async Task Startup_fails_without_the_rate_limiter_middleware()
     {
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => TestAgentHost.StartAsync(useA2A: false));
-        Assert.Equal("Call app.UseA2A() (it adds the rate limiter middleware) or set A2AServerOptions.EnableRateLimiting = false.", ex.Message);
+        Assert.Equal("Call app.UseA2A() before app.UseAuthorization(), or set A2AServerOptions.EnableRateLimiting = false.", ex.Message);
     }
 
     [Fact]

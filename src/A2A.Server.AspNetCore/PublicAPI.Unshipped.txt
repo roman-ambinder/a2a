@@ -29,7 +29,7 @@ A2A.Server.AspNetCore.RouteTenantResolver.Resolve(Microsoft.AspNetCore.Http.Http
 A2A.Server.AspNetCore.RouteTenantResolver.RouteTenantResolver() -> void
 const A2A.Server.AspNetCore.A2ARateLimitingExtensions.PolicyName = "a2a" -> string!
 const A2A.Server.AspNetCore.DataProtectionPushSecretProtector.Purpose = "A2A.PushSecrets.v1" -> string!
-static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2A(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern = "/") -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
+static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2A(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern = "/", System.Action<A2A.Server.AspNetCore.A2AEndpointOptions!>? configure = null) -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
 static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AHttpJson(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! prefix = "/") -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
 static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AJsonRpc(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern = "/") -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
 static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapAgentCard(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints) -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder!
@@ -51,3 +51,10 @@ A2A.Server.AspNetCore.Operations.A2AOperationTable.A2AOperationTable(System.Coll
 A2A.Server.AspNetCore.Operations.A2AOperationTable.Extensions.get -> System.Collections.Generic.IReadOnlyList<A2A.Server.Pipeline.A2AExtensionOperation!>!
 A2A.Server.AspNetCore.Operations.A2AOperationTable.JsonRpcMethods.get -> System.Collections.Generic.IReadOnlyDictionary<string!, A2A.Server.Pipeline.A2AOperationDescriptor!>!
 A2A.Server.AspNetCore.Operations.A2AOperationTable.RestRoutes.get -> System.Collections.Generic.IReadOnlyList<(string! Method, string! Route, A2A.Server.Pipeline.A2AOperationDescriptor! Op)>!
+A2A.Server.AspNetCore.A2AEndpointOptions
+A2A.Server.AspNetCore.A2AEndpointOptions.A2AEndpointOptions() -> void
+A2A.Server.AspNetCore.A2AEndpointOptions.AuthorizationPolicy.get -> string?
+A2A.Server.AspNetCore.A2AEndpointOptions.AuthorizationPolicy.set -> void
+A2A.Server.AspNetCore.A2AEndpointOptions.MapAgentCard.get -> bool
+A2A.Server.AspNetCore.A2AEndpointOptions.MapAgentCard.set -> void
+static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2A(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<A2A.Server.A2AServerBuilder!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

@@ -1,7 +1,9 @@
+using A2A.Server.Pipeline;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -26,6 +28,14 @@ internal sealed class A2AEndpointRegistry
         }
     }
 
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ICollection<EndpointDataSource>, object> _cardMapped = new();
+
+    /// <summary>True the first time it is called for <paramref name="source"/> (the route builder's data sources); false after.</summary>
+    public bool TryMarkCardMapped(ICollection<EndpointDataSource> source)
+    {
+        lock (_cardMapped) return _cardMapped.TryAdd(source, true);
+    }
+
     public bool HasSources
     {
         get { lock (_sources) return _sources.Count > 0; }
@@ -46,22 +56,24 @@ internal sealed class A2AEndpointRegistry
 /// A2A endpoints use the rate limit policy but <c>app.UseA2A()</c> (the rate limiter middleware) was not added.
 /// </summary>
 internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions<A2AServerOptions> options,
-    IHostApplicationLifetime lifetime, ILogger<A2AStartupValidator> logger, A2ARateLimitMarker? rateLimit = null) : IHostedService
+    IHostApplicationLifetime lifetime, ILogger<A2AStartupValidator> logger, IServiceProvider services,
+    IEnumerable<A2AExtensionOperation> extensions, A2ARateLimitMarker? rateLimit = null) : IHostedService
 {
     internal const string NoPolicyMessage =
-        "A2A endpoints have no authorization policy. Call RequireAuthorization() on MapA2A(...) or set A2AServerOptions.AllowAnonymous = true.";
+        "A2A endpoints have no authorization policy. Call app.MapA2A(...).RequireAuthorization() or MapA2A(pattern, o => o.AuthorizationPolicy = \"...\"), or set A2AServerOptions.AllowAnonymous = true.";
 
     internal const string AnonymousWarning =
         "A2A endpoints allow anonymous callers. All anonymous callers share one owner and can read each other's tasks.";
 
     internal const string NoRateLimiterMessage =
-        "Call app.UseA2A() (it adds the rate limiter middleware) or set A2AServerOptions.EnableRateLimiting = false.";
+        "Call app.UseA2A() before app.UseAuthorization(), or set A2AServerOptions.EnableRateLimiting = false.";
 
     private const string Prefix = "A2A ";
     private const string AgentCard = "A2A Agent Card";
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
+        await CheckExtensionPoliciesAsync().ConfigureAwait(false);
         if (options.Value.AllowAnonymous) AspNetCoreLog.AnonymousCallersAllowed(logger);
 
         if (!registry.HasSources)
@@ -75,11 +87,26 @@ internal sealed class A2AStartupValidator(A2AEndpointRegistry registry, IOptions
                     lifetime.StopApplication();
                 }
             });
-            return Task.CompletedTask;
+            return;
         }
 
         Check();
-        return Task.CompletedTask;
+    }
+
+    /// <summary>Fails when an extension operation names an authorization policy the app cannot evaluate (fail closed).</summary>
+    private async Task CheckExtensionPoliciesAsync()
+    {
+        foreach (var extension in extensions)
+        {
+            if (extension.AuthorizationPolicy is not { } policy) continue;
+            var provider = services.GetService<IAuthorizationPolicyProvider>();
+            if (services.GetService<IAuthorizationService>() is null || provider is null)
+                throw new InvalidOperationException(
+                    $"Extension operation '{extension.Method}' names authorization policy '{policy}', but no IAuthorizationService is registered. Call services.AddAuthorization().");
+            if (await provider.GetPolicyAsync(policy).ConfigureAwait(false) is null)
+                throw new InvalidOperationException(
+                    $"Extension operation '{extension.Method}' names authorization policy '{policy}', which is not registered.");
+        }
     }
 
     private void Check()

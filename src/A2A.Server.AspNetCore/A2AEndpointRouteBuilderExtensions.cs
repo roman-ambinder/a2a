@@ -31,6 +31,23 @@ public static class A2AServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// One-call registration of the A2A server: <c>AddA2AServer()</c>, then <see cref="AddA2AServerAspNetCore"/>, then
+    /// <paramref name="configure"/> with the builder (agent, card, stores, filters). Returns the service collection, like
+    /// <see cref="AddA2AServerAspNetCore"/>; the builder is only available inside <paramref name="configure"/>. Hosts that need
+    /// <see cref="A2AServerOptions"/> set at registration use the two-step form.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> or <paramref name="configure"/> is null.</exception>
+    public static IServiceCollection AddA2A(this IServiceCollection services, Action<A2AServerBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configure);
+        var builder = services.AddA2AServer();
+        services.AddA2AServerAspNetCore();
+        configure(builder);
+        return services;
+    }
+
     /// <summary>Configures HTTP-level settings (caller id, SSE keep-alive, card signing).</summary>
     public static IServiceCollection ConfigureA2AHttp(this IServiceCollection services, Action<A2AHttpOptions> configure) =>
         services.Configure(configure);
@@ -53,9 +70,12 @@ public static partial class A2AEndpointRouteBuilderExtensions
     /// <summary>
     /// Maps both bindings under one base URL: JSON-RPC at <c>POST {pattern}</c> and HTTP+JSON at <c>{pattern}/message:send</c>,
     /// <c>{pattern}/tasks/...</c>, etc. Declare both in the Agent Card with the same URL. Every endpoint is inside the
-    /// returned group, so call <c>RequireAuthorization()</c> (or rate limiting, CORS) on it. If no endpoint authorization
-    /// is set and <see cref="A2AServerOptions.AllowAnonymous"/> is false, the app fails at startup. The Agent Card itself is
-    /// mapped separately with <see cref="MapAgentCard"/>.
+    /// returned group, so call <c>RequireAuthorization()</c> (or rate limiting, CORS) on it, or set
+    /// <see cref="A2AEndpointOptions.AuthorizationPolicy"/>. If no endpoint authorization is set and
+    /// <see cref="A2AServerOptions.AllowAnonymous"/> is false, the app fails at startup. Unless
+    /// <see cref="A2AEndpointOptions.MapAgentCard"/> is false, it also maps the public Agent Card (and JWKS) as
+    /// <see cref="MapAgentCard"/> does, on <paramref name="endpoints"/> and outside the returned group, so authorization on the
+    /// group never applies to the card. The card is mapped once per route builder, however often this is called.
     /// </summary>
     /// <remarks>
     /// Tenants: with a <c>{tenant}</c> segment in <paramref name="pattern"/> (for example <c>"/{tenant}/a2a"</c>) the route
@@ -63,14 +83,19 @@ public static partial class A2AEndpointRouteBuilderExtensions
     /// (<c>POST {pattern}/{tenant}</c> for JSON-RPC). Requires <see cref="A2AServiceCollectionExtensions.AddA2AServerAspNetCore"/>.
     /// </remarks>
     /// <exception cref="InvalidOperationException"><c>services.AddA2AServerAspNetCore()</c> was not called.</exception>
-    public static RouteGroupBuilder MapA2A(this IEndpointRouteBuilder endpoints, string pattern = "/")
+    public static RouteGroupBuilder MapA2A(this IEndpointRouteBuilder endpoints, string pattern = "/",
+        Action<A2AEndpointOptions>? configure = null)
     {
         RequireRegistration(endpoints);
+        var options = new A2AEndpointOptions();
+        configure?.Invoke(options);
         var group = endpoints.MapGroup(pattern);
         var tenantInPattern = HasTenantSegment(pattern);
         MapJsonRpc(endpoints, group, tenantInPattern);
         ActivatorUtilities.CreateInstance<RestEndpoint>(endpoints.ServiceProvider).Map(group, tenantInPattern);
         ApplyRateLimiting(endpoints, group);
+        if (options.AuthorizationPolicy is { } policy) group.RequireAuthorization(policy);
+        if (options.MapAgentCard) MapAgentCard(endpoints);
         return group;
     }
 
@@ -148,9 +173,17 @@ public static partial class A2AEndpointRouteBuilderExtensions
     /// <summary>
     /// Serves the public Agent Card at <c>/.well-known/agent-card.json</c> (anonymous, cacheable). When a signing key is
     /// configured, the card is signed and the public key is served at <see cref="A2AHttpOptions.JwksPath"/>.
+    /// <see cref="MapA2A"/> already does this; call it for hosts that map the card without <c>MapA2A</c>.
     /// </summary>
+    /// <returns>
+    /// A convention builder for the card endpoints. It never double-maps: when the card is already mapped on
+    /// <paramref name="endpoints"/> (by an earlier <see cref="MapA2A"/> or <c>MapAgentCard</c>), nothing is mapped and the result
+    /// is a no-op builder whose conventions are ignored.
+    /// </returns>
     public static IEndpointConventionBuilder MapAgentCard(this IEndpointRouteBuilder endpoints)
     {
+        if (endpoints.ServiceProvider.GetService<A2AEndpointRegistry>() is { } registry && !registry.TryMarkCardMapped(endpoints.DataSources))
+            return NoOpConventionBuilder.Instance;
         var card = ActivatorUtilities.CreateInstance<AgentCardEndpoint>(endpoints.ServiceProvider);
         var jwksPath = endpoints.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<A2AHttpOptions>>().Value.JwksPath;
         var group = endpoints.MapGroup("");
@@ -158,5 +191,11 @@ public static partial class A2AEndpointRouteBuilderExtensions
         group.MapGet(jwksPath, card.GetJwksAsync).WithDisplayName("A2A Agent Card JWKS");
         group.AllowAnonymous();
         return group;
+    }
+
+    private sealed class NoOpConventionBuilder : IEndpointConventionBuilder
+    {
+        public static readonly NoOpConventionBuilder Instance = new();
+        public void Add(Action<EndpointBuilder> convention) { }
     }
 }
