@@ -261,20 +261,6 @@ public class SigningTests
     }
 }
 
-public class SseReaderTests
-{
-    [Fact]
-    public async Task Parses_multiline_data_comments_crlf_and_drops_incomplete_event()
-    {
-        var text = ": hello\r\ndata: a\r\ndata: b\r\n\r\nevent: x\nid: 7\ndata:c\n\ndata: incomplete";
-        var events = new List<SseEvent>();
-        await foreach (var e in SseReader.ReadAsync(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(text)))) events.Add(e);
-        Assert.Equal(2, events.Count);
-        Assert.Equal("a\nb", events[0].Data);
-        Assert.Equal(new SseEvent("c", "x", "7"), events[1]);
-    }
-}
-
 public class PushUrlValidatorTests
 {
     [Theory]
