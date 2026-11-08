@@ -61,12 +61,9 @@ public sealed class PushConfigService(PushConfigStore store, IPushSecretProtecto
         return new ListTaskPushNotificationConfigsResponse { Configs = page, NextPageToken = next };
     }
 
-    /// <summary>Deletes a registration. Throws TaskNotFound when it does not exist.</summary>
-    public async ValueTask DeleteAsync(TaskKey key, string configId, CancellationToken cancellationToken)
-    {
-        if (!await store.DeleteAsync(key, configId, cancellationToken).ConfigureAwait(false))
-            throw ConfigNotFound(key.TaskId, configId);
-    }
+    /// <summary>Deletes a registration. Idempotent (spec §3.1.10): deleting one that does not exist succeeds and changes nothing.</summary>
+    public async ValueTask DeleteAsync(TaskKey key, string configId, CancellationToken cancellationToken) =>
+        _ = await store.DeleteAsync(key, configId, cancellationToken).ConfigureAwait(false);
 
     /// <summary>Checks the webhook URL of the inline config of a SendMessage request, before anything is committed.</summary>
     public ValueTask ValidateInlineAsync(TaskPushNotificationConfig config, CancellationToken cancellationToken) =>

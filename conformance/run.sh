@@ -63,7 +63,8 @@ for suite in $SUITES; do
   case "$suite" in
     tck)
       fetch "$TCK_REPO" "$CACHE/a2a-tck" "$TCK_REF" || exit 2
-      start_agent "$PORT" || exit 2
+      # The TCK reuses one messageId across tasks, so it needs SDK message dedupe off (see Program.cs).
+      start_agent "$PORT" SUT_DISABLE_MESSAGE_DEDUPE=1 || exit 2
       mkdir -p "$OUT/tck"
       # Non-zero exit on failures is expected; check.py decides.
       (cd "$CACHE/a2a-tck" && uv sync --frozen -q && uv run --frozen python run_tck.py \

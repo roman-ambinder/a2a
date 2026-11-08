@@ -2,3 +2,4 @@
 #   <suite> <binding|*> <test-id>  # reason (with an issue link for suite bugs)
 # suite: tck | acts      binding: jsonrpc | rest | grpc | *  (TCK's http_json is written as rest)
 # conformance/check.py fails CI on any failure not listed here, and tells you when a listed one starts passing.
+tck rest HTTP_JSON-ERR-001  # a2a-tck test_error_handling.py requires application/json on errors, but spec 11.6 shows application/a2a+json and the TCK's own HTTP+JSON content-type check expects application/a2a+json

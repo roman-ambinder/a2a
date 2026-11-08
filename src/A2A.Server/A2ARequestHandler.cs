@@ -291,12 +291,79 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         }
     }
 
+    /// <summary>
+    /// Throws ContentTypeNotSupported when a part's media type is not accepted by the card (default input modes plus every
+    /// skill's input modes). Parts without a media type are never checked, and then the card is not even resolved. A card that
+    /// declares no modes accepts everything.
+    /// </summary>
+    private async ValueTask RequireSupportedMediaTypesAsync(Message message, ServerCallContext call, CancellationToken ct)
+    {
+        var hasMediaType = false;
+        foreach (var part in message.Parts)
+            if (!string.IsNullOrEmpty(part.MediaType)) { hasMediaType = true; break; }
+        if (!hasMediaType) return;
+
+        var card = await _requestCards.RequireAgentAsync(call, ct).ConfigureAwait(false);
+        if (!HasAnyInputMode(card)) return;
+        foreach (var part in message.Parts)
+        {
+            if (string.IsNullOrEmpty(part.MediaType) || AcceptsMediaType(card, part.MediaType)) continue;
+            throw new A2AException(A2AErrorCode.ContentTypeNotSupported, $"Media type '{part.MediaType}' is not supported by this agent.");
+        }
+    }
+
+    private static bool HasAnyInputMode(AgentCard card)
+    {
+        if (card.DefaultInputModes is { Count: > 0 }) return true;
+        if (card.Skills is not null)
+            foreach (var skill in card.Skills)
+                if (skill.InputModes is { Count: > 0 }) return true;
+        return false;
+    }
+
+    private static bool AcceptsMediaType(AgentCard card, string mediaType)
+    {
+        var wanted = MediaTypeEssence(mediaType);
+        if (card.DefaultInputModes is not null)
+            foreach (var mode in card.DefaultInputModes)
+                if (ModeMatches(mode, wanted)) return true;
+        if (card.Skills is not null)
+            foreach (var skill in card.Skills)
+                if (skill.InputModes is not null)
+                    foreach (var mode in skill.InputModes)
+                        if (ModeMatches(mode, wanted)) return true;
+        return false;
+    }
+
+    /// <summary>The media type without parameters, trimmed.</summary>
+    private static ReadOnlySpan<char> MediaTypeEssence(string mediaType)
+    {
+        var span = mediaType.AsSpan();
+        var semi = span.IndexOf(';');
+        if (semi >= 0) span = span[..semi];
+        return span.Trim();
+    }
+
+    private static bool ModeMatches(string? mode, ReadOnlySpan<char> wanted)
+    {
+        if (string.IsNullOrEmpty(mode)) return false;
+        var m = MediaTypeEssence(mode);
+        if (m.Equals(wanted, StringComparison.OrdinalIgnoreCase) || m.Equals("*/*", StringComparison.Ordinal)) return true;
+        if (m.Length > 2 && m[^2..].SequenceEqual("/*"))
+        {
+            var slash = wanted.IndexOf('/');
+            return slash > 0 && m[..^1].Equals(wanted[..(slash + 1)], StringComparison.OrdinalIgnoreCase);
+        }
+        return false;
+    }
+
     private async Task<Prepared> PrepareAsync(SendMessageRequest request, ServerCallContext call, CancellationToken ct, string? newTaskId = null)
     {
         call.BindTenant(request.Tenant);
         A2AValidator.ValidateIncoming(request);
         RequestLimitValidator.Validate(request.Message, _options.Limits);
         ActorChainValidator.Validate(request.Message, _options.Limits, call);
+        await RequireSupportedMediaTypesAsync(request.Message, call, ct).ConfigureAwait(false);
         // A copy: the caller's message is never changed (a retry with the same instance must hash the same). This copy goes to
         // the executor; the stored history gets copies of its own.
         var message = request.Message.DeepCopy();
@@ -697,7 +764,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         return await _pushConfigs.ListAsync(key, request.PageSize ?? 0, request.PageToken, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>DeleteTaskPushNotificationConfig (spec §3.1.10). Throws when the registration does not exist.</summary>
+    /// <summary>DeleteTaskPushNotificationConfig (spec §3.1.10). Idempotent: a registration that does not exist is not an error. An unknown task is TaskNotFound.</summary>
     public async Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken = default)
     {
         call.BindTenant(request.Tenant);

@@ -44,6 +44,31 @@ public class PushConfigTests : IAsyncLifetime
 
     [Theory]
     [MemberData(nameof(Bindings))]
+    public async Task Delete_is_idempotent_and_an_unknown_task_is_still_not_found(string binding)
+    {
+        var client = _host.Client(binding, "alice");
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+        var created = await client.CreateTaskPushNotificationConfigAsync(Secret(task.Id));
+        var delete = new DeleteTaskPushNotificationConfigRequest { TaskId = task.Id, Id = created.Id! };
+
+        await client.DeleteTaskPushNotificationConfigAsync(delete);
+        await client.DeleteTaskPushNotificationConfigAsync(delete); // second delete: same effect, no error
+        await client.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = task.Id, Id = "never-existed" });
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() =>
+            client.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = "no-such-task", Id = "c" }));
+        Assert.Equal(A2AErrorCode.TaskNotFound, ex.Code);
+    }
+
+    [Fact]
+    public async Task Service_DeleteAsync_of_a_missing_config_succeeds()
+    {
+        var service = _host.App.Services.GetRequiredService<PushConfigService>();
+        await service.DeleteAsync(new TaskKey("", "alice", "t1"), "missing", CancellationToken.None);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
     public async Task Stored_secret_is_not_plaintext(string binding)
     {
         var client = _host.Client(binding, "alice");

@@ -4,6 +4,7 @@
 // Usage: dotnet run -- [port]     HTTP (JSON-RPC + HTTP+JSON) on <port>, cleartext gRPC on <port+1>.
 // Env:   ITK_ACTS_AUTH=1                  require a bearer token on every operation (ACTS auth pass)
 //        ITK_ACTS_REDUCED_CAPABILITIES=1  advertise no streaming, push or extended card (ACTS reduced pass)
+//        SUT_DISABLE_MESSAGE_DEDUPE=1     turn off messageId deduplication (TCK run, see the store registration below)
 using A2A;
 using A2A.Server;
 using A2A.Server.AspNetCore;
@@ -43,12 +44,18 @@ var card = new AgentCard
         PushNotifications = !reduced,
         ExtendedAgentCard = !reduced,
     },
-    DefaultInputModes = ["text/plain", "application/json"],
+    DefaultInputModes = ["text/plain", "application/json", "application/pdf"],
     DefaultOutputModes = ["text/plain", "application/json"],
     Skills = [new AgentSkill { Id = "conformance", Name = "Conformance", Description = "TCK and ACTS test behaviors", Tags = ["tck", "acts"] }],
     SecuritySchemes = ActsAuth.SecuritySchemes(),
     SecurityRequirements = ActsAuth.SecurityRequirements(),
 };
+
+// a2a-tck's helpers reuse one messageId for every task they create (tck_id(prefix); a2a-tck PR #250 fixed this only for the
+// history checks). With the SDK's default dedupe the TCK gets replays or mismatch errors and about 30 requirements go
+// untested. The SDK uses TryAdd, so this must be registered before AddA2AServer.
+if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SUT_DISABLE_MESSAGE_DEDUPE")))
+    builder.Services.AddSingleton<A2A.Server.Idempotency.IdempotencyStore, NoDedupeStore>();
 
 builder.Services.AddA2AServer(o =>
 {
