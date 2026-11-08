@@ -42,6 +42,12 @@ public sealed class AgentRequestContext
 
     public bool IsNewTask => Task is null;
 
+    /// <summary>
+    /// For a follow-up to a task waiting for an approval (<see cref="TaskUpdater.RequireApprovalAsync"/>): whether the message
+    /// carries the pending approval's hash. Act on the approved action only when this is <see cref="ApprovalState.Approved"/>.
+    /// </summary>
+    public ApprovalState Approval { get; init; }
+
     /// <summary>Concatenated text of the incoming message.</summary>
     public string UserText => Message.GetText();
 }
@@ -127,6 +133,21 @@ public sealed class TaskUpdater
     /// <summary>Asks the client to obtain authorization (spec §7.6). Streams stay open while you wait for out-of-band credentials.</summary>
     public ValueTask RequireAuthAsync(string text, CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(TaskState.AuthRequired, NewAgentMessage(text), null, cancellationToken);
+
+    /// <summary>
+    /// Asks the client to confirm one exact action. The status message carries the approval's hash in its metadata
+    /// (<see cref="A2AProtocol.ApprovalHashKey"/>); a client that approves echoes it in the follow-up message's metadata under the
+    /// same key, and the executor then sees <see cref="AgentRequestContext.Approval"/> = <see cref="ApprovalState.Approved"/>.
+    /// Call it again when the follow-up is <see cref="ApprovalState.NotApproved"/>.
+    /// </summary>
+    public ValueTask RequireApprovalAsync(PendingApproval approval, string text, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(approval);
+        var message = NewAgentMessage(text);
+        using var hash = JsonDocument.Parse($"\"{approval.Hash}\""); // lowercase hex: nothing to escape
+        message.Metadata = new() { [A2AProtocol.ApprovalHashKey] = hash.RootElement.Clone() };
+        return UpdateStatusAsync(TaskState.InputRequired, message, null, cancellationToken);
+    }
 
     public ValueTask UpdateStatusAsync(TaskState state, Message? message = null, Dictionary<string, JsonElement>? metadata = null, CancellationToken cancellationToken = default)
     {

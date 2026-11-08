@@ -17,6 +17,12 @@ public static class A2AProtocol
 
     public const string ErrorDomain = "a2a-protocol.org";
 
+    /// <summary>Metadata key (status message and follow-up message) carrying the hash of a pending approval.</summary>
+    public const string ApprovalHashKey = "a2a.approval.hash";
+
+    /// <summary>Metadata key on a CancelTask response: the cancel was requested but the execution has not stopped yet. Never stored.</summary>
+    public const string CancelRequestedKey = "a2a.cancelRequested";
+
     public static class Headers
     {
         public const string Version = "A2A-Version";
