@@ -163,6 +163,109 @@ public class TaskSafetyTests
         Assert.Equal(0, time.Created);
     }
 
+    [Theory]
+    [InlineData(-1)] // TimeSpan.MaxValue
+    [InlineData(60)]
+    public async Task Time_limit_too_large_for_a_timer_turns_the_limit_off(int days)
+    {
+        var limit = days < 0 ? TimeSpan.MaxValue : TimeSpan.FromDays(days);
+        await using var host = await TestAgentHost.StartAsync(o => o.MaxTaskDuration = limit);
+        var client = host.Client(ProtocolBindings.JsonRpc, options: new A2AClientOptions { MaxRetries = 0 });
+
+        var task = (await client.SendMessageAsync("task")).RequireTask();
+
+        Assert.Equal(TaskState.Completed, task.Status.State);
+        // The execution ended and left the running registry.
+        await host.Handler.WhenIdleAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(TaskState.Completed, (await client.GetTaskAsync(task.Id)).Status.State);
+    }
+
+    /// <summary>The time limit timer cannot be created; the heartbeat timers are tracked.</summary>
+    private sealed class FailingLimitTimeProvider(TimeSpan heartbeat) : TimeProvider
+    {
+        public ConcurrentQueue<TrackedTimer> Heartbeats { get; } = new();
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            if (dueTime == Limit) throw new InvalidOperationException("No timer for the time limit.");
+            var timer = System.CreateTimer(callback, state, dueTime, period);
+            if (dueTime != heartbeat || period != heartbeat) return timer;
+            var tracked = new TrackedTimer(timer);
+            Heartbeats.Enqueue(tracked);
+            return tracked;
+        }
+
+        public sealed class TrackedTimer(ITimer inner) : ITimer
+        {
+            public volatile bool Disposed;
+
+            public bool Change(TimeSpan dueTime, TimeSpan period) => inner.Change(dueTime, period);
+
+            public void Dispose()
+            {
+                Disposed = true;
+                inner.Dispose();
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                Disposed = true;
+                return inner.DisposeAsync();
+            }
+        }
+    }
+
+    /// <summary>Rents <see cref="ScenarioAgent"/> with a scope that counts its releases.</summary>
+    private sealed class CountingFactory : IAgentExecutorFactory, IAsyncDisposable
+    {
+        private int _rented;
+        private int _released;
+
+        public int Rented => Volatile.Read(ref _rented);
+
+        public int Released => Volatile.Read(ref _released);
+
+        public ValueTask<AgentExecutorLease> RentAsync(string tenant, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _rented);
+            return ValueTask.FromResult(new AgentExecutorLease(new ScenarioAgent(), this));
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Interlocked.Increment(ref _released);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task Failure_to_start_the_time_limit_cleans_up_the_execution()
+    {
+        var heartbeat = TimeSpan.FromSeconds(7);
+        var time = new FailingLimitTimeProvider(heartbeat);
+        var factory = new CountingFactory();
+        await using var host = await TestAgentHost.StartAsync(o =>
+        {
+            o.MaxTaskDuration = Limit;
+            o.Coordination.Heartbeat = heartbeat;
+        }, services: s =>
+        {
+            s.AddSingleton<TimeProvider>(time);
+            s.AddSingleton<IAgentExecutorFactory>(factory);
+        });
+        var client = host.Client(ProtocolBindings.JsonRpc, options: new A2AClientOptions { MaxRetries = 0 });
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync("task"));
+        Assert.Equal(A2AErrorCode.Internal, ex.Code);
+
+        // Not running any more, the heartbeat stopped, and the agent's lease is released.
+        await host.Handler.WhenIdleAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(1, factory.Rented);
+        Assert.Equal(1, factory.Released);
+        Assert.NotEmpty(time.Heartbeats);
+        Assert.All(time.Heartbeats, t => Assert.True(t.Disposed));
+    }
+
     private static void AssertTimedOut(AgentTaskStatus status)
     {
         Assert.Equal(TaskState.Failed, status.State);

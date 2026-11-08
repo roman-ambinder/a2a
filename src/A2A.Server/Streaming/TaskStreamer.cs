@@ -526,8 +526,8 @@ public sealed class TaskStreamer
     {
         var limits = _options.Limits;
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        if (IsTimeLimit(limits.MaxStreamDuration)) stop.CancelAfter(limits.MaxStreamDuration);
-        TimeSpan? reauthEvery = IsTimeLimit(limits.StreamReauthInterval) ? limits.StreamReauthInterval : null;
+        if (TimeLimits.IsTimeLimit(limits.MaxStreamDuration)) stop.CancelAfter(limits.MaxStreamDuration);
+        TimeSpan? reauthEvery = TimeLimits.IsTimeLimit(limits.StreamReauthInterval) ? limits.StreamReauthInterval : null;
         static long Ticks(TimeSpan t) => (long)(t.TotalSeconds * Stopwatch.Frequency);
 
         var events = source.GetAsyncEnumerator(stop.Token);
@@ -589,9 +589,6 @@ public sealed class TaskStreamer
             return allowed;
         }
     }
-
-    /// <summary>True for a usable timer value. Zero, negative (including <see cref="Timeout.InfiniteTimeSpan"/>) and huge values turn the limit off.</summary>
-    private static bool IsTimeLimit(TimeSpan value) => value > TimeSpan.Zero && value.TotalMilliseconds < int.MaxValue;
 
     private static TaskKey Key(ServerCallContext call, string taskId) => new(call.Tenant, call.Principal, taskId);
 

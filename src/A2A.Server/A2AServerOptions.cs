@@ -64,8 +64,8 @@ public sealed class A2AServerOptions
     /// <see cref="TaskState.Failed"/> with the status text "Task exceeded its time limit" (sent to streams and webhooks like
     /// any final event), and the execution's cancellation token fires. Events the agent sends after that are dropped.
     /// Time is measured per execution, so a task waiting in <c>INPUT_REQUIRED</c> or <c>AUTH_REQUIRED</c> with no agent
-    /// running is not affected, and each follow-up message gets the full time again. Null, zero or negative turns the limit
-    /// off. Default null (off). The clock is the <see cref="TimeProvider"/> registered in DI, else <see cref="TimeProvider.System"/>.
+    /// running is not affected, and each follow-up message gets the full time again. Null, zero, negative, or too large for a
+    /// timer (<see cref="int.MaxValue"/> milliseconds, about 24.8 days, or more) turns the limit off. Default null (off). The clock is the <see cref="TimeProvider"/> registered in DI, else <see cref="TimeProvider.System"/>.
     /// </summary>
     public TimeSpan? MaxTaskDuration { get; set; }
 

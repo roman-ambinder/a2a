@@ -284,19 +284,38 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             PushEnabled = pushEnabled,
         };
         var scope = ScopeKey(key.Tenant, taskId);
-        // Here first, then cluster-wide: whenever the coordinator lists the execution, this instance has it too.
-        _running.Add(scope, exec);
-        await RegisterAsync(exec).ConfigureAwait(false);
-        var heartbeat = _time.CreateTimer(static state => { var (engine, e) = ((TaskExecutionEngine, Execution))state!; _ = engine.HeartbeatAsync(e); },
-            (this, exec), _options.Coordination.Heartbeat, _options.Coordination.Heartbeat);
         var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata);
         // The first history entry of a new task, copied before the executor starts: the executor may change its message.
         var historyMessage = isNewTask && userMessage is not null ? WithTask(userMessage, taskId) : null;
-        // Started before the agent, so the time spent waiting for a thread counts too. Disposed when the agent returns.
-        var timer = timeLimit is { } limit && limit > TimeSpan.Zero
-            ? _time.CreateTimer(static state => { var (engine, e, u) = ((TaskExecutionEngine, Execution, TaskUpdater))state!; _ = engine.TimeOutAsync(e, u); },
-                (this, exec, updater), limit, Timeout.InfiniteTimeSpan)
-            : null;
+        // Here first, then cluster-wide: whenever the coordinator lists the execution, this instance has it too.
+        _running.Add(scope, exec);
+        ITimer? heartbeat = null;
+        ITimer? timer;
+        try
+        {
+            await RegisterAsync(exec).ConfigureAwait(false);
+            heartbeat = _time.CreateTimer(static state => { var (engine, e) = ((TaskExecutionEngine, Execution))state!; _ = engine.HeartbeatAsync(e); },
+                (this, exec), _options.Coordination.Heartbeat, _options.Coordination.Heartbeat);
+            // Started before the agent, so the time spent waiting for a thread counts too. Disposed when the agent returns.
+            // A limit too large for a timer is off (TimeLimits.IsTimeLimit).
+            timer = timeLimit is { } limit && TimeLimits.IsTimeLimit(limit)
+                ? _time.CreateTimer(static state => { var (engine, e, u) = ((TaskExecutionEngine, Execution, TaskUpdater))state!; _ = engine.TimeOutAsync(e, u); },
+                    (this, exec, updater), limit, Timeout.InfiniteTimeSpan)
+                : null;
+        }
+        catch (Exception ex)
+        {
+            // The agent never started: undo the registration, stop the heartbeat and release the agent's lease, or the
+            // execution would stay running (and its lease renewed) for good.
+            A2ATelemetry.RecordError(exec.Activity, ex);
+            if (heartbeat is not null) await heartbeat.DisposeAsync().ConfigureAwait(false);
+            await UnregisterAsync(exec).ConfigureAwait(false);
+            _running.Remove(scope, exec);
+            exec.EndActivity();
+            exec.MarkDone();
+            await agent.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
         // From here the execution owns the agent's lease and disposes it when the agent returns.
         var lease = agent.TakeLease();
         var producer = Task.Run(async () =>
