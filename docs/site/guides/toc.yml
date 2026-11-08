@@ -32,6 +32,8 @@
   href: observability.md
 - name: Limits and rate limiting
   href: limits-and-rate-limiting.md
+- name: Artifact storage
+  href: artifact-storage.md
 - name: Task safety
   href: task-safety.md
 - name: Interop and conformance

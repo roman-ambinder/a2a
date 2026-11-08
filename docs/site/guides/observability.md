@@ -102,6 +102,10 @@ All counters are `Counter<long>`.
 | `A2A.Server` | `a2a.server.streams.opened` | none | streams admitted (`SendStreamingMessage`, `SubscribeToTask`) |
 | `A2A.Server` | `a2a.server.push.deliveries` | `a2a.outcome` (`sent`, `retried`, `dead_lettered`) | one per delivery attempt, counted when its result is recorded |
 | `A2A.Server` | `a2a.server.push.dead_letters` | none | deliveries that failed for good |
+| `A2A.Server` | `a2a.server.artifact.objects.written` | none | objects written to the artifact object store |
+| `A2A.Server` | `a2a.server.artifact.bytes.written` | none | bytes written to the artifact object store |
+| `A2A.Server` | `a2a.server.artifact.bytes.served` | none | artifact bytes the server streamed to callers (redirects are not counted) |
+| `A2A.Server` | `a2a.server.artifact.orphans.deleted` | none | orphan objects the retention sweep deleted. See [Artifact storage](artifact-storage.md) |
 | `A2A` | `a2a.idempotency.evictions` | none | idempotency entries dropped early because the in-memory store was full |
 | `A2A` | `a2a.card.changed` | `origin` | cards that differ from the pinned card of their origin |
 | `A2A` | `a2a.card.unsigned` | `origin` | unsigned cards accepted because signatures are not required |
@@ -124,7 +128,7 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | 100-101 | client: card signing and pinning |
 | 150-152 | client: agent registry (lookalike name, mixed-script name, identity change) |
 | 200-242 | server: agent runs, coordination, push-config cleanup, retention |
-| 250-253 | server: startup diagnostics |
+| 250-255 | server: startup diagnostics (254 is a task past its size cap) |
 | 300-313 | server: push delivery |
 | 400-402 | server: idempotency |
 | 500-501, 600 | ASP.NET Core: unhandled errors, stream errors |
@@ -140,6 +144,7 @@ The server logs once at startup when a setup works on one instance but breaks ac
 - 251 (Error): push secrets use the per-process key but the push outbox is durable. Configs with a token or credentials will be dead-lettered after a restart.
 - 252 (Warning): the task store is durable but the execution coordinator is the in-process one. `CancelTask` and recovery stay on the instance that runs the agent.
 - 253 (Warning): the task store is durable but the retention sweep is not registered.
+- 255 (Warning): the task store is durable but artifact objects are in the in-memory object store. See [Artifact storage](artifact-storage.md).
 - 700 (Warning): endpoints allow anonymous callers.
 
 Code 250 (Debug) means the checks were skipped because of a broken registration. See [Durable stores](durable-stores.md) and [Retention](retention.md).

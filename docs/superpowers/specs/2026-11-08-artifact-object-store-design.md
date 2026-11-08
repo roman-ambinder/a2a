@@ -82,9 +82,10 @@ History gets no cap of its own: it counts toward `MaxTaskBytes`. (`MaxTurnsPerTa
 - `OpenReadAsync(key, ct)`, returning stream, content type, length, or null.
 - `DeleteAsync(key, ct)`, idempotent.
 - `ListAsync(prefix, ct)`, with each object's creation time, for the sweeper.
+- `ExistsAsync(key, ct)`, a virtual member that defaults to `OpenReadAsync`. `Redirect` mode calls it first, because a presigned URL does not prove the object exists.
 - `TryCreateDownloadUrlAsync(key, TimeSpan lifetime, ct)`, returning a presigned URL or null when the provider has none.
 
-Object key layout: `{tenant}/{taskId}/{objectId}`. `objectId` is a random 128-bit value. Tenant and task ids must be encoded so that no id can change the path. Key layout is internal to the SDK.
+Object key layout: `{tenant}/{taskId}/{objectId}`. `objectId` is a random 128-bit value. Tenant and task ids must be encoded so that no id can change the path. Key layout is internal to the SDK. The ids `.` and `..` are refused as tenant or task id when a link is built, because a URL parser would remove them from the path.
 
 Providers:
 
@@ -157,7 +158,7 @@ The URL holds no secret and never expires, so the encoded event bytes can be kep
 
 Then, by `Delivery`:
 
-- `Redirect`: 302 to a presigned URL when the provider gives one, otherwise proxy.
+- `Redirect`: when the object exists (`ExistsAsync`, otherwise 404), 302 to a presigned URL when the provider gives one, otherwise proxy.
 - `Proxy`: stream through this server.
 
 Responses set `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` and `Cache-Control: private, no-store`. Proxy mode supports `Range`.
@@ -167,13 +168,13 @@ Responses set `Content-Disposition: attachment`, `X-Content-Type-Options: nosnif
 `A2AArtifactDownloader`, a new class, net8+ only (like `ArtifactVerifier`, since `SafeHttp` is not on netstandard2.0). `IA2AClient` does not change.
 
 ```csharp
-var downloader = new A2AArtifactDownloader(agentHttpClient, agentOrigin);
+var downloader = new A2AArtifactDownloader(agentHandler, agentOrigin);
 await downloader.DownloadAsync(urlPart, destination, maxBytes, ct);
 ```
 
-- `agentHttpClient` is the caller's credentialed `HttpClient`, the one used for A2A calls. It works for gRPC clients too, because it is passed in separately. `agentOrigin` comes from the card.
+- `agentHandler` is the caller's `HttpMessageHandler` stack that adds credentials, the one used for A2A calls. It works for gRPC clients too, because it is passed in separately. `agentOrigin` comes from the card.
 - A URL on any other origin throws: this class never sends a request with credentials off-origin.
-- `agentHttpClient` must not follow redirects. On 302, the class requests the `Location` once with a separate `SafeHttp` client that has no credentials. `SafeHttpOptions` lets an operator allow a private store such as MinIO.
+- `agentHandler` must not follow redirects. The constructor throws `ArgumentException` for a `SocketsHttpHandler` or `HttpClientHandler` that does, also nested under a `DelegatingHandler`, and the class throws when a response shows a followed redirect. On 302, the class requests the `Location` once with a separate `SafeHttp` client that has no credentials. `SafeHttpOptions` lets an operator allow a private store such as MinIO.
 - Checks `sizeBytes` and `sha256` from part metadata when present, and throws on a mismatch.
 
 ### Integrity
@@ -227,7 +228,7 @@ Parts 2 and 3 touch `TaskUpdater`, retention and `TaskStore`, and add one route 
 - Follow-ups over `MaxTaskBytes` are refused with `UnsupportedOperation`.
 - Downloads are authorized as `GetTask`.
 - No separate history cap.
-- `A2AArtifactDownloader` is net8+ only and takes the caller's `HttpClient`.
+- `A2AArtifactDownloader` is net8+ only and takes the caller's `HttpMessageHandler`, not an `HttpClient`: a client cannot be checked for redirect following, a handler can.
 - Objects share their task's retention.
 
 ## Left to the builder
