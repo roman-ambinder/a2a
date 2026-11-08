@@ -15,6 +15,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="A2A.Tests" />
+    <InternalsVisibleTo Include="A2A.Stores.Tests" />
     <InternalsVisibleTo Include="A2A.Server.AspNetCore" />
   </ItemGroup>
 </Project>

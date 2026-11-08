@@ -53,7 +53,7 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
 
     private const string RegisterScript = Now + "\n" + Lease;
 
-    // Renews only a lease that exists and has not expired: a late heartbeat never brings an expired lease back.
+    // Renews only a lease that exists and has not expired: a late heartbeat never brings an expired lease back. 1 when renewed.
     private const string HeartbeatScript = Now + "\n" + """
         local current = redis.call('HGET', KEYS[1], ARGV[1])
         if not current or tonumber(current) <= now then return 0 end
@@ -136,10 +136,10 @@ public sealed class RedisExecutionCoordinator : ExecutionCoordinator, IAsyncDisp
     }
 
     /// <inheritdoc />
-    public override async ValueTask HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default)
+    public override async ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(executionId);
-        await EvaluateAsync(HeartbeatScript, LeaseKeys(task), LeaseArgs(task, executionId, withTtl: true), ct).ConfigureAwait(false);
+        return (int)await EvaluateAsync(HeartbeatScript, LeaseKeys(task), LeaseArgs(task, executionId, withTtl: true), ct).ConfigureAwait(false) == 1;
     }
 
     /// <inheritdoc />

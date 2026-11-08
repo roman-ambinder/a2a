@@ -12,9 +12,11 @@ namespace A2A.Server.Retention;
 /// sweep lease <see cref="SweepLeaseName"/> of the <see cref="ExecutionCoordinator"/>), it:
 /// <list type="number">
 /// <item>fails the SUBMITTED or WORKING tasks whose execution stopped without ending (its lease expired: its instance died)
-/// with the status text "The agent stopped unexpectedly.", unless another execution of the task still runs. An execution
-/// whose heartbeats lapse past <see cref="CoordinationOptions.LeaseTtl"/> (for example a long pause, or a coordinator
-/// outage) is treated as dead: its task is marked FAILED and its later events are dropped;</item>
+/// with the status text "The agent stopped unexpectedly.", unless another execution of the task still runs or the task
+/// changed within the last <see cref="CoordinationOptions.LeaseTtl"/>, and asks every instance to cancel the task's
+/// executions. An execution whose heartbeats lapse past <see cref="CoordinationOptions.LeaseTtl"/> on another instance (for
+/// example a long pause, or a coordinator outage) is treated as dead: its task is marked FAILED, its later events are dropped,
+/// and its agent is cancelled. One that lapses on the sweeping instance is still seen running, and registers again;</item>
 /// <item>cancels the tasks that waited in <c>INPUT_REQUIRED</c> or <c>AUTH_REQUIRED</c> longer than
 /// <see cref="A2AServerOptions.InterruptedTimeout"/>, with no agent running and no update (such as a committed reply) since,
 /// with the status text "The task waited too long for input.";</item>
@@ -40,6 +42,7 @@ public sealed class A2ARetentionService : BackgroundService
 
     private readonly A2ARetentionOptions _options;
     private readonly TimeSpan? _interruptedTimeout;
+    private readonly TimeSpan _leaseTtl;
     private readonly TaskStore _tasks;
     private readonly ExecutionCoordinator _coordinator;
     private readonly A2ARequestHandler _handler;
@@ -56,6 +59,7 @@ public sealed class A2ARetentionService : BackgroundService
         ArgumentNullException.ThrowIfNull(serverOptions);
         _options = options.Value;
         _interruptedTimeout = serverOptions.Value.InterruptedTimeout;
+        _leaseTtl = serverOptions.Value.Coordination.LeaseTtl;
         _tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         _handler = handler ?? throw new ArgumentNullException(nameof(handler));
@@ -183,23 +187,57 @@ public sealed class A2ARetentionService : BackgroundService
         BatchesAsync("expired execution", c => _coordinator.ListExpiredAsync(_options.BatchSize, c), RecoverAsync, e => $"of task {e.Task.TaskId}", ct);
 
     /// <summary>
-    /// An execution's lease expired: its instance died. A task still SUBMITTED or WORKING becomes FAILED, unless another
-    /// execution of it runs or it changed since it was read (read first, so a follow-up that starts meanwhile is seen as a
-    /// change). An interrupted task is left to the interrupted timeout. The expired lease is always removed, so it is not
-    /// listed again.
+    /// An execution's lease expired: its instance died. A task still SUBMITTED or WORKING becomes FAILED, and every instance is
+    /// asked to cancel its executions (one that only lapsed may still run). Exceptions:
+    /// <list type="bullet">
+    /// <item>The execution still runs on this instance (its heartbeats lapsed): nothing changes, and its next heartbeat
+    /// registers it again (<see cref="A2ARequestHandler.TryReclaimLocal"/>).</item>
+    /// <item>Another execution of the task runs: the task is left alone.</item>
+    /// <item>The task changed since it was read (read first, so a follow-up that starts meanwhile is seen as a change), or within
+    /// the last <see cref="CoordinationOptions.LeaseTtl"/> (a follow-up on another instance may have committed and not
+    /// registered its execution yet), or an execution of it runs here: the task is left alone for now and the lease stays
+    /// listed, so the next sweep checks again.</item>
+    /// </list>
+    /// An interrupted task is left to the interrupted timeout. Otherwise the expired lease is removed, so it is not listed
+    /// again. Returns true when the lease was removed.
     /// </summary>
     private async Task<bool> RecoverAsync((TaskKey Task, string ExecutionId) expired, CancellationToken ct)
     {
         var (key, executionId) = expired;
+        if (_handler.TryReclaimLocal(key, executionId))
+        {
+            _logger.LogWarning("Task {TaskId}: an execution on this instance missed its heartbeats for longer than the lease; it registers again", key.TaskId);
+            return false; // listed until its next heartbeat registers it again
+        }
         if (await _tasks.GetAsync(key, ct).ConfigureAwait(false) is { Task.Status.State: TaskState.Submitted or TaskState.Working } record
             && !await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false))
         {
             var seen = record.Version;
-            if (await _handler.CommitSystemStatusAsync(key, TaskState.Failed, StoppedUnexpectedlyText, r => r.Version == seen, ct).ConfigureAwait(false))
-                _logger.LogWarning("Task {TaskId}: its execution stopped without ending (its instance died); the task failed", key.TaskId);
+            var quietSince = Before(_time.GetUtcNow(), _leaseTtl);
+            if (!await _handler.CommitSystemStatusAsync(key, TaskState.Failed, StoppedUnexpectedlyText,
+                    r => r.Version == seen && r.UpdatedAt < quietSince, ct).ConfigureAwait(false))
+                return false; // changed, recently changed, or runs here: the next sweep checks again
+            _logger.LogWarning("Task {TaskId}: its execution stopped without ending (its instance died); the task failed", key.TaskId);
+            await CancelEverywhereAsync(key, ct).ConfigureAwait(false);
         }
         await _coordinator.UnregisterAsync(key, executionId, ct).ConfigureAwait(false);
         return true;
+    }
+
+    /// <summary>
+    /// Asks every instance to cancel the task's executions: one that only lapsed (a long pause) may still run its agent. A
+    /// failure is logged; that agent then stops at its next heartbeat, which finds its lease lost and the task terminal.
+    /// </summary>
+    private async Task CancelEverywhereAsync(TaskKey key, CancellationToken ct)
+    {
+        try
+        {
+            await _handler.CancelExecutionsAsync(key, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Task {TaskId}: could not ask the other instances to cancel its execution", key.TaskId);
+        }
     }
 
     private Task CancelInterruptedAsync(TimeSpan timeout, CancellationToken ct)

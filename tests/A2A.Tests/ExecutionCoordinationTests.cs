@@ -30,7 +30,7 @@ public sealed class FaultyCoordinator(TimeProvider? time = null) : ExecutionCoor
         return _inner.RegisterAsync(task, executionId, ct);
     }
 
-    public override ValueTask HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default) => _inner.HeartbeatAsync(task, executionId, ct);
+    public override ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default) => _inner.HeartbeatAsync(task, executionId, ct);
     public override ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default) => _inner.UnregisterAsync(task, executionId, ct);
 
     public override ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default) =>

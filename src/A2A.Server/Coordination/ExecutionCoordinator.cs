@@ -23,10 +23,14 @@ public abstract class ExecutionCoordinator
     public abstract ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken ct = default);
 
     /// <summary>
-    /// Renews the lease of the execution for another <see cref="CoordinationOptions.LeaseTtl"/> from now. Does nothing when
-    /// the lease is missing or already expired.
+    /// Renews the lease of the execution for another <see cref="CoordinationOptions.LeaseTtl"/> from now. Returns true when
+    /// the lease was held (and is now renewed); false when it is missing or already expired, and then does nothing.
     /// </summary>
-    public abstract ValueTask HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default);
+    /// <remarks>
+    /// On false the request handler re-reads the task: a terminal task (for example one the retention sweep failed) cancels
+    /// the execution; otherwise the execution registers again, under the same id, with its next heartbeat.
+    /// </remarks>
+    public abstract ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default);
 
     /// <summary>Ends the lease of the execution (expired or not). Does nothing when it is missing.</summary>
     public abstract ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default);

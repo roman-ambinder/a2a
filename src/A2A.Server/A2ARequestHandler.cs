@@ -1555,9 +1555,9 @@ public sealed class A2ARequestHandler : IDisposable
     }
 
     /// <summary>
-    /// Renews the execution's lease, or registers it when the register at start failed, and renews its idempotency claim.
-    /// Runs on the heartbeat timer; skips a beat while the previous one is still running. Failures are logged and the
-    /// execution goes on.
+    /// Renews the execution's lease, or registers it when it has none (the register at start failed, or the lease was lost),
+    /// and renews its idempotency claim. Runs on the heartbeat timer; skips a beat while the previous one is still running.
+    /// Failures are logged and the execution goes on.
     /// </summary>
     private async Task HeartbeatAsync(Execution exec, IdempotencyClaim claim)
     {
@@ -1568,11 +1568,13 @@ public sealed class A2ARequestHandler : IDisposable
             {
                 if (exec.Registered)
                 {
-                    await _coordinator.HeartbeatAsync(exec.Key, exec.Id, CancellationToken.None).ConfigureAwait(false);
+                    if (!await _coordinator.HeartbeatAsync(exec.Key, exec.Id, CancellationToken.None).ConfigureAwait(false))
+                        await OnLeaseLostAsync(exec).ConfigureAwait(false);
                 }
                 else
                 {
-                    // A first registration, not a resurrection: this execution never had a lease.
+                    // The execution still runs here, so registering it (again, under the same id) is not a resurrection:
+                    // a finished execution holds the heartbeat gate for good and never gets here.
                     await _coordinator.RegisterAsync(exec.Key, exec.Id, CancellationToken.None).ConfigureAwait(false);
                     exec.Registered = true;
                 }
@@ -1594,6 +1596,25 @@ public sealed class A2ARequestHandler : IDisposable
         {
             exec.HeartbeatGate.Release();
         }
+    }
+
+    /// <summary>
+    /// The execution's lease lapsed (its heartbeats missed the lease, for example during a long pause) and the coordinator no
+    /// longer holds it. Called under the heartbeat gate. When the task is terminal or gone (the retention sweep may have failed
+    /// it as dead), the execution is cancelled: its later events would be dropped anyway. Otherwise the execution registers
+    /// again with its next heartbeat, so every instance sees it running.
+    /// </summary>
+    private async Task OnLeaseLostAsync(Execution exec)
+    {
+        var record = await _tasks.GetAsync(exec.Key, CancellationToken.None).ConfigureAwait(false);
+        if (record is null || record.Task.Status.State.IsTerminal())
+        {
+            _logger.LogWarning("Task {TaskId}: the execution lost its lease and the task has ended; cancelling the agent", exec.TaskId);
+            CancelAll([exec]);
+            return;
+        }
+        _logger.LogWarning("Task {TaskId}: the execution lost its lease (its heartbeats lapsed); registering it again", exec.TaskId);
+        exec.Registered = false;
     }
 
     /// <summary>
@@ -1907,6 +1928,26 @@ public sealed class A2ARequestHandler : IDisposable
         {
             gate.Release();
         }
+    }
+
+    /// <summary>
+    /// For the retention sweep: true when the execution <paramref name="executionId"/>, whose lease expired, still runs on this
+    /// instance (its heartbeats lapsed, for example during a long pause). The sweep must then neither fail its task nor remove
+    /// its lease. Its next heartbeat registers it again under the same id: when no heartbeat is under way, this marks it
+    /// unregistered. A heartbeat under way finds the lease lost and handles it itself; an ending execution unregisters itself
+    /// (it holds the heartbeat gate before it unregisters, so a finished execution is never brought back).
+    /// </summary>
+    internal bool TryReclaimLocal(TaskKey key, string executionId)
+    {
+        var exec = _running.Snapshot(ScopeKey(key.Tenant, key.TaskId))
+            .FirstOrDefault(e => e.Key == key && string.Equals(e.Id, executionId, StringComparison.Ordinal));
+        if (exec is null) return false;
+        if (exec.HeartbeatGate.Wait(0))
+        {
+            exec.Registered = false;
+            exec.HeartbeatGate.Release();
+        }
+        return true;
     }
 
     /// <summary>

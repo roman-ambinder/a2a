@@ -39,15 +39,16 @@ public sealed class InMemoryExecutionCoordinator : ExecutionCoordinator
     }
 
     /// <inheritdoc />
-    public override ValueTask HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default)
+    public override ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default)
     {
         lock (_gate)
         {
             var now = _time.GetUtcNow();
-            if (_leases.TryGetValue(task, out var executions) && executions.TryGetValue(executionId, out var expiry) && expiry > now)
-                executions[executionId] = now + _ttl;
+            if (!_leases.TryGetValue(task, out var executions) || !executions.TryGetValue(executionId, out var expiry) || expiry <= now)
+                return ValueTask.FromResult(false);
+            executions[executionId] = now + _ttl;
+            return ValueTask.FromResult(true);
         }
-        return ValueTask.CompletedTask;
     }
 
     /// <inheritdoc />

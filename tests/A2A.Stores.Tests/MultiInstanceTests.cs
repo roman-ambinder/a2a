@@ -10,6 +10,7 @@ using A2A.Server.AspNetCore;
 using A2A.Server.Coordination;
 using A2A.Server.Postgres;
 using A2A.Server.Redis;
+using A2A.Server.Retention;
 using A2A.Server.Storage;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
@@ -155,18 +156,20 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     }
 
     /// <summary>
-    /// Review Focus 1: instance A dies mid-execution (its Redis connection drops, then the host goes away without
-    /// unregistering). Its lease stops being renewed, and instance B sees it expire.
+    /// Review Focus 1, end to end: instance A dies mid-execution (its Redis connection drops, then the host goes away without
+    /// unregistering). Its lease stops being renewed, and instance B sees it expire. B's retention sweep then fails the task:
+    /// a subscriber on B gets FAILED with "The agent stopped unexpectedly.", and the PostgreSQL row is FAILED.
     /// </summary>
     [SkippableFact]
-    public async Task Execution_of_a_dead_instance_is_reported_expired_on_another()
+    public async Task Execution_of_a_dead_instance_is_reported_expired_on_another_and_failed_by_its_sweep()
     {
         var schema = await db.NewSchemaAsync();
         var redis = await redisFixture.ConnectAsync();
         await using var _ = redis;
-        var redisA = await redisFixture.ConnectAsync(); // A's own connection, cut to simulate its death
+        var redisA = await redisFixture.ConnectAsync(); // A's own connections, cut to simulate its death
+        var postgresA = db.NewDataSource();
         var prefix = $"mi:{Guid.NewGuid():N}:";
-        var a = await StartAsync(schema, redisA, prefix);
+        var a = await StartAsync(schema, redisA, prefix, dataSource: postgresA);
         await using var b = await StartAsync(schema, redis, prefix);
 
         var text = $"observe {Guid.NewGuid():N}";
@@ -175,14 +178,38 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
         var key = new TaskKey("", "alice", taskId);
         var coordinator = b.Services.GetRequiredService<ExecutionCoordinator>();
         Assert.True(await coordinator.IsRunningAsync(key));
+        using var cts = new CancellationTokenSource(Timeout);
+        var onB = Collect(Client(b), taskId, cts.Token);
+        await onB.Subscribed;
 
         await redisA.CloseAsync(allowCommandsToComplete: false);
+        await postgresA.DisposeAsync(); // a killed instance writes nothing more (no CANCELED from its shutdown)
         try { await a.DisposeAsync(); }
         catch (Exception) { /* a dying instance may fail to stop cleanly */ }
         redisA.Dispose();
 
         await EventuallyAsync(async () => (await coordinator.ListExpiredAsync(100)).Any(e => e.Task == key), "B lists A's execution as expired");
         Assert.False(await coordinator.IsRunningAsync(key));
+        Assert.Equal(TaskState.Working, (await b.Services.GetRequiredService<TaskStore>().GetAsync(key))!.Task.Status.State);
+
+        // B's retention sweep, run directly. It may wait one more sweep while A's last write is younger than the lease TTL.
+        var sweeper = ActivatorUtilities.CreateInstance<A2ARetentionService>(b.Services, Options.Create(new A2ARetentionOptions()));
+        var tasks = b.Services.GetRequiredService<TaskStore>();
+        await EventuallyAsync(async () =>
+        {
+            await sweeper.RunOnceAsync(CancellationToken.None);
+            return (await tasks.GetAsync(key))?.Task.Status.State == TaskState.Failed;
+        }, "B's sweep failed the task");
+
+        var events = await onB.Events.WaitAsync(Timeout); // the stream ends with the final event
+        var final = Assert.IsType<StatusUpdateEvent>(A2A.Json.A2AJson.Deserialize<StreamResponse>(events[^1]));
+        Assert.Equal(TaskState.Failed, final.StatusUpdate.Status.State);
+        Assert.Equal("The agent stopped unexpectedly.", final.StatusUpdate.Status.Message!.GetText());
+        var row = await tasks.GetAsync(key); // PostgreSQL, through B's task store
+        Assert.IsType<PostgresTaskStore>(tasks);
+        Assert.Equal(TaskState.Failed, row!.Task.Status.State);
+        Assert.Equal("The agent stopped unexpectedly.", row.Task.Status.Message!.GetText());
+        Assert.DoesNotContain(await coordinator.ListExpiredAsync(100), e => e.Task == key); // the swept lease is gone
     }
 
     /// <summary>
@@ -296,7 +323,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     }
 
     private async Task<WebApplication> StartAsync(PostgresStoreOptions schema, IConnectionMultiplexer redis, string prefix,
-        Action<PostgresStoreOptions>? store = null, Action<IServiceCollection>? services = null)
+        Action<PostgresStoreOptions>? store = null, Action<IServiceCollection>? services = null, Npgsql.NpgsqlDataSource? dataSource = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -312,7 +339,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
                 o.Coordination.RunningPollInterval = TimeSpan.FromMilliseconds(100);
             })
             .AddAgentExecutor<GatedAgent>()
-            .AddPostgresStores(db.DataSource, o =>
+            .AddPostgresStores(dataSource ?? db.DataSource, o =>
             {
                 o.Schema = schema.Schema;
                 o.CreateSchemaOnStartup = false;
@@ -503,7 +530,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
         }
 
         public override ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken ct = default) => inner.RegisterAsync(task, executionId, ct);
-        public override ValueTask HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default) => inner.HeartbeatAsync(task, executionId, ct);
+        public override ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default) => inner.HeartbeatAsync(task, executionId, ct);
         public override ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default) => inner.UnregisterAsync(task, executionId, ct);
         public override ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default) => inner.IsRunningAsync(task, ct);
         public override ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default) => inner.RequestCancelAsync(task, ct);

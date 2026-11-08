@@ -89,7 +89,7 @@ public abstract class ExecutionCoordinatorContract
         await a.UnregisterAsync(Key(), "old");
         await b.RegisterAsync(Key(), "new");
 
-        await a.HeartbeatAsync(Key(), "old");
+        Assert.False(await a.HeartbeatAsync(Key(), "old")); // its lease is gone
         await a.UnregisterAsync(Key(), "old");
         Assert.True(await a.IsRunningAsync(Key()));
 
@@ -119,7 +119,7 @@ public abstract class ExecutionCoordinatorContract
         for (var i = 0; i < 6; i++)
         {
             await PassAsync(Options.Heartbeat);
-            await a.HeartbeatAsync(Key(), "e1");
+            Assert.True(await a.HeartbeatAsync(Key(), "e1")); // the lease was held
         }
         Assert.True(Options.Heartbeat * 6 > Options.LeaseTtl);
         Assert.True(await b.IsRunningAsync(Key()));
@@ -134,7 +134,7 @@ public abstract class ExecutionCoordinatorContract
         await PassLeaseTtlAsync();
         await EventuallyAsync(async () => !await b.IsRunningAsync(Key()), "the lease expired");
 
-        await a.HeartbeatAsync(Key(), "e1");
+        Assert.False(await a.HeartbeatAsync(Key(), "e1")); // the lease was lost
         Assert.False(await b.IsRunningAsync(Key()));
         Assert.True(await ExpiredContainsAsync(b, Key(), "e1"));
     }
@@ -143,7 +143,7 @@ public abstract class ExecutionCoordinatorContract
     public async Task Heartbeat_of_a_missing_lease_creates_nothing()
     {
         var (a, b) = await CreatePairAsync();
-        await a.HeartbeatAsync(Key(), "never-registered");
+        Assert.False(await a.HeartbeatAsync(Key(), "never-registered"));
         Assert.False(await b.IsRunningAsync(Key()));
         await PassLeaseTtlAsync();
         Assert.Empty(await b.ListExpiredAsync(10));
