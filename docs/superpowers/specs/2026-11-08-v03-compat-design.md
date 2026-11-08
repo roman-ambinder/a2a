@@ -81,6 +81,7 @@ All `internal`, reached through `InternalsVisibleTo`. No new public API in core 
 - `AgentCardEndpoint`: optional body transform (held on `A2AEndpointRegistry`), applied to both the unsigned and signed bodies, so the ETag covers the blended bytes.
 - `A2ACardResolverOptions`: internal pre-parse card normalizer.
 - `InternalsVisibleTo` lines for the compat assemblies and test project.
+- `PackageRulesTests`: the rule "no `InternalsVisibleTo` to a `src` assembly" now exempts the compat family (`A2A.V0_3Compat`, `A2A.Server.V0_3Compat`, `A2A.Client.V0_3Compat`). They are built on core internals on purpose. The startup version check below is the guard.
 
 Because compat uses internals, `EnableV03Compat` and the client factory compare assembly versions at startup and throw a clear error on a mismatch.
 
@@ -101,6 +102,10 @@ On the v0.3 surface, the call context gets `ProtocolVersion = "1.0"`, because th
 
 A tenant named `v1` on a path-tenant host is shadowed by the literal `/v1/…` routes when compat is on. Documented.
 
+Extension name collision: the wrapper takes every v0.3 method name (and `tasks/list`) before the core sees it. So `MapA2A` with `EnableV03Compat` throws `InvalidOperationException`, naming the method, if any extension operation in `A2AOperationTable` has such a name. Names are compared ignoring case, like the table's own check for built-in names. Without compat the extension works as before.
+
+Body read failures: if reading the body fails for any reason (too large, bad request, client abort), the wrapper hands the failure to the core through a failing stream. The core answers exactly as it does without compat.
+
 ### Operations
 
 | v0.3 JSON-RPC | v0.3 REST | Core call |
@@ -113,15 +118,17 @@ A tenant named `v1` on a path-tenant host is shadowed by the literal `/v1/…` r
 | `agent/getAuthenticatedExtendedCard` | `GET /v1/card` | GetExtendedAgentCard |
 | `tasks/pushNotificationConfig/{set,get,list,delete}` | `/v1/tasks/{id}/pushNotificationConfigs…` | Refused: `-32003` |
 
-- `configuration.blocking == false` becomes `ReturnImmediately = true`. Absent means blocking on JSON-RPC. On HTTP+JSON (ProtoJSON drops a false bool, and the a2a-sdk 0.3 Python client sends none) absent means `false`.
+- `configuration.blocking == false` becomes `ReturnImmediately = true`. Absent means blocking on JSON-RPC. On HTTP+JSON (ProtoJSON drops a false bool, and the a2a-sdk 0.3 Python client sends none) absent `blocking` means non-blocking (`blocking = false`).
 - `configuration.pushNotificationConfig` on a send is refused with `-32003`.
 - `/v1/card` returns the JSON-RPC-dialect card, not ProtoJSON. v0.3 servers do this; a2a-python #1418 is the bug from assuming otherwise.
-- `tasks/list` does not exist in v0.3: `-32601`.
+- `tasks/list` does not exist in v0.3: the wrapper answers `-32601`, so a v0.3 client does not get `-32009` from the core first.
 - Each route also gets a `/{tenant}` variant unless the pattern has a tenant segment, as `RestEndpoint` does.
 
 ### Errors
 
 JSON-RPC: same numeric codes, `message` kept, v1.0 `data` (ErrorInfo array) omitted. `-32008` and `-32009` have no v0.3 equivalent and are sent as they are. 401/403 stay HTTP statuses and keep the auth challenge.
+
+Rate limiter rejections on the v0.3 routes use the v1.0 error shape, because the limiter picks its format by endpoint display name, not by route.
 
 REST: core HTTP status, body `{"code":<number>,"message":<text>}`. The client reads `code` when present and falls back to the status.
 
@@ -131,9 +138,11 @@ REST: core HTTP status, body `{"code":<number>,"message":<text>}`. The client re
 
 Added at the top level: `protocolVersion` (`"0.3.0"`), `url`, `preferredTransport`, `additionalInterfaces`, `security`, `supportsAuthenticatedExtendedCard`. Each `securitySchemes` entry gains the flat v0.3 members next to the v1.0 wrapper. Each skill gains `security`.
 
+Extended card responses (`/v1/card`, `agent/getAuthenticatedExtendedCard`) are pure v0.3 cards, not blended. If the host's extended card has no interfaces, they come from the public card.
+
 `capabilities.pushNotifications` is shared by both versions, and a blended document cannot hold two values. The v1.0 value stays, so a host with v1.0 push still says `true`. A v0.3 client that tries push gets `-32003`. `/v1/card` and `agent/getAuthenticatedExtendedCard` are v0.3-only responses, so they say `false`. Documented.
 
-Interfaces: every v1.x `JSONRPC` or `HTTP+JSON` interface maps to a v0.3 entry at the same URL (with `/{tenant}` appended when the interface has a tenant). `GRPC` is never listed. `url` and `preferredTransport` come from the first, and `additionalInterfaces` lists all. No such interface means no v0.3 fields are added, and a warning is logged.
+Interfaces: every v1.x `JSONRPC` or `HTTP+JSON` interface maps to a v0.3 entry at the same URL (with `/{tenant}` appended when the interface has a tenant). `GRPC` is never listed. `url` and `preferredTransport` come from the first, and `additionalInterfaces` lists all. No such interface means no v0.3 fields are added, and a warning is logged (see Reporting for when).
 
 **Card conversion must not lose security** (a2a-go #556, a2a-python #1418). Both the public card and the extended card go through the same converter, in both directions:
 
@@ -157,6 +166,10 @@ Selection:
 3. If `A2AClientFactory.SelectInterface` finds a v1.x interface, use the normal v1.0 path. **A card that offers v1.0 is never downgraded.**
 4. Otherwise pick the first v0.3 `JSONRPC` or `HTTP+JSON` interface in the supported bindings, in card order.
 
+A card with v1.0 interfaces only over a binding the client cannot use, plus a usable v0.3 interface, falls back to the v0.3 interface.
+
+REST `tasks/resubscribe` (subscribe) uses GET.
+
 Transports derive from `HttpTransportBase`, so retries, headers, telemetry and SSE limits are shared. They send `A2A-Version: 0.3` and `X-A2A-Extensions`.
 
 `ListTasks` throws `UnsupportedOperation`. Push config operations convert: `authentication.schemes[0]` maps to `Scheme`.
@@ -165,9 +178,11 @@ Transports derive from `HttpTransportBase`, so retries, headers, telemetry and S
 
 | Field | Direction | What happens |
 |---|---|---|
-| Non-object `DataPart.data` | v1 → v0.3 | Wrapped as `{"value":…}` with metadata `data_part_compat: true`; unwrapped on read (same as a2a-python) |
+| Non-object `DataPart.data` | v1 → JSON-RPC v0.3 | Wrapped as `{"value":…}` with metadata `data_part_compat: true`; unwrapped on read (same as a2a-python) |
+| Non-object `DataPart.data` | v1 → REST v0.3 | Wrapped as `{"value":…}` with no marker (no metadata on the wire), so it cannot be unwrapped on read |
 | `filename`/`mediaType` on a text or data part | v1 → v0.3 | Dropped |
 | `filename` on a file part | v1 → REST v0.3 | Dropped (no such proto field) |
+| Part `metadata` and `filename` on HTTP+JSON | v1 → REST v0.3 | Cannot be carried; dropped |
 | `metadata` on `tasks/get`, resubscribe | v0.3 → v1 | Dropped |
 | `authentication.schemes` beyond the first | v0.3 → v1 | Dropped |
 | OAuth `deviceCode`, `pkceRequired` | v1 → v0.3 | Dropped |
@@ -175,7 +190,7 @@ Transports derive from `HttpTransportBase`, so retries, headers, telemetry and S
 | `Tenant` on a request | v1 → v0.3 | Not sent; only the URL carries it |
 | `ListTasks` | both | Unavailable |
 
-Reporting: a `V03LossReporter` increments the counter `a2a.compat.v0_3.dropped` (tag `field`, meter `A2A`) and logs once per field at Debug. Card conversion problems log at Warning once at startup. Requests are counted by `a2a.compat.v0_3.requests` (tags `binding`, `operation`) so operators can see when v0.3 traffic has stopped.
+Reporting: a `V03LossReporter` increments the counter `a2a.compat.v0_3.dropped` (tag `field`, meter `A2A`) and logs once per field at Debug. Card conversion problems log at Warning once per message, on first use (not at startup). Requests are counted by `a2a.compat.v0_3.requests` (tags `binding`, `operation`) so operators can see when v0.3 traffic has stopped.
 
 ## Security
 
