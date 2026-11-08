@@ -13,7 +13,7 @@ Retention is a background sweep. It deletes old tasks, removes unused contexts, 
 Without `AddA2ARetention`:
 
 - terminal tasks and their data are never deleted,
-- `A2AServerOptions.InterruptedTimeout` does nothing, so tasks waiting for input never time out,
+- `A2AServerOptions.InterruptedTimeout` does nothing, so tasks waiting for input never time out. It still decides whether a [continuation](proactive-continuation.md) may start, even with no sweep,
 - tasks whose instance died stay `WORKING`, because nobody recovers them.
 
 With a durable task store and no retention, startup logs a warning (event 253) that says this. If you clean up yourself, ignore it.

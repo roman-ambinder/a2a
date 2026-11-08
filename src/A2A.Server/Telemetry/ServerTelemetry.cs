@@ -62,7 +62,7 @@ internal static class ServerTelemetry
     }
 
     /// <summary>
-    /// Starts the span of an agent run (<paramref name="kind"/>: <c>execute</c> or <c>cancel</c>) as a child of the current
+    /// Starts the span of an agent run (<paramref name="kind"/>: <c>execute</c>, <c>cancel</c> or <c>continue</c>) as a child of the current
     /// activity, without making it current here: the run's background tasks make it current themselves. Null when nobody listens.
     /// </summary>
     public static Activity? StartExecution(string kind, string tenant, string taskId, string contextId)

@@ -74,6 +74,14 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
   for receivers. (#12)
 - Webhook requests send `A2A-Version`. (#8)
 
+### Proactive continuation
+
+- `TaskExecutionEngine.ContinueTaskAsync` continues an existing task with no inbound request, for an agent that implements
+  `IContinuableAgentExecutor`. It needs no push registration. Events go to the event store, streams and push.
+- The run is exclusive against every execution of the task on every instance. A request that cannot start returns a status
+  (`TaskNotFound`, `TaskTerminal`, `InterruptedTimedOut`, `AlreadyRunning`, `NotSupported`) and changes nothing.
+- The API does not check the caller. A host that exposes it must authenticate its callers.
+
 ### Retention
 
 - `AddA2ARetention` deletes old tasks and contexts, times out tasks stuck waiting for input (24 hours by default), and fails

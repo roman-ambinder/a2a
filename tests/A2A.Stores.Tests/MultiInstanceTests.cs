@@ -8,6 +8,7 @@ using A2A.Client.Transports;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Coordination;
+using A2A.Server.Execution;
 using A2A.Server.Postgres;
 using A2A.Server.Redis;
 using A2A.Server.Retention;
@@ -297,6 +298,113 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
         Assert.Equal(TaskState.Canceled, canceled.Status.State);
     }
 
+    /// <summary>
+    /// A continuation started on A with no inbound request reaches a stream on B through the Redis bus, with no push config.
+    /// The task ends COMPLETED in PostgreSQL.
+    /// </summary>
+    [SkippableFact]
+    public async Task Continuation_on_one_instance_reaches_a_stream_on_another()
+    {
+        var schema = await db.NewSchemaAsync();
+        var redis = await redisFixture.ConnectAsync();
+        await using var _ = redis;
+        var prefix = $"mi:{Guid.NewGuid():N}:";
+        await using var a = await StartAsync(schema, redis, prefix);
+        await using var b = await StartAsync(schema, redis, prefix);
+
+        var text = $"continue {Guid.NewGuid():N}";
+        var taskId = await SeedWorkingAsync(a, text);
+        var key = new TaskKey("", "alice", taskId);
+        Assert.Empty(await b.Services.GetRequiredService<PushConfigStore>().ListAsync(key));
+
+        using var cts = new CancellationTokenSource(Timeout);
+        var onB = Collect(Client(b), taskId, cts.Token);
+        await onB.Subscribed;
+
+        var engine = a.Services.GetRequiredService<TaskExecutionEngine>();
+        var result = await engine.ContinueTaskAsync(key, cancellationToken: cts.Token);
+        Assert.Equal(TaskContinuationStatus.Started, result.Status);
+        await GatedAgent.Started(text + " continue").Task.WaitAsync(Timeout);
+        GatedAgent.Gate(text + " continue").TrySetResult();
+        await result.Completion.WaitAsync(Timeout);
+
+        var events = await onB.Events.WaitAsync(Timeout); // the stream ends with the final event
+        Assert.Contains(events, e => e.Contains("continued", StringComparison.Ordinal));
+        Assert.Contains("COMPLETED", events[^1], StringComparison.Ordinal);
+        var tasks = b.Services.GetRequiredService<TaskStore>();
+        Assert.IsType<PostgresTaskStore>(tasks);
+        Assert.Equal(TaskState.Completed, (await tasks.GetAsync(key))!.Task.Status.State);
+        Assert.Empty(await b.Services.GetRequiredService<PushConfigStore>().ListAsync(key));
+    }
+
+    /// <summary>Both instances fire a continuation at once: the PostgreSQL and Redis lease lets exactly one start.</summary>
+    [SkippableFact]
+    public async Task Only_one_instance_wins_a_continuation_race()
+    {
+        var schema = await db.NewSchemaAsync();
+        var redis = await redisFixture.ConnectAsync();
+        await using var _ = redis;
+        var prefix = $"mi:{Guid.NewGuid():N}:";
+        await using var a = await StartAsync(schema, redis, prefix);
+        await using var b = await StartAsync(schema, redis, prefix);
+
+        var text = $"continue {Guid.NewGuid():N}";
+        var taskId = await SeedWorkingAsync(a, text);
+        var key = new TaskKey("", "alice", taskId);
+        var engineA = a.Services.GetRequiredService<TaskExecutionEngine>();
+        var engineB = b.Services.GetRequiredService<TaskExecutionEngine>();
+
+        var results = await Task.WhenAll(engineA.ContinueTaskAsync(key).AsTask(), engineB.ContinueTaskAsync(key).AsTask());
+        await GatedAgent.Started(text + " continue").Task.WaitAsync(Timeout);
+        // The loser was refused while the winner still waits at its gate.
+        Assert.Equal(1, results.Count(r => r.Status == TaskContinuationStatus.Started));
+        Assert.Equal(1, results.Count(r => r.Status == TaskContinuationStatus.AlreadyRunning));
+        Assert.Equal(1, GatedAgent.Continues(text + " continue"));
+
+        GatedAgent.Gate(text + " continue").TrySetResult();
+        foreach (var r in results) await r.Completion.WaitAsync(Timeout);
+        Assert.Equal(TaskState.Completed, (await Client(b).GetTaskAsync(taskId)).Status.State);
+        Assert.Equal(1, GatedAgent.Continues(text + " continue"));
+    }
+
+    /// <summary>CancelTask on B reaches a continuation running on A through the Redis cancel channel.</summary>
+    [SkippableFact]
+    public async Task CancelTask_on_one_instance_stops_a_continuation_on_another()
+    {
+        var schema = await db.NewSchemaAsync();
+        var redis = await redisFixture.ConnectAsync();
+        await using var _ = redis;
+        var prefix = $"mi:{Guid.NewGuid():N}:";
+        await using var a = await StartAsync(schema, redis, prefix);
+        await using var b = await StartAsync(schema, redis, prefix);
+
+        var text = $"observe-continue {Guid.NewGuid():N}";
+        var taskId = await SeedWorkingAsync(a, text);
+        var key = new TaskKey("", "alice", taskId);
+        var result = await a.Services.GetRequiredService<TaskExecutionEngine>().ContinueTaskAsync(key);
+        Assert.Equal(TaskContinuationStatus.Started, result.Status);
+        await GatedAgent.Started(text + " continue").Task.WaitAsync(Timeout);
+
+        var canceled = await Client(b).CancelTaskAsync(taskId);
+
+        Assert.Equal(TaskState.Canceled, canceled.Status.State);
+        await GatedAgent.Cancelled(text + " continue").Task.WaitAsync(Timeout); // the continuation on A saw its token fire
+        await result.Completion.WaitAsync(Timeout);
+        Assert.Equal(TaskState.Canceled, (await Client(a).GetTaskAsync(taskId)).Status.State);
+    }
+
+    /// <summary>Sends <paramref name="text"/> to <paramref name="host"/>: the agent starts work and returns, leaving a WORKING task.</summary>
+    private static async Task<string> SeedWorkingAsync(WebApplication host, string text)
+    {
+        var started = await Client(host).SendMessageAsync(Message.FromUser(text), new SendMessageConfiguration { ReturnImmediately = true });
+        var taskId = Assert.IsType<TaskResponse>(started).Task.Id;
+        var key = new TaskKey("", "alice", taskId);
+        var tasks = host.Services.GetRequiredService<TaskStore>();
+        await EventuallyAsync(async () => (await tasks.GetAsync(key))?.Task.Status.State == TaskState.Working, "the seed task is working");
+        await EventuallyAsync(async () => !await host.Services.GetRequiredService<ExecutionCoordinator>().IsRunningAsync(key), "the seed execution ended");
+        return taskId;
+    }
+
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
     private static async Task EventuallyAsync(Func<Task<bool>> condition, string what)
@@ -393,12 +501,13 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     /// <item>anything else: starts work, waits for its gate, then completes.</item>
     /// </list>
     /// </summary>
-    private sealed class GatedAgent(TaskStore tasks) : IAgentExecutor
+    private sealed class GatedAgent(TaskStore tasks) : IContinuableAgentExecutor
     {
         private static readonly ConcurrentDictionary<string, TaskCompletionSource> Gates = new();
         private static readonly ConcurrentDictionary<string, TaskCompletionSource<string>> StartedSignals = new();
         private static readonly ConcurrentDictionary<string, TaskCompletionSource> CancelledSignals = new();
         private static readonly ConcurrentDictionary<string, int> RunCounts = new();
+        private static readonly ConcurrentDictionary<string, int> ContinueCounts = new();
 
         public static TaskCompletionSource Gate(string text) =>
             Gates.GetOrAdd(text, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
@@ -413,6 +522,9 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
 
         /// <summary>How many executions started for <paramref name="text"/>.</summary>
         public static int Runs(string text) => RunCounts.GetValueOrDefault(text);
+
+        /// <summary>How many continuations started for <paramref name="text"/> (the key is the seed text + " continue").</summary>
+        public static int Continues(string text) => ContinueCounts.GetValueOrDefault(text);
 
         /// <summary>Ten artifacts, back to back: on two instances the writers race for every task version.</summary>
         private static async Task AddArtifactsAsync(TaskUpdater updater, string name, CancellationToken ct)
@@ -432,6 +544,10 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
             RunCounts.AddOrUpdate(text, 1, (_, n) => n + 1);
             switch (text.Split(' ')[0])
             {
+                case "continue":
+                case "observe-continue":
+                    await updater.StartWorkAsync("working", ct); // leaves a WORKING task for a continuation
+                    break;
                 case "observe":
                     await updater.StartWorkAsync("working", ct);
                     Started(text).TrySetResult(updater.TaskId);
@@ -491,6 +607,36 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
                     await updater.CompleteAsync("done", ct);
                     break;
             }
+        }
+
+        /// <summary>
+        /// <c>continue</c>: signals Started, waits for its gate, adds the artifact <c>continued</c> and completes.
+        /// <c>observe-continue</c>: signals Started, waits until cancelled and reports it.
+        /// Both key their signals by the seed text + " continue".
+        /// </summary>
+        public async Task ContinueAsync(TaskContinuationContext context, TaskUpdater updater, CancellationToken ct)
+        {
+            var text = context.Task.History?.FirstOrDefault()?.GetText() ?? "";
+            var signal = text + " continue";
+            ContinueCounts.AddOrUpdate(signal, 1, (_, n) => n + 1);
+            if (text.StartsWith("observe-continue ", StringComparison.Ordinal))
+            {
+                Started(signal).TrySetResult(updater.TaskId);
+                try
+                {
+                    await Task.Delay(System.Threading.Timeout.Infinite, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    Cancelled(signal).TrySetResult();
+                    throw;
+                }
+                return;
+            }
+            Started(signal).TrySetResult(updater.TaskId);
+            await Gate(signal).Task.WaitAsync(ct);
+            await updater.AddArtifactAsync([Part.FromText("continued")], name: "continued", cancellationToken: ct);
+            await updater.CompleteAsync("done", ct);
         }
     }
 
