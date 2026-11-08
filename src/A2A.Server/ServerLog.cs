@@ -145,8 +145,11 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 240, Level = LogLevel.Debug, Message = "Task {TaskId}: not continued ({Status})")]
     public static partial void ContinuationRefused(ILogger logger, string taskId, TaskContinuationStatus status);
 
-    [LoggerMessage(EventId = 241, Level = LogLevel.Warning, Message = "Task {TaskId}: could not release the lease claim of a continuation; it expires")]
+    [LoggerMessage(EventId = 241, Level = LogLevel.Warning, Message = "Task {TaskId}: could not release the lease claim of a continuation; it expires and the sweep removes it")]
     public static partial void ContinuationClaimReleaseFailed(ILogger logger, Exception exception, string taskId);
+
+    [LoggerMessage(EventId = 242, Level = LogLevel.Warning, Message = "Task {TaskId}: could not re-read the task after starting a continuation; the run goes on")]
+    public static partial void ContinuationRecheckFailed(ILogger logger, Exception exception, string taskId);
 
     [LoggerMessage(EventId = 250, Level = LogLevel.Debug, Message = "Skipped the A2A startup diagnostics")]
     public static partial void StartupDiagnosticsSkipped(ILogger logger, Exception exception);

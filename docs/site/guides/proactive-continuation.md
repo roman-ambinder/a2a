@@ -34,7 +34,7 @@ The `cancellationToken` only cancels the attempt to start. A started run does no
 
 ## Security
 
-**The API does not check the caller.** `ContinueTaskAsync` trusts the `TaskKey` it gets. A host that exposes a callback must authenticate the caller and protect that endpoint. Use a policy of its own, as `A2AContinuation` above. Do not map it inside the group that `MapA2A` returns. Map the caller to a `TaskKey` yourself. Do not take tenant and owner from untrusted input. See [Auth and ownership](auth-and-ownership.md).
+**The API does not check the caller.** `ContinueTaskAsync` trusts the `TaskKey` it gets. A host that exposes a callback must authenticate the caller and protect that endpoint. Use a policy of your own, for example one named `A2AContinuation` as in the sample. The `Callback` sample trusts its route values only because that policy limits callers to your own backend. Do not map it inside the group that `MapA2A` returns. Map the caller to a `TaskKey` yourself. Do not take tenant and owner from untrusted input. See [Auth and ownership](auth-and-ownership.md).
 
 ## Statuses
 
@@ -45,24 +45,24 @@ The `cancellationToken` only cancels the attempt to start. A started run does no
 | `Started` | The agent was started. | Nothing. Await `Completion` if you need the end. |
 | `TaskNotFound` | The task does not exist, or belongs to another owner or tenant. | Drop the key. |
 | `TaskTerminal` | The task is completed, failed, canceled or rejected. | Drop the key. |
-| `InterruptedTimedOut` | The task waited for input longer than `InterruptedTimeout`. | Drop the key. The retention sweep cancels the task. |
+| `InterruptedTimedOut` | The task waited for input longer than `InterruptedTimeout`. | Drop the key. The retention sweep cancels the task when retention is on. |
 | `AlreadyRunning` | An execution of the task runs, or another continuation is starting. | Try again later, or ignore it. |
 | `NotSupported` | The tenant has no agent, or its agent is not an `IContinuableAgentExecutor`. | Fix the registration. |
 
 A refused request changes nothing: no run, no event. It is logged as event 240 (Debug).
 
-Exceptions are for a null or empty part of the key (`ArgumentException`), a failing agent factory, a failing store or coordinator, and a cancelled token.
+Exceptions are for an empty task id or a null tenant or owner (`ArgumentException`; an empty tenant is the default tenant), a failing agent factory, a failing store or coordinator, and a cancelled token.
 
 ## Rules
 
-- **Exclusive.** A continuation never runs next to another execution of the task, on any instance. A timer that fires on every replica gets one `Started`. The rest get `AlreadyRunning`. With several instances, use `AddRedisEventBus`, which brings the Redis coordinator. See [Durable stores](durable-stores.md). The in-memory coordinator is local to one process.
+- **Exclusive.** A continuation does not start while another continuation or a registered execution of the task runs, on any instance. A client reply or CancelTask can still start next to a running continuation, so your agent must allow for that. `AlreadyRunning` covers duplicates during a run only: a replica that fires just after a fast run ended, on a task left open, gets a second `Started`. Deduplicate in the host. With several instances, use `AddRedisEventBus`, which brings the Redis coordinator. See [Durable stores](durable-stores.md). The in-memory coordinator is local to one process.
 - **Interrupted timeout.** A task in `INPUT_REQUIRED` or `AUTH_REQUIRED` that waited longer than `InterruptedTimeout` gives `InterruptedTimedOut`. This holds with retention off. See [Retention](retention.md).
 - **Terminal.** A finished task cannot be continued.
 - **A normal run.** It holds a lease, is stopped by CancelTask, and ends after `MaxTaskDuration`.
 - **Failure.** An agent that throws fails the task, as in `ExecuteAsync`.
 - **No token exchange.** There is no inbound request, so no bearer token. The context has no `ExchangeTokenAsync`. Get your own credentials for downstream calls.
 
-A failed release of the start claim is logged as event 241 (Warning). The claim expires on its own.
+A failed release of the start claim is logged as event 241 (Warning). The claim expires, and the sweep removes it without touching the task. A failed re-read after the start is logged as event 242 (Warning); the run goes on.
 
 ## See also
 

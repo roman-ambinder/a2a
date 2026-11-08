@@ -119,7 +119,7 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | Ids | Area |
 |---|---|
 | 100-101 | client: card signing and pinning |
-| 200-241 | server: agent runs, coordination, push-config cleanup, retention |
+| 200-242 | server: agent runs, coordination, push-config cleanup, retention |
 | 250-253 | server: startup diagnostics |
 | 300-313 | server: push delivery |
 | 400-402 | server: idempotency |

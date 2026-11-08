@@ -17,7 +17,8 @@ namespace A2A.Server.Retention;
 /// changed within the last <see cref="CoordinationOptions.LeaseTtl"/>, and asks every instance to cancel the task's
 /// executions. An execution whose heartbeats lapse past <see cref="CoordinationOptions.LeaseTtl"/> on another instance (for
 /// example a long pause, or a coordinator outage) is treated as dead: its task is marked FAILED, its later events are dropped,
-/// and its agent is cancelled. One that lapses on the sweeping instance is still seen running, and registers again;</item>
+/// and its agent is cancelled. One that lapses on the sweeping instance is still seen running, and registers again. An
+/// expired start claim of a proactive continuation is only removed, and its task is not changed;</item>
 /// <item>cancels the tasks that waited in <c>INPUT_REQUIRED</c> or <c>AUTH_REQUIRED</c> longer than
 /// <see cref="A2AServerOptions.InterruptedTimeout"/>, with no agent running and no update (such as a committed reply) since,
 /// with the status text "The task waited too long for input.";</item>
@@ -207,7 +208,8 @@ public sealed class A2ARetentionService : BackgroundService
         BatchesAsync("expired execution", (max, c) => _coordinator.ListExpiredAsync(max, c), RecoverAsync, e => $"of task {e.Task.TaskId}", cancellationToken);
 
     /// <summary>
-    /// An execution's lease expired: its instance died. A task still SUBMITTED or WORKING becomes FAILED, and every instance is
+    /// A lease expired. A start claim of a continuation (<see cref="TaskExecutionEngine.ContinuationClaimPrefix"/>) is only
+    /// removed: it is not an execution, so its task is never read or changed. Otherwise the execution's instance died: a task still SUBMITTED or WORKING becomes FAILED, and every instance is
     /// asked to cancel its executions (one that only lapsed may still run). Exceptions:
     /// <list type="bullet">
     /// <item>The execution still runs on this instance (its heartbeats lapsed): nothing changes, and its next heartbeat
@@ -224,6 +226,11 @@ public sealed class A2ARetentionService : BackgroundService
     private async Task<bool> RecoverAsync((TaskKey Task, string ExecutionId) expired, CancellationToken cancellationToken)
     {
         var (key, executionId) = expired;
+        if (executionId.StartsWith(TaskExecutionEngine.ContinuationClaimPrefix, StringComparison.Ordinal))
+        {
+            await _coordinator.UnregisterAsync(key, executionId, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
         if (_engine.TryReclaimLocal(key, executionId))
         {
             ServerLog.SweepReclaimedLocal(_logger, key.TaskId);

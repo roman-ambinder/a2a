@@ -971,6 +971,196 @@ public sealed class TaskContinuationTests
         Assert.Equal(TaskState.Canceled, (await TaskAsync(b, key)).Status.State);
     }
 
+    [Fact]
+    public async Task Expired_claim_never_fails_a_working_task()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var (a, b, shared, _) = await TwoInstancesAsync(clock, new TestAgent(), new TestAgent());
+        await using var _a = a;
+        await using var _b = b;
+        var key = await SeedAsync(a, "working"); // WORKING, and no execution runs it
+        Assert.Equal(TaskState.Working, (await TaskAsync(b, key)).Status.State);
+        await shared.RegisterAsync(key, StrayClaimId); // a claim whose instance died
+
+        clock.Advance(new CoordinationOptions().LeaseTtl + TimeSpan.FromSeconds(1));
+        Assert.Single(await shared.ListExpiredAsync(10));
+        await Sweeper(b).RunOnceAsync(CancellationToken.None);
+
+        Assert.Equal(TaskState.Working, (await TaskAsync(b, key)).Status.State);
+        Assert.Empty(await shared.ListExpiredAsync(10));
+    }
+
+    private static string StrayClaimId => TaskExecutionEngine.ContinuationClaimPrefix + Guid.NewGuid().ToString("N");
+
+    [Fact]
+    public async Task Claim_released_when_the_claim_call_throws()
+    {
+        var agent = new TestAgent();
+        var coordinator = new HookedCoordinator { ThrowAfterClaim = true };
+        await using var host = await StartAsync(new FixedFactory(agent), services: s => s.AddSingleton<ExecutionCoordinator>(coordinator));
+        var key = await SeedAsync(host, "input");
+        var before = await SnapshotAsync(host, key);
+
+        await Assert.ThrowsAsync<TimeoutException>(async () => await ContinueAsync(host, key));
+
+        var claim = Assert.Single(coordinator.Claims);
+        Assert.Contains(claim, coordinator.Unregistered);
+        Assert.False(await coordinator.IsRunningAsync(key));
+        Assert.Equal(0, agent.Continues);
+        Assert.Equal(before, await SnapshotAsync(host, key));
+    }
+
+    [Fact]
+    public async Task Late_refusal_releases_the_claim()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var agent = new TestAgent();
+        var coordinator = new HookedCoordinator(clock);
+        await using var host = await StartAsync(new FixedFactory(agent), clock, services: s => s.AddSingleton<ExecutionCoordinator>(coordinator));
+        var key = await SeedAsync(host, "input");
+        // The task ends between the first read and the read after the claim.
+        coordinator.AfterClaim = async () =>
+            Assert.True(await host.Engine.CommitSystemStatusAsync(key, TaskState.Canceled, "gone"));
+
+        var result = await ContinueAsync(host, key);
+
+        Assert.Equal(TaskContinuationStatus.TaskTerminal, result.Status);
+        Assert.Equal(0, agent.Continues);
+        Assert.False(await coordinator.IsRunningAsync(key));
+        clock.Advance(new CoordinationOptions().LeaseTtl + TimeSpan.FromSeconds(1));
+        Assert.Empty(await coordinator.ListExpiredAsync(10));
+    }
+
+    [Fact]
+    public async Task Cancel_during_the_start_stops_the_run()
+    {
+        var agent = new TestAgent();
+        var tokenFired = NewSignal();
+        agent.OnContinue = async (_, _, ct) =>
+        {
+            ct.Register(() => tokenFired.TrySetResult());
+            await Task.Delay(Timeout.Infinite, ct);
+        };
+        var events = new InMemoryEventStore(new StreamingOptions());
+        var outbox = new InMemoryPushOutbox();
+        var store = new HookedTaskStore(new InMemoryTaskStore(events, outbox));
+        await using var host = await StartAsync(new FixedFactory(agent), services: s =>
+        {
+            s.AddSingleton<TaskStore>(store);
+            s.AddSingleton<EventStore>(events);
+            s.AddSingleton<PushOutbox>(outbox);
+        });
+        var key = await SeedAsync(host, "input");
+        // The read after the claim is the second one of this call: it returns the stale record, and the task ends before the run starts.
+        store.StaleReadNumber = 2;
+        store.AfterStaleRead = async () =>
+            Assert.True(await host.Engine.CommitSystemStatusAsync(key, TaskState.Canceled, "canceled meanwhile"));
+
+        var result = await ContinueAsync(host, key);
+        Assert.Equal(TaskContinuationStatus.Started, result.Status);
+        await tokenFired.Task.WaitAsync(Wait);
+        await result.Completion.WaitAsync(Wait);
+
+        Assert.Equal(TaskState.Canceled, (await TaskAsync(host, key)).Status.State);
+        var ended = await SnapshotAsync(host, key);
+        await host.Handler.WhenIdleAsync().WaitAsync(Wait);
+        Assert.Equal(ended, await SnapshotAsync(host, key));
+    }
+
+    [Fact]
+    public async Task Metadata_survives_a_disposed_document()
+    {
+        var agent = new TestAgent();
+        var gate = NewSignal();
+        string? seen = null;
+        agent.OnContinue = async (context, updater, ct) =>
+        {
+            await gate.Task.WaitAsync(ct);
+            seen = context.Metadata!["k"].GetString();
+            await updater.CompleteAsync("finished", ct);
+        };
+        await using var host = await StartAsync(new FixedFactory(agent));
+        var key = await SeedAsync(host, "input");
+        TaskContinuationResult result;
+        using (var document = JsonDocument.Parse("""{"k":"from the document"}"""))
+        {
+            result = await ContinueAsync(host, key, new Dictionary<string, JsonElement> { ["k"] = document.RootElement.GetProperty("k") });
+        }
+
+        gate.TrySetResult(); // the document is disposed now
+        await result.Completion.WaitAsync(Wait);
+
+        Assert.Equal("from the document", seen);
+    }
+
+    /// <summary>A coordinator that records claims and releases, and runs hooks around <c>TryRegisterExclusiveAsync</c>.</summary>
+    private sealed class HookedCoordinator(TimeProvider? time = null) : ExecutionCoordinator
+    {
+        private readonly InMemoryExecutionCoordinator _inner = new(new CoordinationOptions(), time);
+
+        public bool ThrowAfterClaim { get; set; }
+
+        public Func<Task>? AfterClaim { get; set; }
+
+        public List<string> Claims { get; } = [];
+
+        public List<string> Unregistered { get; } = [];
+
+        public override async ValueTask<bool> TryRegisterExclusiveAsync(TaskKey task, string executionId, CancellationToken ct = default)
+        {
+            Claims.Add(executionId);
+            var won = await _inner.TryRegisterExclusiveAsync(task, executionId, ct);
+            if (ThrowAfterClaim) throw new TimeoutException("the client timed out after the coordinator ran the claim");
+            if (AfterClaim is { } hook) await hook();
+            return won;
+        }
+
+        public override ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken ct = default) => _inner.RegisterAsync(task, executionId, ct);
+        public override ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default) => _inner.HeartbeatAsync(task, executionId, ct);
+        public override ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default)
+        {
+            Unregistered.Add(executionId);
+            return _inner.UnregisterAsync(task, executionId, ct);
+        }
+        public override ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default) => _inner.IsRunningAsync(task, ct);
+        public override ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default) => _inner.RequestCancelAsync(task, ct);
+        public override IAsyncEnumerable<TaskKey> CancelRequestsAsync(CancellationToken ct) => _inner.CancelRequestsAsync(ct);
+        public override ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken ct = default) => _inner.ListExpiredAsync(max, ct);
+        public override ValueTask<bool> TryAcquireSweepLeaseAsync(string name, TimeSpan duration, CancellationToken ct = default) => _inner.TryAcquireSweepLeaseAsync(name, duration, ct);
+    }
+
+    /// <summary>
+    /// Wraps a task store. The read number <see cref="StaleReadNumber"/> returns the record as it was, and then runs
+    /// <see cref="AfterStaleRead"/> (which changes the task), so the caller works on a stale record.
+    /// </summary>
+    private sealed class HookedTaskStore(TaskStore inner) : TaskStore
+    {
+        private int _reads;
+
+        public int StaleReadNumber { get; set; }
+
+        public Func<Task>? AfterStaleRead { get; set; }
+
+        public override async ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default)
+        {
+            var record = await inner.GetAsync(key, ct);
+            if (StaleReadNumber > 0 && Interlocked.Increment(ref _reads) == StaleReadNumber && AfterStaleRead is { } hook) await hook();
+            return record;
+        }
+
+        public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => inner.CreateAsync(record, ct);
+        public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default) => inner.UpdateAsync(record, expectedVersion, ct);
+        public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default) => inner.CommitAsync(commit, ct);
+        public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => inner.ListAsync(query, ct);
+        public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => inner.GetContextAsync(tenant, contextId, ct);
+        public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => inner.GetOrCreateContextAsync(record, ct);
+        public override ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default) => inner.DeleteAsync(key, ct);
+        public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default) => inner.ListExpiredAsync(terminalBefore, max, ct);
+        public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) => inner.ListInterruptedBeforeAsync(before, max, ct);
+        public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default) => inner.DeleteContextAsync(tenant, contextId, ct);
+        public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default) => inner.ListOrphanContextsAsync(createdBefore, max, ct);
+    }
+
     /// <summary>Delegates to a shared coordinator; after <see cref="Die"/> its heartbeats stop, like a dead instance's.</summary>
     private sealed class DyingCoordinator(ExecutionCoordinator inner) : ExecutionCoordinator
     {

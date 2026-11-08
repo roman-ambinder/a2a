@@ -19,7 +19,9 @@ public interface IContinuableAgentExecutor : IAgentExecutor
     /// <para>An exception fails the task, the same as in <see cref="IAgentExecutor.ExecuteAsync"/>.</para>
     /// <para>
     /// The host must store the task key when the task starts, to call <see cref="Execution.TaskExecutionEngine.ContinueTaskAsync"/>
-    /// later. Build it as <c>new TaskKey(context.Call.Tenant, context.Call.Principal, context.TaskId)</c>.
+    /// later. In <see cref="IAgentExecutor.ExecuteAsync"/>, build it as
+    /// <c>new TaskKey(context.Call.Tenant, context.Call.Principal, context.TaskId)</c>. In <c>ContinueAsync</c> it is
+    /// <see cref="TaskContinuationContext.Key"/>.
     /// </para>
     /// </remarks>
     /// <param name="context">The task and the caller's metadata.</param>
@@ -53,7 +55,7 @@ public enum TaskContinuationStatus
     /// <summary>The task is in a terminal state.</summary>
     TaskTerminal,
 
-    /// <summary>The task waited for input longer than <see cref="A2AServerOptions.InterruptedTimeout"/>. The retention sweep cancels it.</summary>
+    /// <summary>The task waited for input longer than <see cref="A2AServerOptions.InterruptedTimeout"/>. The retention sweep cancels it when retention is on.</summary>
     InterruptedTimedOut,
 
     /// <summary>An execution of the task is running, or another continuation is starting.</summary>
