@@ -265,6 +265,7 @@ public sealed class TaskContinuationTests
         var key = await SeedAsync(host, "input");
         await host.Handler.CreateTaskPushNotificationConfigAsync(
             new TaskPushNotificationConfig { TaskId = key.TaskId, Url = "http://hooks.test/hook" }, Call());
+        await host.WaitForPushIdleAsync(); // the task is INPUT_REQUIRED, so registering sends one catch-up first
         var before = host.Webhooks.Calls.Count;
 
         var result = await ContinueAsync(host, key);

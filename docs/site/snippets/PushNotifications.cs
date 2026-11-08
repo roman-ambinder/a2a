@@ -137,24 +137,49 @@ internal static class Snippets
     public static void Receiver(WebApplication app, string whsecSecret)
     {
         #region Receiver
-        var receiver = new PushNotificationReceiver(); // one instance: it remembers webhook ids
+        var receiver = new PushNotificationReceiver(); // one instance: it remembers handled delivery ids
         if (!WebhookSignature.TryParseSecret(whsecSecret, out var secret))
             throw new InvalidOperationException("The signing secret must be whsec_ + base64 of at least 16 bytes.");
 
-        app.MapPost("/a2a-webhook", async (HttpRequest request) =>
+        app.MapPost("/a2a-webhook", async (HttpRequest request, CancellationToken ct) =>
         {
             // Verify the exact bytes that were signed, not re-serialized JSON.
+            using var buffer = new MemoryStream();
+            await request.Body.CopyToAsync(buffer, ct);
+            var headers = request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString());
+
+            var result = await receiver.HandleAsync(headers, buffer.ToArray(), async (delivery, token) =>
+            {
+                // Save the event first. If this throws, the id is forgotten and the sender's retry comes back here.
+                await SaveEventAsync(delivery.Event, delivery.DeliveryId, token);
+            }, signingSecret: secret, cancellationToken: ct);
+
+            return Results.StatusCode(result.StatusCode); // 200, 401, 500 or 503: the sender retries 408, 429 and 5xx only
+        });
+        #endregion
+    }
+
+    private static Task SaveEventAsync(StreamResponse evt, string? deliveryId, CancellationToken ct) => Task.CompletedTask;
+
+    public static void ReceiverLowLevel(WebApplication app, string whsecSecret)
+    {
+        #region ReceiverLowLevel
+        var receiver = new PushNotificationReceiver();
+        if (!WebhookSignature.TryParseSecret(whsecSecret, out var secret))
+            throw new InvalidOperationException("The signing secret must be whsec_ + base64 of at least 16 bytes.");
+
+        app.MapPost("/a2a-webhook-low-level", async (HttpRequest request) =>
+        {
             using var buffer = new MemoryStream();
             await request.Body.CopyToAsync(buffer);
             var body = buffer.ToArray();
             var headers = request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString());
 
+            // VerifySignature marks the id as seen at once. Nothing may fail after a Valid result,
+            // or the sender's retry is reported as Duplicate and the event is lost.
             switch (receiver.VerifySignature(headers, body, secret))
             {
                 case PushValidationResult.Valid:
-                    var evt = A2A.Json.A2AJson.Deserialize<StreamResponse>(System.Text.Encoding.UTF8.GetString(body));
-                    // Hand evt to your own code here.
-                    _ = evt;
                     return Results.Ok();
                 case PushValidationResult.Duplicate:
                     return Results.Ok(); // a retry we already handled: answer 2xx so the sender stops
@@ -163,5 +188,64 @@ internal static class Snippets
             }
         });
         #endregion
+    }
+
+    public static async Task RegisterSafelyAsync(A2AClient client, string taskId, string secret)
+    {
+        #region RegisterSafely
+        // Registers the webhook first, then reads the task once.
+        var registration = await client.RegisterPushAsync(taskId, new TaskPushNotificationConfig
+        {
+            Url = "https://hooks.example.com/a2a",
+            Authentication = new AuthenticationInfo { Scheme = WebhookSignature.Scheme, Credentials = secret },
+        });
+
+        if (registration.IsFinal)
+        {
+            // The task finished before the webhook existed. Servers of other SDKs send no catch-up
+            // delivery, so use registration.Task now and do not wait for a callback.
+            Console.WriteLine($"Already {registration.Task.Status.State}.");
+        }
+        #endregion
+    }
+
+    public static async Task TrackAsync(IA2AClient client, string taskId)
+    {
+        #region Tracker
+        // One tracker per app. The callback is how you learn what GetTask found.
+        using var tracker = new PushTaskTracker(client, (check, ct) =>
+        {
+            if (check.Task is { } task)
+                Console.WriteLine($"{check.TaskId}: {task.Status.State} (checked because of {check.Reason}).");
+            else
+                Console.WriteLine($"{check.TaskId}: GetTask failed: {check.Error?.Message}");
+            return Task.CompletedTask;
+        });
+
+        // Watch the task: if no final state arrives within 5 minutes, the tracker calls GetTask.
+        await tracker.TrackAsync(taskId, TimeSpan.FromMinutes(5));
+
+        #endregion
+    }
+
+    public static Task<PushHandleResult> OnWebhookAsync(PushNotificationReceiver receiver, PushTaskTracker tracker,
+        IReadOnlyDictionary<string, string> headers, byte[] body, string token)
+    {
+        #region TrackerNotify
+        // In the webhook handler, report every notification. A skipped sequence number triggers GetTask at once,
+        // and a final state removes the task from the tracker.
+        return receiver.HandleAsync(headers, body, (delivery, ct) => tracker.NotifyAsync(delivery, ct), expectedToken: token);
+        #endregion
+    }
+
+    public static void Store()
+    {
+        #region Stores
+        // Keep handled ids and tracked tasks in your own database so they survive a restart.
+        // The in-memory defaults lose them; after a restart a delivery can repeat, which is safe for an idempotent handler.
+        var receiver = new PushNotificationReceiver(new InMemoryPushDeliveryStore()); // or your IPushDeliveryStore
+        var tasks = new InMemoryPushTaskStore();                                      // or your IPushTaskStore
+        #endregion
+        _ = (receiver, tasks);
     }
 }
