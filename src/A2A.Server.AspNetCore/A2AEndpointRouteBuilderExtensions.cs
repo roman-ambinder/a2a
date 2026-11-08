@@ -121,7 +121,7 @@ public static partial class A2AEndpointRouteBuilderExtensions
     /// (<c>MapA2AGrpc</c>) already applies these checks; do not call this on it.
     /// </summary>
     /// <exception cref="InvalidOperationException"><c>services.AddA2AServerAspNetCore()</c> was not called.</exception>
-    public static TBuilder WithA2AStartupCheck<TBuilder>(this TBuilder builder, IEndpointRouteBuilder endpoints, string bindingName)
+    internal static TBuilder WithA2AStartupCheck<TBuilder>(this TBuilder builder, IEndpointRouteBuilder endpoints, string bindingName)
         where TBuilder : IEndpointConventionBuilder
     {
         ArgumentNullException.ThrowIfNull(builder);

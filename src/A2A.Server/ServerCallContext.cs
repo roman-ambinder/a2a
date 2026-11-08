@@ -27,14 +27,28 @@ public sealed class ServerCallContext
     public string LimitPartition => LimitPartitionFor(Principal, RemoteAddress);
 
     /// <summary>
-    /// The key for per-caller limits: <c>user:{principal}</c> for an authenticated caller, and <c>anon:{remoteAddress}</c>
-    /// (<c>anon:unknown</c> without an address) for <see cref="AnonymousPrincipal"/>, so anonymous callers do not share one
-    /// budget. The prefixes keep a principal id from colliding with an address key.
+    /// The key for per-caller limits: <c>user:{principal}</c> for an authenticated caller, and for <see cref="AnonymousPrincipal"/>
+    /// <c>anon:{address}</c> (<c>anon:unknown</c> without an address), so anonymous callers do not share one budget. An IPv4
+    /// address (also IPv4-mapped IPv6) is its own partition. An IPv6 address is grouped by its /64 prefix, written
+    /// <c>anon:2001:db8:1:2::/64</c>, because one host usually controls a whole /64 and could otherwise pick a fresh address per
+    /// request. The prefixes keep a principal id from colliding with an address key.
     /// </summary>
     public static string LimitPartitionFor(string principal, string? remoteAddress) =>
         string.Equals(principal, AnonymousPrincipal, StringComparison.Ordinal)
-            ? "anon:" + (string.IsNullOrEmpty(remoteAddress) ? "unknown" : remoteAddress)
+            ? "anon:" + AnonymousAddressKey(remoteAddress)
             : "user:" + principal;
+
+    private static string AnonymousAddressKey(string? remoteAddress)
+    {
+        if (string.IsNullOrEmpty(remoteAddress)) return "unknown";
+        if (!System.Net.IPAddress.TryParse(remoteAddress, out var ip)) return remoteAddress;
+        if (ip.IsIPv4MappedToIPv6) return ip.MapToIPv4().ToString();
+        if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetworkV6) return ip.ToString();
+        Span<byte> bytes = stackalloc byte[16];
+        ip.TryWriteBytes(bytes, out _);
+        bytes[8..].Clear();
+        return new System.Net.IPAddress(bytes).ToString() + "/64";
+    }
 
     public bool IsAuthenticated => User?.Identity?.IsAuthenticated == true;
 

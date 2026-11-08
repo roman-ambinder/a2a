@@ -68,6 +68,24 @@ public class AnonymousLimitTests
     }
 
     [Theory]
+    [InlineData("2001:db8:1:2:3:4:5:6", "anon:2001:db8:1:2::/64")]
+    [InlineData("2001:db8:1:2:ffff:ffff:ffff:ffff", "anon:2001:db8:1:2::/64")]
+    [InlineData("2001:db8:1:3::1", "anon:2001:db8:1:3::/64")]
+    [InlineData("::ffff:203.0.113.1", "anon:203.0.113.1")]
+    [InlineData("203.0.113.1", "anon:203.0.113.1")]
+    public void Limit_partition_groups_anonymous_ipv6_callers_by_slash_64(string address, string expected)
+    {
+        Assert.Equal(expected, ServerCallContext.LimitPartitionFor(ServerCallContext.AnonymousPrincipal, address));
+        Assert.Equal("user:alice", ServerCallContext.LimitPartitionFor("alice", address));
+    }
+
+    [Fact]
+    public void Limit_partition_does_not_parse_unparseable_addresses_into_one_bucket()
+    {
+        Assert.Equal("anon:not-an-ip", ServerCallContext.LimitPartitionFor(ServerCallContext.AnonymousPrincipal, "not-an-ip"));
+    }
+
+    [Theory]
     [MemberData(nameof(Bindings))]
     public async Task Anonymous_rate_limit_is_per_remote_address(string binding)
     {
