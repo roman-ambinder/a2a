@@ -151,6 +151,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 252, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.LocalCoordinatorMessage)]
     public static partial void LocalCoordinatorWithDurableStore(ILogger logger, string taskStore);
 
+    [LoggerMessage(EventId = 253, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.RetentionOffMessage)]
+    public static partial void RetentionOffWithDurableStore(ILogger logger, string taskStore);
+
     // IdempotencyCoordinator: 400-499
     [LoggerMessage(EventId = 400, Level = LogLevel.Error, Message = "Failed to record the idempotency outcome for task {TaskId}")]
     public static partial void IdempotencyRecordFailed(ILogger logger, Exception exception, string taskId);

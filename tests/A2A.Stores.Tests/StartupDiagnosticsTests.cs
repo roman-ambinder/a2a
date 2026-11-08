@@ -18,6 +18,7 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
 {
     private const string EphemeralProtector = "EphemeralPushSecretProtector";
     private const string LocalCoordinator = "InMemoryExecutionCoordinator";
+    private const string RetentionOff = "AddA2ARetention";
 
     private static async Task<List<(LogLevel Level, string Message)>> StartAsync(Action<IServiceCollection> configure)
     {
@@ -62,6 +63,19 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
         Assert.Contains("process-local", entry.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>A durable task store without the retention sweep: nothing is ever deleted or timed out.</summary>
+    [SkippableFact]
+    public async Task Durable_task_store_without_retention_logs_a_warning()
+    {
+        var logs = await StartWithPostgresStoresAsync(await db.NewSchemaAsync());
+
+        var entry = Assert.Single(logs, e => e.Message.Contains(RetentionOff, StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains("never deleted", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("never time out", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("stay WORKING", entry.Message, StringComparison.Ordinal);
+    }
+
     [SkippableFact]
     public async Task Persistent_protector_and_shared_coordinator_log_nothing()
     {
@@ -79,10 +93,12 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
                 .AddRedisExecutionCoordinator(redis, o => o.ChannelPrefix = $"diag:{Guid.NewGuid():N}:");
             s.AddDataProtection();
             s.AddA2ADataProtectionPushSecrets();
+            s.AddA2ARetention();
         });
 
         Assert.DoesNotContain(logs, e => e.Message.Contains(EphemeralProtector, StringComparison.Ordinal));
         Assert.DoesNotContain(logs, e => e.Message.Contains(LocalCoordinator, StringComparison.Ordinal));
+        Assert.DoesNotContain(logs, e => e.Message.Contains(RetentionOff, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -92,6 +108,7 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
 
         Assert.DoesNotContain(logs, e => e.Message.Contains(EphemeralProtector, StringComparison.Ordinal));
         Assert.DoesNotContain(logs, e => e.Message.Contains(LocalCoordinator, StringComparison.Ordinal));
+        Assert.DoesNotContain(logs, e => e.Message.Contains(RetentionOff, StringComparison.Ordinal));
     }
 
     private sealed class CaptureLogger : ILoggerProvider
