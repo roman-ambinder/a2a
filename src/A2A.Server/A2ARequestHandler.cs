@@ -358,7 +358,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     }
                     catch (ConcurrencyException) when (attempt < TaskExecutionEngine.MaxConflictRetries)
                     {
-                        // The task changed under us: wait a moment, reload, re-check the state, and append again.
+                        // The task changed under us: wait a moment, reload, re-check the state, and append again. The wait
+                        // holds the striped task lock (inherited from main), so tasks on the same stripe wait too; conflicts
+                        // come only from other instances (writers here share the lock), so this is rare and short.
                         await TaskExecutionEngine.ConflictBackoffAsync(attempt, ct).ConfigureAwait(false);
                     }
                 }

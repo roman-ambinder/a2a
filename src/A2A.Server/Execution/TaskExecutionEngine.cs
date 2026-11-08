@@ -662,6 +662,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
             {
+                // Sleeps under the striped task lock (inherited from main), so tasks on the same stripe wait too. Acceptable:
+                // conflicts come only from other instances (writers here share the lock), so this is rare and short.
                 await ConflictBackoffAsync(attempt, CancellationToken.None).ConfigureAwait(false);
                 var fresh = await _tasks.GetAsync(key).ConfigureAwait(false);
                 if (fresh is null)

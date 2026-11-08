@@ -289,12 +289,26 @@ Breaking changes for code that replaced SDK parts:
 - **Webhook receivers:** nothing breaks. To use signatures, register push configs with scheme `webhook-signature` and verify with `PushNotificationReceiver.VerifySignature`.
 - **`PushValidationResult` has new members** `InvalidSignature` and `Stale` (from `VerifySignature`). A `switch` over it that must be exhaustive needs cases for them.
 - **`TaskExecutionEngine` public constructor:** the `IPushNotificationSender push` parameter is now `PushOutbox outbox`, and an optional `ExecutionCoordinator? coordinator` follows `timeProvider`. `IAgentExecutorFactory.RentAsync` takes the tenant, and a lease with a null `Executor` means no agent serves it. Prefer resolving the parts from DI (`AddA2AServer`).
-- **Multi-agent hosting** registers a `TenantCardProvider` (`AddTenantCardProvider<T>()`), not a replacement `IAgentCardProvider`: the default provider completes each tenant's card.
-- **Push metrics** are on the `A2A.Server` meter: `a2a.server.push.deliveries` counts attempts with `a2a.outcome` = `sent`, `retried` or `dead_lettered` (was: final results, `delivered`/`failed`), and `a2a.server.push.dead_letters` counts dead letters.
 - **Custom `ExecutionCoordinator`: `HeartbeatAsync` returns `ValueTask<bool>`.** Return true when the lease was held (and renew it), false when it is missing or expired (and do not renew it). On false the handler re-reads the task: it cancels the execution when the task has ended, and registers it again otherwise. A coordinator that always returns true turns this off.
 - **Redriven dead letters** (`A2APushAdmin.RedriveAsync`) are sent after the newer events of the same push config that were delivered meanwhile, not in their original place.
 - **`PendingApproval`** throws `ArgumentException` when `OperationId` contains a line feed. The hash format is unchanged.
 - **Startup diagnostics:** `AddA2AServer` logs an error for a durable push outbox with the per-process push secret protector, and a warning for a durable task store with the in-memory execution coordinator (see "Durable stores and several instances"). Nothing throws.
+
+### Public API changes relative to `main`
+
+Code written against the `main` branch needs these changes:
+
+- **Rate limiting switch moved.** `A2AServerOptions.EnableRateLimiting` is removed. Use `A2ARateLimitOptions.Enabled` (default true): `services.AddA2ARateLimiting(o => o.Enabled = false)`. The same options set the bucket (`TokenLimit`, `TokensPerPeriod`, `ReplenishmentPeriod`).
+- **`A2AServerOptions.ExtendedAgentCardProvider` gets the public card.** It is now `Func<ServerCallContext, AgentCard, CancellationToken, ValueTask<AgentCard?>>`; the second argument is the tenant's completed public card. Add the parameter to your delegate.
+- **`A2AAuthorizationHandler.AuthorizeAsync`** takes an `A2AOperationDescriptor` instead of an `A2AOperation`: `AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, CancellationToken cancellationToken)`. Use `operation.Kind` where you compared the `A2AOperation`; an extension operation has `Kind` = `Extension` and its registered `Name`. Every resume of a stream (Last-Event-ID, idempotent retry, duplicate follow-up) is authorized as `SubscribeToTask`.
+- **`IdempotencyClaim` is public** (`A2A.Server.Idempotency`), because the public `IdempotencyCoordinator` methods (`BeginAsync`, `RecordAsync`, `AbandonAsync`) take or return it.
+- **Constructors changed** (prefer the DI registrations, which pass the new arguments):
+  - `RedisTaskEventBus(IConnectionMultiplexer redis, StreamingOptions streaming, RedisEventBusOptions? options = null, ILogger<RedisTaskEventBus>? logger = null)`: `StreamingOptions` is new, second.
+  - `PushDeliveryService(PushOutbox, PushConfigStore, IPushSecretProtector, HttpMessageInvoker http, A2AServerOptions options, ILogger? logger = null, TimeProvider? time = null)`: an `HttpMessageInvoker` replaces `IHttpClientFactory`, and the options are passed directly, not as `IOptions<A2AServerOptions>`.
+  - `A2ARetentionService(IOptions<A2ARetentionOptions>, A2AServerOptions serverOptions, TaskStore, ExecutionCoordinator, TaskExecutionEngine engine, A2ATaskAdmin, ILogger? logger = null, TimeProvider? time = null)`: `A2AServerOptions` directly, and the `TaskExecutionEngine` replaces the `A2ARequestHandler`.
+- **Push metrics renamed.** The meter is `A2A.Server` (was `A2A`) and the counter is `a2a.server.push.deliveries` (was `a2a.push.deliveries`). It counts each attempt, with `a2a.outcome` = `sent`, `retried` or `dead_lettered` (was: final results, `delivered`/`failed`). `a2a.server.push.dead_letters` counts dead letters. Update dashboards and alerts.
+- **Per-tenant cards: `AgentCardProvider` (`A2A.Server.Agents`) is now `TenantCardProvider`**, and `AddAgentCardProvider<T>()` is now `AddTenantCardProvider<T>()`. The members are the same. Do not confuse it with the new `A2A.Server.AgentCardProvider`, the default `IAgentCardProvider` that completes each tenant's card; register a `TenantCardProvider`, not a replacement `IAgentCardProvider`.
+- **`IAgentExecutorFactory.RentAsync(string tenant, CancellationToken cancellationToken)`** rents the executor of one tenant. A lease with a null `Executor` means no agent serves the tenant. `AgentExecutorResolver` (`AddAgentExecutorResolver<T>()`) still picks the executor per tenant on top of the default factory.
 
 ## Interop
 

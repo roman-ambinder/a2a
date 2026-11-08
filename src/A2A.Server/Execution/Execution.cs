@@ -78,7 +78,9 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
 
     /// <summary>
     /// The agent's events, read by the engine. When it is full the agent's next write waits: a fast agent is throttled to the
-    /// engine's pace. Only the executor writes here, never under the task lock.
+    /// engine's pace. Only the executor writes here, never under the task lock. The FAILED event of the time limit is queued
+    /// here too, so it may wait behind up to <c>capacity</c> (<see cref="StreamingOptions.ChannelCapacity"/>) events the agent
+    /// wrote before it.
     /// </summary>
     public Channel<StreamResponse> Incoming { get; } = Channel.CreateBounded<StreamResponse>(new BoundedChannelOptions(Math.Max(1, capacity))
     {
