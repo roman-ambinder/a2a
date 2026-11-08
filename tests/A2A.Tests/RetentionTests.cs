@@ -728,7 +728,14 @@ public sealed class RetentionTests
         await host.WaitIdleAsync();
 
         clock.Advance(TimeSpan.FromDays(8)); // the interval timer fires once, eight days on; nothing runs
-        await EventuallyAsync(async () => await StateAsync(host, key) is null, "the hosted sweep purged the expired task");
+        // The host runs ExecuteAsync on a pool thread, so its interval timer may start only after that advance: then the next
+        // interval, one step later, sweeps.
+        await EventuallyAsync(async () =>
+        {
+            if (await StateAsync(host, key) is null) return true;
+            clock.Advance(new A2ARetentionOptions().SweepInterval);
+            return false;
+        }, "the hosted sweep purged the expired task");
     }
 
     [Fact]
