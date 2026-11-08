@@ -61,7 +61,7 @@ The server adds a token bucket per caller. Change it with <xref:A2A.Server.AspNe
 Details:
 
 - `MapA2A` applies the policy named `a2a`. The policy has no queue: a request without a token is rejected at once.
-- Each tenant and caller pair has its own bucket. Every request also draws from a bucket per caller across all tenants, with the same settings, so spreading requests over tenants gives no extra budget.
+- Each tenant and caller pair has its own bucket. Every request also draws from a bucket per caller across all tenants, with the same settings, so spreading requests over tenants gives no extra budget. An anonymous caller has no tenant in its key: the limit runs before authorization and the tenant is text from the URL, so random tenant names would otherwise create buckets without end. Anonymous callers from one address share one bucket across all tenants.
 - To use your own policy, register one named `a2a` with `AddRateLimiter`. The default is then skipped.
 - The rejection is written in the format of the binding (JSON-RPC or HTTP+JSON). A binding package such as gRPC registers an <xref:A2A.Server.AspNetCore.IA2ARejectionWriter> for its own format.
 
