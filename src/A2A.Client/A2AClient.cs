@@ -103,7 +103,8 @@ public sealed class A2AClient : IA2AClient
 
     /// <summary>
     /// Selects a skill for one send: writes <paramref name="skillId"/> to the message metadata and requests the skill-selection
-    /// extension. Pass the returned options to any send method.
+    /// extension. Pass <paramref name="message"/> and the returned options to a send method that takes a message or a request. The returned
+    /// options must be passed, because they request the extension; without them the server ignores the selection.
     /// </summary>
     /// <param name="message">The message to send. It is changed and must be the one you send.</param>
     /// <param name="skillId">The <see cref="AgentSkill.Id"/> of the skill. Not empty.</param>
@@ -121,8 +122,9 @@ public sealed class A2AClient : IA2AClient
     {
         ArgumentNullException.ThrowIfNull(message);
         ArgumentException.ThrowIfNullOrEmpty(skillId);
+        var extendedLoaded = _extendedCardLoaded; // read before the card: a refresh writes the card first, then the flag
         if (_options.ValidateCapabilities && AgentCard is { } card
-            && (card.Capabilities.ExtendedAgentCard != true || _extendedCardLoaded)
+            && (card.Capabilities.ExtendedAgentCard != true || extendedLoaded)
             && !(card.Skills?.Any(s => string.Equals(s.Id, skillId, StringComparison.Ordinal)) ?? false))
         {
             throw A2AException.InvalidParams($"The Agent Card has no skill '{skillId}'.");

@@ -2,7 +2,7 @@ using System.Text.Json;
 using A2A.Json;
 using A2A.Skills;
 
-namespace A2A.Tests;
+namespace A2A.Tests.Skills;
 
 public class SkillSelectionTests
 {
@@ -130,6 +130,7 @@ public class SkillSelectionTests
     [InlineData("42")]
     [InlineData("{\"a\":1}")]
     [InlineData("null")]
+    [InlineData("\"\\ud800\"")]
     public void Get_is_null_for_bad_shapes(string json) => Assert.Null(WithSkill(json).GetRequestedSkillId());
 
     [Fact]

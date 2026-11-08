@@ -32,6 +32,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private readonly A2AServerOptions _options;
     private readonly IAgentCardProvider _cards;
     private readonly RequestCards _requestCards;
+    private readonly A2AAuthorizationHandler _authorization;
     private readonly CallValidator _validator;
     private readonly PushConfigService _pushConfigs;
     private readonly TaskExecutionEngine _engine;
@@ -81,6 +82,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     {
         _tokenExchanger = tokenExchanger;
         _cards = cards;
+        _authorization = authorization;
         _requestCards = new RequestCards(cards);
         ArgumentNullException.ThrowIfNull(extensionOperations);
         _extensions = new(StringComparer.Ordinal);
@@ -364,7 +366,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         RequestLimitValidator.Validate(request.Message, _options.Limits);
         ActorChainValidator.Validate(request.Message, _options.Limits, call);
         await RequireSupportedMediaTypesAsync(request.Message, call, ct).ConfigureAwait(false);
-        await SkillSelectionValidator.ValidateAsync(request.Message, call, _requestCards, _cards, ct).ConfigureAwait(false);
+        await SkillSelectionValidator.ValidateAsync(request.Message, call, _requestCards, _cards, _authorization, ct).ConfigureAwait(false);
         // A copy: the caller's message is never changed (a retry with the same instance must hash the same). This copy goes to
         // the executor; the stored history gets copies of its own.
         var message = request.Message.DeepCopy();

@@ -71,7 +71,7 @@ public sealed class AgentRequestContext
     /// <c>Message.GetRequestedSkillId()</c>.
     /// </summary>
     /// <remarks>
-    /// This is a hint from the caller. Unless the card opts in with <see cref="SkillSelection.CreateExtension"/>, it may name a skill
+    /// This is a hint from the caller. Unless the card opts in with <see cref="SkillSelection.CreateExtension"/> (<c>rejectUnknownSkills: true</c>), it may name a skill
     /// the agent does not have. Do not use it for authorization.
     /// </remarks>
     public string? RequestedSkillId =>

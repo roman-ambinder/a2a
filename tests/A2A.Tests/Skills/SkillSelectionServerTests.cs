@@ -3,6 +3,8 @@ using System.Text.Json;
 using A2A.Client;
 using A2A.Server;
 using A2A.Server.Agents;
+using A2A.Server.Authorization;
+using A2A.Server.Pipeline;
 using A2A.Skills;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -248,12 +250,108 @@ public class SkillSelectionServerTests
     [Theory, MemberData(nameof(Bindings))]
     public async Task Each_tenant_card_decides_for_itself(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2AServer().AddTenantCardProvider<Tenants>(), grpc: true);
+        var agent = new RecordingAgent();
+        await using var host = await TestAgentHost.StartAsync(
+            services: s =>
+            {
+                s.AddA2AServer().AddTenantCardProvider<Tenants>();
+                s.Replace(ServiceDescriptor.Singleton<IAgentExecutor>(agent));
+            }, grpc: true);
         A2AClient Tenant(string name) => host.Client(binding, options: new A2AClientOptions { Tenant = name, ValidateCapabilities = false });
 
         var ex = await Assert.ThrowsAsync<A2AException>(() => Tenant("strict").SendMessageAsync(Msg(Unknown), options: Activated));
         Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        await host.WaitIdleAsync();
+        Assert.Equal(0, agent.Calls);
+
         Assert.NotNull((await Tenant("lenient").SendMessageAsync(Msg(Unknown, "m2"), options: Activated)).RequireTask());
+        await host.WaitIdleAsync();
+        Assert.Equal(1, agent.Calls);
+        Assert.Equal(Unknown, agent.Requested);
+    }
+
+    [Theory]
+    [InlineData(ProtocolBindings.JsonRpc)]
+    [InlineData(ProtocolBindings.HttpJson)]
+    public async Task Lone_surrogate_id_is_refused_as_invalid_params(string binding)
+    {
+        var (host, agent) = await StartAsync(optIn: true);
+        await using var _ = host;
+        using var req = RawSend(binding, "\\ud800");
+        var resp = await host.Http("alice").SendAsync(req);
+        // The JSON layer refuses a lone surrogate before the validator runs; this pins that it is InvalidParams, not a crash.
+        Assert.Contains("INVALID_PARAMS", await resp.Content.ReadAsStringAsync());
+        await host.WaitIdleAsync();
+        Assert.Equal(0, agent.Calls);
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task Opt_in_json_null_id_is_refused(string binding)
+    {
+        var (host, agent) = await StartAsync(optIn: true);
+        await using var _ = host;
+        var ex = await Assert.ThrowsAsync<A2AException>(() => ClientFor(host, binding).SendMessageAsync(RawMsg(Json("null")), options: Activated));
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        await host.WaitIdleAsync();
+        Assert.Equal(0, agent.Calls);
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task Provider_is_not_called_when_the_skill_is_on_the_public_card(string binding)
+    {
+        var providerCalls = 0;
+        var (host, agent) = await StartAsync(optIn: true, o => ExtendedCardWithSkill(o, () => Interlocked.Increment(ref providerCalls)));
+        await using var _ = host;
+        await ClientFor(host, binding).SendMessageAsync(Msg(Known), options: Activated);
+        await host.WaitIdleAsync();
+        Assert.Equal(Known, agent.Requested);
+        Assert.Equal(0, Volatile.Read(ref providerCalls));
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task Provider_returning_null_leads_to_a_refusal(string binding)
+    {
+        var providerCalls = 0;
+        var (host, agent) = await StartAsync(optIn: true, o => o.ExtendedAgentCardProvider = (_, _, _) =>
+        {
+            Interlocked.Increment(ref providerCalls);
+            return ValueTask.FromResult<AgentCard?>(null);
+        });
+        await using var _ = host;
+        var ex = await Assert.ThrowsAsync<A2AException>(() => ClientFor(host, binding).SendMessageAsync(Msg("secret"), options: Activated));
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        await host.WaitIdleAsync();
+        Assert.Equal(0, agent.Calls);
+        Assert.Equal(1, Volatile.Read(ref providerCalls));
+    }
+
+    private sealed class DenyExtendedCard : A2AAuthorizationHandler
+    {
+        public override ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(operation.Kind != A2AOperation.GetExtendedAgentCard);
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task Opt_in_extended_only_id_is_refused_when_the_caller_is_not_authorized_for_the_extended_card(string binding)
+    {
+        var providerCalls = 0;
+        var agent = new RecordingAgent();
+        await using var host = await TestAgentHost.StartAsync(
+            o =>
+            {
+                o.AgentCard.Capabilities.Extensions = [SkillSelection.CreateExtension(rejectUnknownSkills: true)];
+                ExtendedCardWithSkill(o, () => Interlocked.Increment(ref providerCalls));
+            },
+            services: s =>
+            {
+                s.Replace(ServiceDescriptor.Singleton<IAgentExecutor>(agent));
+                s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler, DenyExtendedCard>());
+            });
+        var ex = await Assert.ThrowsAsync<A2AException>(() => ClientFor(host, binding).SendMessageAsync(Msg("secret"), options: Activated));
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        await host.WaitIdleAsync();
+        Assert.Equal(0, agent.Calls);
+        Assert.Equal(0, Volatile.Read(ref providerCalls));
     }
 
     [Theory]

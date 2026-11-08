@@ -26,6 +26,21 @@ public class GrpcSkillSelectionTests
         await using var host = await StartAsync(_ => Interlocked.Increment(ref runs));
         var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client().SendMessageAsync(Msg("nope"), options: Activated));
         Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        Assert.Equal(SkillSelection.ExtensionUri, ex.Metadata?["extension"]);
+        Assert.Equal(0, Volatile.Read(ref runs));
+    }
+
+    [Fact]
+    public async Task Opt_in_with_an_unknown_id_is_refused_on_streaming()
+    {
+        var runs = 0;
+        await using var host = await StartAsync(_ => Interlocked.Increment(ref runs));
+        var ex = await Assert.ThrowsAsync<A2AException>(async () =>
+        {
+            await foreach (var _ in host.Client().SendStreamingMessageAsync(Msg("nope"), options: Activated)) { }
+        });
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        Assert.Equal(SkillSelection.ExtensionUri, ex.Metadata?["extension"]);
         Assert.Equal(0, Volatile.Read(ref runs));
     }
 

@@ -50,7 +50,7 @@ public static class SkillSelection
 public static class SkillSelectionMessageExtensions
 {
     /// <summary>
-    /// The skill id in the message metadata. Null when the key is absent, or its value is empty or not a string. Does not throw on
+    /// The skill id in the message metadata. Null when the key is absent, or its value is empty, not a string or not valid text. Does not throw on
     /// a bad shape.
     /// </summary>
     /// <remarks>The caller writes this value. Treat it as untrusted text, and do not use it for authorization.</remarks>
@@ -59,7 +59,9 @@ public static class SkillSelectionMessageExtensions
         ArgumentNullException.ThrowIfNull(message);
         if (message.Metadata is not { } metadata || !metadata.TryGetValue(SkillSelection.MetadataKey, out var value)) return null;
         if (value.ValueKind != JsonValueKind.String) return null;
-        var id = value.GetString();
+        string? id;
+        try { id = value.GetString(); }
+        catch (InvalidOperationException) { return null; } // text that is not valid UTF-16, such as a lone surrogate escape
         return string.IsNullOrEmpty(id) ? null : id;
     }
 
