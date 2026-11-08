@@ -140,7 +140,8 @@ public static class JsonCanonicalizer
         for (var precision = 1; precision <= 17; precision++)
         {
             var candidate = abs.ToString("G" + precision.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
-            if (double.Parse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture) == abs) return candidate;
+            // TryParse: on .NET Framework a candidate rounded past double.MaxValue (2E+308) overflows, and Parse would throw.
+            if (double.TryParse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed == abs) return candidate;
         }
 #endif
         return abs.ToString("R", CultureInfo.InvariantCulture);
