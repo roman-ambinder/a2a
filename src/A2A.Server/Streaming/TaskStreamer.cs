@@ -16,20 +16,21 @@ namespace A2A.Server.Streaming;
 /// It abandons <paramref name="claim"/> when the message is refused or the agent cannot start.
 /// </summary>
 /// <returns>
-/// The execution, and the task's last sequence before it (0 for a new task). The execution is null for a duplicate follow-up:
-/// nothing was started. The execution takes the lease of <paramref name="agent"/>.
+/// The execution, the task's last sequence before it (0 for a new task), and for a follow-up the timestamp of the task's
+/// status when the message was accepted (see <see cref="TaskExecutionEngine.StatusChangedSince"/>). The execution is null for
+/// a duplicate follow-up: nothing was started. The execution takes the lease of <paramref name="agent"/>.
 /// </returns>
-internal delegate Task<(Execution.Execution? Execution, long AfterSequence)> AcceptMessage(SendMessageRequest request, ServerCallContext call,
-    IdempotencyClaim claim, string taskId, RentedAgent agent, CancellationToken ct);
+internal delegate Task<(Execution.Execution? Execution, long AfterSequence, DateTimeOffset? AcceptedStatusTimestamp)> AcceptMessage(
+    SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string taskId, RentedAgent agent, CancellationToken ct);
 
 /// <summary>
 /// Follows a task's events: the SendStreamingMessage stream of a new execution, SubscribeToTask (fresh or resumed), and the
 /// wait of a blocking SendMessage. Every stream sends the task's events in sequence order without repeats, fills gaps from
 /// the event store (a snapshot when the store no longer has them), and is limited by <see cref="A2ALimits"/> (concurrent
 /// streams, re-authorization, duration).
-/// In an ASP.NET Core app the DI container creates it; protocol bindings call <see cref="A2ARequestHandler"/>, not this class.
+/// Internal: <see cref="A2ARequestHandler"/> creates its own from the services it is given; protocol bindings call the handler.
 /// </summary>
-public sealed class TaskStreamer
+internal sealed class TaskStreamer
 {
     private readonly TaskStore _tasks;
     private readonly EventStore _events;
@@ -41,7 +42,7 @@ public sealed class TaskStreamer
     private readonly RequestCards _cards;
     private readonly StreamAdmission _admission;
 
-    /// <summary>Creates the streamer. <c>AddA2AServer</c> registers it; the parameters are the registered services.</summary>
+    /// <summary>Creates the streamer from the request handler's services.</summary>
     internal TaskStreamer(
         TaskStore tasks,
         EventStore events,
@@ -91,10 +92,12 @@ public sealed class TaskStreamer
     /// on <paramref name="sub"/>, the task's other executions (for example CancelTask) until the task is terminal or interrupted,
     /// or until this execution ended and no other execution of the task is running. With <paramref name="returnImmediately"/>
     /// it stops after the execution's first event. Detaches <paramref name="exec"/> when done.
+    /// <paramref name="acceptedStatusTimestamp"/> is, for a follow-up, the timestamp of the task's status when the message was
+    /// accepted (see <see cref="SettledInStoreAsync"/>).
     /// </summary>
     /// <returns>The agent's direct reply, or null when the response is the task (read it from the store).</returns>
     internal async Task<Message?> WaitForOutcomeAsync(Execution.Execution exec, TaskKey key, TaskEventBus.Subscription sub, long afterSequence,
-        bool returnImmediately, CancellationToken cancellationToken)
+        DateTimeOffset? acceptedStatusTimestamp, bool returnImmediately, CancellationToken cancellationToken)
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
@@ -121,7 +124,7 @@ public sealed class TaskStreamer
                     if (other.Sequence > afterSequence && Settles(other.Event)) settledElsewhere = true;
                 }
                 if (!settledElsewhere && missedAfter is { } after)
-                    settledElsewhere = await SettledInStoreAsync(key, after, busLast, stop.Token).ConfigureAwait(false);
+                    settledElsewhere = await SettledInStoreAsync(key, after, busLast, acceptedStatusTimestamp, stop.Token).ConfigureAwait(false);
                 if (settledElsewhere) break;
 
                 if (!ownDone && own.TryRead(out var sequenced))
@@ -175,9 +178,11 @@ public sealed class TaskStreamer
     /// <summary>
     /// True when the event store holds an event after <paramref name="after"/> and up to <paramref name="upTo"/> that
     /// <see cref="Settles"/> the task: the bus dropped events in that range. Every event is stored before it is published.
-    /// When the store no longer has all of them (trimmed), the task itself decides: settled when it is terminal or interrupted.
+    /// When the store no longer has all of them (trimmed), the task itself decides: settled when it is terminal, or interrupted
+    /// with a status set after the follow-up was accepted (its timestamp differs from <paramref name="acceptedStatusTimestamp"/>;
+    /// a follow-up does not change the status itself, so an interrupted state from before it is not its outcome).
     /// </summary>
-    private async Task<bool> SettledInStoreAsync(TaskKey key, long after, long upTo, CancellationToken ct)
+    private async Task<bool> SettledInStoreAsync(TaskKey key, long after, long upTo, DateTimeOffset? acceptedStatusTimestamp, CancellationToken ct)
     {
         var expected = after + 1;
         await foreach (var stored in _events.ReadAfterAsync(key, after, ct).ConfigureAwait(false))
@@ -189,7 +194,8 @@ public sealed class TaskStreamer
         if (expected > upTo) return false; // every event of the range was there, none settles the task
 
         var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false);
-        return record is null || record.Task.Status.State.IsTerminal() || record.Task.Status.State.IsInterrupted();
+        return record is null || record.Task.Status.State.IsTerminal()
+            || (record.Task.Status.State.IsInterrupted() && TaskExecutionEngine.StatusChangedSince(record.Task.Status, acceptedStatusTimestamp));
     }
 
     private async IAsyncEnumerable<SequencedEvent> SendStreamingCoreAsync(SendMessageRequest request, ServerCallContext call, AcceptMessage accept,
@@ -234,7 +240,7 @@ public sealed class TaskStreamer
         var scope = ScopeKey(call.Tenant, taskId);
         // Subscribe before the agent starts, so no event of another execution is missed.
         using var sub = _bus.Subscribe(scope);
-        var (accepted, _) = await accept(request, call, claim, taskId, agent, cancellationToken).ConfigureAwait(false);
+        var (accepted, _, _) = await accept(request, call, claim, taskId, agent, cancellationToken).ConfigureAwait(false);
         if (accepted is not { } exec)
         {
             await agent.DisposeAsync().ConfigureAwait(false); // nothing runs

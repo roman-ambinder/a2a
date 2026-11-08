@@ -44,6 +44,17 @@ public abstract class IdempotencyStoreContract
     }
 
     [SkippableFact]
+    public async Task Completed_follow_up_keeps_its_accepted_status_timestamp()
+    {
+        var s = await CreateStoreAsync(new IdempotencyOptions());
+        await s.TryBeginAsync(Scope, Hash);
+        var at = new DateTimeOffset(2026, 11, 8, 10, 30, 15, 123, TimeSpan.Zero);
+        await s.CompleteAsync(Scope, new IdempotencyOutcome.TaskCreated("task-1", 7, at));
+        var done = Assert.IsType<IdempotencyResult.Completed>(await s.TryBeginAsync(Scope, Hash));
+        Assert.Equal(new IdempotencyOutcome.TaskCreated("task-1", 7, at), done.Outcome);
+    }
+
+    [SkippableFact]
     public async Task Completed_request_returns_its_direct_message()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
