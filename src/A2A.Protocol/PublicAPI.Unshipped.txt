@@ -899,3 +899,43 @@ A2A.Delegation.ActorChainMessageExtensions
 static A2A.Delegation.ActorChainMessageExtensions.GetActorChain(this A2A.Message! message) -> A2A.Delegation.ActorChain?
 static A2A.Delegation.ActorChainMessageExtensions.GetActorChain(this A2A.AgentTask! task) -> A2A.Delegation.ActorChain?
 static A2A.Delegation.ActorChainMessageExtensions.SetActorChain(this A2A.Message! message, A2A.Delegation.ActorChain! chain) -> A2A.Message!
+A2A.Delegation.ITokenExchanger
+A2A.Delegation.ITokenExchanger.ExchangeAsync(A2A.Delegation.TokenExchangeRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Delegation.TokenExchangeResult!>
+A2A.Delegation.TokenTypes
+const A2A.Delegation.TokenTypes.AccessToken = "urn:ietf:params:oauth:token-type:access_token" -> string!
+const A2A.Delegation.TokenTypes.Jwt = "urn:ietf:params:oauth:token-type:jwt" -> string!
+A2A.Delegation.TokenExchangeRequest
+A2A.Delegation.TokenExchangeRequest.TokenExchangeRequest() -> void
+A2A.Delegation.TokenExchangeRequest.SubjectToken.get -> string!
+A2A.Delegation.TokenExchangeRequest.SubjectToken.init -> void
+A2A.Delegation.TokenExchangeRequest.SubjectTokenType.get -> string!
+A2A.Delegation.TokenExchangeRequest.SubjectTokenType.init -> void
+A2A.Delegation.TokenExchangeRequest.Audience.get -> string?
+A2A.Delegation.TokenExchangeRequest.Audience.init -> void
+A2A.Delegation.TokenExchangeRequest.Resource.get -> string?
+A2A.Delegation.TokenExchangeRequest.Resource.init -> void
+A2A.Delegation.TokenExchangeRequest.Scopes.get -> System.Collections.Generic.IReadOnlyList<string!>?
+A2A.Delegation.TokenExchangeRequest.Scopes.init -> void
+A2A.Delegation.TokenExchangeRequest.RequestedTokenType.get -> string?
+A2A.Delegation.TokenExchangeRequest.RequestedTokenType.init -> void
+A2A.Delegation.TokenExchangeRequest.ActorToken.get -> string?
+A2A.Delegation.TokenExchangeRequest.ActorToken.init -> void
+A2A.Delegation.TokenExchangeRequest.ActorTokenType.get -> string?
+A2A.Delegation.TokenExchangeRequest.ActorTokenType.init -> void
+override A2A.Delegation.TokenExchangeRequest.ToString() -> string!
+A2A.Delegation.TokenExchangeResult
+A2A.Delegation.TokenExchangeResult.TokenExchangeResult() -> void
+A2A.Delegation.TokenExchangeResult.AccessToken.get -> string!
+A2A.Delegation.TokenExchangeResult.AccessToken.init -> void
+A2A.Delegation.TokenExchangeResult.TokenType.get -> string!
+A2A.Delegation.TokenExchangeResult.TokenType.init -> void
+A2A.Delegation.TokenExchangeResult.IssuedTokenType.get -> string?
+A2A.Delegation.TokenExchangeResult.IssuedTokenType.init -> void
+A2A.Delegation.TokenExchangeResult.ExpiresIn.get -> System.TimeSpan?
+A2A.Delegation.TokenExchangeResult.ExpiresIn.init -> void
+A2A.Delegation.TokenExchangeResult.Scope.get -> string?
+A2A.Delegation.TokenExchangeResult.Scope.init -> void
+override A2A.Delegation.TokenExchangeResult.ToString() -> string!
+A2A.Delegation.TokenExchangeException
+A2A.Delegation.TokenExchangeException.TokenExchangeException(string! message, string? error = null, System.Exception? inner = null) -> void
+A2A.Delegation.TokenExchangeException.Error.get -> string?
