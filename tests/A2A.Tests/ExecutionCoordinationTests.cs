@@ -21,6 +21,9 @@ public sealed class FaultyCoordinator(TimeProvider? time = null) : ExecutionCoor
     /// <summary>IsRunningAsync throws while true.</summary>
     public bool ThrowOnIsRunning { get; set; }
 
+    /// <summary>IsRunningAsync waits until its token is cancelled, then answers "running" (a lease that is still valid).</summary>
+    public bool HoldRunningCheckUntilCancelled { get; set; }
+
     public int RegisterCalls => Volatile.Read(ref _registerCalls);
 
     public override ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken ct = default)
@@ -33,13 +36,17 @@ public sealed class FaultyCoordinator(TimeProvider? time = null) : ExecutionCoor
     public override ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default) => _inner.HeartbeatAsync(task, executionId, ct);
     public override ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default) => _inner.UnregisterAsync(task, executionId, ct);
 
-    /// <summary>When set, answers IsRunningAsync instead of the wrapped coordinator.</summary>
-    public Func<ValueTask<bool>>? IsRunningOverride { get; set; }
-
-    public override ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default) =>
-        ThrowOnIsRunning ? throw new InvalidOperationException("coordinator unavailable")
-        : IsRunningOverride is { } answer ? answer()
-        : _inner.IsRunningAsync(task, ct);
+    public override async ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default)
+    {
+        if (ThrowOnIsRunning) throw new InvalidOperationException("coordinator unavailable");
+        if (HoldRunningCheckUntilCancelled)
+        {
+            try { await Task.Delay(Timeout.Infinite, ct); }
+            catch (OperationCanceledException) { }
+            return true;
+        }
+        return await _inner.IsRunningAsync(task, ct);
+    }
 
     /// <summary>The running check of the wrapped coordinator, never throwing (for assertions).</summary>
     public ValueTask<bool> IsRegisteredAsync(TaskKey task) => _inner.IsRunningAsync(task);
@@ -93,24 +100,6 @@ public class ExecutionCoordinationTests
     }
 
     [Fact]
-    public async Task Waiting_for_a_stop_ends_with_the_grace_period_while_the_coordinator_still_reports_a_lease()
-    {
-        var coordinator = new FaultyCoordinator
-        {
-            // The grace period ends during this check, so the next poll delay is already cancelled.
-            IsRunningOverride = async () =>
-            {
-                await Task.Delay(100);
-                return true;
-            },
-        };
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<ExecutionCoordinator>(coordinator));
-
-        await host.Engine.WaitUntilStoppedAsync(new TaskKey("", "alice", "t"), TimeSpan.FromMilliseconds(20), CancellationToken.None)
-            .WaitAsync(TimeSpan.FromSeconds(10));
-    }
-
-    [Fact]
     public async Task CancelTask_answers_when_the_coordinator_fails()
     {
         var coordinator = new FaultyCoordinator();
@@ -123,6 +112,18 @@ public class ExecutionCoordinationTests
         coordinator.ThrowOnIsRunning = true;
         var canceled = await client.CancelTaskAsync(task.Id);
         Assert.Equal(TaskState.Canceled, canceled.Status.State);
+    }
+
+    [Fact]
+    public async Task Waiting_for_executions_to_stop_ends_when_the_grace_period_ends_during_the_running_check()
+    {
+        // The grace period ends while the coordinator is asked, and a lease is still valid (as after a shutdown stop, which
+        // keeps its lease). The wait must end with the grace period: it used to spin on a poll delay that was cancelled already.
+        var coordinator = new FaultyCoordinator { HoldRunningCheckUntilCancelled = true };
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<ExecutionCoordinator>(coordinator));
+
+        var wait = Task.Run(() => host.Engine.WaitUntilStoppedAsync(new TaskKey("", "alice", "no-such-task"), TimeSpan.FromMilliseconds(100), CancellationToken.None));
+        await wait.WaitAsync(Wait);
     }
 
     [Fact]

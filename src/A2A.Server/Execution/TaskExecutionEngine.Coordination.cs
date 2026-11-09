@@ -257,6 +257,7 @@ public sealed partial class TaskExecutionEngine
     /// </summary>
     internal async ValueTask<List<Task>?> RunningWaitsAsync(TaskKey key, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested(); // the wait loops must end when their time is over: a wait below can be already complete
         var local = RunningCompletions(key);
         if (local.Count > 0) return local;
         if (!await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false)) return null;
@@ -341,12 +342,15 @@ public sealed partial class TaskExecutionEngine
         timeout.CancelAfter(grace);
         try
         {
-            while (await RunningWaitsAsync(key, timeout.Token).ConfigureAwait(false) is { } running)
+            while (true)
             {
-                await Task.WhenAny(running).WaitAsync(timeout.Token).ConfigureAwait(false);
-                // A poll delay cancelled by the timeout still completes WhenAny normally, and WaitAsync does not check the token of
-                // a finished task. Without this check the loop spins until the coordinator's lease expires.
+                // The grace period can end while the running check is under way, or between two checks. Then the wait below
+                // would get a poll delay that is cancelled already, and WaitAsync does not throw for a task that is done: the
+                // loop would spin, holding the caller, for as long as a lease is left (a lease kept by a shutdown stop lasts
+                // its whole TTL).
                 timeout.Token.ThrowIfCancellationRequested();
+                if (await RunningWaitsAsync(key, timeout.Token).ConfigureAwait(false) is not { } running) break;
+                await Task.WhenAny(running).WaitAsync(timeout.Token).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
