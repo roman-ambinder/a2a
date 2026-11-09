@@ -12,7 +12,7 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 
 ### Packages
 
-- 17 packages on NuGet, all with the ID prefix `RomanAmbinder.`, so they never clash with the official `A2A` packages.
+- 18 packages on NuGet, all with the ID prefix `RomanAmbinder.`, so they never clash with the official `A2A` packages.
   Assemblies and namespaces are `A2A.*`.
 - Client: `A2A.Protocol`, `A2A.Security.Http`, `A2A.Client`, `A2A.Client.DependencyInjection`, `A2A.Client.Grpc`,
   `A2A.Client.Postgres`, `A2A.Client.V0_3Compat`.
