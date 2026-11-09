@@ -32,6 +32,14 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
 
     public CancellationTokenSource Cts { get; } = cts;
 
+    private volatile bool _cancelRequested;
+
+    /// <summary>
+    /// True once something asked this execution to stop: <see cref="Cancel"/> (a CancelTask, a cancel from another instance, the
+    /// time limit, a store failure). False when only the engine's shutdown fired <see cref="Cts"/>: nobody cancelled the task.
+    /// </summary>
+    public bool CancelRequested => _cancelRequested;
+
     /// <summary>True once the execution's lease is registered with the coordinator.</summary>
     public bool Registered { get => _registered; set => _registered = value; }
 
@@ -121,6 +129,7 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
     /// </summary>
     public Exception? Cancel()
     {
+        _cancelRequested = true; // before the token fires, so a catch that sees the token also sees this
         try
         {
             Cts.Cancel();

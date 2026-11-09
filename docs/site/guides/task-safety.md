@@ -11,12 +11,15 @@ An agent runs code on behalf of a peer you do not control. This guide covers the
 | <xref:A2A.Server.A2AServerOptions.MaxTaskDuration> | null (off) | Longest one execution may run. |
 | <xref:A2A.Server.A2AServerOptions.MaxTurnsPerTask> | null (off) | Most incoming messages one task accepts. |
 | <xref:A2A.Server.A2AServerOptions.CancelGracePeriod> | 5 seconds | How long CancelTask waits for a running agent to stop. |
+| <xref:A2A.Server.A2AServerOptions.ShutdownDrainTimeout> | 20 seconds | How long a host stop waits for running agents to finish. Zero turns the wait off. |
 
 **Time limit.** One execution is one incoming message. When it runs longer than `MaxTaskDuration`, the task moves to `FAILED` with the text "Task exceeded its time limit". Streams and webhooks get it like any final event. The execution's cancellation token fires, and events the agent sends afterwards are dropped. A task waiting in `INPUT_REQUIRED` or `AUTH_REQUIRED` with no agent running is not affected. Each follow-up gets the full time again. Null, zero, a negative value, or about 24.8 days or more turns the limit off. The clock is the `TimeProvider` in DI. For tasks that wait too long for input, see [retention](retention.md).
 
 **Turn cap.** A peer can steer a long conversation one small step at a time. `MaxTurnsPerTask` counts the user messages in the stored history, including the one that created the task. A follow-up over the cap is refused with `UnsupportedOperation` before the agent runs, and the task is not changed. A retry of an accepted message is not a new turn. A value of 1 means no follow-ups. A custom `TaskStore` must keep the full history, or the cap does not hold.
 
 **Cancel requested.** CancelTask asks the agent to stop and waits up to `CancelGracePeriod`. If the agent has not stopped by then, the answer is the task as stored, with the metadata `a2a.cancelRequested = true`. That flag is never stored. The `CANCELED` state arrives later on the stream. A task that is already final gives `TaskNotCancelable`.
+
+**Host shutdown.** When the host stops, the server first waits up to `ShutdownDrainTimeout` for running agents to finish (it honours the stop token too). Keep it below the host's shutdown timeout, 30 seconds by default. Agents still running after that are asked to stop, but their tasks are **not** moved to `CANCELED`: nobody cancelled them. They stay `WORKING`, and the lease expiry, the [retention](retention.md) sweep or a continuation handles them. Only a real CancelTask ends in `CANCELED`, even when it arrives during shutdown.
 
 ## Approve risky actions
 
@@ -75,6 +78,8 @@ A runnable version is in `samples/ElicitationAgent`.
 ## Follow-up de-duplication
 
 A follow-up whose `messageId` is already in the task's history is not run again. The caller gets the task as it is: no new turn, no push config, no execution. The check runs before the state check, so a retry after the task has finished still gets its outcome.
+
+**A message the agent never saw.** The follow-up is committed before its agent starts. If the process dies in between, the message is in the history and nothing runs. The client's retry of the same `messageId` then starts the agent, once. This happens only when all of these hold: the task is not final and still accepts a follow-up, the message is the last one in the history, no agent runs for the task on any instance (an unreachable coordinator counts as running), and the event store has no event after the one the commit recorded (an agent that wrote anything, an artifact included, leaves one). Two retries at once start one execution. The commit records a server-owned key, `a2a.followUp.pendingStart`, in the task metadata; agents cannot write it. If the client never retries, nothing starts: the task stays in its state, with no lease, until the [retention](retention.md) sweep times it out. An agent that ran and wrote nothing at all looks the same as one that never started, so a retry runs it again.
 
 ## Executor errors
 

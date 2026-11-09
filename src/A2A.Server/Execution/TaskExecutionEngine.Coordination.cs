@@ -25,9 +25,10 @@ public sealed partial class TaskExecutionEngine
     /// Ends the execution's lease. Waits for a heartbeat still under way and keeps later ones out (the gate is held for good), so
     /// a late register cannot outlive the unregister. Fenced by the execution id: never ends a newer execution's lease.
     /// </summary>
-    private async Task UnregisterAsync(Execution exec)
+    private async Task UnregisterAsync(Execution exec, bool keepLease = false)
     {
-        await exec.HeartbeatGate.WaitAsync().ConfigureAwait(false);
+        await exec.HeartbeatGate.WaitAsync().ConfigureAwait(false); // for good: no heartbeat renews the lease again
+        if (keepLease) return;
         try
         {
             await _coordinator.UnregisterAsync(exec.Key, exec.Id, CancellationToken.None).ConfigureAwait(false);
@@ -260,6 +261,61 @@ public sealed partial class TaskExecutionEngine
         if (local.Count > 0) return local;
         if (!await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false)) return null;
         return [Task.Delay(_options.Coordination.RunningPollInterval, ct)];
+    }
+
+    private readonly Dictionary<string, int> _starting = [];
+
+    /// <summary>
+    /// A follow-up's message was committed and its execution is not registered yet (call <see cref="EndStart"/> once it is, or
+    /// the start failed). Until then <see cref="TryClaimStartAsync"/> refuses, so a retry does not start the message twice.
+    /// Called under the task lock, right after the commit.
+    /// </summary>
+    internal void BeginStart(TaskKey key)
+    {
+        var scope = ScopeKey(key.Tenant, key.TaskId);
+        lock (_starting) _starting[scope] = _starting.GetValueOrDefault(scope) + 1;
+    }
+
+    /// <summary>Ends a <see cref="BeginStart"/>.</summary>
+    internal void EndStart(TaskKey key)
+    {
+        var scope = ScopeKey(key.Tenant, key.TaskId);
+        lock (_starting)
+        {
+            if (!_starting.TryGetValue(scope, out var n)) return;
+            if (n <= 1) _starting.Remove(scope);
+            else _starting[scope] = n - 1;
+        }
+    }
+
+    /// <summary>
+    /// Takes the start of a follow-up whose message was committed but evidently never started. Call under the task lock. False
+    /// when a start is pending here, an execution of the task runs here, or one runs on another instance; a coordinator that
+    /// fails counts as running (unlike <see cref="IsRunningAnywhereAsync"/>: starting on a guess could run the agent twice). On
+    /// true a start is pending (<see cref="BeginStart"/>): the caller ends it with <see cref="EndStart"/>. The window with
+    /// another instance that is between its own commit and start is not closed: it takes a client retry in that window.
+    /// </summary>
+    internal async Task<bool> TryClaimStartAsync(TaskKey key, CancellationToken ct)
+    {
+        var scope = ScopeKey(key.Tenant, key.TaskId);
+        lock (_starting) if (_starting.ContainsKey(scope)) return false;
+        if (RunningCompletions(key).Count > 0) return false;
+        try
+        {
+            if (await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false)) return false;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ServerLog.RunningCheckFailed(_logger, ex, key.TaskId);
+            return false;
+        }
+        lock (_starting)
+        {
+            if (_starting.ContainsKey(scope)) return false; // another retry of the same instance took it meanwhile
+            _starting[scope] = 1;
+        }
+        ServerLog.FollowUpRestarted(_logger, key.TaskId);
+        return true;
     }
 
     /// <summary>Whether an execution of the task runs on any instance. A failing coordinator counts as not running (logged).</summary>

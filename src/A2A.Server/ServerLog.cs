@@ -184,6 +184,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 253, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.RetentionOffMessage)]
     public static partial void RetentionOffWithDurableStore(ILogger logger, string taskStore);
 
+    [LoggerMessage(EventId = 256, Level = LogLevel.Warning, Message = "A follow-up of task {TaskId} was committed but its agent never started; starting it for the retry")]
+    public static partial void FollowUpRestarted(ILogger logger, string taskId);
+
     [LoggerMessage(EventId = 255, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.InMemoryObjectsMessage)]
     public static partial void InMemoryObjectsWithDurableStore(ILogger logger, string taskStore);
 

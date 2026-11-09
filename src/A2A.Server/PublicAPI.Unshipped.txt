@@ -92,3 +92,5 @@ abstract A2A.Server.Storage.TaskStore.GetForMaintenanceAsync(string! tenant, str
 override A2A.Server.Storage.InMemoryTaskStore.GetForMaintenanceAsync(string! tenant, string! taskId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.TaskRecord?>
 A2A.Server.ServerCallContext.SkipRequiredExtensions.get -> bool
 A2A.Server.ServerCallContext.SkipRequiredExtensions.init -> void
+A2A.Server.A2AServerOptions.ShutdownDrainTimeout.get -> System.TimeSpan
+A2A.Server.A2AServerOptions.ShutdownDrainTimeout.set -> void

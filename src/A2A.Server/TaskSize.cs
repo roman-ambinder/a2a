@@ -58,7 +58,8 @@ internal static class TaskSize
     {
         Level.Message => key == A2AProtocol.MessageRecordedAtKey, // the server stamps it over whatever the caller sent
         Level.Artifact => key == A2AProtocol.ArtifactSealedKey, // only the server sets it
-        Level.Task => key is A2AProtocol.ApprovalConsumedKey or A2AProtocol.CancelRequestedKey or A2A.Elicitations.Elicitation.AnsweredKey,
+        Level.Task => key is A2AProtocol.ApprovalConsumedKey or A2AProtocol.CancelRequestedKey or A2A.Elicitations.Elicitation.AnsweredKey
+            or A2ARequestHandler.PendingStartKey,
         _ => false,
     };
 
