@@ -60,8 +60,12 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private readonly Func<DeleteTaskPushNotificationConfigRequest, ServerCallContext, CancellationToken, ValueTask<object?>> _deletePush;
     private readonly Func<GetExtendedAgentCardRequest, ServerCallContext, CancellationToken, ValueTask<AgentCard>> _extendedCard;
 
-    /// <summary>The registered extension operations by method name (case-sensitive), each with its descriptor.</summary>
-    private readonly Dictionary<string, (A2AExtensionOperation Operation, A2AOperationDescriptor Descriptor)> _extensions;
+    /// <summary>
+    /// The registered extension operations by method name (case-sensitive), each with its descriptor and its handler wrapped
+    /// with the activation check (built once, so a call allocates no closure for it).
+    /// </summary>
+    private readonly Dictionary<string, (A2AExtensionOperation Operation, A2AOperationDescriptor Descriptor,
+        Func<A2AOperationContext, JsonElement, CancellationToken, ValueTask<JsonElement>> Handler)> _extensions;
 
     private static readonly A2AOperationDescriptor SendStreamingOperation = A2AOperationDescriptor.For(A2AOperation.SendStreamingMessage);
     private static readonly A2AOperationDescriptor SubscribeOperation = A2AOperationDescriptor.For(A2AOperation.SubscribeToTask);
@@ -106,7 +110,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         _extensions = new(StringComparer.Ordinal);
         foreach (var extension in extensionOperations)
         {
-            if (!_extensions.TryAdd(extension.Method, (extension, A2AOperationDescriptor.Extension(extension.Method))))
+            if (!_extensions.TryAdd(extension.Method, (extension, A2AOperationDescriptor.Extension(extension.Method), RequireActivation(extension))))
                 throw new InvalidOperationException($"More than one extension operation is registered as '{extension.Method}'.");
         }
         _tasks = tasks;
@@ -1075,8 +1079,27 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{method}' not found");
         if (parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("tenant", out var tenant) && tenant.ValueKind == JsonValueKind.String)
             call.BindTenant(tenant.GetString());
-        return await _pipeline.RunExtensionAsync(extension.Descriptor, call, parameters, extension.Operation.Handler, cancellationToken).ConfigureAwait(false);
+        return await _pipeline.RunExtensionAsync(extension.Descriptor, call, parameters, extension.Handler, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Wraps the handler of <paramref name="extension"/>. Inside the pipeline, so after authorization, it resolves the tenant's card
+    /// (a tenant no agent serves is UnsupportedOperation; with per-tenant cards this also checks required extensions) and then
+    /// requires the call to have activated the operation's extension.
+    /// </summary>
+    private Func<A2AOperationContext, JsonElement, CancellationToken, ValueTask<JsonElement>> RequireActivation(A2AExtensionOperation extension) =>
+        async (context, parameters, ct) =>
+        {
+            await _requestCards.RequireAgentAsync(context.Call, ct).ConfigureAwait(false);
+            if (!context.Call.ActivatedExtensions.Contains(extension.ExtensionUri))
+            {
+                throw new A2AException(A2AErrorCode.ExtensionSupportRequired, $"Extension '{extension.ExtensionUri}' is required.")
+                {
+                    Metadata = new() { ["extension"] = extension.ExtensionUri },
+                };
+            }
+            return await extension.Handler(context, parameters, ct).ConfigureAwait(false);
+        };
 
     /// <summary>Status text of a task failed because its updates could not be stored (see <see cref="TaskExecutionEngine"/>).</summary>
     internal const string StoreFailureText = TaskExecutionEngine.StoreFailureText;

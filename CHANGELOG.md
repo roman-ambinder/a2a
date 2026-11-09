@@ -255,6 +255,10 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - `IA2ARequestHandler`, used by every binding, and an operation filter pipeline (`IA2AOperationFilter`). (#13)
 - Extension operations over JSON-RPC, REST and gRPC (`AddExtensionOperation`), denied unless authorized. gRPC serves them through
   `a2a.extensions.v1.A2AExtensionService`, mapped with `MapA2AGrpcExtensions`. Experimental. (#13, #35)
+- Custom operations are finished: a call must activate the extension of its operation (`A2A-Extensions`), or it fails with
+  `ExtensionSupportRequired`; the tenant's card is checked first; `rpc.` names are refused (`A2AProtocol.Methods.IsReserved`);
+  a typed `AddExtensionOperation<TRequest, TResult>`; client helpers (`InvokeExtensionOperationAsync`, on JSON-RPC, HTTP+JSON
+  and gRPC); and a guide.
 - gRPC errors list the activated extensions in the trailers, as the other bindings do. (#35)
 - `IResumableTransport` and `StreamFrame`, so third-party transports get stream resume. (#13)
 - `IAgentCardProvider` and `IPushConfigChangeListener`. (#13)

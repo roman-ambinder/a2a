@@ -22,7 +22,7 @@ public class GrpcExtensionOperationTests
     /// <summary>Returns its params with the caller's principal and the operation kind added.</summary>
     private static ValueTask<JsonElement> EchoHandler(A2AOperationContext context, JsonElement parameters, CancellationToken cancellationToken)
     {
-        var json = $$"""{"echo":{{parameters.GetRawText()}},"principal":"{{context.Call.Principal}}","kind":"{{context.Operation.Kind}}","policy":{{(context.Items.TryGetValue(A2AExtensionOperation.PolicySatisfiedItem, out var p) && p is true ? "true" : "false")}}}""";
+        var json = $$"""{"echo":{{parameters.GetRawText()}},"principal":"{{context.Call.Principal}}","tenant":"{{context.Call.Tenant}}","kind":"{{context.Operation.Kind}}","policy":{{(context.Items.TryGetValue(A2AExtensionOperation.PolicySatisfiedItem, out var p) && p is true ? "true" : "false")}}}""";
         return ValueTask.FromResult(JsonDocument.Parse(json).RootElement.Clone());
     }
 
@@ -35,9 +35,11 @@ public class GrpcExtensionOperationTests
                 more?.Invoke(b);
             });
 
-    private static Metadata Version(params (string Key, string Value)[] more)
+    /// <summary>Version metadata, and (unless <paramref name="withExtension"/> is false) the header that activates the echo extension.</summary>
+    private static Metadata Version(bool withExtension = true, params (string Key, string Value)[] more)
     {
         var m = new Metadata { { "a2a-version", "1.0" } };
+        if (withExtension) m.Add("a2a-extensions", EchoUri);
         foreach (var (k, v) in more) m.Add(k, v);
         return m;
     }
@@ -62,6 +64,28 @@ public class GrpcExtensionOperationTests
         Assert.Equal(2, json.GetProperty("echo").GetProperty("n").GetArrayLength());
         Assert.Equal("alice", json.GetProperty("principal").GetString());
         Assert.Equal("Extension", json.GetProperty("kind").GetString());
+    }
+
+    [Fact]
+    public async Task A_call_without_the_extension_metadata_is_ExtensionSupportRequired_and_the_handler_does_not_run()
+    {
+        var calls = 0;
+        await using var host = await StartAsync(allow: true, more: b => b.AddExtensionOperation("x.count", "urn:test:x-count",
+            (_, p, _) => { Interlocked.Increment(ref calls); return ValueTask.FromResult(p); }, allow: true));
+
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            host.RawExtensions().InvokeExtensionOperationAsync(Request("x.count", "{}"), Version(withExtension: false)).ResponseAsync);
+        Assert.Equal(A2AErrorCode.ExtensionSupportRequired, Code(ex));
+
+        // Another extension in the metadata does not activate it.
+        var other = await Assert.ThrowsAsync<RpcException>(() =>
+            host.RawExtensions().InvokeExtensionOperationAsync(Request("x.count", "{}"), Version(false, ("a2a-extensions", GrpcHost.Extension))).ResponseAsync);
+        Assert.Equal(A2AErrorCode.ExtensionSupportRequired, Code(other));
+        Assert.Equal(0, calls);
+
+        var metadata = Version(false, ("a2a-extensions", "urn:test:x-count"));
+        await host.RawExtensions().InvokeExtensionOperationAsync(Request("x.count", "{}"), metadata).ResponseAsync;
+        Assert.Equal(1, calls);
     }
 
     [Fact]
@@ -138,15 +162,15 @@ public class GrpcExtensionOperationTests
     public async Task Activated_extensions_are_echoed_in_metadata_and_in_trailers_on_errors()
     {
         await using var host = await StartAsync(allow: true);
-        var headers = Version(("a2a-extensions", $"{GrpcHost.Extension},urn:other"));
+        var headers = Version(false, ("a2a-extensions", $"{GrpcHost.Extension},urn:other,{EchoUri}"));
 
         using var ok = host.RawExtensions().InvokeExtensionOperationAsync(Request(Echo, "{}"), headers);
         await ok.ResponseAsync;
-        Assert.Equal(GrpcHost.Extension, (await ok.ResponseHeadersAsync).GetValue("a2a-extensions"));
+        Assert.Equal($"{GrpcHost.Extension},{EchoUri}", (await ok.ResponseHeadersAsync).GetValue("a2a-extensions"));
 
         using var failed = host.RawExtensions().InvokeExtensionOperationAsync(Request("x.nope", "{}"), headers);
         await Assert.ThrowsAsync<RpcException>(() => failed.ResponseAsync);
-        Assert.Equal(GrpcHost.Extension, failed.GetTrailers().GetValue("a2a-extensions"));
+        Assert.Equal($"{GrpcHost.Extension},{EchoUri}", failed.GetTrailers().GetValue("a2a-extensions"));
     }
 
     [Fact]

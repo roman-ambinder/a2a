@@ -14,12 +14,17 @@ namespace A2A.Server.Pipeline;
 /// authorization, with <see cref="A2AOperationDescriptor.Extension"/> as its descriptor. The request the filters see is the
 /// <see cref="JsonElement"/> params (boxed), and the result is the <see cref="JsonElement"/> the handler returns. The default
 /// <see cref="A2AAuthorizationHandler"/> allows the call only when <see cref="Allow"/> is true or the
-/// <see cref="AuthorizationPolicy"/> was satisfied; otherwise it denies it (fail closed). A policy denial in the HTTP
+/// <see cref="AuthorizationPolicy"/> was satisfied; otherwise it denies it (fail closed). After authorization, and before
+/// <see cref="Handler"/>, the core resolves the card of the call's tenant (a tenant no agent serves is UnsupportedOperation; with
+/// per-tenant cards, this also enforces the tenant's required extensions) and requires that the call activated
+/// <see cref="ExtensionUri"/>: the caller sent it in <c>A2A-Extensions</c> and the card lists it. Otherwise the call fails with
+/// ExtensionSupportRequired and the handler does not run. The default card lists the URI by itself; a host with its own
+/// <see cref="IAgentCardProvider"/> must declare it. A policy denial in the HTTP
 /// bindings happens before the pipeline: the call gets no span and no counter, and <see cref="A2AFilterStage.BeforeAuthorization"/>
 /// filters do not see it.
 /// </remarks>
-/// <param name="Method">The JSON-RPC method name, and the last segment of the HTTP+JSON route. Letters, digits, <c>.</c>, <c>_</c> and <c>-</c>.</param>
-/// <param name="ExtensionUri">The absolute URI of the extension. The public Agent Card lists it in <see cref="AgentCapabilities.Extensions"/>.</param>
+/// <param name="Method">The JSON-RPC method name, and the last segment of the HTTP+JSON route. Letters, digits, <c>.</c>, <c>_</c> and <c>-</c>. Not a reserved name (<see cref="A2AProtocol.Methods.IsReserved"/>).</param>
+/// <param name="ExtensionUri">The absolute URI of the extension. The public Agent Card lists it in <see cref="AgentCapabilities.Extensions"/>. A call must activate it.</param>
 /// <param name="Handler">Runs the operation with the call's pipeline context and the request params; returns the result.</param>
 /// <param name="AuthorizationPolicy">
 /// The name of an ASP.NET Core authorization policy. The HTTP bindings evaluate it for <c>HttpContext.User</c> before the call
@@ -45,25 +50,9 @@ public sealed record A2AExtensionOperation(
     /// </summary>
     public const string PolicySatisfiedItem = "a2a.extension.policySatisfied";
 
-    /// <summary>The 11 built-in JSON-RPC method names: an extension operation may not use one (compared ignoring case).</summary>
-    private static readonly HashSet<string> BuiltInMethods = new(StringComparer.OrdinalIgnoreCase)
-    {
-        A2AProtocol.Methods.SendMessage,
-        A2AProtocol.Methods.SendStreamingMessage,
-        A2AProtocol.Methods.GetTask,
-        A2AProtocol.Methods.ListTasks,
-        A2AProtocol.Methods.CancelTask,
-        A2AProtocol.Methods.SubscribeToTask,
-        A2AProtocol.Methods.CreateTaskPushNotificationConfig,
-        A2AProtocol.Methods.GetTaskPushNotificationConfig,
-        A2AProtocol.Methods.ListTaskPushNotificationConfigs,
-        A2AProtocol.Methods.DeleteTaskPushNotificationConfig,
-        A2AProtocol.Methods.GetExtendedAgentCard,
-    };
-
     /// <summary>
     /// Checks a registration: the method name is made of letters, digits, <c>.</c>, <c>_</c> and <c>-</c> (and is not only dots,
-    /// which a URL path cannot carry), is not a built-in method, and the extension URI is absolute.
+    /// which a URL path cannot carry), is not reserved (see <see cref="A2AProtocol.Methods.IsReserved"/>), and the extension URI is absolute.
     /// </summary>
     internal static void Validate(string method, string extensionUri, object handler)
     {
@@ -78,8 +67,8 @@ public sealed record A2AExtensionOperation(
             onlyDots &= c == '.';
         }
         if (onlyDots) throw new ArgumentException($"'{method}' is not a valid extension method name.", nameof(method));
-        if (BuiltInMethods.Contains(method))
-            throw new ArgumentException($"'{method}' is a built-in A2A method; an extension operation needs a name of its own.", nameof(method));
+        if (A2AProtocol.Methods.IsReserved(method))
+            throw new ArgumentException($"'{method}' is reserved (a built-in A2A method, or a name that starts with 'rpc.'); an extension operation needs a name of its own.", nameof(method));
         // On Unix, "/path" parses as an absolute file URI: a rooted path is not an extension URI.
         if (extensionUri[0] is '/' or '\\' || !Uri.TryCreate(extensionUri, UriKind.Absolute, out _))
             throw new ArgumentException($"'{extensionUri}' is not an absolute URI.", nameof(extensionUri));

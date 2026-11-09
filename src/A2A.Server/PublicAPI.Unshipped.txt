@@ -1,12 +1,55 @@
 #nullable enable
+*REMOVED*A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AOperationFilterRegistration!>! filters, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensionOperations, A2A.Server.IAgentCardProvider! cards, A2A.Delegation.ITokenExchanger? tokenExchanger = null) -> void
+*REMOVED*A2A.Server.Execution.TaskExecutionEngine.TaskExecutionEngine(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.IAgentExecutorFactory! executors, A2A.Server.TaskEventBus! bus, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider! cards, Microsoft.Extensions.Logging.ILogger<A2A.Server.Execution.TaskExecutionEngine!>? logger = null, System.TimeProvider? timeProvider = null, A2A.Server.Coordination.ExecutionCoordinator? coordinator = null) -> void
+*REMOVED*A2A.Server.Retention.A2ARetentionService.A2ARetentionService(Microsoft.Extensions.Options.IOptions<A2A.Server.Retention.A2ARetentionOptions!>! options, A2A.Server.A2AServerOptions! serverOptions, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Retention.A2ATaskAdmin! admin, Microsoft.Extensions.Logging.ILogger<A2A.Server.Retention.A2ARetentionService!>? logger = null, System.TimeProvider? time = null) -> void
+*REMOVED*A2A.Server.Retention.A2ATaskAdmin.A2ATaskAdmin(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Storage.PushConfigStore! pushConfigs, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine? engine = null) -> void
+*REMOVED*abstract A2A.Server.Idempotency.IdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+*REMOVED*abstract A2A.Server.Idempotency.IdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+*REMOVED*abstract A2A.Server.Idempotency.IdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+*REMOVED*override A2A.Server.Idempotency.InMemoryIdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+*REMOVED*override A2A.Server.Idempotency.InMemoryIdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+*REMOVED*override A2A.Server.Idempotency.InMemoryIdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 A2A.Server.A2ALimits.MaxArtifactsPerTask.get -> int
 A2A.Server.A2ALimits.MaxArtifactsPerTask.set -> void
+A2A.Server.A2ALimits.MaxConcurrentExecutions.get -> int
+A2A.Server.A2ALimits.MaxConcurrentExecutions.set -> void
+A2A.Server.A2ALimits.MaxConcurrentExecutionsPerTenant.get -> int
+A2A.Server.A2ALimits.MaxConcurrentExecutionsPerTenant.set -> void
+A2A.Server.A2ALimits.MaxExecutionQueueWait.get -> System.TimeSpan
+A2A.Server.A2ALimits.MaxExecutionQueueWait.set -> void
+A2A.Server.A2ALimits.MaxQueuedExecutions.get -> int
+A2A.Server.A2ALimits.MaxQueuedExecutions.set -> void
 A2A.Server.A2ALimits.MaxTaskBytes.get -> long
 A2A.Server.A2ALimits.MaxTaskBytes.set -> void
+A2A.Server.A2ALimits.MaxTaskCostUnits.get -> decimal?
+A2A.Server.A2ALimits.MaxTaskCostUnits.set -> void
+A2A.Server.A2ALimits.MaxTaskTokens.get -> long?
+A2A.Server.A2ALimits.MaxTaskTokens.set -> void
+A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AOperationFilterRegistration!>! filters, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensionOperations, A2A.Server.IAgentCardProvider! cards, A2A.Delegation.ITokenExchanger? tokenExchanger = null, A2A.Server.Storage.ArtifactObjectStore? objects = null) -> void
+A2A.Server.A2ARequestHandler.OpenArtifactAsync(string! taskId, string! objectId, A2A.Server.Storage.ArtifactByteRange? range, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.ArtifactDownload!>
+A2A.Server.A2ARequestHandler.OpenUploadAsync(string! objectId, A2A.Server.Storage.ArtifactByteRange? range, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.ArtifactDownload!>
+A2A.Server.A2ARequestHandler.UploadFileAsync(System.IO.Stream! content, string? mediaType, string? fileName, long? contentLength, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.UrlPart!>
+A2A.Server.A2AServerBuilder.AddExtensionOperation<TRequest, TResult>(string! method, string! extensionUri, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TRequest>! requestType, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult>! resultType, System.Func<A2A.Server.Pipeline.A2AOperationContext!, TRequest, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<TResult>>! handler, string? authorizationPolicy = null, bool allow = false) -> A2A.Server.A2AServerBuilder!
 A2A.Server.A2AServerOptions.ArtifactStorage.get -> A2A.Server.ArtifactStorageOptions!
+A2A.Server.A2AServerOptions.ContextAccess.get -> System.Func<A2A.Server.Storage.ContextRecord!, A2A.Server.ServerCallContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<bool>>?
+A2A.Server.A2AServerOptions.ContextAccess.set -> void
+A2A.Server.A2AServerOptions.IdempotentCancel.get -> bool
+A2A.Server.A2AServerOptions.IdempotentCancel.set -> void
+A2A.Server.A2AServerOptions.ShutdownDrainTimeout.get -> System.TimeSpan
+A2A.Server.A2AServerOptions.ShutdownDrainTimeout.set -> void
+A2A.Server.A2AServerOptions.SkillAuthorization.get -> A2A.Server.Authorization.SkillAuthorizationOptions!
+A2A.Server.AgentRequestContext.AuthorizedSkillId.get -> string?
+A2A.Server.AgentRequestContext.Conversation.get -> A2A.Server.ConversationMemory?
+A2A.Server.AgentRequestContext.Conversation.init -> void
+A2A.Server.AgentRequestContext.IsSkillAllowedAsync(string! skillId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+A2A.Server.AgentRequestContext.OpenUploadAsync(A2A.UrlPart! part, A2A.Server.Storage.ArtifactByteRange? range = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectContent?>
 A2A.Server.ArtifactDelivery
 A2A.Server.ArtifactDelivery.Proxy = 1 -> A2A.Server.ArtifactDelivery
 A2A.Server.ArtifactDelivery.Redirect = 0 -> A2A.Server.ArtifactDelivery
+A2A.Server.ArtifactDownload
+A2A.Server.ArtifactDownload.Content.get -> A2A.Server.Storage.ArtifactObjectContent?
+A2A.Server.ArtifactDownload.DisposeAsync() -> System.Threading.Tasks.ValueTask
+A2A.Server.ArtifactDownload.RedirectTo.get -> System.Uri?
 A2A.Server.ArtifactStorageOptions
 A2A.Server.ArtifactStorageOptions.ArtifactStorageOptions() -> void
 A2A.Server.ArtifactStorageOptions.Delivery.get -> A2A.Server.ArtifactDelivery
@@ -25,6 +68,67 @@ A2A.Server.ArtifactStorageOptions.PublicBaseUrl.get -> System.Uri?
 A2A.Server.ArtifactStorageOptions.PublicBaseUrl.set -> void
 A2A.Server.ArtifactStorageOptions.PublicBaseUrlResolver.get -> System.Func<string!, System.Uri!>?
 A2A.Server.ArtifactStorageOptions.PublicBaseUrlResolver.set -> void
+A2A.Server.ArtifactStorageOptions.Uploads.get -> A2A.Server.ArtifactUploadOptions!
+A2A.Server.ArtifactUploadOptions
+A2A.Server.ArtifactUploadOptions.ArtifactUploadOptions() -> void
+A2A.Server.ArtifactUploadOptions.Enabled.get -> bool
+A2A.Server.ArtifactUploadOptions.Enabled.set -> void
+A2A.Server.ArtifactUploadOptions.MaxConcurrentUploadsPerCaller.get -> int
+A2A.Server.ArtifactUploadOptions.MaxConcurrentUploadsPerCaller.set -> void
+A2A.Server.ArtifactUploadOptions.MaxStoredBytesPerCaller.get -> long
+A2A.Server.ArtifactUploadOptions.MaxStoredBytesPerCaller.set -> void
+A2A.Server.ArtifactUploadOptions.MaxUploadBytes.get -> long
+A2A.Server.ArtifactUploadOptions.MaxUploadBytes.set -> void
+A2A.Server.ArtifactUploadOptions.MaxUploadsPerCaller.get -> int
+A2A.Server.ArtifactUploadOptions.MaxUploadsPerCaller.set -> void
+A2A.Server.ArtifactUploadOptions.UnusedUploadTtl.get -> System.TimeSpan
+A2A.Server.ArtifactUploadOptions.UnusedUploadTtl.set -> void
+A2A.Server.Authorization.SkillAuthorizationMode
+A2A.Server.Authorization.SkillAuthorizationMode.Off = 0 -> A2A.Server.Authorization.SkillAuthorizationMode
+A2A.Server.Authorization.SkillAuthorizationMode.Required = 2 -> A2A.Server.Authorization.SkillAuthorizationMode
+A2A.Server.Authorization.SkillAuthorizationMode.WhenNamed = 1 -> A2A.Server.Authorization.SkillAuthorizationMode
+A2A.Server.Authorization.SkillAuthorizationOptions
+A2A.Server.Authorization.SkillAuthorizationOptions.FilterExtendedCard.get -> bool
+A2A.Server.Authorization.SkillAuthorizationOptions.FilterExtendedCard.set -> void
+A2A.Server.Authorization.SkillAuthorizationOptions.Mode.get -> A2A.Server.Authorization.SkillAuthorizationMode
+A2A.Server.Authorization.SkillAuthorizationOptions.Mode.set -> void
+A2A.Server.Authorization.SkillAuthorizationOptions.SkillAuthorizationOptions() -> void
+A2A.Server.ConversationMemory
+A2A.Server.ConversationMemory.CanStoreSummary.get -> bool
+A2A.Server.ConversationMemory.GetSummaryAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<string?>
+A2A.Server.ConversationMemory.ReadEarlierMessagesAsync(int maxTasks = 20, long maxBytes = 262144, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Message!>!>
+A2A.Server.ConversationMemory.SetSummaryAsync(string? summary, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+A2A.Server.Coordination.CoordinationOptions.StreamCheckInterval.get -> System.TimeSpan
+A2A.Server.Coordination.CoordinationOptions.StreamCheckInterval.set -> void
+A2A.Server.Execution.TaskExecutionEngine.TaskExecutionEngine(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.IAgentExecutorFactory! executors, A2A.Server.TaskEventBus! bus, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider! cards, Microsoft.Extensions.Logging.ILogger<A2A.Server.Execution.TaskExecutionEngine!>? logger = null, System.TimeProvider? timeProvider = null, A2A.Server.Coordination.ExecutionCoordinator? coordinator = null, A2A.Server.Storage.ArtifactObjectStore? objects = null) -> void
+A2A.Server.Idempotency.IdempotencyCommit
+A2A.Server.Idempotency.IdempotencyCommit.ClaimId.get -> System.Guid
+A2A.Server.Idempotency.IdempotencyCommit.ClaimId.init -> void
+A2A.Server.Idempotency.IdempotencyCommit.IdempotencyCommit(A2A.Server.Idempotency.IdempotencyScope Scope, System.Guid ClaimId, A2A.Server.Idempotency.IdempotencyOutcome! Outcome, System.TimeSpan Retention) -> void
+A2A.Server.Idempotency.IdempotencyCommit.Outcome.get -> A2A.Server.Idempotency.IdempotencyOutcome!
+A2A.Server.Idempotency.IdempotencyCommit.Outcome.init -> void
+A2A.Server.Idempotency.IdempotencyCommit.Retention.get -> System.TimeSpan
+A2A.Server.Idempotency.IdempotencyCommit.Retention.init -> void
+A2A.Server.Idempotency.IdempotencyCommit.Scope.get -> A2A.Server.Idempotency.IdempotencyScope
+A2A.Server.Idempotency.IdempotencyCommit.Scope.init -> void
+A2A.Server.Idempotency.IdempotencyResult.New.ClaimId.get -> System.Guid
+A2A.Server.Idempotency.IdempotencyResult.New.ClaimId.init -> void
+A2A.Server.Idempotency.IdempotencyResult.New.New(System.Guid ClaimId) -> void
+A2A.Server.Push.IPushOutboxStatistics
+A2A.Server.Push.IPushOutboxStatistics.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
+A2A.Server.Push.InMemoryPushOutbox.Count.get -> int
+A2A.Server.Push.InMemoryPushOutbox.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
+A2A.Server.Push.PushOutboxStatistics
+A2A.Server.Push.PushOutboxStatistics.DeadLetterCount.get -> int
+A2A.Server.Push.PushOutboxStatistics.DeadLetterCount.init -> void
+A2A.Server.Push.PushOutboxStatistics.OldestDueAge.get -> System.TimeSpan
+A2A.Server.Push.PushOutboxStatistics.OldestDueAge.init -> void
+A2A.Server.Push.PushOutboxStatistics.PushOutboxStatistics() -> void
+A2A.Server.Push.PushOutboxStatistics.PushOutboxStatistics(System.TimeSpan OldestDueAge, int DeadLetterCount) -> void
+A2A.Server.Retention.A2ARetentionService.A2ARetentionService(Microsoft.Extensions.Options.IOptions<A2A.Server.Retention.A2ARetentionOptions!>! options, A2A.Server.A2AServerOptions! serverOptions, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Retention.A2ATaskAdmin! admin, Microsoft.Extensions.Logging.ILogger<A2A.Server.Retention.A2ARetentionService!>? logger = null, System.TimeProvider? time = null, A2A.Server.Storage.ArtifactObjectStore? objects = null) -> void
+A2A.Server.Retention.A2ATaskAdmin.A2ATaskAdmin(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Storage.PushConfigStore! pushConfigs, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine? engine = null, A2A.Server.Storage.ArtifactObjectStore? objects = null, Microsoft.Extensions.Logging.ILogger<A2A.Server.Retention.A2ATaskAdmin!>? logger = null) -> void
+A2A.Server.ServerCallContext.SkipRequiredExtensions.get -> bool
+A2A.Server.ServerCallContext.SkipRequiredExtensions.init -> void
 A2A.Server.Storage.ArtifactByteRange
 A2A.Server.Storage.ArtifactByteRange.ArtifactByteRange(long Offset, long? Length) -> void
 A2A.Server.Storage.ArtifactByteRange.Length.get -> long?
@@ -45,6 +149,8 @@ A2A.Server.Storage.ArtifactObjectEntry.CreatedAt.get -> System.DateTimeOffset
 A2A.Server.Storage.ArtifactObjectEntry.CreatedAt.init -> void
 A2A.Server.Storage.ArtifactObjectEntry.Key.get -> string!
 A2A.Server.Storage.ArtifactObjectEntry.Key.init -> void
+A2A.Server.Storage.ArtifactObjectEntry.SizeBytes.get -> long?
+A2A.Server.Storage.ArtifactObjectEntry.SizeBytes.init -> void
 A2A.Server.Storage.ArtifactObjectInfo
 A2A.Server.Storage.ArtifactObjectInfo.ArtifactObjectInfo(string? ContentType, string? FileName) -> void
 A2A.Server.Storage.ArtifactObjectInfo.ContentType.get -> string?
@@ -62,75 +168,6 @@ A2A.Server.Storage.ArtifactObjectWriteResult.Sha256.get -> string!
 A2A.Server.Storage.ArtifactObjectWriteResult.Sha256.init -> void
 A2A.Server.Storage.ArtifactObjectWriteResult.SizeBytes.get -> long
 A2A.Server.Storage.ArtifactObjectWriteResult.SizeBytes.init -> void
-A2A.Server.Storage.InMemoryArtifactObjectStore
-A2A.Server.Storage.InMemoryArtifactObjectStore.InMemoryArtifactObjectStore(System.TimeProvider? time = null) -> void
-abstract A2A.Server.Storage.ArtifactObjectStore.DeleteAsync(string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-abstract A2A.Server.Storage.ArtifactObjectStore.ListAsync(string! prefix, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Storage.ArtifactObjectEntry!>!
-abstract A2A.Server.Storage.ArtifactObjectStore.OpenReadAsync(string! key, A2A.Server.Storage.ArtifactByteRange? range = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectContent?>
-abstract A2A.Server.Storage.ArtifactObjectStore.PutAsync(string! key, System.IO.Stream! content, A2A.Server.Storage.ArtifactObjectInfo! info, long maxBytes, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectWriteResult!>
-override A2A.Server.Storage.InMemoryArtifactObjectStore.DeleteAsync(string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-override A2A.Server.Storage.InMemoryArtifactObjectStore.ListAsync(string! prefix, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Storage.ArtifactObjectEntry!>!
-override A2A.Server.Storage.InMemoryArtifactObjectStore.OpenReadAsync(string! key, A2A.Server.Storage.ArtifactByteRange? range = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectContent?>
-override A2A.Server.Storage.InMemoryArtifactObjectStore.PutAsync(string! key, System.IO.Stream! content, A2A.Server.Storage.ArtifactObjectInfo! info, long maxBytes, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectWriteResult!>
-virtual A2A.Server.Storage.ArtifactObjectStore.TryCreateDownloadUrlAsync(string! key, System.TimeSpan lifetime, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Uri?>
-*REMOVED*A2A.Server.Execution.TaskExecutionEngine.TaskExecutionEngine(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.IAgentExecutorFactory! executors, A2A.Server.TaskEventBus! bus, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider! cards, Microsoft.Extensions.Logging.ILogger<A2A.Server.Execution.TaskExecutionEngine!>? logger = null, System.TimeProvider? timeProvider = null, A2A.Server.Coordination.ExecutionCoordinator? coordinator = null) -> void
-A2A.Server.Execution.TaskExecutionEngine.TaskExecutionEngine(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.IAgentExecutorFactory! executors, A2A.Server.TaskEventBus! bus, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider! cards, Microsoft.Extensions.Logging.ILogger<A2A.Server.Execution.TaskExecutionEngine!>? logger = null, System.TimeProvider? timeProvider = null, A2A.Server.Coordination.ExecutionCoordinator? coordinator = null, A2A.Server.Storage.ArtifactObjectStore? objects = null) -> void
-A2A.Server.TaskUpdater.AddArtifactFromStreamAsync(System.IO.Stream! content, string! mediaType, string? artifactId = null, string? name = null, string? description = null, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<string!>
-A2A.Server.ArtifactDownload
-A2A.Server.ArtifactDownload.Content.get -> A2A.Server.Storage.ArtifactObjectContent?
-A2A.Server.ArtifactDownload.DisposeAsync() -> System.Threading.Tasks.ValueTask
-A2A.Server.ArtifactDownload.RedirectTo.get -> System.Uri?
-A2A.Server.A2ARequestHandler.OpenArtifactAsync(string! taskId, string! objectId, A2A.Server.Storage.ArtifactByteRange? range, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.ArtifactDownload!>
-*REMOVED*A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AOperationFilterRegistration!>! filters, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensionOperations, A2A.Server.IAgentCardProvider! cards, A2A.Delegation.ITokenExchanger? tokenExchanger = null) -> void
-A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AOperationFilterRegistration!>! filters, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensionOperations, A2A.Server.IAgentCardProvider! cards, A2A.Delegation.ITokenExchanger? tokenExchanger = null, A2A.Server.Storage.ArtifactObjectStore? objects = null) -> void
-virtual A2A.Server.Storage.ArtifactObjectStore.ExistsAsync(string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
-*REMOVED*A2A.Server.Retention.A2ARetentionService.A2ARetentionService(Microsoft.Extensions.Options.IOptions<A2A.Server.Retention.A2ARetentionOptions!>! options, A2A.Server.A2AServerOptions! serverOptions, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Retention.A2ATaskAdmin! admin, Microsoft.Extensions.Logging.ILogger<A2A.Server.Retention.A2ARetentionService!>? logger = null, System.TimeProvider? time = null) -> void
-*REMOVED*A2A.Server.Retention.A2ATaskAdmin.A2ATaskAdmin(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Storage.PushConfigStore! pushConfigs, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine? engine = null) -> void
-A2A.Server.Retention.A2ARetentionService.A2ARetentionService(Microsoft.Extensions.Options.IOptions<A2A.Server.Retention.A2ARetentionOptions!>! options, A2A.Server.A2AServerOptions! serverOptions, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Retention.A2ATaskAdmin! admin, Microsoft.Extensions.Logging.ILogger<A2A.Server.Retention.A2ARetentionService!>? logger = null, System.TimeProvider? time = null, A2A.Server.Storage.ArtifactObjectStore? objects = null) -> void
-A2A.Server.Retention.A2ATaskAdmin.A2ATaskAdmin(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Storage.PushConfigStore! pushConfigs, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine? engine = null, A2A.Server.Storage.ArtifactObjectStore? objects = null, Microsoft.Extensions.Logging.ILogger<A2A.Server.Retention.A2ATaskAdmin!>? logger = null) -> void
-abstract A2A.Server.Storage.TaskStore.GetForMaintenanceAsync(string! tenant, string! taskId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.TaskRecord?>
-override A2A.Server.Storage.InMemoryTaskStore.GetForMaintenanceAsync(string! tenant, string! taskId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.TaskRecord?>
-A2A.Server.ServerCallContext.SkipRequiredExtensions.get -> bool
-A2A.Server.ServerCallContext.SkipRequiredExtensions.init -> void
-A2A.Server.A2AServerOptions.ShutdownDrainTimeout.get -> System.TimeSpan
-A2A.Server.A2AServerOptions.ShutdownDrainTimeout.set -> void
-A2A.Server.A2ALimits.MaxConcurrentExecutions.get -> int
-A2A.Server.A2ALimits.MaxConcurrentExecutions.set -> void
-A2A.Server.A2ALimits.MaxConcurrentExecutionsPerTenant.get -> int
-A2A.Server.A2ALimits.MaxConcurrentExecutionsPerTenant.set -> void
-A2A.Server.A2ALimits.MaxQueuedExecutions.get -> int
-A2A.Server.A2ALimits.MaxQueuedExecutions.set -> void
-A2A.Server.A2ALimits.MaxExecutionQueueWait.get -> System.TimeSpan
-A2A.Server.A2ALimits.MaxExecutionQueueWait.set -> void
-A2A.Server.A2ALimits.MaxTaskTokens.get -> long?
-A2A.Server.A2ALimits.MaxTaskTokens.set -> void
-A2A.Server.A2ALimits.MaxTaskCostUnits.get -> decimal?
-A2A.Server.A2ALimits.MaxTaskCostUnits.set -> void
-A2A.Server.TaskUpdater.ReportUsageAsync(long tokens, decimal costUnits = 0, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-A2A.Server.TaskUpdater.UsedTokens.get -> long
-A2A.Server.TaskUpdater.UsedCostUnits.get -> decimal
-A2A.Server.TaskContinuationStatus.AtCapacity = 6 -> A2A.Server.TaskContinuationStatus
-A2A.Server.A2AServerOptions.IdempotentCancel.get -> bool
-A2A.Server.A2AServerOptions.IdempotentCancel.set -> void
-A2A.Server.A2AServerOptions.ContextAccess.get -> System.Func<A2A.Server.Storage.ContextRecord!, A2A.Server.ServerCallContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<bool>>?
-A2A.Server.A2AServerOptions.ContextAccess.set -> void
-A2A.Server.Push.IPushOutboxStatistics
-A2A.Server.Push.IPushOutboxStatistics.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
-A2A.Server.Push.InMemoryPushOutbox.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
-A2A.Server.Push.PushOutboxStatistics
-A2A.Server.Push.PushOutboxStatistics.DeadLetterCount.get -> int
-A2A.Server.Push.PushOutboxStatistics.DeadLetterCount.init -> void
-A2A.Server.Push.PushOutboxStatistics.OldestDueAge.get -> System.TimeSpan
-A2A.Server.Push.PushOutboxStatistics.OldestDueAge.init -> void
-A2A.Server.Push.PushOutboxStatistics.PushOutboxStatistics() -> void
-A2A.Server.Push.PushOutboxStatistics.PushOutboxStatistics(System.TimeSpan OldestDueAge, int DeadLetterCount) -> void
-A2A.Server.AgentRequestContext.Conversation.get -> A2A.Server.ConversationMemory?
-A2A.Server.AgentRequestContext.Conversation.init -> void
-A2A.Server.ConversationMemory
-A2A.Server.ConversationMemory.CanStoreSummary.get -> bool
-A2A.Server.ConversationMemory.GetSummaryAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<string?>
-A2A.Server.ConversationMemory.ReadEarlierMessagesAsync(int maxTasks = 20, long maxBytes = 262144, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Message!>!>
-A2A.Server.ConversationMemory.SetSummaryAsync(string? summary, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 A2A.Server.Storage.ContextHistoryQuery
 A2A.Server.Storage.ContextHistoryQuery.ContextHistoryQuery(string! Tenant, string! Owner, string! ContextId, int MaxTasks, long MaxBytes, string? ExcludeTaskId = null) -> void
 A2A.Server.Storage.ContextHistoryQuery.ContextId.get -> string!
@@ -165,78 +202,42 @@ A2A.Server.Storage.ContextRecord.Summary.get -> string?
 A2A.Server.Storage.ContextRecord.Summary.init -> void
 A2A.Server.Storage.IContextSummaryStore
 A2A.Server.Storage.IContextSummaryStore.SetContextSummaryAsync(string! tenant, string! owner, string! contextId, string? summary, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+A2A.Server.Storage.InMemoryArtifactObjectStore
+A2A.Server.Storage.InMemoryArtifactObjectStore.InMemoryArtifactObjectStore(System.TimeProvider? time = null) -> void
 A2A.Server.Storage.InMemoryTaskStore.SetContextSummaryAsync(string! tenant, string! owner, string! contextId, string? summary, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+A2A.Server.Storage.TaskCommit.Idempotency.get -> A2A.Server.Idempotency.IdempotencyCommit?
+A2A.Server.Storage.TaskCommit.Idempotency.init -> void
+A2A.Server.TaskContinuationStatus.AtCapacity = 6 -> A2A.Server.TaskContinuationStatus
+A2A.Server.TaskUpdater.AddArtifactFromStreamAsync(System.IO.Stream! content, string! mediaType, string? artifactId = null, string? name = null, string? description = null, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<string!>
+A2A.Server.TaskUpdater.ReportUsageAsync(long tokens, decimal costUnits = 0, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+A2A.Server.TaskUpdater.UsedCostUnits.get -> decimal
+A2A.Server.TaskUpdater.UsedTokens.get -> long
+abstract A2A.Server.Idempotency.IdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Idempotency.IdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Idempotency.IdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Storage.ArtifactObjectStore.DeleteAsync(string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Storage.ArtifactObjectStore.ListAsync(string! prefix, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Storage.ArtifactObjectEntry!>!
+abstract A2A.Server.Storage.ArtifactObjectStore.OpenReadAsync(string! key, A2A.Server.Storage.ArtifactByteRange? range = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectContent?>
+abstract A2A.Server.Storage.ArtifactObjectStore.PutAsync(string! key, System.IO.Stream! content, A2A.Server.Storage.ArtifactObjectInfo! info, long maxBytes, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectWriteResult!>
+abstract A2A.Server.Storage.TaskStore.GetForMaintenanceAsync(string! tenant, string! taskId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.TaskRecord?>
+const A2A.Server.A2ARequestHandler.ReadUploadOperationName = "a2a.files.read" -> string!
+const A2A.Server.A2ARequestHandler.UploadOperationName = "a2a.files.upload" -> string!
 const A2A.Server.ConversationMemory.DefaultMaxBytes = 262144 -> long
 const A2A.Server.ConversationMemory.DefaultMaxTasks = 20 -> int
+override A2A.Server.Idempotency.InMemoryIdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Idempotency.InMemoryIdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Idempotency.InMemoryIdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Storage.InMemoryArtifactObjectStore.DeleteAsync(string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Storage.InMemoryArtifactObjectStore.ListAsync(string! prefix, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Storage.ArtifactObjectEntry!>!
+override A2A.Server.Storage.InMemoryArtifactObjectStore.OpenReadAsync(string! key, A2A.Server.Storage.ArtifactByteRange? range = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectContent?>
+override A2A.Server.Storage.InMemoryArtifactObjectStore.PutAsync(string! key, System.IO.Stream! content, A2A.Server.Storage.ArtifactObjectInfo! info, long maxBytes, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectWriteResult!>
+override A2A.Server.Storage.InMemoryTaskStore.GetForMaintenanceAsync(string! tenant, string! taskId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.TaskRecord?>
 override A2A.Server.Storage.InMemoryTaskStore.ListContextsAsync(A2A.Server.Storage.ContextQuery! query, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ContextPage!>
 static A2A.Server.Storage.PageCursor.Encode(A2A.Server.Storage.ContextRecord! last) -> string!
 static A2A.Server.Storage.TaskStore.ValidateContextQuery(A2A.Server.Storage.ContextQuery! query) -> void
 static A2A.Server.Storage.TaskStore.ValidateHistoryQuery(A2A.Server.Storage.ContextHistoryQuery! query) -> void
+virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeSkillAsync(A2A.Server.ServerCallContext! call, string! skillId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<bool>
+virtual A2A.Server.Storage.ArtifactObjectStore.ExistsAsync(string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+virtual A2A.Server.Storage.ArtifactObjectStore.TryCreateDownloadUrlAsync(string! key, System.TimeSpan lifetime, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Uri?>
 virtual A2A.Server.Storage.TaskStore.ListContextsAsync(A2A.Server.Storage.ContextQuery! query, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ContextPage!>
 virtual A2A.Server.Storage.TaskStore.ReadContextMessagesAsync(A2A.Server.Storage.ContextHistoryQuery! query, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Message!>!>
-A2A.Server.Authorization.SkillAuthorizationMode
-A2A.Server.Authorization.SkillAuthorizationMode.Off = 0 -> A2A.Server.Authorization.SkillAuthorizationMode
-A2A.Server.Authorization.SkillAuthorizationMode.Required = 2 -> A2A.Server.Authorization.SkillAuthorizationMode
-A2A.Server.Authorization.SkillAuthorizationMode.WhenNamed = 1 -> A2A.Server.Authorization.SkillAuthorizationMode
-A2A.Server.Authorization.SkillAuthorizationOptions
-A2A.Server.Authorization.SkillAuthorizationOptions.FilterExtendedCard.get -> bool
-A2A.Server.Authorization.SkillAuthorizationOptions.FilterExtendedCard.set -> void
-A2A.Server.Authorization.SkillAuthorizationOptions.Mode.get -> A2A.Server.Authorization.SkillAuthorizationMode
-A2A.Server.Authorization.SkillAuthorizationOptions.Mode.set -> void
-A2A.Server.Authorization.SkillAuthorizationOptions.SkillAuthorizationOptions() -> void
-A2A.Server.A2AServerOptions.SkillAuthorization.get -> A2A.Server.Authorization.SkillAuthorizationOptions!
-A2A.Server.AgentRequestContext.AuthorizedSkillId.get -> string?
-A2A.Server.AgentRequestContext.IsSkillAllowedAsync(string! skillId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
-virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeSkillAsync(A2A.Server.ServerCallContext! call, string! skillId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<bool>
-A2A.Server.Push.InMemoryPushOutbox.Count.get -> int
-A2A.Server.Coordination.CoordinationOptions.StreamCheckInterval.get -> System.TimeSpan
-A2A.Server.Coordination.CoordinationOptions.StreamCheckInterval.set -> void
-*REMOVED*abstract A2A.Server.Idempotency.IdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-abstract A2A.Server.Idempotency.IdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-*REMOVED*abstract A2A.Server.Idempotency.IdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-abstract A2A.Server.Idempotency.IdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-*REMOVED*abstract A2A.Server.Idempotency.IdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-abstract A2A.Server.Idempotency.IdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-*REMOVED*override A2A.Server.Idempotency.InMemoryIdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-override A2A.Server.Idempotency.InMemoryIdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-*REMOVED*override A2A.Server.Idempotency.InMemoryIdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-override A2A.Server.Idempotency.InMemoryIdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-*REMOVED*override A2A.Server.Idempotency.InMemoryIdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-override A2A.Server.Idempotency.InMemoryIdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
-A2A.Server.Idempotency.IdempotencyResult.New.ClaimId.get -> System.Guid
-A2A.Server.Idempotency.IdempotencyResult.New.ClaimId.init -> void
-A2A.Server.Idempotency.IdempotencyResult.New.New(System.Guid ClaimId) -> void
-A2A.Server.Idempotency.IdempotencyCommit
-A2A.Server.Idempotency.IdempotencyCommit.ClaimId.get -> System.Guid
-A2A.Server.Idempotency.IdempotencyCommit.ClaimId.init -> void
-A2A.Server.Idempotency.IdempotencyCommit.IdempotencyCommit(A2A.Server.Idempotency.IdempotencyScope Scope, System.Guid ClaimId, A2A.Server.Idempotency.IdempotencyOutcome! Outcome, System.TimeSpan Retention) -> void
-A2A.Server.Idempotency.IdempotencyCommit.Outcome.get -> A2A.Server.Idempotency.IdempotencyOutcome!
-A2A.Server.Idempotency.IdempotencyCommit.Outcome.init -> void
-A2A.Server.Idempotency.IdempotencyCommit.Retention.get -> System.TimeSpan
-A2A.Server.Idempotency.IdempotencyCommit.Retention.init -> void
-A2A.Server.Idempotency.IdempotencyCommit.Scope.get -> A2A.Server.Idempotency.IdempotencyScope
-A2A.Server.Idempotency.IdempotencyCommit.Scope.init -> void
-A2A.Server.Storage.TaskCommit.Idempotency.get -> A2A.Server.Idempotency.IdempotencyCommit?
-A2A.Server.Storage.TaskCommit.Idempotency.init -> void
-A2A.Server.ArtifactStorageOptions.Uploads.get -> A2A.Server.ArtifactUploadOptions!
-A2A.Server.ArtifactUploadOptions
-A2A.Server.ArtifactUploadOptions.ArtifactUploadOptions() -> void
-A2A.Server.ArtifactUploadOptions.Enabled.get -> bool
-A2A.Server.ArtifactUploadOptions.Enabled.set -> void
-A2A.Server.ArtifactUploadOptions.MaxConcurrentUploadsPerCaller.get -> int
-A2A.Server.ArtifactUploadOptions.MaxConcurrentUploadsPerCaller.set -> void
-A2A.Server.ArtifactUploadOptions.MaxStoredBytesPerCaller.get -> long
-A2A.Server.ArtifactUploadOptions.MaxStoredBytesPerCaller.set -> void
-A2A.Server.ArtifactUploadOptions.MaxUploadBytes.get -> long
-A2A.Server.ArtifactUploadOptions.MaxUploadBytes.set -> void
-A2A.Server.ArtifactUploadOptions.MaxUploadsPerCaller.get -> int
-A2A.Server.ArtifactUploadOptions.MaxUploadsPerCaller.set -> void
-A2A.Server.ArtifactUploadOptions.UnusedUploadTtl.get -> System.TimeSpan
-A2A.Server.ArtifactUploadOptions.UnusedUploadTtl.set -> void
-A2A.Server.Storage.ArtifactObjectEntry.SizeBytes.get -> long?
-A2A.Server.Storage.ArtifactObjectEntry.SizeBytes.init -> void
-const A2A.Server.A2ARequestHandler.ReadUploadOperationName = "a2a.files.read" -> string!
-const A2A.Server.A2ARequestHandler.UploadOperationName = "a2a.files.upload" -> string!
-A2A.Server.A2ARequestHandler.OpenUploadAsync(string! objectId, A2A.Server.Storage.ArtifactByteRange? range, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.ArtifactDownload!>
-A2A.Server.A2ARequestHandler.UploadFileAsync(System.IO.Stream! content, string? mediaType, string? fileName, long? contentLength, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.UrlPart!>
-A2A.Server.AgentRequestContext.OpenUploadAsync(A2A.UrlPart! part, A2A.Server.Storage.ArtifactByteRange? range = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectContent?>
