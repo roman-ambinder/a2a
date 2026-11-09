@@ -53,14 +53,18 @@ public static class RetryPolicy
                 if (retryAfter > MaxRetryAfter) return false;
                 // Only what the server said: HTTP 503/429, or an explicit metadata.retryable = "true". Errors the client
                 // synthesized from a bare HTTP status, or server errors without that metadata, are not retried.
-                return a2a.HttpStatus is (int)HttpStatusCode.ServiceUnavailable or 429 /* Too Many Requests */
-                    || (A2AErrors.TryGetRetryableFromDetails(a2a.Details, out var explicitRetryable) && explicitRetryable);
+                return IsRetryable(a2a);
             case HttpRequestException transport:
                 return mode == RetryMode.Idempotent || NeverReachedServer(transport);
             default:
                 return false;
         }
     }
+
+    /// <summary>True for HTTP 503/429 or an explicit <c>metadata.retryable</c> = "true": the errors a server marks as worth another try.</summary>
+    internal static bool IsRetryable(A2AException error) =>
+        error.HttpStatus is (int)HttpStatusCode.ServiceUnavailable or 429 /* Too Many Requests */
+        || (A2AErrors.TryGetRetryableFromDetails(error.Details, out var explicitRetryable) && explicitRetryable);
 
     /// <summary>
     /// True when the connection, name lookup, proxy tunnel or TLS handshake failed: no request byte reached the server, so a
