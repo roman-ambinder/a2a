@@ -13,3 +13,4 @@ const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.PermissionDenied = "permis
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.Unauthenticated = "unauthenticated" -> string!
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.WebhookRefused = "webhook_refused" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.SecurityEvent = "a2a.security.event" -> string!
+const A2A.Validation.A2AValidator.MaxPushConfigIdLength = 256 -> int
