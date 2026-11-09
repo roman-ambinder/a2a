@@ -127,6 +127,7 @@ public static class A2AClientFactory
         MaxRetries = o.MaxRetries,
         TimeProvider = o.TimeProvider,
         OnMessageReceived = o.OnMessageReceived,
+        CircuitBreaker = o.CircuitBreaker,
         TransportFactories = new List<IA2ATransportFactory>(o.TransportFactories),
     };
 }

@@ -41,6 +41,7 @@ dotnet add package RomanAmbinder.A2A.Client.V0_3Compat
 - [Retention](guides/retention.md)
 - [Observability](guides/observability.md)
 - [Limits and rate limiting](guides/limits-and-rate-limiting.md)
+- [Client resilience](guides/client-resilience.md)
 - [Task safety](guides/task-safety.md)
 - [Interop and conformance](guides/interop-and-conformance.md)
 - [Spec decisions](guides/spec-decisions.md)

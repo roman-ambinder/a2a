@@ -31,4 +31,5 @@ Works on .NET Framework 4.7.2 and later. Not available there:
 - `A2A.Security.Http` (SSRF guard).
 
 A connect failure is not retried automatically for non-idempotent requests.
+To stop calls to a peer that keeps failing, set `A2AClientOptions.CircuitBreaker` (off by default).
 See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.

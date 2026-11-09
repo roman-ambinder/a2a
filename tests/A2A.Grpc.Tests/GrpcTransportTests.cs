@@ -170,6 +170,37 @@ public class GrpcTransportTests
     }
 
     [Fact]
+    public async Task A_bare_unavailable_status_trips_the_circuit_breaker()
+    {
+        var invoker = new ScriptedInvoker();
+        for (var i = 0; i < 2; i++) invoker.ThenFail(new RpcException(new Status(StatusCode.Unavailable, "no healthy upstream")));
+        var options = new A2AClientOptions { MaxRetries = 0, CircuitBreaker = new A2A.Client.Resilience.CircuitBreakerOptions { FailureThreshold = 2 } };
+        var client = new A2AClient(new GrpcTransport(invoker, options), options);
+
+        for (var i = 0; i < 2; i++)
+        {
+            var ex = await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync("t1"));
+            Assert.Equal(503, ex.HttpStatus);
+        }
+
+        await Assert.ThrowsAsync<A2A.Client.Resilience.CircuitOpenException>(() => client.GetTaskAsync("t1"));
+        Assert.Equal(2, invoker.Calls.Count);
+    }
+
+    [Fact]
+    public async Task Not_found_does_not_trip_the_circuit_breaker()
+    {
+        var invoker = new ScriptedInvoker();
+        for (var i = 0; i < 4; i++) invoker.ThenFail(new RpcException(new Status(StatusCode.NotFound, "no such task")));
+        var options = new A2AClientOptions { MaxRetries = 0, CircuitBreaker = new A2A.Client.Resilience.CircuitBreakerOptions { FailureThreshold = 2 } };
+        var client = new A2AClient(new GrpcTransport(invoker, options), options);
+
+        for (var i = 0; i < 4; i++) await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync("t1"));
+
+        Assert.Equal(4, invoker.Calls.Count);
+    }
+
+    [Fact]
     public async Task Send_message_retries_a_transport_failure_only_when_the_request_never_left()
     {
         var unsent = new ScriptedInvoker().ThenFail(Transport(HttpRequestError.ConnectionError)).ThenReturn(AReply());

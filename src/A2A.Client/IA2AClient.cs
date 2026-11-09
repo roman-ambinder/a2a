@@ -1,3 +1,5 @@
+using A2A.Client.Resilience;
+
 namespace A2A.Client;
 
 /// <summary>
@@ -86,8 +88,16 @@ public sealed class A2AClientOptions
 
     private int _maxRetries = 2;
 
-    /// <summary>Clock used for retry delays. Default <see cref="System.TimeProvider.System"/>. Replace it in tests.</summary>
+    /// <summary>Clock used for retry delays and the circuit breaker. Default <see cref="System.TimeProvider.System"/>. Replace it in tests.</summary>
     public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+
+    /// <summary>
+    /// Circuit breaker for the peer of each <see cref="A2AClient"/>. Default null: no breaker. When set, a client stops sending
+    /// requests after <see cref="CircuitBreakerOptions.FailureThreshold"/> failed calls in a row, and a call it refuses throws
+    /// <see cref="CircuitOpenException"/>. The state belongs to one <see cref="A2AClient"/>, so share one client per peer.
+    /// It applies to every binding, gRPC included. Time comes from <see cref="TimeProvider"/>.
+    /// </summary>
+    public CircuitBreakerOptions? CircuitBreaker { get; set; }
 
     /// <summary>
     /// Called by <see cref="A2AClient"/> for every agent message it receives, before the caller sees it: a direct reply, the
