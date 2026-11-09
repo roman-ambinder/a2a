@@ -98,6 +98,16 @@ A2A.Server.A2AServerOptions.IdempotentCancel.get -> bool
 A2A.Server.A2AServerOptions.IdempotentCancel.set -> void
 A2A.Server.A2AServerOptions.ContextAccess.get -> System.Func<A2A.Server.Storage.ContextRecord!, A2A.Server.ServerCallContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<bool>>?
 A2A.Server.A2AServerOptions.ContextAccess.set -> void
+A2A.Server.Push.IPushOutboxStatistics
+A2A.Server.Push.IPushOutboxStatistics.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
+A2A.Server.Push.InMemoryPushOutbox.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
+A2A.Server.Push.PushOutboxStatistics
+A2A.Server.Push.PushOutboxStatistics.DeadLetterCount.get -> int
+A2A.Server.Push.PushOutboxStatistics.DeadLetterCount.init -> void
+A2A.Server.Push.PushOutboxStatistics.OldestDueAge.get -> System.TimeSpan
+A2A.Server.Push.PushOutboxStatistics.OldestDueAge.init -> void
+A2A.Server.Push.PushOutboxStatistics.PushOutboxStatistics() -> void
+A2A.Server.Push.PushOutboxStatistics.PushOutboxStatistics(System.TimeSpan OldestDueAge, int DeadLetterCount) -> void
 A2A.Server.AgentRequestContext.Conversation.get -> A2A.Server.ConversationMemory?
 A2A.Server.AgentRequestContext.Conversation.init -> void
 A2A.Server.ConversationMemory
