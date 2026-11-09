@@ -85,8 +85,9 @@ WITH recent AS (
 SELECT msg FROM sized WHERE total <= $6 ORDER BY status_ticks, task_id DESC, ord
 ```
 
-`$4` is `ExcludeTaskId ?? ""`. Use `json`, not `jsonb`: `jsonb` raises an error on the JSON escape `\u0000`, so one such message
-would break the whole conversation. Cast `$6` as `bigint`.
+`$4` is `ExcludeTaskId ?? ""`. Use `json`, not `jsonb`: `json` keeps each message's text as stored, so its length matches what other stores measure. Pass `$6` as `bigint`.
+
+PostgreSQL's JSON functions raise 22P05 on the escape `\u0000`, with `json` too. So a read that gets 22P05 falls back to the base `ReadContextMessagesAsync`: same result, higher cost for that conversation.
 
 ## Agent API (A2A.Server)
 

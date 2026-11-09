@@ -858,6 +858,16 @@ public abstract class TaskStoreContract
     }
 
     [SkippableFact]
+    public async Task ListContexts_lists_a_context_with_no_tasks()
+    {
+        Skip.If(this is CoreOnlyTaskStoreTests, "The fallback finds contexts through tasks, and documents that it misses this one.");
+        var s = await CreateStoreAsync();
+        await s.GetOrCreateContextAsync(new ContextRecord("t", "a", "empty", DateTimeOffset.UnixEpoch));
+
+        Assert.Equal(["empty"], (await s.ListContextsAsync(new ContextQuery("t", "a", 10, null))).Records.Select(c => c.ContextId));
+    }
+
+    [SkippableFact]
     public async Task ListContexts_with_bad_page_token_is_invalid_params()
     {
         var s = await CreateStoreAsync();

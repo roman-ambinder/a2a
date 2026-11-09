@@ -153,10 +153,11 @@ public abstract class TaskStore
     {
         ValidateHistoryQuery(query);
         var tasks = new List<AgentTask>();
+        var pageSize = query.MaxTasks < 50 ? query.MaxTasks + 1 : 50; // + 1 for the excluded task; loads as few whole tasks as it can
         string? token = null;
         do
         {
-            var page = await ListAsync(new TaskQuery(query.Tenant, query.Owner, query.ContextId, null, null, 50, token), cancellationToken).ConfigureAwait(false);
+            var page = await ListAsync(new TaskQuery(query.Tenant, query.Owner, query.ContextId, null, null, pageSize, token), cancellationToken).ConfigureAwait(false);
             foreach (var r in page.Records)
             {
                 if (r.Task.Status.State == TaskState.Rejected) continue;
