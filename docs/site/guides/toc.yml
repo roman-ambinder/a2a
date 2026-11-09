@@ -1,3 +1,9 @@
+- name: Product overview
+  href: overview.md
+- name: Core concepts
+  href: concepts.md
+- name: Architecture
+  href: architecture.md
 - name: Getting started
   href: getting-started.md
 - name: Bindings
@@ -58,6 +64,10 @@
   href: interop-and-conformance.md
 - name: Testing your agent
   href: testing.md
+- name: How a request flows
+  href: request-lifecycle.md
+- name: Production checklist
+  href: production-checklist.md
 - name: Spec decisions
   href: spec-decisions.md
 - name: Command line tool
