@@ -34,7 +34,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 
 ## Documentation
 
-Guides and API reference are built from [docs/site](docs/site/README.md) with DocFX. CI uploads the built site as the `docs-site` artifact on every run. The guides pull their C# samples from compiled snippets, so read them on the built site to see the code.
+Guides and API reference are published at [roman-ambinder.github.io/a2a](https://roman-ambinder.github.io/a2a/). They are built with DocFX from [docs/site](docs/site/README.md) and published from `main` on every green CI run. The guides pull their C# samples from compiled snippets, so read them on the published site to see the code.
 
 Start with [Getting started](docs/site/guides/getting-started.md). Then: [bindings](docs/site/guides/bindings.md), [authentication and ownership](docs/site/guides/auth-and-ownership.md), [streaming](docs/site/guides/streaming.md), [push notifications](docs/site/guides/push-notifications.md), [proactive continuation](docs/site/guides/proactive-continuation.md), [Agent Card signing](docs/site/guides/agent-card-signing.md), [multi-tenancy](docs/site/guides/multi-tenancy.md), [durable stores](docs/site/guides/durable-stores.md), [retention](docs/site/guides/retention.md), [artifact storage](docs/site/guides/artifact-storage.md), [observability](docs/site/guides/observability.md), [limits](docs/site/guides/limits-and-rate-limiting.md), [task safety](docs/site/guides/task-safety.md), [interop](docs/site/guides/interop-and-conformance.md), [testing](docs/site/guides/testing.md), [spec decisions](docs/site/guides/spec-decisions.md).
 

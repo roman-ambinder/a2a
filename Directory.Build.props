@@ -39,7 +39,7 @@
     <Copyright>Copyright (c) Roman Ambinder</Copyright>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageTags>a2a;agent2agent;agents;ai;protocol;json-rpc;grpc</PackageTags>
-    <PackageProjectUrl>https://github.com/roman-ambinder/a2a</PackageProjectUrl>
+    <PackageProjectUrl>https://roman-ambinder.github.io/a2a/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/roman-ambinder/a2a</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
