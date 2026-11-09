@@ -3,7 +3,7 @@ A2A.Client.A2AClientOptions.Clone() -> A2A.Client.A2AClientOptions!
 A2A.Client.A2AArtifactDownloader
 A2A.Client.A2AArtifactDownloader.A2AArtifactDownloader(System.Net.Http.HttpMessageHandler! agentHandler, System.Uri! agentOrigin, A2A.Security.Http.SafeHttpOptions? storageOptions = null) -> void
 A2A.Client.A2AArtifactDownloader.DownloadAsync(A2A.UrlPart! part, System.IO.Stream! destination, long maxBytes, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-A2A.Client.A2AClient.CallSkillAsync<TInput, TOutput>(string! skillId, TInput input, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TInput>! inputType, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TOutput>! outputType, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<TOutput>!
+[A2AEXP001]A2A.Client.A2AClient.CallSkillAsync<TInput, TOutput>(string! skillId, TInput input, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TInput>! inputType, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TOutput>! outputType, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<TOutput>!
 A2A.Client.A2AClient.InvokeExtensionOperationAsync(string! method, System.Text.Json.JsonElement parameters, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Text.Json.JsonElement>!
 A2A.Client.A2AClientOptions.CircuitBreaker.get -> A2A.Client.Resilience.CircuitBreakerOptions?
 A2A.Client.A2AClientOptions.CircuitBreaker.set -> void
@@ -124,10 +124,10 @@ A2A.Client.Resilience.CircuitBreakerOptions.OpenDuration.set -> void
 A2A.Client.Resilience.CircuitOpenException
 A2A.Client.Transports.HttpJsonTransport.InvokeExtensionOperationAsync(string! method, System.Text.Json.JsonElement parameters, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Text.Json.JsonElement>!
 A2A.Client.Transports.JsonRpcTransport.InvokeExtensionOperationAsync(string! method, System.Text.Json.JsonElement parameters, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Text.Json.JsonElement>!
-A2A.Client.TypedSkillCallException
-A2A.Client.TypedSkillCallException.State.get -> A2A.TaskState
-A2A.Client.TypedSkillCallException.Task.get -> A2A.AgentTask!
-A2A.Client.TypedSkillCallException.TypedSkillCallException(A2A.AgentTask! task) -> void
+[A2AEXP001]A2A.Client.TypedSkillCallException
+[A2AEXP001]A2A.Client.TypedSkillCallException.State.get -> A2A.TaskState
+[A2AEXP001]A2A.Client.TypedSkillCallException.Task.get -> A2A.AgentTask!
+[A2AEXP001]A2A.Client.TypedSkillCallException.TypedSkillCallException(A2A.AgentTask! task) -> void
 abstract A2A.Client.Outbox.ClientOutboxStore.AcknowledgeAsync(A2A.Client.Outbox.ClientOutboxEntry! leased, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 abstract A2A.Client.Outbox.ClientOutboxStore.EnqueueAsync(A2A.Client.Outbox.ClientOutboxMessage! message, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 abstract A2A.Client.Outbox.ClientOutboxStore.FinishAsync(A2A.Client.Outbox.ClientOutboxEntry! leased, A2A.Client.Outbox.ClientOutboxOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>

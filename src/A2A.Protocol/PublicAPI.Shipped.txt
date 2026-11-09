@@ -155,6 +155,15 @@ A2A.ApiKeyScheme
 A2A.ApiKeyScheme.ApiKeyScheme(A2A.ApiKeySecurityScheme! Value) -> void
 A2A.ApiKeyScheme.Value.get -> A2A.ApiKeySecurityScheme!
 A2A.ApiKeyScheme.Value.init -> void
+A2A.ApiKeyScheme.Deconstruct(out A2A.ApiKeySecurityScheme! Value) -> void
+A2A.ApiKeyScheme.Equals(A2A.ApiKeyScheme? other) -> bool
+override A2A.ApiKeyScheme.<Clone>$() -> A2A.ApiKeyScheme!
+override A2A.ApiKeyScheme.Equals(object? obj) -> bool
+override A2A.ApiKeyScheme.GetHashCode() -> int
+override A2A.ApiKeyScheme.ToString() -> string!
+override sealed A2A.ApiKeyScheme.Equals(A2A.SecurityScheme? other) -> bool
+static A2A.ApiKeyScheme.operator !=(A2A.ApiKeyScheme? left, A2A.ApiKeyScheme? right) -> bool
+static A2A.ApiKeyScheme.operator ==(A2A.ApiKeyScheme? left, A2A.ApiKeyScheme? right) -> bool
 A2A.ApiKeySecurityScheme
 A2A.ApiKeySecurityScheme.ApiKeySecurityScheme() -> void
 A2A.ApiKeySecurityScheme.Description.get -> string?
@@ -181,6 +190,15 @@ A2A.ArtifactUpdateEvent
 A2A.ArtifactUpdateEvent.ArtifactUpdate.get -> A2A.TaskArtifactUpdateEvent!
 A2A.ArtifactUpdateEvent.ArtifactUpdate.init -> void
 A2A.ArtifactUpdateEvent.ArtifactUpdateEvent(A2A.TaskArtifactUpdateEvent! ArtifactUpdate) -> void
+A2A.ArtifactUpdateEvent.Deconstruct(out A2A.TaskArtifactUpdateEvent! ArtifactUpdate) -> void
+A2A.ArtifactUpdateEvent.Equals(A2A.ArtifactUpdateEvent? other) -> bool
+override A2A.ArtifactUpdateEvent.<Clone>$() -> A2A.ArtifactUpdateEvent!
+override A2A.ArtifactUpdateEvent.Equals(object? obj) -> bool
+override A2A.ArtifactUpdateEvent.GetHashCode() -> int
+override A2A.ArtifactUpdateEvent.ToString() -> string!
+override sealed A2A.ArtifactUpdateEvent.Equals(A2A.StreamResponse? other) -> bool
+static A2A.ArtifactUpdateEvent.operator !=(A2A.ArtifactUpdateEvent? left, A2A.ArtifactUpdateEvent? right) -> bool
+static A2A.ArtifactUpdateEvent.operator ==(A2A.ArtifactUpdateEvent? left, A2A.ArtifactUpdateEvent? right) -> bool
 A2A.AuthenticationInfo
 A2A.AuthenticationInfo.AuthenticationInfo() -> void
 A2A.AuthenticationInfo.Credentials.get -> string?
@@ -219,6 +237,15 @@ A2A.DataPart
 A2A.DataPart.Data.get -> System.Text.Json.JsonElement
 A2A.DataPart.Data.init -> void
 A2A.DataPart.DataPart(System.Text.Json.JsonElement Data) -> void
+A2A.DataPart.Deconstruct(out System.Text.Json.JsonElement Data) -> void
+A2A.DataPart.Equals(A2A.DataPart? other) -> bool
+override A2A.DataPart.<Clone>$() -> A2A.DataPart!
+override A2A.DataPart.Equals(object? obj) -> bool
+override A2A.DataPart.GetHashCode() -> int
+override A2A.DataPart.ToString() -> string!
+override sealed A2A.DataPart.Equals(A2A.Part? other) -> bool
+static A2A.DataPart.operator !=(A2A.DataPart? left, A2A.DataPart? right) -> bool
+static A2A.DataPart.operator ==(A2A.DataPart? left, A2A.DataPart? right) -> bool
 A2A.DeleteTaskPushNotificationConfigRequest
 A2A.DeleteTaskPushNotificationConfigRequest.DeleteTaskPushNotificationConfigRequest() -> void
 A2A.DeleteTaskPushNotificationConfigRequest.Id.get -> string!
@@ -261,6 +288,15 @@ A2A.HttpAuthScheme
 A2A.HttpAuthScheme.HttpAuthScheme(A2A.HttpAuthSecurityScheme! Value) -> void
 A2A.HttpAuthScheme.Value.get -> A2A.HttpAuthSecurityScheme!
 A2A.HttpAuthScheme.Value.init -> void
+A2A.HttpAuthScheme.Deconstruct(out A2A.HttpAuthSecurityScheme! Value) -> void
+A2A.HttpAuthScheme.Equals(A2A.HttpAuthScheme? other) -> bool
+override A2A.HttpAuthScheme.<Clone>$() -> A2A.HttpAuthScheme!
+override A2A.HttpAuthScheme.Equals(object? obj) -> bool
+override A2A.HttpAuthScheme.GetHashCode() -> int
+override A2A.HttpAuthScheme.ToString() -> string!
+override sealed A2A.HttpAuthScheme.Equals(A2A.SecurityScheme? other) -> bool
+static A2A.HttpAuthScheme.operator !=(A2A.HttpAuthScheme? left, A2A.HttpAuthScheme? right) -> bool
+static A2A.HttpAuthScheme.operator ==(A2A.HttpAuthScheme? left, A2A.HttpAuthScheme? right) -> bool
 A2A.HttpAuthSecurityScheme
 A2A.HttpAuthSecurityScheme.BearerFormat.get -> string?
 A2A.HttpAuthSecurityScheme.BearerFormat.set -> void
@@ -397,14 +433,41 @@ A2A.MessageEvent
 A2A.MessageEvent.Message.get -> A2A.Message!
 A2A.MessageEvent.Message.init -> void
 A2A.MessageEvent.MessageEvent(A2A.Message! Message) -> void
+A2A.MessageEvent.Deconstruct(out A2A.Message! Message) -> void
+A2A.MessageEvent.Equals(A2A.MessageEvent? other) -> bool
+override A2A.MessageEvent.<Clone>$() -> A2A.MessageEvent!
+override A2A.MessageEvent.Equals(object? obj) -> bool
+override A2A.MessageEvent.GetHashCode() -> int
+override A2A.MessageEvent.ToString() -> string!
+override sealed A2A.MessageEvent.Equals(A2A.StreamResponse? other) -> bool
+static A2A.MessageEvent.operator !=(A2A.MessageEvent? left, A2A.MessageEvent? right) -> bool
+static A2A.MessageEvent.operator ==(A2A.MessageEvent? left, A2A.MessageEvent? right) -> bool
 A2A.MessageResponse
 A2A.MessageResponse.Message.get -> A2A.Message!
 A2A.MessageResponse.Message.init -> void
 A2A.MessageResponse.MessageResponse(A2A.Message! Message) -> void
+A2A.MessageResponse.Deconstruct(out A2A.Message! Message) -> void
+A2A.MessageResponse.Equals(A2A.MessageResponse? other) -> bool
+override A2A.MessageResponse.<Clone>$() -> A2A.MessageResponse!
+override A2A.MessageResponse.Equals(object? obj) -> bool
+override A2A.MessageResponse.GetHashCode() -> int
+override A2A.MessageResponse.ToString() -> string!
+override sealed A2A.MessageResponse.Equals(A2A.SendMessageResponse? other) -> bool
+static A2A.MessageResponse.operator !=(A2A.MessageResponse? left, A2A.MessageResponse? right) -> bool
+static A2A.MessageResponse.operator ==(A2A.MessageResponse? left, A2A.MessageResponse? right) -> bool
 A2A.MutualTlsScheme
 A2A.MutualTlsScheme.MutualTlsScheme(A2A.MutualTlsSecurityScheme! Value) -> void
 A2A.MutualTlsScheme.Value.get -> A2A.MutualTlsSecurityScheme!
 A2A.MutualTlsScheme.Value.init -> void
+A2A.MutualTlsScheme.Deconstruct(out A2A.MutualTlsSecurityScheme! Value) -> void
+A2A.MutualTlsScheme.Equals(A2A.MutualTlsScheme? other) -> bool
+override A2A.MutualTlsScheme.<Clone>$() -> A2A.MutualTlsScheme!
+override A2A.MutualTlsScheme.Equals(object? obj) -> bool
+override A2A.MutualTlsScheme.GetHashCode() -> int
+override A2A.MutualTlsScheme.ToString() -> string!
+override sealed A2A.MutualTlsScheme.Equals(A2A.SecurityScheme? other) -> bool
+static A2A.MutualTlsScheme.operator !=(A2A.MutualTlsScheme? left, A2A.MutualTlsScheme? right) -> bool
+static A2A.MutualTlsScheme.operator ==(A2A.MutualTlsScheme? left, A2A.MutualTlsScheme? right) -> bool
 A2A.MutualTlsSecurityScheme
 A2A.MutualTlsSecurityScheme.Description.get -> string?
 A2A.MutualTlsSecurityScheme.Description.set -> void
@@ -413,6 +476,15 @@ A2A.OAuth2Scheme
 A2A.OAuth2Scheme.OAuth2Scheme(A2A.OAuth2SecurityScheme! Value) -> void
 A2A.OAuth2Scheme.Value.get -> A2A.OAuth2SecurityScheme!
 A2A.OAuth2Scheme.Value.init -> void
+A2A.OAuth2Scheme.Deconstruct(out A2A.OAuth2SecurityScheme! Value) -> void
+A2A.OAuth2Scheme.Equals(A2A.OAuth2Scheme? other) -> bool
+override A2A.OAuth2Scheme.<Clone>$() -> A2A.OAuth2Scheme!
+override A2A.OAuth2Scheme.Equals(object? obj) -> bool
+override A2A.OAuth2Scheme.GetHashCode() -> int
+override A2A.OAuth2Scheme.ToString() -> string!
+override sealed A2A.OAuth2Scheme.Equals(A2A.SecurityScheme? other) -> bool
+static A2A.OAuth2Scheme.operator !=(A2A.OAuth2Scheme? left, A2A.OAuth2Scheme? right) -> bool
+static A2A.OAuth2Scheme.operator ==(A2A.OAuth2Scheme? left, A2A.OAuth2Scheme? right) -> bool
 A2A.OAuth2SecurityScheme
 A2A.OAuth2SecurityScheme.Description.get -> string?
 A2A.OAuth2SecurityScheme.Description.set -> void
@@ -437,6 +509,15 @@ A2A.OpenIdConnectScheme
 A2A.OpenIdConnectScheme.OpenIdConnectScheme(A2A.OpenIdConnectSecurityScheme! Value) -> void
 A2A.OpenIdConnectScheme.Value.get -> A2A.OpenIdConnectSecurityScheme!
 A2A.OpenIdConnectScheme.Value.init -> void
+A2A.OpenIdConnectScheme.Deconstruct(out A2A.OpenIdConnectSecurityScheme! Value) -> void
+A2A.OpenIdConnectScheme.Equals(A2A.OpenIdConnectScheme? other) -> bool
+override A2A.OpenIdConnectScheme.<Clone>$() -> A2A.OpenIdConnectScheme!
+override A2A.OpenIdConnectScheme.Equals(object? obj) -> bool
+override A2A.OpenIdConnectScheme.GetHashCode() -> int
+override A2A.OpenIdConnectScheme.ToString() -> string!
+override sealed A2A.OpenIdConnectScheme.Equals(A2A.SecurityScheme? other) -> bool
+static A2A.OpenIdConnectScheme.operator !=(A2A.OpenIdConnectScheme? left, A2A.OpenIdConnectScheme? right) -> bool
+static A2A.OpenIdConnectScheme.operator ==(A2A.OpenIdConnectScheme? left, A2A.OpenIdConnectScheme? right) -> bool
 A2A.OpenIdConnectSecurityScheme
 A2A.OpenIdConnectSecurityScheme.Description.get -> string?
 A2A.OpenIdConnectSecurityScheme.Description.set -> void
@@ -463,6 +544,15 @@ A2A.RawPart
 A2A.RawPart.Raw.get -> System.ReadOnlyMemory<byte>
 A2A.RawPart.Raw.init -> void
 A2A.RawPart.RawPart(System.ReadOnlyMemory<byte> Raw) -> void
+A2A.RawPart.Deconstruct(out System.ReadOnlyMemory<byte> Raw) -> void
+A2A.RawPart.Equals(A2A.RawPart? other) -> bool
+override A2A.RawPart.<Clone>$() -> A2A.RawPart!
+override A2A.RawPart.Equals(object? obj) -> bool
+override A2A.RawPart.GetHashCode() -> int
+override A2A.RawPart.ToString() -> string!
+override sealed A2A.RawPart.Equals(A2A.Part? other) -> bool
+static A2A.RawPart.operator !=(A2A.RawPart? left, A2A.RawPart? right) -> bool
+static A2A.RawPart.operator ==(A2A.RawPart? left, A2A.RawPart? right) -> bool
 A2A.RestError
 A2A.RestError.Code.get -> int
 A2A.RestError.Code.set -> void
@@ -507,6 +597,16 @@ A2A.SendMessageRequest.SendMessageRequest() -> void
 A2A.SendMessageRequest.Tenant.get -> string?
 A2A.SendMessageRequest.Tenant.set -> void
 A2A.SendMessageResponse
+A2A.SendMessageResponse.SendMessageResponse(A2A.SendMessageResponse! original) -> void
+abstract A2A.SendMessageResponse.<Clone>$() -> A2A.SendMessageResponse!
+override A2A.SendMessageResponse.Equals(object? obj) -> bool
+override A2A.SendMessageResponse.GetHashCode() -> int
+override A2A.SendMessageResponse.ToString() -> string!
+static A2A.SendMessageResponse.operator !=(A2A.SendMessageResponse? left, A2A.SendMessageResponse? right) -> bool
+static A2A.SendMessageResponse.operator ==(A2A.SendMessageResponse? left, A2A.SendMessageResponse? right) -> bool
+virtual A2A.SendMessageResponse.EqualityContract.get -> System.Type!
+virtual A2A.SendMessageResponse.Equals(A2A.SendMessageResponse? other) -> bool
+virtual A2A.SendMessageResponse.PrintMembers(System.Text.StringBuilder! builder) -> bool
 A2A.Signing.AgentCardCanonicalizer
 A2A.Signing.AgentCardSigner
 A2A.Signing.AgentCardSigningKey
@@ -526,6 +626,14 @@ A2A.Signing.AgentCardVerificationResult.Reason.get -> string?
 A2A.Signing.AgentCardVerificationResult.Reason.init -> void
 A2A.Signing.AgentCardVerificationResult.Status.get -> A2A.Signing.AgentCardVerificationStatus
 A2A.Signing.AgentCardVerificationResult.Status.init -> void
+A2A.Signing.AgentCardVerificationResult.<Clone>$() -> A2A.Signing.AgentCardVerificationResult!
+A2A.Signing.AgentCardVerificationResult.Deconstruct(out A2A.Signing.AgentCardVerificationStatus Status, out string? KeyId, out string? Issuer, out string? Reason) -> void
+A2A.Signing.AgentCardVerificationResult.Equals(A2A.Signing.AgentCardVerificationResult? other) -> bool
+override A2A.Signing.AgentCardVerificationResult.Equals(object? obj) -> bool
+override A2A.Signing.AgentCardVerificationResult.GetHashCode() -> int
+override A2A.Signing.AgentCardVerificationResult.ToString() -> string!
+static A2A.Signing.AgentCardVerificationResult.operator !=(A2A.Signing.AgentCardVerificationResult? left, A2A.Signing.AgentCardVerificationResult? right) -> bool
+static A2A.Signing.AgentCardVerificationResult.operator ==(A2A.Signing.AgentCardVerificationResult? left, A2A.Signing.AgentCardVerificationResult? right) -> bool
 A2A.Signing.AgentCardVerificationStatus
 A2A.Signing.AgentCardVerificationStatus.Failed = 3 -> A2A.Signing.AgentCardVerificationStatus
 A2A.Signing.AgentCardVerificationStatus.Unsigned = 1 -> A2A.Signing.AgentCardVerificationStatus
@@ -578,6 +686,15 @@ A2A.StatusUpdateEvent
 A2A.StatusUpdateEvent.StatusUpdate.get -> A2A.TaskStatusUpdateEvent!
 A2A.StatusUpdateEvent.StatusUpdate.init -> void
 A2A.StatusUpdateEvent.StatusUpdateEvent(A2A.TaskStatusUpdateEvent! StatusUpdate) -> void
+A2A.StatusUpdateEvent.Deconstruct(out A2A.TaskStatusUpdateEvent! StatusUpdate) -> void
+A2A.StatusUpdateEvent.Equals(A2A.StatusUpdateEvent? other) -> bool
+override A2A.StatusUpdateEvent.<Clone>$() -> A2A.StatusUpdateEvent!
+override A2A.StatusUpdateEvent.Equals(object? obj) -> bool
+override A2A.StatusUpdateEvent.GetHashCode() -> int
+override A2A.StatusUpdateEvent.ToString() -> string!
+override sealed A2A.StatusUpdateEvent.Equals(A2A.StreamResponse? other) -> bool
+static A2A.StatusUpdateEvent.operator !=(A2A.StatusUpdateEvent? left, A2A.StatusUpdateEvent? right) -> bool
+static A2A.StatusUpdateEvent.operator ==(A2A.StatusUpdateEvent? left, A2A.StatusUpdateEvent? right) -> bool
 A2A.StreamResponse
 A2A.StreamResponse.TaskId.get -> string?
 A2A.StringList
@@ -608,6 +725,15 @@ A2A.TaskEvent
 A2A.TaskEvent.Task.get -> A2A.AgentTask!
 A2A.TaskEvent.Task.init -> void
 A2A.TaskEvent.TaskEvent(A2A.AgentTask! Task) -> void
+A2A.TaskEvent.Deconstruct(out A2A.AgentTask! Task) -> void
+A2A.TaskEvent.Equals(A2A.TaskEvent? other) -> bool
+override A2A.TaskEvent.<Clone>$() -> A2A.TaskEvent!
+override A2A.TaskEvent.Equals(object? obj) -> bool
+override A2A.TaskEvent.GetHashCode() -> int
+override A2A.TaskEvent.ToString() -> string!
+override sealed A2A.TaskEvent.Equals(A2A.StreamResponse? other) -> bool
+static A2A.TaskEvent.operator !=(A2A.TaskEvent? left, A2A.TaskEvent? right) -> bool
+static A2A.TaskEvent.operator ==(A2A.TaskEvent? left, A2A.TaskEvent? right) -> bool
 A2A.TaskPushNotificationConfig
 A2A.TaskPushNotificationConfig.Authentication.get -> A2A.AuthenticationInfo?
 A2A.TaskPushNotificationConfig.Authentication.set -> void
@@ -626,6 +752,15 @@ A2A.TaskResponse
 A2A.TaskResponse.Task.get -> A2A.AgentTask!
 A2A.TaskResponse.Task.init -> void
 A2A.TaskResponse.TaskResponse(A2A.AgentTask! Task) -> void
+A2A.TaskResponse.Deconstruct(out A2A.AgentTask! Task) -> void
+A2A.TaskResponse.Equals(A2A.TaskResponse? other) -> bool
+override A2A.TaskResponse.<Clone>$() -> A2A.TaskResponse!
+override A2A.TaskResponse.Equals(object? obj) -> bool
+override A2A.TaskResponse.GetHashCode() -> int
+override A2A.TaskResponse.ToString() -> string!
+override sealed A2A.TaskResponse.Equals(A2A.SendMessageResponse? other) -> bool
+static A2A.TaskResponse.operator !=(A2A.TaskResponse? left, A2A.TaskResponse? right) -> bool
+static A2A.TaskResponse.operator ==(A2A.TaskResponse? left, A2A.TaskResponse? right) -> bool
 A2A.TaskState
 A2A.TaskState.AuthRequired = 8 -> A2A.TaskState
 A2A.TaskState.Canceled = 5 -> A2A.TaskState
@@ -651,10 +786,28 @@ A2A.TextPart
 A2A.TextPart.Text.get -> string!
 A2A.TextPart.Text.init -> void
 A2A.TextPart.TextPart(string! Text) -> void
+A2A.TextPart.Deconstruct(out string! Text) -> void
+A2A.TextPart.Equals(A2A.TextPart? other) -> bool
+override A2A.TextPart.<Clone>$() -> A2A.TextPart!
+override A2A.TextPart.Equals(object? obj) -> bool
+override A2A.TextPart.GetHashCode() -> int
+override A2A.TextPart.ToString() -> string!
+override sealed A2A.TextPart.Equals(A2A.Part? other) -> bool
+static A2A.TextPart.operator !=(A2A.TextPart? left, A2A.TextPart? right) -> bool
+static A2A.TextPart.operator ==(A2A.TextPart? left, A2A.TextPart? right) -> bool
 A2A.UrlPart
 A2A.UrlPart.Url.get -> System.Uri!
 A2A.UrlPart.Url.init -> void
 A2A.UrlPart.UrlPart(System.Uri! Url) -> void
+A2A.UrlPart.Deconstruct(out System.Uri! Url) -> void
+A2A.UrlPart.Equals(A2A.UrlPart? other) -> bool
+override A2A.UrlPart.<Clone>$() -> A2A.UrlPart!
+override A2A.UrlPart.Equals(object? obj) -> bool
+override A2A.UrlPart.GetHashCode() -> int
+override A2A.UrlPart.ToString() -> string!
+override sealed A2A.UrlPart.Equals(A2A.Part? other) -> bool
+static A2A.UrlPart.operator !=(A2A.UrlPart? left, A2A.UrlPart? right) -> bool
+static A2A.UrlPart.operator ==(A2A.UrlPart? left, A2A.UrlPart? right) -> bool
 A2A.Validation.A2AValidator
 abstract A2A.Json.OneOfConverter<TUnion>.MemberNames.get -> System.Collections.Generic.IReadOnlyList<string!>!
 abstract A2A.Json.OneOfConverter<TUnion>.ReadCase(ref System.Text.Json.Utf8JsonReader reader, string! member, System.Text.Json.JsonSerializerOptions! options) -> TUnion!
@@ -743,8 +896,28 @@ static A2A.Part.FromBytes(System.ReadOnlyMemory<byte> bytes, string! mediaType, 
 static A2A.Part.FromData(System.Text.Json.JsonElement data, string? mediaType = "application/json") -> A2A.DataPart!
 static A2A.Part.FromText(string! text, string? mediaType = null) -> A2A.TextPart!
 static A2A.Part.FromUrl(System.Uri! url, string? mediaType = null, string? filename = null) -> A2A.UrlPart!
+A2A.Part.Part(A2A.Part! original) -> void
+abstract A2A.Part.<Clone>$() -> A2A.Part!
+override A2A.Part.Equals(object? obj) -> bool
+override A2A.Part.GetHashCode() -> int
+override A2A.Part.ToString() -> string!
+static A2A.Part.operator !=(A2A.Part? left, A2A.Part? right) -> bool
+static A2A.Part.operator ==(A2A.Part? left, A2A.Part? right) -> bool
+virtual A2A.Part.EqualityContract.get -> System.Type!
+virtual A2A.Part.Equals(A2A.Part? other) -> bool
+virtual A2A.Part.PrintMembers(System.Text.StringBuilder! builder) -> bool
 static A2A.SecurityScheme.ApiKey(string! name, string! location = "header", string? description = null) -> A2A.ApiKeyScheme!
 static A2A.SecurityScheme.Bearer(string? bearerFormat = "JWT", string? description = null) -> A2A.HttpAuthScheme!
+A2A.SecurityScheme.SecurityScheme(A2A.SecurityScheme! original) -> void
+abstract A2A.SecurityScheme.<Clone>$() -> A2A.SecurityScheme!
+override A2A.SecurityScheme.Equals(object? obj) -> bool
+override A2A.SecurityScheme.GetHashCode() -> int
+override A2A.SecurityScheme.ToString() -> string!
+static A2A.SecurityScheme.operator !=(A2A.SecurityScheme? left, A2A.SecurityScheme? right) -> bool
+static A2A.SecurityScheme.operator ==(A2A.SecurityScheme? left, A2A.SecurityScheme? right) -> bool
+virtual A2A.SecurityScheme.EqualityContract.get -> System.Type!
+virtual A2A.SecurityScheme.Equals(A2A.SecurityScheme? other) -> bool
+virtual A2A.SecurityScheme.PrintMembers(System.Text.StringBuilder! builder) -> bool
 static A2A.Signing.AgentCardCanonicalizer.Canonicalize(System.Text.Json.Nodes.JsonObject! card) -> byte[]!
 static A2A.Signing.AgentCardCanonicalizer.CaseVariantMembers(System.Text.Json.Nodes.JsonObject! card) -> System.Collections.Generic.IReadOnlyList<string!>!
 static A2A.Signing.AgentCardCanonicalizer.PrunedPaths(System.Text.Json.Nodes.JsonObject! card) -> System.Collections.Generic.IReadOnlyList<string!>!
@@ -768,6 +941,16 @@ static A2A.StreamResponse.Of(A2A.AgentTask! task) -> A2A.TaskEvent!
 static A2A.StreamResponse.Of(A2A.Message! message) -> A2A.MessageEvent!
 static A2A.StreamResponse.Of(A2A.TaskArtifactUpdateEvent! e) -> A2A.ArtifactUpdateEvent!
 static A2A.StreamResponse.Of(A2A.TaskStatusUpdateEvent! e) -> A2A.StatusUpdateEvent!
+A2A.StreamResponse.StreamResponse(A2A.StreamResponse! original) -> void
+abstract A2A.StreamResponse.<Clone>$() -> A2A.StreamResponse!
+override A2A.StreamResponse.Equals(object? obj) -> bool
+override A2A.StreamResponse.GetHashCode() -> int
+override A2A.StreamResponse.ToString() -> string!
+static A2A.StreamResponse.operator !=(A2A.StreamResponse? left, A2A.StreamResponse? right) -> bool
+static A2A.StreamResponse.operator ==(A2A.StreamResponse? left, A2A.StreamResponse? right) -> bool
+virtual A2A.StreamResponse.EqualityContract.get -> System.Type!
+virtual A2A.StreamResponse.Equals(A2A.StreamResponse? other) -> bool
+virtual A2A.StreamResponse.PrintMembers(System.Text.StringBuilder! builder) -> bool
 static A2A.TaskStateExtensions.IsInterrupted(this A2A.TaskState state) -> bool
 static A2A.TaskStateExtensions.IsTerminal(this A2A.TaskState state) -> bool
 static A2A.Validation.A2AValidator.RequireId(string? id, string! name) -> void
@@ -866,34 +1049,34 @@ const A2A.Push.WebhookSignature.TimestampHeader = "webhook-timestamp" -> string!
 static A2A.Push.WebhookSignature.Sign(System.ReadOnlySpan<byte> secret, string! id, long unixSeconds, System.ReadOnlySpan<byte> body) -> string!
 static A2A.Push.WebhookSignature.TryParseSecret(string? credentials, out byte[]! secret) -> bool
 static A2A.Push.WebhookSignature.Matches(string! signatureHeader, System.ReadOnlySpan<byte> secret, string! id, long unixSeconds, System.ReadOnlySpan<byte> body) -> bool
-A2A.Delegation.ActorChainEntry
-A2A.Delegation.ActorChainEntry.ActorChainEntry() -> void
-A2A.Delegation.ActorChainEntry.Sub.get -> string!
-A2A.Delegation.ActorChainEntry.Sub.set -> void
-A2A.Delegation.ActorChainEntry.Iss.get -> string?
-A2A.Delegation.ActorChainEntry.Iss.set -> void
-A2A.Delegation.ActorChainEntry.Scopes.get -> System.Collections.Generic.List<string!>?
-A2A.Delegation.ActorChainEntry.Scopes.set -> void
-A2A.Delegation.ActorChainEntry.AdditionalProperties.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
-A2A.Delegation.ActorChainEntry.AdditionalProperties.set -> void
-A2A.Delegation.ActorChain
-A2A.Delegation.ActorChain.ActorChain() -> void
-A2A.Delegation.ActorChain.Origin.get -> A2A.Delegation.ActorChainEntry?
-A2A.Delegation.ActorChain.Origin.set -> void
-A2A.Delegation.ActorChain.Actors.get -> System.Collections.Generic.List<A2A.Delegation.ActorChainEntry!>!
-A2A.Delegation.ActorChain.Actors.set -> void
-A2A.Delegation.ActorChain.AdditionalProperties.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
-A2A.Delegation.ActorChain.AdditionalProperties.set -> void
-A2A.Delegation.ActorChain.AppendHop(A2A.Delegation.ActorChainEntry! hop) -> A2A.Delegation.ActorChain!
-const A2A.Delegation.ActorChain.MetadataKey = "actorChain" -> string!
-const A2A.Delegation.ActorChain.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/actor-chain/v1" -> string!
-static A2A.Delegation.ActorChain.Start(A2A.Delegation.ActorChainEntry! origin) -> A2A.Delegation.ActorChain!
-static A2A.Delegation.ActorChain.CreateExtension() -> A2A.AgentExtension!
-static A2A.Delegation.ActorChain.TryReadActorChain(System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata, out A2A.Delegation.ActorChain? chain) -> bool
-A2A.Delegation.ActorChainMessageExtensions
-static A2A.Delegation.ActorChainMessageExtensions.GetActorChain(this A2A.Message! message) -> A2A.Delegation.ActorChain?
-static A2A.Delegation.ActorChainMessageExtensions.GetActorChain(this A2A.AgentTask! task) -> A2A.Delegation.ActorChain?
-static A2A.Delegation.ActorChainMessageExtensions.SetActorChain(this A2A.Message! message, A2A.Delegation.ActorChain! chain) -> A2A.Message!
+[A2AEXP002]A2A.Delegation.ActorChainEntry
+[A2AEXP002]A2A.Delegation.ActorChainEntry.ActorChainEntry() -> void
+[A2AEXP002]A2A.Delegation.ActorChainEntry.Sub.get -> string!
+[A2AEXP002]A2A.Delegation.ActorChainEntry.Sub.set -> void
+[A2AEXP002]A2A.Delegation.ActorChainEntry.Iss.get -> string?
+[A2AEXP002]A2A.Delegation.ActorChainEntry.Iss.set -> void
+[A2AEXP002]A2A.Delegation.ActorChainEntry.Scopes.get -> System.Collections.Generic.List<string!>?
+[A2AEXP002]A2A.Delegation.ActorChainEntry.Scopes.set -> void
+[A2AEXP002]A2A.Delegation.ActorChainEntry.AdditionalProperties.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+[A2AEXP002]A2A.Delegation.ActorChainEntry.AdditionalProperties.set -> void
+[A2AEXP002]A2A.Delegation.ActorChain
+[A2AEXP002]A2A.Delegation.ActorChain.ActorChain() -> void
+[A2AEXP002]A2A.Delegation.ActorChain.Origin.get -> A2A.Delegation.ActorChainEntry?
+[A2AEXP002]A2A.Delegation.ActorChain.Origin.set -> void
+[A2AEXP002]A2A.Delegation.ActorChain.Actors.get -> System.Collections.Generic.List<A2A.Delegation.ActorChainEntry!>!
+[A2AEXP002]A2A.Delegation.ActorChain.Actors.set -> void
+[A2AEXP002]A2A.Delegation.ActorChain.AdditionalProperties.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+[A2AEXP002]A2A.Delegation.ActorChain.AdditionalProperties.set -> void
+[A2AEXP002]A2A.Delegation.ActorChain.AppendHop(A2A.Delegation.ActorChainEntry! hop) -> A2A.Delegation.ActorChain!
+[A2AEXP002]const A2A.Delegation.ActorChain.MetadataKey = "actorChain" -> string!
+[A2AEXP002]const A2A.Delegation.ActorChain.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/actor-chain/v1" -> string!
+[A2AEXP002]static A2A.Delegation.ActorChain.Start(A2A.Delegation.ActorChainEntry! origin) -> A2A.Delegation.ActorChain!
+[A2AEXP002]static A2A.Delegation.ActorChain.CreateExtension() -> A2A.AgentExtension!
+[A2AEXP002]static A2A.Delegation.ActorChain.TryReadActorChain(System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata, out A2A.Delegation.ActorChain? chain) -> bool
+[A2AEXP002]A2A.Delegation.ActorChainMessageExtensions
+[A2AEXP002]static A2A.Delegation.ActorChainMessageExtensions.GetActorChain(this A2A.Message! message) -> A2A.Delegation.ActorChain?
+[A2AEXP002]static A2A.Delegation.ActorChainMessageExtensions.GetActorChain(this A2A.AgentTask! task) -> A2A.Delegation.ActorChain?
+[A2AEXP002]static A2A.Delegation.ActorChainMessageExtensions.SetActorChain(this A2A.Message! message, A2A.Delegation.ActorChain! chain) -> A2A.Message!
 A2A.Delegation.ITokenExchanger
 A2A.Delegation.ITokenExchanger.ExchangeAsync(A2A.Delegation.TokenExchangeRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Delegation.TokenExchangeResult!>
 A2A.Delegation.TokenTypes
@@ -955,15 +1138,15 @@ static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.TaskPushNotificationConf
 static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.GetTaskPushNotificationConfigRequest! request) -> void
 static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.DeleteTaskPushNotificationConfigRequest! request) -> void
 static A2A.Validation.A2AValidator.ValidateOutgoing(A2A.ListTaskPushNotificationConfigsRequest! request) -> void
-A2A.Skills.SkillSelection
-A2A.Skills.SkillSelectionMessageExtensions
-const A2A.Skills.SkillSelection.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/skill-selection/v1" -> string!
-const A2A.Skills.SkillSelection.MetadataKey = "skillId" -> string!
-const A2A.Skills.SkillSelection.RejectUnknownSkillsParam = "rejectUnknownSkills" -> string!
-static A2A.Skills.SkillSelection.CreateExtension(bool rejectUnknownSkills = false) -> A2A.AgentExtension!
-static A2A.Skills.SkillSelection.RejectsUnknownSkills(A2A.AgentCard! card) -> bool
-static A2A.Skills.SkillSelectionMessageExtensions.GetRequestedSkillId(this A2A.Message! message) -> string?
-static A2A.Skills.SkillSelectionMessageExtensions.SetRequestedSkillId(this A2A.Message! message, string! skillId) -> A2A.Message!
+[A2AEXP001]A2A.Skills.SkillSelection
+[A2AEXP001]A2A.Skills.SkillSelectionMessageExtensions
+[A2AEXP001]const A2A.Skills.SkillSelection.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/skill-selection/v1" -> string!
+[A2AEXP001]const A2A.Skills.SkillSelection.MetadataKey = "skillId" -> string!
+[A2AEXP001]const A2A.Skills.SkillSelection.RejectUnknownSkillsParam = "rejectUnknownSkills" -> string!
+[A2AEXP001]static A2A.Skills.SkillSelection.CreateExtension(bool rejectUnknownSkills = false) -> A2A.AgentExtension!
+[A2AEXP001]static A2A.Skills.SkillSelection.RejectsUnknownSkills(A2A.AgentCard! card) -> bool
+[A2AEXP001]static A2A.Skills.SkillSelectionMessageExtensions.GetRequestedSkillId(this A2A.Message! message) -> string?
+[A2AEXP001]static A2A.Skills.SkillSelectionMessageExtensions.SetRequestedSkillId(this A2A.Message! message, string! skillId) -> A2A.Message!
 A2A.Elicitations.Elicitation
 A2A.Elicitations.ElicitationAction
 A2A.Elicitations.ElicitationAction.Accept = 0 -> A2A.Elicitations.ElicitationAction
@@ -1039,11 +1222,11 @@ static A2A.Elicitations.ElicitationMessageExtensions.GetElicitationForm(this A2A
 static A2A.Elicitations.ElicitationMessageExtensions.GetElicitationForm(this A2A.Message! message) -> A2A.Elicitations.ElicitationForm?
 static A2A.Elicitations.ElicitationMessageExtensions.SetElicitationForm(this A2A.Message! message, A2A.Elicitations.ElicitationForm! form) -> A2A.Message!
 const A2A.A2AProtocol.ArtifactSealedKey = "a2a.artifact.sealed" -> string!
-A2A.Integrity.ArtifactHash
-const A2A.Integrity.ArtifactHash.MetadataKey = "sha256" -> string!
-static A2A.Integrity.ArtifactHash.Compute(System.Collections.Generic.IEnumerable<A2A.Part!>! parts) -> string!
-static A2A.Integrity.ArtifactHash.Update(System.Security.Cryptography.IncrementalHash! hash, System.Collections.Generic.IEnumerable<A2A.Part!>! parts) -> void
-static A2A.Integrity.ArtifactHash.Format(System.ReadOnlySpan<byte> digest) -> string!
+[A2AEXP003]A2A.Integrity.ArtifactHash
+[A2AEXP003]const A2A.Integrity.ArtifactHash.MetadataKey = "sha256" -> string!
+[A2AEXP003]static A2A.Integrity.ArtifactHash.Compute(System.Collections.Generic.IEnumerable<A2A.Part!>! parts) -> string!
+[A2AEXP003]static A2A.Integrity.ArtifactHash.Update(System.Security.Cryptography.IncrementalHash! hash, System.Collections.Generic.IEnumerable<A2A.Part!>! parts) -> void
+[A2AEXP003]static A2A.Integrity.ArtifactHash.Format(System.ReadOnlySpan<byte> digest) -> string!
 static A2A.Validation.A2AValidator.ValidateArtifact(A2A.Artifact! artifact, string! path, bool allowEmptyParts) -> void
 const A2A.A2AProtocol.MessageRecordedAtKey = "a2a.message.recordedAt" -> string!
 A2A.MessageRecordedAtExtensions
