@@ -47,14 +47,30 @@ internal sealed class AgentCardEndpoint(IAgentCardProvider cards, IOptions<A2AHt
         var key = await SigningKeyAsync(tenant, http.RequestAborted).ConfigureAwait(false);
         var encoded = Encode(card, key);
         http.Response.Headers.ETag = encoded.ETag;
+        http.Response.Headers.Vary = "Accept"; // the media type follows the Accept header
         http.Response.Headers.CacheControl = $"public, max-age={(int)httpOptions.Value.AgentCardMaxAge.TotalSeconds}";
         if (Matches(http.Request.Headers.IfNoneMatch, encoded.Tag))
         {
             http.Response.StatusCode = StatusCodes.Status304NotModified;
             return;
         }
-        http.Response.ContentType = A2AProtocol.JsonMediaType;
+        http.Response.ContentType = CardMediaType(http.Request);
         await http.Response.Body.WriteAsync(encoded.Body, http.RequestAborted).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <see cref="A2AProtocol.AgentCardMediaType"/> when the request's <c>Accept</c> lists it (with a weight above 0), else
+    /// <see cref="A2AProtocol.JsonMediaType"/>: a client that does not know the card media type keeps getting plain JSON.
+    /// </summary>
+    internal static string CardMediaType(HttpRequest request)
+    {
+        var accept = request.GetTypedHeaders().Accept;
+        foreach (var range in accept)
+        {
+            if (range.Quality is 0) continue;
+            if (range.MediaType.Equals(A2AProtocol.AgentCardMediaType, StringComparison.OrdinalIgnoreCase)) return A2AProtocol.AgentCardMediaType;
+        }
+        return A2AProtocol.JsonMediaType;
     }
 
     /// <summary>The body and tag of <paramref name="card"/> with <paramref name="key"/>, kept while the card instance lives.</summary>

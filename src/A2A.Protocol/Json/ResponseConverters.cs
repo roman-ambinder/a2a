@@ -33,7 +33,7 @@ public sealed class SendMessageResponseConverter : OneOfConverter<SendMessageRes
 /// <summary>Converter for <see cref="StreamResponse"/>.</summary>
 public sealed class StreamResponseConverter : OneOfConverter<StreamResponse>
 {
-    private static readonly string[] Names = ["task", "message", "statusUpdate", "artifactUpdate"];
+    private static readonly string[] Names = ["task", "message", "statusUpdate", "artifactUpdate", "messageUpdate", "error"];
 
     /// <summary>Name of the union in error messages.</summary>
     protected override string UnionName => nameof(StreamResponse);
@@ -47,7 +47,9 @@ public sealed class StreamResponseConverter : OneOfConverter<StreamResponse>
             "task" => new TaskEvent(ReadPayload<AgentTask>(ref reader, options)),
             "message" => new MessageEvent(ReadPayload<Message>(ref reader, options)),
             "statusUpdate" => new StatusUpdateEvent(ReadPayload<TaskStatusUpdateEvent>(ref reader, options)),
-            _ => new ArtifactUpdateEvent(ReadPayload<TaskArtifactUpdateEvent>(ref reader, options)),
+            "artifactUpdate" => new ArtifactUpdateEvent(ReadPayload<TaskArtifactUpdateEvent>(ref reader, options)),
+            "messageUpdate" => new MessageUpdateEvent(ReadPayload<TaskMessageUpdateEvent>(ref reader, options)),
+            _ => new StreamErrorEvent(ReadPayload<StreamError>(ref reader, options)),
         };
 
     /// <summary>Writes the case as its wire member.</summary>
@@ -59,6 +61,8 @@ public sealed class StreamResponseConverter : OneOfConverter<StreamResponse>
             case MessageEvent m: WriteProperty(writer, "message", m.Message, options); break;
             case StatusUpdateEvent s: WriteProperty(writer, "statusUpdate", s.StatusUpdate, options); break;
             case ArtifactUpdateEvent a: WriteProperty(writer, "artifactUpdate", a.ArtifactUpdate, options); break;
+            case MessageUpdateEvent u: WriteProperty(writer, "messageUpdate", u.MessageUpdate, options); break;
+            case StreamErrorEvent e: WriteProperty(writer, "error", e.Error, options); break;
             default: throw new JsonException($"Unknown StreamResponse type {value.GetType().Name}");
         }
     }

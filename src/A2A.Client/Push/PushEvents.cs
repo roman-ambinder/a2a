@@ -12,6 +12,7 @@ internal static class PushEvents
         TaskEvent e => (e.Task.Id, e.Task.Status.State),
         StatusUpdateEvent e => (e.StatusUpdate.TaskId, e.StatusUpdate.Status.State),
         ArtifactUpdateEvent e => (e.ArtifactUpdate.TaskId, null),
+        MessageUpdateEvent e => (e.MessageUpdate.TaskId, null),
         _ => (null, null),
     };
 }

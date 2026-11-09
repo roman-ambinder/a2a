@@ -38,6 +38,11 @@ public enum A2AErrorCode
     ExtensionSupportRequired = -32008,
     /// <summary>The server does not support the protocol version the client asked for.</summary>
     VersionNotSupported = -32009,
+    /// <summary>
+    /// A2A 1.1: <c>ifGenerationMatch</c> did not equal the task's generation. Re-read the task before sending again
+    /// (HTTP 409, gRPC <c>ABORTED</c>).
+    /// </summary>
+    TaskGenerationMismatch = -32010,
 
     // SDK extension: server is throttling the caller. Retryable; see A2AException.RetryAfter.
     /// <summary>The server is throttling the caller (SDK extension). Retryable.</summary>
@@ -145,6 +150,7 @@ public static class A2AErrors
     {
         A2AErrorCode.RateLimited => 429,
         A2AErrorCode.TaskNotFound or A2AErrorCode.MethodNotFound => 404,
+        A2AErrorCode.TaskGenerationMismatch => 409,
         A2AErrorCode.InvalidAgentResponse or A2AErrorCode.Internal => 500,
         A2AErrorCode.Unauthenticated => 401,
         A2AErrorCode.PermissionDenied => 403,
@@ -161,6 +167,7 @@ public static class A2AErrors
         A2AErrorCode.Unauthenticated => "UNAUTHENTICATED",
         A2AErrorCode.PermissionDenied => "PERMISSION_DENIED",
         A2AErrorCode.RateLimited => "RESOURCE_EXHAUSTED",
+        A2AErrorCode.TaskGenerationMismatch => "ABORTED",
         _ => "FAILED_PRECONDITION",
     };
 
@@ -176,6 +183,7 @@ public static class A2AErrors
         A2AErrorCode.ExtendedAgentCardNotConfigured => "EXTENDED_AGENT_CARD_NOT_CONFIGURED",
         A2AErrorCode.ExtensionSupportRequired => "EXTENSION_SUPPORT_REQUIRED",
         A2AErrorCode.VersionNotSupported => "VERSION_NOT_SUPPORTED",
+        A2AErrorCode.TaskGenerationMismatch => "TASK_GENERATION_MISMATCH",
         A2AErrorCode.JsonParse => "JSON_PARSE",
         A2AErrorCode.InvalidRequest => "INVALID_REQUEST",
         A2AErrorCode.MethodNotFound => "METHOD_NOT_FOUND",
@@ -221,6 +229,7 @@ public static class A2AErrors
         A2AErrorCode.ExtendedAgentCardNotConfigured => "Extended agent card is not configured",
         A2AErrorCode.ExtensionSupportRequired => "A required extension was not declared by the client",
         A2AErrorCode.VersionNotSupported => "Protocol version not supported",
+        A2AErrorCode.TaskGenerationMismatch => "Task generation mismatch",
         A2AErrorCode.Unauthenticated => "Authentication required",
         A2AErrorCode.PermissionDenied => "Permission denied",
         A2AErrorCode.RateLimited => "Too many requests",

@@ -26,7 +26,25 @@ internal sealed class AgentCardCompleter(A2AServerOptions options, IEnumerable<A
         if (copy.SupportedInterfaces.Count != 0) return;
         var baseUrl = BaseUrl(http.Value, server);
         foreach (var (binding, pattern) in registry.Bindings())
-            copy.SupportedInterfaces.Add(new AgentInterface { Url = Combine(baseUrl, pattern), ProtocolBinding = binding });
+        {
+            var url = Combine(baseUrl, pattern);
+            if (binding == ProtocolBindings.Grpc) url = GrpcAddress(url);
+            copy.SupportedInterfaces.Add(new AgentInterface { Url = url, ProtocolBinding = binding });
+        }
+    }
+
+    /// <summary>
+    /// The address of a gRPC interface (spec: <c>hostname:port</c>, for example <c>grpc.example.com:443</c>). An HTTPS URL
+    /// becomes <c>host:port</c>, the form other SDKs pass straight to a gRPC channel. A plain-text (<c>http://</c>) URL is kept,
+    /// because a bare <c>host:port</c> is read as TLS.
+    /// </summary>
+    internal static string GrpcAddress(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || uri.AbsolutePath.Trim('/').Length != 0)
+            return url;
+        return uri.Authority.Contains(':', StringComparison.Ordinal) && !uri.Authority.EndsWith(']')
+            ? uri.Authority
+            : uri.Authority + ":" + uri.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static string BaseUrl(A2AHttpOptions http, IServer? server)

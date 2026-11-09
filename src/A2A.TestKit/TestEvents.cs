@@ -67,6 +67,8 @@ public static class TestEvents
         MessageEvent m => $"Message({Quote(m.Message.GetText())})",
         StatusUpdateEvent s => $"Status({StateName(s.StatusUpdate.Status.State)})",
         ArtifactUpdateEvent a => $"Artifact({a.ArtifactUpdate.Artifact.Name ?? a.ArtifactUpdate.Artifact.ArtifactId})",
+        MessageUpdateEvent u => $"MessageUpdate({Quote(u.MessageUpdate.Message.GetText())})",
+        StreamErrorEvent x => $"StreamError({x.Error.Code})",
         _ => e.GetType().Name,
     };
 

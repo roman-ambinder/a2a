@@ -103,6 +103,20 @@ public sealed class Artifact : IJsonOnDeserialized
     /// <summary>URIs of extensions that apply to the artifact. Null when none.</summary>
     public List<string>? Extensions { get; set; }
 
+    /// <summary>A2A 1.1: the task generation at which the artifact first appeared. Null when not known (or for 1.0).</summary>
+    [JsonConverter(typeof(ProtoNullableInt64Converter))]
+    public long? StartGeneration { get; set; }
+
+    /// <summary>A2A 1.1: the task generation at which the artifact was completed. Null while it is still streaming.</summary>
+    [JsonConverter(typeof(ProtoNullableInt64Converter))]
+    public long? EndGeneration { get; set; }
+
+    /// <summary>
+    /// A2A 1.1: who wrote the artifact. Null (or <see cref="A2A.Role.Agent"/>) for an agent output; <see cref="A2A.Role.User"/>
+    /// for an artifact written by the client.
+    /// </summary>
+    public Role? Role { get; set; }
+
     // See AgentCard: omitted parts must read as an empty list, not null.
     void IJsonOnDeserialized.OnDeserialized() => Parts ??= new();
 }
@@ -129,10 +143,55 @@ public sealed class AgentTask
     public required AgentTaskStatus Status { get; set; }
     /// <summary>Outputs produced so far. Null when none or not requested.</summary>
     public List<Artifact>? Artifacts { get; set; }
-    /// <summary>Messages exchanged in the task, oldest first. Null when none or not requested.</summary>
+    /// <summary>
+    /// Messages exchanged in the task, oldest first. Null when none or not requested. Deprecated in A2A 1.1 in favour of
+    /// <see cref="Timeline"/>; servers keep filling it for the whole 1.x line.
+    /// </summary>
     public List<Message>? History { get; set; }
     /// <summary>Extra data about the task. Null when none.</summary>
     public Dictionary<string, JsonElement>? Metadata { get; set; }
+
+    /// <summary>
+    /// A2A 1.1: a counter the server raises by exactly 1 on every change to the task's timeline or artifacts. 1 when the task
+    /// is created. Null when not known: a 1.0 peer, or a server that does not implement it (it sends 0).
+    /// </summary>
+    [JsonConverter(typeof(ProtoNullableInt64Converter))]
+    public long? Generation { get; set; }
+
+    /// <summary>
+    /// A2A 1.1: the interaction in generation order: client messages and agent status entries. Null when none or not requested.
+    /// </summary>
+    public List<TimelineEntry>? Timeline { get; set; }
+}
+
+/// <summary>
+/// A2A 1.1: one entry of a task's <see cref="AgentTask.Timeline"/> (spec §4.1.8). Exactly one of <see cref="Message"/> (client
+/// input) and <see cref="Status"/> (agent status) is set. An entry of a kind this SDK does not know has neither: readers skip it
+/// (<see cref="IsUnknownKind"/>), and its <see cref="Generation"/> still counts.
+/// </summary>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+public sealed class TimelineEntry
+{
+    /// <summary>A client message recorded in the timeline. Null for another kind of entry.</summary>
+    public Message? Message { get; set; }
+
+    /// <summary>An agent status (state plus the agent's message) recorded in the timeline. Null for another kind of entry.</summary>
+    public AgentTaskStatus? Status { get; set; }
+
+    /// <summary>The task's generation right after this entry was appended.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    [JsonConverter(typeof(ProtoInt64Converter))]
+    public long Generation { get; set; }
+
+    /// <summary>True when the entry has neither a message nor a status: a kind added by a newer protocol version. Skip it.</summary>
+    [JsonIgnore]
+    public bool IsUnknownKind => Message is null && Status is null;
+
+    /// <summary>Creates a client-message entry.</summary>
+    public static TimelineEntry FromMessage(Message message, long generation) => new() { Message = message, Generation = generation };
+
+    /// <summary>Creates an agent-status entry.</summary>
+    public static TimelineEntry FromStatus(AgentTaskStatus status, long generation) => new() { Status = status, Generation = generation };
 }
 
 /// <summary>Streaming/push event: task status changed (spec §4.2.1).</summary>
@@ -146,6 +205,10 @@ public sealed class TaskStatusUpdateEvent
     public AgentTaskStatus Status { get; set; } = new();
     /// <summary>Extra data about the update. Null when none.</summary>
     public Dictionary<string, JsonElement>? Metadata { get; set; }
+
+    /// <summary>A2A 1.1: the task's generation after this update. Null when not known (a 1.0 peer).</summary>
+    [JsonConverter(typeof(ProtoNullableInt64Converter))]
+    public long? Generation { get; set; }
 }
 
 /// <summary>Streaming/push event: artifact created or extended (spec §4.2.2).</summary>
@@ -167,5 +230,48 @@ public sealed class TaskArtifactUpdateEvent
     public bool LastChunk { get; set; }
 
     /// <summary>Extra data about the update. Null when none.</summary>
+    public Dictionary<string, JsonElement>? Metadata { get; set; }
+
+    /// <summary>
+    /// A2A 1.1: the task's generation after this update. Null when not known (a 1.0 peer). A client that sends an artifact update
+    /// leaves it null; the server ignores any value it gets.
+    /// </summary>
+    [JsonConverter(typeof(ProtoNullableInt64Converter))]
+    public long? Generation { get; set; }
+}
+
+/// <summary>A2A 1.1 streaming event: a message was added to the task, for example client input (spec §4.2.3).</summary>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+public sealed class TaskMessageUpdateEvent
+{
+    /// <summary>Id of the task the message was added to.</summary>
+    public string TaskId { get; set; } = string.Empty;
+    /// <summary>Id of the context the task belongs to.</summary>
+    public string ContextId { get; set; } = string.Empty;
+    /// <summary>The message that was added.</summary>
+    public required Message Message { get; set; }
+    /// <summary>Extra data about the update. Null when none.</summary>
+    public Dictionary<string, JsonElement>? Metadata { get; set; }
+    /// <summary>The task's generation after the message was added. Null when not known.</summary>
+    [JsonConverter(typeof(ProtoNullableInt64Converter))]
+    public long? Generation { get; set; }
+}
+
+/// <summary>
+/// A2A 1.1: a non-fatal refusal of one client request on a live stream (spec §4.2.4). The stream stays open, so the client can
+/// correct the request and send it again.
+/// </summary>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+public sealed class StreamError
+{
+    /// <summary>Id of the task the refused request applied to. Null when not known.</summary>
+    public string? TaskId { get; set; }
+    /// <summary>Machine-readable reason, with the codes of the unary operation, for example <c>INVALID_ARGUMENT</c> or <c>UNAVAILABLE</c>.</summary>
+    public required string Code { get; set; }
+    /// <summary>Human-readable reason. Null when none.</summary>
+    public string? Message { get; set; }
+    /// <summary>The <c>messageId</c> of the refused message, or the <c>artifactId</c> of the refused artifact update. Null when none.</summary>
+    public string? ReferenceId { get; set; }
+    /// <summary>Extra data about the refusal. Null when none.</summary>
     public Dictionary<string, JsonElement>? Metadata { get; set; }
 }

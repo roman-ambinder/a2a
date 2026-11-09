@@ -45,6 +45,47 @@ public class ProtoMapperTests
     }
 
     [Fact]
+    public void V11_fields_and_events_round_trip_through_proto()
+    {
+        var task = new AgentTask
+        {
+            Id = "t",
+            ContextId = "c",
+            Status = new AgentTaskStatus { State = TaskState.InputRequired, Message = Message.FromAgent("more?", "c", "t") },
+            Artifacts = [new Artifact { ArtifactId = "a", Parts = [Part.FromText("x")], StartGeneration = 2, EndGeneration = 3, Role = Role.User }],
+            Generation = 4,
+            Timeline =
+            [
+                TimelineEntry.FromMessage(Message.FromUser("hi", "c", "t"), 1),
+                TimelineEntry.FromStatus(new AgentTaskStatus { State = TaskState.InputRequired, Message = Message.FromAgent("more?", "c", "t") }, 4),
+            ],
+        };
+        var proto = ProtoMapper.ToProto<A2aPb.Task, AgentTask>(task);
+        Assert.Equal(4, proto.Generation);
+        Assert.Equal(2, proto.Timeline.Count);
+        Assert.Equal(A2aPb.TimelineEntry.EntryOneofCase.Message, proto.Timeline[0].EntryCase);
+        Assert.Equal(A2aPb.Role.User, proto.Artifacts[0].Role);
+        Assert.Equal(A2A.Json.A2AJson.Serialize(task), A2A.Json.A2AJson.Serialize(ProtoMapper.ToModel<AgentTask>(proto)));
+
+        StreamResponse[] events =
+        [
+            StreamResponse.Of(new TaskMessageUpdateEvent { TaskId = "t", ContextId = "c", Message = Message.FromUser("hi", "c", "t"), Generation = 5 }),
+            StreamResponse.Of(new StreamError { TaskId = "t", Code = "UNAVAILABLE", Message = "busy", ReferenceId = "m" }),
+            StreamResponse.Of(new TaskStatusUpdateEvent { TaskId = "t", ContextId = "c", Status = new AgentTaskStatus { State = TaskState.Working }, Generation = 6 }),
+        ];
+        foreach (var e in events)
+        {
+            var p = ProtoMapper.ToProto<A2aPb.StreamResponse, StreamResponse>(e);
+            Assert.Equal(A2A.Json.A2AJson.Serialize(e), A2A.Json.A2AJson.Serialize(ProtoMapper.ToModel<StreamResponse>(p)));
+        }
+
+        var request = new StreamRequest { Tenant = "x", Subscribe = new SubscribeToTaskRequest { Id = "t", LastSeenGeneration = 7 } };
+        var pr = ProtoMapper.ToProto<A2aPb.StreamRequest, StreamRequest>(request);
+        Assert.Equal(7, pr.Subscribe.LastSeenGeneration);
+        Assert.Equal(A2A.Json.A2AJson.Serialize(request), A2A.Json.A2AJson.Serialize(ProtoMapper.ToModel<StreamRequest>(pr)));
+    }
+
+    [Fact]
     public void Task_round_trips_through_proto()
     {
         var task = new AgentTask

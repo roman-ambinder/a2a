@@ -122,6 +122,8 @@ internal static class Render
         ArtifactUpdateEvent a => $"artifact {o.One(a.ArtifactUpdate.Artifact.ArtifactId, 100)}"
             + (a.ArtifactUpdate.Append ? " (append)" : "") + (a.ArtifactUpdate.LastChunk ? " (last)" : "")
             + ": " + string.Join(" ", a.ArtifactUpdate.Artifact.Parts.Select(p => PartText(p, o))),
+        MessageUpdateEvent u => $"message added {o.One(u.MessageUpdate.TaskId)} {u.MessageUpdate.Message.Role}: {o.One(u.MessageUpdate.Message.GetText())}",
+        StreamErrorEvent x => $"refused {x.Error.Code}" + (x.Error.Message is { Length: > 0 } em ? ": " + o.One(em) : ""),
         _ => "event",
     };
 

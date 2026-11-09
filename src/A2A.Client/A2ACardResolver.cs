@@ -181,7 +181,8 @@ public sealed class A2ACardResolver
         if (cached is not null && cached.Expires > DateTimeOffset.UtcNow) return cached.Result;
 
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.JsonMediaType));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.AgentCardMediaType));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.JsonMediaType, 0.9));
         if (cached?.ETag is not null) request.Headers.IfNoneMatch.Add(cached.ETag);
 
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);

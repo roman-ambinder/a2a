@@ -31,6 +31,12 @@ public sealed class TaskPushNotificationConfig
 
     /// <summary>Credentials the agent uses when it calls <see cref="Url"/>. Null for no authentication.</summary>
     public AuthenticationInfo? Authentication { get; set; }
+
+    /// <summary>
+    /// A2A 1.1: the protocol version of the notifications sent to <see cref="Url"/>. Null means the version of the request that
+    /// created the config, or <c>"1.0"</c>.
+    /// </summary>
+    public string? ProtocolVersion { get; set; }
 }
 
 /// <summary>Options of a SendMessage call (spec §3.2.2).</summary>
@@ -42,12 +48,22 @@ public sealed class SendMessageConfiguration
     /// <summary>Webhook to register for the task created by this message. Leave <c>TaskId</c> empty.</summary>
     public TaskPushNotificationConfig? TaskPushNotificationConfig { get; set; }
 
-    /// <summary>How many recent history messages to return in the task. Null means the server default.</summary>
+    /// <summary>How many recent history messages to return in the task. Null means the server default. Deprecated in A2A 1.1 (use <see cref="TimelineLength"/>).</summary>
     public int? HistoryLength { get; set; }
 
     /// <summary>When true, return as soon as the task exists instead of waiting for a terminal or interrupted state.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool ReturnImmediately { get; set; }
+
+    /// <summary>A2A 1.1: how many recent timeline entries to return in the task. Null means no limit from the client.</summary>
+    public int? TimelineLength { get; set; }
+
+    /// <summary>
+    /// A2A 1.1: refuse the message (<see cref="A2AErrorCode.TaskGenerationMismatch"/>) unless the task's generation equals this
+    /// value when the message is processed. Ignored when the message creates a task. Null for no check.
+    /// </summary>
+    [JsonConverter(typeof(ProtoNullableInt64Converter))]
+    public long? IfGenerationMatch { get; set; }
 }
 
 /// <summary>Request body of SendMessage and SendStreamingMessage (spec §3.1.1, §3.1.2).</summary>
@@ -61,6 +77,31 @@ public sealed class SendMessageRequest
     public SendMessageConfiguration? Configuration { get; set; }
     /// <summary>Extra data about the request. Null when none.</summary>
     public Dictionary<string, JsonElement>? Metadata { get; set; }
+
+    /// <summary>
+    /// A2A 1.1: artifacts written by the client, sent with the message or on their own to an existing task. Needs
+    /// <see cref="AgentCapabilities.UserArtifacts"/>. Leave each update's <c>Generation</c> null. Null when none.
+    /// </summary>
+    public List<TaskArtifactUpdateEvent>? ArtifactUpdates { get; set; }
+}
+
+/// <summary>
+/// A2A 1.1: one client request on a live stream (spec §3.1.12). Exactly one of <see cref="SendMessage"/> and
+/// <see cref="Subscribe"/> is set; a request with neither has a kind this SDK does not know (<see cref="IsUnknownKind"/>).
+/// </summary>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+public sealed class StreamRequest
+{
+    /// <summary>Tenant to route the request to. Null when the agent is not multi-tenant.</summary>
+    public string? Tenant { get; set; }
+    /// <summary>Sends a message (and optionally artifact updates) on the stream.</summary>
+    public SendMessageRequest? SendMessage { get; set; }
+    /// <summary>Attaches the stream to an existing task. Valid only as the first request of a stream.</summary>
+    public SubscribeToTaskRequest? Subscribe { get; set; }
+
+    /// <summary>True when neither payload is set: a kind added by a newer protocol version.</summary>
+    [JsonIgnore]
+    public bool IsUnknownKind => SendMessage is null && Subscribe is null;
 }
 
 /// <summary>Result of SendMessage: either a task or a direct message. A closed union; exactly one case.</summary>
@@ -92,6 +133,10 @@ public abstract record StreamResponse
     public static StatusUpdateEvent Of(TaskStatusUpdateEvent e) => new(e);
     /// <summary>Creates an <see cref="ArtifactUpdateEvent"/> for an artifact update.</summary>
     public static ArtifactUpdateEvent Of(TaskArtifactUpdateEvent e) => new(e);
+    /// <summary>A2A 1.1: creates a <see cref="MessageUpdateEvent"/> for a message added to a task.</summary>
+    public static MessageUpdateEvent Of(TaskMessageUpdateEvent e) => new(e);
+    /// <summary>A2A 1.1: creates a <see cref="StreamErrorEvent"/> for a refused request on a live stream.</summary>
+    public static StreamErrorEvent Of(StreamError e) => new(e);
 
     /// <summary>The task id this event refers to, if any.</summary>
     [JsonIgnore]
@@ -101,6 +146,8 @@ public abstract record StreamResponse
         MessageEvent m => m.Message.TaskId,
         StatusUpdateEvent s => s.StatusUpdate.TaskId,
         ArtifactUpdateEvent a => a.ArtifactUpdate.TaskId,
+        MessageUpdateEvent u => u.MessageUpdate.TaskId,
+        StreamErrorEvent e => e.Error.TaskId,
         _ => null,
     };
 }
@@ -121,6 +168,16 @@ public sealed record StatusUpdateEvent(TaskStatusUpdateEvent StatusUpdate) : Str
 [JsonConverter(typeof(OneOfCaseConverter<StreamResponse, ArtifactUpdateEvent, StreamResponseConverter>))]
 public sealed record ArtifactUpdateEvent(TaskArtifactUpdateEvent ArtifactUpdate) : StreamResponse;
 
+/// <summary>A2A 1.1 stream event: a message was added to the task (client input). Sent only to 1.1 callers.</summary>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+[JsonConverter(typeof(OneOfCaseConverter<StreamResponse, MessageUpdateEvent, StreamResponseConverter>))]
+public sealed record MessageUpdateEvent(TaskMessageUpdateEvent MessageUpdate) : StreamResponse;
+
+/// <summary>A2A 1.1 stream event: one client request on a live stream was refused. The stream stays open.</summary>
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+[JsonConverter(typeof(OneOfCaseConverter<StreamResponse, StreamErrorEvent, StreamResponseConverter>))]
+public sealed record StreamErrorEvent(StreamError Error) : StreamResponse;
+
 /// <summary>Request body of GetTask (spec §3.1.3).</summary>
 public sealed class GetTaskRequest
 {
@@ -128,8 +185,18 @@ public sealed class GetTaskRequest
     public string? Tenant { get; set; }
     /// <summary>Id of the task to fetch.</summary>
     public string Id { get; set; } = string.Empty;
-    /// <summary>How many recent history messages to return. Null means the server default.</summary>
+    /// <summary>How many recent history messages to return. Null means the server default. Deprecated in A2A 1.1 (use <see cref="TimelineLength"/>).</summary>
     public int? HistoryLength { get; set; }
+
+    /// <summary>A2A 1.1: how many recent timeline entries to return. Null means no limit from the client.</summary>
+    public int? TimelineLength { get; set; }
+
+    /// <summary>
+    /// A2A 1.1 long-poll: when set, the server waits until the task's generation is greater than this value (or a timeout) before
+    /// it answers. Null to answer at once.
+    /// </summary>
+    [JsonConverter(typeof(ProtoNullableInt64Converter))]
+    public long? CurrentGeneration { get; set; }
 }
 
 /// <summary>Request body of ListTasks (spec §3.1.4).</summary>
@@ -147,8 +214,10 @@ public sealed class ListTasksRequest
 
     /// <summary>Token from <see cref="ListTasksResponse.NextPageToken"/> to fetch the next page. Null for the first page.</summary>
     public string? PageToken { get; set; }
-    /// <summary>How many recent history messages to return per task. Null means the server default.</summary>
+    /// <summary>How many recent history messages to return per task. Null means the server default. Deprecated in A2A 1.1 (use <see cref="TimelineLength"/>).</summary>
     public int? HistoryLength { get; set; }
+    /// <summary>A2A 1.1: how many recent timeline entries to return per task. Null means no limit from the client.</summary>
+    public int? TimelineLength { get; set; }
     /// <summary>Only return tasks whose status changed after this time. Null means no limit.</summary>
     public DateTimeOffset? StatusTimestampAfter { get; set; }
     /// <summary>True to include artifacts in the returned tasks. Null means the server default.</summary>
@@ -188,6 +257,13 @@ public sealed class SubscribeToTaskRequest
     public string? Tenant { get; set; }
     /// <summary>Id of the task to follow.</summary>
     public string Id { get; set; } = string.Empty;
+
+    /// <summary>
+    /// A2A 1.1: resume after this generation: the server replays only what followed it and sends no task snapshot first. Null to
+    /// start with a snapshot.
+    /// </summary>
+    [JsonConverter(typeof(ProtoNullableInt64Converter))]
+    public long? LastSeenGeneration { get; set; }
 }
 
 /// <summary>Request body of GetTaskPushNotificationConfig (spec §3.1.8).</summary>

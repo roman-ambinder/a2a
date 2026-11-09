@@ -16,6 +16,11 @@ public static class A2AProtocol
     public const string MediaType = "application/a2a+json";
     /// <summary>Plain JSON media type. Accepted on requests and responses as an alternative to <see cref="MediaType"/>.</summary>
     public const string JsonMediaType = "application/json";
+    /// <summary>
+    /// Media type of an Agent Card document (spec 1.1 §8.1, §14.1.2). The card endpoint answers with it when the request's
+    /// <c>Accept</c> header asks for it, and with <see cref="JsonMediaType"/> otherwise.
+    /// </summary>
+    public const string AgentCardMediaType = "application/a2a-agent-card+json";
     /// <summary>Media type of server-sent event streams.</summary>
     public const string EventStreamMediaType = "text/event-stream";
 

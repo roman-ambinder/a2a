@@ -13,7 +13,7 @@
     <Deterministic>true</Deterministic>
 
     <!-- [Experimental] APIs (see docs/site/guides/versioning.md). The repo's own code, tests, samples and snippets opt in here. -->
-    <NoWarn>$(NoWarn);A2AEXP001;A2AEXP002;A2AEXP003;A2AEXP004</NoWarn>
+    <NoWarn>$(NoWarn);A2AEXP001;A2AEXP002;A2AEXP003;A2AEXP004;A2AEXP005</NoWarn>
   </PropertyGroup>
 
   <!-- Reproducible builds on CI (normalized paths for SourceLink and PDBs). -->
