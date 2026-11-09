@@ -1,4 +1,5 @@
 using A2A.Server.Coordination;
+using A2A.Server.Idempotency;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 using Microsoft.Extensions.DependencyInjection;
@@ -9,7 +10,7 @@ namespace A2A.Server;
 
 /// <summary>
 /// Logs, once at startup, the mixes of durable and process-local parts that work on one instance but break across restarts or
-/// several instances, and a durable task store without the (opt-in) retention sweep. Never throws: a host that does not use the feature in question must still start.
+/// several instances, a shared event bus over in-memory stores, and a durable task store without the (opt-in) retention sweep. Never throws: a host that does not use the feature in question must still start.
 /// </summary>
 internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A2AStartupDiagnostics> logger) : IHostedService
 {
@@ -40,6 +41,12 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
         "The task store is durable ({TaskStore}), but artifact objects are kept by the process-local InMemoryArtifactObjectStore. " +
         "Objects are lost on restart and other instances cannot read them, so stored tasks keep links that no longer download. " +
         "Register a durable ArtifactObjectStore; use the in-memory one for tests and development only.";
+
+    internal const string SharedBusMessage =
+        "The event bus ({Bus}) spans server instances, but these stores are kept in this process: {InMemoryStores}. " +
+        "Events cross instances, but the other instances cannot read the tasks and events kept here: a stream on another instance " +
+        "gets task-not-found or cannot fill gaps in the events. " +
+        "Use shared stores: AddPostgresStores (A2A.Server.Postgres) or your own durable stores.";
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -72,6 +79,17 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
             ServerLog.EphemeralProtectorWithDurableOutbox(logger, outbox.GetType().Name);
 
         var tasks = services.GetService<TaskStore>();
+
+        // TaskEventBus is the local default; any other bus spans instances (like the Redis one).
+        var bus = services.GetService<TaskEventBus>();
+        if (bus is not null && bus.GetType() != typeof(TaskEventBus))
+        {
+            var inMemory = new List<string>();
+            if (tasks is InMemoryTaskStore) inMemory.Add(nameof(InMemoryTaskStore));
+            if (services.GetService<EventStore>() is InMemoryEventStore) inMemory.Add(nameof(InMemoryEventStore));
+            if (services.GetService<IdempotencyStore>() is InMemoryIdempotencyStore) inMemory.Add(nameof(InMemoryIdempotencyStore));
+            if (inMemory.Count > 0) ServerLog.SharedBusWithInMemoryStores(logger, bus.GetType().Name, string.Join(", ", inMemory));
+        }
         if (tasks is not null and not InMemoryTaskStore && services.GetService<ExecutionCoordinator>() is InMemoryExecutionCoordinator)
             ServerLog.LocalCoordinatorWithDurableStore(logger, tasks.GetType().Name);
 

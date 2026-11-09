@@ -58,7 +58,10 @@ internal static class StreamFrameExtensions
 /// </remarks>
 internal static class ResumableStream
 {
-    /// <summary>Waits before reconnect 1..5. After the fifth failed reconnect the error is rethrown.</summary>
+    /// <summary>
+    /// Waits before reconnect 1..5 (a longer server Retry-After wins). After the fifth failed reconnect without progress the
+    /// error is rethrown.
+    /// </summary>
     internal static readonly TimeSpan[] Backoff =
     [
         TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(8),
@@ -157,7 +160,10 @@ internal static class ResumableStream
             if (progressed) failures = 0;
             if (failures >= Backoff.Length) throw failure!;
             ClientTelemetry.RecordRetry(failures + 1);
-            await Task.Delay(Backoff[failures], timeProvider, cancellationToken).ConfigureAwait(false);
+            // A throttled or unavailable server may ask for a longer wait than the backoff: wait for the longer one.
+            var delay = Backoff[failures];
+            if (failure is A2AException { RetryAfter: { } asked } && asked > delay) delay = asked;
+            await Task.Delay(delay, timeProvider, cancellationToken).ConfigureAwait(false);
             failures++;
             reconnecting = true;
         }
@@ -181,7 +187,16 @@ internal static class ResumableStream
         return st.IsTerminal() || (cursor is null && st.IsInterrupted());
     }
 
-    private static bool IsConnectionFailure(Exception ex) => ex is HttpRequestException or IOException;
+    /// <summary>
+    /// A dropped connection, or the server saying it is busy or unavailable (HTTP 429, 502, 503, 504). A Retry-After beyond
+    /// <see cref="Resilience.RetryPolicy.MaxRetryAfter"/> is not waited for: it stays an error, as for unary calls.
+    /// </summary>
+    private static bool IsConnectionFailure(Exception ex) => ex switch
+    {
+        HttpRequestException or IOException => true,
+        A2AException { HttpStatus: 429 or 502 or 503 or 504 } a2a => a2a.RetryAfter is not { } asked || asked <= Resilience.RetryPolicy.MaxRetryAfter,
+        _ => false,
+    };
 
     /// <summary>Splits <c>{taskId}:{sequence}</c>. False for a missing or malformed id, or a sequence below 1.</summary>
     internal static bool TryParseCursor(string? id, out string taskId, out long sequence)

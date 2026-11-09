@@ -38,6 +38,8 @@ Each task change, its event and its push deliveries are written in one transacti
 
 - **Schema.** The schema is kept by numbered migrations. They are applied at startup under an advisory lock, in one transaction. A start on an up-to-date database takes no lock and changes nothing. With `CreateSchemaOnStartup = false` the app refuses to start when the database version differs from the package. The error says which version the database has and what to run. Export `PostgresSchema.ScriptFor("<schema>")` for a new database, and `PostgresSchema.ScriptFor("<schema>", <version in the error>)` for an upgrade. Run it in one transaction, for example `psql -1 -f`. You can also call `PostgresSchema.EnsureSchemaAsync` from your migration step, and `PostgresSchema.VerifySchemaAsync` to check without changing anything. A database newer than the package (after a rollback) is refused when auto-create is off, and logs a warning when it is on.
 - **Claim timeout.** The heartbeat of a running execution renews the idempotency claim. So a live request keeps its key, and the timeout only has to cover a missed heartbeat. A crashed instance frees its keys after this time.
+- **Retries after a crash.** When a request creates a task, the Postgres task store writes the idempotency outcome in the same transaction as the task. A crash cannot leave a task without it, so a retry attaches to the task and does not run the agent again. A direct reply (a message and no task) has no commit to join, so its outcome is best effort: a crash right after the reply can let a retry run the agent again. A crash before the first commit also runs the agent again. Delivery is at-least-once. A follow-up message to an existing task is safe: its message id is in the task history.
+- **Claim ids.** Every claim of a key has an id. An instance whose claim went stale cannot complete, abandon or renew the claim of the instance that took the key over.
 - **Clocks.** Push outbox due times and leases, idempotency timeouts and event log retention use the database clock, so instances with skewed clocks agree on what has expired. Task timestamps still come from the instance that wrote them. Skew shifts when retention and `InterruptedTimeout` act on a task. Keep instance clocks in sync.
 - **Cleanup scope.** The cleanup deletes event logs and idempotency entries. Expired tasks, orphan contexts, timed-out tasks and dead executions are the job of the [retention sweep](retention.md).
 
@@ -88,6 +90,7 @@ Rules:
 | `LeaseTtl` | 30 seconds | How long an execution's lease lasts without a heartbeat. Must be longer than 2 x `Heartbeat`. |
 | `Heartbeat` | 10 seconds | How often a running execution renews its lease and its idempotency claim. |
 | `RunningPollInterval` | 1 second | How often a waiting request checks whether an execution on another instance still runs. |
+| `StreamCheckInterval` | 30 seconds | How often an idle SubscribeToTask stream looks in the store for events a lost bus message dropped. Costs one small set of store reads per idle stream per interval. |
 
 [!code-csharp[](../snippets/DurableStores.cs#Coordination)]
 
@@ -114,6 +117,7 @@ The server logs these once at startup. Nothing throws, so a host that does not u
 | 251 | Error | The push outbox is durable and the push secret protector is the per-process one. |
 | 252 | Warning | The task store is durable and the execution coordinator is the in-memory one. A crash leaves the running tasks unrecovered. |
 | 253 | Warning | The task store is durable and the retention sweep is not registered. |
+| 257 | Warning | The event bus spans instances (Redis, or your own) and the task, event or idempotency store is the in-memory one. Events cross instances, but the other instances cannot read the tasks and events kept in this process. |
 | 250 | Debug | The checks were skipped because the registrations are broken. |
 
 ## Write your own store
@@ -130,6 +134,7 @@ Implement:
 Rules that matter:
 
 - **`CommitAsync` is atomic.** It writes the task record (the stored version must equal `ExpectedVersion`; 0 creates the task), appends the event with the next sequence, and stores the push deliveries, all or nothing. A wrong version throws `ConcurrencyException`. A create on an existing task throws `DuplicateTaskException`. Commits to one task must be serialized, so the log order equals the version order.
+- **Idempotency outcome in the commit.** `TaskCommit.Idempotency` is set for the commit that creates a task when the request has an idempotency key. A store that shares a transaction with its idempotency store writes the outcome in the same transaction, only for the claim that still owns the entry. No matching claim is not an error. Any other store ignores it; the server records the outcome right after the commit, so a crash in between can still let a retry create a second task. `IdempotencyStore.CompleteAsync`, `AbandonAsync` and `RenewAsync` take the claim id from `IdempotencyResult.New` and must do nothing when the entry belongs to another claim.
 - **Keep the event bytes.** The server encodes each event once. `SequencedEvent.Json` holds those bytes. Store them and return them unchanged from `ReadAfterAsync`. They go to the wire without validation, so a store that alters, truncates or re-encodes them corrupts the stream.
 - **Scope by tenant and owner.** Reads are owner-scoped. A task owned by someone else looks missing.
 - **Own your records.** Callers never change what the store returns, and the store does not change what it is given.

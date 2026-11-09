@@ -395,25 +395,35 @@ internal sealed class TaskStreamer
         if (live.Sequence <= position.Last) yield break;
         if (live.Sequence > position.Last + 1)
         {
-            await foreach (var stored in ReadContiguousAsync(key, position.Last, live.Sequence, ct).ConfigureAwait(false))
-            {
-                position.Last = stored.Sequence;
-                position.Final = IsFinal(stored.Event);
-                yield return stored;
-                if (position.Final) yield break;
-            }
-            if (live.Sequence > position.Last + 1)
-            {
-                var snapshot = await ReadSnapshotAsync(key, ct).ConfigureAwait(false);
-                position.Last = snapshot.Sequence;
-                position.Final = IsFinal(snapshot.Event);
-                yield return snapshot;
-                if (position.Final || live.Sequence <= position.Last) yield break;
-            }
+            await foreach (var filled in FillGapAsync(key, live.Sequence, position, ct).ConfigureAwait(false)) yield return filled;
+            if (position.Final || live.Sequence <= position.Last) yield break;
         }
         position.Last = live.Sequence;
         position.Final = IsFinal(live.Event);
         yield return live;
+    }
+
+    /// <summary>
+    /// Yields the stored events after <paramref name="position"/> and before <paramref name="before"/>, in order, and then a
+    /// snapshot when the store no longer has the ones still missing. Updates <paramref name="position"/>; stops after a final event.
+    /// </summary>
+    private async IAsyncEnumerable<SequencedEvent> FillGapAsync(TaskKey key, long before, StreamPosition position,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await foreach (var stored in ReadContiguousAsync(key, position.Last, before, ct).ConfigureAwait(false))
+        {
+            position.Last = stored.Sequence;
+            position.Final = IsFinal(stored.Event);
+            yield return stored;
+            if (position.Final) yield break;
+        }
+        if (before > position.Last + 1)
+        {
+            var snapshot = await ReadSnapshotAsync(key, ct).ConfigureAwait(false);
+            position.Last = snapshot.Sequence;
+            position.Final = IsFinal(snapshot.Event);
+            yield return snapshot;
+        }
     }
 
     /// <summary>
@@ -472,11 +482,71 @@ internal sealed class TaskStreamer
 
         // Live events arrive in sequence order (they are published under the task lock). Drop what was already sent; fill
         // a gap from the store, or with a snapshot when the store no longer has the missing events.
+        // A lost bus message, or an instance that died right after its commit, would leave an idle stream silent until
+        // MaxStreamDuration. So every StreamCheckInterval an idle stream looks at the store (see CheckLiveAsync).
         var position = new StreamPosition(lastYielded);
-        await foreach (var live in sub.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        var interval = _options.Coordination.StreamCheckInterval;
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var sawLive = false; // an event came over the bus since the last check
+        var strandedChecks = 0; // checks in a row that found a task nothing runs
+        Task<bool>? busWait = null; // one pending wait per timer and per reader: the subscription has a single reader
+        Task? tick = null;
+        try
         {
-            await foreach (var e in InOrderAsync(key, live, position, cancellationToken).ConfigureAwait(false)) yield return e;
-            if (position.Final) yield break;
+            while (true)
+            {
+                while (sub.Reader.TryRead(out var live))
+                {
+                    sawLive = true;
+                    await foreach (var e in InOrderAsync(key, live, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                    if (position.Final) yield break;
+                }
+
+                busWait ??= sub.Reader.WaitToReadAsync(stop.Token).AsTask();
+                tick ??= Task.Delay(interval, _engine.Clock, stop.Token);
+                await Task.WhenAny(busWait, tick).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (busWait.IsCompleted)
+                {
+                    if (!await busWait.ConfigureAwait(false)) break; // the bus ended the subscription
+                    busWait = null;
+                    continue;
+                }
+
+                tick = null;
+                if (sawLive)
+                {
+                    // A busy stream does no store reads.
+                    sawLive = false;
+                    strandedChecks = 0;
+                    continue;
+                }
+
+                var check = await CheckLiveAsync(key, cancellationToken).ConfigureAwait(false);
+                var filled = false;
+                if (check.LastSequence > position.Last)
+                {
+                    await foreach (var e in FillGapAsync(key, check.LastSequence + 1, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                    if (position.Final) yield break;
+                    filled = true;
+                }
+                if (check.Gone) yield break;
+                if (check.Terminal) break; // finish from the store, below
+                if (check.Stranded && !filled)
+                {
+                    // Two checks in a row, so a follow-up that is committed but not registered yet is not taken for a crash. A
+                    // clean end, as at MaxStreamDuration: the client resumes with Last-Event-ID.
+                    if (++strandedChecks >= 2) yield break;
+                }
+                else
+                {
+                    strandedChecks = 0;
+                }
+            }
+        }
+        finally
+        {
+            stop.Cancel();
         }
 
         // The bus ended the subscription (the task went terminal) without delivering a final event: a lossy bus can drop
@@ -492,16 +562,55 @@ internal sealed class TaskStreamer
         if (last.Sequence > position.Last) yield return last;
     }
 
+    /// <summary>
+    /// What an idle stream finds in the store: the last event sequence; <c>Gone</c> when the task no longer exists;
+    /// <c>Terminal</c> when it is in a terminal state; <c>Stranded</c> when it is neither terminal nor interrupted and no
+    /// execution of it runs on any instance. An interrupted task (input or auth required) has no execution and is never stranded.
+    /// </summary>
+    private readonly record struct LiveCheck(long LastSequence, bool Gone, bool Terminal, bool Stranded);
+
+    /// <summary>
+    /// Looks at the store for an idle stream: the last sequence, then the task, then, for a task that is neither terminal nor
+    /// interrupted, whether an execution runs. A failing store or coordinator must not end a healthy stream: any failure is
+    /// logged and answered with "nothing to do". A coordinator that fails counts as running (it is not asked through
+    /// <see cref="TaskExecutionEngine.IsRunningAnywhereAsync"/>, which counts a failure as not running).
+    /// </summary>
+    private async Task<LiveCheck> CheckLiveAsync(TaskKey key, CancellationToken ct)
+    {
+        try
+        {
+            var last = await _events.LastSequenceAsync(key, ct).ConfigureAwait(false);
+            var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false);
+            if (record is null) return new LiveCheck(last, Gone: true, Terminal: false, Stranded: false);
+            var state = record.Task.Status.State;
+            if (state.IsTerminal()) return new LiveCheck(last, Gone: false, Terminal: true, Stranded: false);
+            if (state.IsInterrupted()) return new LiveCheck(last, Gone: false, Terminal: false, Stranded: false);
+            // The wait it returns for a running task is not used: end it, so its timer does not linger.
+            using var done = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var running = await _engine.RunningWaitsAsync(key, done.Token).ConfigureAwait(false);
+            done.Cancel();
+            return new LiveCheck(last, Gone: false, Terminal: false, Stranded: running is null);
+        }
+        catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
+        {
+            ServerLog.StreamCheckFailed(_engine.Logger, ex, key.TaskId);
+            return new LiveCheck(0, Gone: false, Terminal: false, Stranded: false);
+        }
+    }
+
     /// <summary>A task with its last and oldest retained event sequences, read together.</summary>
     private readonly record struct StreamStart(AgentTask Task, long Last, long? Oldest);
 
-    /// <summary>Reads the task and its sequences under the task lock, so the snapshot and the sequences belong together.</summary>
+    /// <summary>
+    /// Reads the task and its sequences under the task lock, so the snapshot and the sequences belong together on this
+    /// instance. Another instance can still commit meanwhile: the sequence is read as <see cref="TaskExecutionEngine.ReadTaskAtSequenceAsync"/> does.
+    /// </summary>
     private async Task<StreamStart> ReadStartAsync(TaskKey key, CancellationToken ct)
     {
         using (await _engine.LockAsync(key, ct).ConfigureAwait(false))
         {
-            var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
-            var last = await _events.LastSequenceAsync(key, ct).ConfigureAwait(false);
+            var (record, last) = await _engine.ReadTaskAtSequenceAsync(key, ct).ConfigureAwait(false);
+            if (record is null) throw A2AException.TaskNotFound(key.TaskId);
             var oldest = await _events.OldestRetainedAsync(key, ct).ConfigureAwait(false);
             return new StreamStart(record.Task, last, oldest);
         }

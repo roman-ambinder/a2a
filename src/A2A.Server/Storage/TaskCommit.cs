@@ -16,6 +16,14 @@ namespace A2A.Server.Storage;
 /// <param name="Deliveries">Push deliveries for the event. The store sets their <see cref="PushDelivery.Sequence"/>.</param>
 public sealed record TaskCommit(TaskRecord Record, long ExpectedVersion, SequencedEvent Event, IReadOnlyList<PushDelivery> Deliveries)
 {
+    /// <summary>
+    /// The idempotency outcome this commit makes true (the request created the task), or null. A store that shares a transaction
+    /// with the <see cref="Idempotency.IdempotencyStore"/> writes the outcome in the same transaction, so a crash cannot leave
+    /// the task without it. Any other store ignores it, and the engine records the outcome after the commit. A claim that
+    /// no longer owns the entry is not an error: nothing is written.
+    /// </summary>
+    public Idempotency.IdempotencyCommit? Idempotency { get; init; }
+
     /// <summary>A commit of an event that is not encoded yet: <paramref name="evt"/> is encoded here, once (<see cref="EventEncoder.Encode"/>).</summary>
     /// <param name="record">The task as it must be stored.</param>
     /// <param name="expectedVersion">The stored version this change is based on; 0 creates the task.</param>

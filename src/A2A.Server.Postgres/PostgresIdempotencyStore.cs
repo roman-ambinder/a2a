@@ -23,7 +23,6 @@ namespace A2A.Server.Postgres;
 /// </summary>
 public sealed class PostgresIdempotencyStore : IdempotencyStore
 {
-    private static readonly IdempotencyResult New = new IdempotencyResult.New();
     private static readonly IdempotencyResult Mismatch = new IdempotencyResult.Mismatch();
 
     private readonly NpgsqlDataSource _db;
@@ -55,14 +54,15 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
         ArgumentNullException.ThrowIfNull(requestHash);
         while (true)
         {
+            var claimId = Guid.NewGuid();
             await using (var insert = _db.CreateCommand(
                 $"INSERT INTO {_table} (tenant, principal, key, hash, claim_id, claimed_ticks) VALUES ($1, $2, $3, $4, $5, {DbClock.Now(6)}) ON CONFLICT DO NOTHING"))
             {
                 AddScope(insert, scope);
                 insert.Parameters.Add(new NpgsqlParameter<byte[]> { TypedValue = requestHash, NpgsqlDbType = NpgsqlDbType.Bytea });
-                insert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = Guid.NewGuid() });
+                insert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = claimId });
                 insert.Parameters.Add(_clock.NowParam());
-                if (await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1) return New;
+                if (await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1) return new IdempotencyResult.New(claimId);
             }
 
             var row = await ReadAsync(scope, cancellationToken).ConfigureAwait(false);
@@ -81,33 +81,36 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
     }
 
     /// <inheritdoc />
-    public override async ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken cancellationToken = default)
+    public override async ValueTask CompleteAsync(IdempotencyScope scope, Guid claimId, IdempotencyOutcome outcome, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(outcome);
         await using var cmd = _db.CreateCommand(
-            $"UPDATE {_table} SET outcome = $4, expires_ticks = {DbClock.Now(5)} + $6 WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
+            $"UPDATE {_table} SET outcome = $4, expires_ticks = {DbClock.Now(5)} + $6 WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $7 AND outcome IS NULL");
         AddScope(cmd, scope);
         cmd.Parameters.Add(TextParam(OutcomeJson.Write(outcome)));
         cmd.Parameters.Add(_clock.NowParam());
         cmd.Parameters.Add(Span(_options.Retention));
+        cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = claimId });
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public override async ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken cancellationToken = default)
+    public override async ValueTask AbandonAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken = default)
     {
-        await using var cmd = _db.CreateCommand($"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
+        await using var cmd = _db.CreateCommand($"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $4 AND outcome IS NULL");
         AddScope(cmd, scope);
+        cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = claimId });
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public override async ValueTask RenewAsync(IdempotencyScope scope, CancellationToken cancellationToken = default)
+    public override async ValueTask RenewAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand(
-            $"UPDATE {_table} SET claimed_ticks = {DbClock.Now(4)} WHERE tenant = $1 AND principal = $2 AND key = $3 AND outcome IS NULL");
+            $"UPDATE {_table} SET claimed_ticks = {DbClock.Now(4)} WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $5 AND outcome IS NULL");
         AddScope(cmd, scope);
         cmd.Parameters.Add(_clock.NowParam());
+        cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = claimId });
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
