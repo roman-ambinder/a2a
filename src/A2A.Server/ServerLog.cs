@@ -8,6 +8,7 @@ namespace A2A.Server;
 /// <item><description>200-299: <see cref="Execution.TaskExecutionEngine"/>.</description></item>
 /// <item><description>300-399: <see cref="Push.PushDeliveryService"/>.</description></item>
 /// <item><description>400-499: <see cref="Idempotency.IdempotencyCoordinator"/>.</description></item>
+/// <item><description>1200-1299: security events (<see cref="Telemetry.SecurityEventLog"/>).</description></item>
 /// </list>
 /// The other assemblies use 100-199 (A2A.Client), 500-899 (A2A.Server.AspNetCore) and 900-999 (A2A.Server.Grpc).
 /// </summary>
@@ -199,4 +200,11 @@ internal static partial class ServerLog
 
     [LoggerMessage(EventId = 402, Level = LogLevel.Error, Message = "Failed to abandon the idempotency entry for task {TaskId}")]
     public static partial void IdempotencyAbandonFailedForTask(ILogger logger, Exception exception, string taskId);
+
+    // Security events (SecurityEventLog): 1200-1299. Never carries the principal, a token or a webhook URL.
+    [LoggerMessage(EventId = 1200, Level = LogLevel.Information, Message = "Security event {SecurityEvent} in {Operation}: tenant '{Tenant}', resource {ResourceId}, principal hash {PrincipalHash}")]
+    public static partial void SecurityEventInformation(ILogger logger, string securityEvent, string operation, string tenant, string? resourceId, string principalHash);
+
+    [LoggerMessage(EventId = 1201, Level = LogLevel.Warning, Message = "Security event {SecurityEvent} in {Operation}: tenant '{Tenant}', resource {ResourceId}, principal hash {PrincipalHash}")]
+    public static partial void SecurityEventWarning(ILogger logger, string securityEvent, string operation, string tenant, string? resourceId, string principalHash);
 }

@@ -1,3 +1,5 @@
+using System.Diagnostics.Metrics;
+using System.Net;
 using A2A.Client.Credentials;
 using A2A.Client.Transports;
 
@@ -8,14 +10,33 @@ public static class A2AClientFactory
 {
     private const long MaxResponseBytes = 16 * 1024 * 1024;
 
+    // Spec: metrics live under the "A2A" meter (same as A2ACardResolver).
+    private static readonly Meter Meter = new("A2A");
+    private static readonly Counter<long> EndpointRefusedCounter =
+        Meter.CreateCounter<long>("a2a.client.endpoint.refused", description: "Agent Card endpoints the client's endpoint policy refused.");
+
+    /// <summary>Longest wait for one DNS lookup of the endpoint check.</summary>
+    private static readonly TimeSpan DnsTimeout = TimeSpan.FromSeconds(5);
+
     /// <summary>
     /// Picks the first interface in the card's order whose binding this client supports and whose major version matches,
     /// sets the tenant from that interface, and builds the transport.
     /// </summary>
+    /// <remarks>
+    /// The card's endpoints are first judged by <see cref="A2AClientOptions.EndpointPolicy"/> with no card source and without DNS
+    /// (IP literals and <c>localhost</c> only). Use <see cref="CreateAsync(Uri, HttpClient, A2AClientOptions?, A2ACardResolverOptions?, CancellationToken)"/>
+    /// or <see cref="EnsureEndpointsAllowedAsync"/> for the full check.
+    /// </remarks>
     public static A2AClient Create(AgentCard card, HttpClient httpClient, A2AClientOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         options = Copy(options ?? new A2AClientOptions());
+        EnsureAllowedNoDns(card.SupportedInterfaces, options);
+        return Build(card, httpClient, options);
+    }
+
+    private static A2AClient Build(AgentCard card, HttpClient httpClient, A2AClientOptions options)
+    {
         var selected = SelectInterface(card, options)
             ?? throw NoInterface(card, options);
 
@@ -39,7 +60,9 @@ public static class A2AClientFactory
     {
         var resolver = new A2ACardResolver(httpClient, resolverOptions);
         var card = await resolver.GetAgentCardAsync(agentUrl, cancellationToken).ConfigureAwait(false);
-        return Create(card, httpClient, options);
+        var copy = Copy(options ?? new A2AClientOptions());
+        await EnsureEndpointsAllowedAsync(card, agentUrl, copy, cancellationToken).ConfigureAwait(false);
+        return Build(card, httpClient, copy);
     }
 
     /// <summary>
@@ -76,6 +99,7 @@ public static class A2AClientFactory
         var resolved = await new A2ACardResolver(cardClient, resolverOptions).ResolveAsync(agentUrl, cancellationToken).ConfigureAwait(false);
 
         var copy = Copy(options ?? new A2AClientOptions());
+        await EnsureEndpointsAllowedAsync(resolved.Card, resolved.Source, copy, cancellationToken).ConfigureAwait(false);
         var selected = SelectInterface(resolved.Card, copy) ?? throw NoInterface(resolved.Card, copy);
         var binding = A2ACredentialBinding.Create(resolved, selected, providers, resolverOptions?.RequireHttps ?? true);
         var client = new HttpClient(new A2ACredentialHandler(binding, primary))
@@ -83,8 +107,133 @@ public static class A2AClientFactory
             Timeout = Timeout.InfiniteTimeSpan,
             MaxResponseContentBufferSize = MaxResponseBytes,
         };
-        return Create(resolved.Card, client, options);
+        return Build(resolved.Card, client, copy);
     }
+
+    /// <summary>
+    /// Checks every interface of <paramref name="card"/> that this client could select (its binding is in
+    /// <see cref="A2AClientOptions.SupportedBindings"/> and its major version matches) against
+    /// <see cref="A2AClientOptions.EndpointPolicy"/>, before any client is built. A card chooses the URL the client calls, so a
+    /// card from the internet must not reach internal addresses (SSRF). Throws <see cref="A2AErrorCode.InvalidAgentResponse"/>
+    /// naming only the host of the refused URL, and counts <c>a2a.client.endpoint.refused</c>.
+    /// </summary>
+    /// <remarks>
+    /// With no policy or <see cref="AgentEndpointPolicies.AllowAll"/> it returns at once, without DNS. <c>localhost</c> and
+    /// <c>*.localhost</c> count as loopback and IP literals are parsed, both without DNS. Other hosts are resolved on .NET 8
+    /// and later (5 second limit, plus <paramref name="cancellationToken"/>); a failed lookup is an empty address list, not an error.
+    /// On netstandard2.0 nothing is resolved. This is a pre-flight check: the host can resolve elsewhere when the client connects, so full
+    /// DNS-rebinding protection needs an <see cref="HttpClient"/> built on <c>SafeHttp.CreateHandler</c>.
+    /// </remarks>
+    /// <param name="card">The card to check.</param>
+    /// <param name="cardSource">Where the card came from, or null when the caller supplied it.</param>
+    /// <param name="options">The client options; <see cref="A2AClientOptions.EndpointPolicy"/> is read from them.</param>
+    /// <param name="cancellationToken">Cancels the DNS lookups.</param>
+    public static ValueTask EnsureEndpointsAllowedAsync(AgentCard card, Uri? cardSource, A2AClientOptions options, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(options);
+        return EnsureAllowedAsync(SelectableInterfaces(card, options), cardSource, options, allowDns: true, cancellationToken);
+    }
+
+    /// <summary>Interfaces of <paramref name="card"/> whose binding is supported and whose major version matches.</summary>
+    internal static IEnumerable<AgentInterface> SelectableInterfaces(AgentCard card, A2AClientOptions options)
+    {
+        var major = Major(options.ProtocolVersion);
+        return (card.SupportedInterfaces ?? []).Where(i => options.SupportedBindings.Contains(i.ProtocolBinding) && Major(i.ProtocolVersion) == major);
+    }
+
+    private static void EnsureAllowedNoDns(IEnumerable<AgentInterface>? interfaces, A2AClientOptions options)
+    {
+        if (options.EndpointPolicy is null || ReferenceEquals(options.EndpointPolicy, AgentEndpointPolicies.AllowAll)) return;
+        var major = Major(options.ProtocolVersion);
+        var selectable = (interfaces ?? []).Where(i => options.SupportedBindings.Contains(i.ProtocolBinding) && Major(i.ProtocolVersion) == major);
+        var task = EnsureAllowedAsync(selectable, null, options, allowDns: false, CancellationToken.None);
+        // Without DNS the check completes synchronously.
+        task.AsTask().GetAwaiter().GetResult();
+    }
+
+    /// <summary>Runs the endpoint policy over <paramref name="interfaces"/>. Also used by the v0.3 compat factory, which selects its own interfaces.</summary>
+    internal static async ValueTask EnsureAllowedAsync(IEnumerable<AgentInterface> interfaces, Uri? cardSource, A2AClientOptions options,
+        bool allowDns, CancellationToken cancellationToken)
+    {
+        var policy = options.EndpointPolicy;
+        if (policy is null || ReferenceEquals(policy, AgentEndpointPolicies.AllowAll)) return;
+
+        IReadOnlyList<IPAddress>? cardAddresses = null;
+        foreach (var itf in interfaces)
+        {
+            var endpoint = ParseEndpoint(itf);
+            // A custom binding (a transport factory) may use a URL that has no host, such as a pipe or a custom scheme. The SDK
+            // does not know what it means, so it does not judge it. For the built-in bindings a missing host is a refusal.
+            if ((endpoint is null || endpoint.Host.Length == 0) && !IsBuiltInBinding(itf.ProtocolBinding)) continue;
+            endpoint ??= NoEndpoint;
+            var endpointAddresses = await ResolveAsync(endpoint, allowDns, cancellationToken).ConfigureAwait(false);
+            cardAddresses ??= cardSource is null ? [] : await ResolveAsync(cardSource, allowDns, cancellationToken).ConfigureAwait(false);
+            if (policy(new AgentEndpointCheck(endpoint, itf.ProtocolBinding ?? string.Empty, cardSource, endpointAddresses, cardAddresses))) continue;
+
+            EndpointRefusedCounter.Add(1, new KeyValuePair<string, object?>("binding", itf.ProtocolBinding));
+            // Name the host only: never text from the card.
+            var host = endpoint.IsAbsoluteUri && endpoint.Host.Length > 0 ? $"host '{endpoint.Host}'" : "an endpoint without a host";
+            throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"The client's endpoint policy refused the Agent Card endpoint: {host}.");
+        }
+    }
+
+    private static bool IsBuiltInBinding(string? binding) =>
+        binding is ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson or ProtocolBindings.Grpc;
+
+    private static readonly Uri NoEndpoint = new("urn:a2a:no-endpoint");
+
+    /// <summary>
+    /// The URL the transport would call. A gRPC URL may be a bare <c>host:port</c>, which <see cref="Uri"/> reads as a scheme with
+    /// no host; like <c>GrpcTransport.ParseAddress</c> it is read as <c>https://host:port</c>. Null when no URL can be made of it.
+    /// </summary>
+    private static Uri? ParseEndpoint(AgentInterface itf)
+    {
+        var url = itf.Url?.Trim();
+        if (url is null || url.Length == 0) return null;
+        if (Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps)) return u;
+        if (string.Equals(itf.ProtocolBinding, ProtocolBindings.Grpc, StringComparison.Ordinal))
+            return Uri.TryCreate("https://" + url.TrimStart('/'), UriKind.Absolute, out var g) ? g : null;
+        return u;
+    }
+
+    private static readonly IReadOnlyList<IPAddress> NoAddresses = [];
+
+    private static async ValueTask<IReadOnlyList<IPAddress>> ResolveAsync(Uri uri, bool allowDns, CancellationToken cancellationToken)
+    {
+        if (!uri.IsAbsoluteUri) return NoAddresses;
+        var host = uri.Host.Trim('[', ']');
+        var zone = host.IndexOf('%');
+        if (zone >= 0) host = host.Substring(0, zone);
+        if (host.Length == 0) return NoAddresses;
+        var name = host.TrimEnd('.');
+        if (IPAddress.TryParse(name, out var literal)) return [literal.IsIPv4MappedToIPv6 ? literal.MapToIPv4() : literal];
+        if (string.Equals(name, "localhost", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase))
+            return [IPAddress.Loopback, IPAddress.IPv6Loopback];
+#if NETSTANDARD2_0
+        return NoAddresses;
+#else
+        if (!allowDns) return NoAddresses;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(DnsTimeout);
+        try
+        {
+            // WaitAsync: getaddrinfo is not cancellable on every platform, so the token must bound the wait itself.
+            return await ResolveHost(name, cts.Token).WaitAsync(cts.Token).ConfigureAwait(false);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return NoAddresses; // a timeout or a failed lookup: unresolved
+        }
+#endif
+    }
+
+#if !NETSTANDARD2_0
+    /// <summary>DNS seam: tests replace it.</summary>
+    internal static Func<string, CancellationToken, Task<IPAddress[]>> ResolveHost { get; set; } = DefaultResolveHost;
+
+    internal static Task<IPAddress[]> DefaultResolveHost(string host, CancellationToken cancellationToken) => Dns.GetHostAddressesAsync(host, cancellationToken);
+#endif
 
     private static A2AException NoInterface(AgentCard card, A2AClientOptions options) =>
         new(A2AErrorCode.UnsupportedOperation,
@@ -129,5 +278,6 @@ public static class A2AClientFactory
         OnMessageReceived = o.OnMessageReceived,
         CircuitBreaker = o.CircuitBreaker,
         TransportFactories = new List<IA2ATransportFactory>(o.TransportFactories),
+        EndpointPolicy = o.EndpointPolicy,
     };
 }

@@ -1,3 +1,6 @@
+using A2A.Diagnostics;
+using A2A.Server.Telemetry;
+
 namespace A2A.Server.Pipeline;
 
 /// <summary>
@@ -25,7 +28,10 @@ public sealed class CallValidator(A2AServerOptions options, IAgentCardProvider c
 
         // Backstop for hosts where the startup check could not run (or direct use of the handler): anonymous is opt-in.
         if (!options.AllowAnonymous && !call.IsAuthenticated)
+        {
+            SecurityEventLog.Record(options, A2ATelemetry.SecurityEventNames.Unauthenticated, null, call, null);
             throw new A2AException(A2AErrorCode.Unauthenticated);
+        }
 
         // With a card per tenant, the tenant (also from the request body) is not known yet: the operation checks the extensions
         // against its tenant's card once it resolves it.

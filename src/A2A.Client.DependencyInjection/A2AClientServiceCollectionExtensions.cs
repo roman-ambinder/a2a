@@ -69,6 +69,7 @@ internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFacto
         if (o.CredentialProviders.Count == 0)
         {
             var card = await resolver.GetAgentCardAsync(o.AgentUrl).ConfigureAwait(false);
+            await A2AClientFactory.EnsureEndpointsAllowedAsync(card, o.AgentUrl, o.Client).ConfigureAwait(false);
             return A2AClientFactory.Create(card, http, o.Client);
         }
 
@@ -78,6 +79,7 @@ internal sealed class DefaultA2AClientFactory(IHttpClientFactory httpClientFacto
 
         // The card fetch carries no credentials (R3). Credentials go on a second client built over the same handler chain.
         var resolved = await resolver.ResolveAsync(o.AgentUrl).ConfigureAwait(false);
+        await A2AClientFactory.EnsureEndpointsAllowedAsync(resolved.Card, resolved.Source, o.Client).ConfigureAwait(false);
         var selected = A2AClientFactory.SelectInterface(resolved.Card, o.Client);
         if (selected is null) return A2AClientFactory.Create(resolved.Card, http, o.Client); // throws the usual error
 
