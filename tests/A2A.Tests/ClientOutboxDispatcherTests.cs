@@ -143,9 +143,10 @@ public sealed class ClientOutboxDispatcherTests
 
         var e = await GetAsync();
         Assert.Equal(status, e.Status);
-        Assert.Equal(inDoubt, e.InDoubt);
         Assert.False(string.IsNullOrEmpty(e.LastError), name);
-        if (status == ClientOutboxStatus.Queued) Assert.True(e.DueAt > _time.GetUtcNow());
+        if (status != ClientOutboxStatus.Queued) return; // a Failed entry keeps the doubt that was set when it was leased
+        Assert.Equal(inDoubt, e.InDoubt);
+        Assert.True(e.DueAt > _time.GetUtcNow());
     }
 
     [Fact]
