@@ -6,7 +6,7 @@ using Grpc.Core;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Pb = Lf.A2a.V1;
+using A2aPb = Lf.A2a.V1;
 
 namespace A2A.Grpc.Tests;
 
@@ -22,9 +22,9 @@ public class GrpcSecurityTests
         return m;
     }
 
-    private static Pb.SendMessageRequest Send(string text, string messageId = "m1", string? taskId = null, string? tenant = null)
+    private static A2aPb.SendMessageRequest Send(string text, string messageId = "m1", string? taskId = null, string? tenant = null)
     {
-        var r = new Pb.SendMessageRequest { Message = new Pb.Message { MessageId = messageId, Role = Pb.Role.User, Parts = { new Pb.Part { Text = text } } } };
+        var r = new A2aPb.SendMessageRequest { Message = new A2aPb.Message { MessageId = messageId, Role = A2aPb.Role.User, Parts = { new A2aPb.Part { Text = text } } } };
         if (taskId is not null) r.Message.TaskId = taskId;
         if (tenant is not null) r.Tenant = tenant;
         return r;
@@ -39,17 +39,17 @@ public class GrpcSecurityTests
 
     public static TheoryData<Op> Ops => new(Enum.GetValues<Op>());
 
-    private static async Task InvokeAsync(Pb.A2AService.A2AServiceClient raw, Op op, string taskId, string configId)
+    private static async Task InvokeAsync(A2aPb.A2AService.A2AServiceClient raw, Op op, string taskId, string configId)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         var m = V();
         switch (op)
         {
-            case Op.GetTask: await raw.GetTaskAsync(new Pb.GetTaskRequest { Id = taskId }, m).ResponseAsync; break;
-            case Op.CancelTask: await raw.CancelTaskAsync(new Pb.CancelTaskRequest { Id = taskId }, m).ResponseAsync; break;
+            case Op.GetTask: await raw.GetTaskAsync(new A2aPb.GetTaskRequest { Id = taskId }, m).ResponseAsync; break;
+            case Op.CancelTask: await raw.CancelTaskAsync(new A2aPb.CancelTaskRequest { Id = taskId }, m).ResponseAsync; break;
             case Op.SubscribeToTask:
             {
-                using var call = raw.SubscribeToTask(new Pb.SubscribeToTaskRequest { Id = taskId }, m, cancellationToken: cts.Token);
+                using var call = raw.SubscribeToTask(new A2aPb.SubscribeToTaskRequest { Id = taskId }, m, cancellationToken: cts.Token);
                 await call.ResponseStream.MoveNext(cts.Token);
                 break;
             }
@@ -60,10 +60,10 @@ public class GrpcSecurityTests
                 await call.ResponseStream.MoveNext(cts.Token);
                 break;
             }
-            case Op.GetPush: await raw.GetTaskPushNotificationConfigAsync(new Pb.GetTaskPushNotificationConfigRequest { TaskId = taskId, Id = configId }, m).ResponseAsync; break;
-            case Op.ListPush: await raw.ListTaskPushNotificationConfigsAsync(new Pb.ListTaskPushNotificationConfigsRequest { TaskId = taskId }, m).ResponseAsync; break;
-            case Op.DeletePush: await raw.DeleteTaskPushNotificationConfigAsync(new Pb.DeleteTaskPushNotificationConfigRequest { TaskId = taskId, Id = configId }, m).ResponseAsync; break;
-            case Op.CreatePush: await raw.CreateTaskPushNotificationConfigAsync(new Pb.TaskPushNotificationConfig { TaskId = taskId, Url = "https://hooks.example/x" }, m).ResponseAsync; break;
+            case Op.GetPush: await raw.GetTaskPushNotificationConfigAsync(new A2aPb.GetTaskPushNotificationConfigRequest { TaskId = taskId, Id = configId }, m).ResponseAsync; break;
+            case Op.ListPush: await raw.ListTaskPushNotificationConfigsAsync(new A2aPb.ListTaskPushNotificationConfigsRequest { TaskId = taskId }, m).ResponseAsync; break;
+            case Op.DeletePush: await raw.DeleteTaskPushNotificationConfigAsync(new A2aPb.DeleteTaskPushNotificationConfigRequest { TaskId = taskId, Id = configId }, m).ResponseAsync; break;
+            case Op.CreatePush: await raw.CreateTaskPushNotificationConfigAsync(new A2aPb.TaskPushNotificationConfig { TaskId = taskId, Url = "https://hooks.example/x" }, m).ResponseAsync; break;
         }
     }
 
@@ -97,7 +97,7 @@ public class GrpcSecurityTests
         var acme = host.Client("alice", new A2AClientOptions { Tenant = "acme" });
         var task = Assert.IsType<TaskResponse>(await acme.SendMessageAsync("input")).Task;
         Assert.Equal(task.Id, (await acme.GetTaskAsync(task.Id)).Id);
-        var other = await Assert.ThrowsAsync<RpcException>(() => host.Raw("alice").GetTaskAsync(new Pb.GetTaskRequest { Id = task.Id }, V()).ResponseAsync);
+        var other = await Assert.ThrowsAsync<RpcException>(() => host.Raw("alice").GetTaskAsync(new A2aPb.GetTaskRequest { Id = task.Id }, V()).ResponseAsync);
         Assert.Equal(StatusCode.NotFound, other.StatusCode);
     }
 
@@ -128,7 +128,7 @@ public class GrpcSecurityTests
     {
         await using var host = await GrpcHost.StartAsync();
         var anon = host.Raw(user: null);
-        var unary = await Assert.ThrowsAsync<RpcException>(() => anon.GetTaskAsync(new Pb.GetTaskRequest { Id = "x" }, V()).ResponseAsync);
+        var unary = await Assert.ThrowsAsync<RpcException>(() => anon.GetTaskAsync(new A2aPb.GetTaskRequest { Id = "x" }, V()).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, unary.StatusCode);
 
         using var stream = anon.SendStreamingMessage(Send("task"), V());
@@ -215,9 +215,9 @@ public class GrpcSecurityTests
             o.ReplenishmentPeriod = TimeSpan.FromMinutes(1);
         }));
         var raw = host.Raw();
-        await raw.ListTasksAsync(new Pb.ListTasksRequest(), V()).ResponseAsync;
-        await raw.ListTasksAsync(new Pb.ListTasksRequest(), V()).ResponseAsync;
-        var ex = await Assert.ThrowsAsync<RpcException>(() => raw.ListTasksAsync(new Pb.ListTasksRequest(), V()).ResponseAsync);
+        await raw.ListTasksAsync(new A2aPb.ListTasksRequest(), V()).ResponseAsync;
+        await raw.ListTasksAsync(new A2aPb.ListTasksRequest(), V()).ResponseAsync;
+        var ex = await Assert.ThrowsAsync<RpcException>(() => raw.ListTasksAsync(new A2aPb.ListTasksRequest(), V()).ResponseAsync);
 
         Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
         var info = Info(ex);
@@ -235,7 +235,7 @@ public class GrpcSecurityTests
         Assert.True(a2a.IsRetryable);
 
         // Another caller has its own bucket.
-        await host.Raw("bob").ListTasksAsync(new Pb.ListTasksRequest(), V()).ResponseAsync;
+        await host.Raw("bob").ListTasksAsync(new A2aPb.ListTasksRequest(), V()).ResponseAsync;
     }
 
     // ------------------------------------------------------------------ limits
@@ -245,7 +245,7 @@ public class GrpcSecurityTests
     {
         await using var host = await GrpcHost.StartAsync(o => o.Limits.MaxRequestBodyBytes = 16 * 1024);
         var raw = host.Raw();
-        Assert.Equal(Pb.SendMessageResponse.PayloadOneofCase.Message,
+        Assert.Equal(A2aPb.SendMessageResponse.PayloadOneofCase.Message,
             (await raw.SendMessageAsync(Send("hello"), V()).ResponseAsync).PayloadCase);
 
         var big = Send(new string('x', 32 * 1024), "m-big");
@@ -258,7 +258,7 @@ public class GrpcSecurityTests
     {
         await using var host = await GrpcHost.StartAsync(o => o.Limits.MaxRawPartBytes = 1024);
         var req = Send("task", "m-raw");
-        req.Message.Parts.Add(new Pb.Part { Raw = ByteString.CopyFrom(new byte[2048]) });
+        req.Message.Parts.Add(new A2aPb.Part { Raw = ByteString.CopyFrom(new byte[2048]) });
         var ex = await Assert.ThrowsAsync<RpcException>(() => host.Raw().SendMessageAsync(req, V()).ResponseAsync);
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal(A2AErrors.PayloadTooLargeReason, Info(ex).Reason);
@@ -276,7 +276,7 @@ public class GrpcSecurityTests
             value = new Google.Protobuf.WellKnownTypes.Value { StructValue = s };
         }
         var req = Send("task", "m-deep");
-        req.Message.Parts.Add(new Pb.Part { Data = value });
+        req.Message.Parts.Add(new A2aPb.Part { Data = value });
         var ex = await Assert.ThrowsAsync<RpcException>(() => host.Raw().SendMessageAsync(req, V()).ResponseAsync);
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
         Assert.Equal("INVALID_PARAMS", Info(ex).Reason);
@@ -305,7 +305,7 @@ public class GrpcSecurityTests
         await using var host = await GrpcHost.StartAsync();
         var raw = host.Raw();
         var done = await raw.SendMessageAsync(Send("task", "m-1"), V()).ResponseAsync;
-        Assert.Equal(Pb.TaskState.Completed, done.Task.Status.State);
+        Assert.Equal(A2aPb.TaskState.Completed, done.Task.Status.State);
         var ex = await Assert.ThrowsAsync<RpcException>(() => raw.SendMessageAsync(Send("more", "m-2", done.Task.Id), V()).ResponseAsync);
         Assert.Equal(StatusCode.FailedPrecondition, ex.StatusCode);
         Assert.Equal("UNSUPPORTED_OPERATION", Info(ex).Reason);
@@ -326,7 +326,7 @@ public class GrpcSecurityTests
     {
         await using var host = await GrpcHost.StartAsync(o => o.IncludeExceptionDetails = includeDetails,
             services: s => s.Replace(ServiceDescriptor.Singleton<A2A.Server.Authorization.A2AAuthorizationHandler, ThrowingAuthorization>()));
-        var ex = await Assert.ThrowsAsync<RpcException>(() => host.Raw().GetTaskAsync(new Pb.GetTaskRequest { Id = "x" }, V()).ResponseAsync);
+        var ex = await Assert.ThrowsAsync<RpcException>(() => host.Raw().GetTaskAsync(new A2aPb.GetTaskRequest { Id = "x" }, V()).ResponseAsync);
         Assert.Equal(StatusCode.Internal, ex.StatusCode);
         Assert.Equal("INTERNAL", Info(ex).Reason);
         Assert.Equal(includeDetails, ex.Status.Detail.Contains("secret-detail"));

@@ -8,7 +8,7 @@ using A2A.Json;
 using Google.Protobuf;
 using Grpc.Core;
 using Grpc.Net.Client;
-using Pb = Lf.A2a.V1;
+using A2aPb = Lf.A2a.V1;
 
 namespace A2A.Client.Grpc;
 
@@ -38,7 +38,7 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
 {
     string ITransportBinding.Binding => ProtocolBindings.Grpc;
 
-    private readonly Pb.A2AService.A2AServiceClient _client;
+    private readonly A2aPb.A2AService.A2AServiceClient _client;
     private readonly A2AExtensionService.A2AExtensionServiceClient _extensionClient;
     private readonly A2AClientOptions _options;
     private readonly GrpcChannel? _ownedChannel;
@@ -46,7 +46,7 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
     /// <summary>Uses an existing channel. The caller owns and disposes it.</summary>
     public GrpcTransport(CallInvoker callInvoker, A2AClientOptions? options = null)
     {
-        _client = new Pb.A2AService.A2AServiceClient(callInvoker ?? throw new ArgumentNullException(nameof(callInvoker)));
+        _client = new A2aPb.A2AService.A2AServiceClient(callInvoker ?? throw new ArgumentNullException(nameof(callInvoker)));
         _extensionClient = new A2AExtensionService.A2AExtensionServiceClient(callInvoker);
         _options = options ?? new A2AClientOptions();
     }
@@ -74,7 +74,7 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
     public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         var key = PrepareSend(request, options);
-        var proto = ProtoMapper.ToProto<Pb.SendMessageRequest, SendMessageRequest>(request);
+        var proto = ProtoMapper.ToProto<A2aPb.SendMessageRequest, SendMessageRequest>(request);
         return UnaryAsync(RetryMode.UnsentOnly, options, key, o => _client.SendMessageAsync(proto, o), ProtoMapper.ToModel<SendMessageResponse>, cancellationToken);
     }
 
@@ -83,28 +83,28 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
     {
         RejectConfigureRequest(options);
         var key = PrepareSend(request, options);
-        var proto = ProtoMapper.ToProto<Pb.SendMessageRequest, SendMessageRequest>(request);
+        var proto = ProtoMapper.ToProto<A2aPb.SendMessageRequest, SendMessageRequest>(request);
         return StreamAsync(o => _client.SendStreamingMessage(proto, o), options, key, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var proto = ProtoMapper.ToProto<Pb.GetTaskRequest, GetTaskRequest>(request);
+        var proto = ProtoMapper.ToProto<A2aPb.GetTaskRequest, GetTaskRequest>(request);
         return UnaryAsync(RetryMode.Idempotent, options, null, o => _client.GetTaskAsync(proto, o), ProtoMapper.ToModel<AgentTask>, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var proto = ProtoMapper.ToProto<Pb.ListTasksRequest, ListTasksRequest>(request);
+        var proto = ProtoMapper.ToProto<A2aPb.ListTasksRequest, ListTasksRequest>(request);
         return UnaryAsync(RetryMode.Idempotent, options, null, o => _client.ListTasksAsync(proto, o), ProtoMapper.ToModel<ListTasksResponse>, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var proto = ProtoMapper.ToProto<Pb.CancelTaskRequest, CancelTaskRequest>(request);
+        var proto = ProtoMapper.ToProto<A2aPb.CancelTaskRequest, CancelTaskRequest>(request);
         return UnaryAsync(RetryMode.Idempotent, options, null, o => _client.CancelTaskAsync(proto, o), ProtoMapper.ToModel<AgentTask>, cancellationToken);
     }
 
@@ -112,42 +112,42 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
     public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         RejectConfigureRequest(options);
-        var proto = ProtoMapper.ToProto<Pb.SubscribeToTaskRequest, SubscribeToTaskRequest>(request);
+        var proto = ProtoMapper.ToProto<A2aPb.SubscribeToTaskRequest, SubscribeToTaskRequest>(request);
         return StreamAsync(o => _client.SubscribeToTask(proto, o), options, null, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var proto = ProtoMapper.ToProto<Pb.TaskPushNotificationConfig, TaskPushNotificationConfig>(config);
+        var proto = ProtoMapper.ToProto<A2aPb.TaskPushNotificationConfig, TaskPushNotificationConfig>(config);
         return UnaryAsync(RetryMode.None, options, null, o => _client.CreateTaskPushNotificationConfigAsync(proto, o), ProtoMapper.ToModel<TaskPushNotificationConfig>, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var proto = ProtoMapper.ToProto<Pb.GetTaskPushNotificationConfigRequest, GetTaskPushNotificationConfigRequest>(request);
+        var proto = ProtoMapper.ToProto<A2aPb.GetTaskPushNotificationConfigRequest, GetTaskPushNotificationConfigRequest>(request);
         return UnaryAsync(RetryMode.Idempotent, options, null, o => _client.GetTaskPushNotificationConfigAsync(proto, o), ProtoMapper.ToModel<TaskPushNotificationConfig>, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var proto = ProtoMapper.ToProto<Pb.ListTaskPushNotificationConfigsRequest, ListTaskPushNotificationConfigsRequest>(request);
+        var proto = ProtoMapper.ToProto<A2aPb.ListTaskPushNotificationConfigsRequest, ListTaskPushNotificationConfigsRequest>(request);
         return UnaryAsync(RetryMode.Idempotent, options, null, o => _client.ListTaskPushNotificationConfigsAsync(proto, o), ProtoMapper.ToModel<ListTaskPushNotificationConfigsResponse>, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var proto = ProtoMapper.ToProto<Pb.DeleteTaskPushNotificationConfigRequest, DeleteTaskPushNotificationConfigRequest>(request);
+        var proto = ProtoMapper.ToProto<A2aPb.DeleteTaskPushNotificationConfigRequest, DeleteTaskPushNotificationConfigRequest>(request);
         return UnaryAsync(RetryMode.None, options, null, o => _client.DeleteTaskPushNotificationConfigAsync(proto, o), _ => true, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var proto = ProtoMapper.ToProto<Pb.GetExtendedAgentCardRequest, GetExtendedAgentCardRequest>(request);
+        var proto = ProtoMapper.ToProto<A2aPb.GetExtendedAgentCardRequest, GetExtendedAgentCardRequest>(request);
         return UnaryAsync(RetryMode.Idempotent, options, null, o => _client.GetExtendedAgentCardAsync(proto, o), ProtoMapper.ToModel<AgentCard>, cancellationToken);
     }
 
@@ -294,7 +294,7 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
         return GrpcErrors.FromRpcException(ex);
     }
 
-    private async IAsyncEnumerable<StreamResponse> StreamAsync(Func<CallOptions, AsyncServerStreamingCall<Pb.StreamResponse>> start,
+    private async IAsyncEnumerable<StreamResponse> StreamAsync(Func<CallOptions, AsyncServerStreamingCall<A2aPb.StreamResponse>> start,
         A2ARequestOptions? options, string? idempotencyKey, [EnumeratorCancellation] CancellationToken ct = default)
     {
         using var call = start(CreateCallOptions(options, idempotencyKey, deadline: null, ct));
@@ -306,7 +306,7 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
             catch (RpcException ex) { throw Translate(ex, Timeout.InfiniteTimeSpan, ct); }
             if (!moved) yield break;
             // A2A #2269: an event of a type this SDK does not know (a newer protocol version) is skipped, not fatal.
-            if (stream.Current.PayloadCase == Pb.StreamResponse.PayloadOneofCase.None) continue;
+            if (stream.Current.PayloadCase == A2aPb.StreamResponse.PayloadOneofCase.None) continue;
             yield return ProtoMapper.ToModel<StreamResponse>(stream.Current);
         }
     }

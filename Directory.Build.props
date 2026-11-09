@@ -73,4 +73,14 @@
   <ItemGroup Condition="'$(IsPackable)' == 'true'">
     <None Include="$(MSBuildProjectDirectory)/README.md" Pack="true" PackagePath="/" Condition="Exists('$(MSBuildProjectDirectory)/README.md')" />
   </ItemGroup>
+
+  <!-- Apple Silicon Macs: Grpc.Tools ships only Intel (x64) protoc/grpc_csharp_plugin, which need Rosetta.
+       If Homebrew's native tools exist (brew install protobuf grpc), use them instead.
+       PROTOBUF_PROTOC / GRPC_PROTOC_PLUGIN environment variables still win. -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">
+    <_A2AHomebrewBin Condition="'$(HOMEBREW_PREFIX)' != ''">$(HOMEBREW_PREFIX)/bin</_A2AHomebrewBin>
+    <_A2AHomebrewBin Condition="'$(_A2AHomebrewBin)' == ''">/opt/homebrew/bin</_A2AHomebrewBin>
+    <Protobuf_ProtocFullPath Condition="'$(Protobuf_ProtocFullPath)' == '' And '$(PROTOBUF_PROTOC)' == '' And Exists('$(_A2AHomebrewBin)/protoc')">$(_A2AHomebrewBin)/protoc</Protobuf_ProtocFullPath>
+    <gRPC_PluginFullPath Condition="'$(gRPC_PluginFullPath)' == '' And '$(GRPC_PROTOC_PLUGIN)' == '' And Exists('$(_A2AHomebrewBin)/grpc_csharp_plugin')">$(_A2AHomebrewBin)/grpc_csharp_plugin</gRPC_PluginFullPath>
+  </PropertyGroup>
 </Project>
