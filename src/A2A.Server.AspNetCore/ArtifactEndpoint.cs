@@ -76,7 +76,8 @@ internal sealed class ArtifactEndpoint(A2ARequestHandler handler, IOptions<A2ASe
         }
     }
 
-    private static async Task WriteContentAsync(HttpContext http, ArtifactObjectContent content, ArtifactByteRange? range)
+    /// <summary>Writes an open object as the response (also used by <see cref="UploadEndpoint"/>): <c>Range</c>, attachment disposition, length, byte count.</summary>
+    internal static async Task WriteContentAsync(HttpContext http, ArtifactObjectContent content, ArtifactByteRange? range)
     {
         var response = http.Response;
         response.Headers[HeaderNames.AcceptRanges] = "bytes";
@@ -139,9 +140,9 @@ internal sealed class ArtifactEndpoint(A2ARequestHandler handler, IOptions<A2ASe
         return new ArtifactByteRange(from, range.To is { } last && last - from < long.MaxValue ? last - from + 1 : null);
     }
 
-    private static string RouteString(HttpContext http, string name) => Convert.ToString(http.Request.RouteValues[name], System.Globalization.CultureInfo.InvariantCulture) ?? "";
+    internal static string RouteString(HttpContext http, string name) => Convert.ToString(http.Request.RouteValues[name], System.Globalization.CultureInfo.InvariantCulture) ?? "";
 
-    private static async Task WriteErrorAsync(HttpContext http, ServerCallContext call, A2AException ex)
+    internal static async Task WriteErrorAsync(HttpContext http, ServerCallContext call, A2AException ex)
     {
         await HttpPlumbing.SetAuthChallengeAsync(http, ex, call).ConfigureAwait(false);
         HttpPlumbing.SetRetryAfter(http, ex);

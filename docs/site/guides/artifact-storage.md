@@ -2,7 +2,7 @@
 
 By default a task is one row, and every artifact byte lives inside it. That is fine for text and small files. It is a poor fit for large files: every event rewrites the whole task, and `GetTask` returns all the bytes. An artifact object store keeps large bytes outside the task. The task holds a normal `url` part instead.
 
-This guide covers the size caps, when to use a store, how to turn it on, how a caller downloads a file, and how the bytes are cleaned up.
+This guide covers the size caps, when to use a store, how to turn it on, how a caller downloads a file, how a client sends a large file in, and how the bytes are cleaned up.
 
 ## Size caps come first
 
@@ -163,18 +163,109 @@ The sweep runs only with `AddA2ARetention`. Without it, orphans stay. Keep `Orph
 
 Encryption at rest is the bucket's job. The SDK stores the bytes as given. Turn on server-side encryption and access logging at the storage service, and keep the bucket private. In `Proxy` mode the SDK never gives a client a bucket name. In `Redirect` mode the client sees a presigned URL that names it, for a few minutes.
 
+## Accept large files from clients
+
+The store holds agent output. A file that a client sends stays inline in the message, so it is bound by `MaxRequestBodyBytes` (10 MiB). Inbound uploads lift that. The client uploads the file first, gets a normal `url` part, and puts that part in its message. The A2A wire format does not change.
+
+### Turn it on
+
+[!code-csharp[](../snippets/ArtifactStorage.cs#EnableUploads)]
+
+Uploads are off by default. `MapA2AUploads` throws `InvalidOperationException` when `Uploads.Enabled` is false, when no store is registered, or when an option is out of range. It maps `POST {pattern}/uploads/{tenant}` and `GET {pattern}/uploads/{tenant}/{objectId}`, where `{tenant}` is `_` for the default tenant. Like `MapA2A`, it needs a policy, or the startup authorization check fails the app. It uses the `"a2a"` rate limit policy.
+
+Set the options on `ArtifactStorage.Uploads` (<xref:A2A.Server.ArtifactUploadOptions>):
+
+| Option | Default | Meaning |
+|---|---|---|
+| `Enabled` | false | Turns on the upload routes' checks, the message check, the agent read and the purge. |
+| `MaxUploadBytes` | 1 GiB | Largest file. Must be at most `MaxObjectBytes`. |
+| `MaxStoredBytesPerCaller` | 10 GiB | Stored bytes per tenant and principal. |
+| `MaxUploadsPerCaller` | 100 | Stored files per tenant and principal. Also the most distinct upload links in one message. |
+| `MaxConcurrentUploadsPerCaller` | 2 | Uploads running at once, per caller, per instance. |
+| `UnusedUploadTtl` | 24 hours | A new message can refer to an upload only this long after the write. |
+
+Startup logs a warning (event 682) when uploads are on and the retention sweep is off, because nothing would purge the unused files.
+
+### The flow
+
+1. The client sends `POST {pattern}/uploads/{tenant}` with the raw file as the body. `Content-Type` is the media type. `Content-Disposition: attachment; filename*=UTF-8''report.pdf` is the optional file name.
+2. The server streams the body to the store. It never reads the body into memory, and the body may be larger than `MaxRequestBodyBytes`. It answers 201 with the JSON of a `url` part: `url`, `mediaType`, `filename`, and `sha256` and `sizeBytes` in `metadata`. The `Location` header holds the link.
+3. The client puts the part in a message and sends it. Before the message is stored, the server checks the link and writes a reference to it.
+4. The agent reads the file with `OpenUploadAsync`.
+5. The owner can read the file back with `GET {pattern}/uploads/{tenant}/{objectId}`.
+
+The link is `{base}/uploads/{tenant}/{objectId}`. It holds no secret and no owner. The upload is stored under the caller's own tenant and principal, so nobody else can find it.
+
+### Client helper
+
+[!code-csharp[](../snippets/ArtifactStorage.cs#UploadFile)]
+
+<xref:A2A.Client.A2AFileUploader> is for .NET 8 and later, like the downloader.
+
+- It takes the **handler** that adds your A2A credentials, and refuses one that follows redirects, for the same reason as the downloader.
+- It hashes the bytes while it sends them. It throws `InvalidDataException` when the `sha256` or `sizeBytes` in the answer is missing or differs.
+- It throws `InvalidOperationException` when the returned link is on another origin than the upload URL, so credentials never go elsewhere.
+- It sets no client timeout, because large files take time. Cancel with the token.
+- It reads the stream once. A stream that cannot seek is fine.
+
+### Read the file in the agent
+
+[!code-csharp[](../snippets/ArtifactStorage.cs#ReadUpload)]
+
+<xref:A2A.Server.AgentRequestContext.OpenUploadAsync*> returns null when the part is not the link of one of the caller's own uploads. That covers an ordinary URL, a file of another owner or tenant, and a missing file. It also returns null when uploads are not enabled. It throws `A2AException` with `Unauthenticated` for an anonymous caller. The bytes stream from the store. Dispose the result.
+
+### Security rules
+
+- **Authentication.** Upload, read and agent read always need an authenticated caller, also when `AllowAnonymous` is set. All anonymous callers share one principal, so they could read each other's files. An anonymous caller gets `Unauthenticated` (HTTP 401).
+- **Authorization.** The calls run through the operation pipeline as the extension operations `a2a.files.upload` and `a2a.files.read`. The route's policy decides at the HTTP edge, and the default authorization handler then allows what the route admitted. **A custom `A2AAuthorizationHandler` must allow these two names**, or every upload and owner read is denied. The agent read needs no name of its own: the call was authorized as `SendMessage`.
+- **Owner and tenant.** The storage key is built from the caller's own tenant and principal. Another owner's file is not found: there is no owner field to get wrong. The route tenant must agree with your tenant resolver. Every miss on `GET` is 404.
+- **Confused deputy.** A message must not make the agent read another owner's file. A URL under `{base}/uploads/` must be the exact link of an upload that the caller owns and that is not older than `UnusedUploadTtl`. Otherwise the message is refused with `InvalidParams` and one fixed text, whatever the reason. Other URLs are ordinary URLs and are left alone.
+- **Size.** A `Content-Length` over `MaxUploadBytes` is refused with 413 before the body is read. A chunked body is cut off at the same limit. When `Content-Length` was sent and the body has another length, the file is deleted and the call is refused.
+- **Input.** An unparsable `Content-Type` is `InvalidParams`. The file name loses any path. A name of more than 255 characters (or 1024 when percent-encoded), with a control character, or that is `.` or `..` is refused.
+
+Downloads use the same `attachment`, `nosniff` and `no-store` headers as artifact downloads, and honor a single `Range`.
+
+### Quota
+
+The store is the source of truth, so the quota holds across instances and needs no table.
+
+1. The upload takes a concurrency slot for the caller on this instance. With none free, the answer is 429 with `Retry-After: 1`.
+2. It lists the caller's uploads and sums their count and size. At either limit, the answer is 429 with `Retry-After` set to `OrphanSweepInterval`.
+3. A `Content-Length` larger than the bytes left in the quota is 429 before the body is read. The write is capped at the smaller of `MaxUploadBytes` and the bytes left in the quota. A stream past `MaxUploadBytes` is 413. A stream past the quota is 429.
+4. After the write it lists again. If the total is over a limit, it deletes the new file and answers 429.
+
+**The over-limit race.** Two uploads that run at the same time, on one instance or on two, can both pass step 2. Step 4 sees both files, so both can delete theirs. That fails safe: neither upload is kept, and the caller retries. A refused upload never leaves a file behind. Cleanup deletes do not stop when the caller disconnects.
+
+### Purge
+
+Nothing deletes an upload while a message can still use it. When the server accepts a message, it writes a small reference object for each upload link: `_uploadrefs/{tenant}/{ownerHash}/{objectId}/{taskId}`. The upload itself is `_uploads/{tenant}/{ownerHash}/{objectId}`. The owner hash is the SHA-256 of the principal, so bucket keys hold no user ids. Both key forms have more segments than an artifact key, so the orphan step of the sweep leaves them alone.
+
+With `AddA2ARetention`, the sweep has a step for unused uploads. It runs at most once per `OrphanSweepInterval`, and deletes at most `BatchSize` objects per sweep. A run that fails or stops at `BatchSize` does not count, so a backlog drains.
+
+- It looks at uploads older than `UnusedUploadTtl + OrphanGracePeriod`. The window to attach a new message closes at `UnusedUploadTtl`, so a reference written at the last moment is always seen.
+- A reference younger than `OrphanGracePeriod` keeps the upload, because its message may be committing.
+- A task that exists and still refers to the link keeps the upload. Otherwise the reference is deleted.
+- An upload with no live reference is deleted. References go first, so a crash leaves an upload with no reference, and the next sweep deletes it.
+- A task that cannot be read keeps the upload.
+- References older than `OrphanGracePeriod` whose upload is gone are deleted.
+
+Deleting a task does not touch its uploads. The next sweep finds the task gone, and purges them. Hosts that turn `Enabled` off keep their old uploads until they clear them. The counter `a2a.server.artifact.uploads.purged` counts the uploads the sweep deleted.
+
+Out of scope: an owner delete, resumable or multipart uploads, a virus scan, a media type allow-list, a gRPC upload, and an entry on the agent card (it would change the wire format).
+
 ## Observability
 
 On the `A2A.Server` meter (see [Observability](observability.md#metrics)):
 
 | Counter | Counts |
 |---|---|
-| `a2a.server.artifact.objects.written` | Objects written to the store. |
-| `a2a.server.artifact.bytes.written` | Bytes written to the store. |
+| `a2a.server.artifact.objects.written` | Objects written to the store, inbound uploads included. |
+| `a2a.server.artifact.bytes.written` | Bytes written to the store, inbound uploads included. |
 | `a2a.server.artifact.bytes.served` | Bytes the server streamed to callers. Redirects are not counted. |
 | `a2a.server.artifact.orphans.deleted` | Orphan objects the sweep deleted. |
+| `a2a.server.artifact.uploads.purged` | Unused inbound uploads the sweep deleted. |
 
-Each upload has a span, `a2a.artifact.upload`.
+Each write to the store has a span, `a2a.artifact.upload`.
 
 ## What can go wrong
 

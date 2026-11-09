@@ -51,6 +51,9 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
 
     /// <summary>The current time of the engine's clock, UTC. The request handler stamps accepted messages with it.</summary>
     internal DateTimeOffset UtcNow => _time.GetUtcNow();
+
+    /// <summary>The engine's clock, shared with the services that must agree with it on the age of things (inbound uploads).</summary>
+    internal TimeProvider Clock => _time;
     private readonly ExecutionCoordinator _coordinator;
     private readonly ExecutionAdmission _admission;
     private readonly CancellationTokenSource _shutdown = new();

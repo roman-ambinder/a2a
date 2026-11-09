@@ -80,7 +80,8 @@ internal sealed class ArtifactOffload(ArtifactObjectStore store, ArtifactStorage
         return await UploadAsync(stream, raw.MediaType, raw.Filename, raw.Metadata, cancellationToken).ConfigureAwait(false);
     }
 
-    private static JsonElement Literal(string json)
+    /// <summary>Parses a JSON literal into a standalone element (the caller owns nothing to dispose).</summary>
+    internal static JsonElement Literal(string json)
     {
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.Clone();

@@ -326,7 +326,7 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
                 var created = o.ETag is not null && o.ETag.Contains('-', StringComparison.Ordinal)
                     ? await CompletionTimeAsync(o.Key, o.LastModified, cancellationToken).ConfigureAwait(false)
                     : AsOffset(o.LastModified);
-                yield return new ArtifactObjectEntry(FromS3Key(o.Key), created);
+                yield return new ArtifactObjectEntry(FromS3Key(o.Key), created) { SizeBytes = o.Size };
             }
             request.ContinuationToken = page.NextContinuationToken;
         }

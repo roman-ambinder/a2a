@@ -220,7 +220,7 @@ public sealed class AzureBlobArtifactObjectStore : ArtifactObjectStore
         {
             var modified = item.Properties.LastModified
                 ?? throw new InvalidOperationException($"The blob listing gave no Last-Modified date for '{item.Name}'.");
-            yield return new ArtifactObjectEntry(FromBlobName(item.Name), modified);
+            yield return new ArtifactObjectEntry(FromBlobName(item.Name), modified) { SizeBytes = item.Properties.ContentLength };
         }
     }
 
