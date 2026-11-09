@@ -19,6 +19,7 @@
     <Project Path="samples/ChatAgent/ChatAgent.csproj" />
     <Project Path="samples/ElicitationAgent/ElicitationAgent.csproj" />
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
+    <Project Path="samples/TypedSkillAgent/TypedSkillAgent.csproj" />
     <Project Path="samples/EchoClient/EchoClient.csproj" />
     <Project Path="samples/MultiInstance/Agent/MultiInstanceAgent.csproj" />
     <Project Path="samples/MultiInstance/Client/MultiInstanceClient.csproj" />
