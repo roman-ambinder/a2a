@@ -353,6 +353,7 @@ public static class A2AGrpcClientFactory
             TimeProvider = src.TimeProvider,
             OnMessageReceived = src.OnMessageReceived,
             EndpointPolicy = src.EndpointPolicy,
+            CircuitBreaker = src.CircuitBreaker,
             SupportedBindings = new List<string>(),
         }.UseGrpc(channelOptions);
     }

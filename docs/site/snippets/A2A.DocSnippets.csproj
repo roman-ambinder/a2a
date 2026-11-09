@@ -25,5 +25,6 @@
     <ProjectReference Include="..\..\..\src\A2A.Extensions.AI\A2A.Extensions.AI.csproj" />
     <ProjectReference Include="..\..\..\src\A2A.Server.V0_3Compat\A2A.Server.V0_3Compat.csproj" />
     <ProjectReference Include="..\..\..\src\A2A.Client.V0_3Compat\A2A.Client.V0_3Compat.csproj" />
+    <ProjectReference Include="..\..\..\src\A2A.TestKit\A2A.TestKit.csproj" />
   </ItemGroup>
 </Project>

@@ -27,6 +27,7 @@ internal static class V03ClientSupport
             MaxRetries = source.MaxRetries,
             TimeProvider = source.TimeProvider,
             OnMessageReceived = source.OnMessageReceived,
+            CircuitBreaker = source.CircuitBreaker,
             TransportFactories = new List<IA2ATransportFactory>(source.TransportFactories),
             EndpointPolicy = source.EndpointPolicy,
         };

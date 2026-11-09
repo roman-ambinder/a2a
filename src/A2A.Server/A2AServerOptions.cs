@@ -1,3 +1,4 @@
+using A2A.Server.Authorization;
 using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
@@ -50,6 +51,9 @@ public sealed class A2AServerOptions
 
     /// <summary>Webhook delivery and URL policy for push notifications.</summary>
     public PushNotificationOptions PushNotifications { get; } = new();
+
+    /// <summary>Per-skill authorization: when the server checks the skill a message names, and whether the extended card is filtered.</summary>
+    public SkillAuthorizationOptions SkillAuthorization { get; } = new();
 
     /// <summary>Retry, lease and polling settings of the push outbox (<see cref="PushDeliveryService"/>).</summary>
     public PushDeliveryOptions PushDelivery { get; } = new();

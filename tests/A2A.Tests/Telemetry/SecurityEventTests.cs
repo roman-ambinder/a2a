@@ -252,6 +252,26 @@ public sealed class SecurityEventTests
     }
 
     [Fact]
+    public async Task A_refused_skill_is_counted_once()
+    {
+        var log = new CaptureProvider();
+        using var events = new Events();
+        await using var host = await TestAgentHost.StartAsync(
+            o => o.SkillAuthorization.Mode = A2A.Server.Authorization.SkillAuthorizationMode.WhenNamed, services: Logging(log));
+        var message = new Message
+        {
+            MessageId = Guid.NewGuid().ToString("N"), Role = Role.User, Parts = [Part.FromText("hello")],
+            Metadata = new() { [A2A.Skills.SkillSelection.MetadataKey] = System.Text.Json.JsonDocument.Parse("\"no-such-skill\"").RootElement.Clone() },
+        };
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => host.Client(ProtocolBindings.JsonRpc).SendMessageAsync(message));
+
+        Assert.Equal(A2AErrorCode.PermissionDenied, ex.Code);
+        Assert.Equal(1, events.Count(A2ATelemetry.SecurityEventNames.PermissionDenied));
+        Assert.Equal(LogLevel.Warning, Assert.Single(SecurityLines(log)).Level);
+    }
+
+    [Fact]
     public void Caller_supplied_ids_are_single_line_and_capped_in_the_log()
     {
         var log = new CaptureProvider();
