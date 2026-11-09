@@ -8,11 +8,11 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 
 ### Packages
 
-- 15 packages on NuGet, all with the ID prefix `RomanAmbinder.`, so they never clash with the official `A2A` packages.
+- 16 packages on NuGet, all with the ID prefix `RomanAmbinder.`, so they never clash with the official `A2A` packages.
   Assemblies and namespaces are `A2A.*`.
 - Client: `A2A.Protocol`, `A2A.Security.Http`, `A2A.Client`, `A2A.Client.DependencyInjection`, `A2A.Client.Grpc`,
   `A2A.Client.V0_3Compat`.
-- Server: `A2A.Server`, `A2A.Server.AspNetCore`, `A2A.Server.Grpc`, `A2A.Server.Postgres`, `A2A.Server.Redis`,
+- Server: `A2A.Server`, `A2A.Server.AspNetCore`, `A2A.Server.Grpc`, `A2A.Server.Postgres`, `A2A.Server.Redis`, `A2A.Server.TypedSkills`,
   `A2A.Server.V0_3Compat`.
 - Shared: `A2A.Grpc` (gRPC types) and `A2A.V0_3Compat` (v0.3 codecs).
 - Microsoft.Extensions.AI: `A2A.Extensions.AI`.
@@ -65,6 +65,15 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 
 - A client names the skill it wants with `A2AClient.SelectSkill`. The agent reads `AgentRequestContext.RequestedSkillId`. It is
   an optional extension, and a hint, not authorization. A card can opt in to refusing unknown skills. Experimental. (#30, #35)
+
+### Typed skills
+
+- `A2A.Server.TypedSkills` (`AddTypedSkills`): declare a skill with .NET input and output types from a source-generated JSON
+  context. The SDK puts JSON Schema on the card, refuses bad input with `InvalidParams` (a `google.rpc.BadRequest` detail)
+  before the agent runs and before anything is stored, and sends the result as one data artifact. A plain executor can run
+  next to it as the fallback. AOT safe. Experimental.
+- `A2AClient.CallSkillAsync` calls a typed skill with .NET types. `TypedSkillCallException` reports a task that did not
+  complete. `TypedSkillExtension.TryGetSchemas` reads the schemas from a card. Experimental.
 
 ### Microsoft.Extensions.AI
 

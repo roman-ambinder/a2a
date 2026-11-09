@@ -15,6 +15,7 @@ Optional packages:
 dotnet add package RomanAmbinder.A2A.Server.Grpc
 dotnet add package RomanAmbinder.A2A.Server.Postgres
 dotnet add package RomanAmbinder.A2A.Server.Redis
+dotnet add package RomanAmbinder.A2A.Server.TypedSkills
 dotnet add package RomanAmbinder.A2A.Client.DependencyInjection
 dotnet add package RomanAmbinder.A2A.Client.Grpc
 dotnet add package RomanAmbinder.A2A.Security.Http
@@ -34,6 +35,7 @@ dotnet add package RomanAmbinder.A2A.Client.V0_3Compat
 - [Agent card signing](guides/agent-card-signing.md)
 - [Peer identity and registry](guides/peer-identity.md)
 - [Skill selection](guides/skill-selection.md)
+- [Typed skills](guides/typed-skills.md)
 - [Microsoft.Extensions.AI](guides/extensions-ai.md)
 - [v0.3 compatibility](guides/v03-compatibility.md)
 - [Multi-tenancy](guides/multi-tenancy.md)
