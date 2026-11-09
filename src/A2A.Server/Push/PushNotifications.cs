@@ -175,10 +175,14 @@ internal sealed class PushWebhookSender(HttpMessageInvoker http, PushNotificatio
                 return new PushSendResult(PushSendOutcome.Permanent, "URL not allowed: " + ex.Message, "UrlNotAllowed");
             }
 
+            // A2A 1.1 (§4.3.1 protocolVersion): a 1.1 config gets the event with its generation, which equals the delivery's
+            // sequence (the stored bytes are the 1.0 shape). Done before the signature, which covers the bytes sent.
+            var v11 = A2AProtocol.IsVersion11OrLater(config.ProtocolVersion);
+            if (v11 && delivery.Sequence > 0) body = Streaming.EventEncoder.WithGeneration(body.ToArray(), delivery.Sequence);
             using var request = new HttpRequestMessage(HttpMethod.Post, config.Url) { Content = new ReadOnlyMemoryContent(body) };
             request.Content.Headers.ContentType = new MediaTypeHeaderValue(A2AProtocol.MediaType);
-            // The body is an A2A v1.0 StreamResponse; say so, as on every other A2A request (a2a-js #647).
-            request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, A2AProtocol.Version);
+            // The body is an A2A StreamResponse of the config's version; say so, as on every other A2A request (a2a-js #647).
+            request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, v11 ? A2AProtocol.Version11 : A2AProtocol.Version);
             // The webhook-signature scheme carries the signing secret, never an Authorization header: the bearer token (if any) applies.
             var signing = config.Authentication is { } a && string.Equals(a.Scheme, WebhookSignature.Scheme, StringComparison.OrdinalIgnoreCase) ? config.Authentication : null;
             if (signing is not null)

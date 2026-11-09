@@ -21,6 +21,14 @@ public sealed class A2AServerOptions
         Capabilities = new(), DefaultInputModes = [], DefaultOutputModes = [], Skills = [],
     };
 
+    /// <summary>
+    /// A2A 1.1 long-poll (GetTask with <c>currentGeneration</c>, §3.2.7): the longest a GetTask waits for the task to change
+    /// before it answers with the task as it is. Default 30 seconds; values above 5 minutes count as 5 minutes, and zero or
+    /// less turns the wait off (GetTask then always answers at once, which the spec allows). A waiting call holds a stream slot,
+    /// so the per-caller and per-task stream limits apply to it.
+    /// </summary>
+    public TimeSpan LongPollTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
     /// <summary>Accepted protocol versions (Major.Minor). Default {"1.0"}.</summary>
     public ISet<string> SupportedVersions { get; } = new HashSet<string>(StringComparer.Ordinal) { A2AProtocol.Version };
 

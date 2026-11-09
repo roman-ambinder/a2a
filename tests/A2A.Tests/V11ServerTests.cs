@@ -277,6 +277,146 @@ public sealed class V11ServerTests
         Assert.Equal([3L, 4L], timeline.Select(Gen));
     }
 
+    private static async Task<JsonElement> RpcErrorAsync(TestAgentHost host, string method, object @params, string version)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/a2a")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new { jsonrpc = "2.0", id = 1, method, @params }), Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add(A2AProtocol.Headers.Version, version);
+        using var response = await host.Http("alice").SendAsync(request);
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("error").Clone();
+    }
+
+    private static object SendIfMatch(string text, string taskId, long generation) => new
+    {
+        message = new { messageId = Guid.NewGuid().ToString(), role = "ROLE_USER", parts = new[] { new { text } }, taskId },
+        configuration = new { ifGenerationMatch = generation.ToString(System.Globalization.CultureInfo.InvariantCulture) },
+    };
+
+    [Fact]
+    public async Task If_generation_match_refuses_a_stale_follow_up_and_takes_a_current_one()
+    {
+        await using var host = await StartAsync();
+        var id = await CreateAsync(host, "input");
+        await host.WaitIdleAsync(); // generation 2
+
+        var error = await RpcErrorAsync(host, "SendMessage", SendIfMatch("more", id, 1), "1.1");
+        Assert.Equal((int)A2AErrorCode.TaskGenerationMismatch, error.GetProperty("code").GetInt32());
+        var info = error.GetProperty("data").EnumerateArray().First(d => d.GetProperty("@type").GetString()!.EndsWith("ErrorInfo", StringComparison.Ordinal));
+        Assert.Equal("TASK_GENERATION_MISMATCH", info.GetProperty("reason").GetString());
+        Assert.Equal("1", info.GetProperty("metadata").GetProperty("expectedGeneration").GetString());
+        Assert.Equal("2", info.GetProperty("metadata").GetProperty("currentGeneration").GetString());
+        Assert.Equal(2, Gen(await GetTaskAsync(host, id, "1.1"))); // nothing was stored
+
+        var reply = await RpcAsync(host, "SendMessage", SendIfMatch("more", id, 2), "1.1");
+        Assert.Equal("TASK_STATE_COMPLETED", reply.GetProperty("task").GetProperty("status").GetProperty("state").GetString());
+    }
+
+    [Fact]
+    public async Task If_generation_match_is_409_on_rest_and_ignored_for_1_0()
+    {
+        await using var host = await StartAsync();
+        var id = await CreateAsync(host, "input");
+        await host.WaitIdleAsync();
+        using var rest = new HttpRequestMessage(HttpMethod.Post, "/a2a/message:send")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(SendIfMatch("more", id, 7)), Encoding.UTF8, "application/json"),
+        };
+        rest.Headers.Add(A2AProtocol.Headers.Version, "1.1");
+        using var response = await host.Http("alice").SendAsync(rest);
+        Assert.Equal(System.Net.HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("ABORTED", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        // 1.0 has no such field: the same request from a 1.0 caller is accepted.
+        var reply = await RpcAsync(host, "SendMessage", SendIfMatch("more", id, 7), "1.0");
+        Assert.Equal("TASK_STATE_COMPLETED", reply.GetProperty("task").GetProperty("status").GetProperty("state").GetString());
+    }
+
+    [Fact]
+    public async Task Long_poll_waits_for_the_next_change()
+    {
+        await using var host = await StartAsync();
+        var id = await CreateAsync(host, "input");
+        await host.WaitIdleAsync(); // generation 2
+
+        var poll = GetTaskAsync(host, id, "1.1", new { id, currentGeneration = "2" });
+        await Task.Delay(200);
+        Assert.False(poll.IsCompleted);
+        await RpcAsync(host, "SendMessage", Send("more", id), "1.1");
+        var task = await poll.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(Gen(task) > 2);
+
+        // Already past: at once.
+        var now = await GetTaskAsync(host, id, "1.1", new { id, currentGeneration = "1" }).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(4, Gen(now));
+    }
+
+    [Fact]
+    public async Task Long_poll_answers_with_the_task_as_it_is_after_the_time_limit()
+    {
+        await using var host = await StartAsync(o => o.LongPollTimeout = TimeSpan.FromMilliseconds(300));
+        var id = await CreateAsync(host, "input");
+        await host.WaitIdleAsync();
+        var started = DateTime.UtcNow;
+        var task = await GetTaskAsync(host, id, "1.1", new { id, currentGeneration = "2" }).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(2, Gen(task));
+        Assert.True(DateTime.UtcNow - started >= TimeSpan.FromMilliseconds(250));
+
+        using var rest = new HttpRequestMessage(HttpMethod.Get, $"/a2a/tasks/{id}?currentGeneration=2");
+        rest.Headers.Add(A2AProtocol.Headers.Version, "1.1");
+        using var response = await host.Http("alice").SendAsync(rest);
+        Assert.Contains("\"generation\":\"2\"", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Subscribe_resumes_after_the_last_seen_generation_without_a_snapshot()
+    {
+        await using var host = await StartAsync();
+        var id = await CreateAsync(host, "task");
+        await host.WaitIdleAsync(); // generation 5, completed
+
+        using var stream = await OpenStreamAsync(host, "SubscribeToTask", new { id, lastSeenGeneration = "3" }, "1.1");
+        var frames = new List<JsonElement>();
+        await foreach (var f in FramesAsync(stream)) frames.Add(f);
+        Assert.Equal(2, frames.Count);
+        Assert.True(frames[0].TryGetProperty("artifactUpdate", out var chunk));
+        Assert.Equal(4, Gen(chunk));
+        Assert.Equal(5, Gen(frames[1].GetProperty("statusUpdate")));
+    }
+
+    [Fact]
+    public async Task Push_configs_keep_their_version_and_get_its_events()
+    {
+        await using var host = await StartAsync(o => o.PushNotifications.CatchUpOnRegistration = false);
+        var id = await CreateAsync(host, "input");
+        await host.WaitIdleAsync();
+
+        var v11 = await RpcAsync(host, "CreateTaskPushNotificationConfig", new { taskId = id, url = "http://hooks.test/v11" }, "1.1");
+        Assert.Equal("1.1", v11.GetProperty("protocolVersion").GetString());
+        var v10 = await RpcAsync(host, "CreateTaskPushNotificationConfig", new { taskId = id, url = "http://hooks.test/v10" }, "1.0");
+        Assert.False(v10.TryGetProperty("protocolVersion", out _));
+        var error = await RpcErrorAsync(host, "CreateTaskPushNotificationConfig", new { taskId = id, url = "http://hooks.test/x", protocolVersion = "2.0" }, "1.1");
+        Assert.Equal((int)A2AErrorCode.InvalidParams, error.GetProperty("code").GetInt32());
+
+        await RpcAsync(host, "SendMessage", Send("more", id), "1.1");
+        await host.WaitIdleAsync();
+
+        var calls = host.Webhooks.Calls.ToList();
+        var to11 = calls.Where(c => c.Request.RequestUri!.AbsolutePath == "/v11").ToList();
+        var to10 = calls.Where(c => c.Request.RequestUri!.AbsolutePath == "/v10").ToList();
+        Assert.Equal(2, to11.Count); // the message update and COMPLETED
+        Assert.All(to11, c => Assert.Equal("1.1", c.Request.Headers.GetValues(A2AProtocol.Headers.Version).Single()));
+        var update = JsonDocument.Parse(to11.Single(c => c.Body.Contains("messageUpdate", StringComparison.Ordinal)).Body).RootElement.GetProperty("messageUpdate");
+        Assert.Equal(3, Gen(update));
+        Assert.Equal(4, Gen(JsonDocument.Parse(to11.Single(c => c.Body.Contains("statusUpdate", StringComparison.Ordinal)).Body).RootElement.GetProperty("statusUpdate")));
+
+        var only = Assert.Single(to10); // COMPLETED only, in the 1.0 shape
+        Assert.Equal("1.0", only.Request.Headers.GetValues(A2AProtocol.Headers.Version).Single());
+        Assert.DoesNotContain("generation", only.Body, StringComparison.Ordinal);
+        Assert.Contains("statusUpdate", only.Body, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Negative_timeline_length_is_invalid()
     {

@@ -1125,6 +1125,22 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         return deliveries;
     }
 
+    /// <summary>Wakes the push delivery service after a commit made outside the engine queued deliveries.</summary>
+    internal void NotifyPushPending() => _outbox.NotifyPending();
+
+    /// <summary>
+    /// A2A 1.1: the push deliveries of a follow-up's message update. Only configs of protocol version 1.1 get it (a 1.0
+    /// webhook learns about the message from the task); none when the tenant's card has no push notifications. The caller
+    /// holds the task lock; a config saved earlier in the same request is included.
+    /// </summary>
+    internal async ValueTask<IReadOnlyList<PushDelivery>> MessageDeliveriesAsync(TaskKey key, CancellationToken ct)
+    {
+        var configs = await _pushConfigs.Store.ListAsync(key, ct).ConfigureAwait(false);
+        if (!configs.Any(c => A2AProtocol.IsVersion11OrLater(c.Config.ProtocolVersion))) return [];
+        if (!await PushEnabledForTenantAsync(key, ct).ConfigureAwait(false)) return [];
+        return configs.Where(c => A2AProtocol.IsVersion11OrLater(c.Config.ProtocolVersion)).Select(c => NewDelivery(key, c.Config.Id!)).ToList();
+    }
+
     /// <summary>
     /// A new delivery (the store sets its sequence) with a fresh delivery id, the same on every attempt, and the trace context
     /// of the current agent run, so its delivery span joins that trace.
