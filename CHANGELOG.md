@@ -80,6 +80,12 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
   boundary. (#22)
 - Token exchange (`ITokenExchanger`, `OAuthTokenExchanger`, RFC 8693 style). Agent code never gets the caller's token. (#22)
 
+- Audit trail: an `A2AAuditSink` receives one event for each task start, follow-up, approval, answered form, cancel, artifact download,
+  push config change, access denial and admin delete, redrive or dead-letter listing, on every binding. Events hold ids and
+  reasons, never content. The default sink logs; `AddPostgresAuditSink` stores them in `a2a_audit_log`. Fail open by default;
+  `Audit.FailClosed` writes an `Attempted` row first and refuses the request when that write fails. The admin classes have
+  overloads that take an `actor`. See the audit guide.
+
 ### Skill selection
 
 - A client names the skill it wants with `A2AClient.SelectSkill`. The agent reads `AgentRequestContext.RequestedSkillId`. It is

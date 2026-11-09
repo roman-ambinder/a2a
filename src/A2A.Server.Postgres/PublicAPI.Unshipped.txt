@@ -30,3 +30,10 @@ override A2A.Server.Postgres.PostgresTaskStore.ReadContextMessagesAsync(A2A.Serv
 static A2A.Server.Postgres.PostgresSchema.Version.get -> int
 static A2A.Server.Postgres.PostgresSchema.ScriptFor(string! schema, int fromVersion) -> string!
 static A2A.Server.Postgres.PostgresSchema.VerifySchemaAsync(Npgsql.NpgsqlDataSource! dataSource, string! schema = "public", System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+A2A.Server.Postgres.PostgresAuditSink
+A2A.Server.Postgres.PostgresAuditSink.PostgresAuditSink(Npgsql.NpgsqlDataSource! dataSource, A2A.Server.Postgres.PostgresStoreOptions? options = null) -> void
+override A2A.Server.Postgres.PostgresAuditSink.WriteAsync(A2A.Server.Audit.A2AAuditEvent! auditEvent, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+static A2A.Server.Postgres.A2APostgresServiceCollectionExtensions.AddA2APostgresAuditSink(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, string! connectionString, System.Action<A2A.Server.Postgres.PostgresStoreOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static A2A.Server.Postgres.A2APostgresServiceCollectionExtensions.AddA2APostgresAuditSink(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Npgsql.NpgsqlDataSource! dataSource, System.Action<A2A.Server.Postgres.PostgresStoreOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static A2A.Server.Postgres.A2APostgresServiceCollectionExtensions.AddPostgresAuditSink(this A2A.Server.A2AServerBuilder! builder, string! connectionString, System.Action<A2A.Server.Postgres.PostgresStoreOptions!>? configure = null) -> A2A.Server.A2AServerBuilder!
+static A2A.Server.Postgres.A2APostgresServiceCollectionExtensions.AddPostgresAuditSink(this A2A.Server.A2AServerBuilder! builder, Npgsql.NpgsqlDataSource! dataSource, System.Action<A2A.Server.Postgres.PostgresStoreOptions!>? configure = null) -> A2A.Server.A2AServerBuilder!

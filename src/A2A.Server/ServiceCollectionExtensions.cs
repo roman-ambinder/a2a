@@ -16,7 +16,7 @@ public static class A2AServerServiceCollectionExtensions
     /// Registers the A2A server core and returns a builder to add the agent, its card and extra services.
     /// Defaults: in-memory stores (tasks, events, push outbox, push configs, idempotency), a hosted <see cref="PushDeliveryService"/>
     /// that sends push notifications through an HTTP client with the SSRF guard, the <see cref="A2APushAdmin"/> dead-letter API,
-    /// the <see cref="Retention.A2ATaskAdmin"/> task delete API, an allow-all authorization handler, a process-local <see cref="Coordination.ExecutionCoordinator"/>,
+    /// the <see cref="Retention.A2ATaskAdmin"/> task delete API, the audit trail (<see cref="Audit.A2AAuditSink"/>, logging by default), an allow-all authorization handler, a process-local <see cref="Coordination.ExecutionCoordinator"/>,
     /// and a single agent for every tenant (the configured card and executor; see <see cref="A2AServerBuilder.AddTenantCardProvider{T}"/>
     /// and <see cref="A2AServerBuilder.AddAgentExecutorResolver{T}"/> for one agent per tenant). Register your
     /// own <see cref="Storage.TaskStore"/> (with the <see cref="Storage.EventStore"/> and <see cref="PushOutbox"/> it commits
@@ -56,6 +56,8 @@ public static class A2AServerServiceCollectionExtensions
             sp.GetRequiredKeyedService<HttpMessageInvoker>(PushDeliveryService.InvokerServiceKey), sp.GetRequiredService<A2AServerOptions>(),
             sp.GetService<Microsoft.Extensions.Logging.ILogger<PushDeliveryService>>(), sp.GetService<TimeProvider>()));
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PushDeliveryService>(sp => sp.GetRequiredService<PushDeliveryService>()));
+        services.TryAddSingleton<Audit.A2AAuditSink, Audit.LoggerAuditSink>();
+        services.TryAddSingleton<Audit.A2AAuditor>();
         services.TryAddSingleton<A2APushAdmin>();
         services.TryAddSingleton<Retention.A2ATaskAdmin>();
         services.TryAddSingleton<Pipeline.CallValidator>();
@@ -194,6 +196,24 @@ public sealed class A2AServerBuilder
     public A2AServerBuilder AddAuthorizationHandler<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() where T : A2AAuthorizationHandler
     {
         Services.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler, T>());
+        return this;
+    }
+
+    /// <summary>
+    /// Uses <typeparamref name="T"/> as the audit sink (see <see cref="Audit.A2AAuditSink"/>). Singleton. Replaces an earlier sink,
+    /// including the default <see cref="Audit.LoggerAuditSink"/>.
+    /// </summary>
+    public A2AServerBuilder AddAuditSink<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() where T : Audit.A2AAuditSink
+    {
+        Services.Replace(ServiceDescriptor.Singleton<Audit.A2AAuditSink, T>());
+        return this;
+    }
+
+    /// <summary>Uses <paramref name="sink"/> as the audit sink. Replaces an earlier sink. See <see cref="AddAuditSink{T}"/>.</summary>
+    public A2AServerBuilder AddAuditSink(Audit.A2AAuditSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        Services.Replace(ServiceDescriptor.Singleton(sink));
         return this;
     }
 

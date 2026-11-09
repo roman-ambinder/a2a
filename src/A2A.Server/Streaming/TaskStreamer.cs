@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using A2A.Diagnostics;
 using A2A.Server.Agents;
+using A2A.Server.Audit;
 using A2A.Server.Authorization;
 using A2A.Server.Execution;
 using A2A.Server.Idempotency;
@@ -43,6 +44,7 @@ internal sealed class TaskStreamer
     private readonly RequestCards _cards;
     private readonly SkillAuthorizer _skills;
     private readonly StreamAdmission _admission;
+    private readonly A2AAuditor _audit;
 
     /// <summary>Creates the streamer from the request handler's services.</summary>
     internal TaskStreamer(
@@ -53,8 +55,10 @@ internal sealed class TaskStreamer
         A2AAuthorizationHandler authorization,
         A2AServerOptions options,
         IAgentCardProvider cards,
-        SkillAuthorizer skills)
+        SkillAuthorizer skills,
+        A2AAuditor? audit = null)
     {
+        _audit = audit ?? A2AAuditor.None;
         _cards = new RequestCards(cards);
         _skills = skills;
         _tasks = tasks;
@@ -613,8 +617,12 @@ internal sealed class TaskStreamer
         {
             var allowed = await _authorization.AuthorizeAsync(call, operation, request, cancellationToken).ConfigureAwait(false)
                 && await _skills.StillAllowedAsync(operation, call, cancellationToken).ConfigureAwait(false);
+            // The stream just ends (the caller sees no error), so the audit trail is where the revoked access shows.
             if (!allowed)
+            {
                 SecurityEventLog.Record(_options, A2ATelemetry.SecurityEventNames.PermissionDenied, operation.Name, call, AuthorizationFilter.TaskIdOf(request));
+                await OperationAuthorization.DeniedAsync(_audit, call, operation, AuthorizationFilter.TaskIdOf(request), "PermissionDenied").ConfigureAwait(false);
+            }
             reauthAt = Stopwatch.GetTimestamp() + Ticks(reauthEvery!.Value);
             return allowed;
         }
@@ -627,5 +635,5 @@ internal sealed class TaskStreamer
     private AgentTask Shape(AgentTask task) => TaskShaper.Shape(task, null, _options.Limits);
 
     private Task AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, string? taskId, CancellationToken ct) =>
-        _authorization.RequireAsync(_options, call, operation, request, taskId, ct);
+        _authorization.RequireAsync(_options, call, operation, request, taskId, _audit, ct);
 }

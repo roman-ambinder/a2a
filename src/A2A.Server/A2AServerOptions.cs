@@ -1,3 +1,4 @@
+using A2A.Server.Audit;
 using A2A.Server.Authorization;
 using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
@@ -154,6 +155,9 @@ public sealed class A2AServerOptions
 
     /// <summary>Where large artifact bytes go, and the links to them. Used only when an <see cref="Storage.ArtifactObjectStore"/> is registered.</summary>
     public ArtifactStorageOptions ArtifactStorage { get; } = new();
+
+    /// <summary>The audit trail: write timeout and fail-open or fail-closed (see <see cref="A2AAuditSink"/>). Checked when the auditor is created.</summary>
+    public A2AAuditOptions Audit { get; } = new();
 }
 
 /// <summary>Settings for the per-task event log and for SSE streams.</summary>

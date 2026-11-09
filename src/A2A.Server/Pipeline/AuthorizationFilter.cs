@@ -1,3 +1,4 @@
+using A2A.Server.Audit;
 using A2A.Server.Authorization;
 
 namespace A2A.Server.Pipeline;
@@ -7,7 +8,7 @@ namespace A2A.Server.Pipeline;
 /// backstop, then the <see cref="A2AAuthorizationHandler"/>, then the skill check of a send when <see cref="A2AServerOptions.SkillAuthorization"/> is on). A denial of a call whose request names a task looks like a
 /// missing task; any other denial is <see cref="A2AErrorCode.PermissionDenied"/>.
 /// </summary>
-internal sealed class AuthorizationFilter(A2AAuthorizationHandler handler, A2AServerOptions options, SkillAuthorizer skills) : IA2AOperationFilter
+internal sealed class AuthorizationFilter(A2AAuthorizationHandler handler, A2AServerOptions options, SkillAuthorizer skills, A2AAuditor audit) : IA2AOperationFilter
 {
     public ValueTask<object?> InvokeAsync(A2AOperationContext context, object request, A2AOperationDelegate next, CancellationToken cancellationToken)
     {
@@ -25,7 +26,7 @@ internal sealed class AuthorizationFilter(A2AAuthorizationHandler handler, A2ASe
     public Task RequireAsync(A2AOperationDescriptor operation, ServerCallContext call, object request, CancellationToken cancellationToken)
     {
         var taskId = TaskIdOf(request);
-        var authorized = handler.RequireAsync(options, call, operation, request, taskId, cancellationToken);
+        var authorized = handler.RequireAsync(options, call, operation, request, taskId, audit, cancellationToken);
         // Skill authorization off, or not a send: no extra work.
         return skills.AppliesTo(operation) ? ThenSkillAsync(authorized, operation, call, request, taskId, cancellationToken) : authorized;
     }

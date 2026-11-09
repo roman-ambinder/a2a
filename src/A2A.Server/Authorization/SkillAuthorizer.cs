@@ -2,6 +2,7 @@ using System.Text.Json;
 using A2A.Diagnostics;
 using A2A.Json;
 using A2A.Server.Agents;
+using A2A.Server.Audit;
 using A2A.Server.Pipeline;
 using A2A.Server.Telemetry;
 using A2A.Skills;
@@ -13,7 +14,7 @@ namespace A2A.Server.Authorization;
 /// stream, answers the agent's own questions, and filters the extended card. One per request handler, built from its services.
 /// </summary>
 internal sealed class SkillAuthorizer(A2AAuthorizationHandler handler, SkillAuthorizationOptions options, IAgentCardProvider cards, RequestCards requestCards,
-    A2AServerOptions? serverOptions = null)
+    A2AServerOptions? serverOptions = null, A2AAuditor? audit = null)
 {
     /// <summary>True when the check applies to <paramref name="operation"/>: a mode is on and it starts a skill.</summary>
     public bool AppliesTo(A2AOperationDescriptor operation) =>
@@ -49,6 +50,8 @@ internal sealed class SkillAuthorizer(A2AAuthorizationHandler handler, SkillAuth
         {
             if (serverOptions is not null)
                 SecurityEventLog.Record(serverOptions, A2ATelemetry.SecurityEventNames.PermissionDenied, operation.Name, call, string.IsNullOrEmpty(taskId) ? null : taskId);
+            if (audit is not null)
+                await OperationAuthorization.DeniedAsync(audit, call, operation, taskId, "PermissionDenied").ConfigureAwait(false);
             // The handler-denial path, so the caller cannot tell a hidden skill from a missing one.
             if (!string.IsNullOrEmpty(taskId)) throw A2AException.TaskNotFound(taskId);
             throw new A2AException(A2AErrorCode.PermissionDenied);

@@ -24,7 +24,7 @@ namespace A2A.Server.Retention;
 /// <see cref="A2AServerOptions.InterruptedTimeout"/>, with no agent running and no update (such as a committed reply) since,
 /// with the status text "The task waited too long for input.";</item>
 /// <item>deletes the terminal tasks older than <see cref="A2ARetentionOptions.TaskRetention"/> with all their data
-/// (<see cref="A2ATaskAdmin.DeleteTaskAsync"/>);</item>
+/// (<see cref="A2ATaskAdmin.DeleteTaskAsync(Storage.TaskKey, CancellationToken)"/>);</item>
 /// <item>deletes the contexts older than <see cref="A2ARetentionOptions.OrphanContextRetention"/> that no task uses;</item>
 /// <item>when an <see cref="ArtifactObjectStore"/> is registered, deletes the artifact objects older than
 /// <see cref="ArtifactStorageOptions.OrphanGracePeriod"/> whose task no longer exists or does not refer to them. A task that

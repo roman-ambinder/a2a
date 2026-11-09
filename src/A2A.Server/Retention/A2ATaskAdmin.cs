@@ -1,3 +1,4 @@
+using A2A.Server.Audit;
 using A2A.Server.Coordination;
 using A2A.Server.Execution;
 using A2A.Server.Push;
@@ -22,6 +23,7 @@ public sealed class A2ATaskAdmin
     private readonly TaskExecutionEngine? _engine;
     private readonly ArtifactObjectStore? _objects;
     private readonly ILogger _logger;
+    private readonly A2AAuditor _audit;
 
     /// <summary>Creates the admin API. In an app the DI container does this.</summary>
     /// <param name="tasks">The task store.</param>
@@ -35,9 +37,11 @@ public sealed class A2ATaskAdmin
     /// </param>
     /// <param name="objects">The artifact object store. When set, a deleted task's objects are deleted with it.</param>
     /// <param name="logger">Optional logger.</param>
+    /// <param name="audit">Writes <see cref="DeleteTaskAsync(TaskKey, string, CancellationToken)"/> to the audit trail. Without it nothing is audited.</param>
     public A2ATaskAdmin(TaskStore tasks, EventStore events, PushConfigStore pushConfigs, PushOutbox outbox, ExecutionCoordinator coordinator,
-        TaskExecutionEngine? engine = null, ArtifactObjectStore? objects = null, ILogger<A2ATaskAdmin>? logger = null)
+        TaskExecutionEngine? engine = null, ArtifactObjectStore? objects = null, ILogger<A2ATaskAdmin>? logger = null, A2AAuditor? audit = null)
     {
+        _audit = audit ?? A2AAuditor.None;
         _tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _events = events ?? throw new ArgumentNullException(nameof(events));
         _pushConfigs = pushConfigs ?? throw new ArgumentNullException(nameof(pushConfigs));
@@ -53,8 +57,42 @@ public sealed class A2ATaskAdmin
     /// cancelled first, on every instance (without waiting for them to stop: their later events find no task and are dropped).
     /// Its context stays until the retention sweep removes it as an orphan. Owner-scoped through <paramref name="key"/>.
     /// </summary>
+    /// <remarks>Audited with the actor <see cref="A2AAuditEvent.UnknownOperator"/>. Use the overload with an <c>actor</c> to say who deletes.</remarks>
     /// <returns>True when the task was deleted; false when it does not exist for this tenant and owner.</returns>
-    public async ValueTask<bool> DeleteTaskAsync(TaskKey key, CancellationToken cancellationToken = default)
+    public ValueTask<bool> DeleteTaskAsync(TaskKey key, CancellationToken cancellationToken = default) =>
+        DeleteTaskAsync(key, A2AAuditEvent.UnknownOperator, cancellationToken);
+
+    /// <summary>
+    /// Deletes the task as <see cref="DeleteTaskAsync(TaskKey, CancellationToken)"/> does, and writes the audit trail
+    /// (<see cref="A2AAuditAction.AdminTaskDeleted"/>). With <see cref="A2AAuditOptions.FailClosed"/> the delete does not happen
+    /// when the <see cref="A2AAuditOutcome.Attempted"/> row cannot be written; the call then throws <see cref="A2AException"/>
+    /// with <see cref="A2AErrorCode.Internal"/>. A task that does not exist is recorded as <see cref="A2AAuditOutcome.Failed"/> with the reason <c>NotFound</c>.
+    /// </summary>
+    /// <param name="key">The task (owner-scoped).</param>
+    /// <param name="actor">Who deletes the task: the operator's id.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when the task was deleted; false when it does not exist for this tenant and owner.</returns>
+    public async ValueTask<bool> DeleteTaskAsync(TaskKey key, string actor, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        var e = _audit.For(A2AAuditAction.AdminTaskDeleted, actor, key.Tenant, key.TaskId);
+        await _audit.BeginAsync(e, cancellationToken).ConfigureAwait(false);
+        bool deleted;
+        try
+        {
+            deleted = await DeleteTaskCoreAsync(key, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await _audit.FailAsync(e, ex).ConfigureAwait(false);
+            throw;
+        }
+        if (deleted) await _audit.SucceedAsync(e).ConfigureAwait(false);
+        else await _audit.FailAsync(e, "NotFound").ConfigureAwait(false);
+        return deleted;
+    }
+
+    private async ValueTask<bool> DeleteTaskCoreAsync(TaskKey key, CancellationToken cancellationToken)
     {
         if (await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) is null) return false;
         // Always: an execution here whose register failed is invisible to the coordinator's running check.
