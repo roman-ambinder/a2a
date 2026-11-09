@@ -271,10 +271,10 @@ public sealed partial class CustomOperationTests
     [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
     [JsonSerializable(typeof(Sum))]
     [JsonSerializable(typeof(Total))]
-    private sealed partial class TypedJson : JsonSerializerContext;
+    private sealed partial class CustomOperationJson : JsonSerializerContext;
 
     private static Action<IServiceCollection> Typed() => s =>
-        s.AddA2AServer().AddExtensionOperation("x.sum", Uri, TypedJson.Default.Sum, TypedJson.Default.Total,
+        s.AddA2AServer().AddExtensionOperation("x.sum", Uri, CustomOperationJson.Default.Sum, CustomOperationJson.Default.Total,
             (context, request, _) => ValueTask.FromResult(new Total(request.A + request.B, context.Call.Principal)), allow: true);
 
     private static HttpRequestMessage TypedCall(string binding, string @params)
