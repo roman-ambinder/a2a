@@ -8,6 +8,7 @@ Targets **.NET 8** and **.NET 10**. `A2A.Protocol` and `A2A.Client` also target 
 ```bash
 dotnet add package RomanAmbinder.A2A.Server.AspNetCore   # host an agent
 dotnet add package RomanAmbinder.A2A.Client              # call agents
+dotnet tool install -g RomanAmbinder.A2A.Cli             # the `a2a` command line tool
 ```
 
 NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the official `A2A` packages. Assemblies and namespaces are `A2A.*`. The core packages depend only on `Microsoft.Extensions.*`; the gRPC packages add `Google.Protobuf` and `Grpc.*`.
@@ -17,6 +18,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | `A2A.Protocol` | Data model (from `a2a.proto`), ProtoJSON serialization, errors, JCS (RFC 8785), JWS card signing/verification |
 | `A2A.Security.Http` | SSRF-safe outbound HTTP handler (private-address guard), guarded `jku` key-set fetching and `SafeHttp` for peer-chosen URLs, shared by the client and the push sender |
 | `A2A.Client` | `A2AClient`, JSON-RPC + REST transports, SSE reader, card resolver with caching and signature policy |
+| `A2A.Cli` | The `a2a` dotnet tool: show and verify Agent Cards, send and stream messages, manage tasks, download artifacts. See [Command line tool](docs/site/guides/cli.md) |
 | `A2A.Client.DependencyInjection` | `AddA2AClient`, `IA2AClientFactory`, `AddBearerToken`, `AddOAuth2ClientCredentials`, `AddApiKey`, `AddMutualTls` (adds DI, Options, `IHttpClientFactory`) |
 | `A2A.Server` | Transport-agnostic server core: executor model, task lifecycle, stores, event bus, durable push delivery (outbox), execution coordination, retention, tracing and metrics |
 | `A2A.Server.AspNetCore` | Endpoints: JSON-RPC, REST, SSE, `/.well-known/agent-card.json`, JWKS |

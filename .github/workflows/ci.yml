@@ -296,6 +296,13 @@ jobs:
           cat warnings-client.txt
           test ! -s warnings-client.txt
 
+      - name: Publish a2a CLI (native AOT) and check for trim/AOT warnings
+        run: |
+          dotnet publish src/A2A.Cli -c Release -f net10.0 -r linux-x64 -p:PublishAot=true 2>&1 | tee publish-cli.log
+          grep -E 'warning IL(2|3)[0-9]{3}' publish-cli.log > warnings-cli.txt || true
+          cat warnings-cli.txt
+          test ! -s warnings-cli.txt
+
   docs:
     name: Docs site (DocFX)
     runs-on: ubuntu-latest
