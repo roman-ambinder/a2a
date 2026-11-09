@@ -1,1 +1,7 @@
 #nullable enable
+const A2A.Skills.TypedSkillExtension.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/typed-skills/v1" -> string!
+const A2A.Skills.TypedSkillExtension.InputSchemaKey = "inputSchema" -> string!
+const A2A.Skills.TypedSkillExtension.OutputSchemaKey = "outputSchema" -> string!
+const A2A.Skills.TypedSkillExtension.SkillsParam = "skills" -> string!
+A2A.Skills.TypedSkillExtension
+static A2A.Skills.TypedSkillExtension.TryGetSchemas(A2A.AgentCard! card, string! skillId, out System.Text.Json.JsonElement inputSchema, out System.Text.Json.JsonElement outputSchema) -> bool
