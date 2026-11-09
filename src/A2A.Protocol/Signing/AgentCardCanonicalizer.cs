@@ -31,7 +31,13 @@ public static class AgentCardCanonicalizer
 
     private enum Cardinality { Single, Repeated, Map }
 
-    private sealed record Field(Shape Shape, Cardinality Cardinality = Cardinality.Single, IReadOnlyDictionary<string, Field>? Fields = null);
+    private sealed record Field(Shape Shape, Cardinality Cardinality = Cardinality.Single, IReadOnlyDictionary<string, Field>? Fields = null)
+    {
+        private Field? _single;
+
+        /// <summary>This field with single cardinality (the shape of one element or map value), built once.</summary>
+        public Field Single => Cardinality == Cardinality.Single ? this : _single ??= this with { Cardinality = Cardinality.Single, _single = null };
+    }
 
     private static readonly Field Scalar = new(Shape.Scalar);
     private static readonly Field RepeatedScalar = new(Shape.Scalar, Cardinality.Repeated);
@@ -86,6 +92,18 @@ public static class AgentCardCanonicalizer
         return log.CaseVariants;
     }
 
+    /// <summary>
+    /// <see cref="Canonicalize"/> and <see cref="CaseVariantMembers"/> from one copy and one prune of <paramref name="card"/>,
+    /// for the verifier, which needs both.
+    /// </summary>
+    internal static byte[] CanonicalizeChecked(JsonObject card, out IReadOnlyList<string> caseVariants)
+    {
+        var log = new PruneLog();
+        var bytes = JsonCanonicalizer.Canonicalize(Prune(card, log));
+        caseVariants = log.CaseVariants;
+        return bytes;
+    }
+
     private sealed class PruneLog
     {
         public List<string> Removed { get; } = new();
@@ -96,7 +114,7 @@ public static class AgentCardCanonicalizer
     {
         var copy = (JsonObject)card.DeepClone();
         copy.Remove("signatures");
-        PruneMembers(copy, AgentCardFields, "$", log);
+        PruneMembers(copy, AgentCardFields, JsonPath.Root, log);
         return copy;
     }
 
@@ -151,15 +169,15 @@ public static class AgentCardCanonicalizer
 
     // The pruning rule. Returns true when the value must be removed from its parent.
     // Removals of values that were themselves prunable are recorded; containers emptied by their children are not.
-    private static bool PruneField(JsonNode? node, Field field, string path, PruneLog log) =>
+    private static bool PruneField(JsonNode? node, Field field, JsonPath path, PruneLog log) =>
         (field.Cardinality, node) switch
         {
-            (Cardinality.Repeated, JsonArray array) => PruneElements(array, field with { Cardinality = Cardinality.Single }, path, log),
-            (Cardinality.Map, JsonObject map) => PruneMap(map, field with { Cardinality = Cardinality.Single }, path, log),
+            (Cardinality.Repeated, JsonArray array) => PruneElements(array, field.Single, path, log),
+            (Cardinality.Map, JsonObject map) => PruneMap(map, field.Single, path, log),
             _ => PruneValue(node, field, path, log),
         };
 
-    private static bool PruneValue(JsonNode? node, Field field, string path, PruneLog log)
+    private static bool PruneValue(JsonNode? node, Field field, JsonPath path, PruneLog log)
     {
         switch (node)
         {
@@ -171,7 +189,7 @@ public static class AgentCardCanonicalizer
                 return PruneElements(array, Struct, path, log);
             case JsonValue value when IsEmptyScalar(value, field.Shape):
             case null:
-                log.Removed.Add(path);
+                log.Removed.Add(path.ToString());
                 return true;
             default:
                 return false;
@@ -186,16 +204,17 @@ public static class AgentCardCanonicalizer
         _ => false,
     };
 
-    private static bool PruneMembers(JsonObject obj, IReadOnlyDictionary<string, Field> fields, string path, PruneLog log)
+    private static bool PruneMembers(JsonObject obj, IReadOnlyDictionary<string, Field> fields, JsonPath path, PruneLog log)
     {
         var wasEmpty = obj.Count == 0;
         foreach (var (key, value) in obj.ToList())
         {
-            var memberPath = MemberPath(path, key);
+            var memberPath = new JsonPath(path, key);
             if (!fields.TryGetValue(key, out var field))
             {
-                log.Removed.Add(memberPath);
-                if (fields.Keys.Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase))) log.CaseVariants.Add(memberPath);
+                var text = memberPath.ToString();
+                log.Removed.Add(text);
+                if (fields.Keys.Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase))) log.CaseVariants.Add(text);
                 obj.Remove(key);
             }
             else if (PruneField(value, field, memberPath, log))
@@ -206,32 +225,32 @@ public static class AgentCardCanonicalizer
         return Emptied(obj.Count, wasEmpty, path, log);
     }
 
-    private static bool PruneMap(JsonObject map, Field valueField, string path, PruneLog log)
+    private static bool PruneMap(JsonObject map, Field valueField, JsonPath path, PruneLog log)
     {
         var wasEmpty = map.Count == 0;
         foreach (var (key, value) in map.ToList())
         {
-            if (PruneField(value, valueField, MemberPath(path, key), log)) map.Remove(key);
+            if (PruneField(value, valueField, new JsonPath(path, key), log)) map.Remove(key);
         }
         return Emptied(map.Count, wasEmpty, path, log);
     }
 
-    private static bool PruneElements(JsonArray array, Field elementField, string path, PruneLog log)
+    private static bool PruneElements(JsonArray array, Field elementField, JsonPath path, PruneLog log)
     {
         var wasEmpty = array.Count == 0;
         var drop = new List<int>();
         for (var i = 0; i < array.Count; i++)
         {
-            if (PruneField(array[i], elementField, $"{path}[{i}]", log)) drop.Add(i);
+            if (PruneField(array[i], elementField, new JsonPath(path, i), log)) drop.Add(i);
         }
         for (var i = drop.Count - 1; i >= 0; i--) array.RemoveAt(drop[i]);
         return Emptied(array.Count, wasEmpty, path, log);
     }
 
-    private static bool Emptied(int count, bool wasEmpty, string path, PruneLog log)
+    private static bool Emptied(int count, bool wasEmpty, JsonPath path, PruneLog log)
     {
         if (count > 0) return false;
-        if (wasEmpty) log.Removed.Add(path);
+        if (wasEmpty) log.Removed.Add(path.ToString());
         return true;
     }
 
@@ -239,4 +258,31 @@ public static class AgentCardCanonicalizer
         key.Length > 0 && (char.IsAsciiLetter(key[0]) || key[0] == '_') && key.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')
             ? $"{parent}.{key}"
             : $"{parent}[{JsonValue.Create(key)!.ToJsonString()}]";
+
+    /// <summary>
+    /// The path of a node, as text only when asked (<see cref="ToString"/>): most nodes are kept, so their path is never needed.
+    /// </summary>
+    private sealed class JsonPath
+    {
+        public static readonly JsonPath Root = new(null, null, -1);
+        private readonly JsonPath? _parent;
+        private readonly string? _key;
+        private readonly int _index;
+
+        private JsonPath(JsonPath? parent, string? key, int index)
+        {
+            _parent = parent;
+            _key = key;
+            _index = index;
+        }
+
+        public JsonPath(JsonPath parent, string key) : this(parent, key, -1) { }
+
+        public JsonPath(JsonPath parent, int index) : this(parent, null, index) { }
+
+        public override string ToString() =>
+            _parent is null ? "$"
+            : _key is not null ? MemberPath(_parent.ToString(), _key)
+            : $"{_parent}[{_index.ToString(System.Globalization.CultureInfo.InvariantCulture)}]";
+    }
 }

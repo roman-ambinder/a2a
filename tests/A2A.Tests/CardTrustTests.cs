@@ -33,6 +33,51 @@ public class CardTrustTests
         return A2AJson.Serialize(AgentCardSigner.Sign(card, key));
     }
 
+    [Fact]
+    public async Task A_trusted_key_changed_after_use_verifies_with_its_new_value()
+    {
+        // Imported keys are reused per trusted key; changing the key's fields must not keep the old imported key.
+        var first = NewKey("k1");
+        var second = NewKey("k1");
+        var policy = new CardTrustPolicy();
+        var jwk = first.ToPublicJwk();
+        policy.TrustedKeys[Origin] = new JwkSet { Keys = [jwk] };
+        var verifier = new AgentCardVerifier(policy);
+
+        Assert.Equal(AgentCardVerificationStatus.Verified, (await verifier.VerifyAsync(Signed(first), CardUri)).Status);
+        Assert.Equal(AgentCardVerificationStatus.Verified, (await verifier.VerifyAsync(Signed(first), CardUri)).Status); // reused key
+
+        var replacement = second.ToPublicJwk();
+        jwk.X = replacement.X;
+        jwk.Y = replacement.Y;
+        Assert.Equal(AgentCardVerificationStatus.Failed, (await verifier.VerifyAsync(Signed(first), CardUri)).Status);
+        Assert.Equal(AgentCardVerificationStatus.Verified, (await verifier.VerifyAsync(Signed(second), CardUri)).Status);
+    }
+
+    [Fact]
+    public async Task Concurrent_verifications_with_one_trusted_key_all_verify()
+    {
+        var key = NewKey("k1");
+        var verifier = new AgentCardVerifier(new CardTrustPolicy { TrustedKeys = { [Origin] = Set(key) } });
+        var raw = Signed(key);
+        var results = await Task.WhenAll(Enumerable.Range(0, 64).Select(_ => Task.Run(() => verifier.VerifyAsync(raw, CardUri))));
+        Assert.All(results, r => Assert.Equal(AgentCardVerificationStatus.Verified, r.Status));
+    }
+
+    [Fact]
+    public void Base64Url_encoding_matches_the_padded_form_with_url_characters_for_every_length()
+    {
+        var rng = new Random(7);
+        for (var n = 0; n < 700; n++)
+        {
+            var data = new byte[n];
+            rng.NextBytes(data);
+            var expected = Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+            Assert.Equal(expected, Base64Url.Encode(data));
+            Assert.Equal(data, Base64Url.Decode(expected));
+        }
+    }
+
     private static string Unsigned(Action<AgentCard>? change = null)
     {
         var card = SigningTests.SampleCard();
