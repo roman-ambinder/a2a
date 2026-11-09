@@ -283,6 +283,17 @@ namespace System
             }
         }
 
+        extension(ObjectDisposedException)
+        {
+            public static void ThrowIf(bool condition, object instance)
+            {
+                if (condition)
+                {
+                    throw new ObjectDisposedException(instance?.GetType().FullName);
+                }
+            }
+        }
+
         extension(ArgumentException)
         {
             public static void ThrowIfNullOrEmpty(string? argument, [CallerArgumentExpression(nameof(argument))] string? paramName = null)

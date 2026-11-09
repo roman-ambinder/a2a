@@ -196,7 +196,7 @@ public sealed class PushTaskTracker : IDisposable
     public async Task NotifyAsync(StreamResponse evt, long? sequence = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(evt);
-        var (taskId, state) = Inspect(evt);
+        var (taskId, state) = PushEvents.Inspect(evt);
         if (taskId is null) return;
 
         bool gap;
@@ -205,7 +205,7 @@ public sealed class PushTaskTracker : IDisposable
         {
             var entry = await _store.GetAsync(taskId, cancellationToken).ConfigureAwait(false);
             if (entry is null) return;
-            if (state is { } s && IsFinal(s))
+            if (state is { } s && PushEvents.IsFinal(s))
             {
                 await _store.RemoveAsync(taskId, cancellationToken).ConfigureAwait(false);
                 return;
@@ -259,7 +259,7 @@ public sealed class PushTaskTracker : IDisposable
                 var entry = await _store.GetAsync(taskId, cancellationToken).ConfigureAwait(false);
                 if (entry is not null) // it may have been removed by a final notification meanwhile
                 {
-                    if (task is not null && IsFinal(task.Status.State))
+                    if (task is not null && PushEvents.IsFinal(task.Status.State))
                         await _store.RemoveAsync(taskId, cancellationToken).ConfigureAwait(false);
                     else
                         await _store.SaveAsync(entry.WithDeadline(_time.GetUtcNow() + entry.Timeout), cancellationToken).ConfigureAwait(false);
@@ -272,14 +272,4 @@ public sealed class PushTaskTracker : IDisposable
         }
         finally { lock (_checking) _checking.Remove(taskId); }
     }
-
-    private static bool IsFinal(TaskState state) => state.IsTerminal() || state.IsInterrupted();
-
-    private static (string? TaskId, TaskState? State) Inspect(StreamResponse evt) => evt switch
-    {
-        TaskEvent e => (e.Task.Id, e.Task.Status.State),
-        StatusUpdateEvent e => (e.StatusUpdate.TaskId, e.StatusUpdate.Status.State),
-        ArtifactUpdateEvent e => (e.ArtifactUpdate.TaskId, null),
-        _ => (null, null),
-    };
 }
