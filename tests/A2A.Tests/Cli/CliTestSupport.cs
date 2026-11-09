@@ -118,7 +118,7 @@ internal static class CliTestSupport
 
     /// <summary>Runs the tool against <paramref name="host"/>. <c>--agent</c> is added unless <paramref name="addAgent"/> is false.</summary>
     public static async Task<CliRun> RunAsync(TestAgentHost host, string[] args, Dictionary<string, string?>? env = null, string stdin = "",
-        CancellationToken cancellationToken = default, TextWriter? output = null, bool addAgent = true)
+        CancellationToken cancellationToken = default, TextWriter? output = null, bool addAgent = true, HttpMessageHandler? oauthHandler = null)
     {
         var all = addAgent ? [args[0], "--agent", Agent, .. args[1..]] : args;
         var stdout = output ?? new StringWriter();
@@ -126,6 +126,7 @@ internal static class CliTestSupport
         var environment = new CliEnvironment(stdout, stderr, new StringReader(stdin), name => env is not null && env.TryGetValue(name, out var v) ? v : null)
         {
             Handler = host.App.GetTestServer().CreateHandler(),
+            OAuthTokenHandler = oauthHandler,
         };
         var code = await CliApp.RunAsync(all, environment, cancellationToken).WaitAsync(TimeSpan.FromSeconds(60));
         return new CliRun(code, stdout.ToString()!, stderr.ToString());

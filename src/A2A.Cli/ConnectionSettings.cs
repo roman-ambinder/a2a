@@ -55,6 +55,9 @@ internal sealed record ConnectionSettings
         if ((clientId is null) != (clientSecret is null))
             throw CliException.Usage("--client-id and --client-secret must be given together.");
 
+        if (a.Values("trust-jku-host").Any(string.IsNullOrWhiteSpace))
+            throw CliException.Usage("Option '--trust-jku-host' needs a host name.");
+
         return new ConnectionSettings
         {
             Agent = agent,

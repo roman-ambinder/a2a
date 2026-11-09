@@ -215,6 +215,8 @@ public sealed class CliTests
     [InlineData("card", "--transport", "carrier-pigeon")]
     [InlineData("card", "--timeout", "0")]
     [InlineData("card", "--json=yes")]
+    [InlineData("card", "--trust-jku-host", "")]
+    [InlineData("card", "--trust-jku-host", "  ")]
     [InlineData("card", "--client-id", "only-id")]
     [InlineData("card", "--client-secret", "only-secret")]
     [InlineData("nonsense")]
