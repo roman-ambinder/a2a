@@ -992,6 +992,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 // As in ApplyToCopy: the stored artifact is never changed; the copy belongs to this batch.
                 var merged = next.Artifacts![index].CopyWithParts(au.Artifact.Parts);
                 ArtifactSeal.Set(merged, false);
+                // As in ApplyToCopy: an artifact stored before generations existed starts at this event's generation.
+                merged.StartGeneration ??= (record.Task.Generation ?? 0) + count + 1;
                 next.Artifacts[index] = merged;
             }
             else next.Artifacts![index].Parts.AddRange(au.Artifact.Parts);

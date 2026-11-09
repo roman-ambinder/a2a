@@ -16,12 +16,29 @@ public static class A2AProtocol
     public static bool IsVersion11OrLater(string? version)
     {
         if (string.IsNullOrWhiteSpace(version)) return false;
-        var parts = version!.Trim().Split('.');
-        if (parts.Length < 2
-            || !int.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var major)
-            || !int.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var minor))
-            return false;
-        return major == 1 && minor >= 1;
+        // Called for every stream event: parsed in place, no split strings. The first two dot-separated parts must be digits.
+        var text = version.AsSpan().Trim();
+        var dot = text.IndexOf('.');
+        if (dot < 0) return false;
+        var rest = text[(dot + 1)..];
+        var next = rest.IndexOf('.');
+        return TryParseDigits(text[..dot], out var major) && TryParseDigits(next < 0 ? rest : rest[..next], out var minor)
+            && major == 1 && minor >= 1;
+    }
+
+    /// <summary>As <c>int.TryParse</c> with <c>NumberStyles.None</c>: ASCII digits only, at least one, no overflow.</summary>
+    private static bool TryParseDigits(ReadOnlySpan<char> digits, out int value)
+    {
+        value = 0;
+        if (digits.IsEmpty) return false;
+        foreach (var c in digits)
+        {
+            if (c < '0' || c > '9') return false;
+            var d = c - '0';
+            if (value > (int.MaxValue - d) / 10) return false;
+            value = (value * 10) + d;
+        }
+        return true;
     }
 
     /// <summary>Version the spec says to assume when the A2A-Version header is absent (§3.6.2).</summary>
