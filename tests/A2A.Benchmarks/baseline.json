@@ -1,18 +1,26 @@
 {
   "CardVerifyBenchmark.Verify": {
-    "allocatedBytes": 33337,
-    "meanNs": 88639.3525390625
+    "allocatedBytes": 33169,
+    "meanNs": 166361.09619140625
+  },
+  "ConcurrentLoadBenchmark.ConcurrentSendMessage": {
+    "allocatedBytes": 40241,
+    "meanNs": 133579.46940104166
+  },
+  "ConcurrentLoadBenchmark.ConcurrentStreams": {
+    "allocatedBytes": 600916,
+    "meanNs": 1180861.0065104167
   },
   "JsonRpcEnvelopeBenchmark.Encode": {
     "allocatedBytes": 480,
-    "meanNs": 99.31593104203542
+    "meanNs": 179.57231509685516
   },
   "SendMessageBenchmark.RoundTrip": {
-    "allocatedBytes": 37582,
-    "meanNs": 277304.4768880208
+    "allocatedBytes": 40015,
+    "meanNs": 477096.0849609375
   },
   "StreamingTaskBenchmark.ThousandEvents": {
-    "allocatedBytes": 18599211,
-    "meanNs": 13576438.46875
+    "allocatedBytes": 5668262,
+    "meanNs": 10542836.03125
   }
 }
