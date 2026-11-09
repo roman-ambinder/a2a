@@ -231,14 +231,17 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
         await http.Response.Body.WriteAsync(body, http.RequestAborted).ConfigureAwait(false);
     }
 
+    private static readonly byte[] EnvelopeEnd = "}"u8.ToArray();
+
     private async Task StreamAsync(HttpContext http, ServerCallContext call, JsonElement? id, IAsyncEnumerable<SequencedEvent> events, Task startNow)
     {
         var e = await HttpPlumbing.PrimeAsync(events, _keepAlive, startNow, http.RequestAborted).ConfigureAwait(false)
                 ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "Empty stream");
         HttpPlumbing.WriteExtensionsHeader(http, call);
         HttpPlumbing.StartEventStream(http);
+        // The envelope around every event is the same: its start is built once, and each event's stored bytes go after it.
         await HttpPlumbing.PumpAsync(http, e,
-            evt => JsonRpcWriter.Success(id, EventEncoder.EnsureEncoded(evt).Json.Span),
+            evt => EventEncoder.EnsureEncoded(evt).Json, JsonRpcWriter.SuccessPrefix(id), EnvelopeEnd,
             ex => A2AJson.SerializeToUtf8Bytes(JsonRpcResponse.Failure(id, HttpPlumbing.Normalize(ex, logger, _includeDetails))),
             _keepAlive, logger).ConfigureAwait(false);
     }

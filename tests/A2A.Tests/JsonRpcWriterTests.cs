@@ -36,6 +36,9 @@ public sealed class JsonRpcWriterTests
         using (var w = new Utf8JsonWriter(buffer, JsonRpcWriter.CreateWriterOptions()))
             JsonRpcWriter.WriteSuccess(w, id, evt, A2AJson.GetTypeInfo<StreamResponse>());
         Assert.Equal(legacy, buffer.WrittenSpan.ToArray());
+
+        // A stream writes the prefix once, then each event's bytes and the closing brace.
+        Assert.Equal(legacy, JsonRpcWriter.SuccessPrefix(id).Concat(payload).Append((byte)'}').ToArray());
     }
 
     [Fact]
