@@ -3,7 +3,7 @@ using A2A.Server;
 using A2A.Server.Agents;
 using Grpc.Core;
 using Microsoft.Extensions.DependencyInjection;
-using Pb = Lf.A2a.V1;
+using A2aPb = Lf.A2a.V1;
 
 namespace A2A.Grpc.Tests;
 
@@ -40,10 +40,10 @@ public class MultiAgentGrpcTests
         await using var host = await GrpcHost.StartAsync(services: s => s.AddA2AServer().AddTenantCardProvider<Cards>().AddAgentExecutorResolver<Agents>());
         var raw = host.Raw();
         var headers = new Metadata { { "a2a-version", "1.0" } };
-        Pb.SendMessageRequest Send(string tenant, string text) => new()
+        A2aPb.SendMessageRequest Send(string tenant, string text) => new()
         {
             Tenant = tenant,
-            Message = new Pb.Message { MessageId = Guid.NewGuid().ToString(), Role = Pb.Role.User, Parts = { new Pb.Part { Text = text } } },
+            Message = new A2aPb.Message { MessageId = Guid.NewGuid().ToString(), Role = A2aPb.Role.User, Parts = { new A2aPb.Part { Text = text } } },
         };
 
         var acme = await raw.SendMessageAsync(Send("acme", "work"), headers);
@@ -52,7 +52,7 @@ public class MultiAgentGrpcTests
         Assert.Equal("globex: work", globex.Task.Status.Message.Parts[0].Text);
 
         // Tasks stay with their agent.
-        var cross = await Assert.ThrowsAsync<RpcException>(() => raw.GetTaskAsync(new Pb.GetTaskRequest { Tenant = "globex", Id = acme.Task.Id }, headers).ResponseAsync);
+        var cross = await Assert.ThrowsAsync<RpcException>(() => raw.GetTaskAsync(new A2aPb.GetTaskRequest { Tenant = "globex", Id = acme.Task.Id }, headers).ResponseAsync);
         Assert.Equal(A2AErrorCode.TaskNotFound, GrpcErrors.FromRpcException(cross).Code);
 
         // globex's card has no streaming.
@@ -68,7 +68,7 @@ public class MultiAgentGrpcTests
         var error = GrpcErrors.FromRpcException(unknown);
         Assert.Equal(A2AErrorCode.UnsupportedOperation, error.Code);
         Assert.Equal("No agent is configured for this tenant.", error.Message);
-        var missing = await Assert.ThrowsAsync<RpcException>(() => raw.GetTaskAsync(new Pb.GetTaskRequest { Tenant = "initech", Id = acme.Task.Id }, headers).ResponseAsync);
+        var missing = await Assert.ThrowsAsync<RpcException>(() => raw.GetTaskAsync(new A2aPb.GetTaskRequest { Tenant = "initech", Id = acme.Task.Id }, headers).ResponseAsync);
         Assert.Equal(A2AErrorCode.TaskNotFound, GrpcErrors.FromRpcException(missing).Code);
     }
 }

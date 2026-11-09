@@ -3,7 +3,7 @@ using A2A.Client;
 using A2A.Client.Grpc;
 using Google.Protobuf;
 using Grpc.Core;
-using Pb = Lf.A2a.V1;
+using A2aPb = Lf.A2a.V1;
 
 namespace A2A.Grpc.Tests;
 
@@ -35,9 +35,9 @@ public class GrpcTransportTests
         public override AsyncDuplexStreamingCall<TRequest, TResponse> AsyncDuplexStreamingCall<TRequest, TResponse>(Method<TRequest, TResponse> method, string? host, CallOptions options) => throw new NotSupportedException();
     }
 
-    private static Pb.Task ATask(string id = "t1") => new() { Id = id, ContextId = "c", Status = new Pb.TaskStatus { State = Pb.TaskState.Completed } };
+    private static A2aPb.Task ATask(string id = "t1") => new() { Id = id, ContextId = "c", Status = new A2aPb.TaskStatus { State = A2aPb.TaskState.Completed } };
 
-    private static Pb.SendMessageResponse AReply() => new() { Message = new Pb.Message { MessageId = "r", Role = Pb.Role.Agent, Parts = { new Pb.Part { Text = "ok" } } } };
+    private static A2aPb.SendMessageResponse AReply() => new() { Message = new A2aPb.Message { MessageId = "r", Role = A2aPb.Role.Agent, Parts = { new A2aPb.Part { Text = "ok" } } } };
 
     private static RpcException Retryable() => GrpcErrors.ToRpcException(new A2AException(A2AErrorCode.Internal) { Retryable = true, RetryAfter = TimeSpan.Zero });
 
@@ -86,7 +86,7 @@ public class GrpcTransportTests
         await Transport(invoker).SendMessageAsync(new SendMessageRequest { Message = message }, new A2ARequestOptions { IdempotencyKey = "k-7" });
         var (_, callOptions, request) = Assert.Single(invoker.Calls);
         Assert.Equal("k-7", callOptions.Headers!.GetValue("idempotency-key"));
-        Assert.False(string.IsNullOrEmpty(((Pb.SendMessageRequest)request).Message.MessageId));
+        Assert.False(string.IsNullOrEmpty(((A2aPb.SendMessageRequest)request).Message.MessageId));
     }
 
     [Fact]
@@ -232,7 +232,7 @@ public class GrpcTransportTests
     [Fact]
     public async Task Server_unavailable_status_is_retried()
     {
-        var invoker = new ScriptedInvoker().ThenFail(new RpcException(new Status(StatusCode.Unavailable, "draining"))).ThenReturn(new Pb.ListTaskPushNotificationConfigsResponse());
+        var invoker = new ScriptedInvoker().ThenFail(new RpcException(new Status(StatusCode.Unavailable, "draining"))).ThenReturn(new A2aPb.ListTaskPushNotificationConfigsResponse());
         Assert.Empty((await Transport(invoker).ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest { TaskId = "t" })).Configs);
         Assert.Equal(2, invoker.Calls.Count);
     }
