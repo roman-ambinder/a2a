@@ -79,8 +79,16 @@ target netstandard2.0. .NET 8 is not a target: its support ends on 10 November 2
   model has `Task.generation` and `timeline`, `TimelineEntry`, artifact `startGeneration`, `endGeneration` and `role`,
   `generation` on status and artifact events, the `messageUpdate` and `error` stream events, `StreamRequest`, the new request
   fields, `AgentCapabilities.userArtifacts`, the push config `protocolVersion`, and the error `TaskGenerationMismatch`
-  (-32010, HTTP 409, gRPC `ABORTED`). 64-bit values are written as ProtoJSON strings and read as strings or numbers. The
-  server does not use 1.1 yet, so 1.0 callers see no change.
+  (-32010, HTTP 409, gRPC `ABORTED`). 64-bit values are written as ProtoJSON strings and read as strings or numbers.
+- A2A 1.1 on the server, opt-in with `A2AServerOptions.EnableProtocolV11()` (experimental): a caller that sends
+  `A2A-Version: 1.1` gets the task `generation` (one per change; it equals the event sequence), the `timeline` (client
+  messages and agent status entries), artifact `startGeneration` / `endGeneration`, `generation` on every stream event, a
+  `messageUpdate` event for each follow-up message, and send streams that stay open on `INPUT_REQUIRED` and
+  `AUTH_REQUIRED` until the task ends. `timelineLength` works like `historyLength` (cap: `A2ALimits.MaxTimelineLengthReturned`,
+  100). A card completed from the mapped bindings lists the 1.1 interfaces first. 1.0 and v0.3 callers get the 1.0 shape
+  and no message events, and webhooks stay 1.0.
+- A follow-up message is now stored as an event of the task (a message update), so it takes a sequence number. 1.0
+  callers do not see it, but stream ids and webhook sequences skip its number.
 - The Agent Card endpoint answers with `application/a2a-agent-card+json` when the request asks for it, and with
   `application/json` otherwise. The client asks for both.
 - A completed card lists a gRPC interface over TLS as `host:port` (for example `agent.example.com:443`), the form the spec

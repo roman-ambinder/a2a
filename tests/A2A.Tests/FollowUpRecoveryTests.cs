@@ -29,7 +29,10 @@ public sealed class FollowUpRecoveryTests
             Fail ? throw new InvalidOperationException("timer unavailable") : System.CreateTimer(callback, state, dueTime, period);
     }
 
-    /// <summary>A task store whose commits fail while <see cref="FailCommits"/> is set: the task cannot be failed.</summary>
+    /// <summary>
+    /// A task store whose commits fail while <see cref="FailCommits"/> is set: the task cannot be failed. The commit of a
+    /// follow-up's message (its message update event) still goes through: the crash comes after it.
+    /// </summary>
     private sealed class FaultyTaskStore(TaskStore inner) : TaskStore
     {
         public volatile bool FailCommits;
@@ -38,7 +41,7 @@ public sealed class FollowUpRecoveryTests
         public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => inner.CreateAsync(record, ct);
         public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default) => inner.UpdateAsync(record, expectedVersion, ct);
         public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default) =>
-            FailCommits ? throw new InvalidOperationException("store unavailable") : inner.CommitAsync(commit, ct);
+            FailCommits && commit.Event.Event is not MessageUpdateEvent ? throw new InvalidOperationException("store unavailable") : inner.CommitAsync(commit, ct);
         public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => inner.ListAsync(query, ct);
         public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => inner.GetContextAsync(tenant, contextId, ct);
         public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => inner.GetOrCreateContextAsync(record, ct);

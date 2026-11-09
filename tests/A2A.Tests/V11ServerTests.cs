@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using A2A.Json;
 using A2A.Server;
+using A2A.Server.Storage;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.Tests;
 
@@ -249,6 +251,30 @@ public sealed class V11ServerTests
         Assert.Equal(4, card.SupportedInterfaces.Count);
         Assert.All(card.SupportedInterfaces.Take(2), i => Assert.Equal(A2AProtocol.Version11, i.ProtocolVersion));
         Assert.All(card.SupportedInterfaces.Skip(2), i => Assert.Equal(A2AProtocol.Version, i.ProtocolVersion));
+    }
+
+    [Fact]
+    public async Task A_task_stored_before_generations_existed_continues_from_its_last_sequence()
+    {
+        await using var host = await StartAsync();
+        var id = await CreateAsync(host, "input");
+        await host.WaitIdleAsync();
+        // As an older version stored it: no generation, no timeline (its log has 2 events).
+        var store = host.App.Services.GetRequiredService<TaskStore>();
+        var key = new TaskKey("", "alice", id);
+        var record = (await store.GetAsync(key))!;
+        var legacy = record.Task.CopyForUpdate();
+        legacy.Generation = null;
+        legacy.Timeline = null;
+        await store.UpdateAsync(record with { Task = legacy }, record.Version);
+
+        await RpcAsync(host, "SendMessage", Send("more", id), "1.1");
+        await host.WaitIdleAsync();
+
+        var task = await GetTaskAsync(host, id, "1.1");
+        Assert.Equal(4, Gen(task)); // 2 old events + the message + COMPLETED
+        var timeline = task.GetProperty("timeline").EnumerateArray().ToList();
+        Assert.Equal([3L, 4L], timeline.Select(Gen));
     }
 
     [Fact]

@@ -61,7 +61,7 @@ Typed skills use the same ID: `TypedSkillExtension`, `A2AClient.CallSkillAsync`,
 ### A2AEXP005
 
 The types A2A 1.1 adds: `TimelineEntry`, `TaskMessageUpdateEvent`, `StreamError`, `StreamRequest`, `MessageUpdateEvent` and
-`StreamErrorEvent`. The 1.1 fields on existing types (for example `AgentTask.Generation`, `AgentTask.Timeline`,
+`StreamErrorEvent`, and `A2AServerOptions.EnableProtocolV11`. The 1.1 fields on existing types (for example `AgentTask.Generation`, `AgentTask.Timeline`,
 `SendMessageConfiguration.IfGenerationMatch`) are not marked, because the attribute cannot be put on properties for
 netstandard2.0, but they follow the same rule: they can change until 1.1 is final.
 
