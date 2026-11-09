@@ -91,7 +91,7 @@ Looked at and left out of PR 1 (measured with an allocation profile of the bench
 | SSE keep-alive: one `PeriodicTimer` per stream; call `AsTask()` only when `MoveNextAsync` did not finish at once. | `HttpPlumbing.cs:346-361` |
 | Unary responses: write the pooled buffer to the `PipeWriter`, no `ToArray()`. | `HttpPlumbing.cs:144`, `JsonRpcEndpoint.cs:228` |
 | Converters: error text only on error paths; match names with `ValueTextEquals("…"u8)`; static `JsonEncodedText` names; `GetBytesFromBase64`; build `Part` once (no `with`); timestamps formatted into a stack span. | `OneOfConverter.cs`, `PartConverter.cs`, `ProtoEnumConverter.cs`, `TimestampConverter.cs` |
-| Source-gen check: confirm whether `A2AJson` falls back to metadata mode. If it does, move settings into `[JsonSourceGenerationOptions]` and attach converters by attribute. Ship only if a benchmark shows a gain. | `A2AJson.cs:27-43` |
+| Source-gen check: confirmed that `A2AJson` does not use the generated fast path (`CanUseSerializeHandler` is false). It cannot be turned on without changing the output: the fast path needs the default encoder, and the SDK writes with `UnsafeRelaxedJsonEscaping` and a resolver modifier. Left as is. | `A2AJson.cs:27-43` |
 | Small per-request costs: no LINQ when the extensions header is absent; no route-value dictionary copy; REST query names looked up once. | `HttpPlumbing.cs:25,98`, `RestEndpoint.cs:93,295` |
 
 ### 3.4 Client

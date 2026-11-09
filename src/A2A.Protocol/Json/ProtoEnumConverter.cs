@@ -22,16 +22,24 @@ public sealed class ProtoEnumConverter<[DynamicallyAccessedMembers(DynamicallyAc
 {
     private static readonly Dictionary<TEnum, string> ToName = new();
     private static readonly Dictionary<string, TEnum> FromName = new(StringComparer.Ordinal);
+    // The same names, encoded once: reads compare the reader's bytes and writes copy them, with no string per value.
+    private static readonly Dictionary<TEnum, JsonEncodedText> ToEncoded = new();
+    private static readonly (JsonEncodedText Name, TEnum Value)[] Encoded;
 
     static ProtoEnumConverter()
     {
+        var encoded = new List<(JsonEncodedText, TEnum)>();
         foreach (var field in typeof(TEnum).GetFields(BindingFlags.Public | BindingFlags.Static))
         {
             var value = (TEnum)field.GetValue(null)!;
             var name = field.GetCustomAttribute<ProtoNameAttribute>()?.Name ?? field.Name;
             ToName[value] = name;
             FromName[name] = value;
+            var text = JsonEncodedText.Encode(name);
+            ToEncoded[value] = text;
+            encoded.Add((text, value));
         }
+        Encoded = encoded.ToArray();
     }
 
     /// <summary>Returns the ProtoJSON name of <paramref name="value"/>, or its C# name when it has no <see cref="ProtoNameAttribute"/>.</summary>
@@ -52,7 +60,9 @@ public sealed class ProtoEnumConverter<[DynamicallyAccessedMembers(DynamicallyAc
         switch (reader.TokenType)
         {
             case JsonTokenType.String:
-                return FromName.TryGetValue(reader.GetString()!, out var v) ? v : default;
+                foreach (var (name, value) in Encoded)
+                    if (reader.ValueTextEquals(name.EncodedUtf8Bytes)) return value;
+                return default; // an unknown name
             case JsonTokenType.Number when reader.TryGetInt32(out var i):
                 return (TEnum)Enum.ToObject(typeof(TEnum), i);
             default:
@@ -62,5 +72,8 @@ public sealed class ProtoEnumConverter<[DynamicallyAccessedMembers(DynamicallyAc
 
     /// <summary>Writes the ProtoJSON name of the value.</summary>
     public override void Write(Utf8JsonWriter writer, TEnum value, JsonSerializerOptions options)
-        => writer.WriteStringValue(ToProtoName(value));
+    {
+        if (ToEncoded.TryGetValue(value, out var encoded)) writer.WriteStringValue(encoded);
+        else writer.WriteStringValue(value.ToString());
+    }
 }

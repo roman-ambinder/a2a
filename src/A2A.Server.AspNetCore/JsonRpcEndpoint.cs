@@ -225,10 +225,8 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
         HttpPlumbing.WriteExtensionsHeader(http, call);
         // One pass: the result is encoded straight into the envelope, into a pooled buffer, then written once. It is not
         // written to the response pipe while encoding, so an encoding failure still becomes a JSON-RPC error response.
-        var body = JsonRpcWriter.Success(id, result, A2AJson.GetTypeInfo<T>());
-        http.Response.StatusCode = 200;
-        http.Response.ContentType = A2AProtocol.JsonMediaType;
-        await http.Response.Body.WriteAsync(body, http.RequestAborted).ConfigureAwait(false);
+        await PooledResponse.WriteAsync(http, 200, A2AProtocol.JsonMediaType, (id, result),
+            static (w, s) => JsonRpcWriter.WriteSuccess(w, s.id, s.result, A2AJson.GetTypeInfo<T>())).ConfigureAwait(false);
     }
 
     private static readonly byte[] EnvelopeEnd = "}"u8.ToArray();

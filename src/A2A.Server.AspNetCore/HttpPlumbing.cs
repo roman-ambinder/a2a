@@ -141,9 +141,7 @@ internal static partial class HttpPlumbing
 
     public static async Task WriteJsonAsync<T>(HttpContext http, T value, string contentType, int status = 200)
     {
-        http.Response.StatusCode = status;
-        http.Response.ContentType = contentType;
-        await http.Response.Body.WriteAsync(A2AJson.SerializeToUtf8Bytes(value), http.RequestAborted).ConfigureAwait(false);
+        await PooledResponse.WriteAsync(http, status, contentType, value, static (w, v) => JsonSerializer.Serialize(w, v, A2AJson.GetTypeInfo<T>())).ConfigureAwait(false);
     }
 
     /// <summary>
