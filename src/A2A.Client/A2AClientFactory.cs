@@ -54,6 +54,32 @@ public static class A2AClientFactory
         return new A2AClient(transport, options, card);
     }
 
+#if !NETSTANDARD2_0
+    /// <summary>
+    /// The primary handler of clients made without one: no cookies, no redirects, and connections recycled every 2 minutes so
+    /// DNS changes are seen. Shared by all of them and never disposed.
+    /// </summary>
+    private static readonly Lazy<SocketsHttpHandler> DefaultPrimary = new(() => new SocketsHttpHandler
+    {
+        UseCookies = false, AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+    });
+
+    /// <summary>
+    /// Puts the shared handler under a client without handing it over: requests go through an invoker that does not own it, so
+    /// disposing the client leaves it open for the others.
+    /// </summary>
+    private sealed class SharedHandler(HttpMessageHandler shared) : HttpMessageHandler
+    {
+        private readonly HttpMessageInvoker _invoker = new(shared, disposeHandler: false);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            _invoker.SendAsync(request, cancellationToken);
+
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            _invoker.Send(request, cancellationToken);
+    }
+#endif
+
     /// <summary>Resolves the card at <paramref name="agentUrl"/> and creates a client for it.</summary>
     public static async Task<A2AClient> CreateAsync(Uri agentUrl, HttpClient httpClient, A2AClientOptions? options = null,
         A2ACardResolverOptions? resolverOptions = null, CancellationToken cancellationToken = default)
@@ -83,11 +109,13 @@ public static class A2AClientFactory
         ArgumentNullException.ThrowIfNull(credentialProviders);
         var providers = credentialProviders.ToList();
         if (providers.Count == 0) throw new ArgumentException("At least one credential provider is required.", nameof(credentialProviders));
-        #if NETSTANDARD2_0
+#if NETSTANDARD2_0
         // No SocketsHttpHandler on netstandard2.0.
         var primary = handler ?? new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false };
 #else
-        var primary = handler ?? new SocketsHttpHandler { UseCookies = false, AllowAutoRedirect = false };
+        // One connection pool for every client made without a handler, not one per call: a pool per client was never
+        // disposed (A2AClient owns no resources) and kept its sockets.
+        var primary = handler ?? new SharedHandler(DefaultPrimary.Value);
 #endif
         A2ACredentialHandler.EnsureNoAutoRedirect(primary);
 

@@ -129,7 +129,7 @@ internal static class ResumableStream
                     }
 
                     taskId ??= TaskIdOf(frame.Response);
-                    if (TryParseCursor(frame.Id, out var cursorTask, out var sequence) && taskId is not null && cursorTask == taskId)
+                    if (taskId is not null && IsCursorOf(frame.Id, taskId, out var sequence))
                     {
                         // A task snapshot below the cursor means the server lost its event log and started over: take the
                         // snapshot and continue from its sequence. Any other frame at or below the cursor was delivered before the drop.
@@ -198,17 +198,22 @@ internal static class ResumableStream
         _ => false,
     };
 
-    /// <summary>Splits <c>{taskId}:{sequence}</c>. False for a missing or malformed id, or a sequence below 1.</summary>
-    internal static bool TryParseCursor(string? id, out string taskId, out long sequence)
+    /// <summary>
+    /// True when <paramref name="id"/> is a cursor (<c>{taskId}:{sequence}</c>) of task <paramref name="taskId"/>. Compares in
+    /// place: no task id string per frame.
+    /// </summary>
+    internal static bool IsCursorOf(string? id, string taskId, out long sequence) =>
+        TrySplitCursor(id, out var colon, out sequence) && id.AsSpan(0, colon).SequenceEqual(taskId.AsSpan());
+
+    /// <summary>Finds the colon of <c>{taskId}:{sequence}</c>. False for a missing or malformed id, or a sequence below 1.</summary>
+    private static bool TrySplitCursor(string? id, out int colon, out long sequence)
     {
-        taskId = "";
+        colon = -1;
         sequence = 0;
         if (id is null || id.Length == 0) return false;
-        var colon = id.LastIndexOf(':');
+        colon = id.LastIndexOf(':');
         if (colon <= 0) return false;
-        if (!long.TryParse(id.AsSpan(colon + 1), NumberStyles.None, CultureInfo.InvariantCulture, out sequence) || sequence < 1) return false;
-        taskId = id[..colon];
-        return true;
+        return long.TryParse(id.AsSpan(colon + 1), NumberStyles.None, CultureInfo.InvariantCulture, out sequence) && sequence >= 1;
     }
 
     private static string? TaskIdOf(StreamResponse response)

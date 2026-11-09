@@ -24,6 +24,8 @@ public abstract class HttpTransportBase
     /// <summary>The client options.</summary>
     protected A2AClientOptions Options { get; }
 
+    private static readonly string UnaryAccept = A2AProtocol.MediaType + ", " + A2AProtocol.JsonMediaType;
+
     /// <summary>
     /// Sets the request headers in this order: SDK headers (<c>A2A-Version</c>, <c>A2A-Extensions</c>, <c>Accept</c>,
     /// <c>Idempotency-Key</c>, <c>Last-Event-ID</c> on a stream resume, and the W3C <c>traceparent</c>/<c>tracestate</c> of the
@@ -33,19 +35,23 @@ public abstract class HttpTransportBase
     protected async Task ApplyHeadersAsync(HttpRequestMessage request, bool streaming, A2ARequestOptions? call, string? idempotencyKey, CancellationToken cancellationToken, string? lastEventId = null)
     {
         request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, Options.ProtocolVersion);
-        var extensions = call?.Extensions is { Count: > 0 } perCall ? Options.Extensions.Concat(perCall).Distinct() : Options.Extensions;
-        var joined = string.Join(",", extensions);
-        if (joined.Length > 0) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Extensions, joined);
+        if (call?.Extensions is { Count: > 0 } perCall)
+            request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Extensions, string.Join(",", Options.Extensions.Concat(perCall).Distinct()));
+        else if (Options.Extensions.Count > 0)
+            request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Extensions, string.Join(",", Options.Extensions));
         request.Headers.Accept.Clear();
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(streaming ? A2AProtocol.EventStreamMediaType : A2AProtocol.MediaType));
-        if (!streaming) request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.JsonMediaType));
+        // Fixed values, added as text: no header value objects per request.
+        request.Headers.TryAddWithoutValidation("Accept", streaming ? A2AProtocol.EventStreamMediaType : UnaryAccept);
         if (!string.IsNullOrEmpty(idempotencyKey)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.IdempotencyKey, idempotencyKey);
         if (!string.IsNullOrEmpty(lastEventId)) request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.LastEventId, lastEventId);
-        A2ATelemetry.InjectTraceContext(Activity.Current, (name, value) =>
+        if (Activity.Current is { } activity)
         {
-            request.Headers.Remove(name);
-            request.Headers.TryAddWithoutValidation(name, value);
-        });
+            A2ATelemetry.InjectTraceContext(activity, (name, value) =>
+            {
+                request.Headers.Remove(name);
+                request.Headers.TryAddWithoutValidation(name, value);
+            });
+        }
 
         if (call is null) return;
         foreach (var (name, value) in call.Headers)
