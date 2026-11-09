@@ -74,7 +74,7 @@ public sealed class PushDeliveryService : BackgroundService
         _slots = new SemaphoreSlim(Math.Max(1, _options.BatchSize));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _time = time ?? TimeProvider.System;
-        _sender = new PushWebhookSender(http, options.PushNotifications, _logger, _time);
+        _sender = new PushWebhookSender(http, options.PushNotifications, _logger, _time, options.SecurityLogger);
     }
 
     /// <summary>Checks the options (<see cref="ValidateOptions"/>), then starts sending.</summary>

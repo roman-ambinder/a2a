@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using A2A.Diagnostics;
 using A2A.Elicitations;
 using A2A.Server.Agents;
 using A2A.Server.Execution;
@@ -10,6 +11,7 @@ using A2A.Server.Pipeline;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
+using A2A.Server.Telemetry;
 using A2A.Validation;
 using A2A.Server.Authorization;
 
@@ -413,7 +415,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             push.TaskId = taskId;
             push.Id = string.IsNullOrEmpty(push.Id) ? TaskIds.New() : push.Id;
             push.Tenant = call.Tenant;
-            await _pushConfigs.ValidateInlineAsync(push, ct).ConfigureAwait(false);
+            await _pushConfigs.ValidateInlineAsync(push, call, ct).ConfigureAwait(false);
         }
 
         if (isFollowUp)
@@ -657,14 +659,15 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         };
     }
 
+    private const string NotFound = "contextId not found";
+
     private async Task<string> ResolveContextAsync(string? requested, ServerCallContext call, CancellationToken ct)
     {
-        const string NotFound = "contextId not found";
         if (string.IsNullOrEmpty(requested))
         {
             var created = await _tasks.GetOrCreateContextAsync(
                 new ContextRecord(call.Tenant, call.Principal, TaskIds.New(), DateTimeOffset.UtcNow), ct).ConfigureAwait(false);
-            if (!string.Equals(created.Owner, call.Principal, StringComparison.Ordinal)) throw A2AException.InvalidParams(NotFound);
+            if (!string.Equals(created.Owner, call.Principal, StringComparison.Ordinal)) throw ContextDenied(call, created.ContextId); // an id collision
             return created.ContextId;
         }
 
@@ -675,8 +678,17 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             existing = await _tasks.GetOrCreateContextAsync(
                 new ContextRecord(call.Tenant, call.Principal, requested, DateTimeOffset.UtcNow), ct).ConfigureAwait(false);
         }
-        if (!string.Equals(existing.Owner, call.Principal, StringComparison.Ordinal)) throw A2AException.InvalidParams(NotFound);
+        if (!string.Equals(existing.Owner, call.Principal, StringComparison.Ordinal)
+            && !(_options.ContextAccess is { } access && await access(existing, call, ct).ConfigureAwait(false)))
+            throw ContextDenied(call, existing.ContextId);
         return existing.ContextId;
+    }
+
+    /// <summary>The refusal of a context that is not the caller's: InvalidParams "contextId not found", so it never confirms the context exists. Counts a security event.</summary>
+    private A2AException ContextDenied(ServerCallContext call, string contextId)
+    {
+        SecurityEventLog.Record(_options, A2ATelemetry.SecurityEventNames.ContextDenied, A2AProtocol.Methods.SendMessage, call, contextId);
+        return A2AException.InvalidParams(NotFound);
     }
 
     // =====================================================================
@@ -792,6 +804,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.Id);
         var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        if (_options.IdempotentCancel && record.Task.Status.State == TaskState.Canceled) return Shape(record.Task, null);
         if (record.Task.Status.State.IsTerminal()) throw NotCancelable(request.Id);
 
         // Executions here stop at once; the other instances stop theirs when the request reaches them.

@@ -103,4 +103,21 @@ public sealed class A2AClientOptions
     /// stream reconnects), so make the check idempotent.
     /// </remarks>
     public Func<ReceivedMessage, CancellationToken, ValueTask>? OnMessageReceived { get; set; }
+
+    /// <summary>
+    /// Decides which endpoints an Agent Card may name. <see cref="A2AClientFactory"/> checks every interface of the card that this
+    /// client could select, before it builds a client; a refusal throws <see cref="A2AErrorCode.InvalidAgentResponse"/> and counts
+    /// <c>a2a.client.endpoint.refused</c>. Null or <see cref="AgentEndpointPolicies.AllowAll"/> turns the check off (no DNS lookup).
+    /// Default on .NET 8 and later: <see cref="AgentEndpointPolicies.MatchCardNetwork"/>. On netstandard2.0 the default is null, and
+    /// the presets do not exist (they need A2A.Security.Http), the same as the <c>jku</c> limit of <see cref="A2ACardResolver"/>.
+    /// </summary>
+    /// <remarks>
+    /// The check is pre-flight only. A host can resolve to another address when the client connects (DNS rebinding); to close that,
+    /// give the client an <see cref="HttpClient"/> built on <c>SafeHttp.CreateHandler</c>.
+    /// </remarks>
+#if NETSTANDARD2_0
+    public Func<AgentEndpointCheck, bool>? EndpointPolicy { get; set; }
+#else
+    public Func<AgentEndpointCheck, bool>? EndpointPolicy { get; set; } = AgentEndpointPolicies.MatchCardNetwork;
+#endif
 }

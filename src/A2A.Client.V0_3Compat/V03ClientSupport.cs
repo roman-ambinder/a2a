@@ -28,6 +28,7 @@ internal static class V03ClientSupport
             TimeProvider = source.TimeProvider,
             OnMessageReceived = source.OnMessageReceived,
             TransportFactories = new List<IA2ATransportFactory>(source.TransportFactories),
+            EndpointPolicy = source.EndpointPolicy,
         };
     }
 

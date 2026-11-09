@@ -1,4 +1,6 @@
+using A2A.Diagnostics;
 using A2A.Server.Storage;
+using A2A.Server.Telemetry;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -25,7 +27,7 @@ public sealed class PushConfigService(PushConfigStore store, IPushSecretProtecto
     /// <summary>Checks the webhook URL, applies the per-task limit, stores a copy of <paramref name="config"/> and returns it with secrets removed. The caller's instance is not changed.</summary>
     public async ValueTask<TaskPushNotificationConfig> CreateAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken cancellationToken)
     {
-        await ValidateUrlAsync(config.Url, cancellationToken).ConfigureAwait(false);
+        await ValidateUrlAsync(config.Url, A2AProtocol.Methods.CreateTaskPushNotificationConfig, key.Tenant, key.Owner, key.TaskId, cancellationToken).ConfigureAwait(false);
         var stored = config.DeepCopy(); // the caller's config is never changed
         stored.Id = string.IsNullOrEmpty(stored.Id) ? TaskIds.New() : stored.Id;
         stored.Tenant = key.Tenant;
@@ -67,7 +69,11 @@ public sealed class PushConfigService(PushConfigStore store, IPushSecretProtecto
 
     /// <summary>Checks the webhook URL of the inline config of a SendMessage request, before anything is committed.</summary>
     public ValueTask ValidateInlineAsync(TaskPushNotificationConfig config, CancellationToken cancellationToken) =>
-        ValidateUrlAsync(config.Url, cancellationToken);
+        ValidateUrlAsync(config.Url, A2AProtocol.Methods.SendMessage, config.Tenant ?? "", null, config.TaskId, cancellationToken);
+
+    /// <summary>The same check for a call, so a refusal names the caller in the security event.</summary>
+    internal ValueTask ValidateInlineAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken) =>
+        ValidateUrlAsync(config.Url, A2AProtocol.Methods.SendMessage, call.Tenant, call.Principal, config.TaskId, cancellationToken);
 
     /// <summary>
     /// Saves the inline config of a follow-up atomically under the per-task limit, before its message is committed; throws
@@ -93,7 +99,19 @@ public sealed class PushConfigService(PushConfigStore store, IPushSecretProtecto
         catch (Exception ex) { ServerLog.PushConfigCleanupFailed(_logger, ex, configId, key.TaskId); }
     }
 
-    internal ValueTask ValidateUrlAsync(string url, CancellationToken ct) => PushUrlValidator.ValidateAsync(url, options.PushNotifications, ct);
+    /// <summary>Checks the webhook URL. A refusal (InvalidParams) is a <c>webhook_refused</c> security event; the event never carries the URL.</summary>
+    private async ValueTask ValidateUrlAsync(string url, string operation, string tenant, string? principal, string? taskId, CancellationToken ct)
+    {
+        try
+        {
+            await PushUrlValidator.ValidateAsync(url, options.PushNotifications, ct).ConfigureAwait(false);
+        }
+        catch (A2AException ex) when (ex.Code == A2AErrorCode.InvalidParams)
+        {
+            SecurityEventLog.Record(options.SecurityLogger, A2ATelemetry.SecurityEventNames.WebhookRefused, operation, tenant, principal, taskId);
+            throw;
+        }
+    }
 
     private ValueTask<bool> SaveIfUnderLimitAsync(TaskKey key, TaskPushNotificationConfig config, CancellationToken ct) =>
         store.SaveIfUnderLimitAsync(ProtectedRecord(key, config), options.Limits.MaxPushConfigsPerTask, ct);

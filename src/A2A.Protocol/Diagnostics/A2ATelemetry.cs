@@ -116,6 +116,9 @@ public static class A2ATelemetry
 
         /// <summary>The outcome of a call on the counters (<see cref="Outcomes"/>).</summary>
         public const string Outcome = "a2a.outcome";
+
+        /// <summary>The kind of a security event on <see cref="Metrics.SecurityEvents"/> (<see cref="SecurityEventNames"/>).</summary>
+        public const string SecurityEvent = "a2a.security.event";
     }
 
     /// <summary>Counter names on the <see cref="ServerMeterName"/> meter.</summary>
@@ -138,6 +141,31 @@ public static class A2ATelemetry
 
         /// <summary>Push deliveries that failed for good and were moved to the dead letters.</summary>
         public const string PushDeadLetters = "a2a.server.push.dead_letters";
+
+        /// <summary>
+        /// Security events (spec 13.4). Tags: <see cref="Tags.SecurityEvent"/> (<see cref="SecurityEventNames"/>) and, when the
+        /// operation is known, <see cref="Tags.Operation"/>. Each event also writes one log line with a hash of the principal, never the principal.
+        /// </summary>
+        public const string SecurityEvents = "a2a.server.security.events";
+    }
+
+    /// <summary>Values of <see cref="Tags.SecurityEvent"/>.</summary>
+    public static class SecurityEventNames
+    {
+        /// <summary>The caller is not authenticated and anonymous access is off.</summary>
+        public const string Unauthenticated = "unauthenticated";
+
+        /// <summary>The authorization handler denied the call (also when the caller sees TaskNotFound). A task of another caller reads as not found and is not counted.</summary>
+        public const string PermissionDenied = "permission_denied";
+
+        /// <summary>The caller named a context that belongs to another caller.</summary>
+        public const string ContextDenied = "context_denied";
+
+        /// <summary>A webhook URL was refused, when its config was created or when a delivery was attempted.</summary>
+        public const string WebhookRefused = "webhook_refused";
+
+        /// <summary>An idempotency key was reused with a different request.</summary>
+        public const string IdempotencyKeyMismatch = "idempotency_key_mismatch";
     }
 
     /// <summary>Values of <see cref="Tags.Outcome"/>.</summary>

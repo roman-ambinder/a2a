@@ -1,6 +1,8 @@
 using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
+using A2A.Server.Storage;
+using Microsoft.Extensions.Logging;
 
 namespace A2A.Server;
 
@@ -62,6 +64,13 @@ public sealed class A2AServerOptions
     public TimeSpan CancelGracePeriod { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
+    /// Answer a repeat CancelTask for a task that is already <see cref="TaskState.Canceled"/> with that task, instead of
+    /// TaskNotCancelable. Other final states still give TaskNotCancelable. Default false, because the A2A TCK
+    /// (CORE-CANCEL-002) expects the error; see https://github.com/a2aproject/A2A/issues/2358.
+    /// </summary>
+    public bool IdempotentCancel { get; set; }
+
+    /// <summary>
     /// How long a host stop waits for running executions to finish before the engine stops them. Agents still running after
     /// that are asked to stop, and their tasks stay as they are (not <see cref="TaskState.Canceled"/>): the lease expiry, the
     /// retention sweep or a continuation deals with them. Keep it below the host's shutdown timeout (30 seconds by default).
@@ -109,6 +118,19 @@ public sealed class A2AServerOptions
 
     /// <summary>Which task states accept follow-up messages. Default <see cref="Server.FollowUpPolicy.InterruptedOnly"/>.</summary>
     public FollowUpPolicy FollowUpPolicy { get; set; } = FollowUpPolicy.InterruptedOnly;
+
+    /// <summary>
+    /// Lets callers other than the owner join an existing context. Called when a SendMessage names a context that another
+    /// principal owns (never for the owner, and never for a new context): return true to accept it. Null (default) or false:
+    /// the call fails with InvalidParams "contextId not found" and counts a <c>context_denied</c> security event. Exceptions of
+    /// the delegate propagate. Tasks stay owner-scoped: the second principal gets a task of its own in the context and never sees
+    /// the owner's tasks. The agent still sees one <see cref="AgentRequestContext.ContextId"/> for both, so an agent that keeps
+    /// per-context memory shares that memory between them.
+    /// </summary>
+    public Func<ContextRecord, ServerCallContext, CancellationToken, ValueTask<bool>>? ContextAccess { get; set; }
+
+    /// <summary>Logger of the security event log lines (<see cref="Telemetry.SecurityEventLog"/>). Set by <c>AddA2AServer</c>; null means no log line (the counter still counts).</summary>
+    internal ILogger? SecurityLogger { get; set; }
 
     /// <summary>How to treat an unknown client-supplied contextId on a new task. Default <see cref="Server.ClientContextIdPolicy.Reject"/>.</summary>
     public ClientContextIdPolicy ClientContextIdPolicy { get; set; } = ClientContextIdPolicy.Reject;

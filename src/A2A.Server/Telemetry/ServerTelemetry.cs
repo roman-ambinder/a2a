@@ -13,7 +13,8 @@ namespace A2A.Server.Telemetry;
 /// Spans: one per operation (named after the method, by <see cref="TelemetryFilter"/>), one per agent run
 /// (<see cref="A2ATelemetry.SpanNames.AgentExecution"/>) and one per webhook delivery (<see cref="A2ATelemetry.SpanNames.PushDelivery"/>).
 /// Counters (<see cref="A2ATelemetry.Metrics"/>): requests by operation and outcome, events stored, streams opened, push
-/// delivery attempts by outcome, dead letters. Nothing here allocates while nobody listens.
+/// delivery attempts by outcome, dead letters, security events (<see cref="A2ATelemetry.Metrics.SecurityEvents"/>, written by
+/// <see cref="SecurityEventLog"/>). Nothing here allocates while nobody listens.
 /// </remarks>
 internal static class ServerTelemetry
 {
@@ -32,6 +33,9 @@ internal static class ServerTelemetry
         Meter.CreateCounter<long>(A2ATelemetry.Metrics.PushDeliveries, description: "Push delivery attempts by outcome: sent, retried or dead_lettered.");
     public static readonly Counter<long> PushDeadLetters =
         Meter.CreateCounter<long>(A2ATelemetry.Metrics.PushDeadLetters, description: "Push deliveries that failed for good and were moved to the dead letters.");
+
+    public static readonly Counter<long> SecurityEvents =
+        Meter.CreateCounter<long>(A2ATelemetry.Metrics.SecurityEvents, description: "Security events: unauthenticated and denied calls, refused contexts and webhooks, reused idempotency keys.");
 
     /// <summary>Span of one upload to the artifact object store.</summary>
     public const string UploadSpanName = "a2a.artifact.upload";

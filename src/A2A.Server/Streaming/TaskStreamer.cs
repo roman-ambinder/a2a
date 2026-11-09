@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using A2A.Diagnostics;
 using A2A.Server.Agents;
 using A2A.Server.Authorization;
 using A2A.Server.Execution;
@@ -608,6 +609,8 @@ internal sealed class TaskStreamer
         async ValueTask<bool> StillAuthorizedAsync()
         {
             var allowed = await _authorization.AuthorizeAsync(call, operation, request, cancellationToken).ConfigureAwait(false);
+            if (!allowed)
+                SecurityEventLog.Record(_options, A2ATelemetry.SecurityEventNames.PermissionDenied, operation.Name, call, AuthorizationFilter.TaskIdOf(request));
             reauthAt = Stopwatch.GetTimestamp() + Ticks(reauthEvery!.Value);
             return allowed;
         }
