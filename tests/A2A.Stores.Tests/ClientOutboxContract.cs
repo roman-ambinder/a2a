@@ -43,7 +43,7 @@ public abstract class ClientOutboxContract
         Assert.Null(e.CollectedAt);
         Assert.Null(e.LeaseToken);
         Assert.Null(e.GetResult());
-        Assert.Equal("hello a", e.GetRequest().Message.GetText());
+        Assert.Equal("hello a", e.GetRequest().Message!.GetText());
         Assert.True(e.GetRequest().Configuration!.ReturnImmediately);
         Assert.Null(await store.GetAsync("missing"));
     }

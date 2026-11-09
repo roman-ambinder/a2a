@@ -452,3 +452,6 @@ A2A.Server.A2ALimits.MaxTimelineLengthReturned.set -> void
 [A2AEXP005]A2A.Server.A2AServerOptions.EnableProtocolV11() -> A2A.Server.A2AServerOptions!
 A2A.Server.A2AServerOptions.LongPollTimeout.get -> System.TimeSpan
 A2A.Server.A2AServerOptions.LongPollTimeout.set -> void
+[A2AEXP005]A2A.Server.AgentRequestContext.UserArtifacts.get -> System.Collections.Generic.IReadOnlyList<A2A.Artifact!>?
+A2A.Server.A2ALimits.MaxUserArtifactsPerRequest.get -> int
+A2A.Server.A2ALimits.MaxUserArtifactsPerRequest.set -> void

@@ -19,8 +19,11 @@ public static class RequestHasher
         ArgumentNullException.ThrowIfNull(request);
         var root = new JsonObject
         {
-            ["message"] = JsonSerializer.SerializeToNode(request.Message, A2AJson.GetTypeInfo<Message>()),
+            ["message"] = request.Message is null ? null : JsonSerializer.SerializeToNode(request.Message, A2AJson.GetTypeInfo<Message>()),
         };
+        // A2A 1.1: the client's artifact updates are part of what the request does.
+        if (request.ArtifactUpdates is { Count: > 0 } updates)
+            root["artifactUpdates"] = JsonSerializer.SerializeToNode(updates, A2AJson.GetTypeInfo<List<TaskArtifactUpdateEvent>>());
         if (request.Configuration is { } configuration)
             root["configuration"] = JsonSerializer.SerializeToNode(configuration, A2AJson.GetTypeInfo<SendMessageConfiguration>());
         return SHA256.HashData(JsonCanonicalizer.Canonicalize(root));

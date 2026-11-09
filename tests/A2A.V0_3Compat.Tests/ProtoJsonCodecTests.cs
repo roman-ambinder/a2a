@@ -256,7 +256,7 @@ public class ProtoJsonCodecTests
         proto.Configuration.Blocking = true;
         Assert.False(C.ReadSendRequest(JsonNode.Parse(JsonFormatter.Default.Format(proto))).Configuration!.ReturnImmediately);
         Assert.Equal("c1", back.Configuration.TaskPushNotificationConfig!.Id);
-        Assert.Equal("hello", back.Message.GetText());
+        Assert.Equal("hello", back.Message!.GetText());
     }
 
     [Fact]

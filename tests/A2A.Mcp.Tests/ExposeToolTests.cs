@@ -160,7 +160,7 @@ public sealed class ExposeToolTests
         // The message went out with ReturnImmediately and the skill selection.
         var sent = Assert.Single(fake.Sent);
         Assert.True(sent.Configuration!.ReturnImmediately);
-        Assert.Equal("hi", sent.Message.GetText());
+        Assert.Equal("hi", sent.Message!.GetText());
         Assert.Equal("echo", sent.Message.Metadata!["skillId"].GetString());
         Assert.Contains(A2A.Skills.SkillSelection.ExtensionUri, fake.OptionsSeen[0]!.Extensions!);
     }
@@ -331,7 +331,7 @@ public sealed class ExposeToolTests
     {
         var (pair, fake) = await Start(f =>
         {
-            f.Send = (r, _) => Task.FromResult(FakeTransport.Respond(r.Message.TaskId is null
+            f.Send = (r, _) => Task.FromResult(FakeTransport.Respond(r.Message!.TaskId is null
                 ? FakeTransport.TaskIn(TaskState.InputRequired, statusText: "more?", artifacts: [FakeTransport.TextArtifact("old", "old text")])
                 : FakeTransport.TaskIn(TaskState.Completed, artifacts: [FakeTransport.TextArtifact("old", "old text"), FakeTransport.TextArtifact("new", "new text")])));
             f.Get = (_, _) => Task.FromResult(FakeTransport.TaskIn(TaskState.InputRequired, artifacts: [FakeTransport.TextArtifact("old", "old text")]));
@@ -340,8 +340,8 @@ public sealed class ExposeToolTests
         await Call(pair, "echo", Msg("first"));
         var second = await Call(pair, "echo", Msg("yes", taskId: "t1", contextId: "c1"));
         Assert.Equal("new text", Content(second));
-        Assert.Equal("t1", fake.Sent[1].Message.TaskId);
-        Assert.Equal("c1", fake.Sent[1].Message.ContextId);
+        Assert.Equal("t1", fake.Sent[1].Message!.TaskId);
+        Assert.Equal("c1", fake.Sent[1].Message!.ContextId);
     }
 
     private static AgentTask Asking(string messageId, string text, List<Artifact>? artifacts = null)
@@ -376,7 +376,7 @@ public sealed class ExposeToolTests
     {
         var (pair, _) = await Start(f =>
         {
-            f.Send = (r, _) => Task.FromResult(FakeTransport.Respond(Asking(r.Message.TaskId is null ? "q1" : "q2", r.Message.TaskId is null ? "Which city?" : "Which month?")));
+            f.Send = (r, _) => Task.FromResult(FakeTransport.Respond(Asking(r.Message!.TaskId is null ? "q1" : "q2", r.Message.TaskId is null ? "Which city?" : "Which month?")));
             f.Get = (_, _) => Task.FromResult(Asking("q1", "Which city?"));
         });
         await using var _pair = pair;

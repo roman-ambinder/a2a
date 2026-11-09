@@ -62,6 +62,7 @@ namespace A2A.Json;
 [JsonSerializable(typeof(StreamError))]
 [JsonSerializable(typeof(TimelineEntry))]
 [JsonSerializable(typeof(StreamRequest))]
+[JsonSerializable(typeof(List<TaskArtifactUpdateEvent>))]
 [JsonSerializable(typeof(GetTaskRequest))]
 [JsonSerializable(typeof(ListTasksRequest))]
 [JsonSerializable(typeof(ListTasksResponse))]

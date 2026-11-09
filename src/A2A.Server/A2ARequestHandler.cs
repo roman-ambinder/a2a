@@ -214,6 +214,12 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private async ValueTask<SendMessageResponse> SendMessageCoreAsync(SendMessageRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
+        // A2A 1.1: client artifacts for an existing task, without a message: stored, and the task is the answer. No agent runs.
+        if (request.Message is null)
+        {
+            var updated = await StoreArtifactsOnlyAsync(request, call, cancellationToken).ConfigureAwait(false);
+            return new TaskResponse(Shape(updated.Task, request.Configuration?.HistoryLength, timelineLength: request.Configuration?.TimelineLength));
+        }
         await _requestCards.RequireAgentAsync(call, cancellationToken).ConfigureAwait(false);
         // Before the idempotency claim and anything stored: a tenant without an agent leaves no trace.
         await using var agent = await _engine.RequireAgentAsync(call.Tenant, cancellationToken).ConfigureAwait(false);
@@ -269,6 +275,16 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         Action? onCaughtUp = null, CancellationToken cancellationToken = default)
     {
         var messageTaskId = request.Message?.TaskId;
+        if (request.Message is null)
+        {
+            // A2A 1.1: client artifacts without a message: stored, then the stream follows the task like a subscription.
+            return StreamAsync(SendStreamingOperation, request.Tenant, call, request, async (r, c, ct) =>
+            {
+                var updated = await StoreArtifactsOnlyAsync(r, c, ct).ConfigureAwait(false);
+                var follow = new SubscribeToTaskRequest { Id = updated.Task.Id, Tenant = r.Tenant };
+                return _streamer.SubscribeAsync(follow, c, null, onCaughtUp, SubscribeOperation, ct);
+            }, cancellationToken);
+        }
         return StreamCursor.TryParse(lastEventId, out var taskId, out var sequence)
                && (string.IsNullOrEmpty(messageTaskId) || string.Equals(messageTaskId, taskId, StringComparison.Ordinal))
             ? SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant }, call, sequence, onCaughtUp, cancellationToken)
@@ -507,12 +523,13 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         var answersForm = await ValidateRequestAsync(request, call, ct).ConfigureAwait(false);
         // A copy: the caller's message is never changed (a retry with the same instance must hash the same). This copy goes to
         // the executor; the stored history gets copies of its own.
-        var message = request.Message.DeepCopy();
+        var message = request.Message!.DeepCopy();
         // The time the server accepted it, before any copy: the history and the agent see this value; a client-sent one is overwritten.
         MessageStamp.Set(message, _engine.UtcNow);
         var isFollowUp = !string.IsNullOrEmpty(message.TaskId);
         if (answersForm && !isFollowUp) throw ElicitationValidator.Refuse("An answer to a form needs the id of the task that asked.");
         var taskId = isFollowUp ? message.TaskId! : newTaskId ?? TaskIds.New();
+        var userArtifacts = await CheckArtifactUpdatesAsync(request, call, taskId, ct).ConfigureAwait(false);
 
         var push = await PreparePushConfigAsync(request, call, taskId, ct).ConfigureAwait(false);
         await BeginAuditAsync(call, ticket, message, isFollowUp, answersForm, taskId, push, ct).ConfigureAwait(false);
@@ -520,11 +537,12 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         Accepted accepted;
         // A2A 1.1 (§3.2.2): the precondition is part of the 1.1 request; a 1.0 caller cannot send it.
         var ifGenerationMatch = A2AProtocol.IsVersion11OrLater(call.ProtocolVersion) ? request.Configuration?.IfGenerationMatch : null;
-        if (isFollowUp) accepted = await AcceptFollowUpAsync(call, ticket, message, taskId, answersForm, push, ifGenerationMatch, ct).ConfigureAwait(false);
+        if (isFollowUp) accepted = await AcceptFollowUpAsync(call, ticket, message, taskId, answersForm, push, ifGenerationMatch, userArtifacts, ct).ConfigureAwait(false);
         else
         {
             var newContextId = await ResolveContextAsync(message.ContextId, call, ct).ConfigureAwait(false);
             message.ContextId = newContextId;
+            if (userArtifacts is not null) foreach (var u in userArtifacts) u.ContextId = newContextId;
             // A new task: nothing is stored yet, and no start was claimed, so a refusal needs no EndStart.
             if (_inbound is not null) await _inbound.AttachAsync(call, taskId, message, ct).ConfigureAwait(false);
             accepted = new Accepted(message, newContextId, null, 0, false, false, ApprovalState.None, null, null);
@@ -551,6 +569,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                 TokenExchanger = _tokenExchanger,
                 SkillAuthorizer = _skills,
                 UploadOpener = _inbound is { } inbound ? (part, range, token) => inbound.OpenAsync(call, part, range, token) : null,
+                UserArtifactUpdates = userArtifacts,
             };
             return new Prepared(context, accepted.Existing is null ? push : null, accepted.LastSequence, accepted.Duplicate, isFollowUp ? accepted.Existing?.Status : null, accepted.StartPending);
         }
@@ -565,12 +584,13 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private async Task<bool> ValidateRequestAsync(SendMessageRequest request, ServerCallContext call, CancellationToken ct)
     {
         call.BindTenant(request.Tenant);
-        A2AValidator.ValidateIncoming(request);
-        RequestLimitValidator.Validate(request.Message, _options.Limits);
-        ActorChainValidator.Validate(request.Message, _options.Limits, call);
-        await RequireSupportedMediaTypesAsync(request.Message, call, ct).ConfigureAwait(false);
-        await SkillSelectionValidator.ValidateAsync(request.Message, call, _requestCards, _cards, _authorization, ct).ConfigureAwait(false);
-        return await ElicitationValidator.IsAnswerAsync(request.Message, call, _requestCards, ct).ConfigureAwait(false);
+        A2AValidator.ValidateIncoming(request); // a request without a message is refused here
+        var message = request.Message!;
+        RequestLimitValidator.Validate(message, _options.Limits);
+        ActorChainValidator.Validate(message, _options.Limits, call);
+        await RequireSupportedMediaTypesAsync(message, call, ct).ConfigureAwait(false);
+        await SkillSelectionValidator.ValidateAsync(message, call, _requestCards, _cards, _authorization, ct).ConfigureAwait(false);
+        return await ElicitationValidator.IsAnswerAsync(message, call, _requestCards, ct).ConfigureAwait(false);
     }
 
     /// <summary>Check the push config before anything changes, so a refused request leaves no trace and a retry is refused the same way.</summary>
@@ -610,7 +630,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// recognise it as already accepted. The lock, the retry loop and the cleanup of an unsaved push config stay together here.
     /// </summary>
     private async Task<Accepted> AcceptFollowUpAsync(ServerCallContext call, AuditTicket ticket, Message message, string taskId, bool answersForm,
-        TaskPushNotificationConfig? push, long? ifGenerationMatch, CancellationToken ct)
+        TaskPushNotificationConfig? push, long? ifGenerationMatch, IReadOnlyList<TaskArtifactUpdateEvent>? userArtifacts, CancellationToken ct)
     {
         var key = Key(call, taskId);
         var pushIsNew = false;   // the config id did not exist before this request
@@ -628,6 +648,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     throw A2AException.InvalidParams("message.contextId does not match the task's contextId");
                 if (record.Task.History?.Exists(m => string.Equals(m.MessageId, message.MessageId, StringComparison.Ordinal)) == true)
                     return await AcceptAlreadyAcceptedAsync(key, ticket, record, message, ct).ConfigureAwait(false);
+                if (userArtifacts is not null) RequireClientOwned(record.Task, userArtifacts);
                 if (ifGenerationMatch is { } expected)
                 {
                     // Checked on the record the commit is based on (CAS), so check and commit are one step: after a conflict
@@ -711,8 +732,19 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     committed = true;
                     // Until the execution is registered, a retry must not start the message a second time.
                     _engine.BeginStart(key);
-                    // The caller's own stream starts after its message: the task it gets already holds it.
-                    return new Accepted(message, contextId, next, result.Sequence, false, true, approval, elicitation, approvalResource);
+                    // A2A 1.1 (§3.2.1): then the client's artifacts, in list order, each one change. Still under the lock.
+                    var (latest, last) = (result.Record, result.Sequence);
+                    if (userArtifacts is not null)
+                    {
+                        foreach (var update in userArtifacts)
+                        {
+                            update.ContextId = contextId;
+                            if (await _engine.StoreClientArtifactAsync(key, latest, update, ct).ConfigureAwait(false) is { } applied)
+                                (latest, last) = applied;
+                        }
+                    }
+                    // The caller's own stream starts after its message (and artifacts): the task it gets already holds them.
+                    return new Accepted(message, contextId, latest.Task, last, false, true, approval, elicitation, approvalResource);
                 }
                 catch (ConcurrencyException) when (attempt < TaskExecutionEngine.MaxConflictRetries)
                 {
@@ -1346,6 +1378,94 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         return majorMinor is A2AProtocol.Version or A2AProtocol.Version11
             ? majorMinor
             : throw A2AException.InvalidParams($"{field}.protocolVersion must be {A2AProtocol.Version} or {A2AProtocol.Version11}");
+    }
+
+    /// <summary>
+    /// A2A 1.1 (§3.2.1): checks the client's artifact updates of a SendMessage request for <paramref name="taskId"/> and returns
+    /// server-owned copies (role user, no generation, the task's ids), or null when there are none. A 1.0 caller has no such
+    /// field: its updates are ignored. Refused without the card's <c>userArtifacts</c> capability (UnsupportedOperation), over
+    /// <see cref="A2ALimits.MaxUserArtifactsPerRequest"/>, or when an update is malformed or names another task (InvalidParams).
+    /// Each artifact's parts are held to the message limits and the card's input media types.
+    /// </summary>
+    private async Task<IReadOnlyList<TaskArtifactUpdateEvent>?> CheckArtifactUpdatesAsync(SendMessageRequest request, ServerCallContext call, string taskId,
+        CancellationToken ct)
+    {
+        if (request.ArtifactUpdates is not { Count: > 0 } updates || !A2AProtocol.IsVersion11OrLater(call.ProtocolVersion)) return null;
+        var card = await _requestCards.RequireAgentAsync(call, ct).ConfigureAwait(false);
+        if (card.Capabilities.UserArtifacts != true)
+            throw new A2AException(A2AErrorCode.UnsupportedOperation, "The agent does not accept artifacts written by the client (capabilities.userArtifacts).");
+        if (updates.Count > _options.Limits.MaxUserArtifactsPerRequest)
+            throw A2AException.InvalidParams($"artifactUpdates has more than {_options.Limits.MaxUserArtifactsPerRequest} entries");
+        var checkedUpdates = new List<TaskArtifactUpdateEvent>(updates.Count);
+        for (var i = 0; i < updates.Count; i++)
+        {
+            var path = $"artifactUpdates[{i}]";
+            var u = updates[i] ?? throw A2AException.InvalidParams($"{path} is null");
+            if (!string.IsNullOrEmpty(u.TaskId) && !string.Equals(u.TaskId, taskId, StringComparison.Ordinal))
+                throw A2AException.InvalidParams($"{path}.taskId must be the task of the request");
+            var artifact = u.Artifact ?? throw A2AException.InvalidParams($"{path}.artifact is required");
+            if (string.IsNullOrWhiteSpace(artifact.ArtifactId)) throw A2AException.InvalidParams($"{path}.artifact.artifactId is required");
+            if (artifact.Parts is not { Count: > 0 } && !u.Append) throw A2AException.InvalidParams($"{path}.artifact.parts must contain at least one part");
+            if (artifact.Parts is { Count: > 0 })
+            {
+                // The same limits and media types as a message's parts.
+                var asMessage = new Message { MessageId = artifact.ArtifactId, Role = Role.User, Parts = artifact.Parts };
+                A2AValidator.ValidateMessage(asMessage, $"{path}.artifact");
+                RequestLimitValidator.Validate(asMessage, _options.Limits);
+                await RequireSupportedMediaTypesAsync(asMessage, call, ct).ConfigureAwait(false);
+            }
+            var copy = new Artifact
+            {
+                ArtifactId = artifact.ArtifactId,
+                Name = artifact.Name,
+                Description = artifact.Description,
+                Parts = (artifact.Parts ?? []).ConvertAll(p => p),
+                Metadata = artifact.Metadata is null ? null : new Dictionary<string, JsonElement>(artifact.Metadata),
+                Extensions = artifact.Extensions is null ? null : [.. artifact.Extensions],
+                Role = Role.User, // the server says who wrote it
+            };
+            // The generation is the server's (§3.2.1): a value the client sent is ignored.
+            checkedUpdates.Add(new TaskArtifactUpdateEvent { TaskId = taskId, ContextId = u.ContextId, Artifact = copy, Append = u.Append, LastChunk = u.LastChunk, Metadata = u.Metadata });
+        }
+        return checkedUpdates;
+    }
+
+    /// <summary>Refuses client updates of an artifact the agent wrote (one artifact id belongs to one side).</summary>
+    private static void RequireClientOwned(AgentTask task, IReadOnlyList<TaskArtifactUpdateEvent> updates)
+    {
+        foreach (var u in updates)
+        {
+            if (task.Artifacts?.Find(a => a.ArtifactId == u.Artifact.ArtifactId) is { } existing && existing.Role != Role.User)
+                throw A2AException.InvalidParams($"Artifact '{u.Artifact.ArtifactId}' was written by the agent; the client cannot change it.");
+        }
+    }
+
+    /// <summary>
+    /// A2A 1.1: a SendMessage without a message stores the client's artifact updates on an existing task (each update names it),
+    /// under the task lock, and returns the stored task. No agent runs. Refused for a 1.0 caller (message is required), for a
+    /// terminal task, and as <see cref="CheckArtifactUpdatesAsync"/> refuses.
+    /// </summary>
+    private async Task<TaskRecord> StoreArtifactsOnlyAsync(SendMessageRequest request, ServerCallContext call, CancellationToken ct)
+    {
+        call.BindTenant(request.Tenant);
+        if (!A2AProtocol.IsVersion11OrLater(call.ProtocolVersion) || request.ArtifactUpdates is not { Count: > 0 } raw)
+            throw A2AException.InvalidParams("message is required");
+        var taskId = raw[0]?.TaskId;
+        if (string.IsNullOrEmpty(taskId))
+            throw A2AException.InvalidParams("artifactUpdates[0].taskId is required when the request has no message");
+        var updates = (await CheckArtifactUpdatesAsync(request, call, taskId, ct).ConfigureAwait(false))!;
+        var key = Key(call, taskId);
+        using var gate = await _engine.LockAsync(key, ct).ConfigureAwait(false);
+        var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
+        if (record.Task.Status.State.IsTerminal())
+            throw new A2AException(A2AErrorCode.UnsupportedOperation, "The task is in a terminal state.") { Metadata = new() { ["taskId"] = taskId } };
+        RequireClientOwned(record.Task, updates);
+        foreach (var update in updates)
+        {
+            update.ContextId = record.Task.ContextId;
+            if (await _engine.StoreClientArtifactAsync(key, record, update, ct).ConfigureAwait(false) is { } applied) record = applied.Record;
+        }
+        return record;
     }
 
     /// <summary>A2A 1.1 <c>TaskGenerationMismatchError</c> with the metadata of spec 11.6.</summary>

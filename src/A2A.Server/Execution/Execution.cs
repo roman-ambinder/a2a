@@ -65,6 +65,12 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
     public bool PushEnabled { get; init; }
 
     /// <summary>
+    /// A2A 1.1: artifacts the client sent with the message that creates the task, already checked and owned by the server. They
+    /// are committed right after the task is created, before the agent's first event. Null when none.
+    /// </summary>
+    public IReadOnlyList<TaskArtifactUpdateEvent>? UserArtifacts { get; init; }
+
+    /// <summary>
     /// The last task this execution measured (<c>TaskSize.Measure</c>) and its size. The next event is measured as this size
     /// plus what it adds when the stored task is that same instance (it is never changed), so the cap check does not walk the
     /// task again for every appended chunk. Used only by the loop that applies this execution's events.

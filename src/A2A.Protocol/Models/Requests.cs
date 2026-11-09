@@ -71,8 +71,11 @@ public sealed class SendMessageRequest
 {
     /// <summary>Tenant to route the request to. Null when the agent is not multi-tenant.</summary>
     public string? Tenant { get; set; }
-    /// <summary>The message to send.</summary>
-    public required Message Message { get; set; }
+    /// <summary>
+    /// The message to send. Required to create a task. A2A 1.1: may be null only for a request that sends
+    /// <see cref="ArtifactUpdates"/> to an existing task (each update names its task).
+    /// </summary>
+    public Message? Message { get; set; }
     /// <summary>Options of the call. Null for the defaults.</summary>
     public SendMessageConfiguration? Configuration { get; set; }
     /// <summary>Extra data about the request. Null when none.</summary>

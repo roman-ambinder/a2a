@@ -38,6 +38,12 @@ public sealed class A2ALimits
     public int MaxHistoryLengthReturned { get; set; } = 100;
 
     /// <summary>
+    /// A2A 1.1: most artifact updates a client may send in one SendMessage request (<see cref="SendMessageRequest.ArtifactUpdates"/>).
+    /// Each one is also held to the message limits (parts, size). Default 16.
+    /// </summary>
+    public int MaxUserArtifactsPerRequest { get; set; } = 16;
+
+    /// <summary>
     /// A2A 1.1: most timeline entries returned for a task, also when the caller sends no <c>timelineLength</c> or a larger one
     /// (the newest entries are kept). Default 100.
     /// </summary>

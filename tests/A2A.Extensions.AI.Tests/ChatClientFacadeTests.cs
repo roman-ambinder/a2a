@@ -47,7 +47,7 @@ public class ChatClientFacadeTests
             new ChatMessage(ChatRole.User, "third"),
         ]);
 
-        var sent = Assert.Single(transport.Sent).Message;
+        var sent = Assert.Single(transport.Sent).Message!;
         Assert.Equal(Role.User, sent.Role);
         Assert.Equal(["second", "third"], sent.Parts.Select(p => ((TextPart)p).Text).ToArray());
     }
@@ -66,11 +66,11 @@ public class ChatClientFacadeTests
 
         var json = System.Text.Json.JsonSerializer.Serialize(Assert.Single(transport.Sent), A2A.Json.A2AJson.Options);
         Assert.DoesNotContain("SECRET", json);
-        Assert.Equal("hi", ((TextPart)Assert.Single(transport.Sent[0].Message.Parts)).Text);
+        Assert.Equal("hi", ((TextPart)Assert.Single(transport.Sent[0].Message!.Parts)).Text);
 
         // A system message in the middle of the trailing user run ends that run: only the user text after it is sent.
         await chat.GetResponseAsync([new ChatMessage(ChatRole.User, "before"), new ChatMessage(ChatRole.System, "SECRET-2"), new ChatMessage(ChatRole.User, "after")]);
-        Assert.Equal(["after"], transport.Sent[1].Message.Parts.Select(p => ((TextPart)p).Text).ToArray());
+        Assert.Equal(["after"], transport.Sent[1].Message!.Parts.Select(p => ((TextPart)p).Text).ToArray());
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public class ChatClientFacadeTests
 
         var response = await chat.GetResponseAsync([new ChatMessage(ChatRole.User, "hi")], options);
 
-        var sent = Assert.Single(transport.Sent).Message;
+        var sent = Assert.Single(transport.Sent).Message!;
         Assert.Equal("ctx-in", sent.ContextId);
         Assert.Equal("task-in", sent.TaskId);
         Assert.Equal("ctx-9", response.ConversationId);
@@ -258,7 +258,7 @@ public class ChatClientFacadeTests
         var chat = transport.AsClient().AsChatClient();
         await foreach (var _ in chat.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "hi")],
             new ChatOptions { ConversationId = "cx", AdditionalProperties = new() { [A2AChatKeys.TaskId] = "tx" } })) { }
-        var sent = Assert.Single(transport.Sent).Message;
+        var sent = Assert.Single(transport.Sent).Message!;
         Assert.Equal("cx", sent.ContextId);
         Assert.Equal("tx", sent.TaskId);
     }
@@ -388,7 +388,7 @@ public class ChatClientFacadeTests
 
         foreach (var request in transport.Sent)
         {
-            Assert.Null(request.Message.Metadata);
+            Assert.Null(request.Message!.Metadata);
             Assert.All(request.Message.Parts, p => Assert.Null(p.Metadata));
             Assert.DoesNotContain("SECRET", System.Text.Json.JsonSerializer.Serialize(request, A2A.Json.A2AJson.Options));
         }

@@ -52,7 +52,7 @@ public sealed class ClientOutboxMessage
 
         // Copy by a JSON round trip, so a field added to the request later is copied too.
         var copy = ClientOutboxEntry.Read<SendMessageRequest>(A2AJson.SerializeToUtf8Bytes(request));
-        if (string.IsNullOrEmpty(copy.Message.MessageId)) copy.Message.MessageId = Message.NewId();
+        if (string.IsNullOrEmpty(copy.Message!.MessageId)) copy.Message.MessageId = Message.NewId();
         copy.Configuration ??= new SendMessageConfiguration();
         copy.Configuration.ReturnImmediately = true;
         var message = copy.Message;

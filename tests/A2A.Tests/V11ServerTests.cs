@@ -417,6 +417,134 @@ public sealed class V11ServerTests
         Assert.Contains("statusUpdate", only.Body, StringComparison.Ordinal);
     }
 
+    private static Task<TestAgentHost> StartWithUserArtifactsAsync(Action<A2AServerOptions>? configure = null) =>
+        StartAsync(o =>
+        {
+            o.AgentCard.Capabilities.UserArtifacts = true;
+            configure?.Invoke(o);
+        });
+
+    private static object Upload(string artifactId, string text, string? taskId = null, long? generation = null) => new
+    {
+        taskId,
+        artifact = new { artifactId, parts = new[] { new { text } } },
+        generation = generation?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+    };
+
+    private static object SendWith(string text, string? taskId, params object[] uploads) => new
+    {
+        message = new { messageId = Guid.NewGuid().ToString(), role = "ROLE_USER", parts = new[] { new { text } }, taskId },
+        artifactUpdates = uploads,
+    };
+
+    [Fact]
+    public async Task Client_artifacts_of_a_new_task_are_stored_after_the_message_and_seen_by_the_agent()
+    {
+        await using var host = await StartWithUserArtifactsAsync();
+        var reply = await RpcAsync(host, "SendMessage", SendWith("user-artifacts", null, Upload("in-1", "data", generation: 99), Upload("in-2", "more")), "1.1");
+        var task = reply.GetProperty("task");
+        Assert.Equal("seen: [in-1,in-2]", task.GetProperty("status").GetProperty("message").GetProperty("parts")[0].GetProperty("text").GetString());
+        var id = task.GetProperty("id").GetString()!;
+        await host.WaitIdleAsync();
+
+        var stored = await GetTaskAsync(host, id, "1.1");
+        var artifacts = stored.GetProperty("artifacts").EnumerateArray().ToList();
+        Assert.Equal(["in-1", "in-2"], artifacts.Select(a => a.GetProperty("artifactId").GetString()));
+        Assert.All(artifacts, a => Assert.Equal("ROLE_USER", a.GetProperty("role").GetString()));
+        // snapshot (1), in-1 (2), in-2 (3), COMPLETED (4): the client's generation is ignored.
+        Assert.Equal(["2", "3"], artifacts.Select(a => a.GetProperty("startGeneration").GetString()));
+        Assert.Equal(4, Gen(stored));
+    }
+
+    [Fact]
+    public async Task Client_artifacts_need_the_capability()
+    {
+        await using var host = await StartAsync();
+        var error = await RpcErrorAsync(host, "SendMessage", SendWith("task", null, Upload("in-1", "data")), "1.1");
+        Assert.Equal((int)A2AErrorCode.UnsupportedOperation, error.GetProperty("code").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_direct_reply_stores_neither_the_message_nor_the_artifacts()
+    {
+        await using var host = await StartWithUserArtifactsAsync();
+        var reply = await RpcAsync(host, "SendMessage", SendWith("hello", null, Upload("in-1", "data")), "1.1");
+        Assert.True(reply.TryGetProperty("message", out _));
+        var list = await RpcAsync(host, "ListTasks", new { }, "1.1");
+        Assert.Equal(0, list.GetProperty("tasks").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Artifacts_without_a_message_update_an_existing_task_and_run_no_agent()
+    {
+        await using var host = await StartWithUserArtifactsAsync();
+        var id = await CreateAsync(host, "input");
+        await host.WaitIdleAsync(); // generation 2
+
+        var reply = await RpcAsync(host, "SendMessage", new { artifactUpdates = new[] { Upload("in-1", "data", id) } }, "1.1");
+        var task = reply.GetProperty("task");
+        Assert.Equal(3, Gen(task));
+        Assert.Equal("TASK_STATE_INPUT_REQUIRED", task.GetProperty("status").GetProperty("state").GetString());
+        Assert.Equal("ROLE_USER", task.GetProperty("artifacts")[0].GetProperty("role").GetString());
+
+        // An append to it works like an agent's chunk.
+        var appended = await RpcAsync(host, "SendMessage", new { artifactUpdates = new[] { new { taskId = id, append = true, artifact = new { artifactId = "in-1", parts = new[] { new { text = "+" } } } } } }, "1.1");
+        Assert.Equal(2, appended.GetProperty("task").GetProperty("artifacts")[0].GetProperty("parts").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Artifacts_without_a_message_are_refused_when_they_cannot_apply()
+    {
+        await using var host = await StartWithUserArtifactsAsync();
+        var noTask = await RpcErrorAsync(host, "SendMessage", new { artifactUpdates = new[] { Upload("in-1", "data") } }, "1.1");
+        Assert.Equal((int)A2AErrorCode.InvalidParams, noTask.GetProperty("code").GetInt32());
+        var v10 = await RpcErrorAsync(host, "SendMessage", new { artifactUpdates = new[] { Upload("in-1", "data", "t") } }, "1.0");
+        Assert.Equal((int)A2AErrorCode.InvalidParams, v10.GetProperty("code").GetInt32());
+        var missing = await RpcErrorAsync(host, "SendMessage", new { artifactUpdates = new[] { Upload("in-1", "data", "nope") } }, "1.1");
+        Assert.Equal((int)A2AErrorCode.TaskNotFound, missing.GetProperty("code").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_follow_up_stores_its_artifacts_after_its_message_and_the_agent_sees_them()
+    {
+        await using var host = await StartWithUserArtifactsAsync();
+        var id = await CreateAsync(host, "input");
+        await host.WaitIdleAsync();
+
+        var reply = await RpcAsync(host, "SendMessage", SendWith("more", id, Upload("in-1", "data")), "1.1");
+        Assert.Equal("got: more [in-1]", reply.GetProperty("task").GetProperty("status").GetProperty("message").GetProperty("parts")[0].GetProperty("text").GetString());
+        await host.WaitIdleAsync();
+        var task = await GetTaskAsync(host, id, "1.1");
+        var timeline = task.GetProperty("timeline").EnumerateArray().ToList();
+        Assert.Equal(3, Gen(timeline[2])); // the message
+        Assert.Equal("4", task.GetProperty("artifacts")[0].GetProperty("startGeneration").GetString());
+        Assert.Equal(5, Gen(task)); // + COMPLETED
+    }
+
+    [Fact]
+    public async Task The_client_cannot_change_an_agent_artifact()
+    {
+        await using var host = await StartWithUserArtifactsAsync();
+        var id = await CreateAsync(host, "artifact-input");
+        await host.WaitIdleAsync();
+        var refused = await RpcErrorAsync(host, "SendMessage", new { artifactUpdates = new[] { Upload("agent-out", "x", id) } }, "1.1");
+        Assert.Equal((int)A2AErrorCode.InvalidParams, refused.GetProperty("code").GetInt32());
+        var task = await GetTaskAsync(host, id, "1.1");
+        Assert.Equal("agent", task.GetProperty("artifacts")[0].GetProperty("parts")[0].GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public async Task A_1_0_caller_cannot_send_artifacts()
+    {
+        await using var host = await StartWithUserArtifactsAsync();
+        var id = await CreateAsync(host, "input", version: "1.0");
+        await host.WaitIdleAsync();
+        // 1.0 has no such field: the message is processed and nothing else is stored.
+        await RpcAsync(host, "SendMessage", SendWith("more", id, Upload("in-1", "data")), "1.0");
+        await host.WaitIdleAsync();
+        Assert.False((await GetTaskAsync(host, id, "1.1")).TryGetProperty("artifacts", out _));
+    }
+
     [Fact]
     public async Task Negative_timeline_length_is_invalid()
     {

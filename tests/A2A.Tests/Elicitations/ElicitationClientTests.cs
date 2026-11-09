@@ -70,7 +70,7 @@ public class ElicitationClientTests
         await client.AnswerElicitationAsync(task, ElicitationAnswer.Accept(form, new ElicitationValues { { "city", "Oslo" } }), options);
 
         var (request, sentOptions) = Assert.Single(client.Sent);
-        Assert.Equal("task-1", request.Message.TaskId);
+        Assert.Equal("task-1", request.Message!.TaskId);
         Assert.Equal("ctx-1", request.Message.ContextId);
         Assert.Equal(Role.User, request.Message.Role);
         Assert.Equal("Oslo", request.Message.GetElicitationAnswer()!.GetString("city"));

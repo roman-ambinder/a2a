@@ -122,7 +122,7 @@ public sealed class ClientOutboxOptionsTests
         Assert.False(request.Configuration.ReturnImmediately);
 
         var stored = A2A.Json.A2AJson.Deserialize<SendMessageRequest>(System.Text.Encoding.UTF8.GetString(message.Request.Span));
-        Assert.Equal(message.Id, stored.Message.MessageId); // default id: the message id
+        Assert.Equal(message.Id, stored.Message!.MessageId); // default id: the message id
         Assert.Equal("t1", stored.Tenant);
         Assert.True(stored.Configuration!.ReturnImmediately);
         Assert.Equal(3, stored.Configuration.HistoryLength);
@@ -136,6 +136,6 @@ public sealed class ClientOutboxOptionsTests
         var request = new SendMessageRequest { Message = new Message { MessageId = "m-1", Role = Role.User, Parts = [Part.FromText("x")] } };
         var message = ClientOutboxMessage.Create("peer", request, id: "entry-1");
         Assert.Equal("entry-1", message.Id);
-        Assert.Equal("m-1", A2A.Json.A2AJson.Deserialize<SendMessageRequest>(System.Text.Encoding.UTF8.GetString(message.Request.Span)).Message.MessageId);
+        Assert.Equal("m-1", A2A.Json.A2AJson.Deserialize<SendMessageRequest>(System.Text.Encoding.UTF8.GetString(message.Request.Span)).Message!.MessageId);
     }
 }

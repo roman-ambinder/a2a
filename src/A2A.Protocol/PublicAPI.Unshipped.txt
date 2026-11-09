@@ -135,3 +135,5 @@ static A2A.A2AProtocol.IsVersion11OrLater(string? version) -> bool
 static A2A.Json.A2AJson.GetTypeInfo<T>(string? protocolVersion) -> System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>!
 static A2A.Json.A2AJson.OptionsFor(string? protocolVersion) -> System.Text.Json.JsonSerializerOptions!
 static A2A.Json.A2AJson.V10Options.get -> System.Text.Json.JsonSerializerOptions!
+*REMOVED*A2A.SendMessageRequest.Message.get -> A2A.Message!
+A2A.SendMessageRequest.Message.get -> A2A.Message?
