@@ -173,6 +173,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 242, Level = LogLevel.Warning, Message = "Task {TaskId}: could not re-read the task after starting a continuation; the run goes on")]
     public static partial void ContinuationRecheckFailed(ILogger logger, Exception exception, string taskId);
 
+    [LoggerMessage(EventId = 243, Level = LogLevel.Warning, Message = "Task {TaskId}: the agent used more than the task budget; failing the task")]
+    public static partial void TaskBudgetExceeded(ILogger logger, string taskId);
+
     [LoggerMessage(EventId = 250, Level = LogLevel.Debug, Message = "Skipped the A2A startup diagnostics")]
     public static partial void StartupDiagnosticsSkipped(ILogger logger, Exception exception);
 
@@ -190,6 +193,16 @@ internal static partial class ServerLog
 
     [LoggerMessage(EventId = 255, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.InMemoryObjectsMessage)]
     public static partial void InMemoryObjectsWithDurableStore(ILogger logger, string taskStore);
+
+    // Inbound uploads: 680-689
+    [LoggerMessage(EventId = 680, Level = LogLevel.Information, Message = "Deleted the unused inbound upload {Key}")]
+    public static partial void UploadPurged(ILogger logger, string key);
+
+    [LoggerMessage(EventId = 681, Level = LogLevel.Warning, Message = "Inbound upload {Key}: could not tell whether a task still uses it, so it is kept; the next sweep tries again")]
+    public static partial void UploadCheckFailed(ILogger logger, Exception exception, string key);
+
+    [LoggerMessage(EventId = 682, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.UploadsWithoutRetentionMessage)]
+    public static partial void UploadsWithoutRetention(ILogger logger);
 
     // IdempotencyCoordinator: 400-499
     [LoggerMessage(EventId = 400, Level = LogLevel.Error, Message = "Failed to record the idempotency outcome for task {TaskId}")]

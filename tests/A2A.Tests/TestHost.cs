@@ -124,6 +124,23 @@ public sealed class ScenarioAgent : IAgentExecutor
                     cancellationToken: ct);
                 await updater.CompleteAsync("done", ct);
                 break;
+            case "upload": // reads the first url part with OpenUploadAsync and reports what it got
+            case "upload-link": // same, for a link written in the text (it never went through the message check)
+                var link = text.StartsWith("upload-link ", StringComparison.Ordinal)
+                    ? new UrlPart(new Uri(text["upload-link ".Length..]))
+                    : context.Message.Parts.OfType<UrlPart>().First();
+                await using (var file = await context.OpenUploadAsync(link, cancellationToken: ct))
+                {
+                    if (file is null)
+                    {
+                        await updater.CompleteAsync("no-upload", ct);
+                        break;
+                    }
+                    using var read = new MemoryStream();
+                    await file.Content.CopyToAsync(read, ct);
+                    await updater.CompleteAsync($"read:{read.Length}:{file.FileName}", ct);
+                }
+                break;
             case "silent":
                 break;
             default:

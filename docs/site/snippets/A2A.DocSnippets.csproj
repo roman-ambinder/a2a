@@ -14,6 +14,10 @@
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\A2A.Mcp\A2A.Mcp.csproj" />
     <ProjectReference Include="..\..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
     <ProjectReference Include="..\..\..\src\A2A.Server.Grpc\A2A.Server.Grpc.csproj" />
     <ProjectReference Include="..\..\..\src\A2A.Server.Postgres\A2A.Server.Postgres.csproj" />
