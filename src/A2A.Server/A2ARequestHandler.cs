@@ -269,6 +269,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     {
         try
         {
+            // Before anything is stored (a refused follow-up leaves no trace) and after the idempotency replay check (a replay
+            // takes no slot). The slot goes to the agent: the execution takes it, and a refusal or failure releases it.
+            agent.AttachSlot(await _engine.AdmitAsync(call.Tenant, claim, newTaskId, ct).ConfigureAwait(false));
             var prepared = await PrepareAsync(request, call, ct, newTaskId).ConfigureAwait(false);
             try
             {

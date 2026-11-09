@@ -1,4 +1,5 @@
 using System.Text.Json;
+using A2A.Server.Idempotency;
 using A2A.Server.Retention;
 using A2A.Server.Storage;
 
@@ -59,6 +60,13 @@ public sealed partial class TaskExecutionEngine
         agent.Error?.Throw(); // a failing factory reaches the caller; the task is untouched
         if (agent.Executor is not IContinuableAgentExecutor) return Refused(key, TaskContinuationStatus.NotSupported);
 
+        // After the early refusals and the agent check, before the start claim (a claim has no heartbeat while queued).
+        try { agent.AttachSlot(await AdmitAsync(key.Tenant, IdempotencyClaim.None, key.TaskId, cancellationToken).ConfigureAwait(false)); }
+        catch (A2AException ex) when (ex.Code == A2AErrorCode.RateLimited)
+        {
+            return Refused(key, TaskContinuationStatus.AtCapacity);
+        }
+
         var pushEnabled = await PushEnabledForTenantAsync(key, cancellationToken).ConfigureAwait(false); // before the claim: it has no heartbeat
         var claim = ContinuationClaimPrefix + Guid.NewGuid().ToString("N");
         try
@@ -75,7 +83,11 @@ public sealed partial class TaskExecutionEngine
                 Metadata = CopyMetadata(metadata),
             };
             var exec = await StartRawAsync(key, record.Task.ContextId, isNewTask: false, userMessage: null, push: null, emitInitialSnapshot: false,
-                (executor, updater, token) => ((IContinuableAgentExecutor)executor).ContinueAsync(context, updater, token),
+                (executor, updater, token) =>
+                {
+                    updater.SeedUsage(context.Task.Metadata); // the usage earlier runs stored
+                    return ((IContinuableAgentExecutor)executor).ContinueAsync(context, updater, token);
+                },
                 agent, pushEnabled, requestMetadata: context.Metadata, timeLimit: _options.MaxTaskDuration, kind: ContinueKind).ConfigureAwait(false);
             exec.Detach(); // no request reads the outgoing events
             await CancelIfEndedMeanwhileAsync(key, exec).ConfigureAwait(false);

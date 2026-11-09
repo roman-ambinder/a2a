@@ -94,6 +94,22 @@ A2A.Server.ServerCallContext.SkipRequiredExtensions.get -> bool
 A2A.Server.ServerCallContext.SkipRequiredExtensions.init -> void
 A2A.Server.A2AServerOptions.ShutdownDrainTimeout.get -> System.TimeSpan
 A2A.Server.A2AServerOptions.ShutdownDrainTimeout.set -> void
+A2A.Server.A2ALimits.MaxConcurrentExecutions.get -> int
+A2A.Server.A2ALimits.MaxConcurrentExecutions.set -> void
+A2A.Server.A2ALimits.MaxConcurrentExecutionsPerTenant.get -> int
+A2A.Server.A2ALimits.MaxConcurrentExecutionsPerTenant.set -> void
+A2A.Server.A2ALimits.MaxQueuedExecutions.get -> int
+A2A.Server.A2ALimits.MaxQueuedExecutions.set -> void
+A2A.Server.A2ALimits.MaxExecutionQueueWait.get -> System.TimeSpan
+A2A.Server.A2ALimits.MaxExecutionQueueWait.set -> void
+A2A.Server.A2ALimits.MaxTaskTokens.get -> long?
+A2A.Server.A2ALimits.MaxTaskTokens.set -> void
+A2A.Server.A2ALimits.MaxTaskCostUnits.get -> decimal?
+A2A.Server.A2ALimits.MaxTaskCostUnits.set -> void
+A2A.Server.TaskUpdater.ReportUsageAsync(long tokens, decimal costUnits = 0, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+A2A.Server.TaskUpdater.UsedTokens.get -> long
+A2A.Server.TaskUpdater.UsedCostUnits.get -> decimal
+A2A.Server.TaskContinuationStatus.AtCapacity = 6 -> A2A.Server.TaskContinuationStatus
 A2A.Server.A2AServerOptions.IdempotentCancel.get -> bool
 A2A.Server.A2AServerOptions.IdempotentCancel.set -> void
 A2A.Server.A2AServerOptions.ContextAccess.get -> System.Func<A2A.Server.Storage.ContextRecord!, A2A.Server.ServerCallContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<bool>>?

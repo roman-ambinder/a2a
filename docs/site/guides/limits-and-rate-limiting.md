@@ -18,6 +18,8 @@ All size, count and time limits are members of <xref:A2A.Server.A2ALimits>, reac
 | <xref:A2A.Server.A2ALimits.MaxListPageSize> | 100 | No error. The page size is capped. |
 | <xref:A2A.Server.A2ALimits.MaxConcurrentStreamsPerTask> | 10 | `RATE_LIMITED` (HTTP 429) |
 | <xref:A2A.Server.A2ALimits.MaxConcurrentStreamsPerPrincipal> | 50 | `RATE_LIMITED` (HTTP 429) |
+| <xref:A2A.Server.A2ALimits.MaxConcurrentExecutions> | 1024 | Waits in a queue, then `RATE_LIMITED` (HTTP 429). See [execution limits](execution-limits.md). |
+| <xref:A2A.Server.A2ALimits.MaxConcurrentExecutionsPerTenant> | 0 (off) | As above, per tenant. |
 | <xref:A2A.Server.A2ALimits.MaxEventBytes> | 4 MB | The task fails and the agent is stopped. |
 | <xref:A2A.Server.A2ALimits.MaxTaskBytes> | 64 MiB | An agent event past it fails the task and stops the agent. A follow-up past it is refused with `UnsupportedOperation`. |
 | <xref:A2A.Server.A2ALimits.MaxArtifactsPerTask> | 1024 | The task fails and the agent is stopped. |
@@ -101,6 +103,7 @@ Behind a reverse proxy or load balancer, every connection comes from the proxy. 
 
 ## See also
 
+- [Execution limits and budgets](execution-limits.md)
 - [Task safety](task-safety.md)
 - [Authentication and ownership](auth-and-ownership.md)
 - [Streaming and resume](streaming.md)

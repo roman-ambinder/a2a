@@ -48,6 +48,18 @@ internal static class ServerTelemetry
     public static readonly Counter<long> OrphanObjectsDeleted =
         Meter.CreateCounter<long>("a2a.server.artifact.orphans.deleted", description: "Orphan objects the retention sweep deleted from the artifact object store.");
 
+    public static readonly UpDownCounter<long> ExecutionsActive =
+        Meter.CreateUpDownCounter<long>("a2a.server.executions.active", description: "Agent runs holding an execution slot on this instance.");
+    public static readonly UpDownCounter<long> ExecutionsQueued =
+        Meter.CreateUpDownCounter<long>("a2a.server.executions.queued", description: "Starts waiting for an execution slot on this instance.");
+    public static readonly Counter<long> ExecutionsRejected =
+        Meter.CreateCounter<long>("a2a.server.executions.rejected", description: "Starts refused for lack of an execution slot, by a2a.rejection.reason: queue_full, queue_timeout or shutdown.");
+    public static readonly Counter<long> BudgetExceeded =
+        Meter.CreateCounter<long>("a2a.server.tasks.budget_exceeded", description: "Tasks failed for going past their token or cost budget.");
+
+    /// <summary>Tag of <see cref="ExecutionsRejected"/>: why the start was refused.</summary>
+    public const string RejectionReasonTag = "a2a.rejection.reason";
+
     /// <summary>
     /// The outcome of a call: <see cref="A2ATelemetry.Outcomes.Ok"/>; <see cref="A2ATelemetry.Outcomes.Canceled"/> for an
     /// <see cref="OperationCanceledException"/> when the caller canceled (<paramref name="cancellationToken"/>); otherwise

@@ -173,6 +173,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 242, Level = LogLevel.Warning, Message = "Task {TaskId}: could not re-read the task after starting a continuation; the run goes on")]
     public static partial void ContinuationRecheckFailed(ILogger logger, Exception exception, string taskId);
 
+    [LoggerMessage(EventId = 243, Level = LogLevel.Warning, Message = "Task {TaskId}: the agent used more than the task budget; failing the task")]
+    public static partial void TaskBudgetExceeded(ILogger logger, string taskId);
+
     [LoggerMessage(EventId = 250, Level = LogLevel.Debug, Message = "Skipped the A2A startup diagnostics")]
     public static partial void StartupDiagnosticsSkipped(ILogger logger, Exception exception);
 
