@@ -1,6 +1,7 @@
 #nullable enable
 *REMOVED*A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AOperationFilterRegistration!>! filters, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensionOperations, A2A.Server.IAgentCardProvider! cards, A2A.Delegation.ITokenExchanger? tokenExchanger = null) -> void
 *REMOVED*A2A.Server.Execution.TaskExecutionEngine.TaskExecutionEngine(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.IAgentExecutorFactory! executors, A2A.Server.TaskEventBus! bus, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.A2AServerOptions! options, A2A.Server.IAgentCardProvider! cards, Microsoft.Extensions.Logging.ILogger<A2A.Server.Execution.TaskExecutionEngine!>? logger = null, System.TimeProvider? timeProvider = null, A2A.Server.Coordination.ExecutionCoordinator? coordinator = null) -> void
+*REMOVED*A2A.Server.Push.A2APushAdmin.A2APushAdmin(A2A.Server.Push.PushOutbox! outbox) -> void
 *REMOVED*A2A.Server.Retention.A2ARetentionService.A2ARetentionService(Microsoft.Extensions.Options.IOptions<A2A.Server.Retention.A2ARetentionOptions!>! options, A2A.Server.A2AServerOptions! serverOptions, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Retention.A2ATaskAdmin! admin, Microsoft.Extensions.Logging.ILogger<A2A.Server.Retention.A2ARetentionService!>? logger = null, System.TimeProvider? time = null) -> void
 *REMOVED*A2A.Server.Retention.A2ATaskAdmin.A2ATaskAdmin(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Storage.PushConfigStore! pushConfigs, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine? engine = null) -> void
 *REMOVED*abstract A2A.Server.Idempotency.IdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
@@ -26,11 +27,15 @@ A2A.Server.A2ALimits.MaxTaskCostUnits.set -> void
 A2A.Server.A2ALimits.MaxTaskTokens.get -> long?
 A2A.Server.A2ALimits.MaxTaskTokens.set -> void
 A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AOperationFilterRegistration!>! filters, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensionOperations, A2A.Server.IAgentCardProvider! cards, A2A.Delegation.ITokenExchanger? tokenExchanger = null, A2A.Server.Storage.ArtifactObjectStore? objects = null) -> void
+A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AOperationFilterRegistration!>! filters, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensionOperations, A2A.Server.IAgentCardProvider! cards, A2A.Delegation.ITokenExchanger? tokenExchanger = null, A2A.Server.Storage.ArtifactObjectStore? objects = null, A2A.Server.Audit.A2AAuditor? audit = null) -> void
 A2A.Server.A2ARequestHandler.OpenArtifactAsync(string! taskId, string! objectId, A2A.Server.Storage.ArtifactByteRange? range, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.ArtifactDownload!>
 A2A.Server.A2ARequestHandler.OpenUploadAsync(string! objectId, A2A.Server.Storage.ArtifactByteRange? range, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.ArtifactDownload!>
 A2A.Server.A2ARequestHandler.UploadFileAsync(System.IO.Stream! content, string? mediaType, string? fileName, long? contentLength, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.UrlPart!>
+A2A.Server.A2AServerBuilder.AddAuditSink(A2A.Server.Audit.A2AAuditSink! sink) -> A2A.Server.A2AServerBuilder!
+A2A.Server.A2AServerBuilder.AddAuditSink<T>() -> A2A.Server.A2AServerBuilder!
 A2A.Server.A2AServerBuilder.AddExtensionOperation<TRequest, TResult>(string! method, string! extensionUri, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TRequest>! requestType, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult>! resultType, System.Func<A2A.Server.Pipeline.A2AOperationContext!, TRequest, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<TResult>>! handler, string? authorizationPolicy = null, bool allow = false) -> A2A.Server.A2AServerBuilder!
 A2A.Server.A2AServerOptions.ArtifactStorage.get -> A2A.Server.ArtifactStorageOptions!
+A2A.Server.A2AServerOptions.Audit.get -> A2A.Server.Audit.A2AAuditOptions!
 A2A.Server.A2AServerOptions.ContextAccess.get -> System.Func<A2A.Server.Storage.ContextRecord!, A2A.Server.ServerCallContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<bool>>?
 A2A.Server.A2AServerOptions.ContextAccess.set -> void
 A2A.Server.A2AServerOptions.IdempotentCancel.get -> bool
@@ -83,6 +88,66 @@ A2A.Server.ArtifactUploadOptions.MaxUploadsPerCaller.get -> int
 A2A.Server.ArtifactUploadOptions.MaxUploadsPerCaller.set -> void
 A2A.Server.ArtifactUploadOptions.UnusedUploadTtl.get -> System.TimeSpan
 A2A.Server.ArtifactUploadOptions.UnusedUploadTtl.set -> void
+A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.AccessDenied = 12 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.AdminDeadLetterRedriven = 10 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.AdminDeadLettersListed = 11 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.AdminTaskDeleted = 9 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.ApprovalDeclined = 3 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.ApprovalGranted = 2 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.ArtifactDownloaded = 6 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.ElicitationAnswered = 4 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.FollowUpSent = 1 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.PushConfigCreated = 7 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.PushConfigDeleted = 8 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.TaskCanceled = 5 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditAction.TaskCreated = 0 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditEvent
+A2A.Server.Audit.A2AAuditEvent.Action.get -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Audit.A2AAuditEvent.Action.init -> void
+A2A.Server.Audit.A2AAuditEvent.Actor.get -> string!
+A2A.Server.Audit.A2AAuditEvent.Actor.init -> void
+A2A.Server.Audit.A2AAuditEvent.Binding.get -> string?
+A2A.Server.Audit.A2AAuditEvent.Binding.init -> void
+A2A.Server.Audit.A2AAuditEvent.Id.get -> string!
+A2A.Server.Audit.A2AAuditEvent.Id.init -> void
+A2A.Server.Audit.A2AAuditEvent.Operation.get -> string?
+A2A.Server.Audit.A2AAuditEvent.Operation.init -> void
+A2A.Server.Audit.A2AAuditEvent.Outcome.get -> A2A.Server.Audit.A2AAuditOutcome
+A2A.Server.Audit.A2AAuditEvent.Outcome.init -> void
+A2A.Server.Audit.A2AAuditEvent.Reason.get -> string?
+A2A.Server.Audit.A2AAuditEvent.Reason.init -> void
+A2A.Server.Audit.A2AAuditEvent.RemoteAddress.get -> string?
+A2A.Server.Audit.A2AAuditEvent.RemoteAddress.init -> void
+A2A.Server.Audit.A2AAuditEvent.Resource.get -> string?
+A2A.Server.Audit.A2AAuditEvent.Resource.init -> void
+A2A.Server.Audit.A2AAuditEvent.TaskId.get -> string?
+A2A.Server.Audit.A2AAuditEvent.TaskId.init -> void
+A2A.Server.Audit.A2AAuditEvent.Tenant.get -> string!
+A2A.Server.Audit.A2AAuditEvent.Tenant.init -> void
+A2A.Server.Audit.A2AAuditEvent.Time.get -> System.DateTimeOffset
+A2A.Server.Audit.A2AAuditEvent.Time.init -> void
+A2A.Server.Audit.A2AAuditEvent.TraceId.get -> string?
+A2A.Server.Audit.A2AAuditEvent.TraceId.init -> void
+A2A.Server.Audit.A2AAuditOptions
+A2A.Server.Audit.A2AAuditOptions.A2AAuditOptions() -> void
+A2A.Server.Audit.A2AAuditOptions.FailClosed.get -> bool
+A2A.Server.Audit.A2AAuditOptions.FailClosed.set -> void
+A2A.Server.Audit.A2AAuditOptions.LogIdentity.get -> bool
+A2A.Server.Audit.A2AAuditOptions.LogIdentity.set -> void
+A2A.Server.Audit.A2AAuditOptions.WriteTimeout.get -> System.TimeSpan
+A2A.Server.Audit.A2AAuditOptions.WriteTimeout.set -> void
+A2A.Server.Audit.A2AAuditOutcome
+A2A.Server.Audit.A2AAuditOutcome.Attempted = 0 -> A2A.Server.Audit.A2AAuditOutcome
+A2A.Server.Audit.A2AAuditOutcome.Denied = 2 -> A2A.Server.Audit.A2AAuditOutcome
+A2A.Server.Audit.A2AAuditOutcome.Failed = 3 -> A2A.Server.Audit.A2AAuditOutcome
+A2A.Server.Audit.A2AAuditOutcome.Succeeded = 1 -> A2A.Server.Audit.A2AAuditOutcome
+A2A.Server.Audit.A2AAuditSink
+A2A.Server.Audit.A2AAuditSink.A2AAuditSink() -> void
+A2A.Server.Audit.A2AAuditor
+A2A.Server.Audit.A2AAuditor.A2AAuditor(A2A.Server.Audit.A2AAuditSink! sink, A2A.Server.A2AServerOptions! options, Microsoft.Extensions.Logging.ILogger<A2A.Server.Audit.A2AAuditor!>? logger = null, System.TimeProvider? timeProvider = null) -> void
+A2A.Server.Audit.LoggerAuditSink
+A2A.Server.Audit.LoggerAuditSink.LoggerAuditSink(Microsoft.Extensions.Logging.ILogger<A2A.Server.Audit.LoggerAuditSink!>? logger = null, A2A.Server.A2AServerOptions? options = null) -> void
 A2A.Server.Authorization.SkillAuthorizationMode
 A2A.Server.Authorization.SkillAuthorizationMode.Off = 0 -> A2A.Server.Authorization.SkillAuthorizationMode
 A2A.Server.Authorization.SkillAuthorizationMode.Required = 2 -> A2A.Server.Authorization.SkillAuthorizationMode
@@ -114,6 +179,9 @@ A2A.Server.Idempotency.IdempotencyCommit.Scope.init -> void
 A2A.Server.Idempotency.IdempotencyResult.New.ClaimId.get -> System.Guid
 A2A.Server.Idempotency.IdempotencyResult.New.ClaimId.init -> void
 A2A.Server.Idempotency.IdempotencyResult.New.New(System.Guid ClaimId) -> void
+A2A.Server.Push.A2APushAdmin.A2APushAdmin(A2A.Server.Push.PushOutbox! outbox, A2A.Server.Audit.A2AAuditor? audit = null) -> void
+A2A.Server.Push.A2APushAdmin.ListDeadLettersAsync(string! tenant, int max, string! actor, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Push.OutboxEntry!>!>
+A2A.Server.Push.A2APushAdmin.RedriveAsync(A2A.Server.Storage.PushDelivery! d, string! actor, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 A2A.Server.Push.IPushOutboxStatistics
 A2A.Server.Push.IPushOutboxStatistics.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
 A2A.Server.Push.InMemoryPushOutbox.Count.get -> int
@@ -129,6 +197,8 @@ A2A.Server.Push.PushOutboxStatistics.PushOutboxStatistics() -> void
 A2A.Server.Push.PushOutboxStatistics.PushOutboxStatistics(System.TimeSpan OldestDueAge, int DeadLetterCount) -> void
 A2A.Server.Retention.A2ARetentionService.A2ARetentionService(Microsoft.Extensions.Options.IOptions<A2A.Server.Retention.A2ARetentionOptions!>! options, A2A.Server.A2AServerOptions! serverOptions, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Retention.A2ATaskAdmin! admin, Microsoft.Extensions.Logging.ILogger<A2A.Server.Retention.A2ARetentionService!>? logger = null, System.TimeProvider? time = null, A2A.Server.Storage.ArtifactObjectStore? objects = null) -> void
 A2A.Server.Retention.A2ATaskAdmin.A2ATaskAdmin(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Storage.PushConfigStore! pushConfigs, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine? engine = null, A2A.Server.Storage.ArtifactObjectStore? objects = null, Microsoft.Extensions.Logging.ILogger<A2A.Server.Retention.A2ATaskAdmin!>? logger = null) -> void
+A2A.Server.Retention.A2ATaskAdmin.A2ATaskAdmin(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Storage.PushConfigStore! pushConfigs, A2A.Server.Push.PushOutbox! outbox, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine? engine = null, A2A.Server.Storage.ArtifactObjectStore? objects = null, Microsoft.Extensions.Logging.ILogger<A2A.Server.Retention.A2ATaskAdmin!>? logger = null, A2A.Server.Audit.A2AAuditor? audit = null) -> void
+A2A.Server.Retention.A2ATaskAdmin.DeleteTaskAsync(A2A.Server.Storage.TaskKey key, string! actor, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 A2A.Server.ServerCallContext.SkipRequiredExtensions.get -> bool
 A2A.Server.ServerCallContext.SkipRequiredExtensions.init -> void
 A2A.Server.Storage.ArtifactByteRange
@@ -214,6 +284,7 @@ A2A.Server.TaskUpdater.AddArtifactFromStreamAsync(System.IO.Stream! content, str
 A2A.Server.TaskUpdater.ReportUsageAsync(long tokens, decimal costUnits = 0, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 A2A.Server.TaskUpdater.UsedCostUnits.get -> decimal
 A2A.Server.TaskUpdater.UsedTokens.get -> long
+abstract A2A.Server.Audit.A2AAuditSink.WriteAsync(A2A.Server.Audit.A2AAuditEvent! auditEvent, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 abstract A2A.Server.Idempotency.IdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 abstract A2A.Server.Idempotency.IdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 abstract A2A.Server.Idempotency.IdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
@@ -224,8 +295,10 @@ abstract A2A.Server.Storage.ArtifactObjectStore.PutAsync(string! key, System.IO.
 abstract A2A.Server.Storage.TaskStore.GetForMaintenanceAsync(string! tenant, string! taskId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.TaskRecord?>
 const A2A.Server.A2ARequestHandler.ReadUploadOperationName = "a2a.files.read" -> string!
 const A2A.Server.A2ARequestHandler.UploadOperationName = "a2a.files.upload" -> string!
+const A2A.Server.Audit.A2AAuditEvent.UnknownOperator = "operator" -> string!
 const A2A.Server.ConversationMemory.DefaultMaxBytes = 262144 -> long
 const A2A.Server.ConversationMemory.DefaultMaxTasks = 20 -> int
+override A2A.Server.Audit.LoggerAuditSink.WriteAsync(A2A.Server.Audit.A2AAuditEvent! auditEvent, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 override A2A.Server.Idempotency.InMemoryIdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 override A2A.Server.Idempotency.InMemoryIdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 override A2A.Server.Idempotency.InMemoryIdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask

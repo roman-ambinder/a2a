@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using A2A.Diagnostics;
 using A2A.Elicitations;
+using A2A.Server.Audit;
 using A2A.Server.Agents;
 using A2A.Server.Execution;
 using A2A.Server.Idempotency;
@@ -46,6 +47,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private readonly OperationPipeline _pipeline;
     private readonly A2A.Delegation.ITokenExchanger? _tokenExchanger;
     private readonly ArtifactObjectStore? _objects;
+    private readonly A2AAuditor _audit;
     private readonly InboundFiles? _inbound;
 
     // One cached delegate per operation, so a call through the pipeline creates no closure for its operation.
@@ -84,6 +86,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// The handler does not own <paramref name="engine"/>: its owner (the DI container) disposes it. The pipeline is built here,
     /// once, from <paramref name="filters"/> in their order (registered with <see cref="A2AServerBuilder.AddOperationFilter{T}"/>).
     /// <paramref name="extensionOperations"/> are the operations registered with <see cref="A2AServerBuilder.AddExtensionOperation"/>.
+    /// <paramref name="audit"/> writes the audit trail (see <see cref="A2AAuditSink"/>); a handler built without it audits nothing.
     /// </remarks>
     /// <exception cref="InvalidOperationException">Two extension operations have the same method name.</exception>
     public A2ARequestHandler(
@@ -99,8 +102,10 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         IEnumerable<A2AExtensionOperation> extensionOperations,
         IAgentCardProvider cards,
         A2A.Delegation.ITokenExchanger? tokenExchanger = null,
-        ArtifactObjectStore? objects = null)
+        ArtifactObjectStore? objects = null,
+        A2AAuditor? audit = null)
     {
+        _audit = audit ?? A2AAuditor.None;
         _tokenExchanger = tokenExchanger;
         _objects = objects;
         _cards = cards;
@@ -123,19 +128,19 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         _engine = engine;
         if (objects is not null && options.ArtifactStorage.Uploads.Enabled) _inbound = new InboundFiles(objects, options.ArtifactStorage, engine.Clock);
         // Built here, not registered: it shares the handler's services and has no public surface of its own.
-        _skills = new SkillAuthorizer(authorization, options.SkillAuthorization, cards, _requestCards, options);
-        _streamer = new TaskStreamer(tasks, events, engine, idempotency, authorization, options, cards, _skills);
+        _skills = new SkillAuthorizer(authorization, options.SkillAuthorization, cards, _requestCards, options, _audit);
+        _streamer = new TaskStreamer(tasks, events, engine, idempotency, authorization, options, cards, _skills, _audit);
         _accept = AcceptAsync; // one delegate for every stream
-        _pipeline = new OperationPipeline(new AuthorizationFilter(authorization, options, _skills), filters);
+        _pipeline = new OperationPipeline(new AuthorizationFilter(authorization, options, _skills, _audit), filters);
         _sendMessage = SendMessageCoreAsync;
         _sendStreaming = (r, c, ct) => new(_streamer.StreamExecutionAsync(r, c, _accept, SendStreamingOperation, ct));
         _getTask = GetTaskCoreAsync;
         _listTasks = ListTasksCoreAsync;
-        _cancelTask = CancelTaskCoreAsync;
-        _createPush = CreateTaskPushNotificationConfigCoreAsync;
+        _cancelTask = CancelTaskAuditedAsync;
+        _createPush = CreateTaskPushNotificationConfigAuditedAsync;
         _getPush = GetTaskPushNotificationConfigCoreAsync;
         _listPush = ListTaskPushNotificationConfigsCoreAsync;
-        _deletePush = DeleteTaskPushNotificationConfigCoreAsync;
+        _deletePush = DeleteTaskPushNotificationConfigAuditedAsync;
         _extendedCard = GetExtendedAgentCardCoreAsync;
     }
 
@@ -153,7 +158,23 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     // =====================================================================
 
     /// <summary>Checks protocol version, required extensions, and authentication; fills <see cref="ServerCallContext.ActivatedExtensions"/>.</summary>
-    public void ValidateCall(ServerCallContext call) => _validator.Validate(call);
+    /// <remarks>
+    /// An unauthenticated caller is written to the audit trail as <see cref="A2AAuditAction.AccessDenied"/>, without waiting for
+    /// the sink: this method is synchronous, and a flood of anonymous calls must not pile up work.
+    /// </remarks>
+    public void ValidateCall(ServerCallContext call)
+    {
+        try
+        {
+            _validator.Validate(call);
+        }
+        catch (A2AException ex) when (ex.Code == A2AErrorCode.Unauthenticated)
+        {
+            _audit.RecordDetached(_audit.For(A2AAuditAction.AccessDenied, call)
+                with { Outcome = A2AAuditOutcome.Denied, Reason = "Unauthenticated" });
+            throw;
+        }
+    }
 
     // =====================================================================
     // Operation pipeline
@@ -283,12 +304,73 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private async Task<(Execution.Execution? Execution, long AfterSequence, DateTimeOffset? AcceptedStatusTimestamp)> AcceptAsync(
         SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string? newTaskId, RentedAgent agent, CancellationToken ct)
     {
+        var ticket = new AuditTicket();
+        (Execution.Execution? Execution, long AfterSequence, DateTimeOffset? AcceptedStatusTimestamp) result;
+        try
+        {
+            result = await AcceptCoreAsync(request, call, claim, newTaskId, agent, ticket, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Written here, outside the code that holds the pending start and the task lock. Only what has begun gets a row.
+            await FinishAuditAsync(ticket, ex).ConfigureAwait(false);
+            throw;
+        }
+        await FinishAuditAsync(ticket, null).ConfigureAwait(false);
+        return result;
+    }
+
+    /// <summary>
+    /// The audit state of one accepted message (see <see cref="AcceptAsync"/>). The events are set only after their
+    /// <see cref="A2AAuditor.BeginAsync"/> returned, so a request refused by a failing sink (fail closed) writes no final row. The other
+    /// fields are what the message turned out to be, set once it is committed.
+    /// </summary>
+    private sealed class AuditTicket
+    {
+        /// <summary>The message event, once begun.</summary>
+        public A2AAuditEvent? Message { get; set; }
+
+        /// <summary>The inline push config event, once begun.</summary>
+        public A2AAuditEvent? Push { get; set; }
+
+        /// <summary>The final action of <see cref="Message"/>, when the message turned out to be another kind than first classified.</summary>
+        public A2AAuditAction? Action { get; set; }
+
+        /// <summary>The final resource of <see cref="Message"/> (the status message an approval used).</summary>
+        public string? Resource { get; set; }
+
+        /// <summary>The reason of a success row: <c>duplicate</c>, <c>recovered</c>, or the answer of a form.</summary>
+        public string? Reason { get; set; }
+
+        /// <summary>The message was a duplicate: no push config was saved either.</summary>
+        public string? PushReason { get; set; }
+    }
+
+    private async ValueTask FinishAuditAsync(AuditTicket ticket, Exception? failure)
+    {
+        if (ticket.Message is { } message)
+        {
+            var final = message with { Action = ticket.Action ?? message.Action, Resource = ticket.Resource ?? message.Resource, Reason = ticket.Reason };
+            if (failure is null) await _audit.SucceedAsync(final).ConfigureAwait(false);
+            else await _audit.FailAsync(final, failure).ConfigureAwait(false);
+        }
+        if (ticket.Push is { } push)
+        {
+            var final = push with { Reason = ticket.PushReason };
+            if (failure is null) await _audit.SucceedAsync(final).ConfigureAwait(false);
+            else await _audit.FailAsync(final, failure).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<(Execution.Execution? Execution, long AfterSequence, DateTimeOffset? AcceptedStatusTimestamp)> AcceptCoreAsync(
+        SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string? newTaskId, RentedAgent agent, AuditTicket ticket, CancellationToken ct)
+    {
         try
         {
             // Before anything is stored (a refused follow-up leaves no trace) and after the idempotency replay check (a replay
             // takes no slot). The slot goes to the agent: the execution takes it, and a refusal or failure releases it.
             agent.AttachSlot(await _engine.AdmitAsync(call.Tenant, claim, newTaskId, ct).ConfigureAwait(false));
-            var prepared = await PrepareAsync(request, call, ct, newTaskId).ConfigureAwait(false);
+            var prepared = await PrepareAsync(request, call, ticket, ct, newTaskId).ConfigureAwait(false);
             try
             {
                 // The request resolved the tenant's card already; its push capability holds for the whole execution, so no card
@@ -402,7 +484,17 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         return false;
     }
 
-    private async Task<Prepared> PrepareAsync(SendMessageRequest request, ServerCallContext call, CancellationToken ct, string? newTaskId = null)
+    /// <summary>What a message is, as far as the request shows: the first audit row of it. A follow-up that answers a task that waits for approval is refined once the task is read.</summary>
+    private static A2AAuditAction ClassifyMessage(Message message, bool isFollowUp, bool answersForm)
+    {
+        if (!isFollowUp) return A2AAuditAction.TaskCreated;
+        if (answersForm) return A2AAuditAction.ElicitationAnswered;
+        return message.Metadata is not null && message.Metadata.ContainsKey(A2AProtocol.ApprovalHashKey)
+            ? A2AAuditAction.ApprovalGranted
+            : A2AAuditAction.FollowUpSent;
+    }
+
+    private async Task<Prepared> PrepareAsync(SendMessageRequest request, ServerCallContext call, AuditTicket ticket, CancellationToken ct, string? newTaskId = null)
     {
         call.BindTenant(request.Tenant);
         A2AValidator.ValidateIncoming(request);
@@ -439,6 +531,19 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             await _pushConfigs.ValidateInlineAsync(push, call, ct).ConfigureAwait(false);
         }
 
+        // The audit rows begin here: the request is valid, and nothing is stored or locked yet, so with Audit.FailClosed a sink
+        // that fails refuses the request before it changes anything, and a slow sink never holds a task lock.
+        var messageEvent = _audit.For(ClassifyMessage(message, isFollowUp, answersForm), call, taskId);
+        await _audit.BeginAsync(messageEvent, ct).ConfigureAwait(false);
+        ticket.Message = messageEvent;
+        if (push is not null)
+        {
+            var pushEvent = _audit.For(A2AAuditAction.PushConfigCreated, call, taskId, push.Id);
+            await _audit.BeginAsync(pushEvent, ct).ConfigureAwait(false);
+            ticket.Push = pushEvent;
+        }
+
+        string? approvalResource = null;
         if (isFollowUp)
         {
             var key = Key(call, taskId);
@@ -470,12 +575,17 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                             // The agent gets the message that was committed, never the retry's content (same id, maybe other text).
                             message = record.Task.History![^1].DeepCopy();
                             message.ContextId = contextId;
-                            approval = ResolveApproval(record.Task, message, out _, recovering: true);
+                            approval = ResolveApproval(record.Task, message, out approvalResource, recovering: true);
                             elicitation = message.GetElicitationAnswer();
                             lastSequence = pendingSequence;
                             startPending = true;
+                            ticket.Reason = ticket.PushReason = "recovered";
                         }
-                        else duplicate = true;
+                        else
+                        {
+                            duplicate = true;
+                            ticket.Reason = ticket.PushReason = "duplicate";
+                        }
                         break;
                     }
                     if (state.IsTerminal())
@@ -491,6 +601,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                         };
                     EnsureTurnCapacity(record.Task);
                     approval = ResolveApproval(record.Task, message, out var consume);
+                    approvalResource = consume;
                     // A refused answer throws here: nothing is stored and the agent does not run. Same for a retry after a conflict.
                     string? answeredForm = null;
                     elicitation = answersForm ? ElicitationValidator.Resolve(record.Task, message, out answeredForm) : null;
@@ -561,6 +672,22 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         }
 
         // A new task saves its push config when the task is created; a follow-up saved it above, before its message was committed.
+
+        // What the message turned out to be. A duplicate keeps its first classification: nothing was done for it.
+        if (isFollowUp && !duplicate)
+        {
+            if (elicitation is not null)
+            {
+                ticket.Action = A2AAuditAction.ElicitationAnswered;
+                ticket.Reason = elicitation.Action.ToString();
+            }
+            else if (approval == ApprovalState.Approved)
+            {
+                ticket.Action = A2AAuditAction.ApprovalGranted;
+                ticket.Resource = approvalResource;
+            }
+            else ticket.Action = approval == ApprovalState.NotApproved ? A2AAuditAction.ApprovalDeclined : A2AAuditAction.FollowUpSent;
+        }
 
         try
         {
@@ -723,6 +850,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private A2AException ContextDenied(ServerCallContext call, string contextId)
     {
         SecurityEventLog.Record(_options, A2ATelemetry.SecurityEventNames.ContextDenied, A2AProtocol.Methods.SendMessage, call, contextId);
+        // Detached: this builds the exception synchronously. The message's own row ends as Failed with InvalidParams.
+        _audit.RecordDetached(_audit.For(A2AAuditAction.AccessDenied, call, resource: contextId)
+            with { Outcome = A2AAuditOutcome.Denied, Operation = A2AOperation.SendMessage.ToString(), Reason = "PermissionDenied" });
         return A2AException.InvalidParams(NotFound);
     }
 
@@ -766,7 +896,10 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         ArgumentNullException.ThrowIfNull(call);
         var request = new GetTaskRequest { Id = taskId, Tenant = call.Tenant };
         return await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.GetTask), call, request,
-            (_, c, ct) => OpenArtifactCoreAsync(taskId, objectId, range, c, ct), cancellationToken).ConfigureAwait(false);
+            (_, c, ct) => _audit.AuditedAsync(
+                _audit.For(A2AAuditAction.ArtifactDownloaded, c, taskId, ArtifactObjectKey.IsValidObjectId(objectId) ? objectId : null),
+                () => OpenArtifactCoreAsync(taskId, objectId, range, c, ct), null, ct),
+            cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask<ArtifactDownload> OpenArtifactCoreAsync(string taskId, string objectId, ArtifactByteRange? range, ServerCallContext call,
@@ -894,6 +1027,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         return await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.CancelTask), call, request, _cancelTask, cancellationToken).ConfigureAwait(false);
     }
 
+    private ValueTask<AgentTask> CancelTaskAuditedAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken) =>
+        _audit.AuditedAsync(_audit.For(A2AAuditAction.TaskCanceled, call, request.Id), () => CancelTaskCoreAsync(request, call, cancellationToken),
+            static task => (null, task.Metadata is not null && task.Metadata.ContainsKey(A2AProtocol.CancelRequestedKey) ? "CancelRequested" : null),
+            cancellationToken);
+
     private async ValueTask<AgentTask> CancelTaskCoreAsync(CancelTaskRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
         var card = await _requestCards.RequireAgentForTaskAsync(call, request.Id, cancellationToken).ConfigureAwait(false);
@@ -975,6 +1113,10 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         return await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.CreateTaskPushNotificationConfig), call, config, _createPush, cancellationToken).ConfigureAwait(false);
     }
 
+    private ValueTask<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAuditedAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken) =>
+        _audit.AuditedAsync(_audit.For(A2AAuditAction.PushConfigCreated, call, config.TaskId), () => CreateTaskPushNotificationConfigCoreAsync(config, call, cancellationToken),
+            static created => (created.Id, null), cancellationToken);
+
     private async ValueTask<TaskPushNotificationConfig> CreateTaskPushNotificationConfigCoreAsync(TaskPushNotificationConfig config, ServerCallContext call, CancellationToken cancellationToken)
     {
         RequestCards.RequirePush(await _requestCards.RequireAgentForTaskAsync(call, config.TaskId, cancellationToken).ConfigureAwait(false));
@@ -1027,6 +1169,10 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         call.BindTenant(request.Tenant);
         await _pipeline.RunAsync(A2AOperationDescriptor.For(A2AOperation.DeleteTaskPushNotificationConfig), call, request, _deletePush, cancellationToken).ConfigureAwait(false);
     }
+
+    private ValueTask<object?> DeleteTaskPushNotificationConfigAuditedAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken) =>
+        _audit.AuditedAsync(_audit.For(A2AAuditAction.PushConfigDeleted, call, request.TaskId, request.Id), () => DeleteTaskPushNotificationConfigCoreAsync(request, call, cancellationToken),
+            null, cancellationToken);
 
     private async ValueTask<object?> DeleteTaskPushNotificationConfigCoreAsync(DeleteTaskPushNotificationConfigRequest request, ServerCallContext call, CancellationToken cancellationToken)
     {
