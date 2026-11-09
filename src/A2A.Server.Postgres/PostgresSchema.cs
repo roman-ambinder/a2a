@@ -86,6 +86,10 @@ public static class PostgresSchema
         );
         -- Orphan-context sweep: oldest first.
         CREATE INDEX IF NOT EXISTS a2a_contexts_created_ix ON {s}.a2a_contexts (created_ticks, tenant, context_id);
+        -- The rolling summary of a conversation. Written by the agent; null when there is none.
+        ALTER TABLE {s}.a2a_contexts ADD COLUMN IF NOT EXISTS summary text NULL;
+        -- ListContextsAsync: one owner's contexts, newest first, keyset paging on (created_ticks, context_id).
+        CREATE INDEX IF NOT EXISTS a2a_contexts_owner_ix ON {s}.a2a_contexts (tenant, owner, created_ticks DESC, context_id);
 
         -- Per-task event log header: the last sequence ever appended, and when a terminal task's log expires.
         CREATE TABLE IF NOT EXISTS {s}.a2a_event_logs (

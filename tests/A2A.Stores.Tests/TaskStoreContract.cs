@@ -608,6 +608,324 @@ public abstract class TaskStoreContract
         Assert.Null(await s.GetForMaintenanceAsync("acme", "nope"));
         Assert.Null(await s.GetForMaintenanceAsync("other", "t1")); // another tenant
     }
+
+    // ---- conversation memory
+
+    private static Message Msg(string id, string text, Role role = Role.User) =>
+        new() { MessageId = id, Role = role, Parts = [Part.FromText(text)] };
+
+    private static ContextHistoryQuery History(string contextId = "ctx", int maxTasks = 100, long maxBytes = 1_000_000, string? exclude = null,
+        string tenant = "t", string owner = "alice") =>
+        new(tenant, owner, contextId, maxTasks, maxBytes, exclude);
+
+    private static long Size(Message m) => System.Text.Encoding.UTF8.GetByteCount(A2AJson.Serialize(m));
+
+    private static string[] Texts(IEnumerable<Message> messages) => messages.Select(m => m.GetText()).ToArray();
+
+    /// <summary>Creates a task with the given history. <paramref name="at"/> is its status time, which orders the tasks.</summary>
+    private static async Task AddAsync(TaskStore s, string id, int minutes, TaskState state = TaskState.Completed, string contextId = "ctx",
+        string tenant = "t", string owner = "alice", params Message[] history)
+    {
+        var record = NewRecord(tenant, owner, id, T0.AddMinutes(minutes), contextId);
+        record.Task.Status.State = state;
+        if (history.Length > 0) record.Task.History = history.ToList();
+        await s.CreateAsync(record);
+    }
+
+    [SkippableFact]
+    public async Task ReadContextMessages_returns_messages_oldest_first_each_task_in_its_own_order()
+    {
+        var s = await CreateStoreAsync();
+        await AddAsync(s, "c", 3, history: [Msg("c1", "c-user"), Msg("c2", "c-agent", Role.Agent)]);
+        await AddAsync(s, "a", 1, history: [Msg("a1", "a-user"), Msg("a2", "a-agent", Role.Agent)]);
+        await AddAsync(s, "none", 2); // no history at all
+        await AddAsync(s, "b", 2, history: [Msg("b1", "b-user")]);
+
+        var messages = await s.ReadContextMessagesAsync(History());
+
+        Assert.Equal(["a-user", "a-agent", "b-user", "c-user", "c-agent"], Texts(messages));
+    }
+
+    [SkippableFact]
+    public async Task ReadContextMessages_breaks_a_status_time_tie_by_task_id()
+    {
+        var s = await CreateStoreAsync();
+        await AddAsync(s, "t-a", 1, history: [Msg("1", "from-a")]);
+        await AddAsync(s, "t-b", 1, history: [Msg("2", "from-b")]);
+
+        // The newest task is the one ListAsync lists first: "t-a". Oldest first puts it last.
+        Assert.Equal(["from-b", "from-a"], Texts(await s.ReadContextMessagesAsync(History())));
+    }
+
+    [SkippableFact]
+    public async Task ReadContextMessages_leaves_out_the_excluded_task()
+    {
+        var s = await CreateStoreAsync();
+        await AddAsync(s, "a", 1, history: [Msg("a1", "a")]);
+        await AddAsync(s, "b", 2, history: [Msg("b1", "b")]);
+
+        Assert.Equal(["a"], Texts(await s.ReadContextMessagesAsync(History(exclude: "b"))));
+        Assert.Equal(["a", "b"], Texts(await s.ReadContextMessagesAsync(History(exclude: "nope"))));
+    }
+
+    [SkippableFact]
+    public async Task ReadContextMessages_MaxTasks_takes_the_newest_tasks()
+    {
+        var s = await CreateStoreAsync();
+        await AddAsync(s, "a", 1, history: [Msg("a1", "a")]);
+        await AddAsync(s, "b", 2, history: [Msg("b1", "b")]);
+        await AddAsync(s, "c", 3, history: [Msg("c1", "c")]);
+
+        Assert.Equal(["b", "c"], Texts(await s.ReadContextMessagesAsync(History(maxTasks: 2))));
+        Assert.Equal(["c"], Texts(await s.ReadContextMessagesAsync(History(maxTasks: 1))));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => s.ReadContextMessagesAsync(History(maxTasks: 0)).AsTask());
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => s.ReadContextMessagesAsync(History(maxBytes: 0)).AsTask());
+    }
+
+    [SkippableFact]
+    public async Task ReadContextMessages_MaxTasks_counts_only_tasks_that_pass_the_filters()
+    {
+        var s = await CreateStoreAsync();
+        await AddAsync(s, "a", 1, history: [Msg("a1", "a")]);
+        await AddAsync(s, "b", 2, history: [Msg("b1", "b")]);
+        await AddAsync(s, "excluded", 3, history: [Msg("x1", "excluded")]);
+        await AddAsync(s, "rejected", 4, TaskState.Rejected, history: [Msg("r1", "rejected")]);
+        await AddAsync(s, "other-owner", 5, owner: "bob", history: [Msg("o1", "other-owner")]);
+
+        Assert.Equal(["b"], Texts(await s.ReadContextMessagesAsync(History(maxTasks: 1, exclude: "excluded"))));
+        Assert.Equal(["a", "b"], Texts(await s.ReadContextMessagesAsync(History(maxTasks: 2, exclude: "excluded"))));
+    }
+
+    [SkippableFact]
+    public async Task ReadContextMessages_MaxBytes_cuts_from_the_newest_message_at_the_exact_boundary()
+    {
+        var s = await CreateStoreAsync();
+        var old = Msg("m1", "old \u00e9\u2713"); // multi-byte characters: the measure is UTF-8 bytes
+        var mid = Msg("m2", "middle", Role.Agent);
+        var last = Msg("m3", "newest");
+        await AddAsync(s, "a", 1, history: [old, mid, last]);
+
+        Assert.Equal(["old \u00e9\u2713", "middle", "newest"], Texts(await s.ReadContextMessagesAsync(History(maxBytes: Size(old) + Size(mid) + Size(last)))));
+        Assert.Equal(["middle", "newest"], Texts(await s.ReadContextMessagesAsync(History(maxBytes: Size(old) + Size(mid) + Size(last) - 1))));
+        Assert.Equal(["middle", "newest"], Texts(await s.ReadContextMessagesAsync(History(maxBytes: Size(mid) + Size(last)))));
+        Assert.Equal(["newest"], Texts(await s.ReadContextMessagesAsync(History(maxBytes: Size(last)))));
+        Assert.Empty(await s.ReadContextMessagesAsync(History(maxBytes: Size(last) - 1)));
+    }
+
+    [SkippableFact]
+    public async Task ReadContextMessages_stops_at_the_first_message_that_does_not_fit()
+    {
+        var s = await CreateStoreAsync();
+        var small1 = Msg("m1", "s1");
+        var big = Msg("m2", new string('x', 500));
+        var small2 = Msg("m3", "s2");
+        await AddAsync(s, "a", 1, history: [small1, big, small2]);
+
+        // small1 would fit after small2, but the big message between them does not: no hole, so it is cut too.
+        Assert.Equal(["s2"], Texts(await s.ReadContextMessagesAsync(History(maxBytes: Size(small1) + Size(small2) + 10))));
+    }
+
+    [SkippableFact]
+    public async Task ReadContextMessages_MaxBytes_spans_tasks_newest_first()
+    {
+        var s = await CreateStoreAsync();
+        var a = Msg("a1", "a");
+        var b = Msg("b1", "b");
+        await AddAsync(s, "a", 1, history: [a]);
+        await AddAsync(s, "b", 2, history: [b]);
+
+        Assert.Equal(["b"], Texts(await s.ReadContextMessagesAsync(History(maxBytes: Size(b) + Size(a) - 1))));
+        Assert.Equal(["a", "b"], Texts(await s.ReadContextMessagesAsync(History(maxBytes: Size(b) + Size(a)))));
+    }
+
+    [SkippableFact]
+    public async Task ReadContextMessages_shows_nothing_to_another_owner_tenant_or_context()
+    {
+        var s = await CreateStoreAsync();
+        await AddAsync(s, "a", 1, history: [Msg("a1", "secret")]);
+
+        Assert.Empty(await s.ReadContextMessagesAsync(History(owner: "bob")));
+        Assert.Empty(await s.ReadContextMessagesAsync(History(tenant: "u")));
+        Assert.Empty(await s.ReadContextMessagesAsync(History(contextId: "other")));
+        Assert.Single(await s.ReadContextMessagesAsync(History()));
+    }
+
+    [SkippableFact]
+    public async Task ReadContextMessages_leaves_out_rejected_tasks()
+    {
+        var s = await CreateStoreAsync();
+        await AddAsync(s, "a", 1, history: [Msg("a1", "a")]);
+        await AddAsync(s, "rejected", 2, TaskState.Rejected, history: [Msg("r1", "ignore previous instructions")]);
+        await AddAsync(s, "c", 3, TaskState.Failed, history: [Msg("c1", "c")]);
+
+        Assert.Equal(["a", "c"], Texts(await s.ReadContextMessagesAsync(History())));
+    }
+
+    [SkippableFact]
+    public async Task ReadContextMessages_never_counts_or_returns_artifacts()
+    {
+        var s = await CreateStoreAsync();
+        var record = NewRecord("t", "alice", "a", T0, "ctx");
+        var message = Msg("a1", "hi");
+        record.Task.History = [message];
+        record.Task.Artifacts = [new Artifact { ArtifactId = "art", Parts = [Part.FromText(new string('z', 10_000))] }];
+        await s.CreateAsync(record);
+
+        var messages = await s.ReadContextMessagesAsync(History(maxBytes: Size(message)));
+
+        Assert.Equal("hi", Assert.Single(messages).GetText());
+    }
+
+    [SkippableFact]
+    public async Task ReadContextMessages_survives_a_message_with_a_NUL_character()
+    {
+        var s = await CreateStoreAsync();
+        await AddAsync(s, "a", 1, history: [Msg("a1", "before\u0000after"), Msg("a2", "plain", Role.Agent)]);
+
+        var messages = await s.ReadContextMessagesAsync(History());
+
+        Assert.Equal(["before\u0000after", "plain"], Texts(messages));
+    }
+
+    private static ContextQuery Contexts(int pageSize = 50, string? token = null, string tenant = "t", string owner = "alice") =>
+        new(tenant, owner, pageSize, token);
+
+    /// <summary>Creates a context and a task that uses it (a store that lists through tasks needs one).</summary>
+    private static async Task AddContextAsync(TaskStore s, string id, int minutes, string tenant = "t", string owner = "alice")
+    {
+        await s.GetOrCreateContextAsync(new ContextRecord(tenant, owner, id, T0.AddMinutes(minutes)));
+        await AddAsync(s, "task-" + tenant + "-" + owner + "-" + id, minutes, contextId: id, tenant: tenant, owner: owner);
+    }
+
+    [SkippableFact]
+    public async Task ListContexts_returns_newest_first_then_by_context_id()
+    {
+        var s = await CreateStoreAsync();
+        await AddContextAsync(s, "old", 1);
+        await AddContextAsync(s, "tie-b", 5);
+        await AddContextAsync(s, "new", 9);
+        await AddContextAsync(s, "tie-a", 5);
+
+        var page = await s.ListContextsAsync(Contexts());
+
+        Assert.Equal(["new", "tie-a", "tie-b", "old"], page.Records.Select(c => c.ContextId));
+        Assert.Equal(string.Empty, page.NextPageToken);
+        Assert.Equal(new ContextRecord("t", "alice", "new", T0.AddMinutes(9)), page.Records[0]);
+    }
+
+    [SkippableFact]
+    public async Task ListContexts_paging_has_no_gaps_or_repeats()
+    {
+        var s = await CreateStoreAsync();
+        await AddContextAsync(s, "c1", 1);
+        await AddContextAsync(s, "c2", 2);
+        await AddContextAsync(s, "c3", 2); // ties with c2
+        await AddContextAsync(s, "c4", 2); // and with c3
+        await AddContextAsync(s, "c5", 3);
+        await AddContextAsync(s, "c6", 4);
+        await AddContextAsync(s, "c7", 4);
+        string[] expected = ["c6", "c7", "c5", "c2", "c3", "c4", "c1"];
+
+        foreach (var size in new[] { 1, 2, 3, 7, 8 })
+        {
+            var seen = new List<string>();
+            string? token = null;
+            do
+            {
+                var page = await s.ListContextsAsync(Contexts(size, token));
+                Assert.InRange(page.Records.Count, 1, size);
+                seen.AddRange(page.Records.Select(c => c.ContextId));
+                token = page.NextPageToken.Length == 0 ? null : page.NextPageToken;
+            }
+            while (token is not null);
+            Assert.Equal(expected, seen);
+        }
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => s.ListContextsAsync(Contexts(0)).AsTask());
+    }
+
+    [SkippableFact]
+    public async Task ListContexts_shows_only_the_owner_and_tenant()
+    {
+        var s = await CreateStoreAsync();
+        await AddContextAsync(s, "mine", 1);
+        await AddContextAsync(s, "bobs", 2, owner: "bob");
+        await AddContextAsync(s, "other-tenant", 3, tenant: "u");
+
+        Assert.Equal(["mine"], (await s.ListContextsAsync(Contexts())).Records.Select(c => c.ContextId));
+        Assert.Equal(["bobs"], (await s.ListContextsAsync(Contexts(owner: "bob"))).Records.Select(c => c.ContextId));
+        Assert.Equal(["other-tenant"], (await s.ListContextsAsync(Contexts(tenant: "u"))).Records.Select(c => c.ContextId));
+        Assert.Empty((await s.ListContextsAsync(Contexts(owner: "carol"))).Records);
+    }
+
+    [SkippableFact]
+    public async Task ListContexts_with_bad_page_token_is_invalid_params()
+    {
+        var s = await CreateStoreAsync();
+        var ex = await Assert.ThrowsAsync<A2AException>(() => s.ListContextsAsync(Contexts(token: "garbage!")).AsTask());
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+    }
+
+    private async Task<(TaskStore Store, IContextSummaryStore Summaries)> CreateSummaryStoreAsync()
+    {
+        var s = await CreateStoreAsync();
+        Skip.IfNot(s is IContextSummaryStore, "The store does not keep conversation summaries.");
+        return (s, (IContextSummaryStore)s);
+    }
+
+    [SkippableFact]
+    public async Task Summary_round_trips_through_GetContext_and_ListContexts()
+    {
+        var (s, summaries) = await CreateSummaryStoreAsync();
+        await AddContextAsync(s, "c1", 1);
+        Assert.Null((await s.GetContextAsync("t", "c1"))!.Summary);
+
+        Assert.True(await summaries.SetContextSummaryAsync("t", "alice", "c1", "talked about \u00e9 and cats"));
+        Assert.True(await summaries.SetContextSummaryAsync("t", "alice", "c1", "second write wins"));
+
+        Assert.Equal("second write wins", (await s.GetContextAsync("t", "c1"))!.Summary);
+        Assert.Equal("second write wins", Assert.Single((await s.ListContextsAsync(Contexts())).Records).Summary);
+    }
+
+    [SkippableFact]
+    public async Task Summary_of_a_foreign_owner_or_missing_context_returns_false_and_changes_nothing()
+    {
+        var (s, summaries) = await CreateSummaryStoreAsync();
+        await AddContextAsync(s, "c1", 1);
+        await summaries.SetContextSummaryAsync("t", "alice", "c1", "mine");
+
+        Assert.False(await summaries.SetContextSummaryAsync("t", "bob", "c1", "hijacked"));
+        Assert.False(await summaries.SetContextSummaryAsync("u", "alice", "c1", "other tenant"));
+        Assert.False(await summaries.SetContextSummaryAsync("t", "alice", "missing", "nothing there"));
+
+        Assert.Equal("mine", (await s.GetContextAsync("t", "c1"))!.Summary);
+        Assert.Null(await s.GetContextAsync("t", "missing"));
+    }
+
+    [SkippableFact]
+    public async Task Summary_null_clears_it()
+    {
+        var (s, summaries) = await CreateSummaryStoreAsync();
+        await AddContextAsync(s, "c1", 1);
+        await summaries.SetContextSummaryAsync("t", "alice", "c1", "something");
+
+        Assert.True(await summaries.SetContextSummaryAsync("t", "alice", "c1", null));
+
+        Assert.Null((await s.GetContextAsync("t", "c1"))!.Summary);
+    }
+
+    [SkippableFact]
+    public async Task GetOrCreateContext_keeps_the_summary()
+    {
+        var (s, summaries) = await CreateSummaryStoreAsync();
+        await AddContextAsync(s, "c1", 1);
+        await summaries.SetContextSummaryAsync("t", "alice", "c1", "kept");
+
+        var again = await s.GetOrCreateContextAsync(new ContextRecord("t", "alice", "c1", T0.AddDays(1)));
+
+        Assert.Equal("kept", again.Summary);
+        Assert.Equal(T0.AddMinutes(1), again.CreatedAt);
+        Assert.Equal("kept", (await s.GetContextAsync("t", "c1"))!.Summary);
+    }
 }
 
 public sealed class InMemoryTaskStoreTests : TaskStoreContract
@@ -616,6 +934,36 @@ public sealed class InMemoryTaskStoreTests : TaskStoreContract
     {
         var events = new InMemoryEventStore(new StreamingOptions(), time);
         return Task.FromResult<(TaskStore, EventStore)>((new InMemoryTaskStore(events), events));
+    }
+}
+
+/// <summary>
+/// A store that implements only the abstract members and delegates them to <see cref="InMemoryTaskStore"/>. It has no
+/// <see cref="IContextSummaryStore"/> and no override of the virtual members, so it runs their fallbacks.
+/// </summary>
+public sealed class CoreOnlyTaskStoreTests : TaskStoreContract
+{
+    protected override Task<(TaskStore Tasks, EventStore Events)> CreateStoresAsync(TimeProvider? time = null)
+    {
+        var events = new InMemoryEventStore(new StreamingOptions(), time);
+        return Task.FromResult<(TaskStore, EventStore)>((new CoreOnlyTaskStore(new InMemoryTaskStore(events)), events));
+    }
+
+    private sealed class CoreOnlyTaskStore(TaskStore inner) : TaskStore
+    {
+        public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken cancellationToken = default) => inner.GetAsync(key, cancellationToken);
+        public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken cancellationToken = default) => inner.CreateAsync(record, cancellationToken);
+        public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken cancellationToken = default) => inner.UpdateAsync(record, expectedVersion, cancellationToken);
+        public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken cancellationToken = default) => inner.CommitAsync(commit, cancellationToken);
+        public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken cancellationToken = default) => inner.ListAsync(query, cancellationToken);
+        public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken cancellationToken = default) => inner.GetContextAsync(tenant, contextId, cancellationToken);
+        public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken cancellationToken = default) => inner.GetOrCreateContextAsync(record, cancellationToken);
+        public override ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken cancellationToken = default) => inner.DeleteAsync(key, cancellationToken);
+        public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken cancellationToken = default) => inner.ListExpiredAsync(terminalBefore, max, cancellationToken);
+        public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken cancellationToken = default) => inner.ListInterruptedBeforeAsync(before, max, cancellationToken);
+        public override ValueTask<TaskRecord?> GetForMaintenanceAsync(string tenant, string taskId, CancellationToken cancellationToken = default) => inner.GetForMaintenanceAsync(tenant, taskId, cancellationToken);
+        public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken cancellationToken = default) => inner.DeleteContextAsync(tenant, contextId, cancellationToken);
+        public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken cancellationToken = default) => inner.ListOrphanContextsAsync(createdBefore, max, cancellationToken);
     }
 }
 

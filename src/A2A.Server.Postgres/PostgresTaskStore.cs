@@ -14,7 +14,7 @@ namespace A2A.Server.Postgres;
 /// push deliveries (the outbox <see cref="PostgresPushOutbox"/> reads) in one transaction, so give these stores the same
 /// data source, <see cref="StreamingOptions"/> and schema.
 /// </summary>
-public sealed class PostgresTaskStore : TaskStore
+public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore
 {
     private readonly NpgsqlDataSource _db;
     private readonly StreamingOptions _streaming;
@@ -196,12 +196,15 @@ public sealed class PostgresTaskStore : TaskStore
     /// <inheritdoc />
     public override async ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken cancellationToken = default)
     {
-        await using var cmd = _db.CreateCommand($"SELECT owner, created_ticks FROM {_contexts} WHERE tenant = $1 AND context_id = $2");
+        await using var cmd = _db.CreateCommand($"SELECT owner, created_ticks, summary FROM {_contexts} WHERE tenant = $1 AND context_id = $2");
         cmd.Parameters.Add(TextParam(tenant));
         cmd.Parameters.Add(TextParam(contextId));
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
             ? new ContextRecord(tenant, reader.GetString(0), contextId, new DateTimeOffset(reader.GetInt64(1), TimeSpan.Zero))
+            {
+                Summary = reader.IsDBNull(2) ? null : reader.GetString(2),
+            }
             : null;
     }
 
@@ -210,17 +213,109 @@ public sealed class PostgresTaskStore : TaskStore
     {
         ArgumentNullException.ThrowIfNull(record);
         await using (var cmd = _db.CreateCommand(
-            $"INSERT INTO {_contexts} (tenant, context_id, owner, created_ticks) VALUES ($1, $2, $3, $4) ON CONFLICT (tenant, context_id) DO NOTHING"))
+            $"INSERT INTO {_contexts} (tenant, context_id, owner, created_ticks, summary) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (tenant, context_id) DO NOTHING"))
         {
             cmd.Parameters.Add(TextParam(record.Tenant));
             cmd.Parameters.Add(TextParam(record.ContextId));
             cmd.Parameters.Add(TextParam(record.Owner));
             cmd.Parameters.Add(Long(record.CreatedAt.UtcTicks));
+            cmd.Parameters.Add(NullableText(record.Summary));
             if (await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1) return record;
         }
         // Lost the race (or the context existed): a new statement sees the committed winner.
         return await GetContextAsync(record.Tenant, record.ContextId, cancellationToken).ConfigureAwait(false)
                ?? throw new InvalidOperationException($"Context '{record.ContextId}' vanished while it was being created.");
+    }
+
+    /// <summary>
+    /// Cuts the history in the database: only the newest tasks of the context are read, and only the message history of each
+    /// (never the artifacts). The size limit cuts there too, so what is over budget never reaches the client. The JSON is read as
+    /// <c>json</c>, not <c>jsonb</c>. Uses <c>a2a_tasks_context_ix</c>.
+    /// </summary>
+    /// <remarks>
+    /// PostgreSQL cannot look into a <c>json</c> value that holds the escape <c>\u0000</c> (a NUL character in some text; error
+    /// 22P05). For such a conversation the store reads it with the fallback of <see cref="TaskStore.ReadContextMessagesAsync"/>
+    /// instead: it loads whole tasks and cuts in this process. The result is the same, only that read costs more.
+    /// </remarks>
+    public override async ValueTask<IReadOnlyList<Message>> ReadContextMessagesAsync(ContextHistoryQuery query, CancellationToken cancellationToken = default)
+    {
+        ValidateHistoryQuery(query);
+        await using var cmd = _db.CreateCommand(
+            $"""
+            WITH recent AS (
+                SELECT task_id, status_ticks, (task::json -> 'history') AS h
+                  FROM {_tasks}
+                 WHERE tenant = $1 AND owner = $2 AND context_id = $3 AND task_id <> $4 AND state <> {(int)TaskState.Rejected}
+                 ORDER BY status_ticks DESC, task_id
+                 LIMIT $5
+            ), msgs AS (
+                SELECT r.status_ticks, r.task_id, e.ord, e.value::text AS msg, octet_length(e.value::text) AS len
+                  FROM recent r
+                 CROSS JOIN LATERAL json_array_elements(CASE json_typeof(r.h) WHEN 'array' THEN r.h END) WITH ORDINALITY AS e(value, ord)
+            ), sized AS (
+                SELECT *, sum(len) OVER (ORDER BY status_ticks DESC, task_id, ord DESC ROWS UNBOUNDED PRECEDING) AS total FROM msgs
+            )
+            SELECT msg FROM sized WHERE total <= $6 ORDER BY status_ticks, task_id DESC, ord
+            """);
+        cmd.Parameters.Add(TextParam(query.Tenant));
+        cmd.Parameters.Add(TextParam(query.Owner));
+        cmd.Parameters.Add(TextParam(query.ContextId));
+        cmd.Parameters.Add(TextParam(query.ExcludeTaskId ?? string.Empty));
+        cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = query.MaxTasks });
+        cmd.Parameters.Add(new NpgsqlParameter<long> { TypedValue = query.MaxBytes, NpgsqlDbType = NpgsqlDbType.Bigint });
+        try
+        {
+            var messages = new List<Message>();
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) messages.Add(A2AJson.Deserialize<Message>(reader.GetString(0)));
+            return messages;
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UntranslatableCharacter)
+        {
+            // "unsupported Unicode escape sequence": a message holds \u0000, which the JSON functions of PostgreSQL refuse to read.
+            return await base.ReadContextMessagesAsync(query, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>One indexed query (<c>a2a_contexts_owner_ix</c>). Lists every context of the owner, also one with no tasks.</summary>
+    /// <inheritdoc />
+    public override async ValueTask<ContextPage> ListContextsAsync(ContextQuery query, CancellationToken cancellationToken = default)
+    {
+        ValidateContextQuery(query);
+        var cursor = PageCursor.Decode(query.PageToken);
+        var args = new List<NpgsqlParameter> { TextParam(query.Tenant), TextParam(query.Owner) };
+        var where = "tenant = $1 AND owner = $2";
+        if (cursor is { } c)
+        {
+            args.Add(Long(c.Ticks));
+            args.Add(TextParam(c.Id));
+            where += " AND (created_ticks < $3 OR (created_ticks = $3 AND context_id > $4))";
+        }
+        args.Add(new NpgsqlParameter<int> { TypedValue = checked(query.PageSize + 1) });
+        await using var cmd = _db.CreateCommand(
+            $"SELECT context_id, created_ticks, summary FROM {_contexts} WHERE {where} ORDER BY created_ticks DESC, context_id LIMIT ${args.Count}");
+        foreach (var a in args) cmd.Parameters.Add(a);
+        var records = new List<ContextRecord>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            records.Add(new ContextRecord(query.Tenant, query.Owner, reader.GetString(0), new DateTimeOffset(reader.GetInt64(1), TimeSpan.Zero))
+            {
+                Summary = reader.IsDBNull(2) ? null : reader.GetString(2),
+            });
+        var hasMore = records.Count > query.PageSize;
+        if (hasMore) records.RemoveAt(records.Count - 1);
+        return new ContextPage(records, hasMore ? PageCursor.Encode(records[^1]) : string.Empty);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<bool> SetContextSummaryAsync(string tenant, string owner, string contextId, string? summary, CancellationToken cancellationToken = default)
+    {
+        await using var cmd = _db.CreateCommand($"UPDATE {_contexts} SET summary = $4 WHERE tenant = $1 AND owner = $2 AND context_id = $3");
+        cmd.Parameters.Add(TextParam(tenant));
+        cmd.Parameters.Add(TextParam(owner));
+        cmd.Parameters.Add(TextParam(contextId));
+        cmd.Parameters.Add(NullableText(summary));
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
     /// <inheritdoc />
