@@ -147,7 +147,14 @@ public sealed class TypedSkillSet
         var hasTask = !string.IsNullOrEmpty(message.TaskId);
         if (id is not null && _skills.TryGetValue(id, out var named))
             return hasTask ? throw TypedSkillRefusal.Refuse("A typed skill runs once and cannot continue a task.") : named;
-        if (id is null && !hasTask && _fallback is null && _skills.Count == 1) return _skills.Values.First();
+        // The default route is for a message that names nothing. A skillId under no activated extension still counts as a name here:
+        // a security check may read the key without the header, and must not authorize one skill while another runs.
+        if (id is null && !hasTask && _fallback is null && _skills.Count == 1)
+        {
+            var only = _skills.Values.First();
+            var raw = message.GetRequestedSkillId();
+            if (raw is null || string.Equals(raw, only.Id, StringComparison.Ordinal)) return only;
+        }
         if (_fallback is not null) return null;
         throw TypedSkillRefusal.Refuse(id is null
             ? "Name a skill of this agent in metadata.skillId."

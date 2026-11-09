@@ -27,10 +27,10 @@ Agents parse raw parts by hand. With typed skills, an agent declares a skill wit
 | Names a typed skill, no `taskId` | yes | handler |
 | Names a typed skill, with `taskId` | yes | `InvalidParams`: typed skills are one-shot |
 | Names another skill | no | fallback, else `InvalidParams` |
-| Names nothing, no `taskId`, one typed skill, no fallback | n/a | that skill |
+| Names nothing (no `skillId` in the metadata at all), no `taskId`, one typed skill, no fallback | n/a | that skill |
 | Names nothing, any other case | n/a | fallback, else `InvalidParams` |
 
-Only `RequestedSkillId` counts (S35 D5), so a private `skillId` under a non-activated extension does not route. The refusal text does not repeat the id or list skills.
+Only `RequestedSkillId` counts (S35 D5), so a private `skillId` under a non-activated extension does not route. It still counts as a name for the single-skill default: a security check may read the key without the header, so a raw `skillId` other than the one skill is refused, and one equal to it runs it. The refusal text does not repeat the id or list skills.
 
 **D8. Handlers do not see `TaskUpdater`.** `TypedSkillContext<TInput>` has `Input`, `Request` (the `AgentRequestContext`), `Services` (the execution scope) and `ReportProgressAsync(text, ct)`. The router owns start, artifact and completion, so a handler cannot break the sequence. To fail with a message the client may see, throw `TypedSkillFailedException(message)`: the task fails with that text. Any other exception follows the engine's normal path and generic text.
 

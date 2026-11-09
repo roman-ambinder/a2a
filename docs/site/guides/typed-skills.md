@@ -59,10 +59,10 @@ The card comes from a peer, so the schema is data. Do not follow references in i
 | Names a typed skill, has no task id | yes | your handler |
 | Names a typed skill, has a task id | yes | `InvalidParams`: typed skills run once |
 | Names another skill | no | the fallback, or `InvalidParams` without one |
-| Names nothing, no task id, one typed skill, no fallback | n/a | that skill |
+| Names nothing (no `skillId` in the metadata at all), no task id, one typed skill, no fallback | n/a | that skill |
 | Names nothing, any other case | n/a | the fallback, or `InvalidParams` without one |
 
-Only a skill id the caller activated counts (see [Skill selection](skill-selection.md)). A `skillId` in the metadata, without the extension, does not route. The refusal text does not repeat the id and does not list your skills.
+Only a skill id the caller activated counts (see [Skill selection](skill-selection.md)). A `skillId` in the metadata, without the extension, does not route. It does count as a name for the "names nothing" row, because a security check may read the key without the header: a `skillId` that is not the one skill is refused, and one that equals it runs that skill. The refusal text does not repeat the id and does not list your skills.
 
 `CancelTask` goes to the fallback unless the first message of the task names a typed skill. Without a fallback, or for a typed task, the default cancel runs: the task is canceled and the handler's token fires.
 

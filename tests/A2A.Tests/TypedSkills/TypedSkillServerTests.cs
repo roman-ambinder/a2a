@@ -308,6 +308,29 @@ public class TypedSkillServerTests
     }
 
     [Theory, MemberData(nameof(Bindings))]
+    public async Task Row4_a_skill_id_without_the_header_naming_another_skill_is_refused(string binding)
+    {
+        var (host, probe) = await StartAsync(fallback: false);
+        await using var disposeHost = host;
+        var client = ClientFor(host, binding);
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(DataMsg(Good, skill: "other")));
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        await host.WaitIdleAsync();
+        Assert.Equal(0, probe.Handled);
+        Assert.Empty((await client.ListTasksAsync(new ListTasksRequest())).Tasks);
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task Row4_a_skill_id_without_the_header_naming_the_one_skill_runs_it(string binding)
+    {
+        var (host, probe) = await StartAsync(fallback: false);
+        await using var disposeHost = host;
+        await ClientFor(host, binding).SendMessageAsync(DataMsg(Good, skill: "book"));
+        await host.WaitIdleAsync();
+        Assert.Equal(1, probe.Handled);
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
     public async Task Row5_names_nothing_with_a_fallback_goes_to_the_fallback(string binding)
     {
         var (host, probe) = await StartAsync();
