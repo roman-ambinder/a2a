@@ -145,3 +145,5 @@ A2A.Client.Resilience.CircuitBreakerOptions.FailureThreshold.set -> void
 A2A.Client.Resilience.CircuitBreakerOptions.OpenDuration.get -> System.TimeSpan
 A2A.Client.Resilience.CircuitBreakerOptions.OpenDuration.set -> void
 A2A.Client.Resilience.CircuitOpenException
+static A2A.Client.Sse.SseReader.ReadAsync(System.IO.Stream! stream, int maxEventBytes, System.Threading.CancellationToken cancellationToken) -> System.Collections.Generic.IAsyncEnumerable<A2A.Client.Sse.SseEvent!>!
+const A2A.Client.Sse.SseReader.DefaultMaxEventBytes = 16777216 -> int

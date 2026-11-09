@@ -23,19 +23,49 @@ public sealed record SseEvent(string Data, string? EventType, string? Id)
 /// <summary>Server-Sent Events parser (WHATWG HTML §9.2.6). Handles CRLF/LF/CR, multi-line data, comments, and a UTF-8 BOM.</summary>
 /// <remarks>
 /// Lines are found and their field names compared as UTF-8 bytes in a pooled buffer; text is decoded once per value, and the
-/// <see cref="SseEvent.Data"/> of an event is decoded once when the event is dispatched. Lines have no length limit.
-/// The stream is disposed when reading ends.
+/// <see cref="SseEvent.Data"/> of an event is decoded once when the event is dispatched. One event may hold at most
+/// <see cref="DefaultMaxEventBytes"/> bytes of data by default (a longer line, or more lines without a blank line, is refused
+/// with <see cref="A2AErrorCode.InvalidAgentResponse"/>), so a hostile agent cannot exhaust memory. The stream is disposed when reading ends.
 /// </remarks>
 public static class SseReader
 {
+    /// <summary>The most data bytes one event may hold unless a caller says otherwise: 16 MiB, the size limit of an agent response.</summary>
+    public const int DefaultMaxEventBytes = 16 * 1024 * 1024;
+
     private const int InitialBufferSize = 4096;
+    private const int FieldPrefix = 6; // "data: ": a line of exactly the limit in data is this much longer
     private static ReadOnlySpan<byte> Bom => [0xEF, 0xBB, 0xBF];
 
-    /// <summary>Reads events from <paramref name="stream"/> until it ends.</summary>
-    public static async IAsyncEnumerable<SseEvent> ReadAsync(Stream stream, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    /// <summary>Reads events from <paramref name="stream"/> until it ends. An event may hold at most <see cref="DefaultMaxEventBytes"/> bytes of data.</summary>
+    /// <exception cref="A2AException"><see cref="A2AErrorCode.InvalidAgentResponse"/> when an event is larger than the limit.</exception>
+#pragma warning disable RS0027 // shipped with an optional token; the overload below must not take one (RS0026 would follow)
+    public static IAsyncEnumerable<SseEvent> ReadAsync(Stream stream, CancellationToken cancellationToken = default) =>
+        ReadCoreAsync(stream, DefaultMaxEventBytes, cancellationToken);
+#pragma warning restore RS0027
+
+    /// <summary>
+    /// Reads events from <paramref name="stream"/> until it ends. An event may hold at most <paramref name="maxEventBytes"/> bytes
+    /// of data (the lines joined with <c>\n</c>). A longer line, or more lines without a blank line, ends the read with
+    /// <see cref="A2AErrorCode.InvalidAgentResponse"/>, before the memory for it is taken.
+    /// </summary>
+    /// <param name="stream">The stream to read. It is disposed when reading ends.</param>
+    /// <param name="maxEventBytes">The most data bytes one event may hold. At least 1.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxEventBytes"/> is below 1. Thrown by this call, not by the first read.</exception>
+    /// <exception cref="A2AException"><see cref="A2AErrorCode.InvalidAgentResponse"/> when an event is larger than the limit.</exception>
+    public static IAsyncEnumerable<SseEvent> ReadAsync(Stream stream, int maxEventBytes, CancellationToken cancellationToken)
+    {
+        if (maxEventBytes < 1) throw new ArgumentOutOfRangeException(nameof(maxEventBytes), maxEventBytes, "The event size limit must be at least 1.");
+        return ReadCoreAsync(stream, maxEventBytes, cancellationToken);
+    }
+
+    private static A2AException TooLarge(int maxEventBytes) =>
+        new(A2AErrorCode.InvalidAgentResponse, $"The agent sent a server-sent event larger than the limit of {maxEventBytes} bytes.");
+
+    private static async IAsyncEnumerable<SseEvent> ReadCoreAsync(Stream stream, int maxEventBytes, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
-        var parser = new LineParser();
+        var parser = new LineParser(maxEventBytes);
         var used = 0; // high-water mark of filled bytes, cleared before the buffer goes back to the pool
         try
         {
@@ -74,6 +104,8 @@ public static class SseReader
                     }
                     // End of stream: per spec, an incomplete line or event is discarded.
                     if (eof) yield break;
+                    // A line that is still open and already longer than any allowed line: refuse it before the buffer grows.
+                    if ((long)(end - start) > (long)maxEventBytes + FieldPrefix) throw TooLarge(maxEventBytes);
                 }
 
                 // Need more bytes: make room (move the partial line to the front, or grow), then read.
@@ -109,7 +141,7 @@ public static class SseReader
     }
 
     /// <summary>The per-stream field state; turns lines into events.</summary>
-    private sealed class LineParser : IDisposable
+    private sealed class LineParser(int maxEventBytes) : IDisposable
     {
         private byte[] _data = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
         private int _dataLength;
@@ -184,6 +216,8 @@ public static class SseReader
 
         private void Reserve(int more)
         {
+            // Counts the joining \n too. Long math: the sum can pass int.MaxValue.
+            if ((long)_dataLength + more > maxEventBytes) throw TooLarge(maxEventBytes);
             if (_dataLength + more <= _data.Length) return;
             var bigger = ArrayPool<byte>.Shared.Rent(Math.Max(_data.Length * 2, _dataLength + more));
             _data.AsSpan(0, _dataLength).CopyTo(bigger);
