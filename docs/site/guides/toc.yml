@@ -36,12 +36,16 @@
   href: observability.md
 - name: Limits and rate limiting
   href: limits-and-rate-limiting.md
+- name: Client resilience
+  href: client-resilience.md
 - name: Artifact storage
   href: artifact-storage.md
 - name: Task safety
   href: task-safety.md
 - name: Interop and conformance
   href: interop-and-conformance.md
+- name: Testing your agent
+  href: testing.md
 - name: Spec decisions
   href: spec-decisions.md
 - name: Versioning

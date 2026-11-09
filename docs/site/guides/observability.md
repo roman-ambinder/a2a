@@ -116,6 +116,7 @@ All counters are `Counter<long>`.
 | `A2A` | `a2a.card.changed` | `origin` | cards that differ from the pinned card of their origin |
 | `A2A` | `a2a.card.unsigned` | `origin` | unsigned cards accepted because signatures are not required |
 | `A2A` | `a2a.registry.name_lookalike` | `origin` | agent names that look like the name of another registered agent. See [Peer identity and registry](peer-identity.md) |
+| `A2A` | `a2a.client.circuit.state_changes` | `gen_ai.agent.name` (when known), `a2a.circuit.state` (`closed`, `open`, `half_open`) | circuit breaker state changes of a client. See [Client resilience](client-resilience.md) |
 | `A2A` | `a2a.compat.v0_3.dropped` | `field` (for example `part.filename`) | values dropped because v0.3 cannot carry them. See [v0.3 compatibility](v03-compatibility.md) |
 | `A2A` | `a2a.compat.v0_3.requests` | `binding`, `operation` | requests served on the v0.3 surface. See [v0.3 compatibility](v03-compatibility.md) |
 
@@ -123,7 +124,7 @@ A stream whose reader stops early counts as `canceled`. A cancellation that the 
 
 The push counters are also exposed as `PushDeliveryService.DeliveriesCounterName` and `PushDeliveryService.DeadLettersCounterName`. The idempotency counter is `InMemoryIdempotencyStore.EvictionsCounterName` on `InMemoryIdempotencyStore.MeterName`.
 
-The card counters come from the client's `A2ACardResolver`, so they exist in client processes. `a2a.registry.name_lookalike` comes from `AgentRegistry`, also on the client side. The v0.3 counters come from the v0.3 compatibility packages. The meter `A2A` therefore needs `AddMeter("A2A")` in any process that resolves cards, keeps an agent registry, serves or converts v0.3, or runs the in-memory idempotency store.
+The card counters come from the client's `A2ACardResolver`, so they exist in client processes. `a2a.registry.name_lookalike` comes from `AgentRegistry`, also on the client side. The v0.3 counters come from the v0.3 compatibility packages. The meter `A2A` therefore needs `AddMeter("A2A")` in any process that resolves cards, keeps an agent registry, serves or converts v0.3, runs the in-memory idempotency store, or uses a circuit breaker.
 
 ## Logs
 
