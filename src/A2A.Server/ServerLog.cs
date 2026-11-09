@@ -197,6 +197,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 255, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.InMemoryObjectsMessage)]
     public static partial void InMemoryObjectsWithDurableStore(ILogger logger, string taskStore);
 
+    [LoggerMessage(EventId = 257, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.SharedBusMessage)]
+    public static partial void SharedBusWithInMemoryStores(ILogger logger, string bus, string inMemoryStores);
+
     // IdempotencyCoordinator: 400-499
     [LoggerMessage(EventId = 400, Level = LogLevel.Error, Message = "Failed to record the idempotency outcome for task {TaskId}")]
     public static partial void IdempotencyRecordFailed(ILogger logger, Exception exception, string taskId);

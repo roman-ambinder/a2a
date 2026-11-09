@@ -117,6 +117,7 @@ The server logs these once at startup. Nothing throws, so a host that does not u
 | 251 | Error | The push outbox is durable and the push secret protector is the per-process one. |
 | 252 | Warning | The task store is durable and the execution coordinator is the in-memory one. A crash leaves the running tasks unrecovered. |
 | 253 | Warning | The task store is durable and the retention sweep is not registered. |
+| 257 | Warning | The event bus spans instances (Redis, or your own) and the task, event or idempotency store is the in-memory one. Events cross instances, but the other instances cannot read the tasks and events kept in this process. |
 | 250 | Debug | The checks were skipped because the registrations are broken. |
 
 ## Write your own store
