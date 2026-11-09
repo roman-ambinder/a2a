@@ -193,7 +193,7 @@ public abstract class HttpTransportBase
         catch (JsonException ex) { throw ProtocolError($"Malformed {what} in agent response: {ex.Message}", ex); }
     }
 
-    private static readonly string[] StreamEventMembers = ["task", "message", "statusUpdate", "artifactUpdate"];
+    private static readonly string[] StreamEventMembers = ["task", "message", "statusUpdate", "artifactUpdate", "messageUpdate", "error"];
 
     /// <summary>
     /// True when a stream event object carries a StreamResponse member this SDK knows. An object with only unknown

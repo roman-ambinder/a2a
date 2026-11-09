@@ -667,8 +667,11 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
                 // no new execution starts.
                 var listening = _engine.ListeningInput(key);
                 if (listening is { HasRoom: false })
-                    throw new A2AException(A2AErrorCode.UnsupportedOperation, "The agent is not accepting more input right now.")
+                    // RESOURCE_EXHAUSTED (design D8): the agent's input buffer is full; nothing is committed.
+                    throw new A2AException(A2AErrorCode.RateLimited, "The agent is not accepting more input right now.")
                     {
+                        HttpStatus = 429,
+                        RetryAfter = TimeSpan.FromSeconds(1),
                         Metadata = new() { ["taskId"] = taskId },
                     };
                 if (listening is null && !TaskStateMachine.AcceptsFollowUp(state, _options.FollowUpPolicy))

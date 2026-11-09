@@ -231,4 +231,41 @@ public sealed class V11LiveTests
         Assert.True(await events.MoveNext());
         Assert.Equal(A2aPb.TaskState.Completed, events.Current.StatusUpdate.Status.State);
     }
+
+    [Theory]
+    [InlineData(ProtocolBindings.JsonRpc)]
+    [InlineData(ProtocolBindings.HttpJson)]
+    [InlineData(ProtocolBindings.Grpc)]
+    public async Task Client_opens_a_live_exchange_on_every_binding(string binding)
+    {
+        await using var host = await StartAsync(grpc: binding == ProtocolBindings.Grpc);
+        var client = host.Client(binding);
+        await using var live = await client.OpenLiveAsync(Message.FromUser("input"));
+        var events = live.Events.GetAsyncEnumerator();
+
+        Assert.True(await events.MoveNextAsync());
+        var task = Assert.IsType<TaskEvent>(events.Current).Task;
+        Assert.Equal(1, task.Generation);
+        Assert.True(await events.MoveNextAsync());
+        Assert.Equal(TaskState.InputRequired, Assert.IsType<StatusUpdateEvent>(events.Current).StatusUpdate.Status.State);
+
+        // A message without parts is refused: a StreamError on the events (HTTP also fails the uplink call); the exchange stays open.
+        var bad = new Message { MessageId = "m-bad", Role = Role.User, Parts = [] };
+        if (binding == ProtocolBindings.Grpc) await live.SendAsync(bad);
+        else await Assert.ThrowsAsync<A2AException>(() => live.SendAsync(bad));
+        Assert.True(await events.MoveNextAsync());
+        var refused = Assert.IsType<StreamErrorEvent>(events.Current).Error;
+        Assert.Equal("INVALID_ARGUMENT", refused.Code);
+        Assert.Equal("m-bad", refused.ReferenceId);
+
+        await live.SendAsync(Message.FromUser("more")); // no task id: the exchange's task
+        Assert.True(await events.MoveNextAsync());
+        Assert.Equal("more", Assert.IsType<MessageUpdateEvent>(events.Current).MessageUpdate.Message.GetText());
+        Assert.True(await events.MoveNextAsync());
+        var done = Assert.IsType<StatusUpdateEvent>(events.Current).StatusUpdate;
+        Assert.Equal(TaskState.Completed, done.Status.State);
+        Assert.Equal(4, done.Generation);
+        Assert.False(await events.MoveNextAsync());
+        await events.DisposeAsync();
+    }
 }

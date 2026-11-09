@@ -10,7 +10,9 @@ using A2A.Json;
 namespace A2A.Client.Transports;
 
 /// <summary>HTTP+JSON/REST binding (spec §11).</summary>
-public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IA2AExtensionOperationClient, IResumableTransport, ITransportBinding
+#pragma warning disable A2AEXP005 // the live exchange of A2A 1.1
+public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IA2AExtensionOperationClient, IResumableTransport, ITransportBinding, ILiveTransport
+#pragma warning restore A2AEXP005
 {
     string ITransportBinding.Binding => ProtocolBindings.HttpJson;
 
@@ -35,6 +37,23 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IA2AExten
 
     IAsyncEnumerable<StreamFrame> IResumableTransport.SendStreamingFramesAsync(SendMessageRequest request, A2ARequestOptions? options, CancellationToken cancellationToken) =>
         StreamAsync(HttpMethod.Post, Path(request.Tenant, "/message:stream"), request, options, PrepareSend(request, options), null, cancellationToken);
+
+    /// <summary>
+    /// A2A 1.1 SendLiveMessage: the downlink is a streaming <c>POST /message:live</c> (opened when
+    /// <see cref="A2ALiveConnection.Events"/> is read), and each later request a unary one, answered with the task.
+    /// </summary>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public Task<A2ALiveConnection> OpenLiveAsync(StreamRequest first, A2ARequestOptions? options, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(first);
+        var live = LiveRequests.WithVersion11(options);
+        string? taskId = first.Subscribe?.Id ?? first.SendMessage?.Message?.TaskId;
+        A2ALiveConnection connection = new HttpLiveConnection(
+            token => LiveRequests.Track(StreamAsync(HttpMethod.Post, Path(first.Tenant, "/message:live"), first, live, null, null, token).Unframe(token), id => taskId ??= id, token),
+            (request, token) => SendAsync<AgentTask>(HttpMethod.Post, Path(request.Tenant, "/message:live"), request, RetryMode.None, live, null, token),
+            () => taskId);
+        return Task.FromResult(connection);
+    }
 
     /// <inheritdoc />
     public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
@@ -184,7 +203,8 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IA2AExten
 
     // "error" first: ParseStreamEvent reads found[0] as the error member and the rest as the known event members.
     private static readonly byte[][] EventMembers =
-        ["error"u8.ToArray(), "task"u8.ToArray(), "message"u8.ToArray(), "statusUpdate"u8.ToArray(), "artifactUpdate"u8.ToArray()];
+        ["error"u8.ToArray(), "task"u8.ToArray(), "message"u8.ToArray(), "statusUpdate"u8.ToArray(), "artifactUpdate"u8.ToArray(),
+         "messageUpdate"u8.ToArray()];
 
     /// <summary>
     /// One stream event, or null for an event of a type this SDK does not know (A2A #2269: a newer protocol version; skipped,
@@ -199,17 +219,21 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IA2AExten
         // Invalid UTF-8 takes the text path below, where it becomes U+FFFD as it always did.
         if (!errorFrame && System.Text.Unicode.Utf8.IsValid(bytes))
         {
-            Span<(int Start, int End)> found = stackalloc (int, int)[5];
+            Span<(int Start, int End)> found = stackalloc (int, int)[6];
             if (JsonMembers.TryScan(bytes, EventMembers, found, out var root, out var isObject) && isObject && found[0].Start < 0)
             {
-                var known = found[1].Start >= 0 || found[2].Start >= 0 || found[3].Start >= 0 || found[4].Start >= 0;
+                var known = false;
+                foreach (var m in found[1..]) known |= m.Start >= 0;
                 return known ? JsonSerializer.Deserialize(bytes[root], A2AJson.GetTypeInfo<StreamResponse>()) ?? throw ProtocolError("Empty stream event.") : null;
             }
         }
         var data = frame.DataText;
         using var doc = JsonDocument.Parse(data);
         var element = doc.RootElement;
-        if (element.ValueKind == JsonValueKind.Object && element.TryGetProperty("error", out var err)) throw ParseStatus(err, null);
+        // A 1.1 StreamError (string code, spec §4.2.4) is an event; a google.rpc.Status (number code) ends the stream.
+        if (element.ValueKind == JsonValueKind.Object && element.TryGetProperty("error", out var err)
+            && !(err.ValueKind == JsonValueKind.Object && err.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String))
+            throw ParseStatus(err, null);
         if (errorFrame) throw element.ValueKind == JsonValueKind.Object ? ParseStatus(element, null) : ProtocolError($"Stream error: {data}");
         if (!IsKnownStreamEvent(element)) return null;
         return element.Deserialize(A2AJson.GetTypeInfo<StreamResponse>()) ?? throw ProtocolError("Empty stream event.");

@@ -59,7 +59,10 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
     public override Task SendLiveMessage(IAsyncStreamReader<A2aPb.StreamRequest> requestStream, IServerStreamWriter<A2aPb.StreamResponse> responseStream, GrpcContext context) =>
         Stream(context, responseStream, (call, ct) => _handler.SendLiveMessageAsync(ReadRequests(requestStream, ct), call, ct));
 
-    /// <summary>The client's requests; one that does not map (malformed, or a kind this SDK does not know) is passed on empty, to be refused on its own.</summary>
+    /// <summary>
+    /// The client's requests; one that does not map (malformed, or a kind this SDK does not know) is passed on empty, with its
+    /// error and the id of its message (or first artifact), to be refused on its own.
+    /// </summary>
     private async IAsyncEnumerable<StreamRequest> ReadRequests(IAsyncStreamReader<A2aPb.StreamRequest> reader,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
@@ -67,7 +70,13 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
         {
             StreamRequest request;
             try { request = In<StreamRequest>(reader.Current); }
-            catch (A2AException) { request = new StreamRequest(); }
+            catch (A2AException ex)
+            {
+                var send = reader.Current.SendMessage;
+                var referenceId = !string.IsNullOrEmpty(send?.Message?.MessageId) ? send.Message.MessageId
+                    : send?.ArtifactUpdates.Select(u => u.Artifact?.ArtifactId).FirstOrDefault(id => !string.IsNullOrEmpty(id));
+                request = MalformedLiveRequest.Create(ex, referenceId);
+            }
             yield return request;
         }
     }

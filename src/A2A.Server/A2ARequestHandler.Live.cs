@@ -55,6 +55,8 @@ public sealed partial class A2ARequestHandler
                     send.Tenant ??= first.Tenant;
                     opened = SendStreamingMessageAsync(send, call, cancellationToken: stop.Token);
                 }
+                else if (first is not null && MalformedLiveRequest.Of(first) is { } malformed)
+                    yield return RefusedEvent(null, malformed.Error, null, malformed.ReferenceId);
                 else yield return RefusedEvent(null, first?.SendMessage is null
                     ? new A2AException(A2AErrorCode.InvalidParams, "The request has a kind this server does not know, or none.")
                     : A2AException.InvalidParams("The first request of a live exchange needs a message or a subscribe."), first?.SendMessage);
@@ -130,7 +132,7 @@ public sealed partial class A2ARequestHandler
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
-                output.TryWrite(RefusedEvent(taskId, ex, request?.SendMessage));
+                output.TryWrite(RefusedEvent(taskId, ex, request?.SendMessage, request is null ? null : MalformedLiveRequest.Of(request)?.ReferenceId));
             }
         }
     }
@@ -141,6 +143,7 @@ public sealed partial class A2ARequestHandler
     /// </summary>
     private async Task<SendMessageResponse> ApplyLaterRequestAsync(StreamRequest? request, string taskId, ServerCallContext call, CancellationToken ct)
     {
+        if (request is not null && MalformedLiveRequest.Of(request) is { } malformed) throw malformed.Error;
         if (request is null || request.IsUnknownKind)
             throw new A2AException(A2AErrorCode.InvalidParams, "The request has a kind this server does not know, or none.");
         if (request.Subscribe is not null)
@@ -247,7 +250,7 @@ public sealed partial class A2ARequestHandler
     /// A <see cref="StreamErrorEvent"/> for a refused request: the code of the unary operation (§4.2.4), its message, and the id
     /// of the refused message (or of its first artifact update).
     /// </summary>
-    private SequencedEvent RefusedEvent(string? taskId, Exception ex, SendMessageRequest? send)
+    private SequencedEvent RefusedEvent(string? taskId, Exception ex, SendMessageRequest? send, string? referenceId = null)
     {
         var a2a = ex as A2AException ?? new A2AException(A2AErrorCode.Internal, _options.IncludeExceptionDetails == true ? ex.Message : null);
         return new SequencedEvent(0, StreamResponse.Of(new StreamError
@@ -255,7 +258,30 @@ public sealed partial class A2ARequestHandler
             TaskId = taskId,
             Code = A2AErrors.GrpcStatus(a2a.Code),
             Message = a2a.Message,
-            ReferenceId = send?.Message?.MessageId ?? send?.ArtifactUpdates?.FirstOrDefault()?.Artifact?.ArtifactId,
+            ReferenceId = referenceId ?? send?.Message?.MessageId ?? send?.ArtifactUpdates?.FirstOrDefault()?.Artifact?.ArtifactId,
         }));
     }
+}
+
+/// <summary>
+/// A live request a binding could not map to the model (for example a gRPC message without parts, which the model requires):
+/// it is passed on as an empty <see cref="StreamRequest"/> marked here, and refused with this error and reference id, so the
+/// client sees the same refusal on every binding.
+/// </summary>
+internal sealed class MalformedLiveRequest(A2AException error, string? referenceId)
+{
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<StreamRequest, MalformedLiveRequest> Marks = new();
+
+    public A2AException Error { get; } = error;
+    public string? ReferenceId { get; } = referenceId;
+
+    /// <summary>An empty request that stands for one that could not be mapped.</summary>
+    public static StreamRequest Create(A2AException error, string? referenceId)
+    {
+        var request = new StreamRequest();
+        Marks.Add(request, new MalformedLiveRequest(error, referenceId));
+        return request;
+    }
+
+    public static MalformedLiveRequest? Of(StreamRequest request) => Marks.TryGetValue(request, out var mark) ? mark : null;
 }

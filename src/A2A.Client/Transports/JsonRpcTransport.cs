@@ -9,7 +9,9 @@ using A2A.JsonRpc;
 namespace A2A.Client.Transports;
 
 /// <summary>JSON-RPC 2.0 over HTTP binding (spec §9).</summary>
-public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IA2AExtensionOperationClient, IResumableTransport, ITransportBinding
+#pragma warning disable A2AEXP005 // the live exchange of A2A 1.1
+public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IA2AExtensionOperationClient, IResumableTransport, ITransportBinding, ILiveTransport
+#pragma warning restore A2AEXP005
 {
     string ITransportBinding.Binding => ProtocolBindings.JsonRpc;
 
@@ -38,6 +40,23 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IA2AExtens
     /// <summary>Subscribes and sends <c>Last-Event-ID</c> when <paramref name="lastEventId"/> is set. Frames carry their SSE ids.</summary>
     IAsyncEnumerable<StreamFrame> IResumableTransport.SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options, string? lastEventId, CancellationToken cancellationToken) =>
         StreamAsync(A2AProtocol.Methods.SubscribeToTask, request, options, null, lastEventId, cancellationToken);
+
+    /// <summary>
+    /// A2A 1.1 SendLiveMessage: the downlink is a streaming call of the method (opened when <see cref="A2ALiveConnection.Events"/>
+    /// is read), and each later request a unary call of it, answered with the task.
+    /// </summary>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public Task<A2ALiveConnection> OpenLiveAsync(StreamRequest first, A2ARequestOptions? options, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(first);
+        var live = LiveRequests.WithVersion11(options);
+        string? taskId = first.Subscribe?.Id ?? first.SendMessage?.Message?.TaskId;
+        A2ALiveConnection connection = new HttpLiveConnection(
+            token => LiveRequests.Track(StreamAsync(A2AProtocol.Methods.SendLiveMessage, first, live, null, null, token).Unframe(token), id => taskId ??= id, token),
+            (request, token) => InvokeAsync<StreamRequest, AgentTask>(A2AProtocol.Methods.SendLiveMessage, request, RetryMode.None, live, null, token),
+            () => taskId);
+        return Task.FromResult(connection);
+    }
 
     /// <inheritdoc />
     public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
@@ -205,7 +224,8 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IA2AExtens
     }
 
     private static readonly byte[][] StreamEventNames =
-        ["task"u8.ToArray(), "message"u8.ToArray(), "statusUpdate"u8.ToArray(), "artifactUpdate"u8.ToArray()];
+        ["task"u8.ToArray(), "message"u8.ToArray(), "statusUpdate"u8.ToArray(), "artifactUpdate"u8.ToArray(),
+         "messageUpdate"u8.ToArray(), "error"u8.ToArray()];
 
     /// <summary>
     /// The stream event in one SSE data payload, or null for an event type this SDK does not know. The common case (a
@@ -240,9 +260,9 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IA2AExtens
         if (!body[found[0].Start..found[0].End].SequenceEqual("\"2.0\""u8)) return false;
         var result = body[found[1].Start..found[1].End];
         if (result[0] != (byte)'{') return false;
-        Span<(int Start, int End)> members = stackalloc (int, int)[4];
+        Span<(int Start, int End)> members = stackalloc (int, int)[6];
         if (!JsonMembers.TryScan(result, StreamEventNames, members, out _, out _)) return false;
-        known = members[0].Start >= 0 || members[1].Start >= 0 || members[2].Start >= 0 || members[3].Start >= 0;
+        foreach (var m in members) known |= m.Start >= 0;
         if (!known) return true;
         try
         {

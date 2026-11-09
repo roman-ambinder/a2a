@@ -159,3 +159,15 @@ static A2A.Client.Outbox.ClientOutboxMessage.Create(string! peer, A2A.SendMessag
 static A2A.Client.Outbox.ClientOutboxOutcome.Failed(string! error, string? remoteTaskId = null, string? remoteContextId = null, A2A.TaskState? remoteState = null, bool inDoubt = false) -> A2A.Client.Outbox.ClientOutboxOutcome!
 static A2A.Client.Outbox.ClientOutboxOutcome.Finished(A2A.SendMessageResponse! response) -> A2A.Client.Outbox.ClientOutboxOutcome!
 static A2A.Client.Sse.SseReader.ReadAsync(System.IO.Stream! stream, int maxEventBytes, System.Threading.CancellationToken cancellationToken) -> System.Collections.Generic.IAsyncEnumerable<A2A.Client.Sse.SseEvent!>!
+[A2AEXP005]A2A.Client.A2AClient.OpenLiveAsync(A2A.Message! message, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.A2ALiveConnection!>!
+[A2AEXP005]A2A.Client.A2AClient.OpenLiveAsync(A2A.StreamRequest! first, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.A2ALiveConnection!>!
+[A2AEXP005]A2A.Client.A2ALiveConnection
+[A2AEXP005]A2A.Client.A2ALiveConnection.A2ALiveConnection() -> void
+[A2AEXP005]A2A.Client.A2ALiveConnection.SendAsync(A2A.Message! message, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+[A2AEXP005]A2A.Client.ILiveTransport
+[A2AEXP005]A2A.Client.ILiveTransport.OpenLiveAsync(A2A.StreamRequest! first, A2A.Client.A2ARequestOptions? options, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<A2A.Client.A2ALiveConnection!>!
+[A2AEXP005]A2A.Client.Transports.HttpJsonTransport.OpenLiveAsync(A2A.StreamRequest! first, A2A.Client.A2ARequestOptions? options, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<A2A.Client.A2ALiveConnection!>!
+[A2AEXP005]A2A.Client.Transports.JsonRpcTransport.OpenLiveAsync(A2A.StreamRequest! first, A2A.Client.A2ARequestOptions? options, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<A2A.Client.A2ALiveConnection!>!
+[A2AEXP005]abstract A2A.Client.A2ALiveConnection.DisposeAsync() -> System.Threading.Tasks.ValueTask
+[A2AEXP005]abstract A2A.Client.A2ALiveConnection.Events.get -> System.Collections.Generic.IAsyncEnumerable<A2A.StreamResponse!>!
+[A2AEXP005]abstract A2A.Client.A2ALiveConnection.SendAsync(A2A.StreamRequest! request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
