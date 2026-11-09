@@ -341,8 +341,16 @@ public sealed partial class TaskExecutionEngine
         timeout.CancelAfter(grace);
         try
         {
-            while (await RunningWaitsAsync(key, timeout.Token).ConfigureAwait(false) is { } running)
+            while (true)
+            {
+                // The grace period can end while the running check is under way, or between two checks. Then the wait below
+                // would get a poll delay that is cancelled already, and WaitAsync does not throw for a task that is done: the
+                // loop would spin, holding the caller, for as long as a lease is left (a lease kept by a shutdown stop lasts
+                // its whole TTL).
+                timeout.Token.ThrowIfCancellationRequested();
+                if (await RunningWaitsAsync(key, timeout.Token).ConfigureAwait(false) is not { } running) break;
                 await Task.WhenAny(running).WaitAsync(timeout.Token).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
