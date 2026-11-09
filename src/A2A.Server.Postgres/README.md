@@ -25,8 +25,8 @@ builder.Services.AddA2ADataProtectionPushSecrets();  // from A2A.Server.AspNetCo
 
 ## Schema
 
-At startup a hosted service creates the tables if they are missing (`CREATE ... IF NOT EXISTS`, under an advisory lock, so many instances can start at once).
-To manage the schema yourself, set `CreateSchemaOnStartup = false` and apply `PostgresSchema.ScriptFor("<schema>")`, or call `PostgresSchema.EnsureSchemaAsync(dataSource, schema)` from your migration step.
+The schema is kept by numbered migrations (`Migrations/NNNN_name.sql`, version in `a2a_schema_version`). At startup a hosted service applies the missing ones in one transaction, under an advisory lock, so many instances can start at once. An up-to-date database is not touched.
+To manage the schema yourself, set `CreateSchemaOnStartup = false`. The app then refuses to start when the database version differs from the package, and the error says what to run. Apply `PostgresSchema.ScriptFor("<schema>")` for a new database or `PostgresSchema.ScriptFor("<schema>", <current version>)` for an upgrade, in one transaction. Or call `PostgresSchema.EnsureSchemaAsync(dataSource, schema)` from your migration step. `PostgresSchema.VerifySchemaAsync` checks without changing anything. A database newer than the package logs a warning when auto-create is on and is refused when it is off.
 
 | Table | Key | Holds |
 |---|---|---|
@@ -46,6 +46,7 @@ Times are UTC ticks (`bigint`), JSON is `text`, and keys use the `"C"` collation
 
 ## Upgrading
 
+- The schema is now versioned. `PostgresSchema.Version` is a property, not a constant. With `CreateSchemaOnStartup = false`, the app refuses to start until you apply `PostgresSchema.ScriptFor("<schema>", <current version>)`. A database from an earlier build counts as version 1 (or 0).
 - New tables `a2a_execution_leases`, `a2a_sweep_leases` and `a2a_cancel_requests`, created at startup like the others (apply `PostgresSchema.ScriptFor("<schema>")` yourself if `CreateSchemaOnStartup = false`). `AddPostgresStores` now registers the Postgres execution coordinator by default; set `RegisterCoordinator = false` to keep the in-memory one.
 
 - New tables `a2a_push_outbox` and `a2a_push_dead_letters` (plus indexes). They are created at startup; apply `PostgresSchema.ScriptFor("<schema>")` yourself if `CreateSchemaOnStartup = false`.

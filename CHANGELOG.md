@@ -6,6 +6,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Targets .NET 8 and .NET 10.
 
+### Postgres schema migrations
+
+- `A2A.Server.Postgres` keeps its schema with numbered migrations, applied at startup in one transaction under an advisory lock. New: `PostgresSchema.ScriptFor(schema, fromVersion)` and `PostgresSchema.VerifySchemaAsync`. `PostgresSchema.Version` is now a property. With `CreateSchemaOnStartup = false` the app refuses to start when the schema version differs from the package.
+
 ### Packages
 
 - 16 packages on NuGet, all with the ID prefix `RomanAmbinder.`, so they never clash with the official `A2A` packages.
@@ -74,6 +78,14 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
   next to it as the fallback. AOT safe. Experimental.
 - `A2AClient.CallSkillAsync` calls a typed skill with .NET types. `TypedSkillCallException` reports a task that did not
   complete. `TypedSkillExtension.TryGetSchemas` reads the schemas from a card. Experimental.
+
+### Skill authorization
+
+- A host can allow a caller one skill and deny another. `A2AAuthorizationHandler.AuthorizeSkillAsync` decides (it denies by
+  default), and `A2AServerOptions.SkillAuthorization` picks the mode: `Off`, `WhenNamed` or `Required`. The server checks the
+  skill in `metadata["skillId"]` before the agent runs, on every binding, and an unknown skill gives the same error as a denied
+  one. Open streams are checked again. `FilterExtendedCard` lists only allowed skills on the extended card.
+  `AgentRequestContext.AuthorizedSkillId` and `IsSkillAllowedAsync` let an agent that picks its own skill ask the same question.
 
 ### Microsoft.Extensions.AI
 
