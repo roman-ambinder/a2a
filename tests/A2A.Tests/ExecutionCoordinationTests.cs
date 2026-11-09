@@ -33,8 +33,13 @@ public sealed class FaultyCoordinator(TimeProvider? time = null) : ExecutionCoor
     public override ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default) => _inner.HeartbeatAsync(task, executionId, ct);
     public override ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default) => _inner.UnregisterAsync(task, executionId, ct);
 
+    /// <summary>When set, answers IsRunningAsync instead of the wrapped coordinator.</summary>
+    public Func<ValueTask<bool>>? IsRunningOverride { get; set; }
+
     public override ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default) =>
-        ThrowOnIsRunning ? throw new InvalidOperationException("coordinator unavailable") : _inner.IsRunningAsync(task, ct);
+        ThrowOnIsRunning ? throw new InvalidOperationException("coordinator unavailable")
+        : IsRunningOverride is { } answer ? answer()
+        : _inner.IsRunningAsync(task, ct);
 
     /// <summary>The running check of the wrapped coordinator, never throwing (for assertions).</summary>
     public ValueTask<bool> IsRegisteredAsync(TaskKey task) => _inner.IsRunningAsync(task);
@@ -85,6 +90,24 @@ public class ExecutionCoordinationTests
         ScenarioAgent.Gate(text).TrySetResult();
         await host.WaitIdleAsync();
         Assert.False(await coordinator.IsRegisteredAsync(key));
+    }
+
+    [Fact]
+    public async Task Waiting_for_a_stop_ends_with_the_grace_period_while_the_coordinator_still_reports_a_lease()
+    {
+        var coordinator = new FaultyCoordinator
+        {
+            // The grace period ends during this check, so the next poll delay is already cancelled.
+            IsRunningOverride = async () =>
+            {
+                await Task.Delay(100);
+                return true;
+            },
+        };
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<ExecutionCoordinator>(coordinator));
+
+        await host.Engine.WaitUntilStoppedAsync(new TaskKey("", "alice", "t"), TimeSpan.FromMilliseconds(20), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     [Fact]

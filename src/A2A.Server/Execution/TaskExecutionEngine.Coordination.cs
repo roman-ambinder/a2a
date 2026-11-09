@@ -342,7 +342,12 @@ public sealed partial class TaskExecutionEngine
         try
         {
             while (await RunningWaitsAsync(key, timeout.Token).ConfigureAwait(false) is { } running)
+            {
                 await Task.WhenAny(running).WaitAsync(timeout.Token).ConfigureAwait(false);
+                // A poll delay cancelled by the timeout still completes WhenAny normally, and WaitAsync does not check the token of
+                // a finished task. Without this check the loop spins until the coordinator's lease expires.
+                timeout.Token.ThrowIfCancellationRequested();
+            }
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
