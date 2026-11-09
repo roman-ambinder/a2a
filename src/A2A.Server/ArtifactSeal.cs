@@ -45,6 +45,32 @@ internal static class ArtifactSeal
             Parts = artifact.Parts,
             Metadata = metadata.Count == 0 ? null : metadata,
             Extensions = artifact.Extensions,
+            StartGeneration = artifact.StartGeneration,
+            EndGeneration = artifact.EndGeneration,
+            Role = artifact.Role,
+        };
+    }
+
+    /// <summary>
+    /// The artifact to store with its place in the task's history (A2A 1.1 §3.2.8): <paramref name="start"/> as
+    /// <c>startGeneration</c>, and <paramref name="end"/> as <c>endGeneration</c> (null while it is still open). Returns
+    /// <paramref name="artifact"/> when both are already set to those values; otherwise a shallow copy (parts shared), so an
+    /// artifact shared with an event is never changed.
+    /// </summary>
+    public static Artifact Place(Artifact artifact, long start, long? end)
+    {
+        if (artifact.StartGeneration == start && artifact.EndGeneration == end) return artifact;
+        return new Artifact
+        {
+            ArtifactId = artifact.ArtifactId,
+            Name = artifact.Name,
+            Description = artifact.Description,
+            Parts = artifact.Parts,
+            Metadata = artifact.Metadata,
+            Extensions = artifact.Extensions,
+            StartGeneration = start,
+            EndGeneration = end,
+            Role = artifact.Role,
         };
     }
 

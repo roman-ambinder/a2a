@@ -445,3 +445,8 @@ static A2A.Server.Storage.TaskBatchCommit.operator ==(A2A.Server.Storage.TaskBat
 static A2A.Server.Storage.TaskStore.ValidateBatch(A2A.Server.Storage.TaskBatchCommit! commit) -> void
 virtual A2A.Server.Storage.EventStore.ReadRangeAsync(A2A.Server.Storage.TaskKey task, long afterSequence, long beforeSequence, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!
 override A2A.Server.Storage.InMemoryEventStore.ReadRangeAsync(A2A.Server.Storage.TaskKey task, long afterSequence, long beforeSequence, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!
+static A2A.Server.Streaming.EventEncoder.IsVisibleTo(A2A.StreamResponse! evt, string? protocolVersion) -> bool
+static A2A.Server.Streaming.EventEncoder.JsonFor(A2A.Server.Streaming.SequencedEvent evt, string? protocolVersion) -> System.ReadOnlyMemory<byte>
+A2A.Server.A2ALimits.MaxTimelineLengthReturned.get -> int
+A2A.Server.A2ALimits.MaxTimelineLengthReturned.set -> void
+[A2AEXP005]A2A.Server.A2AServerOptions.EnableProtocolV11() -> A2A.Server.A2AServerOptions!

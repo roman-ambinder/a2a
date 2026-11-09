@@ -82,7 +82,7 @@ public sealed class IdempotencyCoordinator(IdempotencyStore store, TaskStore tas
                 var task = request.Configuration?.ReturnImmediately == true
                     ? (await tasks.GetAsync(key, cancellationToken).ConfigureAwait(false))?.Task ?? throw A2AException.TaskNotFound(created.TaskId)
                     : await waitUntilSettled(key, created.AfterSequence, created.AcceptedStatusTimestamp, cancellationToken).ConfigureAwait(false);
-                return new TaskResponse(TaskShaper.Shape(task, request.Configuration?.HistoryLength, options.Limits));
+                return new TaskResponse(TaskShaper.Shape(task, request.Configuration?.HistoryLength, options.Limits, timelineLength: request.Configuration?.TimelineLength));
             default:
                 throw new UnreachableException();
         }

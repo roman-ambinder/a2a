@@ -18,6 +18,9 @@ internal sealed class AgentCardCompleter(A2AServerOptions options, IEnumerable<A
     Agents.TenantCardProvider? tenants = null)
     : AgentCardProvider(options, extensions, tenants)
 {
+    // The set itself, read at completion time: versions added after this provider was built still count.
+    private readonly ISet<string> _versions = options.SupportedVersions;
+
     protected override bool CanCache =>
         http.Value.PublicBaseUrl is not null || lifetime is null || lifetime.ApplicationStarted.IsCancellationRequested;
 
@@ -25,11 +28,18 @@ internal sealed class AgentCardCompleter(A2AServerOptions options, IEnumerable<A
     {
         if (copy.SupportedInterfaces.Count != 0) return;
         var baseUrl = BaseUrl(http.Value, server);
-        foreach (var (binding, pattern) in registry.Bindings())
+        // With A2A 1.1 served, each binding is listed for 1.1 first: the first entry is the preferred one (§8.2.1).
+        var versions = _versions.Contains(A2AProtocol.Version11)
+            ? new[] { A2AProtocol.Version11, A2AProtocol.Version }
+            : [A2AProtocol.Version];
+        foreach (var version in versions)
         {
-            var url = Combine(baseUrl, pattern);
-            if (binding == ProtocolBindings.Grpc) url = GrpcAddress(url);
-            copy.SupportedInterfaces.Add(new AgentInterface { Url = url, ProtocolBinding = binding });
+            foreach (var (binding, pattern) in registry.Bindings())
+            {
+                var url = Combine(baseUrl, pattern);
+                if (binding == ProtocolBindings.Grpc) url = GrpcAddress(url);
+                copy.SupportedInterfaces.Add(new AgentInterface { Url = url, ProtocolBinding = binding, ProtocolVersion = version });
+            }
         }
     }
 

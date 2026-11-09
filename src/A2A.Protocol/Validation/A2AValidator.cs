@@ -12,6 +12,8 @@ public static partial class A2AValidator
             throw A2AException.InvalidParams("message.role must be ROLE_USER for client messages");
         if (request.Configuration is { HistoryLength: < 0 })
             throw A2AException.InvalidParams("configuration.historyLength must be >= 0");
+        if (request.Configuration is { TimelineLength: < 0 })
+            throw A2AException.InvalidParams("configuration.timelineLength must be >= 0");
         if (request.Configuration?.TaskPushNotificationConfig is { } push)
             ValidatePushConfig(push, "configuration.taskPushNotificationConfig", requireTaskId: false);
     }

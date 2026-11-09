@@ -25,6 +25,20 @@ public sealed class A2AServerOptions
     public ISet<string> SupportedVersions { get; } = new HashSet<string>(StringComparer.Ordinal) { A2AProtocol.Version };
 
     /// <summary>
+    /// Serves A2A 1.1 (release candidate) next to 1.0: adds <c>"1.1"</c> to <see cref="SupportedVersions"/>. A caller that sends
+    /// <c>A2A-Version: 1.1</c> then gets the 1.1 wire (generation, timeline, message events, streams that stay open on an
+    /// interrupted state); a 1.0 caller sees no change. A card completed from the mapped bindings lists a 1.1 interface for each
+    /// binding first. Experimental until 1.1 is final.
+    /// </summary>
+    /// <returns>These options.</returns>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public A2AServerOptions EnableProtocolV11()
+    {
+        SupportedVersions.Add(A2AProtocol.Version11);
+        return this;
+    }
+
+    /// <summary>
     /// The spec says a missing A2A-Version header means 0.3 (§3.6.2), which this server rejects unless listed in
     /// <see cref="SupportedVersions"/>. Set true to treat a missing header as <see cref="A2AProtocol.Version"/> instead
     /// (handy for curl and older tooling, but not strictly compliant). Default false.

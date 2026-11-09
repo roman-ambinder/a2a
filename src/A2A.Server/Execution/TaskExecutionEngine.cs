@@ -619,6 +619,9 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                                 ContextId = contextId,
                                 Status = new AgentTaskStatus { State = TaskState.Submitted, Timestamp = (evt as StatusUpdateEvent)?.StatusUpdate.Status.Timestamp ?? now },
                                 History = historyMessage is null ? null : [historyMessage],
+                                // A2A 1.1: the task starts at generation 1, and the client's first message is its first timeline entry.
+                                Generation = 1,
+                                Timeline = historyMessage is null ? null : [TimelineEntry.FromMessage(historyMessage, 1)],
                                 Metadata = historyMessage is not null && ActorChainValidator.WellFormedChain(historyMessage) is { } chain
                                     ? new() { [A2A.Delegation.ActorChain.MetadataKey] = chain }
                                     : null,
@@ -859,6 +862,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 ServerLog.EventDropped(_logger, key.TaskId, record.Task.Status.State);
                 return null;
             }
+            record = await WithGenerationAsync(key, record).ConfigureAwait(false);
             // Two executions of one task can race: only here, on the fresh record, is the order final.
             if (evt is ArtifactUpdateEvent { ArtifactUpdate: { Append: true } sealedAppend } && !record.Task.Status.State.IsTerminal()
                 && ArtifactSeal.IsSealed(record.Task.Artifacts, sealedAppend.Artifact.ArtifactId))
@@ -954,6 +958,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     private async ValueTask<int> ApplyBatchAndStoreAsync(TaskKey key, TaskRecord record, List<SequencedEvent> batch, Execution exec, string scope)
     {
         if (batch.Count < 2 || record.Task.Status.State.IsTerminal()) return 0;
+        record = await WithGenerationAsync(key, record).ConfigureAwait(false);
         var size = ReferenceEquals(exec.MeasuredTask, record.Task) ? exec.MeasuredBytes : TaskSize.Measure(record.Task);
         AgentTask? next = null;
         HashSet<int>? copied = null; // artifacts already replaced by a copy owned by this batch
@@ -982,6 +987,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             count++;
         }
         if (count < 2) return 0;
+        // Each event of the batch is one mutation with its own sequence: the generation moves by the number of events.
+        next!.Generation = (record.Task.Generation ?? 0) + count;
 
         var usage = exec.Usage.Pending();
         TaskUsageMeter.Apply(next!, usage);
@@ -1147,6 +1154,12 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         return EventEncoder.Encode(0, evt);
     }
 
+    /// <summary>
+    /// Sends an event that a request stored itself (a follow-up's message update) to the task's subscribers. The caller holds the
+    /// task lock, so subscribers see it in sequence order.
+    /// </summary>
+    internal void PublishStored(TaskKey key, SequencedEvent evt) => _bus.Publish(ScopeKey(key.Tenant, key.TaskId), evt);
+
     /// <summary>Sends a stored event to the request that started the run and to subscribers. Its webhooks were queued by its commit.</summary>
     private void Publish(Execution exec, string scope, SequencedEvent evt)
     {
@@ -1162,10 +1175,14 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// here on the event and the stored task share them, and the server owns both (see <see cref="TaskUpdater"/>).
     /// The event's own <c>Metadata</c> (status or artifact update event) is shallow-merged into the task's metadata, last write
     /// wins; <see cref="MergeMetadata"/> says which keys are skipped.
+    /// A2A 1.1: the copy's <c>Generation</c> is one more than <paramref name="current"/>'s (a task stored before generations
+    /// existed must get its generation first, <see cref="WithGenerationAsync"/>); a status update adds a status entry to the
+    /// timeline, and an artifact update places the artifact (<c>startGeneration</c>, <c>endGeneration</c>).
     /// </summary>
     internal static AgentTask? ApplyToCopy(AgentTask current, StreamResponse evt)
     {
         if (current.Status.State.IsTerminal()) return null;
+        var generation = (current.Generation ?? 0) + 1;
         if (evt is StatusUpdateEvent { StatusUpdate: var su })
         {
             if (!TaskStateMachine.CanTransition(current.Status.State, su.Status.State)) return null;
@@ -1173,6 +1190,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             var next = current.CopyForUpdate();
             next.Status = new AgentTaskStatus { State = su.Status.State, Message = su.Status.Message, Timestamp = su.Status.Timestamp };
             if (su.Status.Message is { } m) (next.History ??= []).Add(m);
+            (next.Timeline ??= []).Add(TimelineEntry.FromStatus(next.Status, generation));
+            next.Generation = generation;
             MergeMetadata(next, su.Metadata);
             return next;
         }
@@ -1184,7 +1203,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             A2AValidator.ValidateArtifact(incoming, "artifact", allowEmptyParts: au.Append && existing >= 0);
             var next = current.CopyForUpdate();
             var artifacts = next.Artifacts ??= [];
-            if (existing < 0) artifacts.Add(ArtifactSeal.Stamp(incoming, au.LastChunk));
+            if (existing < 0) artifacts.Add(ArtifactSeal.Place(ArtifactSeal.Stamp(incoming, au.LastChunk), generation, au.LastChunk ? generation : null));
             else if (au.Append)
             {
                 // A new artifact replaces the stored one in the copy; the stored one is never changed.
@@ -1201,13 +1220,30 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                     }
                 }
                 ArtifactSeal.Set(merged, au.LastChunk);
+                // A copy owned by this update: it keeps the place where the artifact started and is closed by its last chunk.
+                merged.StartGeneration ??= generation;
+                if (au.LastChunk) merged.EndGeneration = generation;
                 artifacts[existing] = merged;
             }
-            else artifacts[existing] = ArtifactSeal.Stamp(incoming, au.LastChunk); // replaces, also a sealed artifact
+            else artifacts[existing] = ArtifactSeal.Place(ArtifactSeal.Stamp(incoming, au.LastChunk), generation, au.LastChunk ? generation : null); // replaces, also a sealed artifact
+            next.Generation = generation;
             MergeMetadata(next, au.Metadata);
             return next;
         }
         return null;
+    }
+
+    /// <summary>
+    /// <paramref name="record"/> with a known <see cref="AgentTask.Generation"/>. A task stored before generations existed has
+    /// none: its generation is the last sequence of its event log, because every event stored so far was one change. Returns a
+    /// record with a copy of the task in that case (the stored instance is never changed), else <paramref name="record"/>.
+    /// </summary>
+    internal async ValueTask<TaskRecord> WithGenerationAsync(TaskKey key, TaskRecord record)
+    {
+        if (record.Task.Generation is not null) return record;
+        var task = record.Task.CopyForUpdate();
+        task.Generation = await _events.LastSequenceAsync(key).ConfigureAwait(false);
+        return record with { Task = task };
     }
 
     /// <summary>The index of the artifact with this id, or -1. A loop: no closure per event.</summary>
