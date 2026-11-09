@@ -225,6 +225,10 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 682, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.UploadsWithoutRetentionMessage)]
     public static partial void UploadsWithoutRetention(ILogger logger);
 
+    // A2A 1.1 live input: 690-699
+    [LoggerMessage(EventId = 690, Level = LogLevel.Warning, Message = "Task {TaskId}: a client message was stored but its execution ended before it could take it; the message is in the task's timeline")]
+    public static partial void LiveInputDropped(ILogger logger, string taskId);
+
     // IdempotencyCoordinator: 400-499
     [LoggerMessage(EventId = 400, Level = LogLevel.Error, Message = "Failed to record the idempotency outcome for task {TaskId}")]
     public static partial void IdempotencyRecordFailed(ILogger logger, Exception exception, string taskId);

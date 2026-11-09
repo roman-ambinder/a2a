@@ -570,6 +570,7 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
                 SkillAuthorizer = _skills,
                 UploadOpener = _inbound is { } inbound ? (part, range, token) => inbound.OpenAsync(call, part, range, token) : null,
                 UserArtifactUpdates = userArtifacts,
+                LiveInput = new LiveInputBuffer(_options.Limits.LiveInputCapacity),
             };
             return new Prepared(context, accepted.Existing is null ? push : null, accepted.LastSequence, accepted.Duplicate, isFollowUp ? accepted.Existing?.Status : null, accepted.StartPending);
         }
@@ -662,7 +663,15 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     {
                         Metadata = new() { ["taskId"] = taskId },
                     };
-                if (!TaskStateMachine.AcceptsFollowUp(state, _options.FollowUpPolicy))
+                // A2A 1.1: an execution of the task that reads its live input takes the message, in any non-terminal state;
+                // no new execution starts.
+                var listening = _engine.ListeningInput(key);
+                if (listening is { HasRoom: false })
+                    throw new A2AException(A2AErrorCode.UnsupportedOperation, "The agent is not accepting more input right now.")
+                    {
+                        Metadata = new() { ["taskId"] = taskId },
+                    };
+                if (listening is null && !TaskStateMachine.AcceptsFollowUp(state, _options.FollowUpPolicy))
                     throw new A2AException(A2AErrorCode.UnsupportedOperation, $"The task does not accept messages in state {state}.")
                     {
                         Metadata = new() { ["taskId"] = taskId },
@@ -731,7 +740,7 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     _engine.PublishStored(key, encoded with { Sequence = result.Sequence });
                     committed = true;
                     // Until the execution is registered, a retry must not start the message a second time.
-                    _engine.BeginStart(key);
+                    if (listening is null) _engine.BeginStart(key);
                     // A2A 1.1 (§3.2.1): then the client's artifacts, in list order, each one change. Still under the lock.
                     var (latest, last) = (result.Record, result.Sequence);
                     if (userArtifacts is not null)
@@ -742,6 +751,13 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
                             if (await _engine.StoreClientArtifactAsync(key, latest, update, ct).ConfigureAwait(false) is { } applied)
                                 (latest, last) = applied;
                         }
+                    }
+                    if (listening is not null)
+                    {
+                        // Handed to the running agent: nothing starts, as for a message already accepted.
+                        if (!listening.TryWrite(new LiveInputItem(message, userArtifacts?.Select(u => u.Artifact).ToList() ?? [])))
+                            ServerLog.LiveInputDropped(_engine.Logger, taskId);
+                        return new Accepted(message, contextId, latest.Task, last, true, false, approval, elicitation, approvalResource);
                     }
                     // The caller's own stream starts after its message (and artifacts): the task it gets already holds them.
                     return new Accepted(message, contextId, latest.Task, last, false, true, approval, elicitation, approvalResource);

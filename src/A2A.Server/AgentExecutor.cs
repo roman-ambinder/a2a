@@ -82,6 +82,14 @@ public sealed class AgentRequestContext
     [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
     public IReadOnlyList<Artifact>? UserArtifacts => UserArtifactUpdates?.Select(u => u.Artifact).ToList();
 
+    /// <summary>
+    /// A2A 1.1: the client input that arrives while this execution runs. Read it to take messages while you work (a live
+    /// exchange, or any SendMessage for the task); until you do, a message for a working task is refused as usual. Null for a
+    /// context built by hand.
+    /// </summary>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public ILiveInput? LiveInput { get; init; }
+
     /// <summary>The checked artifact updates behind <see cref="UserArtifacts"/>; the engine stores them for a new task.</summary>
     internal IReadOnlyList<TaskArtifactUpdateEvent>? UserArtifactUpdates { get; init; }
 

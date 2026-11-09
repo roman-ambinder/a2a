@@ -44,6 +44,12 @@ public sealed class A2ALimits
     public int MaxUserArtifactsPerRequest { get; set; } = 16;
 
     /// <summary>
+    /// A2A 1.1: most client inputs waiting for a running agent that reads <see cref="AgentRequestContext.LiveInput"/>. When it is
+    /// full, a further message is refused before it is stored (on a live exchange as a stream error). Default 32.
+    /// </summary>
+    public int LiveInputCapacity { get; set; } = 32;
+
+    /// <summary>
     /// A2A 1.1: most timeline entries returned for a task, also when the caller sends no <c>timelineLength</c> or a larger one
     /// (the newest entries are kept). Default 100.
     /// </summary>

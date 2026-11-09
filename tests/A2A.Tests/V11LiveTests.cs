@@ -186,4 +186,49 @@ public sealed class V11LiveTests
         Assert.True(await call.ResponseStream.MoveNext());
         Assert.Equal(A2aPb.TaskState.Completed, call.ResponseStream.Current.StatusUpdate.Status.State);
     }
+
+    [Fact]
+    public async Task A_running_agent_that_reads_live_input_takes_messages_while_it_works()
+    {
+        await using var host = await StartAsync(grpc: true);
+        var client = new A2aPb.A2AService.A2AServiceClient(host.GrpcChannel("alice"));
+        using var call = client.SendLiveMessage(new Metadata { { "a2a-version", "1.1" } });
+        await call.RequestStream.WriteAsync(Grpc(Send("listen")));
+        var events = call.ResponseStream;
+        Assert.True(await events.MoveNext()); // the task
+        Assert.True(await events.MoveNext());
+        Assert.Equal(A2aPb.TaskState.Working, events.Current.StatusUpdate.Status.State);
+
+        // WORKING, and the default follow-up rule refuses messages while working: the running agent takes them instead.
+        await call.RequestStream.WriteAsync(Grpc(Send("one")));
+        Assert.True(await events.MoveNext());
+        Assert.Equal("one", events.Current.MessageUpdate.Message.Parts[0].Text);
+        Assert.True(await events.MoveNext());
+        Assert.Equal("heard: one +0", events.Current.StatusUpdate.Status.Message.Parts[0].Text);
+
+        await call.RequestStream.WriteAsync(Grpc(Send("done")));
+        Assert.True(await events.MoveNext()); // the message update
+        Assert.True(await events.MoveNext());
+        Assert.Equal(A2aPb.TaskState.Completed, events.Current.StatusUpdate.Status.State);
+        Assert.False(await events.MoveNext());
+    }
+
+    [Fact]
+    public async Task Without_a_listening_agent_a_message_to_a_working_task_is_refused_on_the_stream()
+    {
+        await using var host = await StartAsync(grpc: true);
+        var client = new A2aPb.A2AService.A2AServiceClient(host.GrpcChannel("alice"));
+        using var call = client.SendLiveMessage(new Metadata { { "a2a-version", "1.1" } });
+        await call.RequestStream.WriteAsync(Grpc(Send("gate live-refused")));
+        var events = call.ResponseStream;
+        Assert.True(await events.MoveNext());
+        Assert.True(await events.MoveNext()); // WORKING, at the gate
+        await call.RequestStream.WriteAsync(Grpc(Send("hello?", messageId: "m-busy")));
+        Assert.True(await events.MoveNext());
+        Assert.Equal("m-busy", events.Current.Error.ReferenceId);
+        Assert.Equal("FAILED_PRECONDITION", events.Current.Error.Code);
+        ScenarioAgent.Gate("gate live-refused").TrySetResult();
+        Assert.True(await events.MoveNext());
+        Assert.Equal(A2aPb.TaskState.Completed, events.Current.StatusUpdate.Status.State);
+    }
 }

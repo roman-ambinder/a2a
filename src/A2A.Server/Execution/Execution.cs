@@ -70,6 +70,9 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
     /// </summary>
     public IReadOnlyList<TaskArtifactUpdateEvent>? UserArtifacts { get; init; }
 
+    /// <summary>A2A 1.1: the client input of this execution (<see cref="AgentRequestContext.LiveInput"/>), or null.</summary>
+    public LiveInputBuffer? LiveInput { get; init; }
+
     /// <summary>
     /// The last task this execution measured (<c>TaskSize.Measure</c>) and its size. The next event is measured as this size
     /// plus what it adds when the stored task is that same instance (it is never changed), so the cap check does not walk the
@@ -163,6 +166,7 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
 
     public void MarkDone()
     {
+        LiveInput?.Complete();
         Cts.Dispose();
         _done.TrySetResult();
     }
