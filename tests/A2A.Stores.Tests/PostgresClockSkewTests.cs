@@ -74,6 +74,9 @@ public sealed class PostgresClockSkewTests(PostgresFixture db)
         var table = $"\"{schema.Schema}\".a2a_push_outbox";
         await using (var cmd = db.DataSource.CreateCommand($"ALTER TABLE {table} DROP COLUMN queued_ticks"))
             await cmd.ExecuteNonQueryAsync();
+        // The database now looks like one from an older build: the version row says 1 (the new check skips a current version).
+        await using (var cmd = db.DataSource.CreateCommand($"DELETE FROM \"{schema.Schema}\".a2a_schema_version; INSERT INTO \"{schema.Schema}\".a2a_schema_version (version) VALUES (1)"))
+            await cmd.ExecuteNonQueryAsync();
         await using (var cmd = db.DataSource.CreateCommand(
             $"INSERT INTO {table} (tenant, owner, task_id, config_id, seq, delivery_id, attempt, payload, due_ticks) VALUES ('t', 'alice', 'task1', 'c1', 1, 'old', 0, '\\x01', 1)"))
             await cmd.ExecuteNonQueryAsync();

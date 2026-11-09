@@ -28,7 +28,7 @@ Each task change, its event and its push deliveries are written in one transacti
 | Option | Default | Meaning |
 |---|---|---|
 | `Schema` | `public` | Schema of the `a2a_*` tables. Letters, digits and underscores only. |
-| `CreateSchemaOnStartup` | `true` | A hosted service creates missing tables and indexes at startup, under an advisory lock, so many instances can start together. |
+| `CreateSchemaOnStartup` | `true` | A hosted service applies the missing schema migrations at startup, in one transaction under an advisory lock, so many instances can start together. When `false`, the app refuses to start unless the database version matches the package. |
 | `CleanupInterval` | 5 minutes | How often expired event logs and finished idempotency entries are deleted. Zero or `Timeout.InfiniteTimeSpan` turns it off. |
 | `IdempotencyClaimTimeout` | 2 minutes | How long a running request holds its idempotency key before another request may take it. `Timeout.InfiniteTimeSpan` means never. |
 | `IdempotencyPollInterval` | 200 ms | How often a request that waits on a key held elsewhere checks again. |
@@ -36,7 +36,7 @@ Each task change, its event and its push deliveries are written in one transacti
 | `CancelPollInterval` | 1 second | How often the Postgres coordinator reads cancel requests from the other instances. This is the delay of a cross-instance CancelTask. |
 | `UseDatabaseClock` | `true` | Deadlines use the database clock (`statement_timestamp()`). `false` uses the `TimeProvider`, for tests with a fake clock. |
 
-- **Schema.** To manage tables yourself, set `CreateSchemaOnStartup = false` and apply `PostgresSchema.ScriptFor("<schema>")` in your migration step, or call `PostgresSchema.EnsureSchemaAsync`. The script uses `IF NOT EXISTS`, so you can apply it again after an upgrade that adds tables.
+- **Schema.** The schema is kept by numbered migrations. They are applied at startup under an advisory lock, in one transaction. A start on an up-to-date database takes no lock and changes nothing. With `CreateSchemaOnStartup = false` the app refuses to start when the database version differs from the package. The error says which version the database has and what to run. Export `PostgresSchema.ScriptFor("<schema>")` for a new database, and `PostgresSchema.ScriptFor("<schema>", <version in the error>)` for an upgrade. Run it in one transaction, for example `psql -1 -f`. You can also call `PostgresSchema.EnsureSchemaAsync` from your migration step, and `PostgresSchema.VerifySchemaAsync` to check without changing anything. A database newer than the package (after a rollback) is refused when auto-create is off, and logs a warning when it is on.
 - **Claim timeout.** The heartbeat of a running execution renews the idempotency claim. So a live request keeps its key, and the timeout only has to cover a missed heartbeat. A crashed instance frees its keys after this time.
 - **Clocks.** Push outbox due times and leases, idempotency timeouts and event log retention use the database clock, so instances with skewed clocks agree on what has expired. Task timestamps still come from the instance that wrote them. Skew shifts when retention and `InterruptedTimeout` act on a task. Keep instance clocks in sync.
 - **Cleanup scope.** The cleanup deletes event logs and idempotency entries. Expired tasks, orphan contexts, timed-out tasks and dead executions are the job of the [retention sweep](retention.md).
@@ -107,7 +107,7 @@ Push configs hold tokens and credentials. They are stored protected. The default
 
 ## Startup diagnostics
 
-The server logs these once at startup. Nothing throws, so a host that does not use the feature still starts.
+The server logs these once at startup. Nothing throws, so a host that does not use the feature still starts. The Postgres schema check is separate: with `CreateSchemaOnStartup = false` it does stop startup on a version mismatch (see **Schema** above).
 
 | Event | Level | When |
 |---|---|---|
@@ -137,6 +137,7 @@ Rules that matter:
 
 ## What can go wrong
 
+- **Schema version mismatch.** With `CreateSchemaOnStartup = false`, the app does not start when the database is older or newer than the package. Apply the script named in the error, or upgrade the package.
 - **Two connection strings.** Registration throws. Use one string or one multiplexer.
 - **No shared event store with Redis.** Lost pub/sub messages cannot be filled in.
 - **Dead-lettered push deliveries after a restart.** The push secrets key was per process.

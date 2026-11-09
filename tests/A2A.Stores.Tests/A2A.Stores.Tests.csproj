@@ -33,6 +33,10 @@
     <Compile Include="..\A2A.Tests\FakeTimeProvider.cs" Link="FakeTimeProvider.cs" />
   </ItemGroup>
   <ItemGroup>
+    <!-- schema-v1.sql: the last schema script that stamped version 1, frozen, to test upgrades from it. -->
+    <None Include="Assets\*.sql" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

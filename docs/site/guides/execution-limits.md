@@ -31,7 +31,7 @@ A request that finds no free slot waits in a queue, in arrival order. A tenant a
 
 The request is refused when the queue is full, when the wait runs out, or when the host is stopping. The caller gets `RATE_LIMITED` (HTTP 429) with `Retry-After`, and `metadata.reason` is `execution_capacity`. Nothing is stored: there is no new task, a follow-up leaves its task as it was, and the same request can be sent again. The A2A client retries unary calls after this error. It does not retry streams.
 
-`ContinueTaskAsync` does not throw. It returns <xref:A2A.Server.TaskContinuationStatus> `AtCapacity`.
+`ContinueTaskAsync` waits in the same queue. When it is refused it does not throw: it returns <xref:A2A.Server.TaskContinuationStatus> `AtCapacity`.
 
 ### Several instances
 
@@ -98,6 +98,7 @@ A queue that is rarely empty means the limit is too low for your load, or you ne
 - **Callers get 429 with `reason: execution_capacity`.** The instance is full. Raise the limits, add instances, or lower `MaxQueuedExecutions` and let callers retry.
 - **A request hangs for a few seconds, then starts.** It waited in the queue. Set `MaxExecutionQueueWait` to zero to refuse at once.
 - **Requests stay queued while agents look idle.** A slot is held until the agent returns. An agent that ignores its cancellation token or never returns keeps its slot. Set <xref:A2A.Server.A2AServerOptions.MaxTaskDuration>, and honour the token.
+- **An agent that calls an agent on the same instance times out with 429.** The caller holds its slot while it waits for the callee. If every slot is held by callers, the callees queue until their wait ends. Keep the limit well above the depth of your agent calls, or run the callee elsewhere.
 - **A budget seems not to apply.** The agent must call `ReportUsageAsync`. The server does not know what an agent spends.
 
 ## See also
