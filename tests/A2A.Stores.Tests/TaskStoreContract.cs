@@ -36,7 +36,7 @@ public abstract class TaskStoreContract
 
     private static string[] Ids(TaskPage page) => page.Records.Select(r => r.Task.Id).ToArray();
 
-    [SkippableFact]
+    [Fact]
     public async Task Status_message_metadata_survives_a_round_trip()
     {
         var s = await CreateStoreAsync();
@@ -58,7 +58,7 @@ public abstract class TaskStoreContract
         Assert.Equal("abc123", loaded.Metadata![A2AProtocol.ApprovalConsumedKey].GetString());
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Stamped_history_messages_and_merged_task_metadata_survive_a_round_trip()
     {
         var s = await CreateStoreAsync();
@@ -83,7 +83,7 @@ public abstract class TaskStoreContract
         Assert.Equal(System.Text.Json.JsonValueKind.Null, loaded.Metadata["cleared"].ValueKind);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Get_with_wrong_owner_returns_null()
     {
         var s = await CreateStoreAsync();
@@ -92,7 +92,7 @@ public abstract class TaskStoreContract
         Assert.Equal(1, (await s.GetAsync(r.Key))!.Version);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Get_with_wrong_tenant_returns_null()
     {
         var s = await CreateStoreAsync();
@@ -100,14 +100,14 @@ public abstract class TaskStoreContract
         Assert.Null(await s.GetAsync(new TaskKey("T", "alice", "id1")));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Get_of_missing_task_returns_null()
     {
         var s = await CreateStoreAsync();
         Assert.Null(await s.GetAsync(new TaskKey("t", "alice", "nope")));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Create_returns_version_1_and_round_trips_the_task()
     {
         var s = await CreateStoreAsync();
@@ -125,7 +125,7 @@ public abstract class TaskStoreContract
         Assert.Equal("v", got.Task.Metadata!["k"].GetString());
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Update_with_stale_version_throws()
     {
         var s = await CreateStoreAsync();
@@ -135,14 +135,14 @@ public abstract class TaskStoreContract
         await Assert.ThrowsAsync<ConcurrencyException>(() => s.UpdateAsync(r, 1).AsTask());
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Update_of_missing_task_throws_concurrency()
     {
         var s = await CreateStoreAsync();
         await Assert.ThrowsAsync<ConcurrencyException>(() => s.UpdateAsync(NewRecord("t", "a", "ghost"), 1).AsTask());
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Update_keeps_created_time_and_stores_new_state()
     {
         var clock = new A2A.Tests.FakeTimeProvider();
@@ -157,7 +157,7 @@ public abstract class TaskStoreContract
         Assert.Equal(created.CreatedAt, got.CreatedAt);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Update_by_other_owner_throws_and_leaves_task_unchanged()
     {
         var s = await CreateStoreAsync();
@@ -168,7 +168,7 @@ public abstract class TaskStoreContract
         Assert.Equal(TaskState.Submitted, stored.Task.Status.State);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Create_twice_throws_duplicate()
     {
         var s = await CreateStoreAsync();
@@ -176,7 +176,7 @@ public abstract class TaskStoreContract
         await Assert.ThrowsAsync<DuplicateTaskException>(() => s.CreateAsync(NewRecord("t", "b", "id1")).AsTask());
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Same_id_in_another_tenant_is_a_different_task()
     {
         var s = await CreateStoreAsync();
@@ -185,14 +185,14 @@ public abstract class TaskStoreContract
         Assert.NotNull(await s.GetAsync(new TaskKey("u", "a", "id1")));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Create_requires_version_zero()
     {
         var s = await CreateStoreAsync();
         await Assert.ThrowsAsync<ArgumentException>(() => s.CreateAsync(NewRecord("t", "a", "id1") with { Version = 3 }).AsTask());
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Update_leaves_an_earlier_returned_record_unchanged()
     {
         // Stores own their records and callers never mutate them: a change is a new task passed to UpdateAsync.
@@ -203,7 +203,7 @@ public abstract class TaskStoreContract
         Assert.Equal(TaskState.Failed, (await s.GetAsync(r.Key))!.Task.Status.State);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Created_record_reads_back_with_the_same_content()
     {
         var s = await CreateStoreAsync();
@@ -214,7 +214,7 @@ public abstract class TaskStoreContract
         Assert.Equal(A2AJson.Serialize(input.Task), A2AJson.Serialize(read.Task));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task GetOrCreateContext_is_first_writer_wins()
     {
         var s = await CreateStoreAsync();
@@ -226,7 +226,7 @@ public abstract class TaskStoreContract
         Assert.Null(await s.GetContextAsync("other", "c1"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task List_filters_by_owner_and_tenant_before_counting()
     {
         var s = await CreateStoreAsync();
@@ -242,7 +242,7 @@ public abstract class TaskStoreContract
         Assert.Equal(0, (await s.ListAsync(Query("t", "carol"))).TotalSize);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task List_filters_by_context_and_status()
     {
         var s = await CreateStoreAsync();
@@ -255,7 +255,7 @@ public abstract class TaskStoreContract
         Assert.Empty(Ids(await s.ListAsync(Query("t", "a", contextId: "c1", status: TaskState.Completed))));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task List_filters_by_status_timestamp_inclusive()
     {
         var s = await CreateStoreAsync();
@@ -267,7 +267,7 @@ public abstract class TaskStoreContract
         Assert.Equal(2, page.TotalSize);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task List_uses_keyset_paging_newest_first()
     {
         var s = await CreateStoreAsync();
@@ -288,7 +288,7 @@ public abstract class TaskStoreContract
         Assert.Equal(string.Empty, p3.NextPageToken);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task List_breaks_timestamp_ties_by_ordinal_id()
     {
         var s = await CreateStoreAsync();
@@ -307,7 +307,7 @@ public abstract class TaskStoreContract
         Assert.Equal(new[] { "b", "B", "a", "_", "A" }.Order(StringComparer.Ordinal), all);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task List_sorts_a_task_without_status_timestamp_by_its_creation_time()
     {
         var s = await CreateStoreAsync();
@@ -327,7 +327,7 @@ public abstract class TaskStoreContract
         Assert.Equal(["new", "mid", "old"], Ids(await s.ListAsync(Query("t", "a"))));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task List_with_bad_page_token_is_invalid_params()
     {
         var s = await CreateStoreAsync();
@@ -335,7 +335,7 @@ public abstract class TaskStoreContract
         Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Parallel_updates_with_same_version_have_exactly_one_winner()
     {
         for (var round = 0; round < 10; round++)
@@ -378,7 +378,7 @@ public abstract class TaskStoreContract
         return list;
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Commit_stores_task_and_event_with_the_next_sequence()
     {
         var (s, events) = await CreateStoresAsync();
@@ -400,7 +400,7 @@ public abstract class TaskStoreContract
         Assert.Equal(TaskState.Working, Assert.IsType<StatusUpdateEvent>(log[1].Event).StatusUpdate.Status.State);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Stale_foreign_or_duplicate_commit_writes_nothing()
     {
         var (s, events) = await CreateStoresAsync();
@@ -425,11 +425,64 @@ public abstract class TaskStoreContract
         Assert.Equal(0, await events.LastSequenceAsync(new TaskKey("t", "alice", "ghost")));
     }
 
+    private static BatchedEvent Batched(string taskId, TaskState state, long v) =>
+        new(EventEncoder.Encode(0, StatusEvent(taskId, state, v)), []);
+
+    [Fact]
+    public async Task Batch_commit_stores_the_task_once_and_the_events_with_consecutive_sequences()
+    {
+        var (s, events) = await CreateStoresAsync();
+        Assert.SkipUnless(s is IBatchTaskCommit, "The store does not commit batches.");
+        var created = await s.CommitAsync(CreateCommit(NewRecord("t", "alice", "id1")));
+
+        var result = await ((IBatchTaskCommit)s).CommitBatchAsync(new TaskBatchCommit(WithState(created.Record, TaskState.Working), 1,
+            [Batched("id1", TaskState.Working, 1), Batched("id1", TaskState.Working, 2), Batched("id1", TaskState.Working, 3)]));
+
+        Assert.Equal(2, result.FirstSequence);
+        Assert.Equal(2, result.Record.Version); // one version for the whole batch
+        Assert.Equal(created.Record.CreatedAt, result.Record.CreatedAt);
+        var stored = (await s.GetAsync(created.Record.Key))!;
+        Assert.Equal(2, stored.Version);
+        Assert.Equal(TaskState.Working, stored.Task.Status.State);
+        var log = await ReadAllAsync(events, created.Record.Key);
+        Assert.Equal([1L, 2L, 3L, 4L], log.Select(e => e.Sequence));
+        Assert.Equal(["1", "2", "3"], log.Skip(1).Select(e => Assert.IsType<StatusUpdateEvent>(e.Event).StatusUpdate.Metadata!["v"].GetString()));
+
+        // A plain commit after a batch continues the sequence.
+        var after = await s.CommitAsync(new TaskCommit(WithState(stored, TaskState.Working), 2, StatusEvent("id1", TaskState.Working), []));
+        Assert.Equal(5, after.Sequence);
+        Assert.Equal(3, after.Record.Version);
+    }
+
+    [Fact]
+    public async Task Stale_foreign_empty_or_create_batch_writes_nothing()
+    {
+        var (s, events) = await CreateStoresAsync();
+        Assert.SkipUnless(s is IBatchTaskCommit, "The store does not commit batches.");
+        var batches = (IBatchTaskCommit)s;
+        var created = await s.CommitAsync(CreateCommit(NewRecord("t", "alice", "id1")));
+        await s.CommitAsync(new TaskCommit(WithState(created.Record, TaskState.Working), 1, StatusEvent("id1", TaskState.Working), []));
+
+        await Assert.ThrowsAsync<ConcurrencyException>(() => batches.CommitBatchAsync(new TaskBatchCommit(
+            WithState(created.Record, TaskState.Working), 1, [Batched("id1", TaskState.Working, 1), Batched("id1", TaskState.Working, 2)])).AsTask());
+        await Assert.ThrowsAsync<ConcurrencyException>(() => batches.CommitBatchAsync(new TaskBatchCommit(
+            WithState(created.Record with { Owner = "bob" }, TaskState.Working), 2, [Batched("id1", TaskState.Working, 1)])).AsTask());
+        await Assert.ThrowsAsync<ArgumentException>(() => batches.CommitBatchAsync(new TaskBatchCommit(
+            WithState(created.Record, TaskState.Working), 2, [])).AsTask());
+        await Assert.ThrowsAsync<ArgumentException>(() => batches.CommitBatchAsync(new TaskBatchCommit(
+            NewRecord("t", "alice", "new"), 0, [Batched("new", TaskState.Working, 1)])).AsTask());
+
+        var stored = (await s.GetAsync(created.Record.Key))!;
+        Assert.Equal(2, stored.Version);
+        Assert.Equal([1L, 2L], (await ReadAllAsync(events, created.Record.Key)).Select(e => e.Sequence));
+        Assert.Null(await s.GetAsync(new TaskKey("t", "alice", "new")));
+    }
+
     /// <summary>
     /// Writers on several threads commit to one task, each reloading and retrying after a conflict. Every event carries
     /// the version its commit produced, so the log must list versions 1, 2, 3, ... in sequence order, with no gaps.
     /// </summary>
-    [SkippableFact]
+    [Fact]
     public async Task Concurrent_commits_log_order_equals_version_order()
     {
         const int writers = 20;
@@ -470,7 +523,7 @@ public abstract class TaskStoreContract
 
     private static readonly DateTimeOffset T0 = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
-    [SkippableFact]
+    [Fact]
     public async Task Delete_removes_only_the_task_and_only_for_its_owner()
     {
         var s = await CreateStoreAsync();
@@ -486,7 +539,7 @@ public abstract class TaskStoreContract
         Assert.NotNull(await s.GetContextAsync("t", "ctx")); // the context is deleted by DeleteContextAsync, not with the task
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Delete_does_not_touch_the_event_log()
     {
         var (s, events) = await CreateStoresAsync();
@@ -496,7 +549,7 @@ public abstract class TaskStoreContract
         Assert.Equal(1, await events.LastSequenceAsync(r.Key));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ListExpired_returns_terminal_tasks_older_than_the_cutoff_oldest_first_capped()
     {
         var s = await CreateStoreAsync();
@@ -522,7 +575,7 @@ public abstract class TaskStoreContract
         Assert.Empty(await s.ListExpiredAsync(T0.AddDays(1), 100)); // strictly earlier than the cutoff
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ListInterruptedBefore_returns_only_waiting_tasks_older_than_the_cutoff()
     {
         var s = await CreateStoreAsync();
@@ -537,7 +590,7 @@ public abstract class TaskStoreContract
         Assert.Equal([new TaskKey("u", "bob", "auth-old")], await s.ListInterruptedBeforeAsync(T0.AddDays(10), 1));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Orphan_contexts_have_no_tasks_and_are_older_than_the_cutoff()
     {
         var s = await CreateStoreAsync();
@@ -557,7 +610,7 @@ public abstract class TaskStoreContract
         Assert.Contains("used", (await s.ListOrphanContextsAsync(T0.AddDays(10), 100)).Select(c => c.ContextId));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task DeleteContext_keeps_a_context_that_a_task_still_uses()
     {
         var s = await CreateStoreAsync();
@@ -571,7 +624,7 @@ public abstract class TaskStoreContract
         Assert.Null(await s.GetContextAsync("t", "used"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task DeleteContext_removes_it_once_in_its_tenant_only()
     {
         var s = await CreateStoreAsync();
@@ -583,7 +636,7 @@ public abstract class TaskStoreContract
         Assert.False(await s.DeleteContextAsync("t", "c1"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task GetForMaintenance_finds_a_task_whoever_owns_it()
     {
         var s = await CreateStoreAsync();
@@ -599,7 +652,7 @@ public abstract class TaskStoreContract
         Assert.Null(await s.GetAsync(new TaskKey("", "alice", "t2"))); // the owner-scoped read still hides it
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task GetForMaintenance_returns_null_when_missing()
     {
         var s = await CreateStoreAsync();
@@ -632,7 +685,7 @@ public abstract class TaskStoreContract
         await s.CreateAsync(record);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadContextMessages_returns_messages_oldest_first_each_task_in_its_own_order()
     {
         var s = await CreateStoreAsync();
@@ -646,7 +699,7 @@ public abstract class TaskStoreContract
         Assert.Equal(["a-user", "a-agent", "b-user", "c-user", "c-agent"], Texts(messages));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadContextMessages_breaks_a_status_time_tie_by_task_id()
     {
         var s = await CreateStoreAsync();
@@ -657,7 +710,7 @@ public abstract class TaskStoreContract
         Assert.Equal(["from-b", "from-a"], Texts(await s.ReadContextMessagesAsync(History())));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadContextMessages_leaves_out_the_excluded_task()
     {
         var s = await CreateStoreAsync();
@@ -668,7 +721,7 @@ public abstract class TaskStoreContract
         Assert.Equal(["a", "b"], Texts(await s.ReadContextMessagesAsync(History(exclude: "nope"))));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadContextMessages_MaxTasks_takes_the_newest_tasks()
     {
         var s = await CreateStoreAsync();
@@ -682,7 +735,7 @@ public abstract class TaskStoreContract
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => s.ReadContextMessagesAsync(History(maxBytes: 0)).AsTask());
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadContextMessages_MaxTasks_counts_only_tasks_that_pass_the_filters()
     {
         var s = await CreateStoreAsync();
@@ -696,7 +749,7 @@ public abstract class TaskStoreContract
         Assert.Equal(["a", "b"], Texts(await s.ReadContextMessagesAsync(History(maxTasks: 2, exclude: "excluded"))));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadContextMessages_MaxBytes_cuts_from_the_newest_message_at_the_exact_boundary()
     {
         var s = await CreateStoreAsync();
@@ -712,7 +765,7 @@ public abstract class TaskStoreContract
         Assert.Empty(await s.ReadContextMessagesAsync(History(maxBytes: Size(last) - 1)));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadContextMessages_stops_at_the_first_message_that_does_not_fit()
     {
         var s = await CreateStoreAsync();
@@ -725,7 +778,7 @@ public abstract class TaskStoreContract
         Assert.Equal(["s2"], Texts(await s.ReadContextMessagesAsync(History(maxBytes: Size(small1) + Size(small2) + 10))));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadContextMessages_MaxBytes_spans_tasks_newest_first()
     {
         var s = await CreateStoreAsync();
@@ -738,7 +791,7 @@ public abstract class TaskStoreContract
         Assert.Equal(["a", "b"], Texts(await s.ReadContextMessagesAsync(History(maxBytes: Size(b) + Size(a)))));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadContextMessages_shows_nothing_to_another_owner_tenant_or_context()
     {
         var s = await CreateStoreAsync();
@@ -750,7 +803,7 @@ public abstract class TaskStoreContract
         Assert.Single(await s.ReadContextMessagesAsync(History()));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadContextMessages_leaves_out_rejected_tasks()
     {
         var s = await CreateStoreAsync();
@@ -761,7 +814,7 @@ public abstract class TaskStoreContract
         Assert.Equal(["a", "c"], Texts(await s.ReadContextMessagesAsync(History())));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadContextMessages_never_counts_or_returns_artifacts()
     {
         var s = await CreateStoreAsync();
@@ -776,7 +829,7 @@ public abstract class TaskStoreContract
         Assert.Equal("hi", Assert.Single(messages).GetText());
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadContextMessages_survives_a_message_with_a_NUL_character()
     {
         var s = await CreateStoreAsync();
@@ -797,7 +850,7 @@ public abstract class TaskStoreContract
         await AddAsync(s, "task-" + tenant + "-" + owner + "-" + id, minutes, contextId: id, tenant: tenant, owner: owner);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ListContexts_returns_newest_first_then_by_context_id()
     {
         var s = await CreateStoreAsync();
@@ -813,7 +866,7 @@ public abstract class TaskStoreContract
         Assert.Equal(new ContextRecord("t", "alice", "new", T0.AddMinutes(9)), page.Records[0]);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ListContexts_paging_has_no_gaps_or_repeats()
     {
         var s = await CreateStoreAsync();
@@ -843,7 +896,7 @@ public abstract class TaskStoreContract
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => s.ListContextsAsync(Contexts(0)).AsTask());
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ListContexts_shows_only_the_owner_and_tenant()
     {
         var s = await CreateStoreAsync();
@@ -857,17 +910,17 @@ public abstract class TaskStoreContract
         Assert.Empty((await s.ListContextsAsync(Contexts(owner: "carol"))).Records);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ListContexts_lists_a_context_with_no_tasks()
     {
-        Skip.If(this is CoreOnlyTaskStoreTests, "The fallback finds contexts through tasks, and documents that it misses this one.");
+        Assert.SkipWhen(this is CoreOnlyTaskStoreTests, "The fallback finds contexts through tasks, and documents that it misses this one.");
         var s = await CreateStoreAsync();
         await s.GetOrCreateContextAsync(new ContextRecord("t", "a", "empty", DateTimeOffset.UnixEpoch));
 
         Assert.Equal(["empty"], (await s.ListContextsAsync(new ContextQuery("t", "a", 10, null))).Records.Select(c => c.ContextId));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ListContexts_with_bad_page_token_is_invalid_params()
     {
         var s = await CreateStoreAsync();
@@ -878,11 +931,11 @@ public abstract class TaskStoreContract
     private async Task<(TaskStore Store, IContextSummaryStore Summaries)> CreateSummaryStoreAsync()
     {
         var s = await CreateStoreAsync();
-        Skip.IfNot(s is IContextSummaryStore, "The store does not keep conversation summaries.");
+        Assert.SkipUnless(s is IContextSummaryStore, "The store does not keep conversation summaries.");
         return (s, (IContextSummaryStore)s);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Summary_round_trips_through_GetContext_and_ListContexts()
     {
         var (s, summaries) = await CreateSummaryStoreAsync();
@@ -896,7 +949,7 @@ public abstract class TaskStoreContract
         Assert.Equal("second write wins", Assert.Single((await s.ListContextsAsync(Contexts())).Records).Summary);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Summary_of_a_foreign_owner_or_missing_context_returns_false_and_changes_nothing()
     {
         var (s, summaries) = await CreateSummaryStoreAsync();
@@ -911,7 +964,7 @@ public abstract class TaskStoreContract
         Assert.Null(await s.GetContextAsync("t", "missing"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Summary_null_clears_it()
     {
         var (s, summaries) = await CreateSummaryStoreAsync();
@@ -923,7 +976,7 @@ public abstract class TaskStoreContract
         Assert.Null((await s.GetContextAsync("t", "c1"))!.Summary);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task GetOrCreateContext_keeps_the_summary()
     {
         var (s, summaries) = await CreateSummaryStoreAsync();
@@ -996,7 +1049,7 @@ public sealed class PostgresTaskStoreTests(PostgresFixture db) : TaskStoreContra
     /// The event insert fails after the task row was updated in the same transaction (a row already holds the next
     /// sequence): the whole commit rolls back, so the task keeps its version and the log its last sequence.
     /// </summary>
-    [SkippableFact]
+    [Fact]
     public async Task Commit_is_atomic()
     {
         var schema = await db.NewSchemaAsync();

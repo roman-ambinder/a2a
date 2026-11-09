@@ -29,7 +29,7 @@ jobs:
       actions: read
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Passes only when ci.yml succeeded on a push to main for this exact commit, so a tag on an unmerged
       # or red commit cannot publish. Waits if that run is still going, for tags pushed right after a merge.
@@ -59,9 +59,9 @@ jobs:
     needs: ci-gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 

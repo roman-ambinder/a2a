@@ -38,7 +38,10 @@ public static class ModelCopies
     {
         ArgumentNullException.ThrowIfNull(artifact);
         ArgumentNullException.ThrowIfNull(extraParts);
-        var parts = new List<Part>(artifact.Parts);
+        // Sized once: a plain copy followed by AddRange would grow (copy) the list a second time.
+        var extra = extraParts as ICollection<Part>;
+        var parts = new List<Part>(artifact.Parts.Count + (extra?.Count ?? 4));
+        parts.AddRange(artifact.Parts);
         parts.AddRange(extraParts);
         return new Artifact
         {

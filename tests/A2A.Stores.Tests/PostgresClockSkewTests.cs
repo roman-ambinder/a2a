@@ -35,7 +35,7 @@ public sealed class PostgresClockSkewTests(PostgresFixture db)
             [new PushDelivery(key, "c1", 0, Guid.NewGuid().ToString("N"))]));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Outbox_lease_holds_against_an_instance_whose_clock_runs_ahead()
     {
         var schema = await db.NewSchemaAsync();
@@ -48,7 +48,7 @@ public sealed class PostgresClockSkewTests(PostgresFixture db)
         Assert.Empty(await b.LeaseDueAsync(10, TimeSpan.FromMinutes(1)));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Delivery_age_is_measured_on_the_database_clock()
     {
         var schema = await db.NewSchemaAsync();
@@ -66,7 +66,7 @@ public sealed class PostgresClockSkewTests(PostgresFixture db)
         }
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Outbox_rows_from_before_the_queued_column_are_still_leased_and_aged_from_their_due_time()
     {
         var schema = await db.NewSchemaAsync();
@@ -89,7 +89,7 @@ public sealed class PostgresClockSkewTests(PostgresFixture db)
         await PostgresSchema.EnsureSchemaAsync(db.DataSource, schema.Schema); // and the script stays idempotent
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Delivery_committed_by_an_instance_whose_clock_runs_ahead_is_due_at_once()
     {
         var schema = await db.NewSchemaAsync();
@@ -99,7 +99,7 @@ public sealed class PostgresClockSkewTests(PostgresFixture db)
         Assert.Single(await new PostgresPushOutbox(db.DataSource, schema).LeaseDueAsync(10, TimeSpan.FromMinutes(1)));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Retry_scheduled_by_an_instance_whose_clock_runs_ahead_waits_only_its_backoff()
     {
         var schema = await db.NewSchemaAsync();
@@ -114,7 +114,7 @@ public sealed class PostgresClockSkewTests(PostgresFixture db)
         Assert.Single(await new PostgresPushOutbox(db.DataSource, schema).LeaseDueAsync(10, TimeSpan.FromMinutes(1)));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Idempotency_claim_holds_against_an_instance_whose_clock_runs_ahead()
     {
         var schema = await db.NewSchemaAsync();
@@ -126,7 +126,7 @@ public sealed class PostgresClockSkewTests(PostgresFixture db)
         await a.AbandonAsync(Scope, claim);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Idempotency_outcome_completed_by_an_instance_whose_clock_runs_behind_is_kept()
     {
         var schema = await db.NewSchemaAsync();
@@ -139,7 +139,7 @@ public sealed class PostgresClockSkewTests(PostgresFixture db)
         Assert.IsType<IdempotencyResult.Completed>(await other.TryBeginAsync(Scope, Hash));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Event_log_retention_set_by_an_instance_whose_clock_runs_behind_is_kept()
     {
         var schema = await db.NewSchemaAsync();

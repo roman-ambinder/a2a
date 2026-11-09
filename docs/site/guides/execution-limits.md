@@ -78,7 +78,7 @@ The server owns this key: an agent cannot write it. Callers can read it, like th
 
 - The check runs after the money is spent. One report can go past the budget by its own size. Keep single calls small compared to the budget.
 - Report before you set the task's status. Usage is saved with the run's next event, so a report after the run's last event is not saved.
-- Two runs of one task at the same time can go past the budget by what the other reported. The total stays correct. The default <xref:A2A.Server.A2AServerOptions.FollowUpPolicy> runs one at a time.
+- Two runs of one task at the same time can go past the budget by what the other reported. The total adds up both runs, with one exception: when one run ends the task, an event of the other that is not stored yet is dropped, with the usage it carried. The default <xref:A2A.Server.A2AServerOptions.FollowUpPolicy> runs one at a time.
 - A task that ended with a direct reply has no stored total.
 - One budget applies to every tenant. For a budget per tenant or per plan, check <xref:A2A.Server.TaskUpdater.UsedCostUnits> in your agent and call `FailAsync` yourself.
 

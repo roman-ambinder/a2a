@@ -56,3 +56,39 @@ public sealed record PushDelivery(TaskKey Task, string ConfigId, long Sequence, 
     /// </summary>
     public string? TraceParent { get; init; }
 }
+
+/// <summary>
+/// Optional capability of a <see cref="TaskStore"/>: commits several events of one task, and the task as it is after all of them,
+/// as one atomic unit. The engine uses it when an agent produces events faster than they are stored (for example many artifact
+/// chunks), so the task is copied and written once per batch instead of once per event. A store without it gets one
+/// <see cref="TaskStore.CommitAsync"/> per event, as before.
+/// </summary>
+public interface IBatchTaskCommit
+{
+    /// <summary>
+    /// Writes <see cref="TaskBatchCommit.Record"/> (compare-and-set on <see cref="TaskBatchCommit.ExpectedVersion"/>), appends
+    /// every event of <see cref="TaskBatchCommit.Events"/> to the task's log with consecutive sequences, in order, and stores the
+    /// deliveries of each event with that event's sequence: all of it or nothing. The same rules as <see cref="TaskStore.CommitAsync"/>
+    /// apply to each event. The stored record gets version expected + 1, one version for the whole batch.
+    /// </summary>
+    /// <returns>The stored record and the sequence of the first event; event i has sequence <c>FirstSequence + i</c>.</returns>
+    /// <exception cref="ConcurrencyException">The stored version differs, or the task does not exist for this owner. Nothing was written.</exception>
+    /// <exception cref="ArgumentException">An empty batch, a create (expected version 0), or a delivery of another task.</exception>
+    ValueTask<BatchCommitResult> CommitBatchAsync(TaskBatchCommit commit, CancellationToken cancellationToken = default);
+}
+
+/// <summary>A change to an existing task caused by several events, committed as one unit (<see cref="IBatchTaskCommit"/>).</summary>
+/// <param name="Record">The task as it must be stored, after every event.</param>
+/// <param name="ExpectedVersion">The stored version this change is based on. Must be greater than 0: a batch never creates a task.</param>
+/// <param name="Events">The events, in order, each with its push deliveries. At least one.</param>
+public sealed record TaskBatchCommit(TaskRecord Record, long ExpectedVersion, IReadOnlyList<BatchedEvent> Events);
+
+/// <summary>One event of a <see cref="TaskBatchCommit"/>.</summary>
+/// <param name="Event">The event, encoded once (see <see cref="TaskCommit.Event"/>). Its sequence is ignored: the store allocates it.</param>
+/// <param name="Deliveries">Push deliveries for this event. The store sets their <see cref="PushDelivery.Sequence"/>.</param>
+public sealed record BatchedEvent(SequencedEvent Event, IReadOnlyList<PushDelivery> Deliveries);
+
+/// <summary>The outcome of a <see cref="TaskBatchCommit"/>.</summary>
+/// <param name="Record">The stored task, with its new version.</param>
+/// <param name="FirstSequence">The sequence of the first event; the others follow it, one apart.</param>
+public sealed record BatchCommitResult(TaskRecord Record, long FirstSequence);

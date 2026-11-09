@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using A2A.Server.Push;
+using A2A.Server.Streaming;
 
 namespace A2A.Server.Storage;
 
@@ -12,7 +13,7 @@ namespace A2A.Server.Storage;
 /// </summary>
 /// <param name="events">The event store that <see cref="CommitAsync"/> appends to.</param>
 /// <param name="outbox">The push outbox that <see cref="CommitAsync"/> queues deliveries in, or null when no push is used.</param>
-public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOutbox? outbox = null) : TaskStore, IContextSummaryStore
+public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOutbox? outbox = null) : TaskStore, IContextSummaryStore, IBatchTaskCommit
 {
     private readonly InMemoryEventStore _events = events ?? throw new ArgumentNullException(nameof(events));
     private readonly ConcurrentDictionary<(string Tenant, string TaskId), TaskRecord> _tasks = new();
@@ -80,6 +81,39 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
             seq = _events.AppendAfter(record.Key, evt, () => stored = Replace(record, commit.ExpectedVersion), enqueue);
         }
         return ValueTask.FromResult(new CommitResult(stored!, seq));
+    }
+
+    /// <inheritdoc />
+    public ValueTask<BatchCommitResult> CommitBatchAsync(TaskBatchCommit commit, CancellationToken cancellationToken = default)
+    {
+        ValidateBatch(commit);
+        var events = new SequencedEvent[commit.Events.Count];
+        var anyDeliveries = false;
+        for (var i = 0; i < events.Length; i++)
+        {
+            var e = commit.Events[i];
+            anyDeliveries |= e.Deliveries.Count > 0;
+            // The webhook body is the event's bytes, encoded once by the engine.
+            events[i] = e.Deliveries.Count > 0 ? Streaming.EventEncoder.EnsureEncoded(e.Event) : e.Event;
+        }
+        if (anyDeliveries && outbox is null) throw new NotSupportedException("This store has no push outbox.");
+        Action<long>? enqueue = null;
+        if (anyDeliveries)
+        {
+            enqueue = first =>
+            {
+                for (var i = 0; i < events.Length; i++)
+                {
+                    var deliveries = commit.Events[i].Deliveries;
+                    if (deliveries.Count == 0) continue;
+                    var seq = first + i;
+                    outbox!.Add(deliveries.Select(d => d with { Sequence = seq }), events[i].Json);
+                }
+            };
+        }
+        TaskRecord? stored = null;
+        var firstSeq = _events.AppendManyAfter(commit.Record.Key, events, () => stored = Replace(commit.Record, commit.ExpectedVersion), enqueue);
+        return ValueTask.FromResult(new BatchCommitResult(stored!, firstSeq));
     }
 
     /// <summary>Compare-and-set: stores <paramref name="record"/> as version expected + 1.</summary>

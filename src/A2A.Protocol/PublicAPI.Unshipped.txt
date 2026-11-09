@@ -15,6 +15,7 @@ const A2A.Skills.TypedSkillExtension.SkillsParam = "skills" -> string!
 const A2A.Validation.A2AValidator.MaxPushConfigIdLength = 256 -> int
 static A2A.A2AProtocol.Methods.IsReserved(string! method) -> bool
 static A2A.Skills.TypedSkillExtension.TryGetSchemas(A2A.AgentCard! card, string! skillId, out System.Text.Json.JsonElement inputSchema, out System.Text.Json.JsonElement outputSchema) -> bool
+static A2A.JsonRpc.JsonRpcWriter.SuccessPrefix(System.Text.Json.JsonElement? id) -> byte[]!
 A2A.A2AErrorCode.TaskGenerationMismatch = -32010 -> A2A.A2AErrorCode
 A2A.AgentCapabilities.UserArtifacts.get -> bool?
 A2A.AgentCapabilities.UserArtifacts.set -> void

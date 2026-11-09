@@ -44,6 +44,19 @@ public class PartTests
     }
 
     [Fact]
+    public void Escaped_member_names_and_null_members_read_like_plain_ones()
+    {
+        // \u0074ext is "text"; a null url counts as absent, an unknown member is skipped.
+        var part = A2AJson.Deserialize<Part>("""{"\u0074ext":"hi","url":null,"other":1,"m\u0065diaType":"text/plain"}""");
+        Assert.Equal("hi", Assert.IsType<TextPart>(part).Text);
+        Assert.Equal("text/plain", part.MediaType);
+
+        var evt = A2AJson.Deserialize<StreamResponse>("""{"st\u0061tusUpdate":{"taskId":"t","contextId":"c","status":{"state":"TASK_STATE_W\u004FRKING"}},"task":null}""");
+        Assert.Equal(TaskState.Working, Assert.IsType<StatusUpdateEvent>(evt).StatusUpdate.Status.State);
+        Assert.Equal(TaskState.Unspecified, A2AJson.Deserialize<TaskState>("\"TASK_STATE_FROM_THE_FUTURE\""));
+    }
+
+    [Fact]
     public void Part_with_no_content_is_rejected()
     {
         var ex = Assert.Throws<JsonException>(() => A2AJson.Deserialize<Part>("""{"mediaType":"text/plain"}"""));

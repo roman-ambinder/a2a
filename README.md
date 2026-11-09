@@ -376,11 +376,11 @@ Tested both ways against the official Python SDK (`a2a-sdk` 1.3.0) over JSON-RPC
 
 ```bash
 dotnet build A2A.slnx
-dotnet test tests/A2A.Tests
-dotnet test tests/A2A.Stores.Tests   # store contract tests; the Postgres/Redis ones need Docker and skip without it
-A2A_REQUIRE_DOCKER=1 dotnet test tests/A2A.Stores.Tests   # fail instead of skipping (CI does this)
-dotnet test tests/A2A.TestKit.Tests
-dotnet test samples/TestingAgent   # tests of a sample agent, written with A2A.TestKit
+dotnet test --project tests/A2A.Tests
+dotnet test --project tests/A2A.Stores.Tests   # store contract tests; the Postgres/Redis ones need Docker and skip without it
+A2A_REQUIRE_DOCKER=1 dotnet test --project tests/A2A.Stores.Tests   # fail instead of skipping (CI does this)
+dotnet test --project tests/A2A.TestKit.Tests
+dotnet test --project samples/TestingAgent   # tests of a sample agent, written with A2A.TestKit
 ```
 
 To test your own agent, see [Testing your agent](docs/site/guides/testing.md).

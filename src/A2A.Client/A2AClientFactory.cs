@@ -30,7 +30,7 @@ public static class A2AClientFactory
     public static A2AClient Create(AgentCard card, HttpClient httpClient, A2AClientOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(card);
-        options = Copy(options ?? new A2AClientOptions());
+        options = (options ?? new A2AClientOptions()).Clone();
         EnsureAllowedNoDns(card.SupportedInterfaces, options);
         return Build(card, httpClient, options);
     }
@@ -60,7 +60,7 @@ public static class A2AClientFactory
     {
         var resolver = new A2ACardResolver(httpClient, resolverOptions);
         var card = await resolver.GetAgentCardAsync(agentUrl, cancellationToken).ConfigureAwait(false);
-        var copy = Copy(options ?? new A2AClientOptions());
+        var copy = (options ?? new A2AClientOptions()).Clone();
         await EnsureEndpointsAllowedAsync(card, agentUrl, copy, cancellationToken).ConfigureAwait(false);
         return Build(card, httpClient, copy);
     }
@@ -98,7 +98,7 @@ public static class A2AClientFactory
         };
         var resolved = await new A2ACardResolver(cardClient, resolverOptions).ResolveAsync(agentUrl, cancellationToken).ConfigureAwait(false);
 
-        var copy = Copy(options ?? new A2AClientOptions());
+        var copy = (options ?? new A2AClientOptions()).Clone();
         await EnsureEndpointsAllowedAsync(resolved.Card, resolved.Source, copy, cancellationToken).ConfigureAwait(false);
         var selected = SelectInterface(resolved.Card, copy) ?? throw NoInterface(resolved.Card, copy);
         var binding = A2ACredentialBinding.Create(resolved, selected, providers, resolverOptions?.RequireHttps ?? true);
@@ -264,20 +264,4 @@ public static class A2AClientFactory
 
     private static string Major(string? version) =>
         version is null || version.Length == 0 ? "0" : version.Split('.')[0];
-
-    private static A2AClientOptions Copy(A2AClientOptions o) => new()
-    {
-        ProtocolVersion = o.ProtocolVersion,
-        Extensions = new List<string>(o.Extensions),
-        Tenant = o.Tenant,
-        SupportedBindings = new List<string>(o.SupportedBindings),
-        RestSubscribeMethod = o.RestSubscribeMethod,
-        ValidateCapabilities = o.ValidateCapabilities,
-        MaxRetries = o.MaxRetries,
-        TimeProvider = o.TimeProvider,
-        OnMessageReceived = o.OnMessageReceived,
-        CircuitBreaker = o.CircuitBreaker,
-        TransportFactories = new List<IA2ATransportFactory>(o.TransportFactories),
-        EndpointPolicy = o.EndpointPolicy,
-    };
 }

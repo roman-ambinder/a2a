@@ -3,6 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
     <!-- Generated protobuf code (the v0.3 proto, used to check the HTTP+JSON dialect) is nullable-oblivious. -->
     <NoWarn>$(NoWarn);CA1707;CS8981</NoWarn>
     <IncludeGoogleApiCommonProtos>true</IncludeGoogleApiCommonProtos>
@@ -12,7 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="Google.Protobuf" />

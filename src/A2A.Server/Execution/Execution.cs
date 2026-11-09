@@ -74,6 +74,13 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
     /// <summary>The size of <see cref="MeasuredTask"/>.</summary>
     public long MeasuredBytes { get; set; }
 
+    /// <summary>
+    /// The task record this run's last commit stored, or null. The next event is applied to it without reading the store
+    /// again. It may be stale (another writer committed since): the commit then fails its version check and the engine reloads.
+    /// Used only by the loop that applies this execution's events.
+    /// </summary>
+    public Storage.TaskRecord? Committed { get; set; }
+
     /// <summary>The task's usage as this run sees it, shared with the run's <see cref="TaskUpdater"/>. Its unstored part rides on the next stored event.</summary>
     public TaskUsageMeter Usage { get; init; } = new();
 

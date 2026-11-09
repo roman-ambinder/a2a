@@ -1,4 +1,6 @@
 using System.Buffers;
+using System.Buffers.Text;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using A2A.Diagnostics;
@@ -139,9 +141,7 @@ internal static partial class HttpPlumbing
 
     public static async Task WriteJsonAsync<T>(HttpContext http, T value, string contentType, int status = 200)
     {
-        http.Response.StatusCode = status;
-        http.Response.ContentType = contentType;
-        await http.Response.Body.WriteAsync(A2AJson.SerializeToUtf8Bytes(value), http.RequestAborted).ConfigureAwait(false);
+        await PooledResponse.WriteAsync(http, status, contentType, value, static (w, v) => JsonSerializer.Serialize(w, v, A2AJson.GetTypeInfo<T>())).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -257,6 +257,43 @@ internal static partial class HttpPlumbing
         return at + EventSuffix.Length;
     }
 
+    /// <summary>
+    /// Writes one SSE frame for a stream event straight into the response pipe and flushes: <c>id: {taskId}:{sequence}</c> (when
+    /// the event is stored), then <c>data: </c> + <paramref name="prefix"/> + <paramref name="json"/> + <paramref name="suffix"/>.
+    /// No id string and no frame array are made: the frame is built in the pipe's own buffer.
+    /// </summary>
+    private static ValueTask<System.IO.Pipelines.FlushResult> WriteStreamEventAsync(HttpContext http, SequencedEvent evt,
+        ReadOnlySpan<byte> prefix, ReadOnlySpan<byte> json, ReadOnlySpan<byte> suffix)
+    {
+        var taskId = evt.Sequence > 0 ? TaskIdOf(evt) : null;
+        var idLength = taskId is null ? 0 : IdPrefix.Length + Encoding.UTF8.GetByteCount(taskId) + 1 + 20 + 1; // ':' + long + '\n'
+        var length = idLength + DataPrefix.Length + prefix.Length + json.Length + suffix.Length + EventSuffix.Length;
+        var writer = http.Response.BodyWriter;
+        var frame = writer.GetSpan(length);
+        var at = 0;
+        if (taskId is not null)
+        {
+            IdPrefix.CopyTo(frame);
+            at = IdPrefix.Length;
+            at += Encoding.UTF8.GetBytes(taskId, frame[at..]);
+            frame[at++] = (byte)':';
+            Utf8Formatter.TryFormat(evt.Sequence, frame[at..], out var digits);
+            at += digits;
+            frame[at++] = (byte)'\n';
+        }
+        DataPrefix.CopyTo(frame[at..]);
+        at += DataPrefix.Length;
+        prefix.CopyTo(frame[at..]);
+        at += prefix.Length;
+        json.CopyTo(frame[at..]);
+        at += json.Length;
+        suffix.CopyTo(frame[at..]);
+        at += suffix.Length;
+        EventSuffix.CopyTo(frame[at..]);
+        writer.Advance(at + EventSuffix.Length);
+        return writer.FlushAsync(http.RequestAborted);
+    }
+
     public static async Task WriteKeepAliveAsync(HttpContext http)
     {
         await http.Response.Body.WriteAsync(KeepAlive, http.RequestAborted).ConfigureAwait(false);
@@ -264,9 +301,12 @@ internal static partial class HttpPlumbing
     }
 
     /// <summary>The SSE id of a stored task event (<c>{taskId}:{sequence}</c>); null for events that are not stored (sequence 0).</summary>
-    public static string? EventId(SequencedEvent evt)
+    public static string? EventId(SequencedEvent evt) =>
+        evt.Sequence > 0 && TaskIdOf(evt) is { } taskId ? StreamCursor.Format(taskId, evt.Sequence) : null;
+
+    /// <summary>The task id of a stream event, or null when it has none (a direct reply).</summary>
+    private static string? TaskIdOf(SequencedEvent evt)
     {
-        if (evt.Sequence <= 0) return null;
         var taskId = evt.Event switch
         {
             TaskEvent t => t.Task.Id,
@@ -275,7 +315,7 @@ internal static partial class HttpPlumbing
             MessageUpdateEvent u => u.MessageUpdate.TaskId,
             _ => null,
         };
-        return string.IsNullOrEmpty(taskId) ? null : StreamCursor.Format(taskId, evt.Sequence);
+        return string.IsNullOrEmpty(taskId) ? null : taskId;
     }
 
     /// <summary>A signal the handler fires when a resume is caught up; <see cref="PrimeAsync"/> then starts the response.</summary>
@@ -333,33 +373,58 @@ internal static partial class HttpPlumbing
     /// A failure after the stream started is written as one last frame (<paramref name="encodeError"/>), named
     /// <paramref name="errorEventType"/> when set.
     /// </remarks>
+    public static Task PumpAsync(HttpContext http, PrimedStream stream, Func<SequencedEvent, ReadOnlyMemory<byte>> encode,
+        Func<Exception, byte[]> encodeError, TimeSpan keepAlive, ILogger logger, string? errorEventType = null) =>
+        PumpAsync(http, stream, encode, default, default, encodeError, keepAlive, logger, errorEventType);
+
+    /// <summary>
+    /// <see cref="PumpAsync(HttpContext, PrimedStream, Func{SequencedEvent, ReadOnlyMemory{byte}}, Func{Exception, byte[]}, TimeSpan, ILogger, string?)"/>
+    /// with an envelope: each <c>data:</c> payload is <paramref name="dataPrefix"/> + the encoded event + <paramref name="dataSuffix"/>
+    /// (for example the JSON-RPC response around the event's stored bytes), written without building it per event.
+    /// </summary>
     public static async Task PumpAsync(HttpContext http, PrimedStream stream, Func<SequencedEvent, ReadOnlyMemory<byte>> encode,
+        ReadOnlyMemory<byte> dataPrefix, ReadOnlyMemory<byte> dataSuffix,
         Func<Exception, byte[]> encodeError, TimeSpan keepAlive, ILogger logger, string? errorEventType = null)
     {
         var e = stream.Events;
-        var next = stream.First;
+        Task<bool>? pending = stream.First; // the MoveNext still running, if any
+        // One keep-alive timer per stream, not one per event: it is replaced only when it fires.
+        using var beatStop = keepAlive > TimeSpan.Zero ? CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted) : null;
+        Task? beat = null;
+        var lastWrite = Stopwatch.GetTimestamp();
         try
         {
             // Nothing to send yet (a caught-up resume, a quiet stream): send the headers now so the client sees the stream.
-            if (!next.IsCompleted) await http.Response.Body.FlushAsync(http.RequestAborted).ConfigureAwait(false);
+            if (!pending.IsCompleted) await http.Response.Body.FlushAsync(http.RequestAborted).ConfigureAwait(false);
+            var more = false;
             while (true)
             {
-                while (keepAlive > TimeSpan.Zero && !next.IsCompleted)
+                if (pending is not null)
                 {
-                    using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
-                    var delay = Task.Delay(keepAlive, delayCts.Token);
-                    if (await Task.WhenAny(next, delay).ConfigureAwait(false) == next)
+                    while (beatStop is not null && !pending.IsCompleted)
                     {
-                        delayCts.Cancel();
-                        break;
+                        var due = keepAlive - Stopwatch.GetElapsedTime(lastWrite);
+                        if (due > TimeSpan.Zero)
+                        {
+                            beat ??= Task.Delay(due, beatStop.Token);
+                            if (await Task.WhenAny(pending, beat).ConfigureAwait(false) == pending) break;
+                            beat = null;
+                            http.RequestAborted.ThrowIfCancellationRequested();
+                            if (Stopwatch.GetElapsedTime(lastWrite) < keepAlive) continue; // an event was written since: wait again
+                        }
+                        await WriteKeepAliveAsync(http).ConfigureAwait(false);
+                        lastWrite = Stopwatch.GetTimestamp();
                     }
-                    http.RequestAborted.ThrowIfCancellationRequested();
-                    await WriteKeepAliveAsync(http).ConfigureAwait(false);
+                    more = await pending.ConfigureAwait(false);
+                    pending = null;
                 }
-                if (!await next.ConfigureAwait(false)) break;
+                if (!more) break;
                 var current = e.Current;
-                await WriteEventAsync(http, EventId(current), encode(current)).ConfigureAwait(false);
-                next = e.MoveNextAsync().AsTask();
+                await WriteStreamEventAsync(http, current, dataPrefix.Span, encode(current).Span, dataSuffix.Span).ConfigureAwait(false);
+                lastWrite = Stopwatch.GetTimestamp();
+                var move = e.MoveNextAsync();
+                if (move.IsCompletedSuccessfully) more = move.Result; // the next event is ready: no Task
+                else pending = move.AsTask();
             }
         }
         catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
@@ -373,7 +438,8 @@ internal static partial class HttpPlumbing
         }
         finally
         {
-            await DrainAndDisposeAsync(e, next).ConfigureAwait(false);
+            beatStop?.Cancel(); // the keep-alive timer must not outlive the stream
+            await DrainAndDisposeAsync(e, pending).ConfigureAwait(false);
         }
     }
 

@@ -44,3 +44,5 @@ static A2A.Server.Postgres.A2APostgresServiceCollectionExtensions.AddPostgresExe
 static A2A.Server.Postgres.PostgresSchema.ScriptFor(string! schema, int fromVersion) -> string!
 static A2A.Server.Postgres.PostgresSchema.VerifySchemaAsync(Npgsql.NpgsqlDataSource! dataSource, string! schema = "public", System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 static A2A.Server.Postgres.PostgresSchema.Version.get -> int
+A2A.Server.Postgres.PostgresTaskStore.CommitBatchAsync(A2A.Server.Storage.TaskBatchCommit! commit, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.BatchCommitResult!>
+override A2A.Server.Postgres.PostgresEventStore.ReadRangeAsync(A2A.Server.Storage.TaskKey task, long afterSequence, long beforeSequence, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!

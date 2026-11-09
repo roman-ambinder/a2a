@@ -144,7 +144,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
 
     private static string Quoted(string schema) => "\"" + schema + "\"";
 
-    [SkippableFact]
+    [Fact]
     public async Task Fresh_schema_gets_the_version_and_every_table()
     {
         db.SkipIfUnavailable();
@@ -157,7 +157,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
         await AssertAllTablesAsync(schema);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Upgrade_from_the_frozen_v1_keeps_the_data()
     {
         var schema = await NewV1SchemaAsync();
@@ -172,7 +172,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
     }
 
     /// <summary>What <c>CREATE TABLE IF NOT EXISTS</c> alone could never fix: a column and indexes missing from an existing table.</summary>
-    [SkippableFact]
+    [Fact]
     public async Task Upgrade_from_an_early_v1_adds_columns_and_indexes_and_drops_the_legacy_index()
     {
         db.SkipIfUnavailable();
@@ -210,7 +210,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
 
     private static PostgresMigration Next(int offset, string name, string sql) => new(PostgresSchema.Version + offset, name, sql);
 
-    [SkippableFact]
+    [Fact]
     public async Task A_future_migration_is_applied_once_and_stamped()
     {
         var schema = await NewV1SchemaAsync();
@@ -229,7 +229,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
         Assert.Equal(future.Version, again);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task A_failing_migration_rolls_everything_back_and_names_the_file()
     {
         var schema = await NewV1SchemaAsync();
@@ -248,7 +248,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
         Assert.False(await ColumnExistsAsync(schema, "a2a_tasks", "good_col"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Twenty_concurrent_ensures_all_succeed()
     {
         var schema = await NewV1SchemaAsync();
@@ -259,14 +259,14 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
         await PostgresSchema.VerifySchemaAsync(db.DataSource, schema);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Verify_passes_on_an_up_to_date_database()
     {
         var schema = (await db.NewSchemaAsync()).Schema;
         await PostgresSchema.VerifySchemaAsync(db.DataSource, schema);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Verify_names_the_schema_the_versions_and_the_fix_when_the_schema_is_missing()
     {
         db.SkipIfUnavailable();
@@ -282,7 +282,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
         Assert.Contains("CreateSchemaOnStartup = true", ex.Message, StringComparison.Ordinal);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Verify_names_the_schema_the_versions_and_the_fix_when_the_schema_is_older()
     {
         var schema = await NewV1SchemaAsync();
@@ -304,7 +304,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
         return schema;
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Verify_names_the_schema_the_versions_and_the_fix_when_the_schema_is_newer()
     {
         var schema = await NewNewerSchemaAsync();
@@ -322,7 +322,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
         new(db.DataSource, new PostgresStoreOptions { Schema = schema, CreateSchemaOnStartup = create, CleanupInterval = Timeout.InfiniteTimeSpan },
             new PostgresMaintenance(db.DataSource, new PostgresStoreOptions { Schema = schema }), null, NullLogger<PostgresStoreHostedService>.Instance);
 
-    [SkippableFact]
+    [Fact]
     public async Task Hosted_service_without_auto_create_refuses_to_start_on_an_old_schema()
     {
         var schema = await NewV1SchemaAsync();
@@ -333,7 +333,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
         Assert.Equal(1, await VersionAsync(schema)); // and it changed nothing
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Hosted_service_with_auto_create_starts_on_a_newer_schema_and_changes_nothing()
     {
         var schema = await NewNewerSchemaAsync();
@@ -346,7 +346,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
         Assert.Equal(PostgresMigrations.All.Count + 1, await ScalarAsync<long>($"SELECT count(*) FROM \"{schema}\".a2a_schema_version"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Exported_script_builds_an_empty_schema_in_one_transaction_and_can_run_again()
     {
         db.SkipIfUnavailable();
@@ -364,7 +364,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
         await AssertAllTablesAsync(schema);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Exported_upgrade_script_brings_the_frozen_v1_to_the_current_version()
     {
         var schema = await NewV1SchemaAsync();

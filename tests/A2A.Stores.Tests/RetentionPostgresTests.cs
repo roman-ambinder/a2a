@@ -16,7 +16,7 @@ public sealed class RetentionPostgresTests(PostgresFixture db)
     private static readonly TaskKey Alice = new("t", "alice", "task1");
     private static readonly TaskKey Other = new("t", "alice", "task2");
 
-    [SkippableFact]
+    [Fact]
     public async Task Purge_removes_the_task_with_its_events_push_configs_outbox_and_dead_letters()
     {
         var clock = new FakeTimeProvider();

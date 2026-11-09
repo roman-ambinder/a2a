@@ -130,11 +130,14 @@ Implement:
 - <xref:A2A.Server.Storage.EventStore>: `AppendAsync`, `ReadAfterAsync`, `OldestRetainedAsync`, `LastSequenceAsync`, `MarkTerminalAsync`, `DeleteAsync`.
 - `PushConfigStore`, `PushOutbox` and `IdempotencyStore` (including `RenewAsync`).
 - `ExecutionCoordinator` is optional. The in-memory one is the default, but it cannot recover tasks after a crash. Prefer a durable one.
+- Optional, for speed: <xref:A2A.Server.Storage.IBatchTaskCommit> on the task store, and an override of `EventStore.ReadRangeAsync`. See below.
 
 Rules that matter:
 
 - **`CommitAsync` is atomic.** It writes the task record (the stored version must equal `ExpectedVersion`; 0 creates the task), appends the event with the next sequence, and stores the push deliveries, all or nothing. A wrong version throws `ConcurrencyException`. A create on an existing task throws `DuplicateTaskException`. Commits to one task must be serialized, so the log order equals the version order.
 - **Idempotency outcome in the commit.** `TaskCommit.Idempotency` is set for the commit that creates a task when the request has an idempotency key. A store that shares a transaction with its idempotency store writes the outcome in the same transaction, only for the claim that still owns the entry. No matching claim is not an error. Any other store ignores it; the server records the outcome right after the commit, so a crash in between can still let a retry create a second task. `IdempotencyStore.CompleteAsync`, `AbandonAsync` and `RenewAsync` take the claim id from `IdempotencyResult.New` and must do nothing when the entry belongs to another claim.
+- **Batch commits are optional.** With `IBatchTaskCommit`, the server stores artifact chunks that queue up as one commit: one task write, one version, and each event with the next sequence, in order, with its own push deliveries. All or nothing, with the same version check as `CommitAsync`. Without it, the server makes one `CommitAsync` per event. Long chunked streams then cost more, because each commit writes the whole task.
+- **`ReadRangeAsync` reads part of the log.** Streams use it to fill a gap. The default reads `ReadAfterAsync` and stops at the bound. Override it to read only the range.
 - **Keep the event bytes.** The server encodes each event once. `SequencedEvent.Json` holds those bytes. Store them and return them unchanged from `ReadAfterAsync`. They go to the wire without validation, so a store that alters, truncates or re-encodes them corrupts the stream.
 - **Scope by tenant and owner.** Reads are owner-scoped. A task owned by someone else looks missing.
 - **Own your records.** Callers never change what the store returns, and the store does not change what it is given.

@@ -130,4 +130,24 @@ public sealed class A2AClientOptions
 #else
     public Func<AgentEndpointCheck, bool>? EndpointPolicy { get; set; } = AgentEndpointPolicies.MatchCardNetwork;
 #endif
+
+    /// <summary>
+    /// A copy of these options. <see cref="Extensions"/>, <see cref="SupportedBindings"/> and <see cref="TransportFactories"/> are
+    /// new lists; other values are shared. Every factory copies options through this method, so a new option must be added here.
+    /// </summary>
+    public A2AClientOptions Clone() => new()
+    {
+        ProtocolVersion = ProtocolVersion,
+        Extensions = new List<string>(Extensions),
+        Tenant = Tenant,
+        SupportedBindings = new List<string>(SupportedBindings),
+        TransportFactories = new List<IA2ATransportFactory>(TransportFactories),
+        RestSubscribeMethod = RestSubscribeMethod,
+        ValidateCapabilities = ValidateCapabilities,
+        MaxRetries = MaxRetries,
+        TimeProvider = TimeProvider,
+        CircuitBreaker = CircuitBreaker,
+        OnMessageReceived = OnMessageReceived,
+        EndpointPolicy = EndpointPolicy,
+    };
 }

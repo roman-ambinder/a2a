@@ -52,7 +52,7 @@ public sealed class HealthCheckStoreTests(PostgresFixture db, RedisFixture redis
         }
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Postgres_stores_and_coordinator_are_all_healthy()
     {
         await using var sp = await PostgresAsync();
@@ -63,7 +63,7 @@ public sealed class HealthCheckStoreTests(PostgresFixture db, RedisFixture redis
         Assert.Equal(4, report.Entries.Count);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Dead_letters_in_postgres_trip_the_count_thresholds()
     {
         await using var sp = await PostgresAsync(o =>
@@ -86,7 +86,7 @@ public sealed class HealthCheckStoreTests(PostgresFixture db, RedisFixture redis
         Assert.Equal(3, entry.Data["dead_letters"]); // 4 exist; counting stops at the highest threshold
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task A_waiting_delivery_in_postgres_trips_the_age_threshold()
     {
         await using var sp = await PostgresAsync(o => o.PushBacklogDegradedAge = TimeSpan.FromMilliseconds(10));
@@ -101,7 +101,7 @@ public sealed class HealthCheckStoreTests(PostgresFixture db, RedisFixture redis
         Assert.True((double)entry.Data["oldest_due_age_seconds"] >= 0.01);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Redis_coordinator_is_healthy()
     {
         await using var redis = await redisFixture.ConnectAsync();

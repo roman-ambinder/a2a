@@ -29,10 +29,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -44,28 +44,28 @@ jobs:
         run: dotnet build A2A.slnx -c Release --no-restore
 
       - name: Test (net10.0)
-        run: dotnet test tests/A2A.Tests/A2A.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=results" --results-directory TestResults
+        run: dotnet test --project tests/A2A.Tests/A2A.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 
       # Run every suite even if an earlier one failed, so one run shows all results. The job still fails. No use after a failed build.
       - name: Test gRPC (net10.0)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet test tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=grpc-results" --results-directory TestResults
+        run: dotnet test --project tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 
       - name: Test v0.3 compat (net10.0)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet test tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=v03-results" --results-directory TestResults
+        run: dotnet test --project tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 
       - name: Test Extensions.AI (net10.0)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet test tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=ai-results" --results-directory TestResults
+        run: dotnet test --project tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
       - name: Test Mcp (net10.0)
-        run: dotnet test tests/A2A.Mcp.Tests/A2A.Mcp.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=mcp-results" --results-directory TestResults
+        run: dotnet test --project tests/A2A.Mcp.Tests/A2A.Mcp.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 
       - name: Test TestKit (net10.0)
-        run: dotnet test tests/A2A.TestKit.Tests/A2A.TestKit.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=testkit-results" --results-directory TestResults
+        run: dotnet test --project tests/A2A.TestKit.Tests/A2A.TestKit.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 
       - name: Test TestingAgent sample (net10.0)
-        run: dotnet test samples/TestingAgent/TestingAgent.csproj -c Release --no-build --logger "trx;LogFilePrefix=testing-agent-results" --results-directory TestResults
+        run: dotnet test --project samples/TestingAgent/TestingAgent.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 
       # D25: the netstandard2.0 builds of A2A.Protocol and A2A.Client against a real EchoAgent process.
       # net10.0 runs the netstandard2.0 DLLs on every OS; net48 runs them on .NET Framework (Windows only).
@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.os }}
           path: TestResults/*.trx
@@ -106,18 +106,18 @@ jobs:
       # Fail instead of skipping when Docker is missing.
       A2A_REQUIRE_DOCKER: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
       - name: Test store contracts (in-memory, PostgreSQL, Redis, S3 on MinIO, Azure Blob on Azurite; net10.0)
-        run: dotnet test tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj -c Release --logger "trx;LogFilePrefix=stores" --results-directory TestResults
+        run: dotnet test --project tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj -c Release --report-xunit-trx --results-directory TestResults
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-stores
           path: TestResults/*.trx
@@ -127,13 +127,13 @@ jobs:
     name: Interop (official Python a2a-sdk)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -150,13 +150,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           version: '0.12.18'
 
@@ -166,7 +166,7 @@ jobs:
 
       - name: Upload conformance reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: conformance-results
           path: conformance/results/
@@ -176,13 +176,13 @@ jobs:
     name: Interop v0.3 compat (official Python a2a-sdk 0.3)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -204,9 +204,9 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -217,7 +217,7 @@ jobs:
           done
 
       - name: Upload packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nuget-packages
           path: artifacts/*.nupkg
@@ -230,9 +230,9 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -252,7 +252,7 @@ jobs:
 
       - name: Upload benchmark results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-results
           path: BenchmarkDotNet.Artifacts/results
@@ -265,9 +265,9 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -301,9 +301,9 @@ jobs:
     env:
       LYCHEE_VERSION: v0.24.2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -357,20 +357,56 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         # API pages link to learn.microsoft.com heavily, so only the hand-written markdown is checked.
         # This private repo is covered by check-guides.py.
+        # 502 to 504 are the remote host having a bad moment, not a dead link; they failed main with a 504 from github.com.
         run: >-
           lychee
           --no-progress --max-retries 3 --retry-wait-time 5 --timeout 30
-          --accept '100..=399,429'
+          --accept '100..=399,429,502..=504'
           --exclude 'github\.com/roman-ambinder/a2a'
           'docs/site/index.md' 'docs/site/guides/*.md'
 
       - name: Upload site
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docs-site
           path: docs/site/_site
           if-no-files-found: error
+
+  coverage:
+    name: Coverage report
+    # Report only. Instrumentation slows tests and would add timing flakes, so it runs after merges, never on a pull request,
+    # and it is deliberately not in all-green. Store tests need containers and are not included.
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test with coverage (net10.0)
+        run: |
+          status=0
+          for p in A2A.Tests A2A.Grpc.Tests A2A.V0_3Compat.Tests A2A.Extensions.AI.Tests A2A.Mcp.Tests A2A.TestKit.Tests; do
+            dotnet test --project "tests/$p/$p.csproj" -c Release -f net10.0 -p:A2ACoverage=true --coverage --coverage-output-format cobertura --results-directory coverage || status=1
+          done
+          exit $status
+
+      - name: Write summary
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/coverage_summary.py coverage >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage/**/*.cobertura.xml
+          if-no-files-found: warn
 
   all-green:
     name: all-green

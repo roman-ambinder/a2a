@@ -32,27 +32,36 @@ public abstract class OneOfConverter<TUnion> : JsonConverter<TUnion> where TUnio
             throw new JsonException($"{UnionName} must be a JSON object");
 
         TUnion? result = null;
-        var found = new List<string>(2);
+        string? first = null; // the first member found
+        List<string>? more = null; // members after the first: only for the error message
+        var names = MemberNames;
         while (reader.Read())
         {
             if (reader.TokenType == JsonTokenType.EndObject) break;
-            var name = reader.GetString()!;
+            // The member's own name instance, matched on the reader's bytes: no string per property.
+            var name = MemberAt(ref reader, names);
             reader.Read();
-            if (reader.TokenType == JsonTokenType.Null || !IsMember(name))
+            if (name is null || reader.TokenType == JsonTokenType.Null)
             {
                 reader.Skip();
                 continue;
             }
-            found.Add(name);
-            if (found.Count == 1) result = ReadCase(ref reader, name, options);
-            else reader.Skip();
+            if (first is null)
+            {
+                first = name;
+                result = ReadCase(ref reader, name, options);
+            }
+            else
+            {
+                (more ??= [first]).Add(name);
+                reader.Skip();
+            }
         }
 
-        var expected = string.Join(", ", MemberNames);
-        if (found.Count == 0)
-            throw new JsonException($"{UnionName} must set exactly one of {expected}; found none");
-        if (found.Count > 1)
-            throw new JsonException($"{UnionName} must set exactly one of {expected}; found: {string.Join(", ", found)}");
+        if (first is null)
+            throw new JsonException($"{UnionName} must set exactly one of {string.Join(", ", names)}; found none");
+        if (more is not null)
+            throw new JsonException($"{UnionName} must set exactly one of {string.Join(", ", names)}; found: {string.Join(", ", more)}");
         return result!;
     }
 
@@ -64,12 +73,12 @@ public abstract class OneOfConverter<TUnion> : JsonConverter<TUnion> where TUnio
         writer.WriteEndObject();
     }
 
-    private bool IsMember(string name)
+    /// <summary>The member whose name the reader is on (a property name), or null for an unknown property.</summary>
+    private static string? MemberAt(ref Utf8JsonReader reader, IReadOnlyList<string> names)
     {
-        var names = MemberNames;
         for (var i = 0; i < names.Count; i++)
-            if (names[i] == name) return true;
-        return false;
+            if (reader.ValueTextEquals(names[i])) return names[i];
+        return null;
     }
 
     /// <summary>

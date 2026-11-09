@@ -53,7 +53,7 @@ public sealed class PostgresCoordinatorTests(PostgresFixture db)
     /// coordinator on the same database) sees the lease expire, and its retention sweep marks the task FAILED. With the
     /// in-memory coordinator the lease would have vanished with the process and the task stayed WORKING for good.
     /// </summary>
-    [SkippableFact]
+    [Fact]
     public async Task Task_of_a_crashed_process_is_failed_by_the_sweep_once_its_lease_expires()
     {
         var clock = new FakeTimeProvider();
@@ -98,7 +98,7 @@ public sealed class PostgresCoordinatorTests(PostgresFixture db)
     /// Two instances race to start an execution of the same tasks. Per task exactly one wins; the other's heartbeat and
     /// unregister never touch the winner's lease, and the winner keeps it.
     /// </summary>
-    [SkippableFact]
+    [Fact]
     public async Task Racing_instances_leave_one_lease_owner_and_fencing_holds()
     {
         var clock = new FakeTimeProvider();

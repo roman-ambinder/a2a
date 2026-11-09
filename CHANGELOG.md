@@ -2,6 +2,27 @@
 
 All notable changes to this project are listed here. Versions follow [Semantic Versioning](https://semver.org/); see the [versioning guide](docs/site/guides/versioning.md) for what is covered and what is experimental.
 
+## Unreleased
+
+### Performance
+
+- Streaming many artifact chunks no longer copies the whole artifact for every chunk. When an agent sends chunks faster
+  than they are stored, the server applies the waiting chunks to one copy of the task and stores them together. Each event
+  keeps its own sequence number, so streams, resubscribe and push see no difference. A 1,000-chunk stream now allocates
+  about 5.5 MB instead of 18.5 MB.
+- New optional store interface `IBatchTaskCommit` (`TaskBatchCommit`, `BatchedEvent`, `BatchCommitResult`). The in-memory and
+  Postgres task stores implement it. A store without it keeps working as before, one commit per event.
+- New virtual `EventStore.ReadRangeAsync` reads only the events a stream is missing. The in-memory and Postgres event stores
+  read just that range instead of every retained event. The in-memory event log is now a ring buffer.
+- The server no longer reads the task back from the store before every event of a run, and an idle stream no longer
+  creates a timer for every event.
+- SSE frames are written straight into the response pipe. A JSON-RPC stream builds the start of its response envelope once
+  (new `JsonRpcWriter.SuccessPrefix`) and copies each event's stored bytes after it. No envelope, frame or id string is
+  made per event, and a stream has one keep-alive timer instead of one per event. Unary JSON responses are no longer
+  copied into a new array. A 1,000-chunk stream now allocates about 4.4 MB.
+- JSON reading and writing allocate less: union members, part members and enum names are matched on the raw bytes, and
+  timestamps and enum names are written without a temporary string.
+
 ## 0.1.0
 
 First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Targets .NET 10. `A2A.Protocol` and `A2A.Client` also

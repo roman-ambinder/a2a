@@ -867,7 +867,6 @@ public sealed class ExecutionLimitsTests
                 }
                 await u.ReportUsageAsync(7, cancellationToken: ct);
                 await u.UpdateStatusAsync(TaskState.Working, null, new() { ["note"] = JsonSerializer.SerializeToElement(1) }, ct);
-                secondDone.TrySetResult();
             },
         };
         await using var host = await StartAsync(agent, o => o.FollowUpPolicy = FollowUpPolicy.AllowSteering);
@@ -877,7 +876,12 @@ public sealed class ExecutionLimitsTests
         var runOne = host.Handler.SendMessageAsync(Req("again one", taskId: first.Id, immediately: true), Call()).WaitAsync(Wait);
         await firstRunning.Task.WaitAsync(Wait);
         await host.Handler.SendMessageAsync(Req("again two", taskId: first.Id, immediately: true), Call()).WaitAsync(Wait);
-        await secondDone.Task.WaitAsync(Wait);
+
+        // Run one may end the task only after run two's event is stored: an event that reaches a finished task is dropped, with its usage.
+        using var timeout = new CancellationTokenSource(Wait);
+        while (Usage(await host.Handler.GetTaskAsync(new GetTaskRequest { Id = first.Id }, Call(), timeout.Token)).Tokens != 10 + 7)
+            await Task.Delay(5, timeout.Token);
+        secondDone.TrySetResult();
         await runOne;
         await WaitUnusedAsync(host);
 

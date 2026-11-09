@@ -375,21 +375,10 @@ public static class A2AGrpcClientFactory
 
     private static A2AClientOptions GrpcOnly(A2AClientOptions? options, GrpcChannelOptions? channelOptions)
     {
-        var src = options ?? new A2AClientOptions();
-        return new A2AClientOptions
-        {
-            ProtocolVersion = src.ProtocolVersion,
-            Extensions = new List<string>(src.Extensions),
-            Tenant = src.Tenant,
-            RestSubscribeMethod = src.RestSubscribeMethod,
-            ValidateCapabilities = src.ValidateCapabilities,
-            MaxRetries = src.MaxRetries,
-            TimeProvider = src.TimeProvider,
-            OnMessageReceived = src.OnMessageReceived,
-            EndpointPolicy = src.EndpointPolicy,
-            CircuitBreaker = src.CircuitBreaker,
-            SupportedBindings = new List<string>(),
-        }.UseGrpc(channelOptions);
+        var grpcOnly = (options ?? new A2AClientOptions()).Clone();
+        grpcOnly.SupportedBindings = new List<string>();
+        grpcOnly.TransportFactories = new List<IA2ATransportFactory>();
+        return grpcOnly.UseGrpc(channelOptions);
     }
 
     /// <summary>
