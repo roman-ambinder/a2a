@@ -1,7 +1,10 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using A2A.Client.Resilience;
 using A2A.Diagnostics;
 using A2A.Grpc;
+using A2A.Grpc.Extensions.Protos;
+using A2A.Json;
 using Google.Protobuf;
 using Grpc.Core;
 using Grpc.Net.Client;
@@ -31,11 +34,12 @@ namespace A2A.Client.Grpc;
 /// enumerated: a stream that is never read sends nothing.
 /// </para>
 /// </remarks>
-public sealed class GrpcTransport : IA2AClient, IDisposable, ITransportBinding
+public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, IDisposable, ITransportBinding
 {
     string ITransportBinding.Binding => ProtocolBindings.Grpc;
 
     private readonly Pb.A2AService.A2AServiceClient _client;
+    private readonly A2AExtensionService.A2AExtensionServiceClient _extensionClient;
     private readonly A2AClientOptions _options;
     private readonly GrpcChannel? _ownedChannel;
 
@@ -43,6 +47,7 @@ public sealed class GrpcTransport : IA2AClient, IDisposable, ITransportBinding
     public GrpcTransport(CallInvoker callInvoker, A2AClientOptions? options = null)
     {
         _client = new Pb.A2AService.A2AServiceClient(callInvoker ?? throw new ArgumentNullException(nameof(callInvoker)));
+        _extensionClient = new A2AExtensionService.A2AExtensionServiceClient(callInvoker);
         _options = options ?? new A2AClientOptions();
     }
 
@@ -144,6 +149,35 @@ public sealed class GrpcTransport : IA2AClient, IDisposable, ITransportBinding
     {
         var proto = ProtoMapper.ToProto<Pb.GetExtendedAgentCardRequest, GetExtendedAgentCardRequest>(request);
         return UnaryAsync(RetryMode.Idempotent, options, null, o => _client.GetExtendedAgentCardAsync(proto, o), ProtoMapper.ToModel<AgentCard>, cancellationToken);
+    }
+
+    /// <summary>
+    /// Calls a custom operation with the unary <c>a2a.extensions.v1.A2AExtensionService.InvokeExtensionOperation</c>: the method is the
+    /// <c>operation_id</c> and the params are UTF-8 JSON in <c>payload</c>. It uses the same metadata, retry rules (only when the
+    /// request never left) and error mapping as the other calls. An empty result payload is the empty object. The server must map
+    /// the service (<c>MapA2AGrpcExtensions</c>).
+    /// </summary>
+    /// <inheritdoc cref="IA2AExtensionOperationClient.InvokeExtensionOperationAsync"/>
+    public Task<JsonElement> InvokeExtensionOperationAsync(string method, JsonElement parameters, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ExtensionOperationParams.RequireMethod(method);
+        var withTenant = ExtensionOperationParams.WithTenant(parameters, _options.Tenant);
+        var request = new ExtensionOperationRequest { OperationId = method, Payload = ByteString.CopyFromUtf8(withTenant.GetRawText()) };
+        return UnaryAsync(RetryMode.UnsentOnly, options, null, o => _extensionClient.InvokeExtensionOperationAsync(request, o), ParseExtensionResult, cancellationToken);
+    }
+
+    private static JsonElement ParseExtensionResult(ExtensionOperationResponse response)
+    {
+        if (response.Payload.Length == 0) return A2AJson.EmptyObject;
+        try
+        {
+            using var doc = JsonDocument.Parse(response.Payload.Memory);
+            return doc.RootElement.Clone();
+        }
+        catch (JsonException ex)
+        {
+            throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed extension operation result in agent response: {ex.Message}", ex);
+        }
     }
 
     // ---- plumbing ----

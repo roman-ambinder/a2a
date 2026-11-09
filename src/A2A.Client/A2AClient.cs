@@ -19,7 +19,7 @@ namespace A2A.Client;
 /// With <see cref="A2AClientOptions.CircuitBreaker"/> set, the client also stops calling a peer that keeps failing. Only the
 /// transport call counts; checks before it and <see cref="A2AClientOptions.OnMessageReceived"/> do not.
 /// </remarks>
-public sealed class A2AClient : IA2AClient
+public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
 {
     private readonly IA2AClient _transport;
     private readonly A2AClientOptions _options;
@@ -479,6 +479,20 @@ public sealed class A2AClient : IA2AClient
         RequireCapability(AgentCard?.Capabilities.ExtendedAgentCard, A2AErrorCode.UnsupportedOperation, "Agent does not declare an extended agent card.");
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.GetExtendedAgentCard, this, request.Tenant, null,
             () => Guard(() => _transport.GetExtendedAgentCardAsync(request, options, cancellationToken)), cancellationToken);
+    }
+
+    /// <summary>
+    /// Calls a custom operation (see <see cref="IA2AExtensionOperationClient"/>). It is a span of the client, named by the method.
+    /// Use <see cref="ExtensionOperationClientExtensions"/> to activate the extension of the operation too.
+    /// </summary>
+    /// <exception cref="A2AException">UnsupportedOperation when the transport cannot call custom operations.</exception>
+    public Task<JsonElement> InvokeExtensionOperationAsync(string method, JsonElement parameters, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ExtensionOperationParams.RequireMethod(method);
+        if (_transport is not IA2AExtensionOperationClient transport)
+            throw new A2AException(A2AErrorCode.UnsupportedOperation, "The transport of this client does not support custom operations.");
+        return ClientTelemetry.TraceAsync(method, this, ExtensionOperationParams.TenantOf(parameters) ?? _options.Tenant, null,
+            () => Guard(() => transport.InvokeExtensionOperationAsync(method, parameters, options, cancellationToken)), cancellationToken);
     }
 
     // ---- Circuit breaker: wraps only the transport call ----
