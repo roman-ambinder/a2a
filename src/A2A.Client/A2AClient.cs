@@ -1,4 +1,6 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using A2A.Client.Resilience;
 using A2A.Client.Streaming;
 using A2A.Skills;
@@ -174,6 +176,66 @@ public sealed class A2AClient : IA2AClient
         if (options.Extensions is null or { IsReadOnly: true }) options.Extensions = new List<string>(options.Extensions ?? []);
         if (!options.Extensions.Contains(SkillSelection.ExtensionUri)) options.Extensions.Add(SkillSelection.ExtensionUri);
         return options;
+    }
+
+    /// <summary>
+    /// Calls a typed skill: sends <paramref name="input"/> as one data part, waits for the task, and returns the data part of the
+    /// last artifact that has one. A direct message reply with a data part is read the same way, for agents of other SDKs.
+    /// </summary>
+    /// <typeparam name="TInput">The input type.</typeparam>
+    /// <typeparam name="TOutput">The output type.</typeparam>
+    /// <param name="skillId">The <see cref="AgentSkill.Id"/> of the skill. Not empty.</param>
+    /// <param name="input">The input. Not null.</param>
+    /// <param name="inputType">Type information for <typeparamref name="TInput"/>, from a source-generated JSON context.</param>
+    /// <param name="outputType">Type information for <typeparamref name="TOutput"/>, from a source-generated JSON context.</param>
+    /// <param name="options">Options for the call, or null for new ones. These options are changed.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <remarks>
+    /// It uses <see cref="SelectSkill"/>, so the same card check applies. The server refuses input that does not fit the skill with
+    /// <see cref="A2AErrorCode.InvalidParams"/>; the details are in <see cref="A2AException.Details"/>.
+    /// </remarks>
+    /// <exception cref="A2AException">InvalidParams: the card does not list the skill, or the server refused the input. InvalidAgentResponse: the result is missing or does not fit <typeparamref name="TOutput"/>.</exception>
+    /// <exception cref="TypedSkillCallException">The task ended in a state other than completed.</exception>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP001", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public async Task<TOutput> CallSkillAsync<TInput, TOutput>(string skillId, TInput input, JsonTypeInfo<TInput> inputType,
+        JsonTypeInfo<TOutput> outputType, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(skillId);
+        if (input is null) throw new ArgumentNullException(nameof(input));
+        ArgumentNullException.ThrowIfNull(inputType);
+        ArgumentNullException.ThrowIfNull(outputType);
+
+        var message = new Message { MessageId = Message.NewId(), Role = Role.User, Parts = [Part.FromData(JsonSerializer.SerializeToElement(input, inputType))] };
+        options = SelectSkill(message, skillId, options);
+        var response = await SendMessageAsync(message, options: options, cancellationToken: cancellationToken).ConfigureAwait(false);
+        switch (response)
+        {
+            case MessageResponse { Message: var reply }:
+                return ReadResult(reply.Parts, outputType);
+            case TaskResponse { Task: var task }:
+                if (!task.Status.State.IsTerminal() && !task.Status.State.IsInterrupted())
+                    task = await WaitForTaskAsync(task.Id, options: options, cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (task.Status.State != TaskState.Completed) throw new TypedSkillCallException(task);
+                for (var i = (task.Artifacts?.Count ?? 0) - 1; i >= 0; i--)
+                    if (task.Artifacts![i].Parts.Any(p => p is DataPart)) return ReadResult(task.Artifacts[i].Parts, outputType);
+                throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The task completed without a data result.");
+            default:
+                throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The agent sent no result.");
+        }
+    }
+
+    private static TOutput ReadResult<TOutput>(List<Part> parts, JsonTypeInfo<TOutput> outputType)
+    {
+        if (parts.OfType<DataPart>().FirstOrDefault() is not { } data)
+            throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The result has no data part.");
+        try
+        {
+            return data.Data.Deserialize(outputType) ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The result is null.");
+        }
+        catch (JsonException ex)
+        {
+            throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The result does not fit the expected output type.", ex);
+        }
     }
 
     // ---- IA2AClient ----

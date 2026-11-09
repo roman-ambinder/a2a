@@ -2,6 +2,11 @@
 A2A.Client.A2AArtifactDownloader
 A2A.Client.A2AArtifactDownloader.A2AArtifactDownloader(System.Net.Http.HttpMessageHandler! agentHandler, System.Uri! agentOrigin, A2A.Security.Http.SafeHttpOptions? storageOptions = null) -> void
 A2A.Client.A2AArtifactDownloader.DownloadAsync(A2A.UrlPart! part, System.IO.Stream! destination, long maxBytes, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+A2A.Client.A2AClient.CallSkillAsync<TInput, TOutput>(string! skillId, TInput input, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TInput>! inputType, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TOutput>! outputType, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<TOutput>!
+A2A.Client.TypedSkillCallException
+A2A.Client.TypedSkillCallException.State.get -> A2A.TaskState
+A2A.Client.TypedSkillCallException.Task.get -> A2A.AgentTask!
+A2A.Client.TypedSkillCallException.TypedSkillCallException(A2A.AgentTask! task) -> void
 A2A.Client.A2AClientOptions.EndpointPolicy.get -> System.Func<A2A.Client.AgentEndpointCheck!, bool>?
 A2A.Client.A2AClientOptions.EndpointPolicy.set -> void
 A2A.Client.AgentEndpointCheck

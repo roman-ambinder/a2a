@@ -24,7 +24,7 @@ Some APIs follow a contract that is not settled yet. They carry `[Experimental]`
 
 | ID | Feature | Why it is unstable |
 | --- | --- | --- |
-| `A2AEXP001` | Skill selection | Wire shape is part of an open epic: [A2A#1989](https://github.com/a2aproject/A2A/issues/1989) |
+| `A2AEXP001` | Skill selection, typed skills | Wire shape is part of an open epic: [A2A#1989](https://github.com/a2aproject/A2A/issues/1989) (and [A2A#2178](https://github.com/a2aproject/A2A/issues/2178) for structured arguments) |
 | `A2AEXP002` | Actor chain | Wire shape is in an open issue: [A2A#2028](https://github.com/a2aproject/A2A/issues/2028) |
 | `A2AEXP003` | Artifact integrity hash | Open issue: [A2A#1140](https://github.com/a2aproject/A2A/issues/1140) |
 | `A2AEXP004` | gRPC extension service | The wire shape is not in the A2A spec |
@@ -42,6 +42,8 @@ Or silence one place with `#pragma warning disable A2AEXP001`.
 ### A2AEXP001
 
 `SkillSelection`, `SkillSelectionMessageExtensions`, `A2AClient.SelectSkill` and `AgentRequestContext.RequestedSkillId`. See [Skill selection](skill-selection.md).
+
+Typed skills use the same ID: `TypedSkillExtension`, `A2AClient.CallSkillAsync`, `TypedSkillCallException`, and the public types of `A2A.Server.TypedSkills`. See [Typed skills](typed-skills.md).
 
 ### A2AEXP002
 

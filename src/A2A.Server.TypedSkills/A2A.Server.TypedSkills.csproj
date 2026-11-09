@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>A2A.Server.TypedSkills</RootNamespace>
+    <Description>Typed skills for an A2A (Agent2Agent) server: declare a skill with .NET input and output types, get JSON Schema on the Agent Card, and have bad input refused before the agent runs. AOT safe.</Description>
+    <PackageTags>$(PackageTags);skills;json-schema</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\A2A.Server\A2A.Server.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+  </ItemGroup>
+  <!-- JsonSchemaExporter needs System.Text.Json 9 or later. net10.0 has it in the framework. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackageReference Include="System.Text.Json" VersionOverride="10.0.13" />
+  </ItemGroup>
+</Project>
