@@ -141,4 +141,20 @@ public interface IA2ARequestHandler
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The operation's result.</returns>
     Task<JsonElement> InvokeExtensionAsync(string method, JsonElement parameters, ServerCallContext call, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A2A 1.1 SendLiveMessage (§3.1.12): the downlink of a live exchange whose requests come from <paramref name="uplink"/>.
+    /// The default refuses it (UnsupportedOperation); <see cref="A2ARequestHandler"/> implements it.
+    /// </summary>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    IAsyncEnumerable<SequencedEvent> SendLiveMessageAsync(IAsyncEnumerable<StreamRequest> uplink, ServerCallContext call, CancellationToken cancellationToken = default) =>
+        throw new A2AException(A2AErrorCode.UnsupportedOperation, "SendLiveMessage is not supported.");
+
+    /// <summary>
+    /// A2A 1.1 SendLiveMessage over HTTP, a call that is not the downlink: applies one request and returns the task as it is now.
+    /// The default refuses it (UnsupportedOperation); <see cref="A2ARequestHandler"/> implements it.
+    /// </summary>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    Task<AgentTask> SendLiveUplinkAsync(StreamRequest request, ServerCallContext call, CancellationToken cancellationToken = default) =>
+        throw new A2AException(A2AErrorCode.UnsupportedOperation, "SendLiveMessage is not supported.");
 }

@@ -455,3 +455,7 @@ A2A.Server.A2AServerOptions.LongPollTimeout.set -> void
 [A2AEXP005]A2A.Server.AgentRequestContext.UserArtifacts.get -> System.Collections.Generic.IReadOnlyList<A2A.Artifact!>?
 A2A.Server.A2ALimits.MaxUserArtifactsPerRequest.get -> int
 A2A.Server.A2ALimits.MaxUserArtifactsPerRequest.set -> void
+[A2AEXP005]A2A.Server.A2ARequestHandler.SendLiveMessageAsync(System.Collections.Generic.IAsyncEnumerable<A2A.StreamRequest!>! uplink, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!
+[A2AEXP005]A2A.Server.A2ARequestHandler.SendLiveUplinkAsync(A2A.StreamRequest! request, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
+[A2AEXP005]A2A.Server.IA2ARequestHandler.SendLiveMessageAsync(System.Collections.Generic.IAsyncEnumerable<A2A.StreamRequest!>! uplink, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!
+[A2AEXP005]A2A.Server.IA2ARequestHandler.SendLiveUplinkAsync(A2A.StreamRequest! request, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!

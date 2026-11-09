@@ -1,1 +1,2 @@
 #nullable enable
+override A2A.Server.Grpc.A2AGrpcService.SendLiveMessage(Grpc.Core.IAsyncStreamReader<Lf.A2a.V1.StreamRequest!>! requestStream, Grpc.Core.IServerStreamWriter<Lf.A2a.V1.StreamResponse!>! responseStream, Grpc.Core.ServerCallContext! context) -> System.Threading.Tasks.Task!

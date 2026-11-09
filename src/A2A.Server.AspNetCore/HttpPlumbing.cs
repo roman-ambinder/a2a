@@ -139,6 +139,17 @@ internal static partial class HttpPlumbing
         }
     }
 
+    /// <summary>True when the request's <c>Accept</c> header takes <c>text/event-stream</c> (with a weight above 0).</summary>
+    public static bool AcceptsEventStream(HttpContext http)
+    {
+        foreach (var range in http.Request.GetTypedHeaders().Accept)
+        {
+            if (range.Quality is 0) continue;
+            if (range.MediaType.Equals(A2AProtocol.EventStreamMediaType, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
     public static async Task WriteJsonAsync<T>(HttpContext http, T value, string contentType, int status = 200)
     {
         await PooledResponse.WriteAsync(http, status, contentType, value, static (w, v) => JsonSerializer.Serialize(w, v, A2AJson.GetTypeInfo<T>())).ConfigureAwait(false);

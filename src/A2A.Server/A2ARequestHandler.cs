@@ -28,7 +28,7 @@ namespace A2A.Server;
 /// filters, then the operation (see <see cref="IA2AOperationFilter"/>).
 /// The tasks, messages and events these methods return may share instances with the stores: serialize them, never change them.
 /// </summary>
-public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
+public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
 {
     private readonly TaskStore _tasks;
     private readonly EventStore _events;

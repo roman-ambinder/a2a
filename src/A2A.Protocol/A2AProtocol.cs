@@ -119,12 +119,14 @@ public static class A2AProtocol
         public const string DeleteTaskPushNotificationConfig = "DeleteTaskPushNotificationConfig";
         /// <summary>GetExtendedAgentCard: fetches the authenticated, extended Agent Card (spec §3.1.11).</summary>
         public const string GetExtendedAgentCard = "GetExtendedAgentCard";
+        /// <summary>A2A 1.1 SendLiveMessage: a live, two-way exchange with an agent (spec 1.1 §3.1.12).</summary>
+        public const string SendLiveMessage = "SendLiveMessage";
 
         private static readonly string[] BuiltIn =
         [
             SendMessage, SendStreamingMessage, GetTask, ListTasks, CancelTask, SubscribeToTask,
             CreateTaskPushNotificationConfig, GetTaskPushNotificationConfig, ListTaskPushNotificationConfigs,
-            DeleteTaskPushNotificationConfig, GetExtendedAgentCard,
+            DeleteTaskPushNotificationConfig, GetExtendedAgentCard, SendLiveMessage,
         ];
 
         /// <summary>

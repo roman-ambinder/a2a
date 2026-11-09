@@ -54,6 +54,7 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
         {
             A2AOperationDescriptor operation;
             object request;
+            StreamRequest? live = null; // A2A 1.1 SendLiveMessage
             // The body lives in a pooled buffer for this block only. Everything that leaves it is a copy: the id and the
             // extension params are JsonElements with their own documents, and typed params are plain objects (any JsonElement
             // inside them is copied by the serializer). The buffer goes back to the pool before the handler runs.
@@ -84,11 +85,18 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
 
                 handler.ValidateCall(call);
 
-                if (!table.JsonRpcMethods.TryGetValue(method, out operation!))
+                // A2A 1.1: SendLiveMessage is a method of 1.1 only; each of its requests is authorized as the operation it runs.
+                if (method == A2AProtocol.Methods.SendLiveMessage && A2AProtocol.IsVersion11OrLater(call.ProtocolVersion))
+                {
+                    live = Params<StreamRequest>(json.Span, members.Params);
+                    operation = A2AOperationDescriptor.For(A2AOperation.SendStreamingMessage);
+                    request = live;
+                }
+                else if (!table.JsonRpcMethods.TryGetValue(method, out operation!))
                     throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{method}' not found");
 
                 var p = members.Params;
-                request = operation.Kind switch
+                request = live is not null ? live : operation.Kind switch
                 {
                     A2AOperation.SendMessage or A2AOperation.SendStreamingMessage => Params<SendMessageRequest>(json.Span, p),
                     A2AOperation.GetTask => Params<GetTaskRequest>(json.Span, p),
@@ -103,6 +111,17 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
                     A2AOperation.Extension => ParamsElement(json.Span, p),
                     _ => throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{method}' not found"),
                 };
+            }
+
+            if (live is not null)
+            {
+                // The call whose Accept takes an event stream is the downlink (§3.1.12); any other call is an uplink call and
+                // gets only the task as it is now.
+                if (HttpPlumbing.AcceptsEventStream(http))
+                    await StreamAsync(http, call, id, handler.SendLiveMessageAsync(One(live), call, ct), Task.CompletedTask).ConfigureAwait(false);
+                else
+                    await Ok(http, call, id, await handler.SendLiveUplinkAsync(live, call, ct).ConfigureAwait(false)).ConfigureAwait(false);
+                return;
             }
 
             switch (operation.Kind)
@@ -230,6 +249,13 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
     }
 
     private static readonly byte[] EnvelopeEnd = "}"u8.ToArray();
+
+#pragma warning disable CS1998 // the one request of an HTTP downlink call, as an uplink
+    private static async IAsyncEnumerable<StreamRequest> One(StreamRequest request)
+    {
+        yield return request;
+    }
+#pragma warning restore CS1998
 
     private async Task StreamAsync(HttpContext http, ServerCallContext call, JsonElement? id, IAsyncEnumerable<SequencedEvent> events, Task startNow)
     {
