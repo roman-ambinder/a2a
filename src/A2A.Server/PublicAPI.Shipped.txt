@@ -128,6 +128,15 @@ A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage
 A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage.DirectMessage(A2A.Message! Message) -> void
 A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage.Message.get -> A2A.Message!
 A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage.Message.init -> void
+A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage.Deconstruct(out A2A.Message! Message) -> void
+A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage.Equals(A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage? other) -> bool
+override A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage.<Clone>$() -> A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage!
+override A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage.Equals(object? obj) -> bool
+override A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage.GetHashCode() -> int
+override A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage.ToString() -> string!
+override sealed A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage.Equals(A2A.Server.Idempotency.IdempotencyOutcome? other) -> bool
+static A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage.operator !=(A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage? left, A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage? right) -> bool
+static A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage.operator ==(A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage? left, A2A.Server.Idempotency.IdempotencyOutcome.DirectMessage? right) -> bool
 A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated
 A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.AfterSequence.get -> long
 A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.AfterSequence.init -> void
@@ -136,17 +145,82 @@ A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.AcceptedStatusTimestamp.ge
 A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.AcceptedStatusTimestamp.init -> void
 A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.TaskId.get -> string!
 A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.TaskId.init -> void
+A2A.Server.Idempotency.IdempotencyOutcome.IdempotencyOutcome(A2A.Server.Idempotency.IdempotencyOutcome! original) -> void
+A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.Deconstruct(out string! TaskId, out long AfterSequence, out System.DateTimeOffset? AcceptedStatusTimestamp) -> void
+A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.Equals(A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated? other) -> bool
+abstract A2A.Server.Idempotency.IdempotencyOutcome.<Clone>$() -> A2A.Server.Idempotency.IdempotencyOutcome!
+override A2A.Server.Idempotency.IdempotencyOutcome.Equals(object? obj) -> bool
+override A2A.Server.Idempotency.IdempotencyOutcome.GetHashCode() -> int
+override A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.<Clone>$() -> A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated!
+override A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.Equals(object? obj) -> bool
+override A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.GetHashCode() -> int
+override A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.ToString() -> string!
+override A2A.Server.Idempotency.IdempotencyOutcome.ToString() -> string!
+override sealed A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.Equals(A2A.Server.Idempotency.IdempotencyOutcome? other) -> bool
+static A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.operator !=(A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated? left, A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated? right) -> bool
+static A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated.operator ==(A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated? left, A2A.Server.Idempotency.IdempotencyOutcome.TaskCreated? right) -> bool
+static A2A.Server.Idempotency.IdempotencyOutcome.operator !=(A2A.Server.Idempotency.IdempotencyOutcome? left, A2A.Server.Idempotency.IdempotencyOutcome? right) -> bool
+static A2A.Server.Idempotency.IdempotencyOutcome.operator ==(A2A.Server.Idempotency.IdempotencyOutcome? left, A2A.Server.Idempotency.IdempotencyOutcome? right) -> bool
+virtual A2A.Server.Idempotency.IdempotencyOutcome.EqualityContract.get -> System.Type!
+virtual A2A.Server.Idempotency.IdempotencyOutcome.Equals(A2A.Server.Idempotency.IdempotencyOutcome? other) -> bool
+virtual A2A.Server.Idempotency.IdempotencyOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
 A2A.Server.Idempotency.IdempotencyResult
 A2A.Server.Idempotency.IdempotencyResult.Completed
 A2A.Server.Idempotency.IdempotencyResult.Completed.Completed(A2A.Server.Idempotency.IdempotencyOutcome! Outcome) -> void
 A2A.Server.Idempotency.IdempotencyResult.Completed.Outcome.get -> A2A.Server.Idempotency.IdempotencyOutcome!
 A2A.Server.Idempotency.IdempotencyResult.Completed.Outcome.init -> void
+A2A.Server.Idempotency.IdempotencyResult.Completed.Deconstruct(out A2A.Server.Idempotency.IdempotencyOutcome! Outcome) -> void
+A2A.Server.Idempotency.IdempotencyResult.Completed.Equals(A2A.Server.Idempotency.IdempotencyResult.Completed? other) -> bool
+override A2A.Server.Idempotency.IdempotencyResult.Completed.<Clone>$() -> A2A.Server.Idempotency.IdempotencyResult.Completed!
+override A2A.Server.Idempotency.IdempotencyResult.Completed.Equals(object? obj) -> bool
+override A2A.Server.Idempotency.IdempotencyResult.Completed.GetHashCode() -> int
+override A2A.Server.Idempotency.IdempotencyResult.Completed.ToString() -> string!
+override sealed A2A.Server.Idempotency.IdempotencyResult.Completed.Equals(A2A.Server.Idempotency.IdempotencyResult? other) -> bool
+static A2A.Server.Idempotency.IdempotencyResult.Completed.operator !=(A2A.Server.Idempotency.IdempotencyResult.Completed? left, A2A.Server.Idempotency.IdempotencyResult.Completed? right) -> bool
+static A2A.Server.Idempotency.IdempotencyResult.Completed.operator ==(A2A.Server.Idempotency.IdempotencyResult.Completed? left, A2A.Server.Idempotency.IdempotencyResult.Completed? right) -> bool
 A2A.Server.Idempotency.IdempotencyResult.InProgress
 A2A.Server.Idempotency.IdempotencyResult.InProgress.Completion.get -> System.Threading.Tasks.Task<A2A.Server.Idempotency.IdempotencyOutcome!>!
 A2A.Server.Idempotency.IdempotencyResult.InProgress.Completion.init -> void
 A2A.Server.Idempotency.IdempotencyResult.InProgress.InProgress(System.Threading.Tasks.Task<A2A.Server.Idempotency.IdempotencyOutcome!>! Completion) -> void
+A2A.Server.Idempotency.IdempotencyResult.InProgress.Deconstruct(out System.Threading.Tasks.Task<A2A.Server.Idempotency.IdempotencyOutcome!>! Completion) -> void
+A2A.Server.Idempotency.IdempotencyResult.InProgress.Equals(A2A.Server.Idempotency.IdempotencyResult.InProgress? other) -> bool
+override A2A.Server.Idempotency.IdempotencyResult.InProgress.<Clone>$() -> A2A.Server.Idempotency.IdempotencyResult.InProgress!
+override A2A.Server.Idempotency.IdempotencyResult.InProgress.Equals(object? obj) -> bool
+override A2A.Server.Idempotency.IdempotencyResult.InProgress.GetHashCode() -> int
+override A2A.Server.Idempotency.IdempotencyResult.InProgress.ToString() -> string!
+override sealed A2A.Server.Idempotency.IdempotencyResult.InProgress.Equals(A2A.Server.Idempotency.IdempotencyResult? other) -> bool
+static A2A.Server.Idempotency.IdempotencyResult.InProgress.operator !=(A2A.Server.Idempotency.IdempotencyResult.InProgress? left, A2A.Server.Idempotency.IdempotencyResult.InProgress? right) -> bool
+static A2A.Server.Idempotency.IdempotencyResult.InProgress.operator ==(A2A.Server.Idempotency.IdempotencyResult.InProgress? left, A2A.Server.Idempotency.IdempotencyResult.InProgress? right) -> bool
 A2A.Server.Idempotency.IdempotencyResult.Mismatch
+A2A.Server.Idempotency.IdempotencyResult.Mismatch.Equals(A2A.Server.Idempotency.IdempotencyResult.Mismatch? other) -> bool
+A2A.Server.Idempotency.IdempotencyResult.Mismatch.Mismatch() -> void
+override A2A.Server.Idempotency.IdempotencyResult.Mismatch.<Clone>$() -> A2A.Server.Idempotency.IdempotencyResult.Mismatch!
+override A2A.Server.Idempotency.IdempotencyResult.Mismatch.Equals(object? obj) -> bool
+override A2A.Server.Idempotency.IdempotencyResult.Mismatch.GetHashCode() -> int
+override A2A.Server.Idempotency.IdempotencyResult.Mismatch.ToString() -> string!
+override sealed A2A.Server.Idempotency.IdempotencyResult.Mismatch.Equals(A2A.Server.Idempotency.IdempotencyResult? other) -> bool
+static A2A.Server.Idempotency.IdempotencyResult.Mismatch.operator !=(A2A.Server.Idempotency.IdempotencyResult.Mismatch? left, A2A.Server.Idempotency.IdempotencyResult.Mismatch? right) -> bool
+static A2A.Server.Idempotency.IdempotencyResult.Mismatch.operator ==(A2A.Server.Idempotency.IdempotencyResult.Mismatch? left, A2A.Server.Idempotency.IdempotencyResult.Mismatch? right) -> bool
 A2A.Server.Idempotency.IdempotencyResult.New
+A2A.Server.Idempotency.IdempotencyResult.IdempotencyResult(A2A.Server.Idempotency.IdempotencyResult! original) -> void
+A2A.Server.Idempotency.IdempotencyResult.New.Deconstruct(out System.Guid ClaimId) -> void
+A2A.Server.Idempotency.IdempotencyResult.New.Equals(A2A.Server.Idempotency.IdempotencyResult.New? other) -> bool
+abstract A2A.Server.Idempotency.IdempotencyResult.<Clone>$() -> A2A.Server.Idempotency.IdempotencyResult!
+override A2A.Server.Idempotency.IdempotencyResult.Equals(object? obj) -> bool
+override A2A.Server.Idempotency.IdempotencyResult.GetHashCode() -> int
+override A2A.Server.Idempotency.IdempotencyResult.New.<Clone>$() -> A2A.Server.Idempotency.IdempotencyResult.New!
+override A2A.Server.Idempotency.IdempotencyResult.New.Equals(object? obj) -> bool
+override A2A.Server.Idempotency.IdempotencyResult.New.GetHashCode() -> int
+override A2A.Server.Idempotency.IdempotencyResult.New.ToString() -> string!
+override A2A.Server.Idempotency.IdempotencyResult.ToString() -> string!
+override sealed A2A.Server.Idempotency.IdempotencyResult.New.Equals(A2A.Server.Idempotency.IdempotencyResult? other) -> bool
+static A2A.Server.Idempotency.IdempotencyResult.New.operator !=(A2A.Server.Idempotency.IdempotencyResult.New? left, A2A.Server.Idempotency.IdempotencyResult.New? right) -> bool
+static A2A.Server.Idempotency.IdempotencyResult.New.operator ==(A2A.Server.Idempotency.IdempotencyResult.New? left, A2A.Server.Idempotency.IdempotencyResult.New? right) -> bool
+static A2A.Server.Idempotency.IdempotencyResult.operator !=(A2A.Server.Idempotency.IdempotencyResult? left, A2A.Server.Idempotency.IdempotencyResult? right) -> bool
+static A2A.Server.Idempotency.IdempotencyResult.operator ==(A2A.Server.Idempotency.IdempotencyResult? left, A2A.Server.Idempotency.IdempotencyResult? right) -> bool
+virtual A2A.Server.Idempotency.IdempotencyResult.EqualityContract.get -> System.Type!
+virtual A2A.Server.Idempotency.IdempotencyResult.Equals(A2A.Server.Idempotency.IdempotencyResult? other) -> bool
+virtual A2A.Server.Idempotency.IdempotencyResult.PrintMembers(System.Text.StringBuilder! builder) -> bool
 A2A.Server.Idempotency.IdempotencyScope
 A2A.Server.Idempotency.IdempotencyScope.IdempotencyScope() -> void
 A2A.Server.Idempotency.IdempotencyScope.IdempotencyScope(string! Tenant, string! Principal, string! Key) -> void
@@ -156,6 +230,13 @@ A2A.Server.Idempotency.IdempotencyScope.Principal.get -> string!
 A2A.Server.Idempotency.IdempotencyScope.Principal.init -> void
 A2A.Server.Idempotency.IdempotencyScope.Tenant.get -> string!
 A2A.Server.Idempotency.IdempotencyScope.Tenant.init -> void
+A2A.Server.Idempotency.IdempotencyScope.Deconstruct(out string! Tenant, out string! Principal, out string! Key) -> void
+A2A.Server.Idempotency.IdempotencyScope.Equals(A2A.Server.Idempotency.IdempotencyScope other) -> bool
+override A2A.Server.Idempotency.IdempotencyScope.GetHashCode() -> int
+static A2A.Server.Idempotency.IdempotencyScope.operator !=(A2A.Server.Idempotency.IdempotencyScope left, A2A.Server.Idempotency.IdempotencyScope right) -> bool
+static A2A.Server.Idempotency.IdempotencyScope.operator ==(A2A.Server.Idempotency.IdempotencyScope left, A2A.Server.Idempotency.IdempotencyScope right) -> bool
+~override A2A.Server.Idempotency.IdempotencyScope.Equals(object obj) -> bool
+~override A2A.Server.Idempotency.IdempotencyScope.ToString() -> string
 A2A.Server.Idempotency.IdempotencyStore
 A2A.Server.Idempotency.IdempotencyStore.IdempotencyStore() -> void
 A2A.Server.Idempotency.InMemoryIdempotencyStore
@@ -221,6 +302,14 @@ A2A.Server.Storage.ContextRecord.Owner.get -> string!
 A2A.Server.Storage.ContextRecord.Owner.init -> void
 A2A.Server.Storage.ContextRecord.Tenant.get -> string!
 A2A.Server.Storage.ContextRecord.Tenant.init -> void
+A2A.Server.Storage.ContextRecord.<Clone>$() -> A2A.Server.Storage.ContextRecord!
+A2A.Server.Storage.ContextRecord.Deconstruct(out string! Tenant, out string! Owner, out string! ContextId, out System.DateTimeOffset CreatedAt) -> void
+A2A.Server.Storage.ContextRecord.Equals(A2A.Server.Storage.ContextRecord? other) -> bool
+override A2A.Server.Storage.ContextRecord.Equals(object? obj) -> bool
+override A2A.Server.Storage.ContextRecord.GetHashCode() -> int
+override A2A.Server.Storage.ContextRecord.ToString() -> string!
+static A2A.Server.Storage.ContextRecord.operator !=(A2A.Server.Storage.ContextRecord? left, A2A.Server.Storage.ContextRecord? right) -> bool
+static A2A.Server.Storage.ContextRecord.operator ==(A2A.Server.Storage.ContextRecord? left, A2A.Server.Storage.ContextRecord? right) -> bool
 A2A.Server.Storage.DuplicateTaskException
 A2A.Server.Storage.DuplicateTaskException.DuplicateTaskException(A2A.Server.Storage.TaskKey key) -> void
 A2A.Server.Storage.DuplicateTaskException.Key.get -> A2A.Server.Storage.TaskKey
@@ -238,6 +327,14 @@ A2A.Server.Storage.PushConfigRecord.Config.init -> void
 A2A.Server.Storage.PushConfigRecord.PushConfigRecord(A2A.Server.Storage.TaskKey TaskKey, A2A.TaskPushNotificationConfig! Config) -> void
 A2A.Server.Storage.PushConfigRecord.TaskKey.get -> A2A.Server.Storage.TaskKey
 A2A.Server.Storage.PushConfigRecord.TaskKey.init -> void
+A2A.Server.Storage.PushConfigRecord.<Clone>$() -> A2A.Server.Storage.PushConfigRecord!
+A2A.Server.Storage.PushConfigRecord.Deconstruct(out A2A.Server.Storage.TaskKey TaskKey, out A2A.TaskPushNotificationConfig! Config) -> void
+A2A.Server.Storage.PushConfigRecord.Equals(A2A.Server.Storage.PushConfigRecord? other) -> bool
+override A2A.Server.Storage.PushConfigRecord.Equals(object? obj) -> bool
+override A2A.Server.Storage.PushConfigRecord.GetHashCode() -> int
+override A2A.Server.Storage.PushConfigRecord.ToString() -> string!
+static A2A.Server.Storage.PushConfigRecord.operator !=(A2A.Server.Storage.PushConfigRecord? left, A2A.Server.Storage.PushConfigRecord? right) -> bool
+static A2A.Server.Storage.PushConfigRecord.operator ==(A2A.Server.Storage.PushConfigRecord? left, A2A.Server.Storage.PushConfigRecord? right) -> bool
 A2A.Server.Storage.PushConfigStore
 A2A.Server.Storage.PushConfigStore.PushConfigStore() -> void
 A2A.Server.Storage.TaskIds
@@ -250,6 +347,13 @@ A2A.Server.Storage.TaskKey.TaskKey() -> void
 A2A.Server.Storage.TaskKey.TaskKey(string! Tenant, string! Owner, string! TaskId) -> void
 A2A.Server.Storage.TaskKey.Tenant.get -> string!
 A2A.Server.Storage.TaskKey.Tenant.init -> void
+A2A.Server.Storage.TaskKey.Deconstruct(out string! Tenant, out string! Owner, out string! TaskId) -> void
+A2A.Server.Storage.TaskKey.Equals(A2A.Server.Storage.TaskKey other) -> bool
+override A2A.Server.Storage.TaskKey.GetHashCode() -> int
+static A2A.Server.Storage.TaskKey.operator !=(A2A.Server.Storage.TaskKey left, A2A.Server.Storage.TaskKey right) -> bool
+static A2A.Server.Storage.TaskKey.operator ==(A2A.Server.Storage.TaskKey left, A2A.Server.Storage.TaskKey right) -> bool
+~override A2A.Server.Storage.TaskKey.Equals(object obj) -> bool
+~override A2A.Server.Storage.TaskKey.ToString() -> string
 A2A.Server.Storage.TaskPage
 A2A.Server.Storage.TaskPage.NextPageToken.get -> string!
 A2A.Server.Storage.TaskPage.NextPageToken.init -> void
@@ -258,6 +362,14 @@ A2A.Server.Storage.TaskPage.Records.init -> void
 A2A.Server.Storage.TaskPage.TaskPage(System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.TaskRecord!>! Records, string! NextPageToken, int TotalSize) -> void
 A2A.Server.Storage.TaskPage.TotalSize.get -> int
 A2A.Server.Storage.TaskPage.TotalSize.init -> void
+A2A.Server.Storage.TaskPage.<Clone>$() -> A2A.Server.Storage.TaskPage!
+A2A.Server.Storage.TaskPage.Deconstruct(out System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.TaskRecord!>! Records, out string! NextPageToken, out int TotalSize) -> void
+A2A.Server.Storage.TaskPage.Equals(A2A.Server.Storage.TaskPage? other) -> bool
+override A2A.Server.Storage.TaskPage.Equals(object? obj) -> bool
+override A2A.Server.Storage.TaskPage.GetHashCode() -> int
+override A2A.Server.Storage.TaskPage.ToString() -> string!
+static A2A.Server.Storage.TaskPage.operator !=(A2A.Server.Storage.TaskPage? left, A2A.Server.Storage.TaskPage? right) -> bool
+static A2A.Server.Storage.TaskPage.operator ==(A2A.Server.Storage.TaskPage? left, A2A.Server.Storage.TaskPage? right) -> bool
 A2A.Server.Storage.TaskQuery
 A2A.Server.Storage.TaskQuery.ContextId.get -> string?
 A2A.Server.Storage.TaskQuery.ContextId.init -> void
@@ -274,6 +386,14 @@ A2A.Server.Storage.TaskQuery.StatusTimestampAfter.init -> void
 A2A.Server.Storage.TaskQuery.TaskQuery(string! Tenant, string! Owner, string? ContextId, A2A.TaskState? Status, System.DateTimeOffset? StatusTimestampAfter, int PageSize, string? PageToken) -> void
 A2A.Server.Storage.TaskQuery.Tenant.get -> string!
 A2A.Server.Storage.TaskQuery.Tenant.init -> void
+A2A.Server.Storage.TaskQuery.<Clone>$() -> A2A.Server.Storage.TaskQuery!
+A2A.Server.Storage.TaskQuery.Deconstruct(out string! Tenant, out string! Owner, out string? ContextId, out A2A.TaskState? Status, out System.DateTimeOffset? StatusTimestampAfter, out int PageSize, out string? PageToken) -> void
+A2A.Server.Storage.TaskQuery.Equals(A2A.Server.Storage.TaskQuery? other) -> bool
+override A2A.Server.Storage.TaskQuery.Equals(object? obj) -> bool
+override A2A.Server.Storage.TaskQuery.GetHashCode() -> int
+override A2A.Server.Storage.TaskQuery.ToString() -> string!
+static A2A.Server.Storage.TaskQuery.operator !=(A2A.Server.Storage.TaskQuery? left, A2A.Server.Storage.TaskQuery? right) -> bool
+static A2A.Server.Storage.TaskQuery.operator ==(A2A.Server.Storage.TaskQuery? left, A2A.Server.Storage.TaskQuery? right) -> bool
 A2A.Server.Storage.TaskRecord
 A2A.Server.Storage.TaskRecord.CreatedAt.get -> System.DateTimeOffset
 A2A.Server.Storage.TaskRecord.CreatedAt.init -> void
@@ -289,6 +409,14 @@ A2A.Server.Storage.TaskRecord.UpdatedAt.get -> System.DateTimeOffset
 A2A.Server.Storage.TaskRecord.UpdatedAt.init -> void
 A2A.Server.Storage.TaskRecord.Version.get -> long
 A2A.Server.Storage.TaskRecord.Version.init -> void
+A2A.Server.Storage.TaskRecord.<Clone>$() -> A2A.Server.Storage.TaskRecord!
+A2A.Server.Storage.TaskRecord.Deconstruct(out string! Tenant, out string! Owner, out A2A.AgentTask! Task, out long Version, out System.DateTimeOffset CreatedAt, out System.DateTimeOffset UpdatedAt) -> void
+A2A.Server.Storage.TaskRecord.Equals(A2A.Server.Storage.TaskRecord? other) -> bool
+override A2A.Server.Storage.TaskRecord.Equals(object? obj) -> bool
+override A2A.Server.Storage.TaskRecord.GetHashCode() -> int
+override A2A.Server.Storage.TaskRecord.ToString() -> string!
+static A2A.Server.Storage.TaskRecord.operator !=(A2A.Server.Storage.TaskRecord? left, A2A.Server.Storage.TaskRecord? right) -> bool
+static A2A.Server.Storage.TaskRecord.operator ==(A2A.Server.Storage.TaskRecord? left, A2A.Server.Storage.TaskRecord? right) -> bool
 A2A.Server.Storage.TaskStore
 A2A.Server.Storage.TaskStore.TaskStore() -> void
 A2A.Server.Streaming.SequencedEvent
@@ -299,6 +427,13 @@ A2A.Server.Streaming.SequencedEvent.SequencedEvent() -> void
 A2A.Server.Streaming.SequencedEvent.Json.get -> System.ReadOnlyMemory<byte>
 A2A.Server.Streaming.SequencedEvent.SequencedEvent(long Sequence, A2A.StreamResponse! Event, System.ReadOnlyMemory<byte> Json) -> void
 A2A.Server.Streaming.SequencedEvent.SequencedEvent(long sequence, A2A.StreamResponse! evt) -> void
+A2A.Server.Streaming.SequencedEvent.Deconstruct(out long Sequence, out A2A.StreamResponse! Event, out System.ReadOnlyMemory<byte> Json) -> void
+A2A.Server.Streaming.SequencedEvent.Equals(A2A.Server.Streaming.SequencedEvent other) -> bool
+override A2A.Server.Streaming.SequencedEvent.GetHashCode() -> int
+static A2A.Server.Streaming.SequencedEvent.operator !=(A2A.Server.Streaming.SequencedEvent left, A2A.Server.Streaming.SequencedEvent right) -> bool
+static A2A.Server.Streaming.SequencedEvent.operator ==(A2A.Server.Streaming.SequencedEvent left, A2A.Server.Streaming.SequencedEvent right) -> bool
+~override A2A.Server.Streaming.SequencedEvent.Equals(object obj) -> bool
+~override A2A.Server.Streaming.SequencedEvent.ToString() -> string
 A2A.Server.Streaming.EventEncoder
 static A2A.Server.Streaming.EventEncoder.Encode(long sequence, A2A.StreamResponse! evt) -> A2A.Server.Streaming.SequencedEvent
 static A2A.Server.Streaming.EventEncoder.EnsureEncoded(A2A.Server.Streaming.SequencedEvent evt) -> A2A.Server.Streaming.SequencedEvent
@@ -463,6 +598,7 @@ A2A.Server.Pipeline.A2AOperationContext.Call.get -> A2A.Server.ServerCallContext
 A2A.Server.Pipeline.A2AOperationContext.Items.get -> System.Collections.Generic.IDictionary<string!, object?>!
 A2A.Server.Pipeline.A2AOperationContext.Operation.get -> A2A.Server.Pipeline.A2AOperationDescriptor!
 A2A.Server.Pipeline.A2AOperationDelegate
+virtual A2A.Server.Pipeline.A2AOperationDelegate.Invoke(A2A.Server.Pipeline.A2AOperationContext! context, object! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<object?>
 A2A.Server.Pipeline.A2AOperationDescriptor
 A2A.Server.Pipeline.A2AOperationDescriptor.A2AOperationDescriptor(A2A.Server.Authorization.A2AOperation Kind, string! Name) -> void
 A2A.Server.Pipeline.A2AOperationDescriptor.Kind.get -> A2A.Server.Authorization.A2AOperation
@@ -477,6 +613,14 @@ A2A.Server.Pipeline.IA2AOperationFilter
 A2A.Server.Pipeline.IA2AOperationFilter.InvokeAsync(A2A.Server.Pipeline.A2AOperationContext! context, object! request, A2A.Server.Pipeline.A2AOperationDelegate! next, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<object?>
 static A2A.Server.Pipeline.A2AOperationDescriptor.Extension(string! name) -> A2A.Server.Pipeline.A2AOperationDescriptor!
 static A2A.Server.Pipeline.A2AOperationDescriptor.For(A2A.Server.Authorization.A2AOperation kind) -> A2A.Server.Pipeline.A2AOperationDescriptor!
+A2A.Server.Pipeline.A2AOperationDescriptor.<Clone>$() -> A2A.Server.Pipeline.A2AOperationDescriptor!
+A2A.Server.Pipeline.A2AOperationDescriptor.Deconstruct(out A2A.Server.Authorization.A2AOperation Kind, out string! Name) -> void
+A2A.Server.Pipeline.A2AOperationDescriptor.Equals(A2A.Server.Pipeline.A2AOperationDescriptor? other) -> bool
+override A2A.Server.Pipeline.A2AOperationDescriptor.Equals(object? obj) -> bool
+override A2A.Server.Pipeline.A2AOperationDescriptor.GetHashCode() -> int
+override A2A.Server.Pipeline.A2AOperationDescriptor.ToString() -> string!
+static A2A.Server.Pipeline.A2AOperationDescriptor.operator !=(A2A.Server.Pipeline.A2AOperationDescriptor? left, A2A.Server.Pipeline.A2AOperationDescriptor? right) -> bool
+static A2A.Server.Pipeline.A2AOperationDescriptor.operator ==(A2A.Server.Pipeline.A2AOperationDescriptor? left, A2A.Server.Pipeline.A2AOperationDescriptor? right) -> bool
 A2A.Server.A2ARequestHandler.InvokeExtensionAsync(string! method, System.Text.Json.JsonElement parameters, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Text.Json.JsonElement>!
 A2A.Server.IA2ARequestHandler.InvokeExtensionAsync(string! method, System.Text.Json.JsonElement parameters, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Text.Json.JsonElement>!
 A2A.Server.A2AServerBuilder.AddExtensionOperation(string! method, string! extensionUri, System.Func<A2A.Server.Pipeline.A2AOperationContext!, System.Text.Json.JsonElement, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<System.Text.Json.JsonElement>>! handler, string? authorizationPolicy = null, bool allow = false) -> A2A.Server.A2AServerBuilder!
@@ -493,6 +637,14 @@ A2A.Server.Pipeline.A2AExtensionOperation.Handler.init -> void
 A2A.Server.Pipeline.A2AExtensionOperation.Method.get -> string!
 A2A.Server.Pipeline.A2AExtensionOperation.Method.init -> void
 const A2A.Server.Pipeline.A2AExtensionOperation.PolicySatisfiedItem = "a2a.extension.policySatisfied" -> string!
+A2A.Server.Pipeline.A2AExtensionOperation.<Clone>$() -> A2A.Server.Pipeline.A2AExtensionOperation!
+A2A.Server.Pipeline.A2AExtensionOperation.Deconstruct(out string! Method, out string! ExtensionUri, out System.Func<A2A.Server.Pipeline.A2AOperationContext!, System.Text.Json.JsonElement, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<System.Text.Json.JsonElement>>! Handler, out string? AuthorizationPolicy, out bool Allow) -> void
+A2A.Server.Pipeline.A2AExtensionOperation.Equals(A2A.Server.Pipeline.A2AExtensionOperation? other) -> bool
+override A2A.Server.Pipeline.A2AExtensionOperation.Equals(object? obj) -> bool
+override A2A.Server.Pipeline.A2AExtensionOperation.GetHashCode() -> int
+override A2A.Server.Pipeline.A2AExtensionOperation.ToString() -> string!
+static A2A.Server.Pipeline.A2AExtensionOperation.operator !=(A2A.Server.Pipeline.A2AExtensionOperation? left, A2A.Server.Pipeline.A2AExtensionOperation? right) -> bool
+static A2A.Server.Pipeline.A2AExtensionOperation.operator ==(A2A.Server.Pipeline.A2AExtensionOperation? left, A2A.Server.Pipeline.A2AExtensionOperation? right) -> bool
 A2A.Server.IAgentCardProvider
 A2A.Server.IAgentCardProvider.Get() -> A2A.AgentCard!
 A2A.Server.AgentCardProvider
@@ -710,16 +862,56 @@ static readonly A2A.Server.Agents.AgentRequestScope.NoRouteValues -> System.Coll
 virtual A2A.Server.Agents.TenantCardProvider.GetExtendedCardAsync(A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.AgentCard?>
 virtual A2A.Server.Agents.TenantCardProvider.GetSigningKeyAsync(string! tenant, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Signing.AgentCardSigningKey?>
 A2A.Server.Agents.AgentRequestScope.AgentRequestScope(string! Tenant, System.Collections.Generic.IReadOnlyDictionary<string!, string?>! RouteValues) -> void
+A2A.Server.Agents.AgentRequestScope.<Clone>$() -> A2A.Server.Agents.AgentRequestScope!
+A2A.Server.Agents.AgentRequestScope.Deconstruct(out string! Tenant, out System.Collections.Generic.IReadOnlyDictionary<string!, string?>! RouteValues) -> void
+A2A.Server.Agents.AgentRequestScope.Equals(A2A.Server.Agents.AgentRequestScope? other) -> bool
+override A2A.Server.Agents.AgentRequestScope.Equals(object? obj) -> bool
+override A2A.Server.Agents.AgentRequestScope.GetHashCode() -> int
+override A2A.Server.Agents.AgentRequestScope.ToString() -> string!
+static A2A.Server.Agents.AgentRequestScope.operator !=(A2A.Server.Agents.AgentRequestScope? left, A2A.Server.Agents.AgentRequestScope? right) -> bool
+static A2A.Server.Agents.AgentRequestScope.operator ==(A2A.Server.Agents.AgentRequestScope? left, A2A.Server.Agents.AgentRequestScope? right) -> bool
 A2A.Server.PendingApproval.PendingApproval(string! OperationId, string! Description) -> void
+A2A.Server.PendingApproval.<Clone>$() -> A2A.Server.PendingApproval!
+A2A.Server.PendingApproval.Deconstruct(out string! OperationId, out string! Description) -> void
+A2A.Server.PendingApproval.Equals(A2A.Server.PendingApproval? other) -> bool
+override A2A.Server.PendingApproval.Equals(object? obj) -> bool
+override A2A.Server.PendingApproval.GetHashCode() -> int
+override A2A.Server.PendingApproval.ToString() -> string!
+static A2A.Server.PendingApproval.operator !=(A2A.Server.PendingApproval? left, A2A.Server.PendingApproval? right) -> bool
+static A2A.Server.PendingApproval.operator ==(A2A.Server.PendingApproval? left, A2A.Server.PendingApproval? right) -> bool
 A2A.Server.Push.A2APushAdmin.A2APushAdmin(A2A.Server.Push.PushOutbox! outbox) -> void
 A2A.Server.Push.InMemoryPushOutbox.InMemoryPushOutbox(System.TimeProvider? time = null) -> void
 A2A.Server.Push.OutboxEntry.OutboxEntry(A2A.Server.Storage.PushDelivery! Delivery, int Attempt, System.DateTimeOffset DueAt, string? LastError) -> void
 A2A.Server.Storage.CommitResult.CommitResult(A2A.Server.Storage.TaskRecord! Record, long Sequence) -> void
+A2A.Server.Storage.CommitResult.<Clone>$() -> A2A.Server.Storage.CommitResult!
+A2A.Server.Storage.CommitResult.Deconstruct(out A2A.Server.Storage.TaskRecord! Record, out long Sequence) -> void
+A2A.Server.Storage.CommitResult.Equals(A2A.Server.Storage.CommitResult? other) -> bool
+override A2A.Server.Storage.CommitResult.Equals(object? obj) -> bool
+override A2A.Server.Storage.CommitResult.GetHashCode() -> int
+override A2A.Server.Storage.CommitResult.ToString() -> string!
+static A2A.Server.Storage.CommitResult.operator !=(A2A.Server.Storage.CommitResult? left, A2A.Server.Storage.CommitResult? right) -> bool
+static A2A.Server.Storage.CommitResult.operator ==(A2A.Server.Storage.CommitResult? left, A2A.Server.Storage.CommitResult? right) -> bool
 A2A.Server.Storage.PushDelivery.PushDelivery(A2A.Server.Storage.TaskKey Task, string! ConfigId, long Sequence, string! DeliveryId) -> void
+A2A.Server.Storage.PushDelivery.<Clone>$() -> A2A.Server.Storage.PushDelivery!
+A2A.Server.Storage.PushDelivery.Deconstruct(out A2A.Server.Storage.TaskKey Task, out string! ConfigId, out long Sequence, out string! DeliveryId) -> void
+A2A.Server.Storage.PushDelivery.Equals(A2A.Server.Storage.PushDelivery? other) -> bool
+override A2A.Server.Storage.PushDelivery.Equals(object? obj) -> bool
+override A2A.Server.Storage.PushDelivery.GetHashCode() -> int
+override A2A.Server.Storage.PushDelivery.ToString() -> string!
+static A2A.Server.Storage.PushDelivery.operator !=(A2A.Server.Storage.PushDelivery? left, A2A.Server.Storage.PushDelivery? right) -> bool
+static A2A.Server.Storage.PushDelivery.operator ==(A2A.Server.Storage.PushDelivery? left, A2A.Server.Storage.PushDelivery? right) -> bool
 A2A.Server.Storage.TaskCommit.TaskCommit(A2A.Server.Storage.TaskRecord! Record, long ExpectedVersion, A2A.Server.Streaming.SequencedEvent Event, System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.PushDelivery!>! Deliveries) -> void
 A2A.Server.Storage.TaskCommit.TaskCommit(A2A.Server.Storage.TaskRecord! record, long expectedVersion, A2A.StreamResponse! evt, System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.PushDelivery!>! deliveries) -> void
-A2A.Server.A2ALimits.MaxActorChainHops.get -> int
-A2A.Server.A2ALimits.MaxActorChainHops.set -> void
+A2A.Server.Storage.TaskCommit.<Clone>$() -> A2A.Server.Storage.TaskCommit!
+A2A.Server.Storage.TaskCommit.Deconstruct(out A2A.Server.Storage.TaskRecord! Record, out long ExpectedVersion, out A2A.Server.Streaming.SequencedEvent Event, out System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.PushDelivery!>! Deliveries) -> void
+A2A.Server.Storage.TaskCommit.Equals(A2A.Server.Storage.TaskCommit? other) -> bool
+override A2A.Server.Storage.TaskCommit.Equals(object? obj) -> bool
+override A2A.Server.Storage.TaskCommit.GetHashCode() -> int
+override A2A.Server.Storage.TaskCommit.ToString() -> string!
+static A2A.Server.Storage.TaskCommit.operator !=(A2A.Server.Storage.TaskCommit? left, A2A.Server.Storage.TaskCommit? right) -> bool
+static A2A.Server.Storage.TaskCommit.operator ==(A2A.Server.Storage.TaskCommit? left, A2A.Server.Storage.TaskCommit? right) -> bool
+[A2AEXP002]A2A.Server.A2ALimits.MaxActorChainHops.get -> int
+[A2AEXP002]A2A.Server.A2ALimits.MaxActorChainHops.set -> void
 A2A.Server.A2ARequestHandler.A2ARequestHandler(A2A.Server.Storage.TaskStore! tasks, A2A.Server.Storage.EventStore! events, A2A.Server.Idempotency.IdempotencyCoordinator! idempotency, A2A.Server.Authorization.A2AAuthorizationHandler! authorization, A2A.Server.A2AServerOptions! options, A2A.Server.Pipeline.CallValidator! validator, A2A.Server.Push.PushConfigService! pushConfigs, A2A.Server.Execution.TaskExecutionEngine! engine, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AOperationFilterRegistration!>! filters, System.Collections.Generic.IEnumerable<A2A.Server.Pipeline.A2AExtensionOperation!>! extensionOperations, A2A.Server.IAgentCardProvider! cards, A2A.Delegation.ITokenExchanger? tokenExchanger = null) -> void
 A2A.Server.ServerCallContext.InboundBearerToken.init -> void
 A2A.Server.AgentRequestContext.CanExchangeToken.get -> bool
@@ -728,7 +920,7 @@ A2A.Server.A2AServerBuilder.AddTokenExchanger<T>() -> A2A.Server.A2AServerBuilde
 A2A.Server.A2AServerBuilder.AddTokenExchanger(A2A.Delegation.ITokenExchanger! exchanger) -> A2A.Server.A2AServerBuilder!
 A2A.Server.ServerCallContext.WireProtocolVersion.get -> string?
 A2A.Server.ServerCallContext.WireProtocolVersion.init -> void
-A2A.Server.AgentRequestContext.RequestedSkillId.get -> string?
+[A2AEXP001]A2A.Server.AgentRequestContext.RequestedSkillId.get -> string?
 A2A.Server.AgentRequestContext.CanElicit.get -> bool
 A2A.Server.AgentRequestContext.ElicitationAnswer.get -> A2A.Elicitations.ElicitationAnswer?
 A2A.Server.AgentRequestContext.ElicitationAnswer.init -> void
@@ -757,7 +949,7 @@ A2A.Server.TaskContinuationResult.Status.get -> A2A.Server.TaskContinuationStatu
 A2A.Server.TaskContinuationResult.Started.get -> bool
 A2A.Server.TaskContinuationResult.Completion.get -> System.Threading.Tasks.Task!
 A2A.Server.Execution.TaskExecutionEngine.ContinueTaskAsync(A2A.Server.Storage.TaskKey key, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.TaskContinuationResult!>
-A2A.Server.TaskUpdater.AddHashedArtifactAsync(System.Collections.Generic.IEnumerable<A2A.Part!>! parts, string? artifactId = null, string? name = null, string? description = null, bool append = false, bool lastChunk = false, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<string!>
+[A2AEXP003]A2A.Server.TaskUpdater.AddHashedArtifactAsync(System.Collections.Generic.IEnumerable<A2A.Part!>! parts, string? artifactId = null, string? name = null, string? description = null, bool append = false, bool lastChunk = false, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<string!>
 A2A.Server.TaskUpdater.AddArtifactAsync(A2A.Artifact! artifact, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? eventMetadata, bool append = false, bool lastChunk = false, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 A2A.Server.Push.PushDeliveryOptions.MaxAttempts.get -> int?
 A2A.Server.Push.PushDeliveryOptions.MaxDeliveryAge.get -> System.TimeSpan?
@@ -774,9 +966,25 @@ A2A.Server.Push.PushDeadLetterInfo.Sequence.get -> long
 A2A.Server.Push.PushDeadLetterInfo.Sequence.init -> void
 A2A.Server.Push.PushDeadLetterInfo.Task.get -> A2A.Server.Storage.TaskKey
 A2A.Server.Push.PushDeadLetterInfo.Task.init -> void
+A2A.Server.Push.PushDeadLetterInfo.<Clone>$() -> A2A.Server.Push.PushDeadLetterInfo!
+A2A.Server.Push.PushDeadLetterInfo.Deconstruct(out A2A.Server.Storage.TaskKey Task, out string! ConfigId, out long Sequence, out string? LastError) -> void
+A2A.Server.Push.PushDeadLetterInfo.Equals(A2A.Server.Push.PushDeadLetterInfo? other) -> bool
+override A2A.Server.Push.PushDeadLetterInfo.Equals(object? obj) -> bool
+override A2A.Server.Push.PushDeadLetterInfo.GetHashCode() -> int
+override A2A.Server.Push.PushDeadLetterInfo.ToString() -> string!
+static A2A.Server.Push.PushDeadLetterInfo.operator !=(A2A.Server.Push.PushDeadLetterInfo? left, A2A.Server.Push.PushDeadLetterInfo? right) -> bool
+static A2A.Server.Push.PushDeadLetterInfo.operator ==(A2A.Server.Push.PushDeadLetterInfo? left, A2A.Server.Push.PushDeadLetterInfo? right) -> bool
 A2A.Server.Push.PushNotificationOptions.CatchUpOnRegistration.get -> bool
 A2A.Server.Push.PushNotificationOptions.CatchUpOnRegistration.set -> void
 A2A.Server.Push.OutboxEntry.Age.get -> System.TimeSpan
 A2A.Server.Push.OutboxEntry.Age.init -> void
+A2A.Server.Push.OutboxEntry.<Clone>$() -> A2A.Server.Push.OutboxEntry!
+A2A.Server.Push.OutboxEntry.Deconstruct(out A2A.Server.Storage.PushDelivery! Delivery, out int Attempt, out System.DateTimeOffset DueAt, out string? LastError) -> void
+A2A.Server.Push.OutboxEntry.Equals(A2A.Server.Push.OutboxEntry? other) -> bool
+override A2A.Server.Push.OutboxEntry.Equals(object? obj) -> bool
+override A2A.Server.Push.OutboxEntry.GetHashCode() -> int
+override A2A.Server.Push.OutboxEntry.ToString() -> string!
+static A2A.Server.Push.OutboxEntry.operator !=(A2A.Server.Push.OutboxEntry? left, A2A.Server.Push.OutboxEntry? right) -> bool
+static A2A.Server.Push.OutboxEntry.operator ==(A2A.Server.Push.OutboxEntry? left, A2A.Server.Push.OutboxEntry? right) -> bool
 abstract A2A.Server.Push.PushOutbox.EnqueueAsync(A2A.Server.Storage.PushDelivery! delivery, System.ReadOnlyMemory<byte> payload, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 override A2A.Server.Push.InMemoryPushOutbox.EnqueueAsync(A2A.Server.Storage.PushDelivery! delivery, System.ReadOnlyMemory<byte> payload, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>

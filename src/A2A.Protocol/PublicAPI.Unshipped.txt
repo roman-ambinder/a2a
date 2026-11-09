@@ -1,6 +1,6 @@
 #nullable enable
 A2A.Diagnostics.A2ATelemetry.SecurityEventNames
-A2A.Skills.TypedSkillExtension
+[A2AEXP001]A2A.Skills.TypedSkillExtension
 const A2A.Diagnostics.A2ATelemetry.Metrics.SecurityEvents = "a2a.server.security.events" -> string!
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.ContextDenied = "context_denied" -> string!
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.IdempotencyKeyMismatch = "idempotency_key_mismatch" -> string!
@@ -8,11 +8,11 @@ const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.PermissionDenied = "permis
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.Unauthenticated = "unauthenticated" -> string!
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.WebhookRefused = "webhook_refused" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.SecurityEvent = "a2a.security.event" -> string!
-const A2A.Skills.TypedSkillExtension.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/typed-skills/v1" -> string!
-const A2A.Skills.TypedSkillExtension.InputSchemaKey = "inputSchema" -> string!
-const A2A.Skills.TypedSkillExtension.OutputSchemaKey = "outputSchema" -> string!
-const A2A.Skills.TypedSkillExtension.SkillsParam = "skills" -> string!
+[A2AEXP001]const A2A.Skills.TypedSkillExtension.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/typed-skills/v1" -> string!
+[A2AEXP001]const A2A.Skills.TypedSkillExtension.InputSchemaKey = "inputSchema" -> string!
+[A2AEXP001]const A2A.Skills.TypedSkillExtension.OutputSchemaKey = "outputSchema" -> string!
+[A2AEXP001]const A2A.Skills.TypedSkillExtension.SkillsParam = "skills" -> string!
 const A2A.Validation.A2AValidator.MaxPushConfigIdLength = 256 -> int
 static A2A.A2AProtocol.Methods.IsReserved(string! method) -> bool
-static A2A.Skills.TypedSkillExtension.TryGetSchemas(A2A.AgentCard! card, string! skillId, out System.Text.Json.JsonElement inputSchema, out System.Text.Json.JsonElement outputSchema) -> bool
+[A2AEXP001]static A2A.Skills.TypedSkillExtension.TryGetSchemas(A2A.AgentCard! card, string! skillId, out System.Text.Json.JsonElement inputSchema, out System.Text.Json.JsonElement outputSchema) -> bool
 static A2A.JsonRpc.JsonRpcWriter.SuccessPrefix(System.Text.Json.JsonElement? id) -> byte[]!
