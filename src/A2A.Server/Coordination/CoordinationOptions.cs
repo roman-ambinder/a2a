@@ -28,8 +28,18 @@ public sealed class CoordinationOptions
     public TimeSpan RunningPollInterval { get; set; } = TimeSpan.FromSeconds(1);
 
     /// <summary>
-    /// Throws <see cref="InvalidOperationException"/> unless <see cref="Heartbeat"/> and <see cref="RunningPollInterval"/> are
-    /// positive and finite and <see cref="LeaseTtl"/> is longer than 2 × <see cref="Heartbeat"/>.
+    /// How often an idle SubscribeToTask stream (fresh or resumed) looks at the event store.
+    /// Normally every event reaches a stream over the bus. A lost bus message, or an instance that died right after it committed
+    /// an event, would leave the stream silent until <see cref="A2ALimits.MaxStreamDuration"/>. At each check the stream sends
+    /// the events it missed. It also ends cleanly, so the client resumes with <c>Last-Event-ID</c>, when nothing runs the task for
+    /// two checks in a row. A stream that received an event since the last check does not look. The cost is one small set of
+    /// store reads (the last sequence, the task, and the running check) per idle stream per interval. Default 30 seconds.
+    /// </summary>
+    public TimeSpan StreamCheckInterval { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Throws <see cref="InvalidOperationException"/> unless <see cref="Heartbeat"/>, <see cref="RunningPollInterval"/> and
+    /// <see cref="StreamCheckInterval"/> are positive and finite and <see cref="LeaseTtl"/> is longer than 2 × <see cref="Heartbeat"/>.
     /// </summary>
     public void Validate()
     {
@@ -37,6 +47,8 @@ public sealed class CoordinationOptions
             throw new InvalidOperationException($"Coordination.Heartbeat ({Heartbeat}) must be a positive, finite time span.");
         if (RunningPollInterval <= TimeSpan.Zero)
             throw new InvalidOperationException($"Coordination.RunningPollInterval ({RunningPollInterval}) must be a positive, finite time span.");
+        if (StreamCheckInterval <= TimeSpan.Zero)
+            throw new InvalidOperationException($"Coordination.StreamCheckInterval ({StreamCheckInterval}) must be a positive, finite time span.");
         // In 128-bit ticks, so a huge heartbeat cannot overflow.
         if ((Int128)LeaseTtl.Ticks <= 2 * (Int128)Heartbeat.Ticks)
             throw new InvalidOperationException(

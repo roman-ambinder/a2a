@@ -124,6 +124,51 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
         Assert.DoesNotContain(logs, e => e.Message.Contains(RetentionOff, StringComparison.Ordinal));
     }
 
+    private const string SharedBus = "spans server instances";
+
+    /// <summary>A bus that spans instances over stores kept in this process: events cross, tasks and events do not.</summary>
+    [SkippableFact]
+    public async Task Redis_event_bus_with_in_memory_stores_logs_a_warning_once()
+    {
+        var redis = await redisFixture.ConnectAsync();
+        await using var _ = redis;
+        var logs = await StartAsync(s => s.AddA2AServer().AddRedisEventBus(redis, o => o.ChannelPrefix = $"diag:{Guid.NewGuid():N}:"));
+
+        var entry = Assert.Single(logs, e => e.Message.Contains(SharedBus, StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains("RedisTaskEventBus", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("InMemoryTaskStore", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("InMemoryEventStore", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("InMemoryIdempotencyStore", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("task-not-found", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("AddPostgresStores", entry.Message, StringComparison.Ordinal);
+    }
+
+    [SkippableFact]
+    public async Task Redis_event_bus_with_postgres_stores_does_not_log_the_shared_bus_warning()
+    {
+        var schema = await db.NewSchemaAsync();
+        var redis = await redisFixture.ConnectAsync();
+        await using var _ = redis;
+        var logs = await StartAsync(s => s.AddA2AServer()
+            .AddPostgresStores(db.DataSource, o =>
+            {
+                o.Schema = schema.Schema;
+                o.CreateSchemaOnStartup = false;
+            })
+            .AddRedisEventBus(redis, o => o.ChannelPrefix = $"diag:{Guid.NewGuid():N}:"));
+
+        Assert.DoesNotContain(logs, e => e.Message.Contains(SharedBus, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Local_bus_with_in_memory_stores_does_not_log_the_shared_bus_warning()
+    {
+        var logs = await StartAsync(s => s.AddA2AServer());
+
+        Assert.DoesNotContain(logs, e => e.Message.Contains(SharedBus, StringComparison.Ordinal));
+    }
+
     private sealed class CaptureLogger : ILoggerProvider
     {
         public List<(LogLevel Level, string Message)> Entries { get; } = [];

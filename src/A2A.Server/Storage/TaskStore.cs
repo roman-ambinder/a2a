@@ -100,6 +100,9 @@ public abstract class TaskStore
     /// The event's <see cref="Streaming.SequencedEvent.Json"/> bytes are kept as they are (never re-encoded), for the log and as
     /// the payload of each delivery. Each delivery is stored with the event's sequence (<see cref="PushDelivery.Sequence"/>),
     /// attempt 0, due at once.
+    /// <see cref="TaskCommit.Idempotency"/>: a store that shares a transaction with the idempotency store writes the outcome in
+    /// the same transaction, and only for the claim that still owns the entry (no match is not an error). Any other store
+    /// ignores it; the engine records the outcome after the commit.
     /// </remarks>
     /// <returns>The stored record and the event's sequence.</returns>
     /// <exception cref="ConcurrencyException">The stored version differs, or the task does not exist for this owner. Nothing was written.</exception>

@@ -173,4 +173,69 @@ public sealed class TaskExecutionEngineTests
         if (declared) Assert.Equal(2, outbox.Count); // WORKING, COMPLETED (the new task's snapshot goes only to an inline config)
         else Assert.Equal(0, outbox.Count);
     }
+
+    /// <summary>Records every commit the engine makes.</summary>
+    private sealed class RecordingCommitStore : DelegatingTaskStore
+    {
+        public List<TaskCommit> Commits { get; } = [];
+
+        public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
+        {
+            lock (Commits) Commits.Add(commit);
+            return base.CommitAsync(commit, ct);
+        }
+    }
+
+    [Fact]
+    public async Task Create_commit_carries_the_idempotency_outcome_and_later_commits_do_not()
+    {
+        var tasks = new RecordingCommitStore();
+        var options = new A2AServerOptions();
+        options.AgentCard.Name = "Engine Test Agent";
+        var coordinator = new IdempotencyCoordinator(new InMemoryIdempotencyStore(options.Idempotency), tasks, options);
+        await using var engine = new TaskExecutionEngine(tasks, tasks.Events,
+            new DelegateFactory(async (_, updater, ct) =>
+            {
+                await updater.StartWorkAsync("working", ct);
+                await updater.CompleteAsync("done", ct);
+            }),
+            new TaskEventBus(), tasks.Outbox, coordinator,
+            new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options), options, new AgentCardProvider(options, []));
+        var call = ServerCallContext.Anonymous();
+        var context = NewTask(call);
+        var request = new SendMessageRequest { Message = context.Message };
+        var (claim, replay) = await coordinator.BeginAsync(request, call, CancellationToken.None);
+        Assert.Null(replay);
+
+        var agent = await engine.RentAgentAsync(call.Tenant, null, CancellationToken.None);
+        var exec = await engine.StartAsync(context, push: null, claim, agent, pushEnabled: false);
+        await exec.Completion.WaitAsync(Wait);
+        await engine.WhenIdleAsync().WaitAsync(Wait);
+
+        Assert.True(tasks.Commits.Count >= 3);
+        var create = tasks.Commits[0];
+        Assert.True(create.IsCreate);
+        var idem = Assert.IsType<IdempotencyCommit>(create.Idempotency);
+        Assert.Equal(new IdempotencyOutcome.TaskCreated(context.TaskId), idem.Outcome);
+        Assert.Equal(new IdempotencyScope(call.Tenant, call.Principal, context.Message.MessageId), idem.Scope);
+        Assert.Equal(options.Idempotency.Retention, idem.Retention);
+        Assert.All(tasks.Commits.Skip(1), c => Assert.Null(c.Idempotency));
+        // The in-memory task store ignores the outcome, so the engine still recorded it after the commit.
+        var (_, again) = await coordinator.BeginAsync(request, call, CancellationToken.None);
+        Assert.Equal(new IdempotencyOutcome.TaskCreated(context.TaskId), again);
+    }
+
+    [Fact]
+    public async Task Create_commit_has_no_idempotency_outcome_without_a_claim()
+    {
+        var tasks = new RecordingCommitStore();
+        await using var engine = Engine(tasks, tasks.Events, async (_, updater, ct) => await updater.CompleteAsync("done", ct));
+        var context = NewTask(ServerCallContext.Anonymous());
+
+        var exec = await engine.StartForTestAsync(context); // IdempotencyClaim.None
+        await exec.Completion.WaitAsync(Wait);
+
+        Assert.True(tasks.Commits[0].IsCreate);
+        Assert.Null(tasks.Commits[0].Idempotency);
+    }
 }
