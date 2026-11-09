@@ -200,6 +200,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 257, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.SharedBusMessage)]
     public static partial void SharedBusWithInMemoryStores(ILogger logger, string bus, string inMemoryStores);
 
+    [LoggerMessage(EventId = 259, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.TenantsWithoutAuthorizationMessage)]
+    public static partial void TenantsWithoutAuthorization(ILogger logger);
+
     // Inbound uploads: 680-689
     [LoggerMessage(EventId = 680, Level = LogLevel.Information, Message = "Deleted the unused inbound upload {Key}")]
     public static partial void UploadPurged(ILogger logger, string key);

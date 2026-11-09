@@ -10,7 +10,8 @@ namespace A2A.Server;
 
 /// <summary>
 /// Logs, once at startup, the mixes of durable and process-local parts that work on one instance but break across restarts or
-/// several instances, a shared event bus over in-memory stores, and a durable task store without the (opt-in) retention sweep. Never throws: a host that does not use the feature in question must still start.
+/// several instances, a shared event bus over in-memory stores, a durable task store without the (opt-in) retention sweep, and per-tenant
+/// agents behind the default allow-all authorization handler. Never throws: a host that does not use the feature in question must still start.
 /// </summary>
 internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A2AStartupDiagnostics> logger) : IHostedService
 {
@@ -47,6 +48,12 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
         "Events cross instances, but the other instances cannot read the tasks and events kept here: a stream on another instance " +
         "gets task-not-found or cannot fill gaps in the events. " +
         "Use shared stores: AddPostgresStores (A2A.Server.Postgres) or your own durable stores.";
+
+    internal const string TenantsWithoutAuthorizationMessage =
+        "Agents are set up per tenant (a TenantCardProvider or an AgentExecutorResolver), but the authorization handler is the default " +
+        "AllowAllAuthorizationHandler. It lets every caller reach every tenant's agent, and on a route without a tenant segment a " +
+        "'tenant' field in the request body can select another tenant. Register an A2AAuthorizationHandler " +
+        "(AddAuthorizationHandler<T>()) that checks call.Tenant against the caller. Ignore this if your route policies already check the tenant.";
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -101,6 +108,12 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
 
         if (tasks is not null and not InMemoryTaskStore && services.GetService<ArtifactObjectStore>() is InMemoryArtifactObjectStore)
             ServerLog.InMemoryObjectsWithDurableStore(logger, tasks.GetType().Name);
+
+        // Not RequestCards.IsPerTenant: a card provider that does not build on AgentCardProvider is not seen there.
+        // No resolver is registered by default, so any resolver is the host's.
+        if (services.GetService<Authorization.A2AAuthorizationHandler>() is Authorization.AllowAllAuthorizationHandler
+            && (services.GetService<Agents.TenantCardProvider>() is not null || services.GetService<Agents.AgentExecutorResolver>() is not null))
+            ServerLog.TenantsWithoutAuthorization(logger);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

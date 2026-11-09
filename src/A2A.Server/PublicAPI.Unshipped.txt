@@ -118,6 +118,8 @@ A2A.Server.Push.IPushOutboxStatistics
 A2A.Server.Push.IPushOutboxStatistics.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
 A2A.Server.Push.InMemoryPushOutbox.Count.get -> int
 A2A.Server.Push.InMemoryPushOutbox.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
+A2A.Server.Push.PushDeliveryOptions.MaxInFlightPerCaller.get -> int?
+A2A.Server.Push.PushDeliveryOptions.MaxInFlightPerCaller.set -> void
 A2A.Server.Push.PushOutboxStatistics
 A2A.Server.Push.PushOutboxStatistics.DeadLetterCount.get -> int
 A2A.Server.Push.PushOutboxStatistics.DeadLetterCount.init -> void
@@ -227,6 +229,7 @@ const A2A.Server.ConversationMemory.DefaultMaxTasks = 20 -> int
 override A2A.Server.Idempotency.InMemoryIdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 override A2A.Server.Idempotency.InMemoryIdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 override A2A.Server.Idempotency.InMemoryIdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Push.InMemoryPushOutbox.LeaseDueCappedAsync(int max, System.TimeSpan lease, int maxInFlightPerCaller, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Push.OutboxEntry!>!>
 override A2A.Server.Storage.InMemoryArtifactObjectStore.DeleteAsync(string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 override A2A.Server.Storage.InMemoryArtifactObjectStore.ListAsync(string! prefix, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Storage.ArtifactObjectEntry!>!
 override A2A.Server.Storage.InMemoryArtifactObjectStore.OpenReadAsync(string! key, A2A.Server.Storage.ArtifactByteRange? range = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectContent?>
@@ -237,6 +240,7 @@ static A2A.Server.Storage.PageCursor.Encode(A2A.Server.Storage.ContextRecord! la
 static A2A.Server.Storage.TaskStore.ValidateContextQuery(A2A.Server.Storage.ContextQuery! query) -> void
 static A2A.Server.Storage.TaskStore.ValidateHistoryQuery(A2A.Server.Storage.ContextHistoryQuery! query) -> void
 virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeSkillAsync(A2A.Server.ServerCallContext! call, string! skillId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<bool>
+virtual A2A.Server.Push.PushOutbox.LeaseDueCappedAsync(int max, System.TimeSpan lease, int maxInFlightPerCaller, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Push.OutboxEntry!>!>
 virtual A2A.Server.Storage.ArtifactObjectStore.ExistsAsync(string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 virtual A2A.Server.Storage.ArtifactObjectStore.TryCreateDownloadUrlAsync(string! key, System.TimeSpan lifetime, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Uri?>
 virtual A2A.Server.Storage.TaskStore.ListContextsAsync(A2A.Server.Storage.ContextQuery! query, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ContextPage!>
