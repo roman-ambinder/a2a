@@ -87,7 +87,8 @@ public sealed class PushDeliveryService : BackgroundService
 
     /// <summary>
     /// Throws <see cref="InvalidOperationException"/> unless <see cref="PushNotificationOptions.Timeout"/> is positive and
-    /// finite, <see cref="PushDeliveryOptions.PollInterval"/> is positive, and <see cref="PushDeliveryOptions.Lease"/> is longer
+    /// finite, <see cref="PushDeliveryOptions.PollInterval"/> is positive, <see cref="PushDeliveryOptions.MaxInFlightPerCaller"/>
+    /// is null or at least 1, and <see cref="PushDeliveryOptions.Lease"/> is longer
     /// than twice the timeout (DNS check plus POST) plus 5 seconds: a send must end before its lease does, or another
     /// instance could lease and send the same delivery at the same time.
     /// </summary>
@@ -102,6 +103,8 @@ public sealed class PushDeliveryService : BackgroundService
             throw new InvalidOperationException($"PushDelivery.MaxDeliveryAge ({age}) must be greater than zero, or null for no limit.");
         if (_options.MaxAttempts is < 1)
             throw new InvalidOperationException($"PushDelivery.MaxAttempts ({_options.MaxAttempts}) must be at least 1, or null for no limit.");
+        if (_options.MaxInFlightPerCaller is < 1)
+            throw new InvalidOperationException($"PushDelivery.MaxInFlightPerCaller ({_options.MaxInFlightPerCaller}) must be at least 1, or null for no cap.");
         // In 128-bit ticks, so a huge timeout cannot overflow.
         if ((Int128)_options.Lease.Ticks <= (2 * (Int128)timeout.Ticks) + TimeSpan.FromSeconds(5).Ticks)
             throw new InvalidOperationException(
@@ -155,14 +158,16 @@ public sealed class PushDeliveryService : BackgroundService
 
     /// <summary>
     /// Leases as many due deliveries as there are free send slots (<see cref="PushDeliveryOptions.BatchSize"/> in all) and
-    /// starts them. Each send holds one slot, so a slow receiver delays only its own task and config. Returns true when
-    /// every free slot got a delivery.
+    /// starts them. Each send holds one slot, so a slow receiver delays only its own task and config. With
+    /// <see cref="PushDeliveryOptions.MaxInFlightPerCaller"/> set, one caller never holds more than that many. Returns true when
+    /// another pass may find work: every free slot got a delivery, or (with a cap) something was leased, because a capped pass
+    /// can lease fewer than the free slots while other callers still have due work.
     /// </summary>
     private async Task<bool> StartDueAsync(ConcurrentDictionary<Task, byte> running, CancellationToken cancellationToken)
     {
         var free = _slots.CurrentCount;
         if (free == 0) return false;
-        var due = await _outbox.LeaseDueAsync(free, _options.Lease, cancellationToken).ConfigureAwait(false);
+        var due = await LeaseAsync(free, cancellationToken).ConfigureAwait(false);
         foreach (var entry in due)
         {
             await _slots.WaitAsync(cancellationToken).ConfigureAwait(false); // only this loop takes slots, so one is free
@@ -170,8 +175,13 @@ public sealed class PushDeliveryService : BackgroundService
             running[send] = 0;
             _ = send.ContinueWith(t => running.TryRemove(t, out _), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
-        return due.Count > 0 && due.Count == free;
+        return due.Count > 0 && (due.Count == free || _options.MaxInFlightPerCaller is not null);
     }
+
+    private ValueTask<IReadOnlyList<OutboxEntry>> LeaseAsync(int max, CancellationToken cancellationToken) =>
+        _options.MaxInFlightPerCaller is { } cap
+            ? _outbox.LeaseDueCappedAsync(max, _options.Lease, cap, cancellationToken)
+            : _outbox.LeaseDueAsync(max, _options.Lease, cancellationToken);
 
     private async Task SendInSlotAsync(OutboxEntry entry, CancellationToken cancellationToken)
     {
@@ -190,7 +200,7 @@ public sealed class PushDeliveryService : BackgroundService
     /// <summary>One pass for tests: leases up to a batch of due deliveries and sends them all. Returns how many were leased.</summary>
     internal async Task<int> RunOnceAsync(CancellationToken cancellationToken)
     {
-        var due = await _outbox.LeaseDueAsync(Math.Max(1, _options.BatchSize), _options.Lease, cancellationToken).ConfigureAwait(false);
+        var due = await LeaseAsync(Math.Max(1, _options.BatchSize), cancellationToken).ConfigureAwait(false);
         if (due.Count > 0) await Task.WhenAll(due.Select(e => DeliverAsync(e, cancellationToken))).ConfigureAwait(false);
         return due.Count;
     }

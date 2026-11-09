@@ -60,6 +60,14 @@ public abstract class PushOutbox
     public abstract ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Same as <see cref="LeaseDueAsync"/>, but also leaves the due entries of an owner (<see cref="TaskKey.Owner"/>, the tenant
+    /// is ignored) that already has <paramref name="maxInFlightPerCaller"/> unexpired leases, and never gives an owner more
+    /// entries than it has free slots. An outbox that does not override it applies no cap.
+    /// </summary>
+    public virtual ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueCappedAsync(int max, TimeSpan lease, int maxInFlightPerCaller, CancellationToken cancellationToken = default) =>
+        LeaseDueAsync(max, lease, cancellationToken);
+
+    /// <summary>
     /// Removes a delivered (or dropped) leased entry, which releases the next one of its task and config. Returns false, and
     /// changes nothing, when the entry no longer holds <paramref name="leased"/>'s lease.
     /// </summary>

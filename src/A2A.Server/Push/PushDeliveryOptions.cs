@@ -50,6 +50,14 @@ public sealed class PushDeliveryOptions
     /// slow receiver does not hold up the others. Default 50.
     /// </summary>
     public int BatchSize { get; set; } = 50;
+
+    /// <summary>
+    /// Most deliveries of one caller (the task owner, across tenants and instances) in flight at once, so one caller's slow
+    /// webhooks cannot take every send slot. All anonymous callers count as one caller. It is checked when deliveries are
+    /// leased, so several instances can pass it briefly by a small amount (a soft cap). Null for no cap. Must be at least 1.
+    /// Default 20.
+    /// </summary>
+    public int? MaxInFlightPerCaller { get; set; } = 20;
 }
 
 /// <summary>What <see cref="PushDeliveryOptions.OnDeadLetter"/> is told about a dead-lettered delivery. Never holds secrets.</summary>

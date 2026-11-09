@@ -173,3 +173,7 @@ A2A.Server.AgentRequestContext.AuthorizedSkillId.get -> string?
 A2A.Server.AgentRequestContext.IsSkillAllowedAsync(string! skillId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeSkillAsync(A2A.Server.ServerCallContext! call, string! skillId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<bool>
 A2A.Server.Push.InMemoryPushOutbox.Count.get -> int
+A2A.Server.Push.PushDeliveryOptions.MaxInFlightPerCaller.get -> int?
+A2A.Server.Push.PushDeliveryOptions.MaxInFlightPerCaller.set -> void
+virtual A2A.Server.Push.PushOutbox.LeaseDueCappedAsync(int max, System.TimeSpan lease, int maxInFlightPerCaller, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Push.OutboxEntry!>!>
+override A2A.Server.Push.InMemoryPushOutbox.LeaseDueCappedAsync(int max, System.TimeSpan lease, int maxInFlightPerCaller, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Push.OutboxEntry!>!>

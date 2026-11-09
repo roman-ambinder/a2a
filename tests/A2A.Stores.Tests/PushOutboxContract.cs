@@ -511,6 +511,99 @@ public abstract class PushOutboxContract
         Assert.Equal(0, (await Stats(outbox).GetStatisticsAsync(max)).DeadLetterCount);
     }
 
+    private static TaskKey OwnerTask(string owner, int n, string tenant = "t") => new(tenant, owner, $"{owner}-{n}"); // task ids are unique per tenant, so they carry the owner
+
+    private static IEnumerable<string> Owners(IEnumerable<OutboxEntry> entries) => entries.Select(e => e.Delivery.Task.Owner);
+
+    [SkippableFact]
+    public async Task Capped_lease_leaves_an_owner_that_is_at_the_cap_while_another_owner_still_leases()
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        for (var i = 1; i <= 4; i++) await CommitAsync(tasks, OwnerTask("alice", i), "c");
+        var first = await outbox.LeaseDueCappedAsync(2, Lease, 2);
+        Assert.Equal(["alice", "alice"], Owners(first));
+        await CommitAsync(tasks, OwnerTask("bob", 1), "c");
+
+        var second = await outbox.LeaseDueCappedAsync(10, Lease, 2);
+
+        Assert.Equal(["bob"], Owners(second));
+    }
+
+    [SkippableFact]
+    public async Task Capped_lease_never_gives_an_owner_more_than_the_cap_in_one_call()
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        for (var i = 1; i <= 5; i++)
+        {
+            await CommitAsync(tasks, OwnerTask("alice", i), "c");
+            await CommitAsync(tasks, OwnerTask("bob", i), "c");
+        }
+
+        var leased = (await outbox.LeaseDueCappedAsync(20, Lease, 2)).ToList();
+
+        Assert.Equal(2, leased.Count(e => e.Delivery.Task.Owner == "alice"));
+        Assert.Equal(2, leased.Count(e => e.Delivery.Task.Owner == "bob"));
+        Assert.Equal(4, leased.Count);
+    }
+
+    [SkippableFact]
+    public async Task Completing_a_delivery_frees_one_slot_of_its_owner()
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        for (var i = 1; i <= 4; i++) await CommitAsync(tasks, OwnerTask("alice", i), "c");
+        var leased = await outbox.LeaseDueCappedAsync(10, Lease, 2);
+        Assert.Equal(2, leased.Count);
+        Assert.Empty(await outbox.LeaseDueCappedAsync(10, Lease, 2));
+
+        Assert.True(await outbox.CompleteAsync(leased[0]));
+
+        Assert.Single(await outbox.LeaseDueCappedAsync(10, Lease, 2));
+        Assert.Empty(await outbox.LeaseDueCappedAsync(10, Lease, 2));
+    }
+
+    [SkippableFact]
+    public async Task An_expired_lease_no_longer_counts_toward_the_cap()
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        var first = (await CommitAsync(tasks, OwnerTask("alice", 1), "c"))[0];
+        _time.Advance(TimeSpan.FromSeconds(1));
+        await CommitAsync(tasks, OwnerTask("alice", 2), "c");
+        Assert.Equal(first, Assert.Single(await outbox.LeaseDueCappedAsync(10, Lease, 1)).Delivery);
+        Assert.Empty(await outbox.LeaseDueCappedAsync(10, Lease, 1));
+
+        _time.Advance(Lease);
+
+        // The lease ended, so the owner has a free slot again and the oldest due entry is leased once more.
+        Assert.Equal(first, Assert.Single(await outbox.LeaseDueCappedAsync(10, Lease, 1)).Delivery);
+    }
+
+    [SkippableFact]
+    public async Task The_cap_ignores_the_tenant()
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        await CommitAsync(tasks, OwnerTask("alice", 1, "t1"), "c");
+        await CommitAsync(tasks, OwnerTask("alice", 2, "t2"), "c");
+        await CommitAsync(tasks, OwnerTask("alice", 3, "t1"), "c");
+        await CommitAsync(tasks, OwnerTask("alice", 4, "t2"), "c");
+
+        Assert.Equal(2, (await outbox.LeaseDueCappedAsync(10, Lease, 2)).Count);
+        Assert.Empty(await outbox.LeaseDueCappedAsync(10, Lease, 2));
+    }
+
+    [SkippableFact]
+    public async Task A_saturated_owners_older_backlog_does_not_hide_another_owner()
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        for (var i = 1; i <= 20; i++) await CommitAsync(tasks, OwnerTask("alice", i), "c");
+        Assert.Equal(["alice"], Owners(await outbox.LeaseDueCappedAsync(1, Lease, 1))); // alice is at the cap now
+        _time.Advance(TimeSpan.FromSeconds(1));
+        await CommitAsync(tasks, OwnerTask("bob", 1), "c");
+
+        var leased = await outbox.LeaseDueCappedAsync(2, Lease, 1);
+
+        Assert.Equal(["bob"], Owners(leased));
+    }
+
     private static string Id(PushDelivery d) => $"{d.Task.Tenant}/{d.Task.Owner}/{d.Task.TaskId}/{d.ConfigId}/{d.Sequence:D5}";
 }
 
