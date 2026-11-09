@@ -331,8 +331,18 @@ public static class A2AGrpcClientFactory
     public static A2AClient Create(AgentCard card, A2AClientOptions? options = null, GrpcChannelOptions? channelOptions = null)
     {
         ArgumentNullException.ThrowIfNull(card);
+        var grpcOnly = GrpcOnly(options, channelOptions);
+        if (A2AClientFactory.SelectInterface(card, grpcOnly) is null)
+            throw new A2AException(A2AErrorCode.UnsupportedOperation,
+                $"Agent Card '{card.Name}' declares no gRPC interface for v{grpcOnly.ProtocolVersion.Split('.')[0]}.x.");
+        // The gRPC transport never touches the HttpClient.
+        return A2AClientFactory.Create(card, NoHttp, grpcOnly);
+    }
+
+    private static A2AClientOptions GrpcOnly(A2AClientOptions? options, GrpcChannelOptions? channelOptions)
+    {
         var src = options ?? new A2AClientOptions();
-        var grpcOnly = new A2AClientOptions
+        return new A2AClientOptions
         {
             ProtocolVersion = src.ProtocolVersion,
             Extensions = new List<string>(src.Extensions),
@@ -342,13 +352,10 @@ public static class A2AGrpcClientFactory
             MaxRetries = src.MaxRetries,
             TimeProvider = src.TimeProvider,
             OnMessageReceived = src.OnMessageReceived,
+            EndpointPolicy = src.EndpointPolicy,
+            CircuitBreaker = src.CircuitBreaker,
             SupportedBindings = new List<string>(),
         }.UseGrpc(channelOptions);
-        if (A2AClientFactory.SelectInterface(card, grpcOnly) is null)
-            throw new A2AException(A2AErrorCode.UnsupportedOperation,
-                $"Agent Card '{card.Name}' declares no gRPC interface for v{grpcOnly.ProtocolVersion.Split('.')[0]}.x.");
-        // The gRPC transport never touches the HttpClient.
-        return A2AClientFactory.Create(card, NoHttp, grpcOnly);
     }
 
     /// <summary>
@@ -361,6 +368,8 @@ public static class A2AGrpcClientFactory
     {
         var resolver = new A2ACardResolver(httpClient);
         var card = await resolver.GetAgentCardAsync(agentUrl, cancellationToken).ConfigureAwait(false);
+        // The endpoint check needs the card source, which Create(card) does not have.
+        await A2AClientFactory.EnsureEndpointsAllowedAsync(card, agentUrl, GrpcOnly(options, channelOptions), cancellationToken).ConfigureAwait(false);
         return Create(card, options, channelOptions);
     }
 

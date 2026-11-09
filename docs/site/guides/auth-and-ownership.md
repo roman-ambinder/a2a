@@ -48,6 +48,8 @@ A caller can only reach its own tasks. For any other task id, the server answers
 
 [!code-csharp[](../snippets/AuthAndOwnership.cs#Register)]
 
+To allow one caller a skill and deny another, override `AuthorizeSkillAsync` too. See [Skill authorization](skill-authorization.md).
+
 - `Kind` is an <xref:A2A.Server.Authorization.A2AOperation>: the 11 built-in operations, or `Extension`. `Name` is the operation name, or the registered name of an extension operation.
 - A denied call whose request names a task (GetTask, CancelTask, SubscribeToTask, push config calls, and SendMessage with a `taskId`) is reported as `TaskNotFound`.
 - Any other denial (ListTasks, GetExtendedAgentCard, SendMessage without a task, extension operations) is `PermissionDenied`.

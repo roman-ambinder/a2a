@@ -15,12 +15,20 @@ Optional packages:
 dotnet add package RomanAmbinder.A2A.Server.Grpc
 dotnet add package RomanAmbinder.A2A.Server.Postgres
 dotnet add package RomanAmbinder.A2A.Server.Redis
+dotnet add package RomanAmbinder.A2A.Server.TypedSkills
 dotnet add package RomanAmbinder.A2A.Client.DependencyInjection
 dotnet add package RomanAmbinder.A2A.Client.Grpc
+dotnet add package RomanAmbinder.A2A.Client.Postgres
 dotnet add package RomanAmbinder.A2A.Security.Http
 dotnet add package RomanAmbinder.A2A.Extensions.AI
 dotnet add package RomanAmbinder.A2A.Server.V0_3Compat
 dotnet add package RomanAmbinder.A2A.Client.V0_3Compat
+```
+
+To test your agent:
+
+```shell
+dotnet add package RomanAmbinder.A2A.TestKit
 ```
 
 ## Guides
@@ -34,6 +42,7 @@ dotnet add package RomanAmbinder.A2A.Client.V0_3Compat
 - [Agent card signing](guides/agent-card-signing.md)
 - [Peer identity and registry](guides/peer-identity.md)
 - [Skill selection](guides/skill-selection.md)
+- [Typed skills](guides/typed-skills.md)
 - [Microsoft.Extensions.AI](guides/extensions-ai.md)
 - [v0.3 compatibility](guides/v03-compatibility.md)
 - [Multi-tenancy](guides/multi-tenancy.md)
@@ -41,8 +50,10 @@ dotnet add package RomanAmbinder.A2A.Client.V0_3Compat
 - [Retention](guides/retention.md)
 - [Observability](guides/observability.md)
 - [Limits and rate limiting](guides/limits-and-rate-limiting.md)
+- [Client resilience](guides/client-resilience.md)
 - [Task safety](guides/task-safety.md)
 - [Interop and conformance](guides/interop-and-conformance.md)
+- [Testing your agent](guides/testing.md)
 - [Spec decisions](guides/spec-decisions.md)
 
 ## API reference

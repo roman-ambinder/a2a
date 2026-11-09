@@ -235,7 +235,7 @@ public class GrpcBindingTests : IAsyncLifetime
         Assert.Equal(TaskState.Canceled, (await client.CancelTaskAsync(task.Id)).Status.State);
         await reader.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Contains(TaskState.Canceled, states);
-        Assert.Equal(A2AErrorCode.TaskNotCancelable, (await Assert.ThrowsAsync<A2AException>(() => client.CancelTaskAsync(task.Id))).Code);
+        Assert.Equal(TaskState.Canceled, (await client.CancelTaskAsync(task.Id)).Status.State); // the client turns the repeat cancel into the canceled task
     }
 
     [Fact]

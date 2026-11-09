@@ -61,6 +61,12 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=ai-results" --results-directory TestResults
 
+      - name: Test TestKit (net8.0 + net10.0)
+        run: dotnet test tests/A2A.TestKit.Tests/A2A.TestKit.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=testkit-results" --results-directory TestResults
+
+      - name: Test TestingAgent sample (net10.0)
+        run: dotnet test samples/TestingAgent/TestingAgent.csproj -c Release --no-build --logger "trx;LogFilePrefix=testing-agent-results" --results-directory TestResults
+
       # D25: the netstandard2.0 builds of A2A.Protocol and A2A.Client against a real EchoAgent process.
       # net10.0 runs the netstandard2.0 DLLs on every OS; net48 runs them on .NET Framework (Windows only).
       - name: Smoke test netstandard2.0 (net10.0, and net48 on Windows)
@@ -300,6 +306,8 @@ jobs:
   docs:
     name: Docs site (DocFX)
     runs-on: ubuntu-latest
+    env:
+      LYCHEE_VERSION: v0.24.2
     steps:
       - uses: actions/checkout@v4
 
@@ -321,20 +329,34 @@ jobs:
       - name: Build site (broken links and bad xrefs fail)
         run: dotnet docfx docs/site/docfx.json --warningsAsErrors
 
+      - name: Restore lychee from cache
+        id: lychee-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/lychee
+          key: lychee-${{ env.LYCHEE_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install lychee
         # Not lychee-action: it downloads the binary with no retry, so one network blip fails the job.
+        # GitHub release downloads sometimes return 504 for minutes, so cache the binary and wait longer between retries.
         env:
-          LYCHEE_VERSION: v0.24.2
+          CACHE_HIT: ${{ steps.lychee-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
-          asset=lychee-x86_64-unknown-linux-gnu.tar.gz
-          url="https://github.com/lycheeverse/lychee/releases/download/lychee-${LYCHEE_VERSION}"
-          mkdir -p "$RUNNER_TEMP/lychee"
-          cd "$RUNNER_TEMP/lychee"
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -O "$url/$asset"
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -O "$url/$asset.sha256"
-          sha256sum -c "$asset.sha256"
-          tar -xzf "$asset"
+          if [ "$CACHE_HIT" != "true" ]; then
+            asset=lychee-x86_64-unknown-linux-gnu.tar.gz
+            url="https://github.com/lycheeverse/lychee/releases/download/lychee-${LYCHEE_VERSION}"
+            fetch() {
+              curl -fsSL --retry 8 --retry-all-errors --retry-delay 30 --connect-timeout 30 --max-time 120 -O "$1"
+            }
+            mkdir -p "$RUNNER_TEMP/lychee"
+            cd "$RUNNER_TEMP/lychee"
+            fetch "$url/$asset"
+            fetch "$url/$asset.sha256"
+            sha256sum -c "$asset.sha256"
+            tar -xzf "$asset"
+            rm -f "$asset" "$asset.sha256"
+          fi
           echo "$RUNNER_TEMP/lychee/lychee-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
 
       - name: Check links between generated pages

@@ -6,17 +6,24 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Targets .NET 8 and .NET 10.
 
+### Postgres schema migrations
+
+- `A2A.Server.Postgres` keeps its schema with numbered migrations, applied at startup in one transaction under an advisory lock. New: `PostgresSchema.ScriptFor(schema, fromVersion)` and `PostgresSchema.VerifySchemaAsync`. `PostgresSchema.Version` is now a property. With `CreateSchemaOnStartup = false` the app refuses to start when the schema version differs from the package.
+
 ### Packages
 
-- 15 packages on NuGet, all with the ID prefix `RomanAmbinder.`, so they never clash with the official `A2A` packages.
+- 20 packages on NuGet, all with the ID prefix `RomanAmbinder.`, so they never clash with the official `A2A` packages.
   Assemblies and namespaces are `A2A.*`.
 - Client: `A2A.Protocol`, `A2A.Security.Http`, `A2A.Client`, `A2A.Client.DependencyInjection`, `A2A.Client.Grpc`,
-  `A2A.Client.V0_3Compat`.
+  `A2A.Client.Postgres`, `A2A.Client.V0_3Compat`.
 - Server: `A2A.Server`, `A2A.Server.AspNetCore`, `A2A.Server.Grpc`, `A2A.Server.Postgres`, `A2A.Server.Redis`,
-  `A2A.Server.V0_3Compat`.
+  `A2A.Server.TypedSkills`, `A2A.Server.Storage.S3`, `A2A.Server.Storage.AzureBlob`, `A2A.Server.V0_3Compat`.
 - Shared: `A2A.Grpc` (gRPC types) and `A2A.V0_3Compat` (v0.3 codecs).
 - Microsoft.Extensions.AI: `A2A.Extensions.AI`.
 - Tool: `A2A.Cli` (the `a2a` command; install with `dotnet tool install -g`).
+- Testing: `A2A.TestKit`, for agent authors. An in-process agent host, a scripted fake peer agent, assertions for task states
+  and event order, a fake clock (`TestClock`) and a push receiver. It works with any test framework. It does not claim AOT
+  compatibility and has no gRPC.
 - Every package has a README, the Apache-2.0 license, SourceLink and a symbol package. The libraries are AOT compatible.
   (#4, #13)
 
@@ -76,6 +83,23 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 
 - A client names the skill it wants with `A2AClient.SelectSkill`. The agent reads `AgentRequestContext.RequestedSkillId`. It is
   an optional extension, and a hint, not authorization. A card can opt in to refusing unknown skills. Experimental. (#30, #35)
+
+### Typed skills
+
+- `A2A.Server.TypedSkills` (`AddTypedSkills`): declare a skill with .NET input and output types from a source-generated JSON
+  context. The SDK puts JSON Schema on the card, refuses bad input with `InvalidParams` (a `google.rpc.BadRequest` detail)
+  before the agent runs and before anything is stored, and sends the result as one data artifact. A plain executor can run
+  next to it as the fallback. AOT safe. Experimental.
+- `A2AClient.CallSkillAsync` calls a typed skill with .NET types. `TypedSkillCallException` reports a task that did not
+  complete. `TypedSkillExtension.TryGetSchemas` reads the schemas from a card. Experimental.
+
+### Skill authorization
+
+- A host can allow a caller one skill and deny another. `A2AAuthorizationHandler.AuthorizeSkillAsync` decides (it denies by
+  default), and `A2AServerOptions.SkillAuthorization` picks the mode: `Off`, `WhenNamed` or `Required`. The server checks the
+  skill in `metadata["skillId"]` before the agent runs, on every binding, and an unknown skill gives the same error as a denied
+  one. Open streams are checked again. `FilterExtendedCard` lists only allowed skills on the extended card.
+  `AgentRequestContext.AuthorizedSkillId` and `IsSkillAllowedAsync` let an agent that picks its own skill ask the same question.
 
 ### Microsoft.Extensions.AI
 
@@ -167,6 +191,12 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - The run is exclusive against every execution of the task on every instance. A request that cannot start returns a status
   (`TaskNotFound`, `TaskTerminal`, `InterruptedTimedOut`, `AlreadyRunning`, `NotSupported`) and changes nothing.
 - The API does not check the caller. A host that exposes it must authenticate its callers.
+
+### Client outbox
+
+- A durable list of the messages an agent sends to peers: `A2A.Client.Outbox` (`ClientOutboxStore`, `InMemoryClientOutboxStore`, `ClientOutboxDispatcher`) and the new package
+  `A2A.Client.Postgres`, which can enqueue and acknowledge in your own database transaction. Sends carry the entry id as `Idempotency-Key`; a crash
+  between "call the peer" and "save" cannot create a second task on an SDK server. See "Client outbox" in the guides.
 
 ### Retention
 

@@ -29,14 +29,19 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | `A2A.Server.V0_3Compat` | `EnableV03Compat()`: lets v0.3 clients call a v1.0 agent |
 | `A2A.Client.V0_3Compat` | `V03CompatClientFactory`: lets a client call v0.3 agents |
 | `A2A.Extensions.AI` | `Microsoft.Extensions.AI` integration: host an `IChatClient` as an agent (`AddChatClientAgent`), call a remote agent as an AI tool (`AsAIFunction`) or as an `IChatClient` (`AsChatClient`) |
+| `A2A.Client.Postgres` | PostgreSQL store for the client outbox (`A2A.Client.Outbox`): a durable list of the messages an agent sends to peers, written in your own transaction |
 | `A2A.Server.Postgres` | PostgreSQL stores (tasks, events, push configs, push outbox, idempotency) via Npgsql |
 | `A2A.Server.Redis` | Redis pub/sub `TaskEventBus` and execution coordinator for running several server instances |
+| `A2A.Server.TypedSkills` | Typed skills: .NET input and output types, JSON Schema on the card, bad input refused before the agent runs (`AddTypedSkills`; experimental) |
+| `A2A.Server.Storage.S3` | `AddA2AS3ArtifactStore`: keeps large artifact bytes in Amazon S3 or an S3-compatible service (such as MinIO); downloads use presigned URLs |
+| `A2A.Server.Storage.AzureBlob` | `AddA2AAzureBlobArtifactStore`: keeps large artifact bytes in Azure Blob Storage as block blobs; downloads use SAS URLs when the client holds the account key, otherwise the server proxies them |
+| `A2A.TestKit` | Test tools: an in-process agent host, a scripted fake peer agent, assertions for task states and event order, a fake clock and a push receiver. Works with any test framework ([guide](docs/site/guides/testing.md)) |
 
 ## Documentation
 
-Guides and API reference are built from [docs/site](docs/site/README.md) with DocFX. CI uploads the built site as the `docs-site` artifact on every run. The guides pull their C# samples from compiled snippets, so read them on the built site to see the code.
+Guides and API reference are published at [roman-ambinder.github.io/a2a](https://roman-ambinder.github.io/a2a/). They are built with DocFX from [docs/site](docs/site/README.md) and published from `main` on every green CI run. The guides pull their C# samples from compiled snippets, so read them on the published site to see the code.
 
-Start with [Getting started](docs/site/guides/getting-started.md). Then: [bindings](docs/site/guides/bindings.md), [authentication and ownership](docs/site/guides/auth-and-ownership.md), [streaming](docs/site/guides/streaming.md), [push notifications](docs/site/guides/push-notifications.md), [proactive continuation](docs/site/guides/proactive-continuation.md), [Agent Card signing](docs/site/guides/agent-card-signing.md), [multi-tenancy](docs/site/guides/multi-tenancy.md), [durable stores](docs/site/guides/durable-stores.md), [retention](docs/site/guides/retention.md), [artifact storage](docs/site/guides/artifact-storage.md), [observability](docs/site/guides/observability.md), [limits](docs/site/guides/limits-and-rate-limiting.md), [task safety](docs/site/guides/task-safety.md), [interop](docs/site/guides/interop-and-conformance.md), [spec decisions](docs/site/guides/spec-decisions.md).
+Start with [Getting started](docs/site/guides/getting-started.md). Then: [bindings](docs/site/guides/bindings.md), [authentication and ownership](docs/site/guides/auth-and-ownership.md), [streaming](docs/site/guides/streaming.md), [push notifications](docs/site/guides/push-notifications.md), [proactive continuation](docs/site/guides/proactive-continuation.md), [Agent Card signing](docs/site/guides/agent-card-signing.md), [multi-tenancy](docs/site/guides/multi-tenancy.md), [durable stores](docs/site/guides/durable-stores.md), [retention](docs/site/guides/retention.md), [artifact storage](docs/site/guides/artifact-storage.md), [observability](docs/site/guides/observability.md), [limits](docs/site/guides/limits-and-rate-limiting.md), [task safety](docs/site/guides/task-safety.md), [interop](docs/site/guides/interop-and-conformance.md), [testing](docs/site/guides/testing.md), [spec decisions](docs/site/guides/spec-decisions.md), [client outbox](docs/site/guides/client-outbox.md).
 
 ## Server in 20 lines
 
@@ -87,7 +92,7 @@ await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("str
     if (evt is StatusUpdateEvent { StatusUpdate: var s }) Console.WriteLine(s.Status.State);
 ```
 
-Every client method takes optional `A2ARequestOptions` (headers, timeout, idempotency key, extensions, `ConfigureRequest`). `SendMessage` always sends an `Idempotency-Key` (default: the message id). Unary calls retry up to `MaxRetries` times (default 2, so 3 attempts; set it on `A2AClientOptions` or per call, 0 disables) on 503, 429, errors marked retryable, and transport errors. For `SendMessage` a transport error is retried only when the request never reached the server (connect, DNS, proxy tunnel or TLS failure), so a server without `Idempotency-Key` support cannot create the task twice. Creating or deleting a push config and streams are not retried.
+Every client method takes optional `A2ARequestOptions` (headers, timeout, idempotency key, extensions, `ConfigureRequest`). `SendMessage` always sends an `Idempotency-Key` (default: the message id). Unary calls retry up to `MaxRetries` times (default 2, so 3 attempts; set it on `A2AClientOptions` or per call, 0 disables) on 503, 429, errors marked retryable, and transport errors. For `SendMessage` a transport error is retried only when the request never reached the server (connect, DNS, proxy tunnel or TLS failure), so a server without `Idempotency-Key` support cannot create the task twice. Creating or deleting a push config and streams are not retried. To stop calls to a peer that keeps failing, set `A2AClientOptions.CircuitBreaker` (off by default); see the [client resilience guide](docs/site/guides/client-resilience.md).
 
 DI (package `A2A.Client.DependencyInjection`, which adds DI, Options and `IHttpClientFactory`): `services.AddA2AClient("weather", o => o.AgentUrl = ...).AddBearerToken(...)`, then `IA2AClientFactory.GetClientAsync("weather")`. The clients are cached per name; the returned `IHttpClientBuilder` takes auth handlers and resilience. See [samples/EchoClient](samples/EchoClient/Program.cs).
 
@@ -373,7 +378,11 @@ dotnet build A2A.slnx
 dotnet test tests/A2A.Tests
 dotnet test tests/A2A.Stores.Tests   # store contract tests; the Postgres/Redis ones need Docker and skip without it
 A2A_REQUIRE_DOCKER=1 dotnet test tests/A2A.Stores.Tests   # fail instead of skipping (CI does this)
+dotnet test tests/A2A.TestKit.Tests
+dotnet test samples/TestingAgent   # tests of a sample agent, written with A2A.TestKit
 ```
+
+To test your own agent, see [Testing your agent](docs/site/guides/testing.md).
 
 Run the samples:
 
@@ -395,3 +404,7 @@ git push origin v0.1.0
 ```
 
 One-time setup: add a nuget.org API key as the repository secret `NUGET_API_KEY`, scoped to push `RomanAmbinder.A2A.*`.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to build, test and send a pull request. To report a vulnerability, follow [SECURITY.md](SECURITY.md).

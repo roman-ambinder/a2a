@@ -6,7 +6,7 @@ namespace A2A.Server.Push;
 /// Process-local <see cref="PushOutbox"/>. For development and tests; pending deliveries are lost on restart.
 /// <see cref="InMemoryTaskStore"/> writes its entries, so give that store this outbox.
 /// </summary>
-public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
+public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox, IPushOutboxStatistics
 {
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly object _gate = new();
@@ -14,7 +14,7 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
     private readonly Dictionary<(TaskKey Task, string ConfigId, long Sequence), OutboxEntry> _dead = new();
 
     /// <summary>Entries not yet delivered or dead-lettered, leased ones included.</summary>
-    internal int Count
+    public int Count
     {
         get { lock (_gate) return _pending.Values.Sum(g => g.Count); }
     }
@@ -146,6 +146,22 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
             foreach (var key in _dead.Keys.Where(k => k.Task == task).ToList()) _dead.Remove(key);
         }
         return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public ValueTask<PushOutboxStatistics> GetStatisticsAsync(int maxDeadLetters, CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            var age = TimeSpan.Zero;
+            if (_pending.Count > 0)
+            {
+                var oldest = _pending.Values.Min(g => g.Values.Min(e => e.DueAt));
+                var waited = _time.GetUtcNow() - oldest;
+                if (waited > TimeSpan.Zero) age = waited;
+            }
+            return ValueTask.FromResult(new PushOutboxStatistics(age, Math.Min(_dead.Count, Math.Max(0, maxDeadLetters))));
+        }
     }
 
     private SortedDictionary<long, Entry>? Group(PushDelivery d, bool create)

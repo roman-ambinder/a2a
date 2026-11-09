@@ -12,14 +12,22 @@
   href: push-notifications.md
 - name: Proactive continuation
   href: proactive-continuation.md
+- name: Client outbox
+  href: client-outbox.md
 - name: Agent card signing
   href: agent-card-signing.md
 - name: Peer identity and registry
   href: peer-identity.md
 - name: Skill selection
   href: skill-selection.md
+- name: Typed skills
+  href: typed-skills.md
+- name: Skill authorization
+  href: skill-authorization.md
 - name: Microsoft.Extensions.AI
   href: extensions-ai.md
+- name: Conversation memory
+  href: conversation-memory.md
 - name: v0.3 compatibility
   href: v03-compatibility.md
 - name: Multi-tenancy
@@ -32,12 +40,16 @@
   href: observability.md
 - name: Limits and rate limiting
   href: limits-and-rate-limiting.md
+- name: Client resilience
+  href: client-resilience.md
 - name: Artifact storage
   href: artifact-storage.md
 - name: Task safety
   href: task-safety.md
 - name: Interop and conformance
   href: interop-and-conformance.md
+- name: Testing your agent
+  href: testing.md
 - name: Spec decisions
   href: spec-decisions.md
 - name: Command line tool

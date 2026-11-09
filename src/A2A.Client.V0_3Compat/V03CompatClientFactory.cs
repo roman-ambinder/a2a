@@ -28,6 +28,7 @@ public static class V03CompatClientFactory
         resolverCopy.CardNormalizer = V03CardCodec.NormalizeForResolver;
         var resolver = new A2ACardResolver(httpClient, resolverCopy);
         var card = await resolver.GetAgentCardAsync(agentUrl, cancellationToken).ConfigureAwait(false);
+        await EnsureEndpointsAllowedAsync(card, agentUrl, options ?? new A2AClientOptions(), cancellationToken).ConfigureAwait(false);
         return Create(card, httpClient, options);
     }
 
@@ -51,11 +52,26 @@ public static class V03CompatClientFactory
                 $"No supported interface in Agent Card '{card.Name}'. The client supports v1.x and v0.3 over {string.Join(", ", options.SupportedBindings.Where(b => b is ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson))}.");
 
         var v03Options = V03ClientSupport.CopyForV03(options, selected.Tenant);
+        EnsureAllowedNoDns(card, v03Options);
         var uri = new Uri(selected.Url, UriKind.Absolute);
         IA2AClient transport = selected.ProtocolBinding == ProtocolBindings.JsonRpc
             ? new V03JsonRpcTransport(httpClient, uri, v03Options)
             : new V03HttpJsonTransport(httpClient, uri, v03Options);
         return new A2AClient(transport, v03Options, card);
+    }
+
+    /// <summary>The endpoint check for a card that may be v1.x or v0.3: every interface the client could select under either version, with the card source.</summary>
+    private static ValueTask EnsureEndpointsAllowedAsync(AgentCard card, Uri cardSource, A2AClientOptions options, CancellationToken ct) =>
+        A2AClientFactory.EnsureAllowedAsync(Candidates(card, options), cardSource, options, allowDns: true, ct);
+
+    private static void EnsureAllowedNoDns(AgentCard card, A2AClientOptions options) =>
+        A2AClientFactory.EnsureAllowedAsync(Candidates(card, options), null, options, allowDns: false, CancellationToken.None).AsTask().GetAwaiter().GetResult();
+
+    private static List<AgentInterface> Candidates(AgentCard card, A2AClientOptions options)
+    {
+        var v1 = A2AClientFactory.SelectableInterfaces(card, options).ToHashSet();
+        return (card.SupportedInterfaces ?? []).Where(i => v1.Contains(i)
+            || (V03Compat.IsV03Version(i.ProtocolVersion) && options.SupportedBindings.Contains(i.ProtocolBinding))).ToList();
     }
 
     private static AgentInterface? SelectV03Interface(AgentCard card, A2AClientOptions options)

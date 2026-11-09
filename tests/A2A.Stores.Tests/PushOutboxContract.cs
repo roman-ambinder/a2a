@@ -427,6 +427,90 @@ public abstract class PushOutboxContract
         Assert.Equal(TimeSpan.Zero, Entry(again, enqueued).Age);
     }
 
+    private static IPushOutboxStatistics Stats(PushOutbox outbox) => Assert.IsAssignableFrom<IPushOutboxStatistics>(outbox);
+
+    /// <summary>Dead-letters every entry that is due now.</summary>
+    private static async Task DeadLetterAllDueAsync(PushOutbox outbox)
+    {
+        foreach (var leased in await outbox.LeaseDueAsync(100, Lease)) Assert.True(await outbox.DeadLetterAsync(leased, "HTTP 404"));
+    }
+
+    [SkippableFact]
+    public async Task Statistics_of_an_empty_outbox_are_zero()
+    {
+        var (_, outbox) = await CreateAsync(_time);
+
+        var stats = await Stats(outbox).GetStatisticsAsync(10);
+
+        Assert.Equal(TimeSpan.Zero, stats.OldestDueAge);
+        Assert.Equal(0, stats.DeadLetterCount);
+    }
+
+    [SkippableFact]
+    public async Task Statistics_age_is_how_long_the_oldest_due_entry_waited_and_leased_entries_count()
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        await CommitAsync(tasks, Alice, "c1");
+        Assert.Equal(TimeSpan.Zero, (await Stats(outbox).GetStatisticsAsync(10)).OldestDueAge);
+
+        _time.Advance(TimeSpan.FromMinutes(3));
+        await CommitAsync(tasks, new TaskKey("t", "bob", "task2"), "c1");
+        Assert.Equal(TimeSpan.FromMinutes(3), (await Stats(outbox).GetStatisticsAsync(10)).OldestDueAge);
+
+        // A leased entry is still waiting.
+        Assert.Equal(2, (await outbox.LeaseDueAsync(10, Lease)).Count);
+        _time.Advance(TimeSpan.FromMinutes(2));
+        Assert.Equal(TimeSpan.FromMinutes(5), (await Stats(outbox).GetStatisticsAsync(10)).OldestDueAge);
+    }
+
+    [SkippableFact]
+    public async Task Statistics_age_ignores_a_retry_backoff_but_counts_the_entries_queued_behind_it()
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        await CommitAsync(tasks, Alice, "c1");
+        await CommitAsync(tasks, Alice, "c1");
+        _time.Advance(TimeSpan.FromMinutes(10));
+        var first = Assert.Single(await outbox.LeaseDueAsync(10, Lease)); // only the lowest sequence is leased
+        Assert.True(await outbox.RescheduleAsync(first, 1, _time.GetUtcNow() + TimeSpan.FromHours(1), "HTTP 500"));
+
+        // The first entry is backing off, not due. The second was queued 10 minutes ago.
+        Assert.Equal(TimeSpan.FromMinutes(10), (await Stats(outbox).GetStatisticsAsync(10)).OldestDueAge);
+
+        var (tasks2, outbox2) = await CreateAsync(_time);
+        await CommitAsync(tasks2, new TaskKey("t", "bob", "task9"), "c1");
+        var only = Assert.Single(await outbox2.LeaseDueAsync(10, Lease));
+        Assert.True(await outbox2.RescheduleAsync(only, 1, _time.GetUtcNow() + TimeSpan.FromHours(1), "HTTP 500"));
+        Assert.Equal(TimeSpan.Zero, (await Stats(outbox2).GetStatisticsAsync(10)).OldestDueAge);
+    }
+
+    [SkippableFact]
+    public async Task Statistics_count_dead_letters_of_every_tenant_and_stop_at_the_limit()
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        await CommitAsync(tasks, Alice, "c1");
+        await CommitAsync(tasks, new TaskKey("other", "bob", "task2"), "c1");
+        await CommitAsync(tasks, new TaskKey("third", "carol", "task3"), "c1");
+        await DeadLetterAllDueAsync(outbox);
+
+        Assert.Equal(3, (await Stats(outbox).GetStatisticsAsync(10)).DeadLetterCount);
+        Assert.Equal(3, (await Stats(outbox).GetStatisticsAsync(3)).DeadLetterCount);
+        Assert.Equal(2, (await Stats(outbox).GetStatisticsAsync(2)).DeadLetterCount);
+        Assert.Equal(TimeSpan.Zero, (await Stats(outbox).GetStatisticsAsync(2)).OldestDueAge); // dead letters are not due
+    }
+
+    [SkippableTheory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(int.MinValue)]
+    public async Task Statistics_with_a_limit_of_zero_or_less_count_no_dead_letters(int max)
+    {
+        var (tasks, outbox) = await CreateAsync(_time);
+        await CommitAsync(tasks, Alice, "c1");
+        await DeadLetterAllDueAsync(outbox);
+
+        Assert.Equal(0, (await Stats(outbox).GetStatisticsAsync(max)).DeadLetterCount);
+    }
+
     private static string Id(PushDelivery d) => $"{d.Task.Tenant}/{d.Task.Owner}/{d.Task.TaskId}/{d.ConfigId}/{d.Sequence:D5}";
 }
 

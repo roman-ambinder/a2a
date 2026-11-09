@@ -11,6 +11,8 @@ namespace A2A.Server.Authorization;
 /// denial never confirms that a task exists. A denied <c>SendMessage</c> without a task id, <c>ListTasks</c>,
 /// <c>GetExtendedAgentCard</c> or extension operation is reported as <c>PermissionDenied</c> (HTTP 403).
 /// Open streams are authorized again every <see cref="A2ALimits.StreamReauthInterval"/>, with the same operation and request.
+/// With <see cref="A2AServerOptions.SkillAuthorization"/> turned on, <see cref="AuthorizeSkillAsync"/> also decides which skill
+/// a caller may start. It is a separate question from <see cref="AuthorizeAsync"/>, and it denies by default.
 /// </remarks>
 public abstract class A2AAuthorizationHandler
 {
@@ -28,6 +30,22 @@ public abstract class A2AAuthorizationHandler
     /// <param name="cancellationToken">Cancellation.</param>
     public virtual ValueTask<bool> AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, CancellationToken cancellationToken) =>
         ValueTask.FromResult(operation.Kind != A2AOperation.Extension);
+
+    /// <summary>
+    /// Decides whether <paramref name="call"/> may use the skill <paramref name="skillId"/>. Called when
+    /// <see cref="A2AServerOptions.SkillAuthorization"/> is on (for a message that names a skill, and for
+    /// <see cref="AgentRequestContext.IsSkillAllowedAsync"/>), and when <see cref="SkillAuthorizationOptions.FilterExtendedCard"/> is set.
+    /// The default returns false: a host that turns the feature on without overriding this denies every skill, which is loud and
+    /// safe. An allow-by-default would look enforced and do nothing.
+    /// </summary>
+    /// <param name="call">The caller, with its tenant.</param>
+    /// <param name="skillId">
+    /// The skill id. It always names a skill that is on the agent's card, never text the caller invented: an id that is not on the
+    /// card is refused before this method runs.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    public virtual ValueTask<bool> AuthorizeSkillAsync(ServerCallContext call, string skillId, CancellationToken cancellationToken) =>
+        ValueTask.FromResult(false);
 }
 
 /// <summary>

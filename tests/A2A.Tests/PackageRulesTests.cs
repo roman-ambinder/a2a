@@ -61,6 +61,15 @@ public sealed class PackageRulesTests
         AssertOnlyAbstractions("A2A.Server", r => r.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal)
             && (r.EndsWith(".Abstractions", StringComparison.Ordinal) || r == "Microsoft.Extensions.Options"));
 
+    [Fact]
+    public void TestKit_references_no_test_framework()
+    {
+        var offenders = RefsOf("A2A.TestKit").Where(r =>
+            r.StartsWith("xunit", StringComparison.OrdinalIgnoreCase) || r.StartsWith("NUnit", StringComparison.OrdinalIgnoreCase)
+            || r.StartsWith("MSTest", StringComparison.OrdinalIgnoreCase) || r.StartsWith("Microsoft.NET.Test.Sdk", StringComparison.OrdinalIgnoreCase)).ToArray();
+        Assert.Empty(offenders);
+    }
+
     private static bool IsExtensionsAbstraction(string r) =>
         r.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal) && r.EndsWith(".Abstractions", StringComparison.Ordinal);
 
@@ -69,8 +78,24 @@ public sealed class PackageRulesTests
         AssertOnlyAbstractions("A2A.Server.Postgres", r => r == "Npgsql" || IsExtensionsAbstraction(r));
 
     [Fact]
+    public void Client_Postgres_references_only_npgsql() =>
+        AssertOnlyAbstractions("A2A.Client.Postgres", r => r == "Npgsql");
+
+    [Fact]
+    public void Client_Postgres_does_not_reference_the_server()
+    {
+        var doc = SrcProjects().Single(p => p.Name == "A2A.Client.Postgres").Doc;
+        var projects = doc.Descendants("ProjectReference").Select(e => (string?)e.Attribute("Include") ?? "").ToArray();
+        Assert.All(projects, p => Assert.DoesNotContain("A2A.Server", p, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Redis_references_only_stackexchange_redis_and_extensions_abstractions() =>
         AssertOnlyAbstractions("A2A.Server.Redis", r => r == "StackExchange.Redis" || IsExtensionsAbstraction(r));
+
+    [Fact]
+    public void TypedSkills_references_only_system_text_json_and_extensions_abstractions() =>
+        AssertOnlyAbstractions("A2A.Server.TypedSkills", r => r == "System.Text.Json" || IsExtensionsAbstraction(r));
 
     [Fact]
     public void No_InternalsVisibleTo_targets_a_src_assembly()
