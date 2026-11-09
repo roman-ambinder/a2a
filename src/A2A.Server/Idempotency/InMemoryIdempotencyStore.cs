@@ -20,7 +20,6 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
     private static readonly Counter<long> Evictions = Meter.CreateCounter<long>(EvictionsCounterName,
         description: "Idempotency entries dropped before their retention ended because the store was full.");
 
-    private static readonly IdempotencyResult New = new IdempotencyResult.New();
     private static readonly IdempotencyResult Mismatch = new IdempotencyResult.Mismatch();
 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
@@ -44,7 +43,7 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
                     _lru.AddFirst(entry.Node);
                     EvictOverCapacity();
                 }
-                return ValueTask.FromResult(New);
+                return ValueTask.FromResult<IdempotencyResult>(new IdempotencyResult.New(entry.ClaimId));
             }
 
             if (entry.IsExpired(_time.GetUtcNow()))
@@ -70,10 +69,10 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
     }
 
     /// <inheritdoc />
-    public override ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken cancellationToken = default)
+    public override ValueTask CompleteAsync(IdempotencyScope scope, Guid claimId, IdempotencyOutcome outcome, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(outcome);
-        if (_entries.TryGetValue(scope, out var entry))
+        if (_entries.TryGetValue(scope, out var entry) && entry.ClaimId == claimId)
         {
             var now = _time.GetUtcNow();
             entry.Complete(outcome, options.Retention >= DateTimeOffset.MaxValue - now ? DateTimeOffset.MaxValue : now + options.Retention);
@@ -82,9 +81,9 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
     }
 
     /// <inheritdoc />
-    public override ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken cancellationToken = default)
+    public override ValueTask AbandonAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken = default)
     {
-        if (_entries.TryGetValue(scope, out var entry) && !entry.Completion.Task.IsCompleted)
+        if (_entries.TryGetValue(scope, out var entry) && entry.ClaimId == claimId && !entry.Completion.Task.IsCompleted)
         {
             Remove(entry);
             entry.Completion.TrySetCanceled(CancellationToken.None);
@@ -93,7 +92,7 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
     }
 
     /// <summary>A running entry never expires in this store, so there is nothing to extend.</summary>
-    public override ValueTask RenewAsync(IdempotencyScope scope, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    public override ValueTask RenewAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
     /// <summary>Entries held, running or finished. For tests.</summary>
     internal int Count
@@ -141,6 +140,7 @@ public sealed class InMemoryIdempotencyStore(IdempotencyOptions options, TimePro
         }
 
         public IdempotencyScope Scope { get; }
+        public Guid ClaimId { get; } = Guid.NewGuid();
         public byte[] Hash { get; }
         public LinkedListNode<Entry> Node { get; }
         public TaskCompletionSource<IdempotencyOutcome> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -1,4 +1,5 @@
 using A2A.Json;
+using A2A.Server.Idempotency;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
 using Npgsql;
@@ -24,6 +25,7 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore
     private readonly string _contexts;
     private readonly EventTables _eventTables;
     private readonly string _outbox;
+    private readonly string _idempotency;
     private readonly string _insertSql;
     private readonly string _updateSql;
 
@@ -43,6 +45,7 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore
         _contexts = $"{s}.a2a_contexts";
         _eventTables = EventTables.For(options);
         _outbox = PostgresPushOutbox.OutboxTable(options);
+        _idempotency = $"{s}.a2a_idempotency";
         _insertSql =
             $"""
             INSERT INTO {_tasks} (tenant, task_id, owner, context_id, state, status_ticks, version, created_ticks, updated_ticks, task)
@@ -148,8 +151,29 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore
             foreach (var d in commit.Deliveries) batch.BatchCommands.Add(PostgresPushOutbox.InsertCommand(_outbox, d, seq, payload, now));
             await batch.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
+        if (commit.Idempotency is { } idem) await WriteIdempotencyOutcomeAsync(conn, tx, idem, cancellationToken).ConfigureAwait(false);
         await tx.CommitAsync(CancellationToken.None).ConfigureAwait(false);
         return new CommitResult(stored, seq);
+    }
+
+    /// <summary>
+    /// Writes the idempotency outcome in the commit's transaction, like <see cref="PostgresIdempotencyStore.CompleteAsync"/>: only
+    /// for the claim that still owns a running entry. No matching row is fine (the idempotency store may be elsewhere, or the
+    /// claim was taken over): the commit stays.
+    /// </summary>
+    private async ValueTask WriteIdempotencyOutcomeAsync(NpgsqlConnection conn, NpgsqlTransaction tx, IdempotencyCommit idem, CancellationToken cancellationToken)
+    {
+        await using var cmd = new NpgsqlCommand(
+            $"UPDATE {_idempotency} SET outcome = $4, expires_ticks = {DbClock.Now(5)} + $6 WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $7 AND outcome IS NULL",
+            conn, tx);
+        cmd.Parameters.Add(TextParam(idem.Scope.Tenant));
+        cmd.Parameters.Add(TextParam(idem.Scope.Principal));
+        cmd.Parameters.Add(TextParam(idem.Scope.Key));
+        cmd.Parameters.Add(TextParam(OutcomeJson.Write(idem.Outcome)));
+        cmd.Parameters.Add(_clock.NowParam());
+        cmd.Parameters.Add(Span(idem.Retention));
+        cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = idem.ClaimId });
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

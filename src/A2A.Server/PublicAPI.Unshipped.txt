@@ -191,3 +191,30 @@ virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeSkillAsync(A2A
 A2A.Server.Push.InMemoryPushOutbox.Count.get -> int
 A2A.Server.Coordination.CoordinationOptions.StreamCheckInterval.get -> System.TimeSpan
 A2A.Server.Coordination.CoordinationOptions.StreamCheckInterval.set -> void
+*REMOVED*abstract A2A.Server.Idempotency.IdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Idempotency.IdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+*REMOVED*abstract A2A.Server.Idempotency.IdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Idempotency.IdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+*REMOVED*abstract A2A.Server.Idempotency.IdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+abstract A2A.Server.Idempotency.IdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+*REMOVED*override A2A.Server.Idempotency.InMemoryIdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Idempotency.InMemoryIdempotencyStore.AbandonAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+*REMOVED*override A2A.Server.Idempotency.InMemoryIdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Idempotency.InMemoryIdempotencyStore.CompleteAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, A2A.Server.Idempotency.IdempotencyOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+*REMOVED*override A2A.Server.Idempotency.InMemoryIdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+override A2A.Server.Idempotency.InMemoryIdempotencyStore.RenewAsync(A2A.Server.Idempotency.IdempotencyScope scope, System.Guid claimId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+A2A.Server.Idempotency.IdempotencyResult.New.ClaimId.get -> System.Guid
+A2A.Server.Idempotency.IdempotencyResult.New.ClaimId.init -> void
+A2A.Server.Idempotency.IdempotencyResult.New.New(System.Guid ClaimId) -> void
+A2A.Server.Idempotency.IdempotencyCommit
+A2A.Server.Idempotency.IdempotencyCommit.ClaimId.get -> System.Guid
+A2A.Server.Idempotency.IdempotencyCommit.ClaimId.init -> void
+A2A.Server.Idempotency.IdempotencyCommit.IdempotencyCommit(A2A.Server.Idempotency.IdempotencyScope Scope, System.Guid ClaimId, A2A.Server.Idempotency.IdempotencyOutcome! Outcome, System.TimeSpan Retention) -> void
+A2A.Server.Idempotency.IdempotencyCommit.Outcome.get -> A2A.Server.Idempotency.IdempotencyOutcome!
+A2A.Server.Idempotency.IdempotencyCommit.Outcome.init -> void
+A2A.Server.Idempotency.IdempotencyCommit.Retention.get -> System.TimeSpan
+A2A.Server.Idempotency.IdempotencyCommit.Retention.init -> void
+A2A.Server.Idempotency.IdempotencyCommit.Scope.get -> A2A.Server.Idempotency.IdempotencyScope
+A2A.Server.Idempotency.IdempotencyCommit.Scope.init -> void
+A2A.Server.Storage.TaskCommit.Idempotency.get -> A2A.Server.Idempotency.IdempotencyCommit?
+A2A.Server.Storage.TaskCommit.Idempotency.init -> void

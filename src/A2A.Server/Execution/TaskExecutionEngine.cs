@@ -621,7 +621,11 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         CommitResult committed;
                         try
                         {
-                            committed = await _tasks.CommitAsync(new TaskCommit(initial, 0, snapshot, deliveries)).ConfigureAwait(false);
+                            committed = await _tasks.CommitAsync(new TaskCommit(initial, 0, snapshot, deliveries)
+                            {
+                                // A store that shares a transaction with the idempotency store writes the outcome with the task.
+                                Idempotency = claim.ForCommit(new IdempotencyOutcome.TaskCreated(taskId)),
+                            }).ConfigureAwait(false);
                         }
                         catch when (push is not null)
                         {
@@ -635,6 +639,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         exec.TaskStored = true;
                         Publish(exec, key, snapshot with { Sequence = committed.Sequence });
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
+                        // Needed for stores that cannot write the outcome in the commit; where they can, this changes nothing.
                         await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
                     }
                     else

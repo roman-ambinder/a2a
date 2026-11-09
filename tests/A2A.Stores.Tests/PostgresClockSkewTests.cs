@@ -121,9 +121,9 @@ public sealed class PostgresClockSkewTests(PostgresFixture db)
         var a = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema);
         var b = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, Ahead);
 
-        Assert.IsType<IdempotencyResult.New>(await a.TryBeginAsync(Scope, Hash));
+        var claim = Assert.IsType<IdempotencyResult.New>(await a.TryBeginAsync(Scope, Hash)).ClaimId;
         Assert.IsType<IdempotencyResult.InProgress>(await b.TryBeginAsync(Scope, Hash));
-        await a.AbandonAsync(Scope);
+        await a.AbandonAsync(Scope, claim);
     }
 
     [SkippableFact]
@@ -134,8 +134,8 @@ public sealed class PostgresClockSkewTests(PostgresFixture db)
         var behind = new PostgresIdempotencyStore(db.DataSource, options, schema, Behind);
         var other = new PostgresIdempotencyStore(db.DataSource, options, schema);
 
-        Assert.IsType<IdempotencyResult.New>(await behind.TryBeginAsync(Scope, Hash));
-        await behind.CompleteAsync(Scope, new IdempotencyOutcome.TaskCreated("task-1"));
+        var claim = Assert.IsType<IdempotencyResult.New>(await behind.TryBeginAsync(Scope, Hash)).ClaimId;
+        await behind.CompleteAsync(Scope, claim, new IdempotencyOutcome.TaskCreated("task-1"));
         Assert.IsType<IdempotencyResult.Completed>(await other.TryBeginAsync(Scope, Hash));
     }
 

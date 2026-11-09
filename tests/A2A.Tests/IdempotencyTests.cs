@@ -424,8 +424,8 @@ public class IdempotencyTests
 
         foreach (var scope in new[] { ScopeA, ScopeB })
         {
-            Assert.IsType<IdempotencyResult.New>(await store.TryBeginAsync(scope, HashX));
-            await store.CompleteAsync(scope, new IdempotencyOutcome.TaskCreated(scope.Key));
+            var claim = Assert.IsType<IdempotencyResult.New>(await store.TryBeginAsync(scope, HashX)).ClaimId;
+            await store.CompleteAsync(scope, claim, new IdempotencyOutcome.TaskCreated(scope.Key));
         }
         Assert.IsType<IdempotencyResult.Completed>(await store.TryBeginAsync(ScopeA, HashX)); // A is now the most recent
         Assert.IsType<IdempotencyResult.New>(await store.TryBeginAsync(ScopeC, HashX));       // over capacity: B goes
@@ -450,11 +450,11 @@ public class IdempotencyTests
     public async Task Abandoned_entry_releases_waiters_and_can_be_claimed_again()
     {
         var store = new InMemoryIdempotencyStore(new IdempotencyOptions());
-        Assert.IsType<IdempotencyResult.New>(await store.TryBeginAsync(ScopeA, HashX));
+        var claim = Assert.IsType<IdempotencyResult.New>(await store.TryBeginAsync(ScopeA, HashX)).ClaimId;
         var waiting = Assert.IsType<IdempotencyResult.InProgress>(await store.TryBeginAsync(ScopeA, HashX));
         Assert.IsType<IdempotencyResult.Mismatch>(await store.TryBeginAsync(ScopeA, [9]));
 
-        await store.AbandonAsync(ScopeA);
+        await store.AbandonAsync(ScopeA, claim);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting.Completion.WaitAsync(Timeout));
         Assert.IsType<IdempotencyResult.New>(await store.TryBeginAsync(ScopeA, [9]));

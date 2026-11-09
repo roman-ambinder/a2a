@@ -921,17 +921,17 @@ public sealed class ExecutionLimitsTests
         public override ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash, CancellationToken cancellationToken = default) =>
             _inner.TryBeginAsync(scope, requestHash, cancellationToken);
 
-        public override ValueTask CompleteAsync(IdempotencyScope scope, IdempotencyOutcome outcome, CancellationToken cancellationToken = default) =>
-            _inner.CompleteAsync(scope, outcome, cancellationToken);
+        public override ValueTask CompleteAsync(IdempotencyScope scope, Guid claimId, IdempotencyOutcome outcome, CancellationToken cancellationToken = default) =>
+            _inner.CompleteAsync(scope, claimId, outcome, cancellationToken);
 
-        public override ValueTask AbandonAsync(IdempotencyScope scope, CancellationToken cancellationToken = default) =>
-            _inner.AbandonAsync(scope, cancellationToken);
+        public override ValueTask AbandonAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken = default) =>
+            _inner.AbandonAsync(scope, claimId, cancellationToken);
 
-        public override ValueTask RenewAsync(IdempotencyScope scope, CancellationToken cancellationToken = default)
+        public override ValueTask RenewAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _renews);
             Renewed.TrySetResult();
-            return _inner.RenewAsync(scope, cancellationToken);
+            return _inner.RenewAsync(scope, claimId, cancellationToken);
         }
     }
 }

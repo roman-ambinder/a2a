@@ -41,8 +41,8 @@ public sealed class IdempotencyCoordinator(IdempotencyStore store, TaskStore tas
         {
             switch (await store.TryBeginAsync(scope, hash, cancellationToken).ConfigureAwait(false))
             {
-                case IdempotencyResult.New:
-                    return (new IdempotencyClaim(store, scope), null);
+                case IdempotencyResult.New created:
+                    return (new IdempotencyClaim(store, scope, created.ClaimId, options.Idempotency.Retention), null);
                 case IdempotencyResult.Completed done:
                     return (IdempotencyClaim.None, done.Outcome);
                 case IdempotencyResult.InProgress running:
