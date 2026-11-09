@@ -25,33 +25,37 @@ public sealed class PartConverter : JsonConverter<Part>
         byte[]? raw = null;
         JsonElement? data = null;
         Dictionary<string, JsonElement>? metadata = null;
-        var found = new List<string>(2);
+        string? first = null; // the first content member found
+        List<string>? more = null; // content members after the first: only for the error message
 
         while (reader.Read())
         {
             if (reader.TokenType == JsonTokenType.EndObject) break;
-            var name = reader.GetString()!;
+            // Matched on the reader's bytes: no string per property name.
+            var name = reader.ValueTextEquals("text"u8) ? "text"
+                : reader.ValueTextEquals("raw"u8) ? "raw"
+                : reader.ValueTextEquals("url"u8) ? "url"
+                : reader.ValueTextEquals("data"u8) ? "data"
+                : reader.ValueTextEquals("metadata"u8) ? "metadata"
+                : reader.ValueTextEquals("filename"u8) ? "filename"
+                : reader.ValueTextEquals("mediaType"u8) ? "mediaType"
+                : null;
             reader.Read();
-            var isNull = reader.TokenType == JsonTokenType.Null;
+            if (reader.TokenType == JsonTokenType.Null && name is not null) continue; // null counts as absent
             switch (name)
             {
                 case "text":
-                    if (isNull) break;
-                    text = ReadString(ref reader, name); found.Add(name); break;
+                    text = ReadString(ref reader, name); Found(name); break;
                 case "raw":
-                    if (isNull) break;
                     var b64 = ReadString(ref reader, name);
                     try { raw = Convert.FromBase64String(b64); }
                     catch (FormatException) { throw new JsonException("Part raw must be valid base64"); }
-                    found.Add(name); break;
+                    Found(name); break;
                 case "url":
-                    if (isNull) break;
-                    url = ReadString(ref reader, name); found.Add(name); break;
+                    url = ReadString(ref reader, name); Found(name); break;
                 case "data":
-                    if (isNull) break;
-                    data = JsonElement.ParseValue(ref reader); found.Add(name); break;
+                    data = JsonElement.ParseValue(ref reader); Found(name); break;
                 case "metadata":
-                    if (isNull) break;
                     if (reader.TokenType != JsonTokenType.StartObject) throw new JsonException("Part metadata must be an object");
                     metadata = new Dictionary<string, JsonElement>();
                     while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
@@ -62,30 +66,34 @@ public sealed class PartConverter : JsonConverter<Part>
                     }
                     break;
                 case "filename":
-                    if (isNull) break;
                     filename = ReadString(ref reader, name); break;
                 case "mediaType":
-                    if (isNull) break;
                     mediaType = ReadString(ref reader, name); break;
                 default:
                     reader.Skip(); break;
             }
         }
 
-        if (found.Count == 0)
+        if (first is null)
             throw new JsonException("Part must set exactly one of text, raw, url, data; found none");
-        if (found.Count > 1)
-            throw new JsonException($"Part must set exactly one of text, raw, url, data; found: {string.Join(", ", found)}");
+        if (more is not null)
+            throw new JsonException($"Part must set exactly one of text, raw, url, data; found: {string.Join(", ", more)}");
 
-        Part part = found[0] switch
+        // Built once, with its optional fields: no second instance from a 'with' copy.
+        return first switch
         {
-            "text" => new TextPart(text!),
-            "raw" => new RawPart(raw!),
+            "text" => new TextPart(text!) { Metadata = metadata, Filename = filename, MediaType = mediaType },
+            "raw" => new RawPart(raw!) { Metadata = metadata, Filename = filename, MediaType = mediaType },
             "url" => new UrlPart(Uri.TryCreate(url, UriKind.RelativeOrAbsolute, out var uri)
-                ? uri : throw new JsonException("Part url is not a valid URI")),
-            _ => new DataPart(data!.Value),
+                ? uri : throw new JsonException("Part url is not a valid URI")) { Metadata = metadata, Filename = filename, MediaType = mediaType },
+            _ => new DataPart(data!.Value) { Metadata = metadata, Filename = filename, MediaType = mediaType },
         };
-        return part with { Metadata = metadata, Filename = filename, MediaType = mediaType };
+
+        void Found(string member)
+        {
+            if (first is null) first = member;
+            else (more ??= [first]).Add(member);
+        }
     }
 
     /// <summary>Writes a part as a wire object with exactly one content member.</summary>
@@ -94,20 +102,20 @@ public sealed class PartConverter : JsonConverter<Part>
         writer.WriteStartObject();
         switch (value)
         {
-            case TextPart t: writer.WriteString("text", t.Text); break;
-            case RawPart r: writer.WriteBase64String("raw", r.Raw.Span); break;
-            case UrlPart u: writer.WriteString("url", u.Url.OriginalString); break;
-            case DataPart d: writer.WritePropertyName("data"); d.Data.WriteTo(writer); break;
+            case TextPart t: writer.WriteString("text"u8, t.Text); break;
+            case RawPart r: writer.WriteBase64String("raw"u8, r.Raw.Span); break;
+            case UrlPart u: writer.WriteString("url"u8, u.Url.OriginalString); break;
+            case DataPart d: writer.WritePropertyName("data"u8); d.Data.WriteTo(writer); break;
             default: throw new JsonException($"Unknown Part type {value.GetType().Name}");
         }
         if (value.Metadata is { } metadata)
         {
-            writer.WriteStartObject("metadata");
+            writer.WriteStartObject("metadata"u8);
             foreach (var (k, v) in metadata) { writer.WritePropertyName(k); v.WriteTo(writer); }
             writer.WriteEndObject();
         }
-        if (value.Filename is not null) writer.WriteString("filename", value.Filename);
-        if (value.MediaType is not null) writer.WriteString("mediaType", value.MediaType);
+        if (value.Filename is not null) writer.WriteString("filename"u8, value.Filename);
+        if (value.MediaType is not null) writer.WriteString("mediaType"u8, value.MediaType);
         writer.WriteEndObject();
     }
 
