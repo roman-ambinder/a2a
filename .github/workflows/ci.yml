@@ -46,28 +46,28 @@ jobs:
         run: dotnet build A2A.slnx -c Release --no-restore
 
       - name: Test (net8.0 + net10.0)
-        run: dotnet test tests/A2A.Tests/A2A.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=results" --results-directory TestResults
+        run: dotnet test --project tests/A2A.Tests/A2A.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 
       # Run every suite even if an earlier one failed, so one run shows all results. The job still fails. No use after a failed build.
       - name: Test gRPC (net8.0 + net10.0)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet test tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=grpc-results" --results-directory TestResults
+        run: dotnet test --project tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 
       - name: Test v0.3 compat (net8.0 + net10.0)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet test tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=v03-results" --results-directory TestResults
+        run: dotnet test --project tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 
       - name: Test Extensions.AI (net8.0 + net10.0)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet test tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=ai-results" --results-directory TestResults
+        run: dotnet test --project tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
       - name: Test Mcp (net8.0 + net10.0)
-        run: dotnet test tests/A2A.Mcp.Tests/A2A.Mcp.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=mcp-results" --results-directory TestResults
+        run: dotnet test --project tests/A2A.Mcp.Tests/A2A.Mcp.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 
       - name: Test TestKit (net8.0 + net10.0)
-        run: dotnet test tests/A2A.TestKit.Tests/A2A.TestKit.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=testkit-results" --results-directory TestResults
+        run: dotnet test --project tests/A2A.TestKit.Tests/A2A.TestKit.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 
       - name: Test TestingAgent sample (net10.0)
-        run: dotnet test samples/TestingAgent/TestingAgent.csproj -c Release --no-build --logger "trx;LogFilePrefix=testing-agent-results" --results-directory TestResults
+        run: dotnet test --project samples/TestingAgent/TestingAgent.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 
       # D25: the netstandard2.0 builds of A2A.Protocol and A2A.Client against a real EchoAgent process.
       # net10.0 runs the netstandard2.0 DLLs on every OS; net48 runs them on .NET Framework (Windows only).
@@ -117,7 +117,7 @@ jobs:
             10.0.x
 
       - name: Test store contracts (in-memory, PostgreSQL, Redis, S3 on MinIO, Azure Blob on Azurite; net8.0 + net10.0)
-        run: dotnet test tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj -c Release --logger "trx;LogFilePrefix=stores" --results-directory TestResults
+        run: dotnet test --project tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj -c Release --report-xunit-trx --results-directory TestResults
 
       - name: Upload test results
         if: always()
@@ -404,7 +404,7 @@ jobs:
         run: |
           status=0
           for p in A2A.Tests A2A.Grpc.Tests A2A.V0_3Compat.Tests A2A.Extensions.AI.Tests A2A.Mcp.Tests A2A.TestKit.Tests; do
-            dotnet test "tests/$p/$p.csproj" -c Release -f net10.0 --collect "Code Coverage;Format=cobertura" --results-directory coverage || status=1
+            dotnet test --project "tests/$p/$p.csproj" -c Release -f net10.0 -p:A2ACoverage=true --coverage --coverage-output-format cobertura --results-directory coverage || status=1
           done
           exit $status
 

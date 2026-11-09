@@ -172,9 +172,9 @@ public class GrpcBindingTests : IAsyncLifetime
 {
     private GrpcHost _host = null!;
 
-    public async Task InitializeAsync() => _host = await GrpcHost.StartAsync();
+    public async ValueTask InitializeAsync() => _host = await GrpcHost.StartAsync();
 
-    public async Task DisposeAsync() => await _host.DisposeAsync();
+    public async ValueTask DisposeAsync() => await _host.DisposeAsync();
 
     [Fact]
     public async Task Direct_reply()

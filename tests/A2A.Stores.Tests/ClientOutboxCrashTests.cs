@@ -54,7 +54,7 @@ public abstract class ClientOutboxCrashContract
     }
 
     // 1. Enqueue committed, crash before send: a new dispatcher sends.
-    [SkippableFact]
+    [Fact]
     public async Task Crash_point_1_committed_entry_is_sent_by_a_new_dispatcher()
     {
         var store = await CreateAsync(Time);
@@ -70,7 +70,7 @@ public abstract class ClientOutboxCrashContract
     }
 
     // 3 (unit level). Crash after the peer took it, before the store write: the lease runs out and the resend has the same key.
-    [SkippableFact]
+    [Fact]
     public async Task Crash_point_3_resend_after_the_lease_has_the_same_key_and_is_in_doubt()
     {
         var store = await CreateAsync(Time);
@@ -93,7 +93,7 @@ public abstract class ClientOutboxCrashContract
     }
 
     // 3 (store write fails after the send): the same, with a store that throws at the write.
-    [SkippableFact]
+    [Fact]
     public async Task Crash_point_3_store_write_fails_after_the_send_and_the_entry_is_sent_again_with_the_same_key()
     {
         var store = await CreateAsync(Time);
@@ -114,7 +114,7 @@ public abstract class ClientOutboxCrashContract
     }
 
     // 3. End to end: the peer is a real in-process A2A server; one task even though the message was sent twice.
-    [SkippableFact]
+    [Fact]
     public async Task Crash_point_3_end_to_end_the_peer_has_one_task()
     {
         var store = await CreateAsync(Time);
@@ -164,7 +164,7 @@ public abstract class ClientOutboxCrashContract
     }
 
     // 4. Crash after MarkTracking: a new dispatcher polls by the stored task id and does not send again.
-    [SkippableFact]
+    [Fact]
     public async Task Crash_point_4_after_tracking_a_new_dispatcher_polls_and_does_not_send_again()
     {
         var store = await CreateAsync(Time);
@@ -185,7 +185,7 @@ public abstract class ClientOutboxCrashContract
     }
 
     // 5. Result stored, not collected, restart: harvest returns it. Crash before ack: returned again after the lease.
-    [SkippableFact]
+    [Fact]
     public async Task Crash_point_5_a_stored_result_is_harvested_after_restart_and_again_after_a_crash_before_ack()
     {
         var store = await CreateAsync(Time);
@@ -206,7 +206,7 @@ public abstract class ClientOutboxCrashContract
     }
 
     // 6. A stale lease holder writes nothing.
-    [SkippableFact]
+    [Fact]
     public async Task Crash_point_6_a_dispatcher_whose_lease_was_taken_writes_nothing()
     {
         var store = await CreateAsync(Time);
@@ -240,7 +240,7 @@ public abstract class ClientOutboxCrashContract
     }
 
     // 7. Two dispatchers on one table: each entry is sent once.
-    [SkippableFact]
+    [Fact]
     public async Task Crash_point_7_two_dispatchers_on_one_table_send_each_entry_once()
     {
         var store = await CreateAsync(Time);
@@ -261,7 +261,7 @@ public abstract class ClientOutboxCrashContract
     }
 
     // 8. RetryInDoubt = false: a crash in the middle of a send gives Failed, and no second call.
-    [SkippableFact]
+    [Fact]
     public async Task Crash_point_8_with_RetryInDoubt_off_a_crash_mid_send_fails_the_entry_and_does_not_call_again()
     {
         var store = await CreateAsync(Time);
@@ -303,7 +303,7 @@ public sealed class PostgresClientOutboxCrashTests(PostgresFixture db) : ClientO
     protected override ClientOutboxStore Restart(ClientOutboxStore store, TimeProvider time) => new PostgresClientOutboxStore(db.DataSource, _options, time);
 
     // 2. App transaction rolled back: nothing is sent.
-    [SkippableFact]
+    [Fact]
     public async Task Crash_point_2_a_rolled_back_transaction_sends_nothing_and_a_committed_one_does()
     {
         var store = (PostgresClientOutboxStore)await CreateAsync(Time);

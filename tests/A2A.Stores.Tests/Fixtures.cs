@@ -20,7 +20,7 @@ public abstract class ContainerFixture : IAsyncLifetime
 
     public static bool DockerRequired => Environment.GetEnvironmentVariable("A2A_REQUIRE_DOCKER") == "1";
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         try
         {
@@ -32,12 +32,15 @@ public abstract class ContainerFixture : IAsyncLifetime
         }
     }
 
-    public abstract Task DisposeAsync();
+    public abstract ValueTask DisposeAsync();
 
     protected abstract Task StartAsync();
 
     /// <summary>Skips the calling test when the container could not start.</summary>
-    public void SkipIfUnavailable() => Skip.If(Unavailable is not null, Unavailable);
+    public void SkipIfUnavailable()
+    {
+        if (Unavailable is not null) Assert.Skip(Unavailable);
+    }
 }
 
 public sealed class PostgresFixture : ContainerFixture
@@ -77,7 +80,7 @@ public sealed class PostgresFixture : ContainerFixture
         return options;
     }
 
-    public override async Task DisposeAsync()
+    public override async ValueTask DisposeAsync()
     {
         if (DataSource is not null) await DataSource.DisposeAsync();
         if (_container is not null) await _container.DisposeAsync();
@@ -103,7 +106,7 @@ public sealed class RedisFixture : ContainerFixture
         return await ConnectionMultiplexer.ConnectAsync(ConnectionString);
     }
 
-    public override async Task DisposeAsync()
+    public override async ValueTask DisposeAsync()
     {
         if (_container is not null) await _container.DisposeAsync();
     }
@@ -145,7 +148,7 @@ public sealed class MinioFixture : ContainerFixture
         return name;
     }
 
-    public override async Task DisposeAsync()
+    public override async ValueTask DisposeAsync()
     {
         if (_container is not null) await _container.DisposeAsync();
     }
@@ -173,7 +176,7 @@ public sealed class AzuriteFixture : ContainerFixture
         return client;
     }
 
-    public override async Task DisposeAsync()
+    public override async ValueTask DisposeAsync()
     {
         if (_container is not null) await _container.DisposeAsync();
     }
