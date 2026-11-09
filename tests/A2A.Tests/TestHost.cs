@@ -65,9 +65,16 @@ public sealed class ScenarioAgent : IAgentExecutor
                 await updater.ReplyAsync("hi there", ct);
                 break;
             case "listen": // works and takes the client's messages while it runs, until "done"
+            {
+                // The agent opts in at the first read (spec 1.1: "from the first ReadAllAsync on"), and a client that sees WORKING
+                // sends at once. So start reading BEFORE WORKING goes out: otherwise a message that arrives between the WORKING
+                // event and the first read meets a WORKING task nobody listens for, and is refused (a timing race, seen on Windows).
+                await using var reader = context.LiveInput!.ReadAllAsync(ct).GetAsyncEnumerator(ct);
+                var pending = reader.MoveNextAsync(); // runs up to the first wait: the buffer is listening from here
                 await updater.StartWorkAsync("listening", ct);
-                await foreach (var input in context.LiveInput!.ReadAllAsync(ct))
+                for (var more = await pending; more; more = await reader.MoveNextAsync())
                 {
+                    var input = reader.Current;
                     var said = input.Message?.GetText() ?? "";
                     if (said == "done")
                     {
@@ -77,6 +84,7 @@ public sealed class ScenarioAgent : IAgentExecutor
                     await updater.UpdateStatusAsync(TaskState.Working, updater.NewAgentMessage($"heard: {said} +{input.Artifacts.Count}"), cancellationToken: ct);
                 }
                 break;
+            }
             case "artifact-input": // leaves an agent artifact on a task that waits for input
                 await updater.AddArtifactAsync([Part.FromText("agent")], artifactId: "agent-out", cancellationToken: ct);
                 await updater.RequireInputAsync("need more", ct);
