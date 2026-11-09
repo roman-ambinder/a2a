@@ -20,6 +20,7 @@
     <ProjectReference Include="..\..\src\A2A.Client.DependencyInjection\A2A.Client.DependencyInjection.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server\A2A.Server.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.TypedSkills\A2A.Server.TypedSkills.csproj" />
     <!-- gRPC is the third binding of the parity suite (Parity/ParityTests.cs). -->
     <ProjectReference Include="..\..\src\A2A.Server.Grpc\A2A.Server.Grpc.csproj" />
     <ProjectReference Include="..\..\src\A2A.Client.Grpc\A2A.Client.Grpc.csproj" />
