@@ -225,11 +225,11 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
         HttpPlumbing.WriteExtensionsHeader(http, call);
         // One pass: the result is encoded straight into the envelope, into a pooled buffer, then written once. It is not
         // written to the response pipe while encoding, so an encoding failure still becomes a JSON-RPC error response.
-        var body = JsonRpcWriter.Success(id, result, A2AJson.GetTypeInfo<T>());
-        http.Response.StatusCode = 200;
-        http.Response.ContentType = A2AProtocol.JsonMediaType;
-        await http.Response.Body.WriteAsync(body, http.RequestAborted).ConfigureAwait(false);
+        await PooledResponse.WriteAsync(http, 200, A2AProtocol.JsonMediaType, (id, result),
+            static (w, s) => JsonRpcWriter.WriteSuccess(w, s.id, s.result, A2AJson.GetTypeInfo<T>())).ConfigureAwait(false);
     }
+
+    private static readonly byte[] EnvelopeEnd = "}"u8.ToArray();
 
     private async Task StreamAsync(HttpContext http, ServerCallContext call, JsonElement? id, IAsyncEnumerable<SequencedEvent> events, Task startNow)
     {
@@ -237,8 +237,9 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
                 ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "Empty stream");
         HttpPlumbing.WriteExtensionsHeader(http, call);
         HttpPlumbing.StartEventStream(http);
+        // The envelope around every event is the same: its start is built once, and each event's stored bytes go after it.
         await HttpPlumbing.PumpAsync(http, e,
-            evt => JsonRpcWriter.Success(id, EventEncoder.EnsureEncoded(evt).Json.Span),
+            evt => EventEncoder.EnsureEncoded(evt).Json, JsonRpcWriter.SuccessPrefix(id), EnvelopeEnd,
             ex => A2AJson.SerializeToUtf8Bytes(JsonRpcResponse.Failure(id, HttpPlumbing.Normalize(ex, logger, _includeDetails))),
             _keepAlive, logger).ConfigureAwait(false);
     }

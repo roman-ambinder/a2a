@@ -25,7 +25,18 @@ public sealed class TimestampConverter : JsonConverter<DateTimeOffset>
 
     /// <summary>Writes the timestamp in <see cref="Format"/>.</summary>
     public override void Write(Utf8JsonWriter writer, DateTimeOffset value, JsonSerializerOptions options)
-        => writer.WriteStringValue(FormatUtc(value));
+    {
+#if NET
+        // Formatted on the stack: no string per timestamp.
+        Span<char> text = stackalloc char[32];
+        if (value.UtcDateTime.TryFormat(text, out var written, Format, CultureInfo.InvariantCulture))
+        {
+            writer.WriteStringValue(text[..written]);
+            return;
+        }
+#endif
+        writer.WriteStringValue(FormatUtc(value));
+    }
 
     /// <summary>Formats a timestamp in <see cref="Format"/>, after converting it to UTC.</summary>
     public static string FormatUtc(DateTimeOffset value)
