@@ -29,25 +29,9 @@ internal static class SkillSelectionValidator
             if (value.ValueEquals(string.Empty)) return;
             throw Refuse("metadata.skillId must be a string");
         }
-        if (HasSkill(card, id)) return;
-
-        // The extended card is a separate operation: a host may allow SendMessage and deny GetExtendedAgentCard. A denial falls
-        // through to the same refusal, so it gives the caller no new signal.
-        if (card.Capabilities.ExtendedAgentCard == true && call.IsAuthenticated
-            && await authorization.AuthorizeAsync(call, A2AOperationDescriptor.For(A2AOperation.GetExtendedAgentCard),
-                new GetExtendedAgentCardRequest { Tenant = call.Tenant }, ct).ConfigureAwait(false)
-            && await cards.GetExtendedAsync(call, card, ct).ConfigureAwait(false) is { } extended
-            && HasSkill(extended, id)) return;
+        if (await KnownSkills.IsKnownAsync(card, id, call, cards, authorization, ct).ConfigureAwait(false)) return;
 
         throw Refuse("metadata.skillId does not name a skill of this agent");
-    }
-
-    private static bool HasSkill(AgentCard card, string id)
-    {
-        if (card.Skills is not { } skills) return false;
-        foreach (var skill in skills)
-            if (string.Equals(skill.Id, id, StringComparison.Ordinal)) return true;
-        return false;
     }
 
     private static A2AException Refuse(string text) => new(A2AErrorCode.InvalidParams, text)

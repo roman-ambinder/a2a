@@ -57,7 +57,7 @@ When `ValidateCapabilities` is on and the client knows the card, a skill that is
 
 ## A hint, not authorization
 
-The id comes from the caller. Treat it as untrusted text. Without `rejectUnknownSkills`, it can name anything. Do not use it to decide who may do what. Use [authorization](auth-and-ownership.md) for that.
+The id comes from the caller. Treat it as untrusted text. Without `rejectUnknownSkills`, it can name anything. Do not use it to decide who may do what. To allow one caller a skill and deny another, use [skill authorization](skill-authorization.md). For other rules, see [authorization](auth-and-ownership.md).
 
 ## What can go wrong
 
@@ -70,5 +70,6 @@ The id comes from the caller. Treat it as untrusted text. Without `rejectUnknown
 ## See also
 
 - [Spec decisions](spec-decisions.md)
+- [Skill authorization](skill-authorization.md)
 - [Authentication and ownership](auth-and-ownership.md)
 - [Getting started](getting-started.md)

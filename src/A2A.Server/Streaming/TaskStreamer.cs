@@ -40,6 +40,7 @@ internal sealed class TaskStreamer
     private readonly A2AAuthorizationHandler _authorization;
     private readonly A2AServerOptions _options;
     private readonly RequestCards _cards;
+    private readonly SkillAuthorizer _skills;
     private readonly StreamAdmission _admission;
 
     /// <summary>Creates the streamer from the request handler's services.</summary>
@@ -50,9 +51,11 @@ internal sealed class TaskStreamer
         IdempotencyCoordinator idempotency,
         A2AAuthorizationHandler authorization,
         A2AServerOptions options,
-        IAgentCardProvider cards)
+        IAgentCardProvider cards,
+        SkillAuthorizer skills)
     {
         _cards = new RequestCards(cards);
+        _skills = skills;
         _tasks = tasks;
         _events = events;
         _bus = engine.Bus; // the bus the engine publishes to: streams subscribe to the same one
@@ -607,7 +610,8 @@ internal sealed class TaskStreamer
         // Asks the authorization handler again and moves the deadline.
         async ValueTask<bool> StillAuthorizedAsync()
         {
-            var allowed = await _authorization.AuthorizeAsync(call, operation, request, cancellationToken).ConfigureAwait(false);
+            var allowed = await _authorization.AuthorizeAsync(call, operation, request, cancellationToken).ConfigureAwait(false)
+                && await _skills.StillAllowedAsync(operation, call, cancellationToken).ConfigureAwait(false);
             reauthAt = Stopwatch.GetTimestamp() + Ticks(reauthEvery!.Value);
             return allowed;
         }
