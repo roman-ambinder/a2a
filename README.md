@@ -385,7 +385,7 @@ dotnet run --project samples/EchoClient -- http://localhost:5100/ "hello" secret
 
 ## Releasing
 
-Push a version tag. The `Release` workflow builds, tests, packs all `src/` projects (with SourceLink and `.snupkg` symbols), pushes them to nuget.org, and creates a GitHub release. A tag with a suffix (`v0.2.0-preview.1`) publishes a prerelease.
+Push a version tag on a commit that is on `main`. The `Release` workflow first requires a successful `CI` run for that commit on `main`, and waits if the run is still going. It then builds, packs all `src/` projects (with SourceLink and `.snupkg` symbols), pushes them to nuget.org, and creates a GitHub release. A tag with a suffix (`v0.2.0-preview.1`) publishes a prerelease.
 
 ```bash
 git tag v0.1.0

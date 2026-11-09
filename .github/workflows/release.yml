@@ -21,7 +21,42 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
+  ci-gate:
+    name: Require green CI for the tagged commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # Passes only when ci.yml succeeded on a push to main for this exact commit, so a tag on an unmerged
+      # or red commit cannot publish. Waits if that run is still going, for tags pushed right after a merge.
+      - name: Wait for a successful CI run on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commit=$(git rev-parse HEAD) # HEAD, not GITHUB_SHA: always the commit, also for annotated tags
+          while true; do
+            runs=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+              -f head_sha="$commit" -f branch=main -f event=push --jq '.workflow_runs')
+            if jq -e 'any(.conclusion == "success")' <<<"$runs" > /dev/null; then
+              echo "CI passed for $commit"
+              exit 0
+            fi
+            if jq -e 'any(.status != "completed")' <<<"$runs" > /dev/null; then
+              echo "CI still running for $commit; checking again in 30 s"
+              sleep 30
+              continue
+            fi
+            echo "::error::No successful CI run on main for $commit. Merge to main, get CI green (re-run it if needed), then re-run this workflow."
+            exit 1
+          done
+
   release:
+    needs: ci-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,13 +85,6 @@ jobs:
 
       - name: Build
         run: dotnet build A2A.slnx -c Release -p:Version="$VERSION"
-
-      - name: Test
-        run: |
-          dotnet test tests/A2A.Tests/A2A.Tests.csproj -c Release --no-build
-          dotnet test tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj -c Release --no-build
-          dotnet test tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj -c Release --no-build
-          dotnet test tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build
 
       - name: Pack
         run: |
