@@ -35,6 +35,25 @@ public static class JsonRpcWriter
         return buffer.ToArray();
     }
 
+    /// <summary>
+    /// The bytes of a success response up to its result: <c>{"jsonrpc":"2.0","id":…,"result":</c>. Followed by one JSON value
+    /// and <c>}</c>, they are the same bytes as <see cref="Success(JsonElement?, ReadOnlySpan{byte})"/>. A stream writes this
+    /// once and copies each event's stored bytes after it, with no envelope built per event.
+    /// </summary>
+    /// <param name="id">The request id; null is written as <c>null</c>.</param>
+    /// <returns>The UTF-8 bytes of the envelope before the result.</returns>
+    public static byte[] SuccessPrefix(JsonElement? id)
+    {
+        using var buffer = new PooledBufferWriter(EnvelopeOverhead);
+        using (var w = new Utf8JsonWriter(buffer, WriterOptions))
+        {
+            Begin(w, id);
+            w.WritePropertyName("result"u8);
+            w.Flush(); // the object stays open: the caller adds the value and the closing brace
+        }
+        return buffer.ToArray();
+    }
+
     /// <summary>Builds a success response, encoding <paramref name="result"/> straight into the envelope (one encode).</summary>
     /// <typeparam name="T">The result type.</typeparam>
     /// <param name="id">The request id; null is written as <c>null</c>.</param>
