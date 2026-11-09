@@ -52,8 +52,36 @@ public sealed class RestEndpoint(IA2ARequestHandler handler, A2AOperationTable t
                 group.MapMethods(prefix + route, method.Split('|'), HandlerFor(operation))
                     .WithDisplayName($"A2A HTTP+JSON {method} {prefix + route}");
             }
+            // A2A 1.1 SendLiveMessage (§3.1.12). Each request is authorized as the operation it runs.
+            group.MapMethods(prefix + "/message:live", ["POST"], SendLiveMessage)
+                .WithDisplayName($"A2A HTTP+JSON POST {prefix}/message:live");
         }
     }
+
+    /// <summary>
+    /// The call whose <c>Accept</c> takes an event stream is the downlink; any other call is an uplink call and gets only the
+    /// task as it is now. A 1.0 caller gets UnsupportedOperation (the operation is A2A 1.1).
+    /// </summary>
+    private Task SendLiveMessage(HttpContext http) => HttpPlumbing.AcceptsEventStream(http)
+        ? RunStream(http, async (call, caughtUp, ct) =>
+        {
+            var req = await Body<StreamRequest>(http).ConfigureAwait(false);
+            req.Tenant ??= call.Tenant;
+            return handler.SendLiveMessageAsync(One(req), call, ct);
+        })
+        : Run(http, async (call, ct) =>
+        {
+            var req = await Body<StreamRequest>(http).ConfigureAwait(false);
+            req.Tenant ??= call.Tenant;
+            return await handler.SendLiveUplinkAsync(req, call, ct).ConfigureAwait(false);
+        });
+
+#pragma warning disable CS1998 // the one request of an HTTP downlink call, as an uplink
+    private static async IAsyncEnumerable<StreamRequest> One(StreamRequest request)
+    {
+        yield return request;
+    }
+#pragma warning restore CS1998
 
     private RequestDelegate HandlerFor(A2AOperationDescriptor operation) => operation.Kind switch
     {

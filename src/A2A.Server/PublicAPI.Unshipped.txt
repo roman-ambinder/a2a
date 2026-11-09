@@ -455,3 +455,29 @@ A2A.Server.A2AServerOptions.LongPollTimeout.set -> void
 [A2AEXP005]A2A.Server.AgentRequestContext.UserArtifacts.get -> System.Collections.Generic.IReadOnlyList<A2A.Artifact!>?
 A2A.Server.A2ALimits.MaxUserArtifactsPerRequest.get -> int
 A2A.Server.A2ALimits.MaxUserArtifactsPerRequest.set -> void
+[A2AEXP005]A2A.Server.A2ARequestHandler.SendLiveMessageAsync(System.Collections.Generic.IAsyncEnumerable<A2A.StreamRequest!>! uplink, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!
+[A2AEXP005]A2A.Server.A2ARequestHandler.SendLiveUplinkAsync(A2A.StreamRequest! request, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
+[A2AEXP005]A2A.Server.IA2ARequestHandler.SendLiveMessageAsync(System.Collections.Generic.IAsyncEnumerable<A2A.StreamRequest!>! uplink, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.Streaming.SequencedEvent>!
+[A2AEXP005]A2A.Server.IA2ARequestHandler.SendLiveUplinkAsync(A2A.StreamRequest! request, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
+A2A.Server.A2ALimits.LiveInputCapacity.get -> int
+A2A.Server.A2ALimits.LiveInputCapacity.set -> void
+[A2AEXP005]A2A.Server.AgentRequestContext.LiveInput.get -> A2A.Server.ILiveInput?
+[A2AEXP005]A2A.Server.AgentRequestContext.LiveInput.init -> void
+[A2AEXP005]A2A.Server.ILiveInput
+[A2AEXP005]A2A.Server.ILiveInput.ReadAllAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<A2A.Server.LiveInputItem!>!
+[A2AEXP005]A2A.Server.LiveInputItem
+[A2AEXP005]A2A.Server.LiveInputItem.<Clone>$() -> A2A.Server.LiveInputItem!
+[A2AEXP005]A2A.Server.LiveInputItem.Artifacts.get -> System.Collections.Generic.IReadOnlyList<A2A.Artifact!>!
+[A2AEXP005]A2A.Server.LiveInputItem.Artifacts.init -> void
+[A2AEXP005]A2A.Server.LiveInputItem.Deconstruct(out A2A.Message? Message, out System.Collections.Generic.IReadOnlyList<A2A.Artifact!>! Artifacts) -> void
+[A2AEXP005]A2A.Server.LiveInputItem.Equals(A2A.Server.LiveInputItem? other) -> bool
+[A2AEXP005]A2A.Server.LiveInputItem.LiveInputItem(A2A.Message? Message, System.Collections.Generic.IReadOnlyList<A2A.Artifact!>! Artifacts) -> void
+[A2AEXP005]A2A.Server.LiveInputItem.Message.get -> A2A.Message?
+[A2AEXP005]A2A.Server.LiveInputItem.Message.init -> void
+[A2AEXP005]override A2A.Server.LiveInputItem.Equals(object? obj) -> bool
+[A2AEXP005]override A2A.Server.LiveInputItem.GetHashCode() -> int
+[A2AEXP005]override A2A.Server.LiveInputItem.ToString() -> string!
+[A2AEXP005]static A2A.Server.LiveInputItem.operator !=(A2A.Server.LiveInputItem? left, A2A.Server.LiveInputItem? right) -> bool
+[A2AEXP005]static A2A.Server.LiveInputItem.operator ==(A2A.Server.LiveInputItem? left, A2A.Server.LiveInputItem? right) -> bool
+[A2AEXP005]A2A.Server.MalformedStreamRequest
+[A2AEXP005]static A2A.Server.MalformedStreamRequest.Create(A2A.A2AException! error, string? referenceId) -> A2A.StreamRequest!

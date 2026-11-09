@@ -190,6 +190,36 @@ These are on <xref:A2A.Server.A2ALimits>. See also [Limits and rate limiting](li
 
 The stream counters are per process. Opening a stream also counts against the rate limit like any other request.
 
+## Live exchange (A2A 1.1)
+
+A live exchange is one stream that carries input both ways while the task runs (1.1 §3.1.12). It needs
+`A2AServerOptions.EnableProtocolV11()` and the `streaming` capability, and the caller must send `A2A-Version: 1.1`.
+The API is experimental (`A2AEXP005`).
+
+[!code-csharp[](../snippets/Streaming.cs#LiveExchange)]
+
+- The first request binds the exchange to one task: a message (new task or follow-up) or a `subscribe` to an existing task
+  (`OpenLiveAsync(StreamRequest)`). Later requests send messages or client artifacts to that task.
+- A refused request (wrong task, malformed, a late `subscribe`, the agent busy) is a `StreamErrorEvent` with the code of the
+  unary operation and the `referenceId` of the message or artifact. The exchange stays open.
+- gRPC uses the bidi `SendLiveMessage` call. JSON-RPC (`SendLiveMessage`) and HTTP+JSON (`POST /message:live`) split it by
+  the `Accept` header: the call with `Accept: text/event-stream` is the downlink (the stream); every other call is an
+  uplink that must name its task and answers with the task. On HTTP a refused uplink call fails, and the same refusal
+  also shows on the downlink, so `SendAsync` throws and `Events` has the `StreamErrorEvent`.
+
+### Input for a running agent
+
+By default a message to a `WORKING` task is refused (`FAILED_PRECONDITION`), as a follow-up is. An agent that reads
+`AgentRequestContext.LiveInput` takes such messages while it runs instead:
+
+[!code-csharp[](../snippets/Streaming.cs#LiveInput)]
+
+- From the first read on, a message for the task (from a live exchange or any SendMessage) goes to that execution, in any
+  non-terminal state. No second execution starts.
+- The buffer holds `A2ALimits.LiveInputCapacity` (32) items. When it is full the message is refused with
+  `RESOURCE_EXHAUSTED` (`RateLimited`, retry after one second) and nothing is stored.
+- Input reaches only an execution on the same server instance.
+
 ## On the wire
 
 The response has `Content-Type: text/event-stream`. Each frame has an `id:` line (for stored events) and a `data:` line.

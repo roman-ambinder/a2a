@@ -233,7 +233,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 updater.SeedUsage(context.Task?.Metadata); // the usage earlier runs stored
                 return executor.ExecuteAsync(context, updater, ct);
             }, agent, pushEnabled,
-            claim, context.Metadata, _options.MaxTaskDuration, ExecuteKind, context.IsNewTask ? context.UserArtifactUpdates : null);
+            claim, context.Metadata, _options.MaxTaskDuration, ExecuteKind, context.IsNewTask ? context.UserArtifactUpdates : null,
+            context.LiveInput as LiveInputBuffer);
 
     /// <summary>Runs <see cref="IAgentExecutor.CancelAsync"/> for a task. The executor gets its own copy of <paramref name="task"/>.</summary>
     internal Task<Execution> StartCancelAsync(TaskKey key, AgentTask task, Dictionary<string, JsonElement>? metadata, RentedAgent agent, bool pushEnabled)
@@ -354,7 +355,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     private async Task<Execution> StartRawAsync(TaskKey key, string contextId, bool isNewTask, Message? userMessage,
         TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run, RentedAgent agent,
         bool pushEnabled, IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null, TimeSpan? timeLimit = null,
-        string kind = ExecuteKind, IReadOnlyList<TaskArtifactUpdateEvent>? userArtifacts = null)
+        string kind = ExecuteKind, IReadOnlyList<TaskArtifactUpdateEvent>? userArtifacts = null, LiveInputBuffer? liveInput = null)
     {
         var taskId = key.TaskId;
         claim ??= IdempotencyClaim.None;
@@ -372,6 +373,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             PushEnabled = pushEnabled,
             TaskStored = !isNewTask,
             UserArtifacts = userArtifacts,
+            LiveInput = liveInput,
             Usage = usage,
         };
         var scope = ScopeKey(key.Tenant, taskId);
@@ -1152,6 +1154,19 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         _bus.Publish(ScopeKey(key.Tenant, key.TaskId), stored);
         var fresh = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? record;
         return (fresh, stored.Sequence);
+    }
+
+    /// <summary>
+    /// A2A 1.1: the live input of an execution of the task that runs on this instance and reads it, or null. The caller holds
+    /// the task lock.
+    /// </summary>
+    internal LiveInputBuffer? ListeningInput(TaskKey key)
+    {
+        foreach (var exec in _running.Snapshot(ScopeKey(key.Tenant, key.TaskId)))
+        {
+            if (exec.Key == key && !exec.IsCancelRun && exec.LiveInput is { Listening: true } input) return input;
+        }
+        return null;
     }
 
     /// <summary>Wakes the push delivery service after a commit made outside the engine queued deliveries.</summary>

@@ -52,6 +52,35 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
     public override Task SendStreamingMessage(A2aPb.SendMessageRequest request, IServerStreamWriter<A2aPb.StreamResponse> responseStream, GrpcContext context) =>
         Stream(context, responseStream, (call, ct) => _handler.SendStreamingMessageAsync(In<SendMessageRequest>(request), call, cancellationToken: ct));
 
+    /// <summary>
+    /// A2A 1.1 SendLiveMessage (§3.1.12) over gRPC: a native two-way stream. The first request binds the stream to a task;
+    /// a later request that cannot be taken comes back as a stream error and the stream stays open.
+    /// </summary>
+    public override Task SendLiveMessage(IAsyncStreamReader<A2aPb.StreamRequest> requestStream, IServerStreamWriter<A2aPb.StreamResponse> responseStream, GrpcContext context) =>
+        Stream(context, responseStream, (call, ct) => _handler.SendLiveMessageAsync(ReadRequests(requestStream, ct), call, ct));
+
+    /// <summary>
+    /// The client's requests; one that does not map (malformed, or a kind this SDK does not know) is passed on empty, with its
+    /// error and the id of its message (or first artifact), to be refused on its own.
+    /// </summary>
+    private async IAsyncEnumerable<StreamRequest> ReadRequests(IAsyncStreamReader<A2aPb.StreamRequest> reader,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        while (await reader.MoveNext(ct).ConfigureAwait(false))
+        {
+            StreamRequest request;
+            try { request = In<StreamRequest>(reader.Current); }
+            catch (A2AException ex)
+            {
+                var send = reader.Current.SendMessage;
+                var referenceId = !string.IsNullOrEmpty(send?.Message?.MessageId) ? send.Message.MessageId
+                    : send?.ArtifactUpdates.Select(u => u.Artifact?.ArtifactId).FirstOrDefault(id => !string.IsNullOrEmpty(id));
+                request = MalformedStreamRequest.Create(ex, referenceId);
+            }
+            yield return request;
+        }
+    }
+
     /// <summary>GetTask (spec §3.1.3) over gRPC.</summary>
     public override Task<A2aPb.Task> GetTask(A2aPb.GetTaskRequest request, GrpcContext context) =>
         Unary(context, async (call, ct) => ProtoMapper.ToProto<A2aPb.Task, AgentTask>(

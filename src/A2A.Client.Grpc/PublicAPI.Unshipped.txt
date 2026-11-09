@@ -1,2 +1,3 @@
 #nullable enable
 A2A.Client.Grpc.GrpcTransport.InvokeExtensionOperationAsync(string! method, System.Text.Json.JsonElement parameters, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Text.Json.JsonElement>!
+[A2AEXP005]A2A.Client.Grpc.GrpcTransport.OpenLiveAsync(A2A.StreamRequest! first, A2A.Client.A2ARequestOptions? options, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task<A2A.Client.A2ALiveConnection!>!

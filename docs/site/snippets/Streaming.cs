@@ -132,4 +132,31 @@ internal static class Samples
         });
         #endregion
     }
+
+#pragma warning disable A2AEXP005 // the A2A 1.1 live exchange is experimental
+    public static async Task LiveExchange(A2AClient client, CancellationToken ct)
+    {
+        #region LiveExchange
+        await using var live = await client.OpenLiveAsync(Message.FromUser("start"), cancellationToken: ct);
+        await live.SendAsync(Message.FromUser("more input"), ct); // no task id: the exchange's task
+        await foreach (var evt in live.Events.WithCancellation(ct))
+        {
+            // TaskEvent first, then status, artifact and MessageUpdateEvent events; StreamErrorEvent for a refused request.
+            if (evt is StreamErrorEvent { Error: var refused })
+                Console.WriteLine($"refused {refused.ReferenceId}: {refused.Code}");
+        }
+        #endregion
+    }
+
+    public static async Task ReadLiveInput(AgentRequestContext context, CancellationToken ct)
+    {
+        #region LiveInput
+        await foreach (var input in context.LiveInput!.ReadAllAsync(ct))
+        {
+            // input.Message and input.Artifacts are already stored on the task.
+            Console.WriteLine(input.Message?.GetText());
+        }
+        #endregion
+    }
+#pragma warning restore A2AEXP005
 }

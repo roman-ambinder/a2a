@@ -77,6 +77,28 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
     public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(string taskId, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId }, options, cancellationToken);
 
+#pragma warning disable A2AEXP005
+    /// <summary>
+    /// A2A 1.1 SendLiveMessage (spec 1.1 §3.1.12): opens a live exchange with <paramref name="first"/> as its first request
+    /// (a message, or a subscribe to an existing task) and returns it. Read <see cref="A2ALiveConnection.Events"/> first: the
+    /// exchange learns its task from it. Sends <c>A2A-Version: 1.1</c>; the agent must serve 1.1 and declare streaming.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The transport has no live exchange.</exception>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public Task<A2ALiveConnection> OpenLiveAsync(StreamRequest first, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(first);
+        return _transport is ILiveTransport live
+            ? live.OpenLiveAsync(first, options, cancellationToken)
+            : throw new NotSupportedException("The transport of this client has no live exchange (A2A 1.1 SendLiveMessage).");
+    }
+
+    /// <summary>Opens a live exchange that starts by sending <paramref name="message"/> (<see cref="OpenLiveAsync(StreamRequest, A2ARequestOptions?, CancellationToken)"/>).</summary>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public Task<A2ALiveConnection> OpenLiveAsync(Message message, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
+        OpenLiveAsync(new StreamRequest { SendMessage = new SendMessageRequest { Message = message } }, options, cancellationToken);
+#pragma warning restore A2AEXP005
+
     /// <summary>
     /// Polls a task until it reaches a terminal or interrupted state. Use when streaming and push are not available,
     /// or to recover after a dropped stream.

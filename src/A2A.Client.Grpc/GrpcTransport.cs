@@ -34,7 +34,9 @@ namespace A2A.Client.Grpc;
 /// enumerated: a stream that is never read sends nothing.
 /// </para>
 /// </remarks>
-public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, IDisposable, ITransportBinding
+#pragma warning disable A2AEXP005 // the live exchange of A2A 1.1
+public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, IDisposable, ITransportBinding, ILiveTransport
+#pragma warning restore A2AEXP005
 {
     string ITransportBinding.Binding => ProtocolBindings.Grpc;
 
@@ -310,6 +312,94 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
             yield return ProtoMapper.ToModel<StreamResponse>(stream.Current);
         }
     }
+
+    /// <summary>
+    /// A2A 1.1 SendLiveMessage over gRPC: a native two-way stream, opened here with <paramref name="first"/> written on it.
+    /// Sends <c>a2a-version: 1.1</c>.
+    /// </summary>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public async Task<A2ALiveConnection> OpenLiveAsync(StreamRequest first, A2ARequestOptions? options, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(first);
+        var callOptions = CreateCallOptions(options, null, deadline: null, CancellationToken.None);
+        Set(callOptions.Headers!, GrpcErrors.VersionKey, A2AProtocol.Version11);
+        var call = _client.SendLiveMessage(callOptions);
+        var connection = new GrpcLiveConnection(call);
+        try
+        {
+            await connection.SendAsync(first, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+        return connection;
+    }
+
+#pragma warning disable A2AEXP005
+    /// <summary>The gRPC form of a live exchange: one duplex call. Writes are one at a time, as gRPC requires.</summary>
+    private sealed class GrpcLiveConnection(AsyncDuplexStreamingCall<A2aPb.StreamRequest, A2aPb.StreamResponse> call) : A2ALiveConnection
+    {
+        private readonly SemaphoreSlim _write = new(1, 1);
+        private readonly CancellationTokenSource _stop = new();
+        private int _disposed;
+
+        public override IAsyncEnumerable<StreamResponse> Events => ReadAsync(_stop.Token);
+
+        private async IAsyncEnumerable<StreamResponse> ReadAsync([EnumeratorCancellation] CancellationToken ct = default)
+        {
+            var stream = call.ResponseStream;
+            while (true)
+            {
+                bool moved;
+                try { moved = await stream.MoveNext(ct).ConfigureAwait(false); }
+                catch (RpcException ex) { throw Translate(ex, Timeout.InfiniteTimeSpan, ct); }
+                if (!moved) yield break;
+                // A2A #2269 and 1.1 §3.2.3: an event of a kind this SDK does not know is skipped.
+                if (stream.Current.PayloadCase == A2aPb.StreamResponse.PayloadOneofCase.None) continue;
+                yield return ProtoMapper.ToModel<StreamResponse>(stream.Current);
+            }
+        }
+
+        public override async Task SendAsync(StreamRequest request, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            var proto = ProtoMapper.ToProto<A2aPb.StreamRequest, StreamRequest>(request);
+            await _write.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await call.RequestStream.WriteAsync(proto, cancellationToken).ConfigureAwait(false);
+            }
+            catch (RpcException ex)
+            {
+                throw Translate(ex, Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            finally
+            {
+                _write.Release();
+            }
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
+            try
+            {
+                await _write.WaitAsync().ConfigureAwait(false);
+                try { await call.RequestStream.CompleteAsync().ConfigureAwait(false); }
+                catch (Exception) { } // the call already ended
+                finally { _write.Release(); }
+            }
+            finally
+            {
+                _stop.Cancel();
+                call.Dispose();
+                _stop.Dispose();
+            }
+        }
+    }
+#pragma warning restore A2AEXP005
 
     /// <summary>Disposes the channel when the transport created it. A channel passed in by the caller stays open.</summary>
     public void Dispose() => _ownedChannel?.Dispose();

@@ -120,6 +120,12 @@ target netstandard2.0. .NET 8 is not a target: its support ends on 10 November 2
   agent cannot change a client's artifact and the client cannot change an agent's. At most
   `A2ALimits.MaxUserArtifactsPerRequest` (16) per request, each held to the message limits and input media types. Without the
   capability the request is `UnsupportedOperation`. `SendMessageRequest.Message` is now nullable for these requests.
+- A2A 1.1 live exchange (`SendLiveMessage`, spec §3.1.12), experimental: gRPC bidi `SendLiveMessage`; JSON-RPC
+  `SendLiveMessage` and REST `POST /message:live`, where the `Accept: text/event-stream` call is the stream and other calls
+  send input to its task. The first request binds the exchange to a task (message or `subscribe`); a refused request is a
+  `StreamError` event and the exchange stays open. Client: `A2AClient.OpenLiveAsync` returns an `A2ALiveConnection` on all
+  three bindings. An agent that reads `AgentRequestContext.LiveInput` takes messages while it runs, in any non-terminal
+  state (`A2ALimits.LiveInputCapacity`, 32). The client now reads `messageUpdate` and `error` stream events on HTTP.
 - A follow-up message is now stored as an event of the task (a message update), so it takes a sequence number. 1.0
   callers do not see it, but stream ids and webhook sequences skip its number.
 - The Agent Card endpoint answers with `application/a2a-agent-card+json` when the request asks for it, and with
