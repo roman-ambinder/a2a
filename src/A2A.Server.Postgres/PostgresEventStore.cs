@@ -60,16 +60,25 @@ public sealed class PostgresEventStore : EventStore
     }
 
     /// <inheritdoc />
-    public override async IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public override IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence, CancellationToken cancellationToken = default) =>
+        ReadAsync(task, afterSequence, null, cancellationToken);
+
+    /// <inheritdoc />
+    public override IAsyncEnumerable<SequencedEvent> ReadRangeAsync(TaskKey task, long afterSequence, long beforeSequence,
+        CancellationToken cancellationToken = default) =>
+        ReadAsync(task, afterSequence, beforeSequence, cancellationToken);
+
+    private async IAsyncEnumerable<SequencedEvent> ReadAsync(TaskKey task, long afterSequence, long? beforeSequence,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        if (beforeSequence is { } b && b <= afterSequence + 1) yield break;
         // Read the retained events (at most ReplayBufferSize) in one go, so a slow consumer does not hold a connection.
         var snapshot = new List<SequencedEvent>();
         await using (var cmd = _db.CreateCommand(
             $"""
             SELECT e.seq, e.event FROM {_events} e
               JOIN {_logs} l ON l.tenant = e.tenant AND l.owner = e.owner AND l.task_id = e.task_id
-             WHERE e.tenant = $1 AND e.owner = $2 AND e.task_id = $3 AND e.seq > $4
+             WHERE e.tenant = $1 AND e.owner = $2 AND e.task_id = $3 AND e.seq > $4 AND ($6::bigint IS NULL OR e.seq < $6)
                AND (l.purge_ticks IS NULL OR l.purge_ticks > {DbClock.Now(5)})
              ORDER BY e.seq
             """))
@@ -77,6 +86,7 @@ public sealed class PostgresEventStore : EventStore
             AddKey(cmd, task);
             cmd.Parameters.Add(Long(afterSequence));
             cmd.Parameters.Add(_clock.NowParam());
+            cmd.Parameters.Add(NullableLong(beforeSequence));
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                 snapshot.Add(FromStored(reader.GetInt64(0), reader.GetString(1)));

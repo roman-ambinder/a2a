@@ -425,6 +425,59 @@ public abstract class TaskStoreContract
         Assert.Equal(0, await events.LastSequenceAsync(new TaskKey("t", "alice", "ghost")));
     }
 
+    private static BatchedEvent Batched(string taskId, TaskState state, long v) =>
+        new(EventEncoder.Encode(0, StatusEvent(taskId, state, v)), []);
+
+    [Fact]
+    public async Task Batch_commit_stores_the_task_once_and_the_events_with_consecutive_sequences()
+    {
+        var (s, events) = await CreateStoresAsync();
+        Assert.SkipUnless(s is IBatchTaskCommit, "The store does not commit batches.");
+        var created = await s.CommitAsync(CreateCommit(NewRecord("t", "alice", "id1")));
+
+        var result = await ((IBatchTaskCommit)s).CommitBatchAsync(new TaskBatchCommit(WithState(created.Record, TaskState.Working), 1,
+            [Batched("id1", TaskState.Working, 1), Batched("id1", TaskState.Working, 2), Batched("id1", TaskState.Working, 3)]));
+
+        Assert.Equal(2, result.FirstSequence);
+        Assert.Equal(2, result.Record.Version); // one version for the whole batch
+        Assert.Equal(created.Record.CreatedAt, result.Record.CreatedAt);
+        var stored = (await s.GetAsync(created.Record.Key))!;
+        Assert.Equal(2, stored.Version);
+        Assert.Equal(TaskState.Working, stored.Task.Status.State);
+        var log = await ReadAllAsync(events, created.Record.Key);
+        Assert.Equal([1L, 2L, 3L, 4L], log.Select(e => e.Sequence));
+        Assert.Equal(["1", "2", "3"], log.Skip(1).Select(e => Assert.IsType<StatusUpdateEvent>(e.Event).StatusUpdate.Metadata!["v"].GetString()));
+
+        // A plain commit after a batch continues the sequence.
+        var after = await s.CommitAsync(new TaskCommit(WithState(stored, TaskState.Working), 2, StatusEvent("id1", TaskState.Working), []));
+        Assert.Equal(5, after.Sequence);
+        Assert.Equal(3, after.Record.Version);
+    }
+
+    [Fact]
+    public async Task Stale_foreign_empty_or_create_batch_writes_nothing()
+    {
+        var (s, events) = await CreateStoresAsync();
+        Assert.SkipUnless(s is IBatchTaskCommit, "The store does not commit batches.");
+        var batches = (IBatchTaskCommit)s;
+        var created = await s.CommitAsync(CreateCommit(NewRecord("t", "alice", "id1")));
+        await s.CommitAsync(new TaskCommit(WithState(created.Record, TaskState.Working), 1, StatusEvent("id1", TaskState.Working), []));
+
+        await Assert.ThrowsAsync<ConcurrencyException>(() => batches.CommitBatchAsync(new TaskBatchCommit(
+            WithState(created.Record, TaskState.Working), 1, [Batched("id1", TaskState.Working, 1), Batched("id1", TaskState.Working, 2)])).AsTask());
+        await Assert.ThrowsAsync<ConcurrencyException>(() => batches.CommitBatchAsync(new TaskBatchCommit(
+            WithState(created.Record with { Owner = "bob" }, TaskState.Working), 2, [Batched("id1", TaskState.Working, 1)])).AsTask());
+        await Assert.ThrowsAsync<ArgumentException>(() => batches.CommitBatchAsync(new TaskBatchCommit(
+            WithState(created.Record, TaskState.Working), 2, [])).AsTask());
+        await Assert.ThrowsAsync<ArgumentException>(() => batches.CommitBatchAsync(new TaskBatchCommit(
+            NewRecord("t", "alice", "new"), 0, [Batched("new", TaskState.Working, 1)])).AsTask());
+
+        var stored = (await s.GetAsync(created.Record.Key))!;
+        Assert.Equal(2, stored.Version);
+        Assert.Equal([1L, 2L], (await ReadAllAsync(events, created.Record.Key)).Select(e => e.Sequence));
+        Assert.Null(await s.GetAsync(new TaskKey("t", "alice", "new")));
+    }
+
     /// <summary>
     /// Writers on several threads commit to one task, each reloading and retrying after a conflict. Every event carries
     /// the version its commit produced, so the log must list versions 1, 2, 3, ... in sequence order, with no gaps.
