@@ -479,3 +479,5 @@ A2A.Server.A2ALimits.LiveInputCapacity.set -> void
 [A2AEXP005]override A2A.Server.LiveInputItem.ToString() -> string!
 [A2AEXP005]static A2A.Server.LiveInputItem.operator !=(A2A.Server.LiveInputItem? left, A2A.Server.LiveInputItem? right) -> bool
 [A2AEXP005]static A2A.Server.LiveInputItem.operator ==(A2A.Server.LiveInputItem? left, A2A.Server.LiveInputItem? right) -> bool
+[A2AEXP005]A2A.Server.MalformedStreamRequest
+[A2AEXP005]static A2A.Server.MalformedStreamRequest.Create(A2A.A2AException! error, string? referenceId) -> A2A.StreamRequest!

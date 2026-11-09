@@ -12,6 +12,7 @@ public sealed partial class A2ARequestHandler
     /// <summary>The open live downlinks of each task (scope key), so an HTTP uplink call can report a refusal on them too.</summary>
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<long, ChannelWriter<SequencedEvent>>> _liveDownlinks = new(StringComparer.Ordinal);
     private long _nextDownlink;
+    private const int LiveDownlinkCapacity = 64;
 
     /// <summary>
     /// A2A 1.1 SendLiveMessage (§3.1.12): reads the client's requests from <paramref name="uplink"/> and returns the downlink.
@@ -55,7 +56,7 @@ public sealed partial class A2ARequestHandler
                     send.Tenant ??= first.Tenant;
                     opened = SendStreamingMessageAsync(send, call, cancellationToken: stop.Token);
                 }
-                else if (first is not null && MalformedLiveRequest.Of(first) is { } malformed)
+                else if (first is not null && MalformedStreamRequest.Of(first) is { } malformed)
                     yield return RefusedEvent(null, malformed.Error, null, malformed.ReferenceId);
                 else yield return RefusedEvent(null, first?.SendMessage is null
                     ? new A2AException(A2AErrorCode.InvalidParams, "The request has a kind this server does not know, or none.")
@@ -73,7 +74,8 @@ public sealed partial class A2ARequestHandler
                 if (string.IsNullOrEmpty(taskId)) yield break;
 
                 // From here on the downlink merges the task's events with the refusals of later requests.
-                var output = Channel.CreateUnbounded<SequencedEvent>(new UnboundedChannelOptions { SingleReader = true });
+                // Bounded (spec D12): the event pump and the request pump wait when the client reads slowly.
+                var output = Channel.CreateBounded<SequencedEvent>(new BoundedChannelOptions(LiveDownlinkCapacity) { SingleReader = true });
                 var scope = ScopeKey(call.Tenant, taskId);
                 var downlinkId = Interlocked.Increment(ref _nextDownlink);
                 var downlinks = _liveDownlinks.GetOrAdd(scope, static _ => new());
@@ -132,7 +134,7 @@ public sealed partial class A2ARequestHandler
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
-                output.TryWrite(RefusedEvent(taskId, ex, request?.SendMessage, request is null ? null : MalformedLiveRequest.Of(request)?.ReferenceId));
+                await output.WriteAsync(RefusedEvent(taskId, ex, request?.SendMessage, request is null ? null : MalformedStreamRequest.Of(request)?.ReferenceId), ct).ConfigureAwait(false);
             }
         }
     }
@@ -143,7 +145,7 @@ public sealed partial class A2ARequestHandler
     /// </summary>
     private async Task<SendMessageResponse> ApplyLaterRequestAsync(StreamRequest? request, string taskId, ServerCallContext call, CancellationToken ct)
     {
-        if (request is not null && MalformedLiveRequest.Of(request) is { } malformed) throw malformed.Error;
+        if (request is not null && MalformedStreamRequest.Of(request) is { } malformed) throw malformed.Error;
         if (request is null || request.IsUnknownKind)
             throw new A2AException(A2AErrorCode.InvalidParams, "The request has a kind this server does not know, or none.");
         if (request.Subscribe is not null)
@@ -233,6 +235,7 @@ public sealed partial class A2ARequestHandler
             if (_liveDownlinks.TryGetValue(ScopeKey(call.Tenant, taskId), out var downlinks))
             {
                 var refused = RefusedEvent(taskId, ex, send);
+                // A full downlink skips the copy: the uplink caller gets the error itself.
                 foreach (var writer in downlinks.Values) writer.TryWrite(refused);
             }
             throw;
@@ -264,24 +267,27 @@ public sealed partial class A2ARequestHandler
 }
 
 /// <summary>
-/// A live request a binding could not map to the model (for example a gRPC message without parts, which the model requires):
-/// it is passed on as an empty <see cref="StreamRequest"/> marked here, and refused with this error and reference id, so the
-/// client sees the same refusal on every binding.
+/// A2A 1.1: a live request a binding could not map to the model (for example a gRPC message without parts, which the model
+/// requires). Pass the request this makes to <see cref="IA2ARequestHandler.SendLiveMessageAsync"/> in its place: it is refused
+/// on its own with <c>error</c> and <c>referenceId</c>, so the client sees the same refusal on every binding.
 /// </summary>
-internal sealed class MalformedLiveRequest(A2AException error, string? referenceId)
+[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+public static class MalformedStreamRequest
 {
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<StreamRequest, MalformedLiveRequest> Marks = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<StreamRequest, Mark> Marks = new();
 
-    public A2AException Error { get; } = error;
-    public string? ReferenceId { get; } = referenceId;
+    internal sealed record Mark(A2AException Error, string? ReferenceId);
 
     /// <summary>An empty request that stands for one that could not be mapped.</summary>
+    /// <param name="error">Why the request could not be mapped. Sent to the client in the stream error.</param>
+    /// <param name="referenceId">The <c>messageId</c> of the request's message, or the <c>artifactId</c> of its first artifact update. Null when none.</param>
     public static StreamRequest Create(A2AException error, string? referenceId)
     {
+        ArgumentNullException.ThrowIfNull(error);
         var request = new StreamRequest();
-        Marks.Add(request, new MalformedLiveRequest(error, referenceId));
+        Marks.Add(request, new Mark(error, referenceId));
         return request;
     }
 
-    public static MalformedLiveRequest? Of(StreamRequest request) => Marks.TryGetValue(request, out var mark) ? mark : null;
+    internal static Mark? Of(StreamRequest request) => Marks.TryGetValue(request, out var mark) ? mark : null;
 }

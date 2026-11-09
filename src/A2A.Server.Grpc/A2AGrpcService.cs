@@ -75,7 +75,7 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
                 var send = reader.Current.SendMessage;
                 var referenceId = !string.IsNullOrEmpty(send?.Message?.MessageId) ? send.Message.MessageId
                     : send?.ArtifactUpdates.Select(u => u.Artifact?.ArtifactId).FirstOrDefault(id => !string.IsNullOrEmpty(id));
-                request = MalformedLiveRequest.Create(ex, referenceId);
+                request = MalformedStreamRequest.Create(ex, referenceId);
             }
             yield return request;
         }

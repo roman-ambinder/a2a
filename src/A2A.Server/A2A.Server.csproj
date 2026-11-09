@@ -14,7 +14,6 @@
     <PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="A2A.Server.Grpc" />
     <InternalsVisibleTo Include="A2A.Tests" />
     <InternalsVisibleTo Include="A2A.Stores.Tests" />
   </ItemGroup>
