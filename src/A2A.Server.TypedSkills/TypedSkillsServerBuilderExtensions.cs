@@ -30,6 +30,7 @@ public static class TypedSkillsServerBuilderExtensions
         configure(set);
         if (set.Count == 0) throw new InvalidOperationException("Map at least one typed skill.");
 
+        set.Register(builder.Services);
         builder.Services.AddSingleton(new TypedSkillFilter(set));
         builder.AddOperationFilter<TypedSkillFilter>();
         builder.Services.Replace(ServiceDescriptor.Scoped<IAgentExecutor>(services => new TypedSkillRouter(set, services)));

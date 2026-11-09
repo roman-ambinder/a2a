@@ -23,6 +23,9 @@ public class TypedSkillServerTests
         public void Handle() => Interlocked.Increment(ref _handled);
         public void FallbackRun() => Interlocked.Increment(ref _fallbackRuns);
         public void FallbackCancel() => Interlocked.Increment(ref _fallbackCancels);
+        private int _disposed;
+        public int Disposed => Volatile.Read(ref _disposed);
+        public void Dispose() => Interlocked.Increment(ref _disposed);
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public BookingRequest? LastInput { get; set; }
         public string? LastTenant { get; set; }
@@ -46,6 +49,28 @@ public class TypedSkillServerTests
             probe.FallbackCancel();
             return updater.CancelAsync("fallback canceled", ct).AsTask();
         }
+    }
+
+    private sealed class DisposableFallback(Probe probe) : IAgentExecutor, IDisposable
+    {
+        public Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct) => updater.CompleteAsync("ok", ct).AsTask();
+        public void Dispose() => probe.Dispose();
+    }
+
+    [Fact]
+    public async Task A_disposable_fallback_the_host_did_not_register_is_disposed_after_its_execution()
+    {
+        var probe = new Probe();
+        await using var host = await TestAgentHost.StartAsync(services: services =>
+        {
+            services.AddSingleton(probe);
+            services.AddA2AServer().AddTypedSkills(s => s
+                .Map("tree", TypedJson.Default.TreeNode, TypedJson.Default.TreeNode, (c, ct) => Task.FromResult(c.Input))
+                .UseFallback<DisposableFallback>());
+        });
+        await ClientFor(host, "JSONRPC").SendMessageAsync("hello");
+        await host.WaitIdleAsync();
+        Assert.Equal(1, probe.Disposed);
     }
 
     private static async Task<(TestAgentHost Host, Probe Probe)> StartAsync(bool fallback = true, bool secondSkill = false)

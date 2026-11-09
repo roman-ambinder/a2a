@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using A2A.Skills;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace A2A.Server.TypedSkills;
 
@@ -16,6 +17,7 @@ public sealed class TypedSkillSet
 {
     private readonly Dictionary<string, TypedSkill> _skills = new(StringComparer.Ordinal);
     private Func<IServiceProvider, IAgentExecutor>? _fallback;
+    private Action<IServiceCollection>? _register;
 
     /// <summary>Creates an empty set.</summary>
     public TypedSkillSet()
@@ -23,6 +25,8 @@ public sealed class TypedSkillSet
     }
 
     internal int Count => _skills.Count;
+
+    internal void Register(IServiceCollection services) => _register?.Invoke(services);
 
     internal bool Has(string id) => _skills.ContainsKey(id);
 
@@ -55,13 +59,15 @@ public sealed class TypedSkillSet
 
     /// <summary>
     /// Uses <typeparamref name="T"/> for every request that does not go to a typed skill (see the routing table in the guide). It is
-    /// created from the execution scope, so it can take services in its constructor. It also gets CancelTask for its own tasks.
+    /// registered as a scoped service (unless you registered it), so it can take services in its constructor and is disposed with the execution scope. It also gets CancelTask for its own tasks.
     /// </summary>
     /// <typeparam name="T">The fallback executor.</typeparam>
     /// <returns>This set.</returns>
     public TypedSkillSet UseFallback<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() where T : class, IAgentExecutor
     {
-        _fallback = static services => ActivatorUtilities.GetServiceOrCreateInstance<T>(services);
+        // Registered scoped, so the execution scope owns the fallback and disposes it.
+        _register = static services => services.TryAddScoped<T>();
+        _fallback = static services => services.GetRequiredService<T>();
         return this;
     }
 
