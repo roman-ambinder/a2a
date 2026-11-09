@@ -700,4 +700,18 @@ public sealed class ClientOutboxDispatcherTests
         await d.RunOnceAsync();
         Assert.Null(await _store.GetAsync("m1"));
     }
+
+    [Fact]
+    public void TenantOf_reads_the_top_level_tenant_as_the_full_request_would()
+    {
+        var request = new SendMessageRequest { Tenant = "acme", Message = Message.FromUser("hi") };
+        var bytes = A2A.Json.A2AJson.SerializeToUtf8Bytes(request);
+        Assert.Equal(request.Tenant, ClientOutboxDispatcher.TenantOf(bytes));
+
+        Assert.Null(ClientOutboxDispatcher.TenantOf(A2A.Json.A2AJson.SerializeToUtf8Bytes(new SendMessageRequest { Message = Message.FromUser("hi") })));
+        Assert.Equal("t\"1", ClientOutboxDispatcher.TenantOf("""{"message":{"metadata":{"tenant":"no"}},"tenant":"t\"1"}"""u8));
+        Assert.Null(ClientOutboxDispatcher.TenantOf("""{"tenant":null}"""u8));
+        Assert.Null(ClientOutboxDispatcher.TenantOf("""{"tenant":"""u8)); // unreadable
+        Assert.Null(ClientOutboxDispatcher.TenantOf("[]"u8));
+    }
 }

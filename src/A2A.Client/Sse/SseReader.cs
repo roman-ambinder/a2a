@@ -20,6 +20,31 @@ public sealed record SseEvent(string Data, string? EventType, string? Id)
     public override int GetHashCode() => HashCode.Combine(Data, EventType, Id);
 }
 
+/// <summary>
+/// A dispatched event whose data is still UTF-8 bytes in the reader's buffer (<see cref="SseReader.ReadFramesAsync"/>). One
+/// instance per stream, reused: use it before the next read.
+/// </summary>
+internal sealed class SseFrame
+{
+    /// <summary>The data field as UTF-8. Valid until the next read of the stream.</summary>
+    public ReadOnlyMemory<byte> Data { get; set; }
+
+    /// <summary>The event field, if any.</summary>
+    public string? EventType { get; set; }
+
+    /// <summary>The last event id seen on the stream so far.</summary>
+    public string? Id { get; set; }
+
+    /// <summary>The id field of this event only, or null.</summary>
+    public string? FrameId { get; set; }
+
+    /// <summary>The data decoded as text, as <see cref="SseEvent.Data"/> has it.</summary>
+    public string DataText => Encoding.UTF8.GetString(Data.Span);
+
+    /// <summary>A copy that does not depend on the reader's buffer.</summary>
+    public SseEvent ToEvent() => new(DataText, EventType, Id) { FrameId = FrameId };
+}
+
 /// <summary>Server-Sent Events parser (WHATWG HTML §9.2.6). Handles CRLF/LF/CR, multi-line data, comments, and a UTF-8 BOM.</summary>
 /// <remarks>
 /// Lines are found and their field names compared as UTF-8 bytes in a pooled buffer; text is decoded once per value, and the
@@ -64,6 +89,18 @@ public static class SseReader
 
     private static async IAsyncEnumerable<SseEvent> ReadCoreAsync(Stream stream, int maxEventBytes, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        await foreach (var frame in ReadFramesAsync(stream, maxEventBytes, cancellationToken).ConfigureAwait(false))
+            yield return frame.ToEvent();
+    }
+
+    /// <summary>
+    /// Reads the events of <paramref name="stream"/> as <see cref="SseFrame"/>s: the data stays UTF-8 bytes in the reader's
+    /// buffer. The same frame instance is returned every time and its data is valid only until the next read, so a caller
+    /// uses it at once. The transports parse JSON straight from it; <see cref="ReadAsync(Stream, CancellationToken)"/>
+    /// decodes it to a <see cref="SseEvent"/>.
+    /// </summary>
+    internal static async IAsyncEnumerable<SseFrame> ReadFramesAsync(Stream stream, int maxEventBytes, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         var buffer = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
         var parser = new LineParser(maxEventBytes);
         var used = 0; // high-water mark of filled bytes, cleared before the buffer goes back to the pool
@@ -99,7 +136,7 @@ public static class SseReader
                         var terminator = buffer[start + newline];
                         start += newline + 1;
                         if (terminator == (byte)'\r') skipLf = true;
-                        if (parser.Process(buffer.AsSpan(lineStart, newline)) is { } evt) yield return evt;
+                        if (parser.Process(buffer.AsSpan(lineStart, newline))) yield return parser.Frame;
                         continue;
                     }
                     // End of stream: per spec, an incomplete line or event is discarded.
@@ -148,26 +185,36 @@ public static class SseReader
         private int _dataUsed;      // high-water mark, cleared before the buffer goes back to the pool
         private bool _hasData;
         private string? _eventType;
+        private string? _lastEventType;
         private string? _lastId;
         private string? _frameId;
 
-        /// <summary>Applies one line (without its terminator). Returns the event a blank line dispatches, if any.</summary>
-        public SseEvent? Process(ReadOnlySpan<byte> line)
+        /// <summary>The event the last <see cref="Process"/> call dispatched. Reused; its data is valid until the next call.</summary>
+        public SseFrame Frame { get; } = new();
+
+        /// <summary>Applies one line (without its terminator). True when a blank line dispatched an event into <see cref="Frame"/>.</summary>
+        public bool Process(ReadOnlySpan<byte> line)
         {
             if (line.IsEmpty)
             {
                 if (_dataLength > _dataUsed) _dataUsed = _dataLength;
-                SseEvent? evt = _hasData
-                    ? new SseEvent(Encoding.UTF8.GetString(_data, 0, _dataLength), _eventType, _lastId) { FrameId = _frameId }
-                    : null;
+                var dispatched = _hasData;
+                if (dispatched)
+                {
+                    // The bytes stay in _data until the next line is applied, which is after the caller used the frame.
+                    Frame.Data = _data.AsMemory(0, _dataLength);
+                    Frame.EventType = _eventType;
+                    Frame.Id = _lastId;
+                    Frame.FrameId = _frameId;
+                }
                 _dataLength = 0;
                 _hasData = false;
                 _eventType = null;
                 _frameId = null;
-                return evt;
+                return dispatched;
             }
 
-            if (line[0] == (byte)':') return null; // comment / keep-alive
+            if (line[0] == (byte)':') return false; // comment / keep-alive
 
             var colon = line.IndexOf((byte)':');
             ReadOnlySpan<byte> field, value;
@@ -191,14 +238,25 @@ public static class SseReader
             }
             else if (field.SequenceEqual("event"u8))
             {
-                _eventType = Encoding.UTF8.GetString(value);
+                // The same name as the last one (a stream usually repeats one or two): no new string.
+                _eventType = _lastEventType is { } last && Matches(value, last) ? last : Encoding.UTF8.GetString(value);
+                _lastEventType = _eventType;
             }
             else if (field.SequenceEqual("id"u8))
             {
                 if (value.IndexOf((byte)0) < 0) _lastId = _frameId = Encoding.UTF8.GetString(value);
             }
             // "retry" and unknown fields are ignored.
-            return null;
+            return false;
+        }
+
+        /// <summary>True when <paramref name="value"/> is the UTF-8 of <paramref name="text"/> (ASCII compare; anything else is decoded).</summary>
+        private static bool Matches(ReadOnlySpan<byte> value, string text)
+        {
+            if (value.Length != text.Length) return false;
+            for (var i = 0; i < value.Length; i++)
+                if (value[i] != text[i] || value[i] > 0x7F) return false;
+            return true;
         }
 
         private void Append(byte b)

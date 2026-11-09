@@ -124,7 +124,12 @@ public static class A2AClientServiceCollectionExtensions
         return services.AddHttpClient(DefaultA2AClientFactory.HttpClientName(name))
             // No cookies and no redirects: a redirect would carry credentials to another origin. Replace it with
             // ConfigurePrimaryHttpMessageHandler on the returned builder if you need something else.
-            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { UseCookies = false, AllowAutoRedirect = false })
+            // The named client is cached for good, so its handler is never rotated by the factory: connections are recycled
+            // every 2 minutes instead, so DNS changes are seen.
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                UseCookies = false, AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+            })
             // The credential handler sits above the factory's logging handlers, and the card chooses the header name, so redact
             // every header value: an API key or token must never reach a log line.
             .RedactLoggedHeaders(_ => true)

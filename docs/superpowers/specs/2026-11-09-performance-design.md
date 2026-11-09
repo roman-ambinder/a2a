@@ -107,6 +107,16 @@ Looked at and left out of PR 1 (measured with an allocation profile of the bench
 | Resume: compare task id as a span; reuse `event`/`id` strings when the bytes match. | `ResumableStream.cs:210`, `SseReader.cs:194` |
 | Outbox: priority queue on `DueAt`; store the tenant on the entry. | `InMemoryClientOutboxStore.cs:53`, `ClientOutboxDispatcher.cs:266` |
 
+PR 3 notes:
+
+- Card cache hit: the check on every hit stays. It is what makes a removed trusted key, or a key gone from a `jku` set, stop
+  working at once; skipping it is a security trade-off for the owner. The hit now reuses the parsed tree (when no
+  `CardNormalizer` is set), and PR 5 makes the check itself cheaper. Single-flight for misses is left out: one caller's
+  cancellation would fail the others.
+- `A2AClient` is not made disposable: with the shared connection pool it owns no sockets. Revisit with gRPC channels (PR 4).
+- The in-memory client outbox keeps its sort: it is a development store.
+- Unary responses keep `ResponseContentRead`: the error path reads the body as text again.
+
 ### 3.5 gRPC
 
 | Fix | Where |
