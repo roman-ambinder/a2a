@@ -196,14 +196,7 @@ A live exchange is one stream that carries input both ways while the task runs (
 `A2AServerOptions.EnableProtocolV11()` and the `streaming` capability, and the caller must send `A2A-Version: 1.1`.
 The API is experimental (`A2AEXP005`).
 
-```csharp
-await using var live = await client.OpenLiveAsync(Message.FromUser("start"), ct);
-await live.SendAsync(Message.FromUser("more input"), ct); // no task id: the exchange's task
-await foreach (var evt in live.Events.WithCancellation(ct))
-{
-    // TaskEvent first, then status, artifact and MessageUpdateEvent events; StreamErrorEvent for a refused request.
-}
-```
+[!code-csharp[](../snippets/Streaming.cs#LiveExchange)]
 
 - The first request binds the exchange to one task: a message (new task or follow-up) or a `subscribe` to an existing task
   (`OpenLiveAsync(StreamRequest)`). Later requests send messages or client artifacts to that task.
@@ -219,12 +212,7 @@ await foreach (var evt in live.Events.WithCancellation(ct))
 By default a message to a `WORKING` task is refused (`FAILED_PRECONDITION`), as a follow-up is. An agent that reads
 `AgentRequestContext.LiveInput` takes such messages while it runs instead:
 
-```csharp
-await foreach (var input in context.LiveInput!.ReadAllAsync(ct))
-{
-    // input.Message, input.Artifacts: already stored on the task.
-}
-```
+[!code-csharp[](../snippets/Streaming.cs#LiveInput)]
 
 - From the first read on, a message for the task (from a live exchange or any SendMessage) goes to that execution, in any
   non-terminal state. No second execution starts.
