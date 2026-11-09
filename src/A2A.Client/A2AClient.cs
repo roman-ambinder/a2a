@@ -393,9 +393,35 @@ public sealed class A2AClient : IA2AClient
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.CancelTask, this, request.Tenant, request.Id, () =>
         {
-            var call = Guard(() => _transport.CancelTaskAsync(request, options, cancellationToken));
+            var call = Guard(() => CancelOrCanceledAsync(request, options, cancellationToken));
             return _options.OnMessageReceived is null ? call : InspectAsync(call, cancellationToken);
         }, cancellationToken);
+    }
+
+    /// <summary>
+    /// CancelTask, except that TaskNotCancelable for a task that is already canceled returns that task (a repeat cancel). In
+    /// every other case, including a failing GetTask, the original exception is thrown.
+    /// </summary>
+    private async Task<AgentTask> CancelOrCanceledAsync(CancelTaskRequest request, A2ARequestOptions? options, CancellationToken ct)
+    {
+        try
+        {
+            return await _transport.CancelTaskAsync(request, options, ct).ConfigureAwait(false);
+        }
+        catch (A2AException ex) when (ex.Code == A2AErrorCode.TaskNotCancelable)
+        {
+            AgentTask? current = null;
+            try
+            {
+                current = await _transport.GetTaskAsync(new GetTaskRequest { Id = request.Id, Tenant = request.Tenant }, options, ct).ConfigureAwait(false);
+            }
+            catch (Exception) when (!ct.IsCancellationRequested)
+            {
+                // The lookup failed: report the cancel's own error.
+            }
+            if (current?.Status?.State == TaskState.Canceled) return current;
+            throw;
+        }
     }
 
     /// <inheritdoc />

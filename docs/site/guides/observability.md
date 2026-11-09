@@ -108,11 +108,13 @@ All counters are `Counter<long>`.
 | `A2A.Server` | `a2a.server.streams.opened` | none | streams admitted (`SendStreamingMessage`, `SubscribeToTask`) |
 | `A2A.Server` | `a2a.server.push.deliveries` | `a2a.outcome` (`sent`, `retried`, `dead_lettered`) | one per delivery attempt, counted when its result is recorded |
 | `A2A.Server` | `a2a.server.push.dead_letters` | none | deliveries that failed for good |
+| `A2A.Server` | `a2a.server.security.events` | `a2a.security.event` (`unauthenticated`, `permission_denied`, `context_denied`, `webhook_refused`, `idempotency_key_mismatch`), `a2a.method.name` when known | security events (spec 13.4). See [Security events](#security-events) |
 | `A2A.Server` | `a2a.server.artifact.objects.written` | none | objects written to the artifact object store |
 | `A2A.Server` | `a2a.server.artifact.bytes.written` | none | bytes written to the artifact object store |
 | `A2A.Server` | `a2a.server.artifact.bytes.served` | none | artifact bytes the server streamed to callers (redirects are not counted) |
 | `A2A.Server` | `a2a.server.artifact.orphans.deleted` | none | orphan objects the retention sweep deleted. See [Artifact storage](artifact-storage.md) |
 | `A2A` | `a2a.idempotency.evictions` | none | idempotency entries dropped early because the in-memory store was full |
+| `A2A` | `a2a.client.endpoint.refused` | `binding` | Agent Card endpoints the client's endpoint policy refused. See [Task safety](task-safety.md) |
 | `A2A` | `a2a.card.changed` | `origin` | cards that differ from the pinned card of their origin |
 | `A2A` | `a2a.card.unsigned` | `origin` | unsigned cards accepted because signatures are not required |
 | `A2A` | `a2a.registry.name_lookalike` | `origin` | agent names that look like the name of another registered agent. See [Peer identity and registry](peer-identity.md) |
@@ -138,11 +140,26 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | 250-253, 255 | server: startup diagnostics (254 is not one: it is a task past its size cap) |
 | 300-313 | server: push delivery |
 | 400-402 | server: idempotency |
+| 1200-1201 | server: security events (1200 information, 1201 warning) |
 | 500-501, 600 | ASP.NET Core: unhandled errors, stream errors |
 | 700-701, 800 | ASP.NET Core: startup validation, card signing warning |
 | 900 | gRPC: unhandled errors |
 | 1000-1001 | Postgres cleanup; v0.3 compatibility (field dropped, card conversion problem) |
 | 1100-1104 | Redis event bus and coordinator; 1100 is also used by the v0.3 server surface (error after a response started) |
+
+### Security events
+
+Each security event counts `a2a.server.security.events` and writes one log line (category `A2A.Server.Security`) with the event, the operation, the tenant, the resource id (a task or context id, or none) and the principal hash. The hash is the first 16 hex characters of the SHA-256 of the principal id, so you can tell callers apart without storing who they are. The line never has the principal, a token or a webhook URL. `unauthenticated` logs at Information, the others at Warning.
+
+| Event | When |
+|---|---|
+| `unauthenticated` | Anonymous caller and `AllowAnonymous` is off. |
+| `permission_denied` | The authorization handler denied the call, also on an open stream at re-authorization. Counted once, even when the caller sees `TaskNotFound`. |
+| `context_denied` | The caller named a context of another principal (and `ContextAccess` did not allow it). |
+| `webhook_refused` | A webhook URL was refused when its config was created, or when a delivery was attempted. |
+| `idempotency_key_mismatch` | An idempotency key was reused with a different request. |
+
+**What is not counted.** A caller who reads another caller's task gets `TaskNotFound`. The store lookup is scoped by owner, so the server cannot tell that case from a task that does not exist, and the SDK does not add a lookup to find out. A denial by your own authorization handler is counted.
 
 ### Startup diagnostics
 

@@ -6,6 +6,7 @@ using A2A.Diagnostics;
 using A2A.Push;
 using A2A.Security.Http;
 using A2A.Server.Storage;
+using A2A.Server.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace A2A.Server.Push;
@@ -150,8 +151,12 @@ internal readonly record struct PushSendResult(PushSendOutcome Outcome, string? 
 /// every attempt), the <c>X-A2A-Notification-Sequence</c> (the event store sequence) and the W3C <c>traceparent</c>.
 /// Retries and their timing belong to <see cref="PushDeliveryService"/>.
 /// </summary>
-internal sealed class PushWebhookSender(HttpMessageInvoker http, PushNotificationOptions options, ILogger logger, TimeProvider? time = null)
+internal sealed class PushWebhookSender(HttpMessageInvoker http, PushNotificationOptions options, ILogger logger, TimeProvider? time = null, ILogger? securityLogger = null)
 {
+    /// <summary>A refused webhook is a security event. It never carries the URL.</summary>
+    private void Refused(PushDelivery delivery) =>
+        SecurityEventLog.Record(securityLogger, A2ATelemetry.SecurityEventNames.WebhookRefused, "PushDelivery", delivery.Task.Tenant, delivery.Task.Owner, delivery.Task.TaskId);
+
     public async Task<PushSendResult> SendAsync(TaskPushNotificationConfig config, PushDelivery delivery, int attempt, ReadOnlyMemory<byte> body,
         Activity? activity, ActivityContext traceContext, CancellationToken cancellationToken)
     {
@@ -166,6 +171,7 @@ internal sealed class PushWebhookSender(HttpMessageInvoker http, PushNotificatio
             catch (A2AException ex)
             {
                 ServerLog.PushWebhookSkipped(logger, config.Id, delivery.Task.TaskId, ex.Message);
+                Refused(delivery);
                 return new PushSendResult(PushSendOutcome.Permanent, "URL not allowed: " + ex.Message, "UrlNotAllowed");
             }
 
@@ -215,6 +221,7 @@ internal sealed class PushWebhookSender(HttpMessageInvoker http, PushNotificatio
         catch (HttpRequestException ex) when (ex is BlockedAddressException || ex.InnerException is BlockedAddressException)
         {
             ServerLog.PushWebhookBlocked(logger, config.Id, delivery.Task.TaskId);
+            Refused(delivery);
             return new PushSendResult(PushSendOutcome.Permanent, "URL not allowed: the target address is not allowed", "UrlNotAllowed");
         }
         catch (HttpRequestException ex)

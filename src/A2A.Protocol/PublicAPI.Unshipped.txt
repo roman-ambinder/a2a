@@ -5,3 +5,11 @@ const A2A.Skills.TypedSkillExtension.OutputSchemaKey = "outputSchema" -> string!
 const A2A.Skills.TypedSkillExtension.SkillsParam = "skills" -> string!
 A2A.Skills.TypedSkillExtension
 static A2A.Skills.TypedSkillExtension.TryGetSchemas(A2A.AgentCard! card, string! skillId, out System.Text.Json.JsonElement inputSchema, out System.Text.Json.JsonElement outputSchema) -> bool
+A2A.Diagnostics.A2ATelemetry.SecurityEventNames
+const A2A.Diagnostics.A2ATelemetry.Metrics.SecurityEvents = "a2a.server.security.events" -> string!
+const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.ContextDenied = "context_denied" -> string!
+const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.IdempotencyKeyMismatch = "idempotency_key_mismatch" -> string!
+const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.PermissionDenied = "permission_denied" -> string!
+const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.Unauthenticated = "unauthenticated" -> string!
+const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.WebhookRefused = "webhook_refused" -> string!
+const A2A.Diagnostics.A2ATelemetry.Tags.SecurityEvent = "a2a.security.event" -> string!
