@@ -12,7 +12,7 @@ namespace A2A.V0_3Compat;
 /// </summary>
 internal static class V03Json
 {
-    /// <summary>Parses UTF-8 JSON into a fully materialized tree (a duplicate member is a <see cref="JsonException"/>, also on .NET 8).</summary>
+    /// <summary>Parses UTF-8 JSON into a fully materialized tree (a duplicate member is a <see cref="JsonException"/>, whatever the parser options).</summary>
     public static JsonNode Parse(ReadOnlySpan<byte> utf8)
     {
         try

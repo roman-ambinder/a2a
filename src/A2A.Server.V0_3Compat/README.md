@@ -28,4 +28,4 @@ Fields v0.3 cannot carry are counted by the meter `A2A`, counter `a2a.compat.v0_
 The package uses internals of the core packages, so all `RomanAmbinder.A2A.*` packages must have the same version.
 `EnableV03Compat` checks this and throws a clear error when they differ.
 
-Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a). Targets .NET 8 and .NET 10.
+Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a). Targets .NET 10.

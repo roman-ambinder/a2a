@@ -233,9 +233,6 @@ The same message can be seen more than once, for example when the client polls a
 
 [!code-csharp[](../snippets/ExtensionsAI.cs#AllowUrls)]
 
-## net8.0 note
-
-On net8.0 this package pulls in `System.Text.Json` 10. It comes from `Microsoft.Extensions.AI.Abstractions`. If your app is on net8.0 and pins an older `System.Text.Json`, expect that upgrade. This repo tests the package in its own project, `A2A.Extensions.AI.Tests`, so the main test project keeps its JSON stack.
 
 ## What can go wrong
 

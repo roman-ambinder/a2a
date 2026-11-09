@@ -7,7 +7,7 @@
     <ProjectReference Include="..\A2A.Security.Http\A2A.Security.Http.csproj" />
   </ItemGroup>
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks>netstandard2.0;net10.0</TargetFrameworks>
   </PropertyGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="PolySharp" PrivateAssets="all" />
@@ -25,10 +25,10 @@
     <Compile Remove="ArtifactVerifier.cs" />
     <!-- SafeHttp is not available on netstandard2.0. -->
     <Compile Remove="A2AArtifactDownloader.cs" />
-    <!-- Like the downloader, the uploader is for .NET 8 and later. -->
+    <!-- Like the downloader, the uploader is for .NET 10. -->
     <Compile Remove="A2AFileUploader.cs" />
   </ItemGroup>
-  <!-- netstandard2.0 surface is a subset of net8.0 by design; package validation proves it. CS1574/CS1580: doc crefs to SocketsHttpHandler. -->
+  <!-- netstandard2.0 surface is a subset of net10.0 by design; package validation proves it. CS1574/CS1580: doc crefs to SocketsHttpHandler. -->
   <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <NoWarn>$(NoWarn);RS0016;RS0017;CS1574;CS1580</NoWarn>
   </PropertyGroup>

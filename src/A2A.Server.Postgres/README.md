@@ -77,5 +77,5 @@ Differences, because the store is shared by several instances:
 - Expired rows are hidden from reads at once and deleted by a background cleanup every `CleanupInterval` (5 minutes). `PostgresMaintenance.PurgeExpiredAsync()` runs it by hand.
 - That cleanup covers event logs and idempotency entries. Expired tasks (with their push configs, deliveries and dead letters), orphan contexts, timed-out interrupted tasks and dead executions are handled by the retention sweep (`services.AddA2ARetention()`).
 
-Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 8 and .NET 10.
+Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 10.
 See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.

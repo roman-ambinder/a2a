@@ -31,12 +31,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET 8 and 10
+      - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            8.0.x
-            10.0.x
+          dotnet-version: 10.0.x
 
       - name: Restore
         run: dotnet restore A2A.slnx
@@ -45,25 +43,25 @@ jobs:
         id: build
         run: dotnet build A2A.slnx -c Release --no-restore
 
-      - name: Test (net8.0 + net10.0)
+      - name: Test (net10.0)
         run: dotnet test tests/A2A.Tests/A2A.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=results" --results-directory TestResults
 
       # Run every suite even if an earlier one failed, so one run shows all results. The job still fails. No use after a failed build.
-      - name: Test gRPC (net8.0 + net10.0)
+      - name: Test gRPC (net10.0)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=grpc-results" --results-directory TestResults
 
-      - name: Test v0.3 compat (net8.0 + net10.0)
+      - name: Test v0.3 compat (net10.0)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=v03-results" --results-directory TestResults
 
-      - name: Test Extensions.AI (net8.0 + net10.0)
+      - name: Test Extensions.AI (net10.0)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=ai-results" --results-directory TestResults
-      - name: Test Mcp (net8.0 + net10.0)
+      - name: Test Mcp (net10.0)
         run: dotnet test tests/A2A.Mcp.Tests/A2A.Mcp.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=mcp-results" --results-directory TestResults
 
-      - name: Test TestKit (net8.0 + net10.0)
+      - name: Test TestKit (net10.0)
         run: dotnet test tests/A2A.TestKit.Tests/A2A.TestKit.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=testkit-results" --results-directory TestResults
 
       - name: Test TestingAgent sample (net10.0)
@@ -112,11 +110,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            8.0.x
-            10.0.x
+          dotnet-version: 10.0.x
 
-      - name: Test store contracts (in-memory, PostgreSQL, Redis, S3 on MinIO, Azure Blob on Azurite; net8.0 + net10.0)
+      - name: Test store contracts (in-memory, PostgreSQL, Redis, S3 on MinIO, Azure Blob on Azurite; net10.0)
         run: dotnet test tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj -c Release --logger "trx;LogFilePrefix=stores" --results-directory TestResults
 
       - name: Upload test results
@@ -135,9 +131,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            8.0.x
-            10.0.x
+          dotnet-version: 10.0.x
 
       - uses: actions/setup-python@v5
         with:
@@ -186,9 +180,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            8.0.x
-            10.0.x
+          dotnet-version: 10.0.x
 
       - uses: actions/setup-python@v5
         with:
@@ -216,9 +208,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            8.0.x
-            10.0.x
+          dotnet-version: 10.0.x
 
       - name: Pack
         run: |
@@ -315,9 +305,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            8.0.x
-            10.0.x
+          dotnet-version: 10.0.x
 
       - name: Restore tools
         run: dotnet tool restore

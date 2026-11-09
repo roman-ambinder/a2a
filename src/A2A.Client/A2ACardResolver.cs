@@ -262,7 +262,7 @@ public sealed class A2ACardResolver
     }
 
     // Parses the card into a fully materialized tree. JsonObject reads lazily and throws ArgumentException on a duplicate
-    // member when first touched, which on .NET 8 (no AllowDuplicateProperties) would otherwise escape from verification.
+    // member when first touched, which on netstandard2.0 (no AllowDuplicateProperties) would otherwise escape from verification.
     private static JsonObject ParseCard(ReadOnlySpan<byte> raw)
     {
         try

@@ -1,6 +1,6 @@
 # A2A .NET SDK
 
-A .NET SDK for the [A2A (Agent2Agent) protocol](https://a2a-protocol.org). It has a server, a client, and three bindings: JSON-RPC, HTTP+JSON and gRPC. It targets .NET 8 and .NET 10. The protocol and client packages also target netstandard2.0.
+A .NET SDK for the [A2A (Agent2Agent) protocol](https://a2a-protocol.org). It has a server, a client, and three bindings: JSON-RPC, HTTP+JSON and gRPC. It targets .NET 10. The protocol and client packages also target netstandard2.0.
 
 ## Install
 

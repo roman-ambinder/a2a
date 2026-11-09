@@ -4,7 +4,8 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## 0.1.0
 
-First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Targets .NET 8 and .NET 10.
+First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Targets .NET 10. `A2A.Protocol` and `A2A.Client` also
+target netstandard2.0. .NET 8 is not a target: its support ends on 10 November 2026.
 
 ### Postgres schema migrations
 

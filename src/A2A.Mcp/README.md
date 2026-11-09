@@ -50,4 +50,4 @@ A2A skills have no input schema. A2A metadata, artifact names and streaming chun
 
 ## Dependencies
 
-The package is built on `ModelContextProtocol.Core` 2.4.0. It brings the 10.x `Microsoft.Extensions.*` abstractions and `System.Text.Json` 10. On net8.0 your app gets those versions too.
+The package is built on `ModelContextProtocol.Core` 2.4.0. It brings the 10.x `Microsoft.Extensions.*` abstractions.
