@@ -29,6 +29,12 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   one per call (which was never disposed). That pool, and the primary handler of `AddA2AClient`, recycle connections every
   2 minutes, so DNS changes are seen.
 - A cached Agent Card is checked again on each `ResolveAsync` (as before) without parsing its text again.
+- gRPC: stream events and SendMessage responses are mapped between the model and protobuf field by field instead of through
+  ProtoJSON: about 10x less CPU and 15x less memory per message one way, 40x less CPU the other. Anything uncommon, and every
+  error, still takes the ProtoJSON path, and tests check on a random corpus that both give the same result. The ProtoJSON
+  path itself reuses its buffers.
+- gRPC: clients made through `UseGrpc` / `A2AGrpcClientFactory` share one channel per address and channel options instead of
+  opening a channel per client that was never disposed.
 
 ## 0.1.0
 

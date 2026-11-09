@@ -152,6 +152,7 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
                     headersSent = true;
                     await GrpcCallSupport.WriteExtensionsHeaderAsync(context, call).ConfigureAwait(false);
                 }
+                // Stream events are mapped field by field (ProtoMapper's direct path), not through JSON.
                 var proto = ProtoMapper.ToProto<A2aPb.StreamResponse, StreamResponse>(evt.Event);
                 if (evt.Sequence > 0 && A2AProtocol.IsVersion11OrLater(call.ProtocolVersion)) FillGeneration(proto, evt.Sequence);
                 await writer.WriteAsync(proto).ConfigureAwait(false);

@@ -127,6 +127,14 @@ PR 3 notes:
 | Client: cache channels per address in the factory; dispose them with the client. | `GrpcTransport.cs:62,338` |
 | Extension service: no `GetRawText` + copy; `JsonElement.ParseValue` instead of `Parse` + `Clone`. | `A2AGrpcExtensionService.cs:67,83` |
 
+PR 4 notes: the direct mapper covers stream events and SendMessage responses (with their tasks, messages, artifacts and
+parts), the per-message types; cards, push configs, lists and requests keep ProtoJSON. It returns nothing on uncommon shapes
+(empty required fields, timelines, message-update and error events, unknown enum values, timestamps finer than 100 ns) so the
+ProtoJSON path keeps every error. `Struct` and `Value` still go through ProtoJSON one value at a time, so numbers match. A
+differential test runs 3,000 random cases each way; planted mapping bugs make it fail. Channels are cached per address in a
+static table (default options) or a weak table keyed by the options instance. No new benchmarks: a benchmark missing from
+`baseline.json` fails the CI gate, so they come with the next CI-made baseline.
+
 ### 3.6 Card signing and checking
 
 | Fix | Where |
