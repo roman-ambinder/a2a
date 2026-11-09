@@ -145,6 +145,16 @@ internal static partial class HttpPlumbing
     }
 
     /// <summary>
+    /// <see cref="WriteJsonAsync{T}(HttpContext, T, string, int)"/> in the shape of the caller's protocol version: a 1.0 caller
+    /// never gets the members A2A 1.1 added (<see cref="A2AJson.OptionsFor"/>).
+    /// </summary>
+    public static async Task WriteJsonAsync<T>(HttpContext http, T value, string contentType, string? protocolVersion)
+    {
+        await PooledResponse.WriteAsync(http, 200, contentType, (value, info: A2AJson.GetTypeInfo<T>(protocolVersion)),
+            static (w, s) => JsonSerializer.Serialize(w, s.value, s.info)).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// For an Unauthenticated error, sets <c>WWW-Authenticate</c> to the first HTTP auth scheme of the card of the call's tenant
     /// (else <c>Bearer</c>). The card comes from the <see cref="IAgentCardProvider"/>; a tenant without a card, or a provider that
     /// fails, falls back to the host's card (and to <c>Bearer</c> when that cannot be built either). Never throws.

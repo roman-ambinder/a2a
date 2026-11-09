@@ -6,6 +6,24 @@ public static class A2AProtocol
     /// <summary>Protocol version implemented by this SDK (Major.Minor).</summary>
     public const string Version = "1.0";
 
+    /// <summary>A2A 1.1 (release candidate): the version a caller asks for to get the 1.1 wire (generation, timeline, message events).</summary>
+    public const string Version11 = "1.1";
+
+    /// <summary>
+    /// True when <paramref name="version"/> (<c>Major.Minor</c>, patch ignored) is 1.1 or later in the 1.x line. Null, empty,
+    /// 0.3, 1.0 and anything that does not parse are false.
+    /// </summary>
+    public static bool IsVersion11OrLater(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version)) return false;
+        var parts = version!.Trim().Split('.');
+        if (parts.Length < 2
+            || !int.TryParse(parts[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var major)
+            || !int.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var minor))
+            return false;
+        return major == 1 && minor >= 1;
+    }
+
     /// <summary>Version the spec says to assume when the A2A-Version header is absent (§3.6.2).</summary>
     public const string ImplicitVersion = "0.3";
 

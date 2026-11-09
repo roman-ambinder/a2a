@@ -191,7 +191,7 @@ public sealed class RestEndpoint(IA2ARequestHandler handler, A2AOperationTable t
             handler.ValidateCall(call);
             var result = await action(call, http.RequestAborted).ConfigureAwait(false);
             HttpPlumbing.WriteExtensionsHeader(http, call);
-            await HttpPlumbing.WriteJsonAsync(http, result, A2AProtocol.MediaType).ConfigureAwait(false);
+            await HttpPlumbing.WriteJsonAsync(http, result, A2AProtocol.MediaType, call.ProtocolVersion).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
         {
@@ -221,8 +221,9 @@ public sealed class RestEndpoint(IA2ARequestHandler handler, A2AOperationTable t
                     ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "Empty stream");
             HttpPlumbing.WriteExtensionsHeader(http, call);
             HttpPlumbing.StartEventStream(http);
-            // The event's stored bytes, as they are (encoded here only for snapshots and other events made without them).
-            await HttpPlumbing.PumpAsync(http, e, evt => EventEncoder.EnsureEncoded(evt).Json,
+            // The event's stored bytes, as they are (encoded here only for snapshots and other events made without them); a 1.1
+            // caller gets the 1.1 encoding.
+            await HttpPlumbing.PumpAsync(http, e, evt => EventEncoder.JsonFor(evt, call.ProtocolVersion),
                 ex => A2AJson.SerializeToUtf8Bytes(StatusBody(HttpPlumbing.Normalize(ex, logger, _includeDetails))),
                 // A2A #1262: a2a-python reads REST stream errors from frames named "error".
                 _keepAlive, logger, errorEventType: "error").ConfigureAwait(false);

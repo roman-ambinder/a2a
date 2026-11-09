@@ -225,8 +225,8 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
         HttpPlumbing.WriteExtensionsHeader(http, call);
         // One pass: the result is encoded straight into the envelope, into a pooled buffer, then written once. It is not
         // written to the response pipe while encoding, so an encoding failure still becomes a JSON-RPC error response.
-        await PooledResponse.WriteAsync(http, 200, A2AProtocol.JsonMediaType, (id, result),
-            static (w, s) => JsonRpcWriter.WriteSuccess(w, s.id, s.result, A2AJson.GetTypeInfo<T>())).ConfigureAwait(false);
+        await PooledResponse.WriteAsync(http, 200, A2AProtocol.JsonMediaType, (id, result, info: A2AJson.GetTypeInfo<T>(call.ProtocolVersion)),
+            static (w, s) => JsonRpcWriter.WriteSuccess(w, s.id, s.result, s.info)).ConfigureAwait(false);
     }
 
     private static readonly byte[] EnvelopeEnd = "}"u8.ToArray();
@@ -239,7 +239,7 @@ public sealed class JsonRpcEndpoint(IA2ARequestHandler handler, A2AOperationTabl
         HttpPlumbing.StartEventStream(http);
         // The envelope around every event is the same: its start is built once, and each event's stored bytes go after it.
         await HttpPlumbing.PumpAsync(http, e,
-            evt => EventEncoder.EnsureEncoded(evt).Json, JsonRpcWriter.SuccessPrefix(id), EnvelopeEnd,
+            evt => EventEncoder.JsonFor(evt, call.ProtocolVersion), JsonRpcWriter.SuccessPrefix(id), EnvelopeEnd,
             ex => A2AJson.SerializeToUtf8Bytes(JsonRpcResponse.Failure(id, HttpPlumbing.Normalize(ex, logger, _includeDetails))),
             _keepAlive, logger).ConfigureAwait(false);
     }

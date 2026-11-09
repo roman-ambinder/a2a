@@ -37,6 +37,12 @@ public sealed class A2ALimits
     /// </summary>
     public int MaxHistoryLengthReturned { get; set; } = 100;
 
+    /// <summary>
+    /// A2A 1.1: most timeline entries returned for a task, also when the caller sends no <c>timelineLength</c> or a larger one
+    /// (the newest entries are kept). Default 100.
+    /// </summary>
+    public int MaxTimelineLengthReturned { get; set; } = 100;
+
     /// <summary>Upper bound on the ListTasks page size. Default 100.</summary>
     public int MaxListPageSize { get; set; } = 100;
 

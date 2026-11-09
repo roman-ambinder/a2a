@@ -83,7 +83,8 @@ internal sealed class TaskStreamer
     internal IAsyncEnumerable<SequencedEvent> StreamExecutionAsync(SendMessageRequest request, ServerCallContext call, AcceptMessage accept,
         A2AOperationDescriptor operation, CancellationToken cancellationToken) =>
         // CancellationToken.None: LimitStreamAsync owns the token ([EnumeratorCancellation]) and passes its linked token to the core.
-        LimitStreamAsync(ShapeHistoryAsync(SendStreamingCoreAsync(request, call, accept, CancellationToken.None), request.Configuration?.HistoryLength, CancellationToken.None),
+        LimitStreamAsync(ShapeHistoryAsync(SendStreamingCoreAsync(request, call, accept, CancellationToken.None), request.Configuration?.HistoryLength,
+            request.Configuration?.TimelineLength, CancellationToken.None),
             call, operation, request, cancellationToken);
 
     /// <summary>
@@ -91,10 +92,10 @@ internal sealed class TaskStreamer
     /// snapshots and replays), like every other path that returns a task. Stored events are not changed.
     /// </summary>
     private async IAsyncEnumerable<SequencedEvent> ShapeHistoryAsync(IAsyncEnumerable<SequencedEvent> source, int? historyLength,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        int? timelineLength, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await foreach (var evt in source.WithCancellation(cancellationToken).ConfigureAwait(false))
-            yield return TaskShaper.ShapeEvent(evt, historyLength, _options.Limits);
+            yield return TaskShaper.ShapeEvent(evt, historyLength, _options.Limits, timelineLength);
     }
 
     /// <summary>
@@ -375,6 +376,18 @@ internal sealed class TaskStreamer
                 // The store no longer has the final event (trimmed): end with a snapshot, never without a final event.
                 var last = await ReadSnapshotAsync(key, cancellationToken).ConfigureAwait(false);
                 if (last.Sequence > position.Last) yield return last;
+            }
+            else if (A2AProtocol.IsVersion11OrLater(call.ProtocolVersion))
+            {
+                // A2A 1.1 (§3.1.2): a non-terminal state, an interrupted one included, does not end the stream by itself. No
+                // execution runs now, so the stream follows the task as a subscription until it is terminal (or the stream
+                // limits end it). It releases this stream's slot and subscription first, and is authorized as a subscribe.
+                sub.Dispose();
+                admitted.Dispose();
+                var follow = new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant };
+                await AuthorizeAsync(call, A2AOperationDescriptor.For(A2AOperation.SubscribeToTask), follow, taskId, cancellationToken).ConfigureAwait(false);
+                await foreach (var e in SubscribeCoreAsync(follow, call, resumeAfter: position.Last, onCaughtUp: null, cancellationToken).ConfigureAwait(false))
+                    yield return e;
             }
         }
         finally

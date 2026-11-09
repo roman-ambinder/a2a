@@ -710,6 +710,7 @@ public class PushOutboxTests
 
         var later = store.Commits.Skip(before).ToList();
         Assert.NotEmpty(later);
+        Assert.Empty(Assert.Single(store.MessageCommits)); // the follow-up's message: committed without deliveries
         Assert.All(later, c => Assert.Equal(["one", "two"], c.Select(d => d.ConfigId).Order()));
         Assert.Equal(store.Commits.Sum(c => c.Count), store.Commits.SelectMany(c => c).Select(d => d.DeliveryId).Distinct().Count());
 
@@ -722,9 +723,13 @@ public class PushOutboxTests
     {
         public List<IReadOnlyList<PushDelivery>> Commits { get; } = [];
 
+        /// <summary>Commits of a follow-up's message (A2A 1.1 message update): webhooks get 1.0 events, so these have no deliveries.</summary>
+        public List<IReadOnlyList<PushDelivery>> MessageCommits { get; } = [];
+
         public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
         {
-            lock (Commits) Commits.Add(commit.Deliveries);
+            var list = commit.Event.Event is MessageUpdateEvent ? MessageCommits : Commits;
+            lock (list) list.Add(commit.Deliveries);
             return base.CommitAsync(commit, ct);
         }
     }
