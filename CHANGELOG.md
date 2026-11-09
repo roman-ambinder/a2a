@@ -35,6 +35,11 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   path itself reuses its buffers.
 - gRPC: clients made through `UseGrpc` / `A2AGrpcClientFactory` share one channel per address and channel options instead of
   opening a channel per client that was never disposed.
+- Agent Card verification is about 2.5x faster and allocates about 40% less: imported public keys are reused per trusted key
+  (importing cost more than checking the signature), the signed bytes and the case-variant check come from one prune of
+  the card instead of two, paths of pruned members are built only when reported, and base64url is encoded in place. The
+  canonical bytes are unchanged. JCS sorts object members without LINQ, which also helps the idempotency hash of every
+  SendMessage.
 
 ## 0.1.0
 

@@ -146,6 +146,12 @@ static table (default options) or a weak table keyed by the options instance. No
 | Cache the imported public key per JWK. | `AgentCardVerifier.cs:184` |
 | `node.Deserialize(typeInfo)` instead of `ToJsonString` + parse. | `AgentCardVerifier.cs:139` |
 
+PR 5 notes: measured first. Per verification, importing the trusted key cost 123 µs, the signature check 69 µs and the
+canonical form 37 µs of 322 µs. Imported keys are pooled per `Jwk` (a key object serves one verification at a time; a pool
+whose key fields changed is replaced), the prune runs once for both the signed bytes and the case-variant check, member
+paths are built lazily, base64url encodes in place, and JCS sorts with an array sort. The JCS UTF-8 writer rewrite was left
+out: the canonical form is now a small part of the cost, and its output must not change by a byte.
+
 ## 4. Delivery (one PR each, in this order)
 
 1. **Server streaming** (3.1, 3.2). Biggest win.

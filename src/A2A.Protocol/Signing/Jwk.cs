@@ -1,3 +1,4 @@
+using System.Text;
 using System.Security.Cryptography;
 using System.Text.Json.Serialization;
 
@@ -127,8 +128,30 @@ public sealed class JwkSet
 public static class Base64Url
 {
     /// <summary>Encodes bytes as base64url without padding.</summary>
-    public static string Encode(ReadOnlySpan<byte> data) =>
-        Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    public static string Encode(ReadOnlySpan<byte> data)
+    {
+        // Encoded once, in place: no padded string and no Replace copies.
+        var bytes = new byte[EncodedLength(data.Length)];
+        EncodeToUtf8(data, bytes);
+        return Encoding.ASCII.GetString(bytes);
+    }
+
+    /// <summary>The length of the base64url text (no padding) of <paramref name="length"/> bytes.</summary>
+    internal static int EncodedLength(int length) => (length / 3 * 4) + ((length % 3) switch { 0 => 0, 1 => 2, _ => 3 });
+
+    /// <summary>Writes the base64url text (no padding) of <paramref name="data"/> into <paramref name="destination"/>, which is <see cref="EncodedLength"/> long.</summary>
+    internal static void EncodeToUtf8(ReadOnlySpan<byte> data, Span<byte> destination)
+    {
+        var padded = (data.Length + 2) / 3 * 4;
+        var length = EncodedLength(data.Length);
+        Span<byte> scratch = padded <= 256 ? stackalloc byte[padded] : new byte[padded];
+        System.Buffers.Text.Base64.EncodeToUtf8(data, scratch, out _, out _);
+        for (var i = 0; i < length; i++)
+        {
+            var c = scratch[i];
+            destination[i] = c == (byte)'+' ? (byte)'-' : c == (byte)'/' ? (byte)'_' : c;
+        }
+    }
 
     /// <summary>Decodes base64url text, with or without padding. Throws <see cref="FormatException"/> when the length is invalid.</summary>
     public static byte[] Decode(string s)
