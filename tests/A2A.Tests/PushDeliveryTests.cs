@@ -56,6 +56,77 @@ public class PushDeliveryTests
         return service;
     }
 
+    /// <summary>Holds requests to <c>a.example</c> on a signal and counts how many are in flight; answers <c>b.example</c> at once.</summary>
+    private sealed class PerCallerHooks(Task release) : HttpMessageHandler
+    {
+        private int _inFlightA;
+        private int _maxInFlightA;
+        private int _sentA;
+        public TaskCompletionSource TwoInFlightA { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource SentB { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int MaxInFlightA => Volatile.Read(ref _maxInFlightA);
+        public int SentA => Volatile.Read(ref _sentA);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.RequestUri!.Host == "b.example")
+            {
+                SentB.TrySetResult();
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }
+            var now = Interlocked.Increment(ref _inFlightA);
+            int seen;
+            while ((seen = Volatile.Read(ref _maxInFlightA)) < now && Interlocked.CompareExchange(ref _maxInFlightA, now, seen) != seen) { }
+            if (now >= 2) TwoInFlightA.TrySetResult();
+            try
+            {
+                await release.WaitAsync(ct);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _inFlightA);
+                Interlocked.Increment(ref _sentA);
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
+    [Fact]
+    public async Task One_callers_slow_webhooks_cannot_take_every_send_slot()
+    {
+        Assert.Equal(20, new PushDeliveryOptions().MaxInFlightPerCaller);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hooks = new PerCallerHooks(release.Task);
+        var rig = new PushRig(hooks);
+        rig.Options.PushDelivery.MaxInFlightPerCaller = 2;
+        var timeout = TimeSpan.FromSeconds(30);
+
+        // Owner a has four due deliveries (more than the cap) and is older than owner b's one.
+        async Task QueueAsync(string owner, string host, int n)
+        {
+            var key = new TaskKey("", owner, $"{owner}-{n}");
+            await rig.Configs.SaveAsync(new PushConfigRecord(key, new TaskPushNotificationConfig { Id = "c1", TaskId = key.TaskId, Url = $"https://{host}/cb" }));
+            Assert.True(await rig.Outbox.EnqueueAsync(new A2A.Server.Storage.PushDelivery(key, "c1", 1, Guid.NewGuid().ToString("N")), "{}"u8.ToArray()));
+        }
+        for (var n = 1; n <= 4; n++) await QueueAsync("a", "a.example", n);
+        await QueueAsync("b", "b.example", 1);
+        using var service = rig.NewService();
+
+        var first = service.RunOnceAsync(CancellationToken.None);
+        await hooks.TwoInFlightA.Task.WaitAsync(timeout);
+        await hooks.SentB.Task.WaitAsync(timeout); // b is served while a's webhooks are blocked
+
+        Assert.Equal(0, await service.RunOnceAsync(CancellationToken.None)); // a is at its cap; b has nothing more
+        Assert.Equal(0, hooks.SentA);
+
+        release.SetResult();
+        Assert.Equal(3, await first); // a's two and b's one
+        Assert.Equal(2, await service.RunOnceAsync(CancellationToken.None)); // a's other two
+        Assert.Equal(4, hooks.SentA);
+        Assert.Equal(2, hooks.MaxInFlightA);
+        Assert.Equal(0, rig.Outbox.Count);
+    }
+
     private static TaskPushNotificationConfig Hook(string url = "https://hooks.example/cb", string? token = "s3cret") =>
         new() { Url = url, Token = token };
 

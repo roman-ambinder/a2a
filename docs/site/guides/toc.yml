@@ -24,6 +24,8 @@
   href: typed-skills.md
 - name: Skill authorization
   href: skill-authorization.md
+- name: Custom operations
+  href: custom-operations.md
 - name: Microsoft.Extensions.AI
   href: extensions-ai.md
 - name: Conversation memory
@@ -40,6 +42,8 @@
   href: retention.md
 - name: Observability
   href: observability.md
+- name: Audit trail
+  href: audit.md
 - name: Limits and rate limiting
   href: limits-and-rate-limiting.md
 - name: Execution limits and budgets

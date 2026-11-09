@@ -55,7 +55,14 @@ public static partial class A2AValidator
         }
     }
 
-    /// <summary>Checks a webhook registration: absolute http(s) URL, a scheme when authentication is set, and a task id when <paramref name="requireTaskId"/> is true.</summary>
+    /// <summary>The longest push config id a client may choose.</summary>
+    public const int MaxPushConfigIdLength = 256;
+
+    /// <summary>
+    /// Checks a webhook registration: absolute http(s) URL, a scheme when authentication is set, a task id when
+    /// <paramref name="requireTaskId"/> is true, and an id (when one is given) of at most <see cref="MaxPushConfigIdLength"/>
+    /// visible ASCII characters, because the id is chosen by the client and written to logs.
+    /// </summary>
     public static void ValidatePushConfig(TaskPushNotificationConfig config, string path, bool requireTaskId)
     {
         if (string.IsNullOrWhiteSpace(config.Url))
@@ -64,11 +71,23 @@ public static partial class A2AValidator
             throw A2AException.InvalidParams($"{path}.url must be an absolute http(s) URL");
         if (requireTaskId && string.IsNullOrWhiteSpace(config.TaskId))
             throw A2AException.InvalidParams($"{path}.taskId is required");
+        if (!string.IsNullOrEmpty(config.Id) && !IsValidPushConfigId(config.Id!))
+            throw A2AException.InvalidParams($"{path}.id must be at most {MaxPushConfigIdLength} visible ASCII characters"); // never echoes the value
         if (config.Authentication is { } auth && string.IsNullOrWhiteSpace(auth.Scheme))
             throw A2AException.InvalidParams($"{path}.authentication.scheme is required");
         if (config.Authentication is { } sig && string.Equals(sig.Scheme, A2A.Push.WebhookSignature.Scheme, StringComparison.OrdinalIgnoreCase)
             && !A2A.Push.WebhookSignature.TryParseSecret(sig.Credentials, out _))
             throw A2AException.InvalidParams("Invalid webhook signing secret.");
+    }
+
+    private static bool IsValidPushConfigId(string id)
+    {
+        if (id.Length > MaxPushConfigIdLength) return false;
+        foreach (var c in id)
+        {
+            if (c < '\u0021' || c > '\u007E') return false;
+        }
+        return true;
     }
 
     /// <summary>Throws InvalidParams when <paramref name="id"/> is null or blank. <paramref name="name"/> is the field name in the message.</summary>

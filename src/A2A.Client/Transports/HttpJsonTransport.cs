@@ -10,7 +10,7 @@ using A2A.Json;
 namespace A2A.Client.Transports;
 
 /// <summary>HTTP+JSON/REST binding (spec §11).</summary>
-public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumableTransport, ITransportBinding
+public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IA2AExtensionOperationClient, IResumableTransport, ITransportBinding
 {
     string ITransportBinding.Binding => ProtocolBindings.HttpJson;
 
@@ -101,6 +101,34 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IResumabl
     /// <inheritdoc />
     public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         SendAsync<AgentCard>(HttpMethod.Get, Path(request.Tenant, "/extendedAgentCard"), null, RetryMode.Idempotent, options, null, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<JsonElement> InvokeExtensionOperationAsync(string method, JsonElement parameters, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ExtensionOperationParams.RequireMethod(method);
+        var body = ExtensionOperationParams.Normalize(parameters);
+        // The tenant goes in the path: the one in the params, else the one of the options.
+        var url = Path(ExtensionOperationParams.TenantOf(body), "/ext/" + Esc(method));
+        return ExecuteUnaryAsync(RetryMode.UnsentOnly, options, async attemptCt =>
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new ByteArrayContent(Encoding.UTF8.GetBytes(body.GetRawText())),
+            };
+            req.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(A2AProtocol.MediaType) { CharSet = "utf-8" };
+            await ApplyHeadersAsync(req, streaming: false, options, null, attemptCt).ConfigureAwait(false);
+            using var resp = await SendCheckedAsync(req, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) throw await ReadErrorAsync(resp, attemptCt).ConfigureAwait(false);
+            using var payload = await ResponseBody.ReadUtf8Async(resp.Content, attemptCt).ConfigureAwait(false);
+            if (payload.Memory.Length == 0) return A2AJson.EmptyObject;
+            try
+            {
+                using var doc = JsonDocument.Parse(payload.Memory);
+                return doc.RootElement.Clone();
+            }
+            catch (JsonException ex) { throw ProtocolError($"Malformed result of '{method}' in agent response: {ex.Message}", ex); }
+        }, cancellationToken);
+    }
 
     private string Path(string? tenant, string path)
     {

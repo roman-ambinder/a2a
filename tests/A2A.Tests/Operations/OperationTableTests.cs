@@ -47,6 +47,7 @@ public sealed class OperationTableTests
             Content = new StringContent($$"""{"jsonrpc":"2.0","id":1,"method":"{{method}}","params":{{@params}}}""", Encoding.UTF8, "application/json"),
         };
         req.Headers.Add(A2AProtocol.Headers.Version, A2AProtocol.Version);
+        req.Headers.Add(A2AProtocol.Headers.Extensions, EchoUri);
         return req;
     }
 
@@ -57,6 +58,7 @@ public sealed class OperationTableTests
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
         req.Headers.Add(A2AProtocol.Headers.Version, A2AProtocol.Version);
+        req.Headers.Add(A2AProtocol.Headers.Extensions, EchoUri);
         return req;
     }
 

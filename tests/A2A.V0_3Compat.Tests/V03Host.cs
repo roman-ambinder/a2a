@@ -149,12 +149,13 @@ public sealed class V03Host : IAsyncDisposable
 
     /// <summary>Posts a v0.3 JSON-RPC request to <paramref name="path"/>; returns the status and the parsed body.</summary>
     public static async Task<(HttpResponseMessage Response, JsonObject Body)> RpcAsync(HttpClient http, string method, JsonNode? parameters,
-        string path = "/a2a", string? version = null, JsonNode? id = null)
+        string path = "/a2a", string? version = null, JsonNode? id = null, string? extensions = null)
     {
         var request = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id ?? 1, ["method"] = method };
         if (parameters is not null) request["params"] = parameters;
         using var message = new HttpRequestMessage(HttpMethod.Post, path) { Content = Json(request.ToJsonString()) };
         if (version is not null) message.Headers.Add("A2A-Version", version);
+        if (extensions is not null) message.Headers.Add("A2A-Extensions", extensions);
         var response = await http.SendAsync(message);
         var text = await response.Content.ReadAsStringAsync();
         return (response, (JsonObject)JsonNode.Parse(text)!);

@@ -9,7 +9,7 @@ using A2A.JsonRpc;
 namespace A2A.Client.Transports;
 
 /// <summary>JSON-RPC 2.0 over HTTP binding (spec §9).</summary>
-public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumableTransport, ITransportBinding
+public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IA2AExtensionOperationClient, IResumableTransport, ITransportBinding
 {
     string ITransportBinding.Binding => ProtocolBindings.JsonRpc;
 
@@ -75,6 +75,38 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
     public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
         InvokeAsync<GetExtendedAgentCardRequest, AgentCard>(A2AProtocol.Methods.GetExtendedAgentCard, request, RetryMode.Idempotent, options, null, cancellationToken);
 
+    /// <inheritdoc />
+    public Task<JsonElement> InvokeExtensionOperationAsync(string method, JsonElement parameters, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ExtensionOperationParams.RequireMethod(method);
+        var withTenant = ExtensionOperationParams.WithTenant(parameters, Options.Tenant);
+        return InvokeExtensionAsync(method, withTenant, options, cancellationToken);
+    }
+
+    private async Task<JsonElement> InvokeExtensionAsync(string method, JsonElement parameters, A2ARequestOptions? options, CancellationToken cancellationToken)
+    {
+        var result = await InvokeCoreAsync(method, () => ExtensionRequest(method, parameters), RetryMode.UnsentOnly, options, null, cancellationToken).ConfigureAwait(false);
+        return result ?? NullElement; // the response has "result": null
+    }
+
+    private static readonly JsonElement NullElement = JsonDocument.Parse("null").RootElement.Clone();
+
+    private static byte[] ExtensionRequest(string method, JsonElement parameters)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("jsonrpc", "2.0");
+            writer.WriteString("id", Guid.NewGuid().ToString("N"));
+            writer.WriteString("method", method);
+            writer.WritePropertyName("params");
+            parameters.WriteTo(writer);
+            writer.WriteEndObject();
+        }
+        return stream.ToArray();
+    }
+
     private async Task<TResult> InvokeAsync<TParams, TResult>(string method, TParams parameters, RetryMode retry, A2ARequestOptions? call, string? key, CancellationToken ct)
     {
         var result = await InvokeRawAsync(method, parameters, retry, call, key, ct).ConfigureAwait(false);
@@ -83,13 +115,16 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
     }
 
     private Task<JsonElement?> InvokeRawAsync<TParams>(string method, TParams parameters, RetryMode retry, A2ARequestOptions? call, string? key, CancellationToken ct) =>
+        InvokeCoreAsync(method, () => JsonRpcWriter.Request(Guid.NewGuid().ToString("N"), method, parameters, A2AJson.GetTypeInfo<TParams>()), retry, call, key, ct);
+
+    private Task<JsonElement?> InvokeCoreAsync(string method, Func<byte[]> body, RetryMode retry, A2ARequestOptions? call, string? key, CancellationToken ct) =>
         ExecuteUnaryAsync(retry, call, async attemptCt =>
         {
-            using var request = await BuildRequestAsync(method, parameters, streaming: false, call, key, attemptCt).ConfigureAwait(false);
+            using var request = await BuildRequestAsync(body(), streaming: false, call, key, attemptCt).ConfigureAwait(false);
             using var response = await SendCheckedAsync(request, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
             JsonRpcResponse? rpc;
-            using (var body = await ResponseBody.ReadUtf8Async(response.Content, attemptCt).ConfigureAwait(false))
-                rpc = TryParseResponse(body.Span);
+            using (var responseBody = await ResponseBody.ReadUtf8Async(response.Content, attemptCt).ConfigureAwait(false))
+                rpc = TryParseResponse(responseBody.Span);
             if (rpc is null)
             {
                 if (!response.IsSuccessStatusCode) throw HttpError(response, await response.Content.ReadAsStringAsync(attemptCt).ConfigureAwait(false));
@@ -134,9 +169,11 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IResumable
         }
     }
 
-    private async Task<HttpRequestMessage> BuildRequestAsync<TParams>(string method, TParams parameters, bool streaming, A2ARequestOptions? call, string? key, CancellationToken ct, string? lastEventId = null)
+    private Task<HttpRequestMessage> BuildRequestAsync<TParams>(string method, TParams parameters, bool streaming, A2ARequestOptions? call, string? key, CancellationToken ct, string? lastEventId = null) =>
+        BuildRequestAsync(JsonRpcWriter.Request(Guid.NewGuid().ToString("N"), method, parameters, A2AJson.GetTypeInfo<TParams>()), streaming, call, key, ct, lastEventId);
+
+    private async Task<HttpRequestMessage> BuildRequestAsync(byte[] body, bool streaming, A2ARequestOptions? call, string? key, CancellationToken ct, string? lastEventId = null)
     {
-        var body = JsonRpcWriter.Request(Guid.NewGuid().ToString("N"), method, parameters, A2AJson.GetTypeInfo<TParams>());
         var content = new ByteArrayContent(body);
         content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(A2AProtocol.JsonMediaType) { CharSet = "utf-8" };
         var request = new HttpRequestMessage(HttpMethod.Post, _endpoint) { Content = content };

@@ -47,18 +47,51 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox, 
     }
 
     /// <inheritdoc />
-    public override ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken cancellationToken = default)
+    public override ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken cancellationToken = default) =>
+        Lease(max, lease, maxInFlightPerCaller: null);
+
+    /// <inheritdoc />
+    public override ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueCappedAsync(int max, TimeSpan lease, int maxInFlightPerCaller, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxInFlightPerCaller, 1);
+        return Lease(max, lease, maxInFlightPerCaller);
+    }
+
+    private ValueTask<IReadOnlyList<OutboxEntry>> Lease(int max, TimeSpan lease, int? maxInFlightPerCaller)
     {
         if (max <= 0) return ValueTask.FromResult<IReadOnlyList<OutboxEntry>>([]);
         lock (_gate)
         {
             var now = _time.GetUtcNow();
-            var leased = _pending.Values
+            var candidates = _pending.Values
                 .Select(g => g.Values.First()) // only the oldest entry of a task and config may be in flight
                 .Where(e => e.DueAt <= now && (e.LeasedUntil is not { } until || until <= now))
-                .OrderBy(e => e.DueAt).ThenBy(e => e.Delivery.Sequence)
-                .Take(max)
-                .ToList();
+                .OrderBy(e => e.DueAt).ThenBy(e => e.Delivery.Sequence);
+            var leased = new List<Entry>();
+            if (maxInFlightPerCaller is not { } cap)
+            {
+                leased.AddRange(candidates.Take(max));
+            }
+            else
+            {
+                // The tenant is not part of the count: the cap is per caller.
+                var inFlight = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (var g in _pending.Values)
+                {
+                    var e = g.Values.First();
+                    if (e.LeasedUntil is { } until && until > now)
+                        inFlight[e.Delivery.Task.Owner] = inFlight.GetValueOrDefault(e.Delivery.Task.Owner) + 1;
+                }
+                foreach (var e in candidates)
+                {
+                    if (leased.Count >= max) break;
+                    var owner = e.Delivery.Task.Owner;
+                    var n = inFlight.GetValueOrDefault(owner);
+                    if (n >= cap) continue;
+                    inFlight[owner] = n + 1;
+                    leased.Add(e);
+                }
+            }
             var token = Guid.NewGuid();
             foreach (var e in leased)
             {

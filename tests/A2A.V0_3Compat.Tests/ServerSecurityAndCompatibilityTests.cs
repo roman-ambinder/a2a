@@ -203,7 +203,7 @@ public class ServerSecurityAndCompatibilityTests
     public async Task An_extension_operation_named_like_a_v03_method_still_works_without_compat()
     {
         await using var host = await V03Host.StartAsync(compat: false, services: s => AddRawExtension(s, "message/send"));
-        var (_, body) = await V03Host.RpcAsync(host.Http(), "message/send", new JsonObject { ["x"] = 1 }, version: "1.0");
+        var (_, body) = await V03Host.RpcAsync(host.Http(), "message/send", new JsonObject { ["x"] = 1 }, version: "1.0", extensions: "urn:test:collision");
         Assert.Equal(1, body["result"]!["x"]!.GetValue<int>());
     }
 

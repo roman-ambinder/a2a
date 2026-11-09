@@ -3,7 +3,7 @@ using A2A.Server.Storage;
 namespace A2A.Server.Streaming;
 
 /// <summary>
-/// Counts open streams per task and per caller and refuses a stream beyond <see cref="A2ALimits.MaxConcurrentStreamsPerTask"/>
+/// Counts open streams per task and per caller (across all tenants) and refuses a stream beyond <see cref="A2ALimits.MaxConcurrentStreamsPerTask"/>
 /// or <see cref="A2ALimits.MaxConcurrentStreamsPerPrincipal"/> with <c>RATE_LIMITED</c>. Process-local.
 /// </summary>
 internal sealed class StreamAdmission(A2ALimits limits)
@@ -15,13 +15,13 @@ internal sealed class StreamAdmission(A2ALimits limits)
     /// <summary>
     /// Takes a slot for a stream of <paramref name="task"/>. Dispose the result to give it back. The task counter is keyed
     /// by the owner too, so another caller's streams never affect (or reveal) this caller's task. The per-caller counter is
-    /// keyed by <paramref name="callerPartition"/> (<see cref="ServerCallContext.LimitPartition"/>): anonymous callers count
-    /// per remote address.
+    /// keyed by <paramref name="callerPartition"/> (<see cref="ServerCallContext.LimitPartition"/>) alone, not by tenant,
+    /// so a caller cannot raise the cap by using more tenant names: anonymous callers count per remote address.
     /// </summary>
     /// <exception cref="A2AException">RATE_LIMITED when a limit is reached.</exception>
     public IDisposable Enter(TaskKey task, string callerPartition)
     {
-        var principal = $"{task.Tenant}\u001f{callerPartition}";
+        var principal = callerPartition;
         var taskKey = $"{task.Tenant}\u001f{task.Owner}\u001f{task.TaskId}";
         lock (_gate)
         {

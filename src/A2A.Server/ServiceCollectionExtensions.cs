@@ -16,7 +16,7 @@ public static class A2AServerServiceCollectionExtensions
     /// Registers the A2A server core and returns a builder to add the agent, its card and extra services.
     /// Defaults: in-memory stores (tasks, events, push outbox, push configs, idempotency), a hosted <see cref="PushDeliveryService"/>
     /// that sends push notifications through an HTTP client with the SSRF guard, the <see cref="A2APushAdmin"/> dead-letter API,
-    /// the <see cref="Retention.A2ATaskAdmin"/> task delete API, an allow-all authorization handler, a process-local <see cref="Coordination.ExecutionCoordinator"/>,
+    /// the <see cref="Retention.A2ATaskAdmin"/> task delete API, the audit trail (<see cref="Audit.A2AAuditSink"/>, logging by default), an allow-all authorization handler, a process-local <see cref="Coordination.ExecutionCoordinator"/>,
     /// and a single agent for every tenant (the configured card and executor; see <see cref="A2AServerBuilder.AddTenantCardProvider{T}"/>
     /// and <see cref="A2AServerBuilder.AddAgentExecutorResolver{T}"/> for one agent per tenant). Register your
     /// own <see cref="Storage.TaskStore"/> (with the <see cref="Storage.EventStore"/> and <see cref="PushOutbox"/> it commits
@@ -56,6 +56,8 @@ public static class A2AServerServiceCollectionExtensions
             sp.GetRequiredKeyedService<HttpMessageInvoker>(PushDeliveryService.InvokerServiceKey), sp.GetRequiredService<A2AServerOptions>(),
             sp.GetService<Microsoft.Extensions.Logging.ILogger<PushDeliveryService>>(), sp.GetService<TimeProvider>()));
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, PushDeliveryService>(sp => sp.GetRequiredService<PushDeliveryService>()));
+        services.TryAddSingleton<Audit.A2AAuditSink, Audit.LoggerAuditSink>();
+        services.TryAddSingleton<Audit.A2AAuditor>();
         services.TryAddSingleton<A2APushAdmin>();
         services.TryAddSingleton<Retention.A2ATaskAdmin>();
         services.TryAddSingleton<Pipeline.CallValidator>();
@@ -198,6 +200,24 @@ public sealed class A2AServerBuilder
     }
 
     /// <summary>
+    /// Uses <typeparamref name="T"/> as the audit sink (see <see cref="Audit.A2AAuditSink"/>). Singleton. Replaces an earlier sink,
+    /// including the default <see cref="Audit.LoggerAuditSink"/>.
+    /// </summary>
+    public A2AServerBuilder AddAuditSink<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>() where T : Audit.A2AAuditSink
+    {
+        Services.Replace(ServiceDescriptor.Singleton<Audit.A2AAuditSink, T>());
+        return this;
+    }
+
+    /// <summary>Uses <paramref name="sink"/> as the audit sink. Replaces an earlier sink. See <see cref="AddAuditSink{T}"/>.</summary>
+    public A2AServerBuilder AddAuditSink(Audit.A2AAuditSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(sink);
+        Services.Replace(ServiceDescriptor.Singleton(sink));
+        return this;
+    }
+
+    /// <summary>
     /// Adds <typeparamref name="T"/> to the operation pipeline (see <see cref="Pipeline.IA2AOperationFilter"/>). Filters run in
     /// the order they are added, within their stage. <typeparamref name="T"/> is registered as a singleton unless it is already
     /// registered; one instance serves every call.
@@ -218,7 +238,9 @@ public sealed class A2AServerBuilder
     /// Adds an extension operation (see <see cref="Pipeline.A2AExtensionOperation"/>): the JSON-RPC method
     /// <paramref name="method"/> and the HTTP+JSON route <c>POST {pattern}/ext/{method}</c>. Calls run through the operation
     /// pipeline with <see cref="Pipeline.A2AOperationDescriptor.Extension"/>. The public Agent Card lists
-    /// <paramref name="extensionUri"/> in its capabilities. The gRPC binding serves them through <c>a2a.extensions.v1.A2AExtensionService</c> (<c>MapA2AGrpcExtensions</c>); its streaming RPC is not served.
+    /// <paramref name="extensionUri"/> in its capabilities. A call must send <paramref name="extensionUri"/> in <c>A2A-Extensions</c>; without it the call fails with
+    /// ExtensionSupportRequired. A host with its own <see cref="IAgentCardProvider"/> must list the URI in its card, or the operation cannot be activated.
+    /// The gRPC binding serves them through <c>a2a.extensions.v1.A2AExtensionService</c> (<c>MapA2AGrpcExtensions</c>); its streaming RPC is not served.
     /// </summary>
     /// <param name="method">The method name: letters, digits, <c>.</c>, <c>_</c> and <c>-</c>; not a built-in method name.</param>
     /// <param name="extensionUri">The absolute URI of the extension.</param>
@@ -226,7 +248,7 @@ public sealed class A2AServerBuilder
     /// <param name="authorizationPolicy">An ASP.NET Core authorization policy the HTTP bindings evaluate first (see <see cref="Pipeline.A2AExtensionOperation.AuthorizationPolicy"/>).</param>
     /// <param name="allow">True to let the default authorization handler allow the call (see <see cref="Pipeline.A2AExtensionOperation.Allow"/>).</param>
     /// <exception cref="ArgumentException">
-    /// The method name is not valid, is a built-in method, or is already registered (compared ignoring case, as HTTP routes are);
+    /// The method name is not valid, is reserved (a built-in method, or a name that starts with <c>rpc.</c>), or is already registered (compared ignoring case, as HTTP routes are);
     /// or the extension URI is not absolute.
     /// </exception>
     public A2AServerBuilder AddExtensionOperation(string method, string extensionUri,
@@ -243,6 +265,48 @@ public sealed class A2AServerBuilder
         }
         Services.AddSingleton(new Pipeline.A2AExtensionOperation(method, extensionUri, handler, authorizationPolicy, allow));
         return this;
+    }
+
+    /// <summary>
+    /// Adds an extension operation with typed params and result (see <see cref="AddExtensionOperation(string, string, Func{Pipeline.A2AOperationContext, JsonElement, CancellationToken, ValueTask{JsonElement}}, string?, bool)"/>).
+    /// The params are read with <paramref name="requestType"/> and the result is written with <paramref name="resultType"/>, so the
+    /// operation is safe for trimming and native AOT. Params that do not bind to <typeparamref name="TRequest"/>, or JSON <c>null</c>
+    /// (JSON-RPC reads <c>"params": null</c> as <c>{}</c>), fail with InvalidParams.
+    /// </summary>
+    /// <typeparam name="TRequest">The type of the request params.</typeparam>
+    /// <typeparam name="TResult">The type of the result.</typeparam>
+    /// <param name="method">The method name: letters, digits, <c>.</c>, <c>_</c> and <c>-</c>; not a reserved name.</param>
+    /// <param name="extensionUri">The absolute URI of the extension.</param>
+    /// <param name="requestType">The JSON type info used to read the params.</param>
+    /// <param name="resultType">The JSON type info used to write the result.</param>
+    /// <param name="handler">Runs the operation with the pipeline context and the typed request; returns the typed result.</param>
+    /// <param name="authorizationPolicy">An ASP.NET Core authorization policy the HTTP bindings evaluate first.</param>
+    /// <param name="allow">True to let the default authorization handler allow the call.</param>
+    /// <exception cref="ArgumentException">The method name or extension URI is not valid, or the method is already registered.</exception>
+    public A2AServerBuilder AddExtensionOperation<TRequest, TResult>(string method, string extensionUri,
+        System.Text.Json.Serialization.Metadata.JsonTypeInfo<TRequest> requestType,
+        System.Text.Json.Serialization.Metadata.JsonTypeInfo<TResult> resultType,
+        Func<Pipeline.A2AOperationContext, TRequest, CancellationToken, ValueTask<TResult>> handler,
+        string? authorizationPolicy = null, bool allow = false)
+    {
+        ArgumentNullException.ThrowIfNull(requestType);
+        ArgumentNullException.ThrowIfNull(resultType);
+        ArgumentNullException.ThrowIfNull(handler);
+        return AddExtensionOperation(method, extensionUri, async (context, parameters, ct) =>
+        {
+            TRequest? request;
+            try
+            {
+                request = parameters.Deserialize(requestType);
+            }
+            catch (JsonException e)
+            {
+                throw new A2AException(A2AErrorCode.InvalidParams, "The params do not match the operation's request type.", e);
+            }
+            if (request is null) throw new A2AException(A2AErrorCode.InvalidParams, "The params must not be null.");
+            var result = await handler(context, request, ct).ConfigureAwait(false);
+            return JsonSerializer.SerializeToElement(result, resultType);
+        }, authorizationPolicy, allow);
     }
 
     /// <summary>

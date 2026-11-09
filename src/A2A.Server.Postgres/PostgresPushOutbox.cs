@@ -89,9 +89,9 @@ public sealed class PostgresPushOutbox : PushOutbox, IPushOutboxStatistics
         if (max <= 0) return [];
         // The lease and due conditions are on o itself, so a row another leaser just took is re-checked after its lock (or
         // skipped while locked). NOT EXISTS keeps every entry queued behind a lower sequence of its task and config.
-        await using var cmd = _db.CreateCommand(
+        var picked =
             $"""
-            WITH picked AS (
+            picked AS (
                 SELECT o.tenant, o.owner, o.task_id, o.config_id, o.seq FROM {_outbox} o
                 WHERE o.due_ticks <= {DbClock.Now(1)} AND (o.lease_ticks IS NULL OR o.lease_ticks <= {DbClock.Now(1)})
                   AND NOT EXISTS (SELECT 1 FROM {_outbox} p
@@ -101,6 +101,51 @@ public sealed class PostgresPushOutbox : PushOutbox, IPushOutboxStatistics
                 LIMIT $3
                 FOR UPDATE OF o SKIP LOCKED
             )
+            """;
+        return await LeaseAsync(picked, max, lease, maxInFlightPerCaller: null, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public override async ValueTask<IReadOnlyList<OutboxEntry>> LeaseDueCappedAsync(int max, TimeSpan lease, int maxInFlightPerCaller, CancellationToken cancellationToken = default)
+    {
+        if (max <= 0) return [];
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxInFlightPerCaller, 1);
+        // Same rules as LeaseDueAsync, plus: an owner with maxInFlightPerCaller unexpired leases gets nothing more, and an
+        // owner gets only as many entries as it has free slots. The tenant is not part of the count.
+        var picked =
+            $"""
+            inflight AS (
+                SELECT owner, count(*) AS n FROM {_outbox} WHERE lease_ticks > {DbClock.Now(1)} GROUP BY owner
+            ), window_rows AS (
+                -- Saturated owners are left out before the LIMIT, so their backlog cannot fill the window.
+                SELECT o.tenant, o.owner, o.task_id, o.config_id, o.seq, o.due_ticks, COALESCE(i.n, 0) AS n
+                FROM {_outbox} o LEFT JOIN inflight i ON i.owner = o.owner
+                WHERE o.due_ticks <= {DbClock.Now(1)} AND (o.lease_ticks IS NULL OR o.lease_ticks <= {DbClock.Now(1)})
+                  AND COALESCE(i.n, 0) < $5
+                  AND NOT EXISTS (SELECT 1 FROM {_outbox} p
+                                  WHERE p.tenant = o.tenant AND p.owner = o.owner AND p.task_id = o.task_id
+                                    AND p.config_id = o.config_id AND p.seq < o.seq)
+                ORDER BY o.due_ticks, o.seq
+                LIMIT $3 * 8
+            ), ranked AS (
+                SELECT w.*, n + row_number() OVER (PARTITION BY w.owner ORDER BY w.due_ticks, w.seq) AS slot FROM window_rows w
+            ), picked AS (
+                SELECT o.tenant, o.owner, o.task_id, o.config_id, o.seq
+                FROM {_outbox} o JOIN ranked r ON o.tenant = r.tenant AND o.owner = r.owner AND o.task_id = r.task_id AND o.config_id = r.config_id AND o.seq = r.seq
+                WHERE r.slot <= $5 AND o.due_ticks <= {DbClock.Now(1)} AND (o.lease_ticks IS NULL OR o.lease_ticks <= {DbClock.Now(1)})
+                ORDER BY r.due_ticks, r.seq
+                LIMIT $3
+                FOR UPDATE OF o SKIP LOCKED
+            )
+            """;
+        return await LeaseAsync(picked, max, lease, maxInFlightPerCaller, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<IReadOnlyList<OutboxEntry>> LeaseAsync(string pickedCtes, int max, TimeSpan lease, int? maxInFlightPerCaller, CancellationToken cancellationToken)
+    {
+        await using var cmd = _db.CreateCommand(
+            $"""
+            WITH {pickedCtes}
             UPDATE {_outbox} o SET lease_ticks = {DbClock.Now(1)} + $2, lease_token = $4 FROM picked p
             WHERE o.tenant = p.tenant AND o.owner = p.owner AND o.task_id = p.task_id AND o.config_id = p.config_id AND o.seq = p.seq
             RETURNING o.tenant, o.owner, o.task_id, o.config_id, o.seq, o.delivery_id, o.trace_parent, o.attempt, o.payload, o.due_ticks, o.last_error, o.lease_token,
@@ -110,6 +155,7 @@ public sealed class PostgresPushOutbox : PushOutbox, IPushOutboxStatistics
         cmd.Parameters.Add(Span(lease));
         cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = max });
         cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = Guid.NewGuid() });
+        if (maxInFlightPerCaller is { } cap) cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = cap });
         var list = new List<OutboxEntry>();
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) list.Add(ReadEntry(reader));

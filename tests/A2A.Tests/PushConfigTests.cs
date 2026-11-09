@@ -2,6 +2,7 @@ using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Push;
 using A2A.Server.Storage;
+using A2A.Validation;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.Tests;
@@ -236,6 +237,87 @@ public class PushConfigTests : IAsyncLifetime
     }
 
     /// <summary>A store whose count and lookups are stale (a concurrent saver took the last slot): only the atomic save can hold the limit.</summary>
+    private static TaskPushNotificationConfig WithId(string? id) => new() { TaskId = "t1", Id = id, Url = "https://hooks.example/cb" };
+
+    [Theory]
+    [InlineData("a\rb")]
+    [InlineData("a\nb")]
+    [InlineData("a\r\nb")]
+    [InlineData("a\0b")]
+    [InlineData("a\u2028b")]
+    [InlineData("caf\u00e9")]
+    [InlineData("a b")]
+    [InlineData(" ")]
+    [InlineData("a\u007Fb")]
+    public void Config_id_with_other_than_visible_ascii_is_rejected(string id)
+    {
+        var ex = Assert.Throws<A2AException>(() => A2AValidator.ValidatePushConfig(WithId(id), "config", requireTaskId: true));
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        Assert.Equal("config.id must be at most 256 visible ASCII characters", ex.Message); // the value is never echoed
+    }
+
+    [Fact]
+    public void Config_id_longer_than_256_is_rejected_and_256_is_accepted()
+    {
+        A2AValidator.ValidatePushConfig(WithId(new string('a', A2AValidator.MaxPushConfigIdLength)), "config", requireTaskId: true);
+        var ex = Assert.Throws<A2AException>(() => A2AValidator.ValidatePushConfig(WithId(new string('a', 257)), "config", requireTaskId: true));
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("!~")]
+    [InlineData("cfg-1_A.b:c/d")]
+    public void Config_id_that_is_absent_or_visible_ascii_is_accepted(string? id) =>
+        A2AValidator.ValidatePushConfig(WithId(id), "config", requireTaskId: true);
+
+    [Fact]
+    public void Inline_config_id_is_checked_by_the_incoming_validation()
+    {
+        var request = new SendMessageRequest
+        {
+            Message = Message.FromUser("hi"),
+            Configuration = new SendMessageConfiguration { TaskPushNotificationConfig = new TaskPushNotificationConfig { Url = "https://hooks.example/cb", Id = "a\r\nb" } },
+        };
+        var ex = Assert.Throws<A2AException>(() => A2AValidator.ValidateIncoming(request));
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        Assert.StartsWith("configuration.taskPushNotificationConfig.id", ex.Message);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Create_with_a_config_id_that_has_a_line_break_is_rejected_and_stores_nothing(string binding)
+    {
+        var client = _host.Client(binding, "alice");
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.CreateTaskPushNotificationConfigAsync(Secret(task.Id, "a\r\nb")));
+
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        Assert.Empty((await client.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest { TaskId = task.Id })).Configs);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Send_and_stream_with_an_inline_config_id_that_has_a_line_break_are_rejected(string binding)
+    {
+        var client = _host.Client(binding, "alice");
+        var configuration = new SendMessageConfiguration
+        {
+            TaskPushNotificationConfig = new TaskPushNotificationConfig { Url = "https://hooks.example/cb", Id = "a\r\nb" },
+        };
+
+        var send = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Message.FromUser("input"), configuration));
+        Assert.Equal(A2AErrorCode.InvalidParams, send.Code);
+
+        var stream = await Assert.ThrowsAsync<A2AException>(async () =>
+        {
+            await foreach (var _ in client.SendStreamingMessageAsync(Message.FromUser("input"), configuration)) { }
+        });
+        Assert.Equal(A2AErrorCode.InvalidParams, stream.Code);
+    }
+
     private sealed class StaleCountPushConfigStore : PushConfigStore
     {
         private readonly InMemoryPushConfigStore _inner = new();

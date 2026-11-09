@@ -23,6 +23,10 @@ builder.Services.AddA2ADataProtectionPushSecrets();  // from A2A.Server.AspNetCo
 - A coordinator you register yourself (for example Redis's) is never replaced by this default, in any registration order.
 - Lease expiry uses the database clock.
 
+## Audit sink
+
+`AddPostgresAuditSink(connectionString | NpgsqlDataSource)` writes the server's audit trail to the append-only table `a2a_audit_log` instead of the log (`PostgresAuditSink`). It works with or without the stores, and creates the table at startup unless `CreateSchemaOnStartup = false`. If you manage the schema yourself, the app needs only `INSERT` on that table. The SDK never deletes audit rows; keep or archive them as your rules say.
+
 ## Schema
 
 The schema is kept by numbered migrations (`Migrations/NNNN_name.sql`, version in `a2a_schema_version`). At startup a hosted service applies the missing ones in one transaction, under an advisory lock, so many instances can start at once. An up-to-date database is not touched.
@@ -40,6 +44,7 @@ To manage the schema yourself, set `CreateSchemaOnStartup = false`. The app then
 | `a2a_idempotency` | `(tenant, principal, key)` | Request hash, running claim, outcome and expiry. |
 | `a2a_execution_leases` | `(tenant, owner, task_id, execution_id)` | One lease per running execution (`expiry_ticks`), for `PostgresExecutionCoordinator`. Index on `expiry_ticks`. |
 | `a2a_sweep_leases` | `name` | Named cluster-wide leases of periodic jobs (the retention sweep). |
+| `a2a_audit_log` | `seq` | The audit trail, one row per event (ids, action, outcome, actor, tenant, reason; never content). Indexes on tenant and time, task, and actor. |
 | `a2a_cancel_requests` | `id` | Cancel requests between instances, with the sender's origin id. Old rows are deleted by the next request. |
 
 Times are UTC ticks (`bigint`), JSON is `text`, and keys use the `"C"` collation, so values round-trip exactly and sort like the in-memory stores.

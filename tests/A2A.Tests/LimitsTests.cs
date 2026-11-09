@@ -268,6 +268,7 @@ public class LimitsTests
                 ? new HttpRequestMessage(HttpMethod.Post, "/a2a") { Content = new StringContent($$"""{"jsonrpc":"2.0","id":1,"method":"x.keep","params":{{json}}}""", Encoding.UTF8, "application/json") }
                 : new HttpRequestMessage(HttpMethod.Post, "/a2a/ext/x.keep") { Content = new StringContent(json, Encoding.UTF8, "application/json") };
             req.Headers.Add(A2AProtocol.Headers.Version, A2AProtocol.Version);
+            req.Headers.Add(A2AProtocol.Headers.Extensions, "urn:test:x-keep");
             req.Headers.Add("X-Test-User", "alice");
             return req;
         }

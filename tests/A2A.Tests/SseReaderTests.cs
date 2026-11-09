@@ -91,6 +91,121 @@ public class SseReaderTests
         Assert.True(stream.Disposed);
     }
 
+    private static async Task<List<SseEvent>> Read(string text, int maxEventBytes, int chunk)
+    {
+        var events = new List<SseEvent>();
+        await foreach (var e in SseReader.ReadAsync(new ChunkedStream(Encoding.UTF8.GetBytes(text), chunk), maxEventBytes, CancellationToken.None)) events.Add(e);
+        return events;
+    }
+
+    private static async Task<A2AException> TooLarge(Func<Task> read)
+    {
+        var ex = await Assert.ThrowsAsync<A2AException>(read);
+        Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
+        Assert.DoesNotContain("SECRET", ex.Message); // never echoes stream data
+        return ex;
+    }
+
+    [Fact]
+    public void Default_limit_is_16_MiB() => Assert.Equal(16 * 1024 * 1024, SseReader.DefaultMaxEventBytes);
+
+    [Fact]
+    public void Limit_below_one_is_refused_by_the_call()
+    {
+        var stream = new ChunkedStream([], int.MaxValue);
+        Assert.Throws<ArgumentOutOfRangeException>(() => SseReader.ReadAsync(stream, 0, CancellationToken.None));
+    }
+
+    [Theory]
+    [MemberData(nameof(Chunks))]
+    public async Task Event_of_exactly_the_limit_is_delivered(int chunk)
+    {
+        var events = await Read($"data: {new string('x', 1000)}\n\n", 1000, chunk);
+        Assert.Equal(1000, Assert.Single(events).Data.Length);
+    }
+
+    [Theory]
+    [MemberData(nameof(Chunks))]
+    public async Task Event_one_byte_over_the_limit_is_refused(int chunk)
+    {
+        var text = $"data: {new string('x', 1001)}\n\n";
+        var ex = await TooLarge(() => Read(text, 1000, chunk));
+        Assert.Contains("1000", ex.Message);
+    }
+
+    [Fact]
+    public async Task Joined_lines_count_with_their_newline()
+    {
+        Assert.Equal("aaaa\nbbbb", Assert.Single(await Read("data: aaaa\ndata: bbbb\n\n", 9, int.MaxValue)).Data);
+        await TooLarge(() => Read("data: aaaa\ndata: bbbb\n\n", 8, int.MaxValue));
+    }
+
+    [Fact]
+    public async Task Endless_line_without_a_newline_is_refused_after_a_bounded_read()
+    {
+        const int limit = 64 * 1024;
+        var stream = new EndlessStream("data: SECRET"u8.ToArray(), 4096);
+        await TooLarge(async () =>
+        {
+            await foreach (var _ in SseReader.ReadAsync(stream, limit, CancellationToken.None)) { }
+        });
+        Assert.True(stream.BytesRead > limit, $"read only {stream.BytesRead}");
+        Assert.True(stream.BytesRead <= (2L * limit) + 4096, $"read {stream.BytesRead} bytes");
+        Assert.True(stream.Disposed);
+    }
+
+    [Fact]
+    public async Task Many_short_data_lines_without_a_blank_line_are_refused()
+    {
+        var text = string.Concat(Enumerable.Repeat("data: SECRET\n", 10_000));
+        await TooLarge(() => Read(text, 1000, 4096));
+    }
+
+    [Fact]
+    public async Task Many_comment_lines_do_not_add_up()
+    {
+        var text = string.Concat(Enumerable.Repeat(": keep-alive\n", 20_000)) + "data: ok\n\n";
+        Assert.Equal("ok", Assert.Single(await Read(text, 1000, 4096)).Data);
+    }
+
+    [Fact]
+    public async Task The_count_starts_again_with_each_event()
+    {
+        var one = $"data: {new string('x', 60)}\n\n";
+        var events = await Read(one + one, 100, 7);
+        Assert.Equal(2, events.Count); // 120 bytes together, over the limit of 100, but each event is under it
+    }
+
+    /// <summary>A stream that returns <c>head</c> and then the same byte forever, <c>chunk</c> bytes at most per read.</summary>
+    private sealed class EndlessStream(byte[] head, int chunk) : Stream
+    {
+        private long _position;
+        public long BytesRead => Volatile.Read(ref _position);
+        public bool Disposed { get; private set; }
+        public override bool CanRead => !Disposed;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+        public override int Read(Span<byte> buffer)
+        {
+            var n = Math.Min(buffer.Length, chunk);
+            for (var i = 0; i < n; i++) buffer[i] = _position + i < head.Length ? head[_position + i] : (byte)'x';
+            _position += n;
+            return n;
+        }
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(Read(buffer.Span));
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            Task.FromResult(Read(buffer.AsSpan(offset, count)));
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing) { Disposed = true; base.Dispose(disposing); }
+    }
+
     /// <summary>A read-only stream that returns at most <c>chunk</c> bytes per read.</summary>
     private sealed class ChunkedStream(byte[] data, int chunk) : Stream
     {
