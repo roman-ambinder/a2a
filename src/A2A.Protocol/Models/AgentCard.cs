@@ -99,6 +99,8 @@ public sealed class AgentCapabilities
     public List<AgentExtension>? Extensions { get; set; }
     /// <summary>True if the agent serves an extended card to authenticated callers. Null means not stated.</summary>
     public bool? ExtendedAgentCard { get; set; }
+    /// <summary>A2A 1.1: true if the agent accepts artifacts written by the client (<see cref="SendMessageRequest.ArtifactUpdates"/>). Null means not stated.</summary>
+    public bool? UserArtifacts { get; set; }
 }
 
 /// <summary>A protocol extension the agent supports (spec §4.4.4).</summary>

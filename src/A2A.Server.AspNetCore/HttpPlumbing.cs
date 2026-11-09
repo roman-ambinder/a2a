@@ -312,6 +312,7 @@ internal static partial class HttpPlumbing
             TaskEvent t => t.Task.Id,
             StatusUpdateEvent s => s.StatusUpdate.TaskId,
             ArtifactUpdateEvent a => a.ArtifactUpdate.TaskId,
+            MessageUpdateEvent u => u.MessageUpdate.TaskId,
             _ => null,
         };
         return string.IsNullOrEmpty(taskId) ? null : taskId;

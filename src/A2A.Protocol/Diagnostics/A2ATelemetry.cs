@@ -246,6 +246,8 @@ public static class A2ATelemetry
         MessageEvent => "message",
         StatusUpdateEvent => "status_update",
         ArtifactUpdateEvent => "artifact_update",
+        MessageUpdateEvent => "message_update",
+        StreamErrorEvent => "stream_error",
         _ => "unknown",
     };
 

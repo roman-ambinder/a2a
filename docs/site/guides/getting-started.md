@@ -1,6 +1,6 @@
 # Getting started
 
-This guide shows how to host an agent and how to call one. It takes about five minutes. The SDK targets .NET 8 and .NET 10. The protocol and client packages also target netstandard2.0.
+This guide shows how to host an agent and how to call one. It takes about five minutes. The SDK targets .NET 10. The protocol and client packages also target netstandard2.0.
 
 ## Install
 

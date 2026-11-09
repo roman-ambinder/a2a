@@ -1,6 +1,119 @@
 #nullable enable
+A2A.A2AErrorCode.TaskGenerationMismatch = -32010 -> A2A.A2AErrorCode
+A2A.AgentCapabilities.UserArtifacts.get -> bool?
+A2A.AgentCapabilities.UserArtifacts.set -> void
+A2A.AgentTask.Generation.get -> long?
+A2A.AgentTask.Generation.set -> void
+A2A.AgentTask.Timeline.get -> System.Collections.Generic.List<A2A.TimelineEntry!>?
+A2A.AgentTask.Timeline.set -> void
+A2A.Artifact.EndGeneration.get -> long?
+A2A.Artifact.EndGeneration.set -> void
+A2A.Artifact.Role.get -> A2A.Role?
+A2A.Artifact.Role.set -> void
+A2A.Artifact.StartGeneration.get -> long?
+A2A.Artifact.StartGeneration.set -> void
 A2A.Diagnostics.A2ATelemetry.SecurityEventNames
+A2A.GetTaskRequest.CurrentGeneration.get -> long?
+A2A.GetTaskRequest.CurrentGeneration.set -> void
+A2A.GetTaskRequest.TimelineLength.get -> int?
+A2A.GetTaskRequest.TimelineLength.set -> void
+A2A.Json.ProtoInt64Converter
+A2A.Json.ProtoInt64Converter.ProtoInt64Converter() -> void
+A2A.Json.ProtoNullableInt64Converter
+A2A.Json.ProtoNullableInt64Converter.ProtoNullableInt64Converter() -> void
+A2A.ListTasksRequest.TimelineLength.get -> int?
+A2A.ListTasksRequest.TimelineLength.set -> void
+A2A.SendMessageConfiguration.IfGenerationMatch.get -> long?
+A2A.SendMessageConfiguration.IfGenerationMatch.set -> void
+A2A.SendMessageConfiguration.TimelineLength.get -> int?
+A2A.SendMessageConfiguration.TimelineLength.set -> void
+A2A.SendMessageRequest.ArtifactUpdates.get -> System.Collections.Generic.List<A2A.TaskArtifactUpdateEvent!>?
+A2A.SendMessageRequest.ArtifactUpdates.set -> void
+A2A.SubscribeToTaskRequest.LastSeenGeneration.get -> long?
+A2A.SubscribeToTaskRequest.LastSeenGeneration.set -> void
+A2A.TaskArtifactUpdateEvent.Generation.get -> long?
+A2A.TaskArtifactUpdateEvent.Generation.set -> void
+A2A.TaskPushNotificationConfig.ProtocolVersion.get -> string?
+A2A.TaskPushNotificationConfig.ProtocolVersion.set -> void
+A2A.TaskStatusUpdateEvent.Generation.get -> long?
+A2A.TaskStatusUpdateEvent.Generation.set -> void
 [A2AEXP001]A2A.Skills.TypedSkillExtension
+[A2AEXP001]const A2A.Skills.TypedSkillExtension.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/typed-skills/v1" -> string!
+[A2AEXP001]const A2A.Skills.TypedSkillExtension.InputSchemaKey = "inputSchema" -> string!
+[A2AEXP001]const A2A.Skills.TypedSkillExtension.OutputSchemaKey = "outputSchema" -> string!
+[A2AEXP001]const A2A.Skills.TypedSkillExtension.SkillsParam = "skills" -> string!
+[A2AEXP001]static A2A.Skills.TypedSkillExtension.TryGetSchemas(A2A.AgentCard! card, string! skillId, out System.Text.Json.JsonElement inputSchema, out System.Text.Json.JsonElement outputSchema) -> bool
+[A2AEXP005]A2A.MessageUpdateEvent
+[A2AEXP005]A2A.MessageUpdateEvent.Deconstruct(out A2A.TaskMessageUpdateEvent! MessageUpdate) -> void
+[A2AEXP005]A2A.MessageUpdateEvent.Equals(A2A.MessageUpdateEvent? other) -> bool
+[A2AEXP005]A2A.MessageUpdateEvent.MessageUpdate.get -> A2A.TaskMessageUpdateEvent!
+[A2AEXP005]A2A.MessageUpdateEvent.MessageUpdate.init -> void
+[A2AEXP005]A2A.MessageUpdateEvent.MessageUpdateEvent(A2A.TaskMessageUpdateEvent! MessageUpdate) -> void
+[A2AEXP005]A2A.StreamError
+[A2AEXP005]A2A.StreamError.Code.get -> string!
+[A2AEXP005]A2A.StreamError.Code.set -> void
+[A2AEXP005]A2A.StreamError.Message.get -> string?
+[A2AEXP005]A2A.StreamError.Message.set -> void
+[A2AEXP005]A2A.StreamError.Metadata.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+[A2AEXP005]A2A.StreamError.Metadata.set -> void
+[A2AEXP005]A2A.StreamError.ReferenceId.get -> string?
+[A2AEXP005]A2A.StreamError.ReferenceId.set -> void
+[A2AEXP005]A2A.StreamError.StreamError() -> void
+[A2AEXP005]A2A.StreamError.TaskId.get -> string?
+[A2AEXP005]A2A.StreamError.TaskId.set -> void
+[A2AEXP005]A2A.StreamErrorEvent
+[A2AEXP005]A2A.StreamErrorEvent.Deconstruct(out A2A.StreamError! Error) -> void
+[A2AEXP005]A2A.StreamErrorEvent.Equals(A2A.StreamErrorEvent? other) -> bool
+[A2AEXP005]A2A.StreamErrorEvent.Error.get -> A2A.StreamError!
+[A2AEXP005]A2A.StreamErrorEvent.Error.init -> void
+[A2AEXP005]A2A.StreamErrorEvent.StreamErrorEvent(A2A.StreamError! Error) -> void
+[A2AEXP005]A2A.StreamRequest
+[A2AEXP005]A2A.StreamRequest.IsUnknownKind.get -> bool
+[A2AEXP005]A2A.StreamRequest.SendMessage.get -> A2A.SendMessageRequest?
+[A2AEXP005]A2A.StreamRequest.SendMessage.set -> void
+[A2AEXP005]A2A.StreamRequest.StreamRequest() -> void
+[A2AEXP005]A2A.StreamRequest.Subscribe.get -> A2A.SubscribeToTaskRequest?
+[A2AEXP005]A2A.StreamRequest.Subscribe.set -> void
+[A2AEXP005]A2A.StreamRequest.Tenant.get -> string?
+[A2AEXP005]A2A.StreamRequest.Tenant.set -> void
+[A2AEXP005]A2A.TaskMessageUpdateEvent
+[A2AEXP005]A2A.TaskMessageUpdateEvent.ContextId.get -> string!
+[A2AEXP005]A2A.TaskMessageUpdateEvent.ContextId.set -> void
+[A2AEXP005]A2A.TaskMessageUpdateEvent.Generation.get -> long?
+[A2AEXP005]A2A.TaskMessageUpdateEvent.Generation.set -> void
+[A2AEXP005]A2A.TaskMessageUpdateEvent.Message.get -> A2A.Message!
+[A2AEXP005]A2A.TaskMessageUpdateEvent.Message.set -> void
+[A2AEXP005]A2A.TaskMessageUpdateEvent.Metadata.get -> System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>?
+[A2AEXP005]A2A.TaskMessageUpdateEvent.Metadata.set -> void
+[A2AEXP005]A2A.TaskMessageUpdateEvent.TaskId.get -> string!
+[A2AEXP005]A2A.TaskMessageUpdateEvent.TaskId.set -> void
+[A2AEXP005]A2A.TaskMessageUpdateEvent.TaskMessageUpdateEvent() -> void
+[A2AEXP005]A2A.TimelineEntry
+[A2AEXP005]A2A.TimelineEntry.Generation.get -> long
+[A2AEXP005]A2A.TimelineEntry.Generation.set -> void
+[A2AEXP005]A2A.TimelineEntry.IsUnknownKind.get -> bool
+[A2AEXP005]A2A.TimelineEntry.Message.get -> A2A.Message?
+[A2AEXP005]A2A.TimelineEntry.Message.set -> void
+[A2AEXP005]A2A.TimelineEntry.Status.get -> A2A.AgentTaskStatus?
+[A2AEXP005]A2A.TimelineEntry.Status.set -> void
+[A2AEXP005]A2A.TimelineEntry.TimelineEntry() -> void
+[A2AEXP005]override A2A.MessageUpdateEvent.<Clone>$() -> A2A.MessageUpdateEvent!
+[A2AEXP005]override A2A.MessageUpdateEvent.Equals(object? obj) -> bool
+[A2AEXP005]override A2A.MessageUpdateEvent.GetHashCode() -> int
+[A2AEXP005]override A2A.MessageUpdateEvent.ToString() -> string!
+[A2AEXP005]override A2A.StreamErrorEvent.<Clone>$() -> A2A.StreamErrorEvent!
+[A2AEXP005]override A2A.StreamErrorEvent.Equals(object? obj) -> bool
+[A2AEXP005]override A2A.StreamErrorEvent.GetHashCode() -> int
+[A2AEXP005]override A2A.StreamErrorEvent.ToString() -> string!
+[A2AEXP005]override sealed A2A.MessageUpdateEvent.Equals(A2A.StreamResponse? other) -> bool
+[A2AEXP005]override sealed A2A.StreamErrorEvent.Equals(A2A.StreamResponse? other) -> bool
+[A2AEXP005]static A2A.MessageUpdateEvent.operator !=(A2A.MessageUpdateEvent? left, A2A.MessageUpdateEvent? right) -> bool
+[A2AEXP005]static A2A.MessageUpdateEvent.operator ==(A2A.MessageUpdateEvent? left, A2A.MessageUpdateEvent? right) -> bool
+[A2AEXP005]static A2A.StreamErrorEvent.operator !=(A2A.StreamErrorEvent? left, A2A.StreamErrorEvent? right) -> bool
+[A2AEXP005]static A2A.StreamErrorEvent.operator ==(A2A.StreamErrorEvent? left, A2A.StreamErrorEvent? right) -> bool
+[A2AEXP005]static A2A.TimelineEntry.FromMessage(A2A.Message! message, long generation) -> A2A.TimelineEntry!
+[A2AEXP005]static A2A.TimelineEntry.FromStatus(A2A.AgentTaskStatus! status, long generation) -> A2A.TimelineEntry!
+const A2A.A2AProtocol.AgentCardMediaType = "application/a2a-agent-card+json" -> string!
 const A2A.Diagnostics.A2ATelemetry.Metrics.SecurityEvents = "a2a.server.security.events" -> string!
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.ContextDenied = "context_denied" -> string!
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.IdempotencyKeyMismatch = "idempotency_key_mismatch" -> string!
@@ -8,11 +121,12 @@ const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.PermissionDenied = "permis
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.Unauthenticated = "unauthenticated" -> string!
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.WebhookRefused = "webhook_refused" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.SecurityEvent = "a2a.security.event" -> string!
-[A2AEXP001]const A2A.Skills.TypedSkillExtension.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/typed-skills/v1" -> string!
-[A2AEXP001]const A2A.Skills.TypedSkillExtension.InputSchemaKey = "inputSchema" -> string!
-[A2AEXP001]const A2A.Skills.TypedSkillExtension.OutputSchemaKey = "outputSchema" -> string!
-[A2AEXP001]const A2A.Skills.TypedSkillExtension.SkillsParam = "skills" -> string!
 const A2A.Validation.A2AValidator.MaxPushConfigIdLength = 256 -> int
+override A2A.Json.ProtoInt64Converter.Read(ref System.Text.Json.Utf8JsonReader reader, System.Type! typeToConvert, System.Text.Json.JsonSerializerOptions! options) -> long
+override A2A.Json.ProtoInt64Converter.Write(System.Text.Json.Utf8JsonWriter! writer, long value, System.Text.Json.JsonSerializerOptions! options) -> void
+override A2A.Json.ProtoNullableInt64Converter.Read(ref System.Text.Json.Utf8JsonReader reader, System.Type! typeToConvert, System.Text.Json.JsonSerializerOptions! options) -> long?
+override A2A.Json.ProtoNullableInt64Converter.Write(System.Text.Json.Utf8JsonWriter! writer, long? value, System.Text.Json.JsonSerializerOptions! options) -> void
 static A2A.A2AProtocol.Methods.IsReserved(string! method) -> bool
-[A2AEXP001]static A2A.Skills.TypedSkillExtension.TryGetSchemas(A2A.AgentCard! card, string! skillId, out System.Text.Json.JsonElement inputSchema, out System.Text.Json.JsonElement outputSchema) -> bool
 static A2A.JsonRpc.JsonRpcWriter.SuccessPrefix(System.Text.Json.JsonElement? id) -> byte[]!
+static A2A.StreamResponse.Of(A2A.StreamError! e) -> A2A.StreamErrorEvent!
+static A2A.StreamResponse.Of(A2A.TaskMessageUpdateEvent! e) -> A2A.MessageUpdateEvent!

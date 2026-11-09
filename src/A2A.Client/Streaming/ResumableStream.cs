@@ -219,6 +219,7 @@ internal static class ResumableStream
             StatusUpdateEvent s => s.StatusUpdate.TaskId,
             ArtifactUpdateEvent a => a.ArtifactUpdate.TaskId,
             MessageEvent m => m.Message.TaskId,
+            MessageUpdateEvent u => u.MessageUpdate.TaskId,
             _ => null,
         };
         return string.IsNullOrEmpty(id) ? null : id;

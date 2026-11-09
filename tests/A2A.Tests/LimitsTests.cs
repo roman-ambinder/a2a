@@ -536,20 +536,36 @@ public class LimitsTests
         }
     }
 
-    [Fact]
-    public void Net8_duplicate_checker_detects_duplicates()
+    /// <summary>
+    /// Reference checker for <see cref="Single_pass_check_agrees_with_the_duplicate_checker"/>: true when any JSON object repeats
+    /// a property name (compared after unescaping, case sensitive).
+    /// </summary>
+    private static bool ContainsDuplicateProperties(ReadOnlySpan<byte> json, int maxDepth)
     {
-        static bool Check(string json) => HttpPlumbing.ContainsDuplicateProperties(Encoding.UTF8.GetBytes(json), 32);
-
-        Assert.True(Check("{\"a\":1,\"a\":2}"));
-        Assert.True(Check("{\"x\":{\"a\":1,\"a\":2}}"));
-        Assert.True(Check("{\"a\":1,\"\\u0061\":2}"));          // escaped spelling of the same name
-        Assert.True(Check("[{\"b\":[{\"c\":1,\"c\":2}]}]"));
-        Assert.False(Check("{\"a\":1,\"b\":{\"a\":2}}"));        // same name at another level
-        Assert.False(Check("[{\"a\":1},{\"a\":2}]"));            // same name in sibling objects
-        Assert.False(Check("{\"a\":1,\"A\":2}"));                // names are case sensitive
-        Assert.False(Check("{}"));
+        var reader = new Utf8JsonReader(json, new JsonReaderOptions { MaxDepth = maxDepth });
+        var scopes = new Stack<HashSet<string>?>(); // one entry per open container; null for arrays
+        while (reader.Read())
+        {
+            switch (reader.TokenType)
+            {
+                case JsonTokenType.StartObject:
+                    scopes.Push(new HashSet<string>(StringComparer.Ordinal));
+                    break;
+                case JsonTokenType.StartArray:
+                    scopes.Push(null);
+                    break;
+                case JsonTokenType.EndObject:
+                case JsonTokenType.EndArray:
+                    scopes.Pop();
+                    break;
+                case JsonTokenType.PropertyName:
+                    if (!scopes.Peek()!.Add(reader.GetString()!)) return true;
+                    break;
+            }
+        }
+        return false;
     }
+
 
     [Fact]
     public void Single_pass_check_agrees_with_the_duplicate_checker()
@@ -568,7 +584,7 @@ public class LimitsTests
         foreach (var json in inputs)
         {
             var bytes = Encoding.UTF8.GetBytes(json);
-            var duplicate = HttpPlumbing.ContainsDuplicateProperties(bytes, 32);
+            var duplicate = ContainsDuplicateProperties(bytes, 32);
             if (duplicate)
             {
                 var ex = Assert.Throws<A2AException>(() => HttpPlumbing.CheckDepthAndDuplicates(bytes, 32));
@@ -580,13 +596,6 @@ public class LimitsTests
                 Assert.Equal(json, Encoding.UTF8.GetString(Encoding.UTF8.GetBytes("  \n" + json + " \r\n")[root]));
             }
         }
-    }
-
-    [Fact]
-    public void Net8_duplicate_checker_enforces_depth()
-    {
-        Assert.ThrowsAny<JsonException>(() => HttpPlumbing.ContainsDuplicateProperties(Encoding.UTF8.GetBytes(Deep(40)), 32));
-        Assert.False(HttpPlumbing.ContainsDuplicateProperties(Encoding.UTF8.GetBytes(Deep(10)), 32));
     }
 
     // ---- history cap ----

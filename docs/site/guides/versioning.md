@@ -28,6 +28,7 @@ Some APIs follow a contract that is not settled yet. They carry `[Experimental]`
 | `A2AEXP002` | Actor chain | Wire shape is in an open issue: [A2A#2028](https://github.com/a2aproject/A2A/issues/2028) |
 | `A2AEXP003` | Artifact integrity hash | Open issue: [A2A#1140](https://github.com/a2aproject/A2A/issues/1140) |
 | `A2AEXP004` | gRPC extension service | The wire shape is not in the A2A spec |
+| `A2AEXP005` | A2A 1.1 | The 1.1 spec is a release candidate (`v1.1.0-rc`) |
 
 To opt in, add the ID to your project file:
 
@@ -56,6 +57,13 @@ Typed skills use the same ID: `TypedSkillExtension`, `A2AClient.CallSkillAsync`,
 ### A2AEXP004
 
 `A2AGrpcExtensionService` and `A2AGrpcExtensions.MapA2AGrpcExtensions`. See [Bindings](bindings.md#map-grpc).
+
+### A2AEXP005
+
+The types A2A 1.1 adds: `TimelineEntry`, `TaskMessageUpdateEvent`, `StreamError`, `StreamRequest`, `MessageUpdateEvent` and
+`StreamErrorEvent`. The 1.1 fields on existing types (for example `AgentTask.Generation`, `AgentTask.Timeline`,
+`SendMessageConfiguration.IfGenerationMatch`) are not marked, because the attribute cannot be put on properties for
+netstandard2.0, but they follow the same rule: they can change until 1.1 is final.
 
 ## How a release works
 

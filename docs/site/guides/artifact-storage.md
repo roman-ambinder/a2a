@@ -112,7 +112,7 @@ Verify both. The artifact hash tells you the link was not changed. The part hash
 
 [!code-csharp[](../snippets/ArtifactStorage.cs#Download)]
 
-<xref:A2A.Client.A2AArtifactDownloader> is for .NET 8 and later. `IA2AClient` does not change.
+<xref:A2A.Client.A2AArtifactDownloader> is for .NET 10 (not netstandard2.0). `IA2AClient` does not change.
 
 - It takes the **handler** that adds your A2A credentials, not an `HttpClient`. That handler must not follow redirects. The constructor throws `ArgumentException` for a `SocketsHttpHandler` or `HttpClientHandler` that does, also nested under a `DelegatingHandler`. It cannot see inside a handler of another type. Such a handler must not follow redirects either. As a backstop, a response that shows a followed redirect throws `InvalidOperationException`. The handler is not disposed.
 - A URL on any other origin than the agent's throws `InvalidOperationException`, and no request is sent. The class never sends credentials to another origin.
@@ -200,7 +200,7 @@ The link is `{base}/uploads/{tenant}/{objectId}`. It holds no secret and no owne
 
 [!code-csharp[](../snippets/ArtifactStorage.cs#UploadFile)]
 
-<xref:A2A.Client.A2AFileUploader> is for .NET 8 and later, like the downloader.
+<xref:A2A.Client.A2AFileUploader> is for .NET 10, like the downloader.
 
 - It takes the **handler** that adds your A2A credentials, and refuses one that follows redirects, for the same reason as the downloader.
 - It hashes the bytes while it sends them. It throws `InvalidDataException` when the `sha256` or `sizeBytes` in the answer is missing or differs.

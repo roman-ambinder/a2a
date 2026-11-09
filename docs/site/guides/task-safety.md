@@ -115,13 +115,13 @@ A card chooses the URL the client calls. A card served from the internet can nam
 
 | Policy | Allows |
 |---|---|
-| <xref:A2A.Client.AgentEndpointPolicies.MatchCardNetwork> (default on .NET 8+) | Anything for a card the caller supplied. A private endpoint when the card's host resolves only to private addresses. Otherwise public endpoints only. Whoever controls the card host's DNS also controls this answer, so prefer `PublicOnly` for cards from the internet. |
+| <xref:A2A.Client.AgentEndpointPolicies.MatchCardNetwork> (default on .NET 10) | Anything for a card the caller supplied. A private endpoint when the card's host resolves only to private addresses. Otherwise public endpoints only. Whoever controls the card host's DNS also controls this answer, so prefer `PublicOnly` for cards from the internet. |
 | <xref:A2A.Client.AgentEndpointPolicies.PublicOnly*> | Public endpoints only, plus the networks you pass in. |
 | <xref:A2A.Client.AgentEndpointPolicies.AllowAll> or `null` | Everything. No DNS lookup is made. |
 
 A custom policy is a `Func<AgentEndpointCheck, bool>`. It gets the endpoint, the binding, the card source and the addresses of both hosts. The presets allow a host that did not resolve (the connection fails anyway, or a proxy resolves it) and refuse an endpoint with no host, such as a URL that parses to nothing. A bare gRPC `host:port` is judged by its host.
 
-`localhost` and `*.localhost` count as loopback and IP literals are parsed, both without DNS. Other hosts are resolved on .NET 8 and later, with a 5 second limit; a failed lookup is not an error. `A2AClientFactory.Create(card, ...)` has no card source and makes no DNS lookup. On netstandard2.0 there is no default policy and no DNS: the presets need `A2A.Security.Http`, which that target does not reference. Set your own policy if you need one there.
+`localhost` and `*.localhost` count as loopback and IP literals are parsed, both without DNS. Other hosts are resolved on .NET 10, with a 5 second limit; a failed lookup is not an error. `A2AClientFactory.Create(card, ...)` has no card source and makes no DNS lookup. On netstandard2.0 there is no default policy and no DNS: the presets need `A2A.Security.Http`, which that target does not reference. Set your own policy if you need one there.
 
 **The check is pre-flight only.** The host can resolve to another address when the client connects (DNS rebinding). For full protection, build the `HttpClient` on `SafeHttp.CreateHandler` (`A2A.Security.Http`), which checks the resolved address at connect time. `A2AClientFactory.EnsureEndpointsAllowedAsync(card, cardSource, options)` runs the same check yourself, for a client you build another way.
 

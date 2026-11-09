@@ -18,7 +18,7 @@ The package uses `ModelContextProtocol.Core` only, not the hosting package. It h
 dotnet add package RomanAmbinder.A2A.Mcp
 ```
 
-The package targets .NET 8 and .NET 10. It is built on `ModelContextProtocol.Core` 2.4.0. That package needs the 10.x `Microsoft.Extensions.*` abstractions and `System.Text.Json` 10. On net8.0 your app gets those versions too. If it pins older ones, expect an upgrade. This repo tests the package in its own project, `A2A.Mcp.Tests`, so the main test project keeps its JSON stack.
+The package targets .NET 10. It is built on `ModelContextProtocol.Core` 2.4.0, which needs the 10.x `Microsoft.Extensions.*` abstractions. If your app pins older ones, expect an upgrade. This repo tests the package in its own project, `A2A.Mcp.Tests`, so the main test project keeps its JSON stack.
 
 To serve MCP over HTTP you also need a host package, for example `ModelContextProtocol.AspNetCore`. This package does not need it.
 
@@ -328,7 +328,7 @@ MCP has an experimental Tasks feature for long calls. This package does not use 
 - **A task fails with `The tool reported an error.`** The MCP tool returned `isError`. The server log has the text. Set `IncludeToolErrorText` only for a trusted server.
 - **A task is rejected with `The tool rejected the arguments.`** The MCP server answered `InvalidParams`. Check the JSON against the tool's schema.
 - **A tool needs elicitation and fails.** This package sets no elicitation or sampling handler. See [What does not map](#what-does-not-map).
-- **Build warnings about package versions on net8.0.** `ModelContextProtocol.Core` brings `Microsoft.Extensions.*` 10.x. See [Install](#install).
+- **Build warnings about package versions.** `ModelContextProtocol.Core` brings `Microsoft.Extensions.*` 10.x. See [Install](#install).
 
 ## See also
 

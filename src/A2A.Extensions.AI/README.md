@@ -105,10 +105,6 @@ Roles: `Agent` is `Assistant`. `User` is `User`. `System` and `Tool` become `Use
 - `DataPart` JSON is re-encoded. The bytes can differ. The meaning does not.
 - Metadata and `AdditionalProperties` only carry JSON elements, strings, booleans and numbers. Other values are dropped.
 
-## net8.0 note
-
-On net8.0 this package pulls `System.Text.Json` 10 (a dependency of `Microsoft.Extensions.AI.Abstractions`). If your app is on net8.0 and pins an older `System.Text.Json`, expect that upgrade. This repo tests the package in its own project (`A2A.Extensions.AI.Tests`) so the main test project stays on its current JSON stack.
-
 ## Security
 
 Content from remote agents and from callers is untrusted.

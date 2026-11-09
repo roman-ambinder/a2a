@@ -9,8 +9,8 @@ namespace A2A;
 public static class ModelCopies
 {
     /// <summary>
-    /// Copies a task for one write. The copy has a new task, status, <c>History</c> list, <c>Artifacts</c> list
-    /// and <c>Metadata</c> dictionary. It shares the <see cref="Message"/> and <see cref="Artifact"/> instances
+    /// Copies a task for one write. The copy has a new task, status, <c>History</c> list, <c>Timeline</c> list, <c>Artifacts</c>
+    /// list and <c>Metadata</c> dictionary. It shares the <see cref="Message"/>, <see cref="Artifact"/> and <see cref="TimelineEntry"/> instances
     /// (and the status message) with the original: callers must not mutate them. Null collections stay null.
     /// </summary>
     public static AgentTask CopyForUpdate(this AgentTask task)
@@ -24,6 +24,8 @@ public static class ModelCopies
             Artifacts = task.Artifacts is null ? null : new List<Artifact>(task.Artifacts),
             History = task.History is null ? null : new List<Message>(task.History),
             Metadata = CopyMap(task.Metadata, clone: false),
+            Generation = task.Generation,
+            Timeline = task.Timeline is null ? null : new List<TimelineEntry>(task.Timeline),
         };
     }
 
@@ -49,6 +51,9 @@ public static class ModelCopies
             Parts = parts,
             Metadata = CopyMap(artifact.Metadata, clone: false),
             Extensions = artifact.Extensions is null ? null : new List<string>(artifact.Extensions),
+            StartGeneration = artifact.StartGeneration,
+            EndGeneration = artifact.EndGeneration,
+            Role = artifact.Role,
         };
     }
 
@@ -68,6 +73,8 @@ public static class ModelCopies
             Artifacts = task.Artifacts?.ConvertAll(DeepArtifact),
             History = task.History?.ConvertAll(DeepMessage),
             Metadata = CopyMap(task.Metadata, clone: true),
+            Generation = task.Generation,
+            Timeline = task.Timeline?.ConvertAll(DeepTimelineEntry),
         };
     }
 
@@ -99,13 +106,15 @@ public static class ModelCopies
             Authentication = config.Authentication is { } auth
                 ? new AuthenticationInfo { Scheme = auth.Scheme, Credentials = auth.Credentials }
                 : null,
+            ProtocolVersion = config.ProtocolVersion,
         };
     }
 
     /// <summary>
-    /// Copies a stream event and everything reachable from it, whichever of the four kinds it is: a task snapshot
+    /// Copies a stream event and everything reachable from it, whichever kind it is: a task snapshot
     /// (<see cref="DeepCopy(AgentTask)"/>), a message (<see cref="DeepCopy(Message)"/>), a status update (new status, status
-    /// message and metadata) or an artifact update (new artifact, parts and metadata). Only immutable values are shared.
+    /// message and metadata), an artifact update (new artifact, parts and metadata), or one of the A2A 1.1 kinds (message update,
+    /// stream error). Only immutable values are shared.
     /// Serializes to the same JSON as the original.
     /// </summary>
     public static StreamResponse DeepCopy(this StreamResponse response)
@@ -121,6 +130,7 @@ public static class ModelCopies
                 ContextId = s.StatusUpdate.ContextId,
                 Status = CopyStatus(s.StatusUpdate.Status, deep: true),
                 Metadata = CopyMap(s.StatusUpdate.Metadata, clone: true),
+                Generation = s.StatusUpdate.Generation,
             }),
             ArtifactUpdateEvent a => new ArtifactUpdateEvent(new TaskArtifactUpdateEvent
             {
@@ -130,6 +140,23 @@ public static class ModelCopies
                 Append = a.ArtifactUpdate.Append,
                 LastChunk = a.ArtifactUpdate.LastChunk,
                 Metadata = CopyMap(a.ArtifactUpdate.Metadata, clone: true),
+                Generation = a.ArtifactUpdate.Generation,
+            }),
+            MessageUpdateEvent u => new MessageUpdateEvent(new TaskMessageUpdateEvent
+            {
+                TaskId = u.MessageUpdate.TaskId,
+                ContextId = u.MessageUpdate.ContextId,
+                Message = DeepMessage(u.MessageUpdate.Message),
+                Metadata = CopyMap(u.MessageUpdate.Metadata, clone: true),
+                Generation = u.MessageUpdate.Generation,
+            }),
+            StreamErrorEvent e => new StreamErrorEvent(new StreamError
+            {
+                TaskId = e.Error.TaskId,
+                Code = e.Error.Code,
+                Message = e.Error.Message,
+                ReferenceId = e.Error.ReferenceId,
+                Metadata = CopyMap(e.Error.Metadata, clone: true),
             }),
             _ => throw new NotSupportedException($"Unknown stream event type {response.GetType().Name}."),
         };
@@ -162,6 +189,16 @@ public static class ModelCopies
         Parts = a.Parts.ConvertAll(DeepPart),
         Metadata = CopyMap(a.Metadata, clone: true),
         Extensions = a.Extensions is null ? null : new List<string>(a.Extensions),
+        StartGeneration = a.StartGeneration,
+        EndGeneration = a.EndGeneration,
+        Role = a.Role,
+    };
+
+    private static TimelineEntry DeepTimelineEntry(TimelineEntry e) => new()
+    {
+        Message = e.Message is null ? null : DeepMessage(e.Message),
+        Status = e.Status is null ? null : CopyStatus(e.Status, deep: true),
+        Generation = e.Generation,
     };
 
     private static Part DeepPart(Part p)

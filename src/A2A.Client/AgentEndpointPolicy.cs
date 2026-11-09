@@ -59,7 +59,7 @@ public static class AgentEndpointPolicies
     }
 
     /// <summary>
-    /// The default on .NET 8 and later. A card the caller supplied (<see cref="AgentEndpointCheck.CardSource"/> is null) is trusted, and so is a
+    /// The default on .NET 10. A card the caller supplied (<see cref="AgentEndpointCheck.CardSource"/> is null) is trusted, and so is a
     /// card whose host resolves only to private addresses: it may name private endpoints. Any other card follows <see cref="PublicOnly"/>
     /// with no allowed networks. An endpoint with no host is always refused. Whoever controls the card host's DNS also controls this
     /// answer, so use <see cref="PublicOnly"/> for cards from the internet when private agents are not needed.

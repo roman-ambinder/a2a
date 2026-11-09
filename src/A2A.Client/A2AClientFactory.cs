@@ -119,8 +119,8 @@ public static class A2AClientFactory
     /// </summary>
     /// <remarks>
     /// With no policy or <see cref="AgentEndpointPolicies.AllowAll"/> it returns at once, without DNS. <c>localhost</c> and
-    /// <c>*.localhost</c> count as loopback and IP literals are parsed, both without DNS. Other hosts are resolved on .NET 8
-    /// and later (5 second limit, plus <paramref name="cancellationToken"/>); a failed lookup is an empty address list, not an error.
+    /// <c>*.localhost</c> count as loopback and IP literals are parsed, both without DNS. Other hosts are resolved on .NET 10
+    /// (5 second limit, plus <paramref name="cancellationToken"/>); a failed lookup is an empty address list, not an error.
     /// On netstandard2.0 nothing is resolved. This is a pre-flight check: the host can resolve elsewhere when the client connects, so full
     /// DNS-rebinding protection needs an <see cref="HttpClient"/> built on <c>SafeHttp.CreateHandler</c>.
     /// </remarks>

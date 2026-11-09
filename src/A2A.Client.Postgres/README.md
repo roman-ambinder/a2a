@@ -48,4 +48,4 @@ Request and result bodies are stored in this table. They may hold personal data,
 - Due times, leases and ages use the database clock (`statement_timestamp()`). `PostgresClientOutboxOptions.UseDatabaseClock = false` uses the `TimeProvider` you pass, for tests with a fake clock.
 - No DI extension and no hosted service. The dispatcher runs its own timer, so keep one per process.
 
-Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 8 and .NET 10.
+Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a), implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 10.

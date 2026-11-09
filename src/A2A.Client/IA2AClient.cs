@@ -118,7 +118,7 @@ public sealed class A2AClientOptions
     /// Decides which endpoints an Agent Card may name. <see cref="A2AClientFactory"/> checks every interface of the card that this
     /// client could select, before it builds a client; a refusal throws <see cref="A2AErrorCode.InvalidAgentResponse"/> and counts
     /// <c>a2a.client.endpoint.refused</c>. Null or <see cref="AgentEndpointPolicies.AllowAll"/> turns the check off (no DNS lookup).
-    /// Default on .NET 8 and later: <see cref="AgentEndpointPolicies.MatchCardNetwork"/>. On netstandard2.0 the default is null, and
+    /// Default on .NET 10: <see cref="AgentEndpointPolicies.MatchCardNetwork"/>. On netstandard2.0 the default is null, and
     /// the presets do not exist (they need A2A.Security.Http), the same as the <c>jku</c> limit of <see cref="A2ACardResolver"/>.
     /// </summary>
     /// <remarks>

@@ -4,6 +4,7 @@ using A2A.Delegation;
 using A2A.JsonRpc;
 using A2A.Signing;
 
+
 namespace A2A.Json;
 
 /// <summary>
@@ -55,6 +56,12 @@ namespace A2A.Json;
 [JsonSerializable(typeof(MessageEvent))]
 [JsonSerializable(typeof(StatusUpdateEvent))]
 [JsonSerializable(typeof(ArtifactUpdateEvent))]
+[JsonSerializable(typeof(MessageUpdateEvent))]
+[JsonSerializable(typeof(StreamErrorEvent))]
+[JsonSerializable(typeof(TaskMessageUpdateEvent))]
+[JsonSerializable(typeof(StreamError))]
+[JsonSerializable(typeof(TimelineEntry))]
+[JsonSerializable(typeof(StreamRequest))]
 [JsonSerializable(typeof(GetTaskRequest))]
 [JsonSerializable(typeof(ListTasksRequest))]
 [JsonSerializable(typeof(ListTasksResponse))]

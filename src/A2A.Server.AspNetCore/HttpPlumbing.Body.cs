@@ -110,7 +110,7 @@ internal static partial class HttpPlumbing
     /// <summary>
     /// Checks a request body in one <see cref="Utf8JsonReader"/> pass: one well-formed JSON value, nesting no deeper than
     /// <paramref name="maxDepth"/>, and no object that repeats a property name (compared after unescaping, case sensitive),
-    /// on .NET 8 and .NET 10 alike. Returns where the value sits in <paramref name="json"/> (surrounding white space excluded),
+    /// in one pass. Returns where the value sits in <paramref name="json"/> (surrounding white space excluded),
     /// which is the slice to deserialize. A body that fails the pass is classified by <see cref="ClassifyFailure"/>, so every
     /// rejection keeps its exact former exception and message.
     /// </summary>
@@ -143,19 +143,13 @@ internal static partial class HttpPlumbing
     /// <summary>
     /// Failure path only: replays the former parse so a rejected body gets exactly the exception it always got. Valid JSON that
     /// breaks a limit is InvalidParams (<see cref="A2AException"/>); malformed JSON throws <see cref="JsonException"/>.
-    /// On .NET 10 the parser rejects duplicates itself; on .NET 8 <see cref="ContainsDuplicateProperties"/> checks after the parse.
+    /// The parser rejects duplicate property names itself.
     /// </summary>
     private static void ClassifyFailure(ReadOnlyMemory<byte> body, int maxDepth)
     {
         try
         {
-#if NET10_0_OR_GREATER
             using var doc = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = maxDepth, AllowDuplicateProperties = false });
-#else
-            using var doc = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = maxDepth });
-            if (ContainsDuplicateProperties(body.Span, maxDepth))
-                throw A2AException.InvalidParams("Invalid request body: duplicate property names are not allowed");
-#endif
         }
         catch (JsonException ex) when (IsWellFormed(body))
         {
@@ -180,37 +174,6 @@ internal static partial class HttpPlumbing
         {
             return false;
         }
-    }
-
-    /// <summary>
-    /// True when any JSON object in <paramref name="json"/> repeats a property name (compared after unescaping, case sensitive).
-    /// The .NET 8 half of <see cref="ClassifyFailure"/>. Throws <see cref="JsonException"/> for malformed JSON or nesting deeper
-    /// than <paramref name="maxDepth"/>.
-    /// </summary>
-    internal static bool ContainsDuplicateProperties(ReadOnlySpan<byte> json, int maxDepth)
-    {
-        var reader = new Utf8JsonReader(json, new JsonReaderOptions { MaxDepth = maxDepth });
-        var scopes = new Stack<HashSet<string>?>(); // one entry per open container; null for arrays
-        while (reader.Read())
-        {
-            switch (reader.TokenType)
-            {
-                case JsonTokenType.StartObject:
-                    scopes.Push(new HashSet<string>(StringComparer.Ordinal));
-                    break;
-                case JsonTokenType.StartArray:
-                    scopes.Push(null);
-                    break;
-                case JsonTokenType.EndObject:
-                case JsonTokenType.EndArray:
-                    scopes.Pop();
-                    break;
-                case JsonTokenType.PropertyName:
-                    if (!scopes.Peek()!.Add(reader.GetString()!)) return true;
-                    break;
-            }
-        }
-        return false;
     }
 
     /// <summary>The single validation pass behind <see cref="CheckDepthAndDuplicates(ReadOnlyMemory{byte}, int)"/>.</summary>

@@ -17,7 +17,7 @@ public static class A2AJson
 
     /// <summary>
     /// Options used for every A2A payload. Do not mutate. Nesting deeper than <see cref="MaxJsonDepth"/> is rejected. On .NET 10
-    /// duplicate property names are rejected too; on .NET 8 the ASP.NET Core layer checks request bodies before parsing.
+    /// duplicate property names are rejected too; on netstandard2.0 they are not (the ASP.NET Core layer checks request bodies before parsing).
     /// </summary>
     public static JsonSerializerOptions Options { get; } = CreateOptions();
 

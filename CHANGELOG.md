@@ -25,7 +25,8 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## 0.1.0
 
-First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Targets .NET 8 and .NET 10.
+First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Targets .NET 10. `A2A.Protocol` and `A2A.Client` also
+target netstandard2.0. .NET 8 is not a target: its support ends on 10 November 2026.
 
 ### Postgres schema migrations
 
@@ -74,6 +75,16 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - Accepts `history_length` as well as `historyLength`, as ProtoJSON requires. (#8)
 - REST stream errors are sent as SSE frames named `error`. All clients skip stream event types they do not know instead of
   ending the stream. (#8)
+- A2A 1.1 (release candidate) data model, experimental (`A2AEXP005`): `docs/a2a.proto` is the `v1.1.0-rc` proto, and the
+  model has `Task.generation` and `timeline`, `TimelineEntry`, artifact `startGeneration`, `endGeneration` and `role`,
+  `generation` on status and artifact events, the `messageUpdate` and `error` stream events, `StreamRequest`, the new request
+  fields, `AgentCapabilities.userArtifacts`, the push config `protocolVersion`, and the error `TaskGenerationMismatch`
+  (-32010, HTTP 409, gRPC `ABORTED`). 64-bit values are written as ProtoJSON strings and read as strings or numbers. The
+  server does not use 1.1 yet, so 1.0 callers see no change.
+- The Agent Card endpoint answers with `application/a2a-agent-card+json` when the request asks for it, and with
+  `application/json` otherwise. The client asks for both.
+- A completed card lists a gRPC interface over TLS as `host:port` (for example `agent.example.com:443`), the form the spec
+  shows and other SDKs pass to a gRPC channel. A plain-text gRPC interface keeps its `http://` URL.
 
 ### Security
 
