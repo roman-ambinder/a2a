@@ -16,12 +16,13 @@ A2A.Client.Outbox.ClientOutboxMessage.Request.get -> System.ReadOnlyMemory<byte>
 static A2A.Client.Outbox.ClientOutboxMessage.Create(string! peer, A2A.SendMessageRequest! request, string? correlation = null, string? id = null) -> A2A.Client.Outbox.ClientOutboxMessage!
 A2A.Client.Outbox.ClientOutboxOutcome
 A2A.Client.Outbox.ClientOutboxOutcome.Error.get -> string?
+A2A.Client.Outbox.ClientOutboxOutcome.InDoubt.get -> bool
 A2A.Client.Outbox.ClientOutboxOutcome.RemoteContextId.get -> string?
 A2A.Client.Outbox.ClientOutboxOutcome.RemoteState.get -> A2A.TaskState?
 A2A.Client.Outbox.ClientOutboxOutcome.RemoteTaskId.get -> string?
 A2A.Client.Outbox.ClientOutboxOutcome.Result.get -> System.ReadOnlyMemory<byte>
 A2A.Client.Outbox.ClientOutboxOutcome.Status.get -> A2A.Client.Outbox.ClientOutboxStatus
-static A2A.Client.Outbox.ClientOutboxOutcome.Failed(string! error, string? remoteTaskId = null, string? remoteContextId = null, A2A.TaskState? remoteState = null) -> A2A.Client.Outbox.ClientOutboxOutcome!
+static A2A.Client.Outbox.ClientOutboxOutcome.Failed(string! error, string? remoteTaskId = null, string? remoteContextId = null, A2A.TaskState? remoteState = null, bool inDoubt = false) -> A2A.Client.Outbox.ClientOutboxOutcome!
 static A2A.Client.Outbox.ClientOutboxOutcome.Finished(A2A.SendMessageResponse! response) -> A2A.Client.Outbox.ClientOutboxOutcome!
 A2A.Client.Outbox.ClientOutboxEntry
 A2A.Client.Outbox.ClientOutboxEntry.ClientOutboxEntry(string! id, string! peer, System.ReadOnlyMemory<byte> request, A2A.Client.Outbox.ClientOutboxStatus status) -> void

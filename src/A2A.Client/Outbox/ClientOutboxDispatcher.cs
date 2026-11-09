@@ -24,6 +24,7 @@ namespace A2A.Client.Outbox;
 public sealed class ClientOutboxDispatcher : IAsyncDisposable
 {
     private const int MaxErrorLength = 500;
+    private const int PurgeBatch = 1000;
 
     private readonly ClientOutboxStore _store;
     private readonly Func<string, CancellationToken, ValueTask<IA2AClient>> _clients;
@@ -130,38 +131,43 @@ public sealed class ClientOutboxDispatcher : IAsyncDisposable
 
     private async Task<int> SweepAsync(CancellationToken token)
     {
-        var sweptAt = _time.GetUtcNow();
-        await PurgeIfDueAsync(sweptAt, token).ConfigureAwait(false);
-        var leased = await _store.LeaseDueAsync(_options.BatchSize, _options.Lease, token).ConfigureAwait(false);
-        if (leased.Count == 0) return 0;
+        await PurgeIfDueAsync(_time.GetUtcNow(), token).ConfigureAwait(false);
 
-        using var slots = new SemaphoreSlim(_options.MaxConcurrency);
-        var work = new List<Task>(leased.Count);
-        foreach (var entry in leased) work.Add(RunEntryAsync(entry, sweptAt, slots, token));
-        await Task.WhenAll(work).ConfigureAwait(false);
-        return leased.Count;
+        // Lease and run in groups of at most MaxConcurrency, so an entry never waits for a slot while its lease runs.
+        var total = 0;
+        while (total < _options.BatchSize && !token.IsCancellationRequested)
+        {
+            var want = Math.Min(_options.BatchSize - total, _options.MaxConcurrency);
+            var leased = await _store.LeaseDueAsync(want, _options.Lease, token).ConfigureAwait(false);
+            if (leased.Count == 0) break;
+            var leasedAt = _time.GetUtcNow();
+            await Task.WhenAll(leased.Select(entry => RunEntryAsync(entry, leasedAt, token))).ConfigureAwait(false);
+            total += leased.Count;
+            if (leased.Count < want) break;
+        }
+        return total;
     }
 
     private async Task PurgeIfDueAsync(DateTimeOffset now, CancellationToken token)
     {
         if (_options.PurgeInterval == Timeout.InfiniteTimeSpan || now - _lastPurge < _options.PurgeInterval) return;
         _lastPurge = now;
-        try { await _store.PurgeCollectedAsync(_options.CollectedRetention, _options.BatchSize, token).ConfigureAwait(false); }
+        try
+        {
+            int purged;
+            do purged = await _store.PurgeCollectedAsync(_options.CollectedRetention, PurgeBatch, token).ConfigureAwait(false);
+            while (purged >= PurgeBatch && !token.IsCancellationRequested);
+        }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
         catch (Exception e) { ClientLog.OutboxSweepFailed(_logger, e); }
     }
 
-    private async Task RunEntryAsync(ClientOutboxEntry entry, DateTimeOffset leasedAt, SemaphoreSlim slots, CancellationToken token)
+    private async Task RunEntryAsync(ClientOutboxEntry entry, DateTimeOffset leasedAt, CancellationToken token)
     {
         try
         {
-            await slots.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                if (entry.Status == ClientOutboxStatus.Queued) await SendAsync(entry, leasedAt, token).ConfigureAwait(false);
-                else await PollAsync(entry, leasedAt, token).ConfigureAwait(false);
-            }
-            finally { slots.Release(); }
+            if (entry.Status == ClientOutboxStatus.Queued) await SendAsync(entry, leasedAt, token).ConfigureAwait(false);
+            else await PollAsync(entry, leasedAt, token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { /* nothing is written, like a crash */ }
         catch (Exception e) { ClientLog.OutboxStoreFailed(_logger, entry.Id, entry.Peer, e); }
@@ -171,12 +177,12 @@ public sealed class ClientOutboxDispatcher : IAsyncDisposable
     {
         if (TooOld(entry, leasedAt, _options.MaxQueueAge))
         {
-            await FailAsync(entry, $"The message was not sent within MaxQueueAge ({_options.MaxQueueAge}).", token).ConfigureAwait(false);
+            await FailAsync(entry, $"The message was not sent within MaxQueueAge ({_options.MaxQueueAge}).", entry.InDoubt, token).ConfigureAwait(false);
             return;
         }
         if (entry.InDoubt && !_options.RetryInDoubt)
         {
-            await FailAsync(entry, "An earlier send may have reached the peer, and RetryInDoubt is off.", token).ConfigureAwait(false);
+            await FailAsync(entry, "An earlier send may have reached the peer, and RetryInDoubt is off.", true, token).ConfigureAwait(false);
             return;
         }
 
@@ -184,7 +190,7 @@ public sealed class ClientOutboxDispatcher : IAsyncDisposable
         try { request = entry.GetRequest(); }
         catch (JsonException e)
         {
-            await FailAsync(entry, "The stored request cannot be read: " + Shorten(e.Message), token).ConfigureAwait(false);
+            await FailAsync(entry, "The stored request cannot be read: " + Shorten(e.Message), entry.InDoubt, token).ConfigureAwait(false);
             return;
         }
 
@@ -218,13 +224,18 @@ public sealed class ClientOutboxDispatcher : IAsyncDisposable
         TimeSpan? retryAfter = null;
         var kind = resolverFailed ? ClientOutboxFailureKind.Retry : ClientOutboxFailures.Classify(error!, out retryAfter);
         var text = Describe(error!);
-        if (kind == ClientOutboxFailureKind.Fail || TooOld(entry, leasedAt, _options.MaxQueueAge, afterWork: true))
-        {
-            await FailAsync(entry, text, token).ConfigureAwait(false);
-            return;
-        }
         // An earlier attempt may still be in doubt, so a clean failure of this attempt does not clear it.
         var inDoubt = entry.InDoubt || kind == ClientOutboxFailureKind.RetryInDoubt;
+        if (kind == ClientOutboxFailureKind.Fail)
+        {
+            await FailAsync(entry, text, entry.InDoubt, token).ConfigureAwait(false);
+            return;
+        }
+        if (TooOld(entry, leasedAt, _options.MaxQueueAge, afterWork: true))
+        {
+            await FailAsync(entry, text, inDoubt, token).ConfigureAwait(false);
+            return;
+        }
         await WriteAsync(() => _store.RescheduleAsync(entry, RetryDelay(entry.Attempts, retryAfter), text, inDoubt, token), token).ConfigureAwait(false);
     }
 
@@ -242,12 +253,12 @@ public sealed class ClientOutboxDispatcher : IAsyncDisposable
     {
         if (entry.RemoteTaskId is not { Length: > 0 } taskId)
         {
-            await FailAsync(entry, "The entry is tracked but has no task id.", token).ConfigureAwait(false);
+            await FailAsync(entry, "The entry is tracked but has no task id.", false, token).ConfigureAwait(false);
             return;
         }
         if (TooOld(entry, leasedAt, _options.MaxTrackingAge))
         {
-            await FailAsync(entry, $"The task did not finish within MaxTrackingAge ({_options.MaxTrackingAge}).", token).ConfigureAwait(false);
+            await FailAsync(entry, $"The task did not finish within MaxTrackingAge ({_options.MaxTrackingAge}).", false, token).ConfigureAwait(false);
             return;
         }
 
@@ -281,12 +292,12 @@ public sealed class ClientOutboxDispatcher : IAsyncDisposable
 
         if (error is A2AException { Code: A2AErrorCode.TaskNotFound })
         {
-            await FailAsync(entry, "The peer does not know the task.", token).ConfigureAwait(false);
+            await FailAsync(entry, "The peer does not know the task.", false, token).ConfigureAwait(false);
             return;
         }
         if (TooOld(entry, leasedAt, _options.MaxTrackingAge, afterWork: true))
         {
-            await FailAsync(entry, $"The task did not finish within MaxTrackingAge ({_options.MaxTrackingAge}). Last error: {Describe(error!)}", token).ConfigureAwait(false);
+            await FailAsync(entry, $"The task did not finish within MaxTrackingAge ({_options.MaxTrackingAge}). Last error: {Describe(error!)}", false, token).ConfigureAwait(false);
             return;
         }
         var retryAfter = (error as A2AException)?.RetryAfter;
@@ -294,9 +305,9 @@ public sealed class ClientOutboxDispatcher : IAsyncDisposable
     }
 
     /// <summary>Ends the entry as failed. The remote ids it already has are kept.</summary>
-    private async Task FailAsync(ClientOutboxEntry entry, string error, CancellationToken token)
+    private async Task FailAsync(ClientOutboxEntry entry, string error, bool inDoubt, CancellationToken token)
     {
-        var outcome = ClientOutboxOutcome.Failed(error, entry.RemoteTaskId, entry.RemoteContextId, entry.RemoteState);
+        var outcome = ClientOutboxOutcome.Failed(error, entry.RemoteTaskId, entry.RemoteContextId, entry.RemoteState, inDoubt);
         if (await WriteAsync(() => _store.FinishAsync(entry, outcome, token), token).ConfigureAwait(false))
             ClientLog.OutboxEntryFailed(_logger, entry.Id, entry.Peer, error);
     }
@@ -316,10 +327,10 @@ public sealed class ClientOutboxDispatcher : IAsyncDisposable
         return age > limit;
     }
 
-    /// <summary>The wait before the next send: the peer's <c>Retry-After</c> when it gave one, else exponential with jitter.</summary>
+    /// <summary>The wait before the next send: the peer's <c>Retry-After</c> (at most <see cref="ClientOutboxOptions.RetryMaxDelay"/>) when it gave one, else exponential with jitter.</summary>
     private TimeSpan RetryDelay(int attempts, TimeSpan? retryAfter)
     {
-        if (retryAfter is { } fromPeer) return fromPeer < TimeSpan.Zero ? TimeSpan.Zero : fromPeer;
+        if (retryAfter is { } fromPeer) return fromPeer < TimeSpan.Zero ? TimeSpan.Zero : fromPeer > _options.RetryMaxDelay ? _options.RetryMaxDelay : fromPeer;
         var backoff = Math.Min(_options.RetryBaseDelay.Ticks * Math.Pow(2, Math.Min(Math.Max(attempts - 1, 0), 30)), _options.RetryMaxDelay.Ticks);
         var jitter = 0.8 + (Random.Shared.NextDouble() * 0.4);
         return TimeSpan.FromTicks((long)Math.Min(backoff * jitter, _options.RetryMaxDelay.Ticks));

@@ -15,7 +15,7 @@ public sealed class ClientOutboxOptions
     public int MaxConcurrency { get; set; } = 8;
 
     /// <summary>
-    /// How long a leased entry is hidden from other dispatchers. A dispatcher that dies only delays its entries by this long.
+    /// How long a leased entry is hidden from other dispatchers. A sweep leases at most <see cref="MaxConcurrency"/> entries at a time and runs them before it leases more, so an entry does not wait for a slot while its lease runs. A dispatcher that dies only delays its entries by this long.
     /// Default 5 minutes. Must be at least twice <see cref="CallTimeout"/>.
     /// </summary>
     public TimeSpan Lease { get; set; } = TimeSpan.FromMinutes(5);
@@ -23,10 +23,10 @@ public sealed class ClientOutboxOptions
     /// <summary>The longest one send or one <c>GetTask</c> may take. A send that times out is in doubt. Default 60 seconds.</summary>
     public TimeSpan CallTimeout { get; set; } = TimeSpan.FromSeconds(60);
 
-    /// <summary>First wait before a send is tried again. It doubles with every attempt, with jitter, up to <see cref="RetryMaxDelay"/>. A <c>Retry-After</c> from the peer is used instead. Default 1 second.</summary>
+    /// <summary>First wait before a send is tried again. It doubles with every attempt, with jitter, up to <see cref="RetryMaxDelay"/>. A <c>Retry-After</c> from the peer is used instead, but never longer than <see cref="RetryMaxDelay"/>. Default 1 second.</summary>
     public TimeSpan RetryBaseDelay { get; set; } = TimeSpan.FromSeconds(1);
 
-    /// <summary>The longest wait between two sends (not a <c>Retry-After</c>, which is used as given). Default 5 minutes.</summary>
+    /// <summary>The longest wait between two sends. It also caps a <c>Retry-After</c> from the peer. Default 5 minutes.</summary>
     public TimeSpan RetryMaxDelay { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>First wait between two checks of a task (<c>GetTask</c>). It doubles with every check up to <see cref="MaxPollInterval"/>. Default 5 seconds.</summary>

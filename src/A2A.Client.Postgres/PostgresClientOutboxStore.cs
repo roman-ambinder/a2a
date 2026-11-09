@@ -166,7 +166,7 @@ public sealed class PostgresClientOutboxStore : ClientOutboxStore
         await using var cmd = _db.CreateCommand(
             $"""
             UPDATE {_table} SET status = $1, remote_task_id = COALESCE($2, remote_task_id), remote_context_id = COALESCE($3, remote_context_id),
-                remote_state = COALESCE($4, remote_state), result = $5, last_error = $6, lease_ticks = NULL, lease_token = NULL
+                remote_state = COALESCE($4, remote_state), result = $5, last_error = $6, in_doubt = $9, lease_ticks = NULL, lease_token = NULL
             WHERE id = $7 AND lease_token = $8 AND {Open}
             """);
         cmd.Parameters.Add(Int((int)outcome.Status));
@@ -177,6 +177,7 @@ public sealed class PostgresClientOutboxStore : ClientOutboxStore
         cmd.Parameters.Add(NullableText(outcome.Error));
         cmd.Parameters.Add(TextParam(leased.Id));
         cmd.Parameters.Add(Uuid(token));
+        cmd.Parameters.Add(Bool(outcome.InDoubt));
         return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 

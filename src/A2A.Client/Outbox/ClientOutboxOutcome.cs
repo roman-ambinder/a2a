@@ -22,6 +22,9 @@ public sealed class ClientOutboxOutcome
     /// <summary>The final answer as a <see cref="SendMessageResponse"/> in JSON. Empty for <see cref="ClientOutboxStatus.Failed"/>.</summary>
     public ReadOnlyMemory<byte> Result { get; private init; }
 
+    /// <summary>True when an attempt may have reached the peer without the SDK learning it. Always false for <see cref="ClientOutboxStatus.Finished"/>. A harvester can trust it on a failed entry: a refusal on the first attempt gives false.</summary>
+    public bool InDoubt { get; private init; }
+
     /// <summary>Why the entry failed. Null for <see cref="ClientOutboxStatus.Finished"/>.</summary>
     public string? Error { get; private init; }
 
@@ -49,9 +52,9 @@ public sealed class ClientOutboxOutcome
     }
 
     /// <summary>The SDK could not get an answer. The remote ids are kept when the peer had already taken the message.</summary>
-    public static ClientOutboxOutcome Failed(string error, string? remoteTaskId = null, string? remoteContextId = null, TaskState? remoteState = null)
+    public static ClientOutboxOutcome Failed(string error, string? remoteTaskId = null, string? remoteContextId = null, TaskState? remoteState = null, bool inDoubt = false)
     {
         ArgumentNullException.ThrowIfNull(error);
-        return new(ClientOutboxStatus.Failed) { Error = error, RemoteTaskId = remoteTaskId, RemoteContextId = remoteContextId, RemoteState = remoteState };
+        return new(ClientOutboxStatus.Failed) { Error = error, RemoteTaskId = remoteTaskId, RemoteContextId = remoteContextId, RemoteState = remoteState, InDoubt = inDoubt };
     }
 }

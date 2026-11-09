@@ -109,6 +109,7 @@ public sealed class ClientOutboxOptionsTests
         {
             Tenant = "t1",
             Message = new Message { MessageId = "", Role = Role.User, Parts = [Part.FromText("hello")] },
+            Metadata = new() { ["k"] = System.Text.Json.JsonSerializer.SerializeToElement("v") },
             Configuration = new SendMessageConfiguration { HistoryLength = 3, AcceptedOutputModes = ["text/plain"] },
         };
 
@@ -126,6 +127,7 @@ public sealed class ClientOutboxOptionsTests
         Assert.True(stored.Configuration!.ReturnImmediately);
         Assert.Equal(3, stored.Configuration.HistoryLength);
         Assert.Equal(["text/plain"], stored.Configuration.AcceptedOutputModes);
+        Assert.Equal("v", stored.Metadata!["k"].GetString());
     }
 
     [Fact]

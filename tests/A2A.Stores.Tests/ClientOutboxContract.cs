@@ -203,6 +203,21 @@ public abstract class ClientOutboxContract
     }
 
     [SkippableFact]
+    public async Task Finish_writes_the_doubt_of_the_outcome()
+    {
+        var store = await CreateAsync(Time);
+        foreach (var id in new[] { "a", "b", "c" }) await store.EnqueueAsync(Msg(id));
+        var leased = await store.LeaseDueAsync(10, Lease); // leasing sets the doubt on all three
+        Assert.True(await store.FinishAsync(leased[0], ClientOutboxOutcome.Failed("refused", inDoubt: false)));
+        Assert.True(await store.FinishAsync(leased[1], ClientOutboxOutcome.Failed("unknown", inDoubt: true)));
+        Assert.True(await store.FinishAsync(leased[2], Done()));
+
+        Assert.False((await store.GetAsync(leased[0].Id))!.InDoubt);
+        Assert.True((await store.GetAsync(leased[1].Id))!.InDoubt);
+        Assert.False((await store.GetAsync(leased[2].Id))!.InDoubt);
+    }
+
+    [SkippableFact]
     public async Task A_stale_lease_holder_writes_nothing()
     {
         var store = await CreateAsync(Time);

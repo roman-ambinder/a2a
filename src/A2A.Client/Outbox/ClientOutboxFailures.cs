@@ -29,9 +29,11 @@ internal static class ClientOutboxFailures
         {
             case A2AException a2a:
                 retryAfter = a2a.RetryAfter;
-                if (a2a.HttpStatus is 503 or 429 or 401 or 403 or 408 || a2a.IsRetryable) return ClientOutboxFailureKind.Retry;
+                // JSON-RPC errors arrive with HTTP status 200, so a missing or 2xx status says nothing: use the status of the error code.
+                var status = a2a.HttpStatus is { } h and not (>= 200 and <= 299) ? h : A2AErrors.HttpStatus(a2a.Code);
+                if (status is 503 or 429 or 401 or 403 or 408 || a2a.IsRetryable) return ClientOutboxFailureKind.Retry;
                 // The peer answered with a server error: it may have started the work before it failed.
-                if (a2a.HttpStatus is >= 500 and <= 599) return ClientOutboxFailureKind.RetryInDoubt;
+                if (status is >= 500 and <= 599) return ClientOutboxFailureKind.RetryInDoubt;
                 return ClientOutboxFailureKind.Fail;
             case HttpRequestException when RetryPolicy.ShouldRetry(RetryMode.UnsentOnly, error, out _):
                 return ClientOutboxFailureKind.Retry;

@@ -50,22 +50,12 @@ public sealed class ClientOutboxMessage
         ArgumentNullException.ThrowIfNull(request);
         if (request.Message is null) throw new ArgumentException("The request has no message.", nameof(request));
 
-        var message = request.Message.DeepCopy();
-        if (string.IsNullOrEmpty(message.MessageId)) message.MessageId = Message.NewId();
-        var source = request.Configuration;
-        var copy = new SendMessageRequest
-        {
-            Tenant = request.Tenant,
-            Message = message,
-            Metadata = request.Metadata is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(request.Metadata),
-            Configuration = new SendMessageConfiguration
-            {
-                AcceptedOutputModes = source?.AcceptedOutputModes is null ? null : new List<string>(source.AcceptedOutputModes),
-                TaskPushNotificationConfig = source?.TaskPushNotificationConfig,
-                HistoryLength = source?.HistoryLength,
-                ReturnImmediately = true,
-            },
-        };
+        // Copy by a JSON round trip, so a field added to the request later is copied too.
+        var copy = ClientOutboxEntry.Read<SendMessageRequest>(A2AJson.SerializeToUtf8Bytes(request));
+        if (string.IsNullOrEmpty(copy.Message.MessageId)) copy.Message.MessageId = Message.NewId();
+        copy.Configuration ??= new SendMessageConfiguration();
+        copy.Configuration.ReturnImmediately = true;
+        var message = copy.Message;
         return new ClientOutboxMessage(id ?? message.MessageId, peer, A2AJson.SerializeToUtf8Bytes(copy), correlation);
     }
 }

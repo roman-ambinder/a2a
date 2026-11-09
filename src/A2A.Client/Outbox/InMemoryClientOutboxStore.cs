@@ -117,6 +117,7 @@ public sealed class InMemoryClientOutboxStore : ClientOutboxStore
             row.RemoteState = outcome.RemoteState ?? row.RemoteState;
             row.Result = outcome.Result.IsEmpty ? null : outcome.Result.ToArray();
             row.LastError = outcome.Error;
+            row.InDoubt = outcome.InDoubt;
             row.ClearLease();
             return new(true);
         }

@@ -45,7 +45,7 @@ Results are not pushed to you. Lease them, handle them, then acknowledge. A resu
 
 [!code-csharp[](../snippets/ClientOutbox.cs#Harvest)]
 
-Pass a correlation to `LeaseResultsAsync` to get only the entries you labelled. `Failed` entries are harvested too. Read `LastError`.
+Rows that are never harvested are never purged, so an app must harvest. Pass a correlation to `LeaseResultsAsync` to get only the entries you labelled. `Failed` entries are harvested too. Read `LastError`.
 
 ## A webhook is a hint
 
@@ -58,6 +58,8 @@ If you register a push webhook, hand each delivery to `NotifyAsync`. A final sta
 Every send carries `Idempotency-Key` set to the entry id. The SDK server honours the key: a second send with the same key returns the first task and does not run the agent again. So delivery to the peer is at least once, and the peer sees one task.
 
 **In doubt** means a send may have reached the peer without the SDK learning it. A crash or a timeout in the middle of a send does that. The store marks a queued entry in doubt when it is leased, so a crash leaves the mark with no extra write. By default the dispatcher sends again with the same key. With an SDK server that is safe. A peer that ignores the key may create a second task, and only in this case.
+
+On a `Failed` entry, `InDoubt` tells you whether the peer may have the message. A refusal on the first attempt (for example a 400) gives false. An entry that failed because `RetryInDoubt` is off, or that failed after an attempt of unknown outcome, gives true.
 
 Set `RetryInDoubt = false` for at most once. An entry in doubt becomes `Failed` and your app decides.
 
@@ -86,7 +88,7 @@ Failures are sorted like this:
 
 | Failure | What happens |
 |---|---|
-| 503, 429, 401, 403, 408, or an error marked retryable | Retry, not in doubt. A `Retry-After` from the peer is used. |
+| 503, 429, 401, 403, 408, or an error marked retryable | Retry, not in doubt. A `Retry-After` from the peer is used, up to `RetryMaxDelay`. |
 | Another peer error with HTTP status 5xx | Retry, in doubt. |
 | Any other error from the peer (4xx, protocol error, key mismatch) | `Failed`. |
 | A connection that never reached the peer | Retry, not in doubt. |

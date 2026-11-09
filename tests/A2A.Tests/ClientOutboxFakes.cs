@@ -70,7 +70,16 @@ public sealed class CrashingClientOutboxStore(ClientOutboxStore inner) : ClientO
     public override ValueTask<IReadOnlyList<ClientOutboxEntry>> LeaseDueAsync(int max, TimeSpan lease, CancellationToken cancellationToken = default) => inner.LeaseDueAsync(max, lease, cancellationToken);
     public override ValueTask<IReadOnlyList<ClientOutboxEntry>> LeaseResultsAsync(string? correlation, int max, TimeSpan lease, CancellationToken cancellationToken = default) => inner.LeaseResultsAsync(correlation, max, lease, cancellationToken);
     public override ValueTask<bool> HastenAsync(string peer, string taskId, CancellationToken cancellationToken = default) => inner.HastenAsync(peer, taskId, cancellationToken);
-    public override ValueTask<int> PurgeCollectedAsync(TimeSpan olderThan, int max, CancellationToken cancellationToken = default) => inner.PurgeCollectedAsync(olderThan, max, cancellationToken);
+    /// <summary>How many times purge was called, and (when set) what it answers for the given max.</summary>
+    public int PurgeCalls;
+
+    public Func<int, int>? OnPurge { get; set; }
+
+    public override ValueTask<int> PurgeCollectedAsync(TimeSpan olderThan, int max, CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref PurgeCalls);
+        return OnPurge is { } f ? new(f(max)) : inner.PurgeCollectedAsync(olderThan, max, cancellationToken);
+    }
 
     public override ValueTask<bool> RescheduleAsync(ClientOutboxEntry leased, TimeSpan delay, string? error, bool inDoubt, CancellationToken cancellationToken = default)
     {

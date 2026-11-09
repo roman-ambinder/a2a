@@ -144,9 +144,8 @@ public sealed class ClientOutboxDispatcherTests
         var e = await GetAsync();
         Assert.Equal(status, e.Status);
         Assert.False(string.IsNullOrEmpty(e.LastError), name);
-        if (status != ClientOutboxStatus.Queued) return; // a Failed entry keeps the doubt that was set when it was leased
-        Assert.Equal(inDoubt, e.InDoubt);
-        Assert.True(e.DueAt > _time.GetUtcNow());
+        Assert.Equal(inDoubt, e.InDoubt); // also on a Failed entry: a refusal on the first attempt is not in doubt
+        if (status == ClientOutboxStatus.Queued) Assert.True(e.DueAt > _time.GetUtcNow());
     }
 
     [Fact]
@@ -294,7 +293,55 @@ public sealed class ClientOutboxDispatcherTests
         var e = await GetAsync();
         Assert.Equal(ClientOutboxStatus.Failed, e.Status);
         Assert.Contains("RetryInDoubt", e.LastError);
+        Assert.True(e.InDoubt);
         Assert.Single(_client.SendKeys);
+    }
+
+    [Fact]
+    public async Task A_refusal_after_an_earlier_doubt_stays_in_doubt()
+    {
+        await using var d = Dispatcher();
+        await EnqueueAsync();
+        _client.OnSend = (_, _, _) => Fail(new InvalidOperationException("dropped"));
+        await d.RunOnceAsync();
+        _time.Advance(TimeSpan.FromMinutes(10));
+        _client.OnSend = (_, _, _) => Fail(new A2AException(A2AErrorCode.InvalidRequest) { HttpStatus = 400 });
+        await d.RunOnceAsync();
+
+        var e = await GetAsync();
+        Assert.Equal(ClientOutboxStatus.Failed, e.Status);
+        Assert.True(e.InDoubt);
+    }
+
+    [Fact]
+    public async Task A_message_too_old_at_lease_is_not_in_doubt_unless_it_was()
+    {
+        await using var d = Dispatcher(o => o.MaxQueueAge = TimeSpan.FromHours(1));
+        await EnqueueAsync();
+        _time.Advance(TimeSpan.FromHours(2));
+        await d.RunOnceAsync();
+        Assert.False((await GetAsync()).InDoubt);
+    }
+
+    [Fact]
+    public async Task Tracking_failures_are_not_in_doubt()
+    {
+        await using var d = await TrackedAsync();
+        _client.OnGetTask = (_, _, _) => System.Threading.Tasks.Task.FromException<AgentTask>(A2AException.TaskNotFound("task-1"));
+        await d.RunOnceAsync();
+        Assert.False((await GetAsync()).InDoubt);
+    }
+
+    [Fact]
+    public async Task Retry_after_is_capped_at_RetryMaxDelay()
+    {
+        await using var d = Dispatcher(o => o.RetryMaxDelay = TimeSpan.FromMinutes(5));
+        await EnqueueAsync();
+        _client.OnSend = (_, _, _) => Fail(A2AException.RateLimited(TimeSpan.FromDays(30)));
+
+        await d.RunOnceAsync();
+
+        Assert.Equal(_time.GetUtcNow() + TimeSpan.FromMinutes(5), (await GetAsync()).DueAt);
     }
 
     [Fact]
@@ -546,6 +593,48 @@ public sealed class ClientOutboxDispatcherTests
 
         Assert.Equal(2, max);
         Assert.Equal(5, _client.SendKeys.Count);
+    }
+
+    [Fact]
+    public async Task A_group_is_not_leased_while_the_one_before_is_still_running()
+    {
+        await using var d = Dispatcher(o => { o.BatchSize = 4; o.MaxConcurrency = 2; });
+        for (var i = 0; i < 4; i++) await EnqueueAsync("m" + i);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = 0;
+        var two = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _client.OnSend = async (_, options, _) =>
+        {
+            if (Interlocked.Increment(ref started) == 2) two.TrySetResult();
+            await gate.Task;
+            return new TaskResponse(ScriptedA2AClient.Make("t-" + options!.IdempotencyKey, TaskState.Completed));
+        };
+
+        var run = d.RunOnceAsync();
+        await two.Task;
+
+        // Two entries are leased and blocked; the other two are not leased, so their lease cannot run out while they wait.
+        var untouched = 0;
+        for (var i = 0; i < 4; i++) if ((await GetAsync("m" + i)).Attempts == 0) untouched++;
+        Assert.Equal(2, untouched);
+        gate.SetResult();
+        Assert.Equal(4, await run);
+        Assert.Equal(4, _client.SendKeys.Count);
+    }
+
+    [Fact]
+    public async Task Purge_runs_again_in_the_same_sweep_while_it_deletes_a_full_batch()
+    {
+        var counting = new CrashingClientOutboxStore(_store);
+        var answers = new Queue<int>([1000, 1000, 3]);
+        counting.OnPurge = max => { Assert.Equal(1000, max); return answers.Dequeue(); };
+        await using var d = new ClientOutboxDispatcher(counting, (_, _) => new(_client), Options(o => o.PurgeInterval = TimeSpan.FromHours(1)), _time);
+        _time.Advance(TimeSpan.FromHours(1));
+
+        await d.RunOnceAsync();
+
+        Assert.Equal(3, counting.PurgeCalls);
+        Assert.Empty(answers);
     }
 
     [Fact]
