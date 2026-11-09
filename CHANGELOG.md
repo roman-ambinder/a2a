@@ -16,8 +16,19 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
   `A2A.Server.V0_3Compat`.
 - Shared: `A2A.Grpc` (gRPC types) and `A2A.V0_3Compat` (v0.3 codecs).
 - Microsoft.Extensions.AI: `A2A.Extensions.AI`.
+- Tool: `A2A.Cli` (the `a2a` command; install with `dotnet tool install -g`).
 - Every package has a README, the Apache-2.0 license, SourceLink and a symbol package. The libraries are AOT compatible.
   (#4, #13)
+
+### Command line tool
+
+- `RomanAmbinder.A2A.Cli` is a dotnet tool with the command `a2a`: `card`, `send`, `stream`, `subscribe`, `get`, `list`,
+  `cancel` and `download`. It uses JSON-RPC or HTTP+JSON, has no extra dependencies, and is AOT and trim friendly.
+- Credentials come from options or from `A2A_TOKEN`, `A2A_API_KEY`, `A2A_CLIENT_ID` and `A2A_CLIENT_SECRET`. Secrets are
+  never printed. Agent text is cleaned before it reaches the terminal. Exit codes are documented in the
+  [guide](docs/site/guides/cli.md).
+- `a2a download` checks the size and `sha256` of each file, writes to a temporary file first, and never lets an agent-chosen file
+  name leave the output folder.
 
 ### Protocol and bindings
 

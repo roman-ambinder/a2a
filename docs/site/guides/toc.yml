@@ -40,5 +40,7 @@
   href: interop-and-conformance.md
 - name: Spec decisions
   href: spec-decisions.md
+- name: Command line tool
+  href: cli.md
 - name: Versioning
   href: versioning.md
