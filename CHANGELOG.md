@@ -24,6 +24,7 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - Testing: `A2A.TestKit`, for agent authors. An in-process agent host, a scripted fake peer agent, assertions for task states
   and event order, a fake clock (`TestClock`) and a push receiver. It works with any test framework. It does not claim AOT
   compatibility and has no gRPC.
+- Model Context Protocol: `A2A.Mcp`.
 - Every package has a README, the Apache-2.0 license, SourceLink and a symbol package. The libraries are AOT compatible.
   (#4, #13)
 
@@ -105,6 +106,12 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 
 - `A2A.Extensions.AI` runs any `IChatClient` as an agent (`AddChatClientAgent`), calls a remote agent as a tool
   (`AsAIFunction`) and as a chat client (`AsChatClient`). URL parts are refused unless allowed. (#21)
+
+### MCP bridge
+
+- `A2A.Mcp` serves the skills of a remote agent as MCP tools (`AsMcpTools`), with `get_task` and `cancel_task` for long tasks.
+  It also runs MCP tools as an agent (`AddMcpToolAgent`) with an allowlist. Credentials are never forwarded, and tool
+  descriptions are fixed text unless you opt in. Built on `ModelContextProtocol.Core` 2.4.0.
 
 ### v0.3 compatibility
 
