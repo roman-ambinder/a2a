@@ -41,6 +41,8 @@ A client reads the schemas with `TypedSkillExtension.TryGetSchemas`:
 
 [!code-csharp[](../snippets/TypedSkills.cs#Schema)]
 
+The schemas are on the public card, so anyone who can read the card sees the field names of your input and output types. Do not put secrets in names or descriptions.
+
 The card comes from a peer, so the schema is data. Do not follow references in it.
 
 ## The wire shape
