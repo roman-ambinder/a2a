@@ -147,3 +147,6 @@ A2A.Client.Resilience.CircuitBreakerOptions.OpenDuration.set -> void
 A2A.Client.Resilience.CircuitOpenException
 static A2A.Client.Sse.SseReader.ReadAsync(System.IO.Stream! stream, int maxEventBytes, System.Threading.CancellationToken cancellationToken) -> System.Collections.Generic.IAsyncEnumerable<A2A.Client.Sse.SseEvent!>!
 const A2A.Client.Sse.SseReader.DefaultMaxEventBytes = 16777216 -> int
+A2A.Client.A2AFileUploader
+A2A.Client.A2AFileUploader.A2AFileUploader(System.Net.Http.HttpMessageHandler! agentHandler, System.Uri! uploadUrl) -> void
+A2A.Client.A2AFileUploader.UploadAsync(System.IO.Stream! content, string! mediaType, string? fileName = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.UrlPart!>!

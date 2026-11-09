@@ -33,6 +33,10 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
         "their data are never deleted, tasks waiting for input never time out (InterruptedTimeout does nothing), and tasks whose " +
         "instance died while running stay WORKING. Call services.AddA2ARetention() to turn it on; ignore this if you clean up yourself.";
 
+    internal const string UploadsWithoutRetentionMessage =
+        "Inbound file uploads are on (ArtifactStorage.Uploads.Enabled), but the retention sweep is off (it is opt-in). Nothing purges the uploads " +
+        "that no message ever used, so they stay in the object store for good. Call services.AddA2ARetention() to turn it on.";
+
     internal const string InMemoryObjectsMessage =
         "The task store is durable ({TaskStore}), but artifact objects are kept by the process-local InMemoryArtifactObjectStore. " +
         "Objects are lost on restart and other instances cannot read them, so stored tasks keep links that no longer download. " +
@@ -80,6 +84,9 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
 
         if (tasks is not null and not InMemoryTaskStore && services.GetService<Retention.A2ARetentionService>() is null)
             ServerLog.RetentionOffWithDurableStore(logger, tasks.GetType().Name);
+
+        if (services.GetService<A2AServerOptions>()?.ArtifactStorage.Uploads.Enabled == true && services.GetService<Retention.A2ARetentionService>() is null)
+            ServerLog.UploadsWithoutRetention(logger);
 
         if (tasks is not null and not InMemoryTaskStore && services.GetService<ArtifactObjectStore>() is InMemoryArtifactObjectStore)
             ServerLog.InMemoryObjectsWithDurableStore(logger, tasks.GetType().Name);

@@ -86,4 +86,45 @@ public sealed class A2ALimits
     /// Default 1024.
     /// </summary>
     public int MaxArtifactsPerTask { get; set; } = 1024;
+
+    /// <summary>
+    /// Most agents running at once on this instance (SendMessage, SendStreamingMessage and
+    /// <see cref="Execution.TaskExecutionEngine.ContinueTaskAsync"/>; a CancelTask run is never counted). A start over the limit
+    /// waits in a queue (<see cref="MaxQueuedExecutions"/>, <see cref="MaxExecutionQueueWait"/>), then is refused with
+    /// RATE_LIMITED. The limit is per instance: N instances allow N times this. Zero or negative turns it off. Default 1024.
+    /// </summary>
+    public int MaxConcurrentExecutions { get; set; } = 1024;
+
+    /// <summary>
+    /// Most agents running at once per tenant on this instance. Counted like <see cref="MaxConcurrentExecutions"/>. Zero or
+    /// negative turns it off (default).
+    /// </summary>
+    public int MaxConcurrentExecutionsPerTenant { get; set; }
+
+    /// <summary>
+    /// Most starts that may wait for a free slot. With <see cref="MaxConcurrentExecutionsPerTenant"/> set, one tenant may queue
+    /// at most that many, so one tenant cannot fill the queue. Zero or negative: no queue, a start over the limit is refused at
+    /// once. Default 256.
+    /// </summary>
+    public int MaxQueuedExecutions { get; set; } = 256;
+
+    /// <summary>
+    /// Longest a start waits for a free slot. Zero, negative, or too large for a timer: no queue (the wait is never unbounded).
+    /// Default 10 seconds.
+    /// </summary>
+    public TimeSpan MaxExecutionQueueWait { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Most tokens one task may use, over all its runs and instances, as reported with
+    /// <see cref="TaskUpdater.ReportUsageAsync"/>. The report that takes the total past the budget fails the task and stops the
+    /// agent. Usage exactly at the budget is allowed. Null, zero or negative turns it off (default).
+    /// </summary>
+    public long? MaxTaskTokens { get; set; }
+
+    /// <summary>
+    /// Most cost units one task may use, over all its runs and instances, as reported with
+    /// <see cref="TaskUpdater.ReportUsageAsync"/>. Works like <see cref="MaxTaskTokens"/>. Null, zero or negative turns it off
+    /// (default).
+    /// </summary>
+    public decimal? MaxTaskCostUnits { get; set; }
 }

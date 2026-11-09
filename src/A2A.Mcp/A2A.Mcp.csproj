@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>A2A.Mcp</RootNamespace>
+    <Description>Model Context Protocol (MCP) bridge for A2A (Agent2Agent): serve the skills of a remote A2A agent as MCP tools, or let an A2A agent run MCP tools.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\A2A.Client\A2A.Client.csproj" />
+    <ProjectReference Include="..\A2A.Server\A2A.Server.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Brings Logging.Abstractions 10 and DI.Abstractions 10 with it. There is no direct DI reference, because the repo's central version (8.x) would then be a downgrade. -->
+    <PackageReference Include="ModelContextProtocol.Core" />
+  </ItemGroup>
+</Project>

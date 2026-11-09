@@ -22,3 +22,4 @@ const A2A.Server.AspNetCore.A2AHealthChecks.ShutdownName = "a2a_shutdown" -> str
 const A2A.Server.AspNetCore.A2AHealthChecks.Tag = "a2a" -> string!
 const A2A.Server.AspNetCore.A2AHealthChecks.TaskStoreName = "a2a_task_store" -> string!
 static A2A.Server.AspNetCore.A2AHealthChecks.AddA2AHealthChecks(this Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder! builder, System.Action<A2A.Server.AspNetCore.A2AHealthCheckOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder!
+static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AUploads(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern = "/") -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!

@@ -4,7 +4,8 @@
       "src": [
         {
           "src": "../../src",
-          "files": ["**/*.csproj"]
+          "files": ["**/*.csproj"],
+          "exclude": ["A2A.Cli/**"]
         }
       ],
       "dest": "api",

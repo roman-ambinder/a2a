@@ -74,6 +74,9 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
     /// <summary>The size of <see cref="MeasuredTask"/>.</summary>
     public long MeasuredBytes { get; set; }
 
+    /// <summary>The task's usage as this run sees it, shared with the run's <see cref="TaskUpdater"/>. Its unstored part rides on the next stored event.</summary>
+    public TaskUsageMeter Usage { get; init; } = new();
+
     /// <summary>The run's span (<see cref="A2ATelemetry.SpanNames.AgentExecution"/>), or null when nobody listens.</summary>
     public Activity? Activity { get; init; }
 
@@ -93,13 +96,13 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
         activity.Dispose();
     }
 
-    private int _outcome; // 0 running, 1 the agent returned (or threw), 2 timed out
+    private int _outcome; // 0 running, 1 the agent returned (or threw), 2 stopped by the engine (time limit or budget)
 
-    /// <summary>The agent returned or threw. False when the execution had already timed out.</summary>
+    /// <summary>The agent returned or threw. False when the engine had already stopped the execution.</summary>
     public bool TryMarkReturned() => Interlocked.CompareExchange(ref _outcome, 1, 0) != 2;
 
-    /// <summary>The time limit expired. False when the agent had already returned.</summary>
-    public bool TryMarkTimedOut() => Interlocked.CompareExchange(ref _outcome, 2, 0) == 0;
+    /// <summary>The engine stops the run (the time limit expired or the budget was crossed). False when the agent had already returned, or the run was stopped already.</summary>
+    public bool TryMarkStopped() => Interlocked.CompareExchange(ref _outcome, 2, 0) == 0;
 
     /// <summary>
     /// The agent's events, read by the engine. When it is full the agent's next write waits: a fast agent is throttled to the

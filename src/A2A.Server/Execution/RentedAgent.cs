@@ -5,10 +5,13 @@ namespace A2A.Server.Execution;
 /// <summary>
 /// The agent of one execution, rented from the <see cref="IAgentExecutorFactory"/> before anything is claimed or stored. The
 /// request disposes the lease unless an execution took it (<see cref="TakeLease"/>), which then disposes it when the agent returns.
+/// It also carries the execution slot (<see cref="AttachSlot"/>): the request releases it unless an execution took it
+/// (<see cref="TakeSlot"/>), so every failure path before the start gives it back.
 /// </summary>
 internal sealed class RentedAgent : IAsyncDisposable
 {
     private AgentExecutorLease? _lease;
+    private ExecutionSlot? _slot;
 
     private RentedAgent(AgentExecutorLease? lease, IAgentExecutor? executor, ExceptionDispatchInfo? error)
     {
@@ -48,8 +51,22 @@ internal sealed class RentedAgent : IAsyncDisposable
         return taken;
     }
 
+    /// <summary>Gives the agent the execution slot the request took. At most one.</summary>
+    public void AttachSlot(ExecutionSlot slot) => _slot = slot;
+
+    /// <summary>Hands the slot to the execution; null when there is none.</summary>
+    public ExecutionSlot? TakeSlot()
+    {
+        var taken = _slot;
+        _slot = null;
+        return taken;
+    }
+
     public ValueTask DisposeAsync()
     {
+        var slot = _slot;
+        _slot = null;
+        slot?.Dispose();
         var owned = _lease;
         _lease = null;
         return owned?.DisposeAsync() ?? default;

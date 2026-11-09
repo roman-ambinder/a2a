@@ -60,6 +60,8 @@ jobs:
       - name: Test Extensions.AI (net8.0 + net10.0)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=ai-results" --results-directory TestResults
+      - name: Test Mcp (net8.0 + net10.0)
+        run: dotnet test tests/A2A.Mcp.Tests/A2A.Mcp.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=mcp-results" --results-directory TestResults
 
       - name: Test TestKit (net8.0 + net10.0)
         run: dotnet test tests/A2A.TestKit.Tests/A2A.TestKit.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=testkit-results" --results-directory TestResults
@@ -295,6 +297,13 @@ jobs:
           grep -E 'warning IL(2|3)[0-9]{3}' publish-client.log > warnings-client.txt || true
           cat warnings-client.txt
           test ! -s warnings-client.txt
+
+      - name: Publish a2a CLI (native AOT) and check for trim/AOT warnings
+        run: |
+          dotnet publish src/A2A.Cli -c Release -f net10.0 -r linux-x64 -p:PublishAot=true 2>&1 | tee publish-cli.log
+          grep -E 'warning IL(2|3)[0-9]{3}' publish-cli.log > warnings-cli.txt || true
+          cat warnings-cli.txt
+          test ! -s warnings-cli.txt
 
   docs:
     name: Docs site (DocFX)

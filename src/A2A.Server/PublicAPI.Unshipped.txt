@@ -94,6 +94,22 @@ A2A.Server.ServerCallContext.SkipRequiredExtensions.get -> bool
 A2A.Server.ServerCallContext.SkipRequiredExtensions.init -> void
 A2A.Server.A2AServerOptions.ShutdownDrainTimeout.get -> System.TimeSpan
 A2A.Server.A2AServerOptions.ShutdownDrainTimeout.set -> void
+A2A.Server.A2ALimits.MaxConcurrentExecutions.get -> int
+A2A.Server.A2ALimits.MaxConcurrentExecutions.set -> void
+A2A.Server.A2ALimits.MaxConcurrentExecutionsPerTenant.get -> int
+A2A.Server.A2ALimits.MaxConcurrentExecutionsPerTenant.set -> void
+A2A.Server.A2ALimits.MaxQueuedExecutions.get -> int
+A2A.Server.A2ALimits.MaxQueuedExecutions.set -> void
+A2A.Server.A2ALimits.MaxExecutionQueueWait.get -> System.TimeSpan
+A2A.Server.A2ALimits.MaxExecutionQueueWait.set -> void
+A2A.Server.A2ALimits.MaxTaskTokens.get -> long?
+A2A.Server.A2ALimits.MaxTaskTokens.set -> void
+A2A.Server.A2ALimits.MaxTaskCostUnits.get -> decimal?
+A2A.Server.A2ALimits.MaxTaskCostUnits.set -> void
+A2A.Server.TaskUpdater.ReportUsageAsync(long tokens, decimal costUnits = 0, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+A2A.Server.TaskUpdater.UsedTokens.get -> long
+A2A.Server.TaskUpdater.UsedCostUnits.get -> decimal
+A2A.Server.TaskContinuationStatus.AtCapacity = 6 -> A2A.Server.TaskContinuationStatus
 A2A.Server.A2AServerOptions.IdempotentCancel.get -> bool
 A2A.Server.A2AServerOptions.IdempotentCancel.set -> void
 A2A.Server.A2AServerOptions.ContextAccess.get -> System.Func<A2A.Server.Storage.ContextRecord!, A2A.Server.ServerCallContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<bool>>?
@@ -177,3 +193,25 @@ A2A.Server.Push.PushDeliveryOptions.MaxInFlightPerCaller.get -> int?
 A2A.Server.Push.PushDeliveryOptions.MaxInFlightPerCaller.set -> void
 virtual A2A.Server.Push.PushOutbox.LeaseDueCappedAsync(int max, System.TimeSpan lease, int maxInFlightPerCaller, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Push.OutboxEntry!>!>
 override A2A.Server.Push.InMemoryPushOutbox.LeaseDueCappedAsync(int max, System.TimeSpan lease, int maxInFlightPerCaller, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Server.Push.OutboxEntry!>!>
+A2A.Server.ArtifactStorageOptions.Uploads.get -> A2A.Server.ArtifactUploadOptions!
+A2A.Server.ArtifactUploadOptions
+A2A.Server.ArtifactUploadOptions.ArtifactUploadOptions() -> void
+A2A.Server.ArtifactUploadOptions.Enabled.get -> bool
+A2A.Server.ArtifactUploadOptions.Enabled.set -> void
+A2A.Server.ArtifactUploadOptions.MaxConcurrentUploadsPerCaller.get -> int
+A2A.Server.ArtifactUploadOptions.MaxConcurrentUploadsPerCaller.set -> void
+A2A.Server.ArtifactUploadOptions.MaxStoredBytesPerCaller.get -> long
+A2A.Server.ArtifactUploadOptions.MaxStoredBytesPerCaller.set -> void
+A2A.Server.ArtifactUploadOptions.MaxUploadBytes.get -> long
+A2A.Server.ArtifactUploadOptions.MaxUploadBytes.set -> void
+A2A.Server.ArtifactUploadOptions.MaxUploadsPerCaller.get -> int
+A2A.Server.ArtifactUploadOptions.MaxUploadsPerCaller.set -> void
+A2A.Server.ArtifactUploadOptions.UnusedUploadTtl.get -> System.TimeSpan
+A2A.Server.ArtifactUploadOptions.UnusedUploadTtl.set -> void
+A2A.Server.Storage.ArtifactObjectEntry.SizeBytes.get -> long?
+A2A.Server.Storage.ArtifactObjectEntry.SizeBytes.init -> void
+const A2A.Server.A2ARequestHandler.ReadUploadOperationName = "a2a.files.read" -> string!
+const A2A.Server.A2ARequestHandler.UploadOperationName = "a2a.files.upload" -> string!
+A2A.Server.A2ARequestHandler.OpenUploadAsync(string! objectId, A2A.Server.Storage.ArtifactByteRange? range, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.ArtifactDownload!>
+A2A.Server.A2ARequestHandler.UploadFileAsync(System.IO.Stream! content, string? mediaType, string? fileName, long? contentLength, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.UrlPart!>
+A2A.Server.AgentRequestContext.OpenUploadAsync(A2A.UrlPart! part, A2A.Server.Storage.ArtifactByteRange? range = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectContent?>
