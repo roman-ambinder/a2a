@@ -64,7 +64,7 @@ ALTER TABLE {s}.a2a_contexts ADD COLUMN IF NOT EXISTS summary text NULL;
 CREATE INDEX IF NOT EXISTS a2a_contexts_owner_ix ON {s}.a2a_contexts (tenant, owner, created_ticks DESC, context_id);
 ```
 
-Put both after the `a2a_contexts` table in the script, in the style of the existing `queued_ticks` line. `PostgresSchema.Version` stays 1, as it did for that column.
+Both are in migration `0003_conversation_memory.sql`.
 
 The history is cut in the database, so artifacts and messages over budget never reach the client:
 

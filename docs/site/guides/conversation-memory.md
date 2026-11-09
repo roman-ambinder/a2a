@@ -74,14 +74,14 @@ The order is the creation time, not the last activity. Sorting by last activity 
 
 ## Postgres
 
-The Postgres schema script adds one nullable column and one index:
+Migration `0003_conversation_memory` adds one nullable column and one index:
 
 ```sql
 ALTER TABLE a2a_contexts ADD COLUMN IF NOT EXISTS summary text NULL;
 CREATE INDEX IF NOT EXISTS a2a_contexts_owner_ix ON a2a_contexts (tenant, owner, created_ticks DESC, context_id);
 ```
 
-The script is safe to run again, so apply it again after an upgrade (`CreateSchemaOnStartup` or your migration step). The schema version stays 1. See [Durable stores](durable-stores.md).
+Apply it like any other migration, with `CreateSchemaOnStartup` or `PostgresSchema.ScriptFor(schema, fromVersion)`. See [Durable stores](durable-stores.md).
 
 The Postgres store cuts the history in the database. Tasks that are too old, and messages over the budget, never reach your process. `ListContextsAsync` is one indexed query and lists every context of the owner, also one with no tasks.
 

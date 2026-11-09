@@ -24,8 +24,10 @@ public sealed partial class PostgresStoreOptions
     }
 
     /// <summary>
-    /// When true (the default), a hosted service creates the tables and indexes at startup if they are missing. Turn it off
-    /// when you apply <see cref="PostgresSchema.Script"/> yourself (for example with your migration tool).
+    /// When true (the default), a hosted service applies the missing schema migrations at startup, in one transaction under an
+    /// advisory lock. A database newer than the package only logs a warning. When false, the service changes nothing and
+    /// refuses to start unless the database version equals <see cref="PostgresSchema.Version"/>: apply
+    /// <see cref="PostgresSchema.ScriptFor(string, int)"/> yourself (for example with your migration tool).
     /// </summary>
     public bool CreateSchemaOnStartup { get; set; } = true;
 

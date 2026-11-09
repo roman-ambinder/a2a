@@ -5,6 +5,7 @@ using A2A.Server.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
@@ -163,8 +164,8 @@ internal sealed class PostgresCoordinatorHostedService(IServiceProvider services
         if (services.GetRequiredService<ExecutionCoordinator>() is not PostgresExecutionCoordinator coordinator) return;
         _started = coordinator;
         // Idempotent and serialized by an advisory lock, so it is safe next to the stores' own hosted service, in any order.
-        if (options.CreateSchemaOnStartup)
-            await PostgresSchema.EnsureSchemaAsync(dataSource, options.Schema, cancellationToken).ConfigureAwait(false);
+        var logger = services.GetService<ILoggerFactory>()?.CreateLogger<PostgresCoordinatorHostedService>();
+        await PostgresSchema.PrepareForStartupAsync(dataSource, options, logger, cancellationToken).ConfigureAwait(false);
         await coordinator.StartAsync(cancellationToken).ConfigureAwait(false);
     }
 

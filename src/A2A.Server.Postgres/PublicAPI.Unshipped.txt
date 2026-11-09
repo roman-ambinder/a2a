@@ -25,3 +25,7 @@ static A2A.Server.Postgres.A2APostgresServiceCollectionExtensions.AddPostgresExe
 A2A.Server.Postgres.PostgresTaskStore.SetContextSummaryAsync(string! tenant, string! owner, string! contextId, string? summary, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 override A2A.Server.Postgres.PostgresTaskStore.ListContextsAsync(A2A.Server.Storage.ContextQuery! query, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ContextPage!>
 override A2A.Server.Postgres.PostgresTaskStore.ReadContextMessagesAsync(A2A.Server.Storage.ContextHistoryQuery! query, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Message!>!>
+*REMOVED*const A2A.Server.Postgres.PostgresSchema.Version = 1 -> int
+static A2A.Server.Postgres.PostgresSchema.Version.get -> int
+static A2A.Server.Postgres.PostgresSchema.ScriptFor(string! schema, int fromVersion) -> string!
+static A2A.Server.Postgres.PostgresSchema.VerifySchemaAsync(Npgsql.NpgsqlDataSource! dataSource, string! schema = "public", System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!

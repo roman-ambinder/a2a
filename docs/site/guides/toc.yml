@@ -18,6 +18,8 @@
   href: peer-identity.md
 - name: Skill selection
   href: skill-selection.md
+- name: Skill authorization
+  href: skill-authorization.md
 - name: Microsoft.Extensions.AI
   href: extensions-ai.md
 - name: Conversation memory

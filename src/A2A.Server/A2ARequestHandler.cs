@@ -34,6 +34,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private readonly IAgentCardProvider _cards;
     private readonly RequestCards _requestCards;
     private readonly A2AAuthorizationHandler _authorization;
+    private readonly SkillAuthorizer _skills;
     private readonly CallValidator _validator;
     private readonly PushConfigService _pushConfigs;
     private readonly TaskExecutionEngine _engine;
@@ -104,9 +105,10 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         _pushConfigs = pushConfigs;
         _engine = engine;
         // Built here, not registered: it shares the handler's services and has no public surface of its own.
-        _streamer = new TaskStreamer(tasks, events, engine, idempotency, authorization, options, cards);
+        _skills = new SkillAuthorizer(authorization, options.SkillAuthorization, cards, _requestCards);
+        _streamer = new TaskStreamer(tasks, events, engine, idempotency, authorization, options, cards, _skills);
         _accept = AcceptAsync; // one delegate for every stream
-        _pipeline = new OperationPipeline(new AuthorizationFilter(authorization, options), filters);
+        _pipeline = new OperationPipeline(new AuthorizationFilter(authorization, options, _skills), filters);
         _sendMessage = SendMessageCoreAsync;
         _sendStreaming = (r, c, ct) => new(_streamer.StreamExecutionAsync(r, c, _accept, SendStreamingOperation, ct));
         _getTask = GetTaskCoreAsync;
@@ -543,6 +545,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                 Approval = approval,
                 ElicitationAnswer = elicitation,
                 TokenExchanger = _tokenExchanger,
+                SkillAuthorizer = _skills,
             };
             return new Prepared(context, existing is null ? push : null, lastSequence, duplicate, isFollowUp ? existing?.Status : null, startPending);
         }
@@ -952,7 +955,8 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "This agent does not provide an extended agent card.");
         if (!call.IsAuthenticated) throw new A2AException(A2AErrorCode.Unauthenticated, "The extended agent card requires authentication.");
         var card = await _cards.GetExtendedAsync(call, publicCard, cancellationToken).ConfigureAwait(false);
-        return card ?? throw new A2AException(A2AErrorCode.ExtendedAgentCardNotConfigured);
+        return card is null ? throw new A2AException(A2AErrorCode.ExtendedAgentCardNotConfigured)
+            : await _skills.FilterExtendedCardAsync(call, card, cancellationToken).ConfigureAwait(false);
     }
 
     // =====================================================================
