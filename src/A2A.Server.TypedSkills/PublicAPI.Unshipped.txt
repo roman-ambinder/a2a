@@ -1,0 +1,28 @@
+#nullable enable
+A2A.Server.TypedSkills.TypedSkillContext<TInput>
+A2A.Server.TypedSkills.TypedSkillContext<TInput>.Input.get -> TInput
+A2A.Server.TypedSkills.TypedSkillContext<TInput>.ReportProgressAsync(string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+A2A.Server.TypedSkills.TypedSkillContext<TInput>.Request.get -> A2A.Server.AgentRequestContext!
+A2A.Server.TypedSkills.TypedSkillContext<TInput>.Services.get -> System.IServiceProvider!
+A2A.Server.TypedSkills.TypedSkillFailedException
+A2A.Server.TypedSkills.TypedSkillFailedException.TypedSkillFailedException(string! message) -> void
+A2A.Server.TypedSkills.TypedSkillOptions<TInput>
+A2A.Server.TypedSkills.TypedSkillOptions<TInput>.Description.get -> string?
+A2A.Server.TypedSkills.TypedSkillOptions<TInput>.Description.set -> void
+A2A.Server.TypedSkills.TypedSkillOptions<TInput>.Examples.get -> System.Collections.Generic.List<string!>!
+A2A.Server.TypedSkills.TypedSkillOptions<TInput>.Name.get -> string?
+A2A.Server.TypedSkills.TypedSkillOptions<TInput>.Name.set -> void
+A2A.Server.TypedSkills.TypedSkillOptions<TInput>.Tags.get -> System.Collections.Generic.List<string!>!
+A2A.Server.TypedSkills.TypedSkillOptions<TInput>.Validate.get -> System.Func<TInput, System.Collections.Generic.IEnumerable<A2A.Server.TypedSkills.TypedSkillValidationError!>!>?
+A2A.Server.TypedSkills.TypedSkillOptions<TInput>.Validate.set -> void
+A2A.Server.TypedSkills.TypedSkillSet
+A2A.Server.TypedSkills.TypedSkillSet.ApplyTo(A2A.AgentCard! card) -> void
+A2A.Server.TypedSkills.TypedSkillSet.Map<TInput, TOutput>(string! id, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TInput>! inputType, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TOutput>! outputType, System.Func<A2A.Server.TypedSkills.TypedSkillContext<TInput>!, System.Threading.CancellationToken, System.Threading.Tasks.Task<TOutput>!>! handler, System.Action<A2A.Server.TypedSkills.TypedSkillOptions<TInput>!>? configure = null) -> A2A.Server.TypedSkills.TypedSkillSet!
+A2A.Server.TypedSkills.TypedSkillSet.TypedSkillSet() -> void
+A2A.Server.TypedSkills.TypedSkillSet.UseFallback<T>() -> A2A.Server.TypedSkills.TypedSkillSet!
+A2A.Server.TypedSkills.TypedSkillValidationError
+A2A.Server.TypedSkills.TypedSkillValidationError.Description.get -> string!
+A2A.Server.TypedSkills.TypedSkillValidationError.Field.get -> string!
+A2A.Server.TypedSkills.TypedSkillValidationError.TypedSkillValidationError(string! field, string! description) -> void
+A2A.Server.TypedSkills.TypedSkillsServerBuilderExtensions
+static A2A.Server.TypedSkills.TypedSkillsServerBuilderExtensions.AddTypedSkills(this A2A.Server.A2AServerBuilder! builder, System.Action<A2A.Server.TypedSkills.TypedSkillSet!>! configure) -> A2A.Server.A2AServerBuilder!
