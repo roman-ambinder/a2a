@@ -80,6 +80,8 @@ public static class A2AJson
         [typeof(Artifact)] = ["startGeneration", "endGeneration", "role"],
         [typeof(TaskStatusUpdateEvent)] = ["generation"],
         [typeof(TaskArtifactUpdateEvent)] = ["generation"],
+        // A 1.1-only event, but stored in the 1.0 shape like every event: the generation is added for 1.1 readers.
+        [typeof(TaskMessageUpdateEvent)] = ["generation"],
         [typeof(TaskPushNotificationConfig)] = ["protocolVersion"],
     };
 

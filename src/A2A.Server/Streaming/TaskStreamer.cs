@@ -74,6 +74,47 @@ internal sealed class TaskStreamer
     /// <summary>Open streams counted against the stream limits. For tests.</summary>
     internal int OpenStreams => _admission.OpenStreams;
 
+    /// <summary>Most a long-poll waits, whatever <see cref="A2AServerOptions.LongPollTimeout"/> says.</summary>
+    internal static readonly TimeSpan MaxLongPoll = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// A2A 1.1 long-poll (§3.2.7): the task once its generation is above <paramref name="after"/>, or as it is when it is
+    /// terminal (nothing changes it any more), when <see cref="A2AServerOptions.LongPollTimeout"/> passes, or when the wait is
+    /// cancelled by the server. The generation equals the last event sequence, so any event published for the task can end
+    /// the wait; the task is read again after subscribing, so no change between the first read and the subscription is missed.
+    /// The wait holds a stream slot. Throws TaskNotFound like GetTask.
+    /// </summary>
+    internal async Task<TaskRecord> WaitPastGenerationAsync(TaskKey key, ServerCallContext call, long after, CancellationToken ct)
+    {
+        var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
+        var timeout = _options.LongPollTimeout > MaxLongPoll ? MaxLongPoll : _options.LongPollTimeout;
+        if (await IsPastAsync(key, record, after, ct).ConfigureAwait(false) || timeout <= TimeSpan.Zero) return record;
+
+        using var slot = _admission.Enter(key, call.LimitPartition);
+        using var sub = _bus.Subscribe(ScopeKey(call.Tenant, key.TaskId));
+        using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        wait.CancelAfter(timeout);
+        try
+        {
+            while (true)
+            {
+                record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
+                if (await IsPastAsync(key, record, after, ct).ConfigureAwait(false)) return record;
+                if (!await sub.Reader.WaitToReadAsync(wait.Token).ConfigureAwait(false)) break; // the topic ended: terminal
+                while (sub.Reader.TryRead(out _)) { } // read the task again, whatever the events were
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // The time limit: answer with the task as it is (the spec allows an earlier answer).
+        }
+        return await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
+    }
+
+    private async ValueTask<bool> IsPastAsync(TaskKey key, TaskRecord record, long after, CancellationToken ct) =>
+        record.Task.Status.State.IsTerminal()
+        || (record.Task.Generation ?? await _events.LastSequenceAsync(key, ct).ConfigureAwait(false)) > after;
+
     /// <summary>
     /// SendStreamingMessage: handles an idempotent retry, takes a stream slot, accepts the message with
     /// <paramref name="accept"/>, then streams the task's events (see <see cref="A2ARequestHandler.SendStreamingMessageAsync"/>).

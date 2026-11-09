@@ -94,6 +94,13 @@ target netstandard2.0. .NET 8 is not a target: its support ends on 10 November 2
   `AUTH_REQUIRED` until the task ends. `timelineLength` works like `historyLength` (cap: `A2ALimits.MaxTimelineLengthReturned`,
   100). A card completed from the mapped bindings lists the 1.1 interfaces first. 1.0 and v0.3 callers get the 1.0 shape
   and no message events, and webhooks stay 1.0.
+- A2A 1.1 for 1.1 callers: `configuration.ifGenerationMatch` refuses a follow-up when the task's generation differs
+  (`TaskGenerationMismatch`, -32010, HTTP 409, gRPC `ABORTED`, with `expectedGeneration` and `currentGeneration`); GetTask
+  with `currentGeneration` (REST `?currentGeneration=`) waits until the task changes, up to
+  `A2AServerOptions.LongPollTimeout` (30 s, at most 5 min), holding a stream slot; `SubscribeToTask` with
+  `lastSeenGeneration` (REST `?lastSeenGeneration=`) resumes after it without a snapshot; a push config created by a 1.1
+  caller has `protocolVersion` 1.1 (or the `1.0` it asks for), and its webhook gets `A2A-Version: 1.1`, the `generation` of
+  each event and the message updates. Configs of 1.0 callers stay 1.0.
 - A follow-up message is now stored as an event of the task (a message update), so it takes a sequence number. 1.0
   callers do not see it, but stream ids and webhook sequences skip its number.
 - The Agent Card endpoint answers with `application/a2a-agent-card+json` when the request asks for it, and with

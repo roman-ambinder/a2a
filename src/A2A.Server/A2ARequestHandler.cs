@@ -518,7 +518,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         await BeginAuditAsync(call, ticket, message, isFollowUp, answersForm, taskId, push, ct).ConfigureAwait(false);
 
         Accepted accepted;
-        if (isFollowUp) accepted = await AcceptFollowUpAsync(call, ticket, message, taskId, answersForm, push, ct).ConfigureAwait(false);
+        // A2A 1.1 (§3.2.2): the precondition is part of the 1.1 request; a 1.0 caller cannot send it.
+        var ifGenerationMatch = A2AProtocol.IsVersion11OrLater(call.ProtocolVersion) ? request.Configuration?.IfGenerationMatch : null;
+        if (isFollowUp) accepted = await AcceptFollowUpAsync(call, ticket, message, taskId, answersForm, push, ifGenerationMatch, ct).ConfigureAwait(false);
         else
         {
             var newContextId = await ResolveContextAsync(message.ContextId, call, ct).ConfigureAwait(false);
@@ -577,6 +579,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         if (request.Configuration?.TaskPushNotificationConfig is not { } p) return null;
         RequestCards.RequirePush(await _requestCards.RequireAgentAsync(call, ct).ConfigureAwait(false));
         var push = p.DeepCopy(); // the caller's config is never changed
+        push.ProtocolVersion = PushVersion(push.ProtocolVersion, call, "configuration.taskPushNotificationConfig");
         push.TaskId = taskId;
         push.Id = string.IsNullOrEmpty(push.Id) ? TaskIds.New() : push.Id;
         push.Tenant = call.Tenant;
@@ -607,7 +610,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     /// recognise it as already accepted. The lock, the retry loop and the cleanup of an unsaved push config stay together here.
     /// </summary>
     private async Task<Accepted> AcceptFollowUpAsync(ServerCallContext call, AuditTicket ticket, Message message, string taskId, bool answersForm,
-        TaskPushNotificationConfig? push, CancellationToken ct)
+        TaskPushNotificationConfig? push, long? ifGenerationMatch, CancellationToken ct)
     {
         var key = Key(call, taskId);
         var pushIsNew = false;   // the config id did not exist before this request
@@ -625,6 +628,13 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     throw A2AException.InvalidParams("message.contextId does not match the task's contextId");
                 if (record.Task.History?.Exists(m => string.Equals(m.MessageId, message.MessageId, StringComparison.Ordinal)) == true)
                     return await AcceptAlreadyAcceptedAsync(key, ticket, record, message, ct).ConfigureAwait(false);
+                if (ifGenerationMatch is { } expected)
+                {
+                    // Checked on the record the commit is based on (CAS), so check and commit are one step: after a conflict
+                    // the loop reads again and checks again. A retry of an accepted message was answered above.
+                    var current = record.Task.Generation ?? await _events.LastSequenceAsync(key, ct).ConfigureAwait(false);
+                    if (current != expected) throw GenerationMismatch(taskId, expected, current);
+                }
                 if (state.IsTerminal())
                     throw new A2AException(A2AErrorCode.UnsupportedOperation,
                         "The task is in a terminal state. Start a new task and list this one in referenceTaskIds.")
@@ -690,9 +700,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                         Message = stored,
                         Generation = generation,
                     });
-                    // No push deliveries: the message update is a 1.1 event, and the push configs get the 1.0 events.
+                    // The message update is a 1.1 event: only push configs of version 1.1 get it.
                     var encoded = EventEncoder.Encode(0, added);
-                    var result = await _tasks.CommitAsync(new TaskCommit(record with { Task = next }, record.Version, encoded, []), ct).ConfigureAwait(false);
+                    var deliveries = await _engine.MessageDeliveriesAsync(key, ct).ConfigureAwait(false);
+                    var result = await _tasks.CommitAsync(new TaskCommit(record with { Task = next }, record.Version, encoded, deliveries), ct).ConfigureAwait(false);
+                    if (deliveries.Count > 0) _engine.NotifyPushPending();
                     // Published under the task lock, like every stored event, so subscribers see it in sequence order. Only
                     // 1.1 streams write it (EventEncoder.IsVisibleTo).
                     _engine.PublishStored(key, encoded with { Sequence = result.Sequence });
@@ -920,7 +932,10 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         A2AValidator.RequireId(request.Id, "id");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
         if (request.TimelineLength is < 0) throw A2AException.InvalidParams("timelineLength must be >= 0");
-        var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        // A2A 1.1 long-poll (§3.2.7): wait until the generation is above currentGeneration. A 1.0 request has no such field.
+        var record = request.CurrentGeneration is { } after && A2AProtocol.IsVersion11OrLater(call.ProtocolVersion)
+            ? await _streamer.WaitPastGenerationAsync(Key(call, request.Id), call, after, cancellationToken).ConfigureAwait(false)
+            : await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
         return Shape(record.Task, request.HistoryLength, timelineLength: request.TimelineLength);
     }
 
@@ -1146,7 +1161,15 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     public IAsyncEnumerable<SequencedEvent> SubscribeToTaskAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter = null,
         Action? onCaughtUp = null, CancellationToken cancellationToken = default) =>
         StreamAsync(SubscribeOperation, request.Tenant, call, request,
-            (r, c, ct) => new(_streamer.SubscribeAsync(r, c, resumeAfter, onCaughtUp, SubscribeOperation, ct)), cancellationToken);
+            (r, c, ct) => new(_streamer.SubscribeAsync(r, c, resumeAfter ?? LastSeenGeneration(r, c), onCaughtUp, SubscribeOperation, ct)), cancellationToken);
+
+    /// <summary>
+    /// A2A 1.1 (§3.1.12): <c>lastSeenGeneration</c> resumes after that generation, without a task snapshot first. The task's
+    /// generation equals its event sequence, so this is the resume after an event id; when the store no longer has the events
+    /// after it, the stream starts with a snapshot instead. Ignored for a 1.0 caller, whose request has no such field.
+    /// </summary>
+    private static long? LastSeenGeneration(SubscribeToTaskRequest request, ServerCallContext call) =>
+        request.LastSeenGeneration is { } seen && A2AProtocol.IsVersion11OrLater(call.ProtocolVersion) ? Math.Max(seen, 0) : null;
 
     /// <summary>Open streams counted against the stream limits. For tests.</summary>
     internal int OpenStreams => _streamer.OpenStreams;
@@ -1174,7 +1197,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         _ = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(config.TaskId!);
         // Save first, then read the task (inside CatchUpAsync): an event committed after that read lists this config itself or
         // finds it when it lists again (see TaskExecutionEngine), so no final state is missed.
-        var created = await _pushConfigs.CreateAsync(key, config, cancellationToken).ConfigureAwait(false);
+        var versioned = config.DeepCopy(); // the caller's config is never changed
+        versioned.ProtocolVersion = PushVersion(config.ProtocolVersion, call, "config");
+        var created = await _pushConfigs.CreateAsync(key, versioned, cancellationToken).ConfigureAwait(false);
         await _engine.CatchUpAsync(key, created.Id!, cancellationToken).ConfigureAwait(false);
         return created;
     }
@@ -1307,6 +1332,34 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private AgentTask Shape(AgentTask task, int? historyLength, bool includeArtifacts = true, int? timelineLength = null) =>
         TaskShaper.Shape(task, historyLength, _options.Limits, includeArtifacts, timelineLength);
+
+    /// <summary>
+    /// The protocol version a new push config is stored with (A2A 1.1 §4.3.1): what a 1.1 caller asked for (<c>1.0</c> or
+    /// <c>1.1</c>), else the version of the request that creates it. A 1.0 caller has no such field: null, which means 1.0.
+    /// </summary>
+    private static string? PushVersion(string? requested, ServerCallContext call, string field)
+    {
+        if (!A2AProtocol.IsVersion11OrLater(call.ProtocolVersion)) return null;
+        if (string.IsNullOrWhiteSpace(requested)) return A2AProtocol.Version11;
+        var parts = requested.Trim().Split('.');
+        var majorMinor = parts.Length >= 2 ? parts[0] + "." + parts[1] : requested.Trim();
+        return majorMinor is A2AProtocol.Version or A2AProtocol.Version11
+            ? majorMinor
+            : throw A2AException.InvalidParams($"{field}.protocolVersion must be {A2AProtocol.Version} or {A2AProtocol.Version11}");
+    }
+
+    /// <summary>A2A 1.1 <c>TaskGenerationMismatchError</c> with the metadata of spec 11.6.</summary>
+    private static A2AException GenerationMismatch(string taskId, long expected, long current) =>
+        new(A2AErrorCode.TaskGenerationMismatch,
+            string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Task generation mismatch: expected {expected} but current generation is {current}"))
+        {
+            Metadata = new()
+            {
+                ["taskId"] = taskId,
+                ["expectedGeneration"] = expected.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["currentGeneration"] = current.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            },
+        };
 
     private static A2AException NotCancelable(string taskId) =>
         new(A2AErrorCode.TaskNotCancelable) { Metadata = new() { ["taskId"] = taskId } };

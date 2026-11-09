@@ -85,7 +85,14 @@ public sealed class RestEndpoint(IA2ARequestHandler handler, A2AOperationTable t
     });
 
     private Task GetTask(HttpContext http) => Run(http, (call, ct) =>
-        Box(handler.GetTaskAsync(new GetTaskRequest { Id = Route(http, "id"), HistoryLength = QueryInt(http, "historyLength"), Tenant = call.Tenant }, call, ct)));
+        Box(handler.GetTaskAsync(new GetTaskRequest
+        {
+            Id = Route(http, "id"),
+            HistoryLength = QueryInt(http, "historyLength"),
+            TimelineLength = QueryInt(http, "timelineLength"),
+            CurrentGeneration = QueryLong(http, "currentGeneration"),
+            Tenant = call.Tenant,
+        }, call, ct)));
 
     private Task ListTasks(HttpContext http) => Run(http, (call, ct) =>
     {
@@ -116,6 +123,7 @@ public sealed class RestEndpoint(IA2ARequestHandler handler, A2AOperationTable t
             PageSize = QueryInt(http, "pageSize"),
             PageToken = Query(http, "pageToken"),
             HistoryLength = QueryInt(http, "historyLength"),
+            TimelineLength = QueryInt(http, "timelineLength"),
             StatusTimestampAfter = after,
             IncludeArtifacts = includeArtifacts,
         };
@@ -132,7 +140,9 @@ public sealed class RestEndpoint(IA2ARequestHandler handler, A2AOperationTable t
     private Task Subscribe(HttpContext http) => RunStream(http, (call, caughtUp, ct) =>
     {
         var id = Route(http, "id");
-        return Task.FromResult(handler.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = id, Tenant = call.Tenant }, call, HttpPlumbing.ResumeAfter(http, id), caughtUp, ct));
+        // A2A 1.1: GET has no body, so lastSeenGeneration comes as a query parameter (§11.5 query mapping).
+        var request = new SubscribeToTaskRequest { Id = id, Tenant = call.Tenant, LastSeenGeneration = QueryLong(http, "lastSeenGeneration") };
+        return Task.FromResult(handler.SubscribeToTaskAsync(request, call, HttpPlumbing.ResumeAfter(http, id), caughtUp, ct));
     });
 
     private Task CreatePushConfig(HttpContext http) => Run(http, async (call, ct) =>
@@ -313,6 +323,13 @@ public sealed class RestEndpoint(IA2ARequestHandler handler, A2AOperationTable t
             else sb.Append(c);
         }
         return sb.ToString();
+    }
+
+    private static long? QueryLong(HttpContext http, string name)
+    {
+        var v = Query(http, name);
+        if (string.IsNullOrEmpty(v)) return null;
+        return long.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l) ? l : throw A2AException.InvalidParams($"{name} must be an integer");
     }
 
     private static int? QueryInt(HttpContext http, string name)
