@@ -1,0 +1,3 @@
+# Most pull requests add lines to these lists, so a merge keeps the lines of both sides. The API analyzers do not need an order.
+**/PublicAPI.Shipped.txt merge=union
+**/PublicAPI.Unshipped.txt merge=union

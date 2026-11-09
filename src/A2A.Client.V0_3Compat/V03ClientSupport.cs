@@ -15,22 +15,10 @@ internal static class V03ClientSupport
     /// <summary>A copy of <paramref name="source"/> that speaks v0.3. The caller's object is never changed.</summary>
     public static A2AClientOptions CopyForV03(A2AClientOptions? source, string? tenant = null)
     {
-        source ??= new A2AClientOptions();
-        return new A2AClientOptions
-        {
-            ProtocolVersion = V03Compat.HeaderVersion,
-            Extensions = new List<string>(source.Extensions),
-            Tenant = string.IsNullOrEmpty(tenant) ? source.Tenant : tenant,
-            SupportedBindings = new List<string>(source.SupportedBindings),
-            RestSubscribeMethod = source.RestSubscribeMethod,
-            ValidateCapabilities = source.ValidateCapabilities,
-            MaxRetries = source.MaxRetries,
-            TimeProvider = source.TimeProvider,
-            OnMessageReceived = source.OnMessageReceived,
-            CircuitBreaker = source.CircuitBreaker,
-            TransportFactories = new List<IA2ATransportFactory>(source.TransportFactories),
-            EndpointPolicy = source.EndpointPolicy,
-        };
+        var copy = (source ?? new A2AClientOptions()).Clone();
+        copy.ProtocolVersion = V03Compat.HeaderVersion;
+        if (!string.IsNullOrEmpty(tenant)) copy.Tenant = tenant;
+        return copy;
     }
 
     /// <summary>

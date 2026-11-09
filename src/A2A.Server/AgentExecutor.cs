@@ -252,7 +252,8 @@ public sealed class TaskUpdater
     /// <para>
     /// Report before you set the status: usage reported after the run's last event is not stored. The check uses this run's view
     /// (the stored total at the start plus its own reports), and happens after the spending, so one report can overshoot by its own size.
-    /// A CancelTask run counts usage and has no budget.
+    /// A CancelTask run counts usage and has no budget. When two runs of one task overlap and one ends the task, an event of the other
+    /// that is not stored yet is dropped, with the usage it carried.
     /// </para>
     /// </remarks>
     /// <param name="tokens">Tokens used since the last report. Not negative.</param>
