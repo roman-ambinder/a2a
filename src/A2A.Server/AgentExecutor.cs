@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using A2A.Delegation;
 using A2A.Elicitations;
 using A2A.Integrity;
+using A2A.Server.Execution;
 using A2A.Server.Storage;
 using A2A.Skills;
 
@@ -151,11 +152,16 @@ public sealed class TaskUpdater
     private bool _replied;
     private bool _terminal;
     private readonly ArtifactOffload? _offload;
+    private readonly TaskUsageMeter _usage;
+    private readonly Func<ValueTask>? _onBudgetExceeded;
 
     internal TaskUpdater(string taskId, string contextId, bool isNewTask, ChannelWriter<StreamResponse> writer,
-        Dictionary<string, JsonElement>? requestMetadata = null, ArtifactOffload? offload = null)
+        Dictionary<string, JsonElement>? requestMetadata = null, ArtifactOffload? offload = null, TaskUsageMeter? usage = null,
+        Func<ValueTask>? onBudgetExceeded = null)
     {
         _offload = offload;
+        _usage = usage ?? new TaskUsageMeter();
+        _onBudgetExceeded = onBudgetExceeded;
         TaskId = taskId;
         ContextId = contextId;
         _isNewTask = isNewTask;
@@ -175,6 +181,50 @@ public sealed class TaskUpdater
     /// Null when the request had none.
     /// </summary>
     public IReadOnlyDictionary<string, JsonElement>? RequestMetadata { get; }
+
+    /// <summary>
+    /// The task's total tokens, over all its runs: what earlier runs stored when this run started, plus what this run reported
+    /// with <see cref="ReportUsageAsync"/>.
+    /// </summary>
+    public long UsedTokens => _usage.Tokens;
+
+    /// <summary>The task's total cost units, over all its runs. Counted like <see cref="UsedTokens"/>.</summary>
+    public decimal UsedCostUnits => _usage.CostUnits;
+
+    /// <summary>
+    /// Reports what the agent has used for this task. The server adds it to the task's total, stores it in the task's metadata
+    /// (<c>a2a.usage</c>) with the next event of this run, and checks it against <see cref="A2ALimits.MaxTaskTokens"/> and
+    /// <see cref="A2ALimits.MaxTaskCostUnits"/>. A report that takes the total strictly past a budget fails the task
+    /// ("Task exceeded its budget"), cancels the token of the run, and throws <see cref="OperationCanceledException"/>, so an agent
+    /// that ignores its token still stops. Usage exactly at the budget is allowed.
+    /// </summary>
+    /// <remarks>
+    /// <para>Sums saturate at the largest value; they never wrap. A report after a terminal state is ignored.</para>
+    /// <para>
+    /// Report before you set the status: usage reported after the run's last event is not stored. The check uses this run's view
+    /// (the stored total at the start plus its own reports), and happens after the spending, so one report can overshoot by its own size.
+    /// A CancelTask run counts usage and has no budget.
+    /// </para>
+    /// </remarks>
+    /// <param name="tokens">Tokens used since the last report. Not negative.</param>
+    /// <param name="costUnits">Cost units used since the last report, in any unit you choose. Not negative.</param>
+    /// <param name="cancellationToken">Cancels the report before it counts.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="tokens"/> or <paramref name="costUnits"/> is negative.</exception>
+    /// <exception cref="OperationCanceledException">This report took the task past its budget, or an earlier one did.</exception>
+    public async ValueTask ReportUsageAsync(long tokens, decimal costUnits = 0, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(tokens);
+        ArgumentOutOfRangeException.ThrowIfNegative(costUnits);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (IsTerminal) return;
+        var outcome = _usage.Report(tokens, costUnits);
+        if (outcome == UsageOutcome.Within) return;
+        if (outcome == UsageOutcome.Crossed && _onBudgetExceeded is not null) await _onBudgetExceeded().ConfigureAwait(false);
+        throw new OperationCanceledException(TaskExecutionEngine.BudgetExceededText);
+    }
+
+    /// <summary>Learns the usage earlier runs stored, from the task this run started with. Called by the engine before the executor runs.</summary>
+    internal void SeedUsage(Dictionary<string, JsonElement>? taskMetadata) => _usage.Seed(taskMetadata);
 
     /// <summary>True once a terminal state was emitted. Further task events throw.</summary>
     public bool IsTerminal { get { lock (_gate) return _terminal; } }

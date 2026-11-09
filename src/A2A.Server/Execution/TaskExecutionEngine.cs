@@ -52,6 +52,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// <summary>The current time of the engine's clock, UTC. The request handler stamps accepted messages with it.</summary>
     internal DateTimeOffset UtcNow => _time.GetUtcNow();
     private readonly ExecutionCoordinator _coordinator;
+    private readonly ExecutionAdmission _admission;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly TaskLocks _locks = new();
     private readonly RunningRegistry<Execution> _running = new();
@@ -111,6 +112,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         _time = timeProvider ?? TimeProvider.System;
         options.Coordination.Validate();
         _coordinator = coordinator ?? new InMemoryExecutionCoordinator(options.Coordination, _time);
+        _admission = new ExecutionAdmission(options.Limits, _time);
         StartCancelListener(_shutdown.Token);
     }
 
@@ -149,6 +151,12 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// <summary>Status text of a task failed because the agent produced an event larger than <see cref="A2ALimits.MaxEventBytes"/>.</summary>
     internal const string OversizedEventText = "The agent produced an event larger than the configured limit.";
 
+    /// <summary>Status text of a task failed because it used more than <see cref="A2ALimits.MaxTaskTokens"/> or <see cref="A2ALimits.MaxTaskCostUnits"/>.</summary>
+    internal const string BudgetExceededText = "Task exceeded its budget";
+
+    /// <summary>The execution slots (running and queued starts). For tests.</summary>
+    internal ExecutionAdmission Admission => _admission;
+
     /// <summary>The bus the engine publishes every stored event to.</summary>
     internal TaskEventBus Bus => _bus;
 
@@ -171,6 +179,24 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// </summary>
     internal ValueTask<RentedAgent> RentAgentAsync(string tenant, IAgentExecutor? fallback, CancellationToken ct) =>
         RentedAgent.RentAsync(_executors, tenant, fallback, ct);
+
+    /// <summary>
+    /// Takes an execution slot for a run for <paramref name="tenant"/> (see <see cref="ExecutionAdmission"/>), waiting in the
+    /// queue when none is free. While it waits, the idempotency <paramref name="claim"/> is renewed every
+    /// <see cref="CoordinationOptions.Heartbeat"/>: only a running execution renews it otherwise. Give the slot to the agent
+    /// (<see cref="RentedAgent.AttachSlot"/>) or dispose it.
+    /// </summary>
+    /// <exception cref="A2AException">RATE_LIMITED, <c>reason = execution_capacity</c>: no slot, no queue room, or the wait ended.</exception>
+    internal ValueTask<ExecutionSlot> AdmitAsync(string tenant, IdempotencyClaim claim, string? taskId, CancellationToken ct) =>
+        _admission.EnterAsync(tenant, ReferenceEquals(claim, IdempotencyClaim.None) ? null : () => _time.CreateTimer(
+            static state => { var (engine, c, id) = ((TaskExecutionEngine, IdempotencyClaim, string?))state!; _ = engine.RenewQueuedClaimAsync(c, id); },
+            (this, claim, taskId), _options.Coordination.Heartbeat, _options.Coordination.Heartbeat), ct);
+
+    private async Task RenewQueuedClaimAsync(IdempotencyClaim claim, string? taskId)
+    {
+        try { await claim.RenewAsync().ConfigureAwait(false); }
+        catch (Exception ex) { ServerLog.ClaimRenewFailed(_logger, ex, taskId ?? string.Empty); }
+    }
 
     /// <summary>
     /// <see cref="RentAgentAsync"/> for a message: a tenant without an agent is <see cref="A2AErrorCode.UnsupportedOperation"/>
@@ -196,6 +222,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             push, emitInitialSnapshot: !context.IsNewTask, (executor, updater, ct) =>
             {
                 updater.SeedArtifacts(context.Task?.Artifacts); // the artifacts earlier runs left
+                updater.SeedUsage(context.Task?.Metadata); // the usage earlier runs stored
                 return executor.ExecuteAsync(context, updater, ct);
             }, agent, pushEnabled,
             claim, context.Metadata, _options.MaxTaskDuration, ExecuteKind);
@@ -208,6 +235,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             (executor, updater, ct) =>
             {
                 updater.SeedArtifacts(snapshot.Artifacts);
+                updater.SeedUsage(snapshot.Metadata);
                 return executor.CancelAsync(snapshot, updater, ct);
             }, agent, pushEnabled, requestMetadata: metadata, kind: CancelKind);
     }
@@ -322,6 +350,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     {
         var taskId = key.TaskId;
         claim ??= IdempotencyClaim.None;
+        // A CancelTask run counts its usage but has no budget, like it has no time limit.
+        var usage = new TaskUsageMeter(kind == CancelKind ? null : _options.Limits);
         var exec = new Execution(key, Guid.NewGuid().ToString("N"), kind == CancelKind,
             // A CancelTask run is not stopped by the shutdown: it records a cancellation somebody asked for, also one that arrives
             // while the host stops (its token would be cancelled from the start, and it could not write the CANCELED status).
@@ -333,10 +363,13 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             Claim = claim,
             PushEnabled = pushEnabled,
             TaskStored = !isNewTask,
+            Usage = usage,
         };
         var scope = ScopeKey(key.Tenant, taskId);
         var offload = _objects is null ? null : new ArtifactOffload(_objects, _options.ArtifactStorage, key.Tenant, taskId);
-        var updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata, offload);
+        TaskUpdater updater = null!;
+        updater = new TaskUpdater(taskId, contextId, isNewTask, exec.Incoming.Writer, requestMetadata, offload, usage,
+            () => BudgetExceededAsync(exec, updater));
         // The first history entry of a new task, copied before the executor starts: the executor may change its message.
         var historyMessage = isNewTask && userMessage is not null ? WithTask(userMessage, taskId) : null;
         // Here first, then cluster-wide: whenever the coordinator lists the execution, this instance has it too.
@@ -370,6 +403,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         }
         // From here the execution owns the agent's lease and disposes it when the agent returns.
         var lease = agent.TakeLease();
+        var slot = agent.TakeSlot();
         var producer = Task.Run(async () =>
         {
             if (exec.Activity is not null) Activity.Current = exec.Activity; // the agent's own spans nest under the run
@@ -421,20 +455,28 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             if (exec.Activity is not null) Activity.Current = exec.Activity; // webhook deliveries of the run's events nest under it
             return ConsumeAsync(exec, key, contextId, isNewTask, historyMessage, push, emitInitialSnapshot, claim);
         });
-        _ = FinishAsync(exec, scope, producer, consumer, heartbeat);
+        _ = FinishAsync(exec, scope, producer, consumer, heartbeat, slot);
         return exec;
     }
 
     /// <summary>After the agent returned and every event is stored: ends the lease (here and with the coordinator), then the execution.</summary>
-    private async Task FinishAsync(Execution exec, string scope, Task producer, Task consumer, ITimer heartbeat)
+    private async Task FinishAsync(Execution exec, string scope, Task producer, Task consumer, ITimer heartbeat, ExecutionSlot? slot)
     {
-        try { await Task.WhenAll(producer, consumer).ConfigureAwait(false); }
-        catch (Exception ex) { ServerLog.ExecutionEndedWithError(_logger, ex, exec.TaskId); }
-        await heartbeat.DisposeAsync().ConfigureAwait(false);
-        // Stopped only by the engine's shutdown with the task still open: keep the lease, so it expires and the sweep or a
-        // continuation recovers the task (as after a crash). Deleting it would strand the task as WORKING.
-        await UnregisterAsync(exec, keepLease: await EndedByShutdownLeavingTaskOpenAsync(exec).ConfigureAwait(false)).ConfigureAwait(false);
-        _running.Remove(scope, exec);
+        try
+        {
+            try { await Task.WhenAll(producer, consumer).ConfigureAwait(false); }
+            catch (Exception ex) { ServerLog.ExecutionEndedWithError(_logger, ex, exec.TaskId); }
+            await heartbeat.DisposeAsync().ConfigureAwait(false);
+            // Stopped only by the engine's shutdown with the task still open: keep the lease, so it expires and the sweep or a
+            // continuation recovers the task (as after a crash). Deleting it would strand the task as WORKING.
+            await UnregisterAsync(exec, keepLease: await EndedByShutdownLeavingTaskOpenAsync(exec).ConfigureAwait(false)).ConfigureAwait(false);
+            _running.Remove(scope, exec);
+        }
+        finally
+        {
+            // After the agent returned and every event is stored: the slot is held for the whole run.
+            slot?.Dispose();
+        }
         exec.EndActivity();
         exec.MarkDone();
     }
@@ -459,7 +501,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// </summary>
     private async Task TimeOutAsync(Execution exec, TaskUpdater updater)
     {
-        if (!exec.TryMarkTimedOut()) return; // the agent returned first
+        if (!exec.TryMarkStopped()) return; // the agent returned first
         if (exec.Activity is { } activity)
         {
             activity.SetTag(A2ATelemetry.Tags.TimedOut, true);
@@ -468,6 +510,25 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         }
         ServerLog.TaskTimedOut(_logger, exec.TaskId, _options.MaxTaskDuration);
         await TryFinishAsync(updater, TaskState.Failed, TimeLimitText).ConfigureAwait(false);
+        CancelAll([exec]);
+    }
+
+    /// <summary>
+    /// A usage report took the task past its budget (see <see cref="TaskUpdater.ReportUsageAsync"/>): fails the task (the FAILED
+    /// event is queued before the token fires, so it wins over a CANCELED from the agent's cancellation), then cancels the agent.
+    /// Goes through the same outcome compare-and-swap as the time limit, so the agent's late error or cancel is swallowed.
+    /// </summary>
+    private async ValueTask BudgetExceededAsync(Execution exec, TaskUpdater updater)
+    {
+        if (!exec.TryMarkStopped()) return; // the agent returned first, or the time limit stopped the run already
+        if (exec.Activity is { } activity)
+        {
+            activity.SetTag(A2ATelemetry.Tags.ErrorType, "BudgetExceeded");
+            activity.SetStatus(ActivityStatusCode.Error, "BudgetExceeded");
+        }
+        ServerTelemetry.BudgetExceeded.Add(1);
+        ServerLog.TaskBudgetExceeded(_logger, exec.TaskId);
+        await TryFinishAsync(updater, TaskState.Failed, BudgetExceededText).ConfigureAwait(false);
         CancelAll([exec]);
     }
 
@@ -772,9 +833,14 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 }
                 next = failed;
             }
+            // After the final next is decided (also the failure event of an oversized event), before the commit; on a conflict
+            // retry this runs again on a fresh record. The usage is marked stored only once the commit succeeded.
+            var usage = exec?.Usage.Pending() ?? default;
+            TaskUsageMeter.Apply(next, usage);
             try
             {
                 var committed = await _tasks.CommitAsync(new TaskCommit(record with { Task = next }, record.Version, encoded, deliveries)).ConfigureAwait(false);
+                exec?.Usage.MarkStored(usage);
                 if (deliveries.Count > 0) _outbox.NotifyPending();
                 ServerTelemetry.Events.Add(1);
                 // A webhook saved after the listing above is not among the deliveries. For an event that ends or interrupts the
@@ -991,7 +1057,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         foreach (var kv in update)
         {
             if (kv.Key is A2AProtocol.ApprovalConsumedKey or A2AProtocol.CancelRequestedKey or A2A.Delegation.ActorChain.MetadataKey
-                or A2A.Elicitations.Elicitation.AnsweredKey or A2ARequestHandler.PendingStartKey) continue;
+                or A2A.Elicitations.Elicitation.AnsweredKey or A2ARequestHandler.PendingStartKey or TaskUsageMeter.MetadataKey) continue;
             (next.Metadata ??= [])[kv.Key] = kv.Value.Clone();
         }
     }
@@ -1036,6 +1102,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// <summary>Asks every running execution to stop, without disposing the engine. Safe to call more than once, and after <see cref="Dispose"/>.</summary>
     internal void Shutdown()
     {
+        _admission.Close();
         try { _shutdown.Cancel(); }
         catch (ObjectDisposedException) { /* disposed: already cancelled */ }
     }
@@ -1044,6 +1111,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _admission.Close();
         _shutdown.Cancel();
         _shutdown.Dispose();
     }

@@ -63,6 +63,12 @@ public enum TaskContinuationStatus
 
     /// <summary>The tenant has no agent, or its agent is not an <see cref="IContinuableAgentExecutor"/>.</summary>
     NotSupported,
+
+    /// <summary>
+    /// The instance runs as many agents as <see cref="A2ALimits.MaxConcurrentExecutions"/> or
+    /// <see cref="A2ALimits.MaxConcurrentExecutionsPerTenant"/> allow, and the start queue is full or the wait ended. Nothing was started. Try again later.
+    /// </summary>
+    AtCapacity,
 }
 
 /// <summary>The result of <see cref="Execution.TaskExecutionEngine.ContinueTaskAsync"/>.</summary>

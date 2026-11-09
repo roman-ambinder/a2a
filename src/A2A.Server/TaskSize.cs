@@ -7,7 +7,7 @@ namespace A2A.Server;
 /// Estimates how large a task is, without serializing it. Counts the content of the parts of the history and of the
 /// artifacts: UTF-8 bytes of text, base64 length of raw bytes, the length of a URL, and the JSON text length of data. Also counts
 /// the length of every metadata key and the JSON text length of every metadata value (task, message, artifact, part), and the length of artifact names, descriptions
-/// and file names. Ids and media types are not counted. Keys the server overwrites or owns are skipped only at the level where it does (the seal on artifacts, the recorded-at time on messages, the approval, cancel and answered markers on the task).
+/// and file names. Ids and media types are not counted. Keys the server overwrites or owns are skipped only at the level where it does (the seal on artifacts, the recorded-at time on messages, the approval, cancel, answered and usage markers on the task).
 /// </summary>
 internal static class TaskSize
 {
@@ -59,7 +59,7 @@ internal static class TaskSize
         Level.Message => key == A2AProtocol.MessageRecordedAtKey, // the server stamps it over whatever the caller sent
         Level.Artifact => key == A2AProtocol.ArtifactSealedKey, // only the server sets it
         Level.Task => key is A2AProtocol.ApprovalConsumedKey or A2AProtocol.CancelRequestedKey or A2A.Elicitations.Elicitation.AnsweredKey
-            or A2ARequestHandler.PendingStartKey,
+            or A2ARequestHandler.PendingStartKey or Execution.TaskUsageMeter.MetadataKey,
         _ => false,
     };
 
