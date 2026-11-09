@@ -50,41 +50,10 @@ Notes:
 
 The `docs` job in `.github/workflows/ci.yml` runs these steps, then checks links with lychee (`--offline` on the built site; external links only on the guide and home markdown) and uploads `docs/site/_site` as the `docs-site` artifact.
 
-## Turn on GitHub Pages later
+## Publishing
 
-The repo is private. GitHub Pages on a private repo needs a paid plan (GitHub Pro, Team or Enterprise Cloud). Check first: `gh api repos/roman-ambinder/a2a/pages` returns 404 while Pages is off.
+`.github/workflows/docs-pages.yml` runs after CI succeeds on `main`. It takes the `docs-site` artifact from that CI run (no rebuild) and deploys it to https://roman-ambinder.github.io/a2a/.
 
-1. Repo **Settings** > **Pages** > **Build and deployment** > **Source**: choose **GitHub Actions**.
-2. Add a deploy job to `.github/workflows/ci.yml`. It reuses the `docs-site` build by building again, then uploads and deploys (only from `main`):
+One-time setup: repo **Settings** > **Pages** > **Build and deployment** > **Source**: choose **GitHub Actions**.
 
-   ```yaml
-   deploy-docs:
-     name: Deploy docs to GitHub Pages
-     needs: docs
-     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-     runs-on: ubuntu-latest
-     permissions:
-       contents: read
-       pages: write
-       id-token: write
-     environment:
-       name: github-pages
-       url: ${{ steps.deployment.outputs.page_url }}
-     steps:
-       - uses: actions/checkout@v4
-       - uses: actions/setup-dotnet@v4
-         with:
-           dotnet-version: |
-             8.0.x
-             10.0.x
-       - run: dotnet tool restore
-       - run: dotnet docfx docs/site/docfx.json --warningsAsErrors
-       - name: Upload Pages artifact
-         uses: actions/upload-pages-artifact@v3
-         with:
-           path: docs/site/_site
-       - name: Deploy to GitHub Pages
-         id: deployment
-         uses: actions/deploy-pages@v4
-   ```
-3. Links in the site are relative, so serving under `https://<owner>.github.io/a2a/` needs no base path change.
+Links in the site are relative, so serving under `/a2a/` needs no base path change.
