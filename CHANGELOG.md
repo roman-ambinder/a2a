@@ -22,6 +22,13 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   copied into a new array. A 1,000-chunk stream now allocates about 4.4 MB.
 - JSON reading and writing allocate less: union members, part members and enum names are matched on the raw bytes, and
   timestamps and enum names are written without a temporary string.
+- The client reads stream events from their UTF-8 bytes: no string, no re-encoding and no `JsonDocument` per event, for
+  JSON-RPC and HTTP+JSON. Typed JSON-RPC calls bind the result straight from the response body. A 1,000-chunk stream (server
+  and client together) now allocates about 2.7 MB, down from 18.5 MB, and runs in about a third of the time.
+- `A2AClientFactory.CreateAsync` with credential providers and no handler shares one connection pool instead of making a new
+  one per call (which was never disposed). That pool, and the primary handler of `AddA2AClient`, recycle connections every
+  2 minutes, so DNS changes are seen.
+- A cached Agent Card is checked again on each `ResolveAsync` (as before) without parsing its text again.
 
 ## 0.1.0
 

@@ -21,6 +21,15 @@ Mean time is printed but does not fail the job. On shared runners the same commi
 `StreamingTaskBenchmark.ThousandEvents` in two runs, so a timing gate would be noise. Allocations moved by about 1%
 between the same runs, so 10% leaves room for runner noise and still catches real regressions.
 
+## Concurrent load
+
+`ConcurrentLoadBenchmark` measures many callers at once against one shared in-process server. The other benchmarks have one caller at a time.
+
+- `ConcurrentSendMessage`: 64 callers start together, each does one SendMessage round trip. Results are per request.
+- `ConcurrentStreams`: 16 callers start together, each reads one SendStreamingMessage stream of 100 events. Results are per stream.
+
+Time for these two is especially noisy on shared runners, because it depends on how many cores the runner gives the callers. Read it as a rough hint. Allocations stay stable between runs, so they are what the gate checks.
+
 ## Regenerate the baseline
 
 `baseline.json` must come from the CI runner, not a dev machine (allocations differ by OS and CPU). Do this when you

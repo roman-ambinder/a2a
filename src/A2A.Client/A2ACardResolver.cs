@@ -172,7 +172,7 @@ public sealed class A2ACardResolver
         var cancellationToken = timeoutCts.Token;
 
         // The trust policy is mutable. A cached card is checked against it again, so a removed key stops working at once.
-        if (cached is not null && !await StillAcceptedAsync(cached.Result, uri, cancellationToken).ConfigureAwait(false))
+        if (cached is not null && !await StillAcceptedAsync(cached, uri, cancellationToken).ConfigureAwait(false))
         {
             _cache.TryRemove(key, out _);
             cached = null;
@@ -243,7 +243,8 @@ public sealed class A2ACardResolver
                 (s.Examples ?? []).Select(e => new UntrustedText(e, max)).ToList())).ToList(),
             Identity = identity,
         };
-        _cache[key] = new CacheEntry(result, response.Headers.ETag, Expiry(response));
+        // Without a normalizer the tree is the parsed received text, which a cache hit checks again: keep it, not the text.
+        _cache[key] = new CacheEntry(result, response.Headers.ETag, Expiry(response)) { Parsed = _options.CardNormalizer is null ? node : null };
         return result;
     }
 
@@ -254,9 +255,11 @@ public sealed class A2ACardResolver
         _ => _options.Trust.EffectiveRequireSignature,
     };
 
-    private async Task<bool> StillAcceptedAsync(ResolvedAgentCard result, Uri uri, CancellationToken cancellationToken)
+    private async Task<bool> StillAcceptedAsync(CacheEntry entry, Uri uri, CancellationToken cancellationToken)
     {
-        var node = ParseCard(Encoding.UTF8.GetBytes(result.RawJson));
+        var result = entry.Result;
+        // The verifier only reads the tree (it canonicalizes a copy), so the cached one is reused instead of parsing the text again.
+        var node = entry.Parsed ?? ParseCard(Encoding.UTF8.GetBytes(result.RawJson));
         var now = await _verifier.VerifyAsync(node, uri, cancellationToken).ConfigureAwait(false);
         return now.Status == result.Verification.Status && now.KeyId == result.Verification.KeyId && !IsRejected(now);
     }
@@ -338,7 +341,11 @@ public sealed class A2ACardResolver
         return DateTimeOffset.UtcNow + (cc?.MaxAge ?? _options.DefaultCacheDuration);
     }
 
-    private sealed record CacheEntry(ResolvedAgentCard Result, EntityTagHeaderValue? ETag, DateTimeOffset Expires);
+    private sealed record CacheEntry(ResolvedAgentCard Result, EntityTagHeaderValue? ETag, DateTimeOffset Expires)
+    {
+        /// <summary>The received card as a parsed tree (<see cref="ResolvedAgentCard.RawJson"/> parsed), or null when it must be parsed again.</summary>
+        public JsonObject? Parsed { get; init; }
+    }
 }
 
 /// <summary>The Agent Card failed signature verification or, with signatures required, is unsigned or unverified.</summary>

@@ -107,11 +107,58 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IA2AExtens
         return stream.ToArray();
     }
 
-    private async Task<TResult> InvokeAsync<TParams, TResult>(string method, TParams parameters, RetryMode retry, A2ARequestOptions? call, string? key, CancellationToken ct)
+    private Task<TResult> InvokeAsync<TParams, TResult>(string method, TParams parameters, RetryMode retry, A2ARequestOptions? call, string? key, CancellationToken ct) =>
+        ExecuteUnaryAsync(retry, call, async attemptCt =>
+        {
+            using var request = await BuildRequestAsync(method, parameters, streaming: false, call, key, attemptCt).ConfigureAwait(false);
+            using var response = await SendCheckedAsync(request, HttpCompletionOption.ResponseContentRead, attemptCt).ConfigureAwait(false);
+            JsonRpcResponse? rpc;
+            using (var responseBody = await ResponseBody.ReadUtf8Async(response.Content, attemptCt).ConfigureAwait(false))
+            {
+                // The common case binds the result straight from the body: no JsonDocument for it, no second parse.
+                if (TryReadResult<TResult>(responseBody.Span, out var fast)) return fast;
+                rpc = TryParseResponse(responseBody.Span);
+            }
+            var result = await ResultOrThrowAsync(rpc, response, method, attemptCt).ConfigureAwait(false);
+            if (result is not { } r) throw ProtocolError($"{method} response has no result.");
+            return Parse<TResult>(r, method + " result");
+        }, ct);
+
+    /// <summary>
+    /// The fast path of a typed call. False (the caller takes the former path) unless the body is one object with
+    /// <c>"jsonrpc":"2.0"</c>, a non-null result, no error member and no repeated member, and the result binds.
+    /// </summary>
+    private static bool TryReadResult<T>(ReadOnlySpan<byte> body, out T value)
     {
-        var result = await InvokeRawAsync(method, parameters, retry, call, key, ct).ConfigureAwait(false);
-        if (result is not { } r) throw ProtocolError($"{method} response has no result.");
-        return Parse<TResult>(r, method + " result");
+        value = default!;
+        Span<(int Start, int End)> found = stackalloc (int, int)[3];
+        if (!JsonMembers.TryScan(body, EnvelopeNames, found, out _, out var isObject) || !isObject) return false;
+        if (found[0].Start < 0 || found[1].Start < 0 || found[2].Start >= 0) return false;
+        if (!body[found[0].Start..found[0].End].SequenceEqual("\"2.0\""u8)) return false;
+        var result = body[found[1].Start..found[1].End];
+        if (result[0] == (byte)'n') return false; // null: the former path reports it
+        try
+        {
+            if (JsonSerializer.Deserialize(result, A2AJson.GetTypeInfo<T>()) is not { } bound) return false;
+            value = bound;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The result of a parsed response, or the error it carries (or the HTTP or protocol error when it is none).</summary>
+    private static async Task<JsonElement?> ResultOrThrowAsync(JsonRpcResponse? rpc, HttpResponseMessage response, string method, CancellationToken ct)
+    {
+        if (rpc is null)
+        {
+            if (!response.IsSuccessStatusCode) throw HttpError(response, await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+            throw ProtocolError($"{method}: response is not a JSON-RPC response.");
+        }
+        if (rpc.Error is not null) throw WithStatus(rpc.Error.ToException(), response);
+        return rpc.Result;
     }
 
     private Task<JsonElement?> InvokeRawAsync<TParams>(string method, TParams parameters, RetryMode retry, A2ARequestOptions? call, string? key, CancellationToken ct) =>
@@ -125,13 +172,7 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IA2AExtens
             JsonRpcResponse? rpc;
             using (var responseBody = await ResponseBody.ReadUtf8Async(response.Content, attemptCt).ConfigureAwait(false))
                 rpc = TryParseResponse(responseBody.Span);
-            if (rpc is null)
-            {
-                if (!response.IsSuccessStatusCode) throw HttpError(response, await response.Content.ReadAsStringAsync(attemptCt).ConfigureAwait(false));
-                throw ProtocolError($"{method}: response is not a JSON-RPC response.");
-            }
-            if (rpc.Error is not null) throw WithStatus(rpc.Error.ToException(), response);
-            return rpc.Result;
+            return await ResultOrThrowAsync(rpc, response, method, attemptCt).ConfigureAwait(false);
         }, ct);
 
     private async IAsyncEnumerable<StreamFrame> StreamAsync<TParams>(string method, TParams parameters, A2ARequestOptions? call, string? key, string? lastEventId, [EnumeratorCancellation] CancellationToken ct)
@@ -155,18 +196,63 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IA2AExtens
 #else
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
 #endif
-        await foreach (var evt in SseReader.ReadAsync(stream, ct).ConfigureAwait(false))
+        // Each event is parsed from its UTF-8 bytes in the reader's buffer: no string and no copy per event.
+        await foreach (var frame in SseReader.ReadFramesAsync(stream, SseReader.DefaultMaxEventBytes, ct).ConfigureAwait(false))
         {
-            JsonRpcResponse? parsed;
-            using (var data = ResponseBody.FromString(evt.Data))
-                parsed = TryParseResponse(data.Span);
-            var rpc = parsed ?? throw ProtocolError($"{method}: SSE event is not a JSON-RPC response.");
-            if (rpc.Error is not null) throw rpc.Error.ToException();
-            if (rpc.Result is not { } r) throw ProtocolError($"{method}: SSE event has no result.");
             // A2A #2269: an event of a type this SDK does not know (a newer protocol version) is skipped, not fatal.
-            if (!IsKnownStreamEvent(r)) continue;
-            yield return new StreamFrame(Parse<StreamResponse>(r, "stream event"), evt.FrameId);
+            if (ReadStreamEvent(frame.Data.Span, method) is { } item) yield return new StreamFrame(item, frame.FrameId);
         }
+    }
+
+    private static readonly byte[][] StreamEventNames =
+        ["task"u8.ToArray(), "message"u8.ToArray(), "statusUpdate"u8.ToArray(), "artifactUpdate"u8.ToArray()];
+
+    /// <summary>
+    /// The stream event in one SSE data payload, or null for an event type this SDK does not know. The common case (a
+    /// <c>"2.0"</c> response with a result object and no error) binds the result straight from <paramref name="data"/>; anything
+    /// else takes the former path, on the text form of the payload, so every error is the one it always was.
+    /// </summary>
+    private static StreamResponse? ReadStreamEvent(ReadOnlySpan<byte> data, string method)
+    {
+        if (System.Text.Unicode.Utf8.IsValid(data) && TryReadStreamEvent(data, out var fast, out var known)) return known ? fast : null;
+
+        // Invalid UTF-8 becomes U+FFFD here, as it did when every payload was decoded to a string first.
+        JsonRpcResponse? parsed;
+        using (var bytes = ResponseBody.FromString(System.Text.Encoding.UTF8.GetString(data)))
+            parsed = TryParseResponse(bytes.Span);
+        var rpc = parsed ?? throw ProtocolError($"{method}: SSE event is not a JSON-RPC response.");
+        if (rpc.Error is not null) throw rpc.Error.ToException();
+        if (rpc.Result is not { } r) throw ProtocolError($"{method}: SSE event has no result.");
+        return IsKnownStreamEvent(r) ? Parse<StreamResponse>(r, "stream event") : null;
+    }
+
+    /// <summary>
+    /// The fast path of <see cref="ReadStreamEvent"/>. False (the caller takes the former path) unless the payload is one
+    /// object with <c>"jsonrpc":"2.0"</c>, a result object, no error member and no repeated member, and the result binds.
+    /// </summary>
+    private static bool TryReadStreamEvent(ReadOnlySpan<byte> body, out StreamResponse? evt, out bool known)
+    {
+        evt = null;
+        known = false;
+        Span<(int Start, int End)> found = stackalloc (int, int)[3];
+        if (!JsonMembers.TryScan(body, EnvelopeNames, found, out _, out var isObject) || !isObject) return false;
+        if (found[0].Start < 0 || found[1].Start < 0 || found[2].Start >= 0) return false;
+        if (!body[found[0].Start..found[0].End].SequenceEqual("\"2.0\""u8)) return false;
+        var result = body[found[1].Start..found[1].End];
+        if (result[0] != (byte)'{') return false;
+        Span<(int Start, int End)> members = stackalloc (int, int)[4];
+        if (!JsonMembers.TryScan(result, StreamEventNames, members, out _, out _)) return false;
+        known = members[0].Start >= 0 || members[1].Start >= 0 || members[2].Start >= 0 || members[3].Start >= 0;
+        if (!known) return true;
+        try
+        {
+            evt = JsonSerializer.Deserialize(result, A2AJson.GetTypeInfo<StreamResponse>());
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        return evt is not null;
     }
 
     private Task<HttpRequestMessage> BuildRequestAsync<TParams>(string method, TParams parameters, bool streaming, A2ARequestOptions? call, string? key, CancellationToken ct, string? lastEventId = null) =>

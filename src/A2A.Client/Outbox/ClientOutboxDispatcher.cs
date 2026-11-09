@@ -262,9 +262,8 @@ public sealed class ClientOutboxDispatcher : IAsyncDisposable
             return;
         }
 
-        string? tenant = null;
-        try { tenant = entry.GetRequest().Tenant; }
-        catch (JsonException) { /* the id is enough for most peers */ }
+        // Only the tenant is needed: read that one member, not the whole stored request, on every poll.
+        var tenant = TenantOf(entry.Request.Span); // null when missing or unreadable: the id is enough for most peers
 
         AgentTask? task = null;
         Exception? error = null;
@@ -366,6 +365,29 @@ public sealed class ClientOutboxDispatcher : IAsyncDisposable
         {
             _timer.Dispose();
             _cts.Dispose();
+        }
+    }
+
+    /// <summary>The top-level <c>tenant</c> of a stored SendMessage request, or null when it is missing, null or unreadable.</summary>
+    internal static string? TenantOf(ReadOnlySpan<byte> request)
+    {
+        try
+        {
+            var reader = new Utf8JsonReader(request);
+            if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return null;
+            string? tenant = null;
+            while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+            {
+                var isTenant = reader.ValueTextEquals("tenant"u8);
+                reader.Read();
+                if (isTenant) tenant = reader.TokenType == JsonTokenType.String ? reader.GetString() : null;
+                else reader.Skip();
+            }
+            return tenant;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 }
