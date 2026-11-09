@@ -66,21 +66,22 @@ public sealed class ScenarioAgent : IAgentExecutor
                 break;
             case "listen": // works and takes the client's messages while it runs, until "done"
             {
-                // Start reading before WORKING goes out: the server routes input to this execution only once the agent
-                // reads, and a client that sends as soon as it sees WORKING would otherwise race the first read.
+                // The agent opts in at the first read (spec 1.1: "from the first ReadAllAsync on"), and a client that sees WORKING
+                // sends at once. So start reading BEFORE WORKING goes out: otherwise a message that arrives between the WORKING
+                // event and the first read meets a WORKING task nobody listens for, and is refused (a timing race, seen on Windows).
                 await using var reader = context.LiveInput!.ReadAllAsync(ct).GetAsyncEnumerator(ct);
-                var next = reader.MoveNextAsync();
+                var pending = reader.MoveNextAsync(); // runs up to the first wait: the buffer is listening from here
                 await updater.StartWorkAsync("listening", ct);
-                while (await next)
+                for (var more = await pending; more; more = await reader.MoveNextAsync())
                 {
-                    var said = reader.Current.Message?.GetText() ?? "";
+                    var input = reader.Current;
+                    var said = input.Message?.GetText() ?? "";
                     if (said == "done")
                     {
                         await updater.CompleteAsync("bye", ct);
                         return;
                     }
-                    await updater.UpdateStatusAsync(TaskState.Working, updater.NewAgentMessage($"heard: {said} +{reader.Current.Artifacts.Count}"), cancellationToken: ct);
-                    next = reader.MoveNextAsync();
+                    await updater.UpdateStatusAsync(TaskState.Working, updater.NewAgentMessage($"heard: {said} +{input.Artifacts.Count}"), cancellationToken: ct);
                 }
                 break;
             }
