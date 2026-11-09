@@ -1,6 +1,6 @@
 # Durable stores and several instances
 
-The default stores live in memory. That is fine for development and tests. It is not enough when tasks must survive a restart, or when more than one instance serves the same agent. This guide shows the Postgres stores, the Redis event bus and coordinator, and what to check at startup.
+The default stores live in memory. That is fine for development and tests. It is not enough when tasks must survive a restart, or when more than one instance serves the same agent. This guide shows the Postgres stores and coordinator, the Redis event bus and coordinator, and what to check at startup.
 
 ## When in-memory stops being enough
 
@@ -12,8 +12,8 @@ The default stores live in memory. That is fine for development and tests. It is
 
 [!code-csharp[](../snippets/DurableStores.cs#Register)]
 
-- <xref:A2A.Server.Postgres.A2APostgresServiceCollectionExtensions.AddPostgresStores*> (package `RomanAmbinder.A2A.Server.Postgres`) replaces the task, event, push config, push outbox and idempotency stores.
-- `AddRedisEventBus` (package `RomanAmbinder.A2A.Server.Redis`) fans live events out to every instance. It also registers the Redis execution coordinator.
+- <xref:A2A.Server.Postgres.A2APostgresServiceCollectionExtensions.AddPostgresStores*> (package `RomanAmbinder.A2A.Server.Postgres`) replaces the task, event, push config, push outbox and idempotency stores. It also registers the Postgres execution coordinator, unless you registered another one or set `RegisterCoordinator = false`.
+- `AddRedisEventBus` (package `RomanAmbinder.A2A.Server.Redis`) fans live events out to every instance. It also registers the Redis execution coordinator, which replaces the Postgres one.
 - `AddA2ARetention` turns on the sweep. See [Retention](retention.md).
 - The two `DataProtection` lines give push secrets a key that every instance shares. See below.
 
@@ -32,6 +32,8 @@ Each task change, its event and its push deliveries are written in one transacti
 | `CleanupInterval` | 5 minutes | How often expired event logs and finished idempotency entries are deleted. Zero or `Timeout.InfiniteTimeSpan` turns it off. |
 | `IdempotencyClaimTimeout` | 2 minutes | How long a running request holds its idempotency key before another request may take it. `Timeout.InfiniteTimeSpan` means never. |
 | `IdempotencyPollInterval` | 200 ms | How often a request that waits on a key held elsewhere checks again. |
+| `RegisterCoordinator` | `true` | Whether the stores registration also registers the Postgres execution coordinator. It never replaces a coordinator you registered (for example Redis's). |
+| `CancelPollInterval` | 1 second | How often the Postgres coordinator reads cancel requests from the other instances. This is the delay of a cross-instance CancelTask. |
 | `UseDatabaseClock` | `true` | Deadlines use the database clock (`statement_timestamp()`). `false` uses the `TimeProvider`, for tests with a fake clock. |
 
 - **Schema.** To manage tables yourself, set `CreateSchemaOnStartup = false` and apply `PostgresSchema.ScriptFor("<schema>")` in your migration step, or call `PostgresSchema.EnsureSchemaAsync`. The script uses `IF NOT EXISTS`, so you can apply it again after an upgrade that adds tables.
@@ -42,6 +44,19 @@ Each task change, its event and its push deliveries are written in one transacti
 [!code-csharp[](../snippets/DurableStores.cs#PostgresOptions)]
 
 The overload with an `NpgsqlDataSource` uses a data source you own. The container does not dispose it.
+
+### Execution coordinator
+
+The coordinator knows which executions run, answers "is this task running anywhere?", carries CancelTask to the instance that runs the agent, and keeps one lease per running execution. The default one is process-local, so a crash loses every lease and nothing recovers the tasks that were running: they stay `WORKING`. A lease in Postgres survives the crash, expires after `LeaseTtl`, and the [retention sweep](retention.md) then fails the task. This holds for one instance too. With several instances, the Postgres coordinator also gives you cross-instance CancelTask and running checks, without Redis.
+
+`AddPostgresStores` registers <xref:A2A.Server.Postgres.PostgresExecutionCoordinator> by default. Use `AddPostgresExecutionCoordinator` for the coordinator alone, or to replace another one:
+
+[!code-csharp[](../snippets/DurableStores.cs#PostgresCoordinator)]
+
+- **Tables.** `a2a_execution_leases`, `a2a_sweep_leases` and `a2a_cancel_requests`. Leases are decided on the database clock (`UseDatabaseClock`).
+- **Cancel requests.** The coordinator polls `a2a_cancel_requests` every `CancelPollInterval`. Every instance reads every request and skips its own, so the instance that runs the agent always sees it. A plain poll needs no `LISTEN` connection, so it works through PgBouncer in transaction mode. Rows older than 5 minutes are deleted by the next request, so the table stays small. Delivery is at most once. An instance that was down for a long time misses old requests; its execution still stops when it finds its lease lost or the task ended.
+- **Cost.** One small query per instance per `CancelPollInterval`, plus one write per heartbeat of each running execution.
+- **Redis instead.** A coordinator you register yourself, such as Redis's, is never replaced by the Postgres default, in any registration order. `AddRedisEventBus` and `AddRedisExecutionCoordinator` replace the Postgres one when they come later.
 
 ## Redis
 
@@ -56,7 +71,7 @@ The bus sends each event on a pub/sub channel `{ChannelPrefix}{tenant}\u001f{tas
 
 ### Execution coordinator
 
-The coordinator knows which executions run on which instance. It answers "is this task running anywhere?", carries CancelTask to the instance that runs the agent, and keeps one lease per running execution. The default is process-local. Use `AddRedisEventBus`, or `AddRedisExecutionCoordinator` for the coordinator alone:
+The Redis coordinator does the same as the Postgres one, with Redis pub/sub for cancel requests. Use it when you already run Redis for the event bus. `AddRedisEventBus` registers it, or use `AddRedisExecutionCoordinator` for the coordinator alone:
 
 [!code-csharp[](../snippets/DurableStores.cs#CoordinatorOnly)]
 
@@ -78,13 +93,13 @@ Rules:
 
 ### Dead executions
 
-An execution whose heartbeats lapse past `LeaseTtl` counts as dead. That happens when an instance crashes, pauses for a long time, or loses Redis. With [retention](retention.md) on, the sweep then:
+An execution whose heartbeats lapse past `LeaseTtl` counts as dead. That happens when an instance crashes, pauses for a long time, or loses its coordinator (Postgres or Redis). With [retention](retention.md) on, the sweep then:
 
 - marks the task `FAILED` with the text "The agent stopped unexpectedly.",
 - drops the late events of that execution,
 - asks every instance to cancel it.
 
-An agent that is still alive stops at its next heartbeat, which finds the lease lost and the task ended. Two cases are left for a later sweep: a lapsed execution on the sweeping instance itself (it registers again), and a task that changed within the last `LeaseTtl`. Without retention, nobody recovers a dead execution and its task stays `WORKING`.
+An agent that is still alive stops at its next heartbeat, which finds the lease lost and the task ended. Two cases are left for a later sweep: a lapsed execution on the sweeping instance itself (it registers again), and a task that changed within the last `LeaseTtl`. Without retention, nobody recovers a dead execution and its task stays `WORKING`. With the in-memory coordinator nobody recovers it either, because a crashed process takes its leases along.
 
 ## Push secrets across instances
 
@@ -97,7 +112,7 @@ The server logs these once at startup. Nothing throws, so a host that does not u
 | Event | Level | When |
 |---|---|---|
 | 251 | Error | The push outbox is durable and the push secret protector is the per-process one. |
-| 252 | Warning | The task store is durable and the execution coordinator is the in-memory one. One instance can ignore it. |
+| 252 | Warning | The task store is durable and the execution coordinator is the in-memory one. A crash leaves the running tasks unrecovered. |
 | 253 | Warning | The task store is durable and the retention sweep is not registered. |
 | 250 | Debug | The checks were skipped because the registrations are broken. |
 
@@ -110,7 +125,7 @@ Implement:
 - <xref:A2A.Server.Storage.TaskStore>: `GetAsync`, `CreateAsync`, `UpdateAsync`, `CommitAsync`, `ListAsync`, `GetContextAsync`, `GetOrCreateContextAsync`, and the retention members `DeleteAsync`, `ListExpiredAsync`, `ListInterruptedBeforeAsync`, `DeleteContextAsync`, `ListOrphanContextsAsync`.
 - <xref:A2A.Server.Storage.EventStore>: `AppendAsync`, `ReadAfterAsync`, `OldestRetainedAsync`, `LastSequenceAsync`, `MarkTerminalAsync`, `DeleteAsync`.
 - `PushConfigStore`, `PushOutbox` and `IdempotencyStore` (including `RenewAsync`).
-- `ExecutionCoordinator` is optional. The in-memory one is the default.
+- `ExecutionCoordinator` is optional. The in-memory one is the default, but it cannot recover tasks after a crash. Prefer a durable one.
 
 Rules that matter:
 
@@ -125,6 +140,7 @@ Rules that matter:
 - **Two connection strings.** Registration throws. Use one string or one multiplexer.
 - **No shared event store with Redis.** Lost pub/sub messages cannot be filled in.
 - **Dead-lettered push deliveries after a restart.** The push secrets key was per process.
+- **In-memory coordinator with durable stores.** A crash leaves tasks `WORKING` for good. Look for warning 252.
 - **Cluster prefix without braces.** The coordinator's scripts fail across hash slots.
 - **Tasks that never expire.** Retention is off. Look for warning 253.
 

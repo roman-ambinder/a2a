@@ -154,7 +154,7 @@ Every seam below is a DI registration or a builder call. Defaults are safe and i
 - Stores: `TaskStore` (its `CommitAsync` writes the task, the event and its push deliveries as one unit), `EventStore`, `PushConfigStore`, `PushOutbox`, `IdempotencyStore`. A store keeps and returns `SequencedEvent.Json` (the event encoded once) as it is: for the log, and as the push payload. An `EventStore` must return stored `SequencedEvent.Json` bytes unchanged: they are written to the wire unvalidated. `InMemoryEventStore` keeps each retained event as the model plus its UTF-8 bytes, so `StreamingOptions.ReplayBufferSize` costs roughly double the model's memory.
 - `IAgentExecutorFactory`: supplies the executor per execution and tenant (default: a new DI scope, with the `AgentExecutorResolver` when one is registered), so the core can run without a DI container.
 - `IAgentCardProvider` / `AgentCardProvider`: supply the public card, and each tenant's completed card (`GetAsync`, fed by a `TenantCardProvider`). `AddA2AServerAspNetCore` replaces this registration with the completing provider, so register a custom provider after it. `A2AServerOptions.ExtendedAgentCardProvider` has the signature `(call, completedCard, cancellationToken)`.
-- `ExecutionCoordinator`: running executions and cancel requests across instances (default in-memory; `AddRedisExecutionCoordinator`).
+- `ExecutionCoordinator`: running executions and cancel requests across instances (default in-memory; `AddPostgresExecutionCoordinator` or `AddRedisExecutionCoordinator`).
 - Push delivery: the hosted `PushDeliveryService` sends the `PushOutbox` through the keyed `HttpMessageInvoker` `PushDeliveryService.InvokerServiceKey` (SSRF-guarded); retries are `A2AServerOptions.PushDelivery`.
 - `IResumableTransport` (client): lets a custom transport support `ObserveTaskAsync` resume with `Last-Event-ID`.
 - Extension operations: `A2AServerBuilder.AddExtensionOperation(...)`. A policy denial happens in the HTTP binding before the pipeline: no span, no counter, and `BeforeAuthorization` filters do not see it. `allow: true` admits every caller the endpoint admits, including anonymous callers when `AllowAnonymous` is set.
@@ -224,19 +224,24 @@ A runnable two-instance setup (Postgres, Redis, docker compose) is in [samples/M
 
 ### Execution coordinator
 
-The coordinator answers "is this task running anywhere?", delivers CancelTask to the instance that runs the agent, and keeps a lease per running execution. **In memory is the default** (one instance). For several instances use Redis:
+The coordinator answers "is this task running anywhere?", delivers CancelTask to the instance that runs the agent, and keeps a lease per running execution. **In memory is the default**, but its leases die with the process: after a crash nothing recovers the tasks that were running. `AddPostgresStores` therefore registers the **Postgres coordinator** (leases in the database, so they survive a crash and expire; `RegisterCoordinator = false` opts out). Hosts that also run Redis can use its coordinator instead:
 
 ```csharp
-.AddRedisEventBus(redis)                                  // registers the coordinator too; RegisterCoordinator = false opts out
+.AddPostgresStores(postgres)                              // registers the Postgres coordinator too
+.AddPostgresExecutionCoordinator(postgres)                // or: the coordinator alone
+.AddRedisEventBus(redis)                                  // registers the Redis coordinator too (replaces the Postgres one); RegisterCoordinator = false opts out
 .AddRedisExecutionCoordinator(redis)                      // or: the coordinator alone
 ```
+
+- A coordinator you register yourself (Redis, or your own) is never replaced by the Postgres default, in any registration order. `AddPostgresExecutionCoordinator` and `AddRedisExecutionCoordinator` always replace the earlier one.
+- The Postgres coordinator delivers cancel requests to the other instances by polling a table (`PostgresStoreOptions.CancelPollInterval`, 1 s), so it works through PgBouncer.
 
 - Pass the **same connection string** to both calls (or one `IConnectionMultiplexer`). Two different strings throw at registration, because they would share one connection.
 - On Redis Cluster the key prefix must map to one hash slot, for example `{a2a}:` (the Lua scripts touch several keys).
 - `A2AServerOptions.Coordination` (`CoordinationOptions`): `LeaseTtl` 30 s, `Heartbeat` 10 s, `RunningPollInterval` 1 s. `LeaseTtl` must be longer than 2 x `Heartbeat`. The heartbeat also renews the request's idempotency claim.
 - An execution whose heartbeats lapse past `LeaseTtl` (instance crash, long pause, Redis outage) is treated as **dead**. The retention sweep marks its task `FAILED`, drops its late events, and asks every instance to cancel it. An agent that is in fact still alive also stops at its next heartbeat, which finds its lease lost and the task ended. Exceptions: a lapsed execution on the sweeping instance itself is still seen running and registers again; a task that changed within the last `LeaseTtl` waits for a later sweep (a follow-up on another instance may not have registered yet).
 - A heartbeat that finds its lease lost while the task still runs registers the execution again, under the same id. This includes a new task whose agent has sent no event yet (a new task is stored with its first event, so no stored task there does not mean it was deleted).
-- With a durable task store and the in-memory coordinator, startup logs a **warning**: CancelTask, running checks and dead-execution recovery then stay on the instance that runs the agent. One instance can ignore it.
+- With a durable task store and the in-memory coordinator, startup logs a **warning**: a crash leaves the running tasks unrecovered (still `WORKING`), and with several instances CancelTask, running checks and dead-execution recovery stay on the instance that runs the agent. A single instance should use the Postgres coordinator too.
 
 ### Retention (opt-in)
 

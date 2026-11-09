@@ -60,6 +60,30 @@ public sealed partial class PostgresStoreOptions
     /// </summary>
     public bool UseDatabaseClock { get; set; } = true;
 
+    /// <summary>
+    /// Whether the stores registration also registers the <see cref="PostgresExecutionCoordinator"/> (unless another
+    /// <see cref="A2A.Server.Coordination.ExecutionCoordinator"/>, for example the Redis one, is already registered). Default true.
+    /// With the process-local default coordinator, a crash loses every lease and the retention sweep never recovers the tasks
+    /// that were running. Set to false to keep the coordinator you register yourself.
+    /// </summary>
+    public bool RegisterCoordinator { get; set; } = true;
+
+    /// <summary>
+    /// How often the coordinator reads the cancel requests of the other instances. A plain poll, so it works through connection
+    /// poolers such as PgBouncer. It is the delay of a cross-instance CancelTask. Default 1 second. Must be positive.
+    /// </summary>
+    public TimeSpan CancelPollInterval
+    {
+        get => _cancelPollInterval;
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(value, TimeSpan.Zero);
+            _cancelPollInterval = value;
+        }
+    }
+
+    private TimeSpan _cancelPollInterval = TimeSpan.FromSeconds(1);
+
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,62}$", RegexOptions.CultureInvariant)]
     private static partial Regex IdentifierPattern();
 }

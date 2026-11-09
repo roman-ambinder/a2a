@@ -22,9 +22,10 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
 
     internal const string LocalCoordinatorMessage =
         "The task store is durable ({TaskStore}), but the execution coordinator is the process-local InMemoryExecutionCoordinator. " +
-        "With several instances, CancelTask, running checks and dead-execution recovery stay on the instance that runs the agent. " +
-        "Register a shared coordinator (for example AddRedisEventBus or AddRedisExecutionCoordinator from A2A.Server.Redis); " +
-        "a single instance can ignore this.";
+        "Its leases die with the process: when the instance crashes, the tasks it was running stay unrecovered (WORKING, never failed by " +
+        "the retention sweep). With several instances, CancelTask, running checks and dead-execution recovery also stay on the instance that runs the agent. " +
+        "Register a durable coordinator: AddPostgresExecutionCoordinator (A2A.Server.Postgres, the default of AddPostgresStores) or " +
+        "AddRedisEventBus / AddRedisExecutionCoordinator (A2A.Server.Redis).";
 
     internal const string RetentionOffMessage =
         "The task store is durable ({TaskStore}), but the retention sweep is off (it is opt-in). Without it, terminal tasks and " +

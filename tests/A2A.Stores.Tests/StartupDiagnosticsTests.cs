@@ -33,11 +33,12 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
         lock (logs.Entries) return logs.Entries.ToList();
     }
 
-    private Task<List<(LogLevel Level, string Message)>> StartWithPostgresStoresAsync(PostgresStoreOptions schema) =>
+    private Task<List<(LogLevel Level, string Message)>> StartWithPostgresStoresAsync(PostgresStoreOptions schema, bool coordinator = true) =>
         StartAsync(s => s.AddA2AServer().AddPostgresStores(db.DataSource, o =>
         {
             o.Schema = schema.Schema;
             o.CreateSchemaOnStartup = false;
+            o.RegisterCoordinator = coordinator;
         }));
 
     /// <summary>A durable push outbox with the default per-process protector: secrets cannot be read after a restart.</summary>
@@ -52,15 +53,27 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
         Assert.Contains("AddA2ADataProtectionPushSecrets", entry.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>A durable task store with the default process-local coordinator: cancel and running checks stay local.</summary>
+    /// <summary>A durable task store with the process-local coordinator: a crash leaves the running tasks unrecovered.</summary>
     [SkippableFact]
     public async Task Durable_task_store_with_the_local_coordinator_logs_a_warning()
     {
-        var logs = await StartWithPostgresStoresAsync(await db.NewSchemaAsync());
+        var logs = await StartWithPostgresStoresAsync(await db.NewSchemaAsync(), coordinator: false);
 
         var entry = Assert.Single(logs, e => e.Message.Contains(LocalCoordinator, StringComparison.Ordinal));
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.Contains("process-local", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("crashes", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("unrecovered", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("can ignore", entry.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>The Postgres stores bring the Postgres coordinator, so there is nothing to warn about.</summary>
+    [SkippableFact]
+    public async Task Postgres_stores_with_their_default_coordinator_do_not_log_the_local_coordinator_warning()
+    {
+        var logs = await StartWithPostgresStoresAsync(await db.NewSchemaAsync());
+
+        Assert.DoesNotContain(logs, e => e.Message.Contains(LocalCoordinator, StringComparison.Ordinal));
     }
 
     /// <summary>A durable task store without the retention sweep: nothing is ever deleted or timed out.</summary>

@@ -53,6 +53,20 @@ public static class Samples
         #endregion
     }
 
+    public static void PostgresCoordinator(IServiceCollection services, string postgres)
+    {
+        #region PostgresCoordinator
+        services.AddA2AServer()
+            .AddPostgresStores(postgres, o =>
+            {
+                o.CancelPollInterval = TimeSpan.FromMilliseconds(500);   // delay of a CancelTask that crosses instances
+                // o.RegisterCoordinator = false;                        // keep the in-memory or your own coordinator
+            });
+        // Or the coordinator alone, replacing any earlier one:
+        // .AddPostgresExecutionCoordinator(postgres)
+        #endregion
+    }
+
     public static void CoordinatorOnly(IServiceCollection services, string redis)
     {
         #region CoordinatorOnly

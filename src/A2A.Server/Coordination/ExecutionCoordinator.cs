@@ -14,7 +14,8 @@ namespace A2A.Server.Coordination;
 /// expired lease no longer counts as running, is never brought back by a late heartbeat, and is reported by
 /// <see cref="ListExpiredAsync"/> until it is unregistered. Expiry is measured on the store's clock, never on the instance's,
 /// so instances with skewed clocks agree.</para>
-/// <para>The default <see cref="InMemoryExecutionCoordinator"/> is process-local. A2A.Server.Redis provides one that several
+/// <para>The default <see cref="InMemoryExecutionCoordinator"/> is process-local: its leases die with the process, so a crash leaves running
+/// tasks unrecovered. A2A.Server.Postgres (the default of its stores registration) and A2A.Server.Redis provide ones that several
 /// instances share.</para>
 /// </remarks>
 public abstract class ExecutionCoordinator
