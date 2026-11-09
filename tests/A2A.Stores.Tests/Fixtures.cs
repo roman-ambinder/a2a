@@ -68,6 +68,15 @@ public sealed class PostgresFixture : ContainerFixture
         return options;
     }
 
+    /// <summary>A fresh schema with the client outbox table. With a fake clock the store uses it instead of the database clock.</summary>
+    public async Task<A2A.Client.Postgres.PostgresClientOutboxOptions> NewClientOutboxSchemaAsync(TimeProvider? clock = null)
+    {
+        SkipIfUnavailable();
+        var options = new A2A.Client.Postgres.PostgresClientOutboxOptions { Schema = "t_" + Guid.NewGuid().ToString("N"), UseDatabaseClock = clock is null };
+        await A2A.Client.Postgres.PostgresClientOutboxSchema.EnsureSchemaAsync(DataSource, options.Schema);
+        return options;
+    }
+
     public override async Task DisposeAsync()
     {
         if (DataSource is not null) await DataSource.DisposeAsync();
