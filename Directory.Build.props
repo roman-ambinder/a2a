@@ -14,6 +14,11 @@
 
     <!-- [Experimental] APIs (see docs/site/guides/versioning.md). The repo's own code, tests, samples and snippets opt in here. -->
     <NoWarn>$(NoWarn);A2AEXP001;A2AEXP002;A2AEXP003;A2AEXP004;A2AEXP005</NoWarn>
+
+    <!-- PolySharp 1.17 (netstandard2.0 polyfills) emits IsClosedTypeAttribute as a public type, unlike its other polyfills.
+         The SDK does not use closed types, and a public copy would add a type to the netstandard2.0 API only, which fails
+         package validation (CP0001). -->
+    <PolySharpExcludeGeneratedTypes>System.Runtime.CompilerServices.IsClosedTypeAttribute</PolySharpExcludeGeneratedTypes>
   </PropertyGroup>
 
   <!-- Reproducible builds on CI (normalized paths for SourceLink and PDBs). -->
