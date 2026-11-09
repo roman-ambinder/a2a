@@ -21,6 +21,7 @@ dotnet add package RomanAmbinder.A2A.Client.Grpc
 dotnet add package RomanAmbinder.A2A.Client.Postgres
 dotnet add package RomanAmbinder.A2A.Security.Http
 dotnet add package RomanAmbinder.A2A.Extensions.AI
+dotnet add package RomanAmbinder.A2A.Mcp
 dotnet add package RomanAmbinder.A2A.Server.V0_3Compat
 dotnet add package RomanAmbinder.A2A.Client.V0_3Compat
 ```
@@ -44,6 +45,7 @@ dotnet add package RomanAmbinder.A2A.TestKit
 - [Skill selection](guides/skill-selection.md)
 - [Typed skills](guides/typed-skills.md)
 - [Microsoft.Extensions.AI](guides/extensions-ai.md)
+- [MCP bridge](guides/mcp-bridge.md)
 - [v0.3 compatibility](guides/v03-compatibility.md)
 - [Multi-tenancy](guides/multi-tenancy.md)
 - [Durable stores](guides/durable-stores.md)

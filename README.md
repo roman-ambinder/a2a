@@ -28,6 +28,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | `A2A.Client.V0_3Compat` | `V03CompatClientFactory`: lets a client call v0.3 agents |
 | `A2A.Extensions.AI` | `Microsoft.Extensions.AI` integration: host an `IChatClient` as an agent (`AddChatClientAgent`), call a remote agent as an AI tool (`AsAIFunction`) or as an `IChatClient` (`AsChatClient`) |
 | `A2A.Client.Postgres` | PostgreSQL store for the client outbox (`A2A.Client.Outbox`): a durable list of the messages an agent sends to peers, written in your own transaction |
+| `A2A.Mcp` | Model Context Protocol bridge: serve the skills of a remote agent as MCP tools (`AsMcpTools`), or let an agent run MCP tools (`AddMcpToolAgent`) |
 | `A2A.Server.Postgres` | PostgreSQL stores (tasks, events, push configs, push outbox, idempotency) via Npgsql |
 | `A2A.Server.Redis` | Redis pub/sub `TaskEventBus` and execution coordinator for running several server instances |
 | `A2A.Server.TypedSkills` | Typed skills: .NET input and output types, JSON Schema on the card, bad input refused before the agent runs (`AddTypedSkills`; experimental) |
