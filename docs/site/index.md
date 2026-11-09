@@ -34,29 +34,55 @@ dotnet add package RomanAmbinder.A2A.TestKit
 
 ## Guides
 
+**Understand the product** (high level to detailed)
+
+1. [Product overview](guides/overview.md): what it is, who it is for, a map of the features
+2. [Core concepts](guides/concepts.md): agents, cards, messages, tasks, artifacts
+3. [Architecture](guides/architecture.md): packages, server parts, extension seams
+4. [How a request flows](guides/request-lifecycle.md): one call, step by step
+5. [Production checklist](guides/production-checklist.md): what to decide before you go live
+
+**Build**
+
 - [Getting started](guides/getting-started.md)
 - [Bindings](guides/bindings.md)
 - [Authentication and ownership](guides/auth-and-ownership.md)
 - [Client credentials](guides/client-credentials.md)
 - [Streaming and resume](guides/streaming.md)
 - [Push notifications](guides/push-notifications.md)
+- [Proactive continuation](guides/proactive-continuation.md)
+- [Client outbox](guides/client-outbox.md)
 - [Agent card signing](guides/agent-card-signing.md)
 - [Peer identity and registry](guides/peer-identity.md)
 - [Skill selection](guides/skill-selection.md)
 - [Typed skills](guides/typed-skills.md)
+- [Skill authorization](guides/skill-authorization.md)
+- [Custom operations](guides/custom-operations.md)
 - [Microsoft.Extensions.AI](guides/extensions-ai.md)
+- [Conversation memory](guides/conversation-memory.md)
 - [MCP bridge](guides/mcp-bridge.md)
 - [v0.3 compatibility](guides/v03-compatibility.md)
+
+**Operate**
+
 - [Multi-tenancy](guides/multi-tenancy.md)
 - [Durable stores](guides/durable-stores.md)
 - [Retention](guides/retention.md)
+- [Artifact storage](guides/artifact-storage.md)
 - [Observability](guides/observability.md)
+- [Audit trail](guides/audit.md)
 - [Limits and rate limiting](guides/limits-and-rate-limiting.md)
+- [Execution limits and budgets](guides/execution-limits.md)
 - [Client resilience](guides/client-resilience.md)
 - [Task safety](guides/task-safety.md)
+
+**Verify and reference**
+
 - [Interop and conformance](guides/interop-and-conformance.md)
 - [Testing your agent](guides/testing.md)
 - [Spec decisions](guides/spec-decisions.md)
+- [Command line tool](guides/cli.md)
+- [Versioning](guides/versioning.md)
 
 ## API reference
 
