@@ -494,15 +494,13 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             : A2AAuditAction.FollowUpSent;
     }
 
+    /// <summary>What a follow-up or new task was accepted as. <see cref="Message"/> is the one the agent gets: a recovery replaces the retry's.</summary>
+    private sealed record Accepted(Message Message, string ContextId, AgentTask? Existing, long LastSequence, bool Duplicate, bool StartPending,
+        ApprovalState Approval, ElicitationAnswer? Elicitation, string? ApprovalResource);
+
     private async Task<Prepared> PrepareAsync(SendMessageRequest request, ServerCallContext call, AuditTicket ticket, CancellationToken ct, string? newTaskId = null)
     {
-        call.BindTenant(request.Tenant);
-        A2AValidator.ValidateIncoming(request);
-        RequestLimitValidator.Validate(request.Message, _options.Limits);
-        ActorChainValidator.Validate(request.Message, _options.Limits, call);
-        await RequireSupportedMediaTypesAsync(request.Message, call, ct).ConfigureAwait(false);
-        await SkillSelectionValidator.ValidateAsync(request.Message, call, _requestCards, _cards, _authorization, ct).ConfigureAwait(false);
-        var answersForm = await ElicitationValidator.IsAnswerAsync(request.Message, call, _requestCards, ct).ConfigureAwait(false);
+        var answersForm = await ValidateRequestAsync(request, call, ct).ConfigureAwait(false);
         // A copy: the caller's message is never changed (a retry with the same instance must hash the same). This copy goes to
         // the executor; the stored history gets copies of its own.
         var message = request.Message.DeepCopy();
@@ -511,28 +509,84 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         var isFollowUp = !string.IsNullOrEmpty(message.TaskId);
         if (answersForm && !isFollowUp) throw ElicitationValidator.Refuse("An answer to a form needs the id of the task that asked.");
         var taskId = isFollowUp ? message.TaskId! : newTaskId ?? TaskIds.New();
-        AgentTask? existing = null;
-        long lastSequence = 0;
-        string contextId;
-        var duplicate = false;
-        var startPending = false;
-        var approval = ApprovalState.None;
-        ElicitationAnswer? elicitation = null;
 
-        // Check the push config before anything changes, so a refused request leaves no trace and a retry is refused the same way.
-        TaskPushNotificationConfig? push = null;
-        if (request.Configuration?.TaskPushNotificationConfig is { } p)
+        var push = await PreparePushConfigAsync(request, call, taskId, ct).ConfigureAwait(false);
+        await BeginAuditAsync(call, ticket, message, isFollowUp, answersForm, taskId, push, ct).ConfigureAwait(false);
+
+        Accepted accepted;
+        if (isFollowUp) accepted = await AcceptFollowUpAsync(call, ticket, message, taskId, answersForm, push, ct).ConfigureAwait(false);
+        else
         {
-            RequestCards.RequirePush(await _requestCards.RequireAgentAsync(call, ct).ConfigureAwait(false));
-            push = p.DeepCopy(); // the caller's config is never changed
-            push.TaskId = taskId;
-            push.Id = string.IsNullOrEmpty(push.Id) ? TaskIds.New() : push.Id;
-            push.Tenant = call.Tenant;
-            await _pushConfigs.ValidateInlineAsync(push, call, ct).ConfigureAwait(false);
+            var newContextId = await ResolveContextAsync(message.ContextId, call, ct).ConfigureAwait(false);
+            message.ContextId = newContextId;
+            // A new task: nothing is stored yet, and no start was claimed, so a refusal needs no EndStart.
+            if (_inbound is not null) await _inbound.AttachAsync(call, taskId, message, ct).ConfigureAwait(false);
+            accepted = new Accepted(message, newContextId, null, 0, false, false, ApprovalState.None, null, null);
         }
 
-        // The audit rows begin here: the request is valid, and nothing is stored or locked yet, so with Audit.FailClosed a sink
-        // that fails refuses the request before it changes anything, and a slow sink never holds a task lock.
+        // A new task saves its push config when the task is created; a follow-up saved it above, before its message was committed.
+
+        if (isFollowUp) ClassifyAccepted(ticket, accepted);
+
+        try
+        {
+            var context = new AgentRequestContext
+            {
+                Message = accepted.Message,
+                TaskId = taskId,
+                ContextId = accepted.ContextId,
+                Conversation = new ConversationMemory(_tasks, call.Tenant, call.Principal, accepted.ContextId, taskId),
+                Task = accepted.Existing?.DeepCopy(), // the executor's own view: changing it never changes the stored task
+                Configuration = request.Configuration,
+                Metadata = request.Metadata,
+                Call = call,
+                Approval = accepted.Approval,
+                ElicitationAnswer = accepted.Elicitation,
+                TokenExchanger = _tokenExchanger,
+                SkillAuthorizer = _skills,
+                UploadOpener = _inbound is { } inbound ? (part, range, token) => inbound.OpenAsync(call, part, range, token) : null,
+            };
+            return new Prepared(context, accepted.Existing is null ? push : null, accepted.LastSequence, accepted.Duplicate, isFollowUp ? accepted.Existing?.Status : null, accepted.StartPending);
+        }
+        catch
+        {
+            if (accepted.StartPending) _engine.EndStart(Key(call, taskId));
+            throw;
+        }
+    }
+
+    /// <summary>The checks on the request itself, before anything is copied, stored or locked. Returns whether the message answers a form.</summary>
+    private async Task<bool> ValidateRequestAsync(SendMessageRequest request, ServerCallContext call, CancellationToken ct)
+    {
+        call.BindTenant(request.Tenant);
+        A2AValidator.ValidateIncoming(request);
+        RequestLimitValidator.Validate(request.Message, _options.Limits);
+        ActorChainValidator.Validate(request.Message, _options.Limits, call);
+        await RequireSupportedMediaTypesAsync(request.Message, call, ct).ConfigureAwait(false);
+        await SkillSelectionValidator.ValidateAsync(request.Message, call, _requestCards, _cards, _authorization, ct).ConfigureAwait(false);
+        return await ElicitationValidator.IsAnswerAsync(request.Message, call, _requestCards, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Check the push config before anything changes, so a refused request leaves no trace and a retry is refused the same way.</summary>
+    private async Task<TaskPushNotificationConfig?> PreparePushConfigAsync(SendMessageRequest request, ServerCallContext call, string taskId, CancellationToken ct)
+    {
+        if (request.Configuration?.TaskPushNotificationConfig is not { } p) return null;
+        RequestCards.RequirePush(await _requestCards.RequireAgentAsync(call, ct).ConfigureAwait(false));
+        var push = p.DeepCopy(); // the caller's config is never changed
+        push.TaskId = taskId;
+        push.Id = string.IsNullOrEmpty(push.Id) ? TaskIds.New() : push.Id;
+        push.Tenant = call.Tenant;
+        await _pushConfigs.ValidateInlineAsync(push, call, ct).ConfigureAwait(false);
+        return push;
+    }
+
+    /// <summary>
+    /// The audit rows begin here: the request is valid, and nothing is stored or locked yet, so with Audit.FailClosed a sink
+    /// that fails refuses the request before it changes anything, and a slow sink never holds a task lock.
+    /// </summary>
+    private async Task BeginAuditAsync(ServerCallContext call, AuditTicket ticket, Message message, bool isFollowUp, bool answersForm, string taskId,
+        TaskPushNotificationConfig? push, CancellationToken ct)
+    {
         var messageEvent = _audit.For(ClassifyMessage(message, isFollowUp, answersForm), call, taskId);
         await _audit.BeginAsync(messageEvent, ct).ConfigureAwait(false);
         ticket.Message = messageEvent;
@@ -542,178 +596,146 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             await _audit.BeginAsync(pushEvent, ct).ConfigureAwait(false);
             ticket.Push = pushEvent;
         }
+    }
 
-        string? approvalResource = null;
-        if (isFollowUp)
-        {
-            var key = Key(call, taskId);
-            var pushIsNew = false;   // the config id did not exist before this request
-            var pushSaved = false;
-            var committed = false;
-            var attached = false; // the upload references are written once, however often the commit is retried
-            var gate = await _engine.LockAsync(key, ct).ConfigureAwait(false);
-            try
-            {
-                for (var attempt = 0; ; attempt++)
-                {
-                    var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
-                    var state = record.Task.Status.State;
-                    if (!string.IsNullOrEmpty(message.ContextId) && message.ContextId != record.Task.ContextId)
-                        throw A2AException.InvalidParams("message.contextId does not match the task's contextId");
-                    if (record.Task.History?.Exists(m => string.Equals(m.MessageId, message.MessageId, StringComparison.Ordinal)) == true)
-                    {
-                        // Already accepted (an earlier request of it failed after the commit): no push config, no append, no
-                        // new execution. Checked before the state, so a retry after the task settled gets its outcome.
-                        existing = record.Task;
-                        contextId = record.Task.ContextId;
-                        message.ContextId = contextId;
-                        // The earlier request committed the message but evidently never started the agent (it crashed, or its
-                        // start failed and could not even fail the task): start it now, once.
-                        if (await PendingStartAsync(key, record.Task, message, ct).ConfigureAwait(false) is { } pendingSequence
-                            && await _engine.TryClaimStartAsync(key, ct).ConfigureAwait(false))
-                        {
-                            // The agent gets the message that was committed, never the retry's content (same id, maybe other text).
-                            message = record.Task.History![^1].DeepCopy();
-                            message.ContextId = contextId;
-                            approval = ResolveApproval(record.Task, message, out approvalResource, recovering: true);
-                            elicitation = message.GetElicitationAnswer();
-                            lastSequence = pendingSequence;
-                            startPending = true;
-                            ticket.Reason = ticket.PushReason = "recovered";
-                        }
-                        else
-                        {
-                            duplicate = true;
-                            ticket.Reason = ticket.PushReason = "duplicate";
-                        }
-                        break;
-                    }
-                    if (state.IsTerminal())
-                        throw new A2AException(A2AErrorCode.UnsupportedOperation,
-                            "The task is in a terminal state. Start a new task and list this one in referenceTaskIds.")
-                        {
-                            Metadata = new() { ["taskId"] = taskId },
-                        };
-                    if (!TaskStateMachine.AcceptsFollowUp(state, _options.FollowUpPolicy))
-                        throw new A2AException(A2AErrorCode.UnsupportedOperation, $"The task does not accept messages in state {state}.")
-                        {
-                            Metadata = new() { ["taskId"] = taskId },
-                        };
-                    EnsureTurnCapacity(record.Task);
-                    approval = ResolveApproval(record.Task, message, out var consume);
-                    approvalResource = consume;
-                    // A refused answer throws here: nothing is stored and the agent does not run. Same for a retry after a conflict.
-                    string? answeredForm = null;
-                    elicitation = answersForm ? ElicitationValidator.Resolve(record.Task, message, out answeredForm) : null;
-                    contextId = record.Task.ContextId;
-                    message.ContextId = contextId;
-                    // The task is the caller's (read with its key) and the message is not a duplicate; nothing is committed yet. No start
-                    // is claimed either (BeginStart comes after the commit), so a refusal here needs no EndStart: the finally below only
-                    // drops the push config.
-                    if (_inbound is not null && !attached)
-                    {
-                        await _inbound.AttachAsync(call, taskId, message, ct).ConfigureAwait(false);
-                        attached = true;
-                    }
-                    // The stored record belongs to the store: append to a copy, with a copy of the message the executor gets.
-                    var next = record.Task.CopyForUpdate();
-                    (next.History ??= []).Add(message.DeepCopy());
-                    // Same update as the approving message: the approval cannot be used twice, also across instances (CAS).
-                    if (consume is not null) (next.Metadata ??= [])[A2AProtocol.ApprovalConsumedKey] = StringElement(consume);
-                    // Same for an answered form: a used form is no longer pending, also across instances (CAS).
-                    if (answeredForm is not null) (next.Metadata ??= [])[Elicitation.AnsweredKey] = StringElement(answeredForm);
-                    // The latest well-formed chain wins; a follow-up without one leaves the echo as it is.
-                    if (ActorChainValidator.WellFormedChain(message) is { } chain) (next.Metadata ??= [])[A2A.Delegation.ActorChain.MetadataKey] = chain;
-                    // The last sequence before the commit: no event can land between this read and the commit (an event commit changes
-                    // the task's version, so the commit below would conflict and this loop would read again). Read before the commit,
-                    // so a failing read leaves nothing committed; the marker lets a retry tell that the agent never started.
-                    var sequenceBefore = await _events.LastSequenceAsync(key, ct).ConfigureAwait(false);
-                    (next.Metadata ??= [])[PendingStartKey] = StringElement(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{sequenceBefore}:{message.MessageId}"));
-                    EnsureTaskSizeCapacity(next);
-                    if (push is not null && !pushSaved)
-                    {
-                        // Saved atomically under the limit before the message is committed, so a refused request leaves no message.
-                        pushIsNew = await _pushConfigs.SaveInlineUnderLimitAsync(key, push, ct).ConfigureAwait(false);
-                        pushSaved = true;
-                    }
-                    try
-                    {
-                        await _tasks.UpdateAsync(record with { Task = next }, record.Version, ct).ConfigureAwait(false);
-                        existing = next;
-                        committed = true;
-                        lastSequence = sequenceBefore;
-                        // Until the execution is registered, a retry must not start the message a second time.
-                        _engine.BeginStart(key);
-                        startPending = true;
-                        break;
-                    }
-                    catch (ConcurrencyException) when (attempt < TaskExecutionEngine.MaxConflictRetries)
-                    {
-                        // The task changed under us: wait a moment, reload, re-check the state, and append again. The wait
-                        // holds the striped task lock (inherited from main), so tasks on the same stripe wait too; conflicts
-                        // come only from other instances (writers here share the lock), so this is rare and short.
-                        await TaskExecutionEngine.ConflictBackoffAsync(attempt, ct).ConfigureAwait(false);
-                    }
-                }
-            }
-            finally
-            {
-                // The message was not committed (state refused, conflicts, cancel): do not keep the config it came with.
-                if (pushSaved && pushIsNew && !committed) await _pushConfigs.TryDeleteAsync(key, push!.Id!).ConfigureAwait(false);
-                gate.Dispose();
-            }
-        }
-        else
-        {
-            contextId = await ResolveContextAsync(message.ContextId, call, ct).ConfigureAwait(false);
-            message.ContextId = contextId;
-            // A new task: nothing is stored yet, and no start was claimed, so a refusal needs no EndStart.
-            if (_inbound is not null) await _inbound.AttachAsync(call, taskId, message, ct).ConfigureAwait(false);
-        }
-
-        // A new task saves its push config when the task is created; a follow-up saved it above, before its message was committed.
-
-        // What the message turned out to be. A duplicate keeps its first classification: nothing was done for it.
-        if (isFollowUp && !duplicate)
-        {
-            if (elicitation is not null)
-            {
-                ticket.Action = A2AAuditAction.ElicitationAnswered;
-                ticket.Reason = elicitation.Action.ToString();
-            }
-            else if (approval == ApprovalState.Approved)
-            {
-                ticket.Action = A2AAuditAction.ApprovalGranted;
-                ticket.Resource = approvalResource;
-            }
-            else ticket.Action = approval == ApprovalState.NotApproved ? A2AAuditAction.ApprovalDeclined : A2AAuditAction.FollowUpSent;
-        }
-
+    /// <summary>
+    /// Under the task lock: check that the task takes the message and commit it to the history (retried on a conflict), or
+    /// recognise it as already accepted. The lock, the retry loop and the cleanup of an unsaved push config stay together here.
+    /// </summary>
+    private async Task<Accepted> AcceptFollowUpAsync(ServerCallContext call, AuditTicket ticket, Message message, string taskId, bool answersForm,
+        TaskPushNotificationConfig? push, CancellationToken ct)
+    {
+        var key = Key(call, taskId);
+        var pushIsNew = false;   // the config id did not exist before this request
+        var pushSaved = false;
+        var committed = false;
+        var attached = false; // the upload references are written once, however often the commit is retried
+        var gate = await _engine.LockAsync(key, ct).ConfigureAwait(false);
         try
         {
-            var context = new AgentRequestContext
+            for (var attempt = 0; ; attempt++)
             {
-                Message = message,
-                TaskId = taskId,
-                ContextId = contextId,
-                Conversation = new ConversationMemory(_tasks, call.Tenant, call.Principal, contextId, taskId),
-                Task = existing?.DeepCopy(), // the executor's own view: changing it never changes the stored task
-                Configuration = request.Configuration,
-                Metadata = request.Metadata,
-                Call = call,
-                Approval = approval,
-                ElicitationAnswer = elicitation,
-                TokenExchanger = _tokenExchanger,
-                SkillAuthorizer = _skills,
-                UploadOpener = _inbound is { } inbound ? (part, range, token) => inbound.OpenAsync(call, part, range, token) : null,
-            };
-            return new Prepared(context, existing is null ? push : null, lastSequence, duplicate, isFollowUp ? existing?.Status : null, startPending);
+                var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
+                var state = record.Task.Status.State;
+                if (!string.IsNullOrEmpty(message.ContextId) && message.ContextId != record.Task.ContextId)
+                    throw A2AException.InvalidParams("message.contextId does not match the task's contextId");
+                if (record.Task.History?.Exists(m => string.Equals(m.MessageId, message.MessageId, StringComparison.Ordinal)) == true)
+                    return await AcceptAlreadyAcceptedAsync(key, ticket, record, message, ct).ConfigureAwait(false);
+                if (state.IsTerminal())
+                    throw new A2AException(A2AErrorCode.UnsupportedOperation,
+                        "The task is in a terminal state. Start a new task and list this one in referenceTaskIds.")
+                    {
+                        Metadata = new() { ["taskId"] = taskId },
+                    };
+                if (!TaskStateMachine.AcceptsFollowUp(state, _options.FollowUpPolicy))
+                    throw new A2AException(A2AErrorCode.UnsupportedOperation, $"The task does not accept messages in state {state}.")
+                    {
+                        Metadata = new() { ["taskId"] = taskId },
+                    };
+                EnsureTurnCapacity(record.Task);
+                var approval = ResolveApproval(record.Task, message, out var consume);
+                var approvalResource = consume;
+                // A refused answer throws here: nothing is stored and the agent does not run. Same for a retry after a conflict.
+                string? answeredForm = null;
+                var elicitation = answersForm ? ElicitationValidator.Resolve(record.Task, message, out answeredForm) : null;
+                var contextId = record.Task.ContextId;
+                message.ContextId = contextId;
+                // The task is the caller's (read with its key) and the message is not a duplicate; nothing is committed yet. No start
+                // is claimed either (BeginStart comes after the commit), so a refusal here needs no EndStart: the finally below only
+                // drops the push config.
+                if (_inbound is not null && !attached)
+                {
+                    await _inbound.AttachAsync(call, taskId, message, ct).ConfigureAwait(false);
+                    attached = true;
+                }
+                // The stored record belongs to the store: append to a copy, with a copy of the message the executor gets.
+                var next = record.Task.CopyForUpdate();
+                (next.History ??= []).Add(message.DeepCopy());
+                // Same update as the approving message: the approval cannot be used twice, also across instances (CAS).
+                if (consume is not null) (next.Metadata ??= [])[A2AProtocol.ApprovalConsumedKey] = StringElement(consume);
+                // Same for an answered form: a used form is no longer pending, also across instances (CAS).
+                if (answeredForm is not null) (next.Metadata ??= [])[Elicitation.AnsweredKey] = StringElement(answeredForm);
+                // The latest well-formed chain wins; a follow-up without one leaves the echo as it is.
+                if (ActorChainValidator.WellFormedChain(message) is { } chain) (next.Metadata ??= [])[A2A.Delegation.ActorChain.MetadataKey] = chain;
+                // The last sequence before the commit: no event can land between this read and the commit (an event commit changes
+                // the task's version, so the commit below would conflict and this loop would read again). Read before the commit,
+                // so a failing read leaves nothing committed; the marker lets a retry tell that the agent never started.
+                var sequenceBefore = await _events.LastSequenceAsync(key, ct).ConfigureAwait(false);
+                (next.Metadata ??= [])[PendingStartKey] = StringElement(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{sequenceBefore}:{message.MessageId}"));
+                EnsureTaskSizeCapacity(next);
+                if (push is not null && !pushSaved)
+                {
+                    // Saved atomically under the limit before the message is committed, so a refused request leaves no message.
+                    pushIsNew = await _pushConfigs.SaveInlineUnderLimitAsync(key, push, ct).ConfigureAwait(false);
+                    pushSaved = true;
+                }
+                try
+                {
+                    await _tasks.UpdateAsync(record with { Task = next }, record.Version, ct).ConfigureAwait(false);
+                    committed = true;
+                    // Until the execution is registered, a retry must not start the message a second time.
+                    _engine.BeginStart(key);
+                    return new Accepted(message, contextId, next, sequenceBefore, false, true, approval, elicitation, approvalResource);
+                }
+                catch (ConcurrencyException) when (attempt < TaskExecutionEngine.MaxConflictRetries)
+                {
+                    // The task changed under us: wait a moment, reload, re-check the state, and append again. The wait
+                    // holds the striped task lock (inherited from main), so tasks on the same stripe wait too; conflicts
+                    // come only from other instances (writers here share the lock), so this is rare and short.
+                    await TaskExecutionEngine.ConflictBackoffAsync(attempt, ct).ConfigureAwait(false);
+                }
+            }
         }
-        catch
+        finally
         {
-            if (startPending) _engine.EndStart(Key(call, taskId));
-            throw;
+            // The message was not committed (state refused, conflicts, cancel): do not keep the config it came with.
+            if (pushSaved && pushIsNew && !committed) await _pushConfigs.TryDeleteAsync(key, push!.Id!).ConfigureAwait(false);
+            gate.Dispose();
         }
+    }
+
+    /// <summary>
+    /// The message is already in the history (an earlier request of it failed after the commit): no push config, no append, no
+    /// new execution. Checked before the state, so a retry after the task settled gets its outcome. Either a recovery (the agent
+    /// never started: start it now, once) or a plain duplicate.
+    /// </summary>
+    private async Task<Accepted> AcceptAlreadyAcceptedAsync(TaskKey key, AuditTicket ticket, TaskRecord record, Message message, CancellationToken ct)
+    {
+        var existing = record.Task;
+        var contextId = record.Task.ContextId;
+        message.ContextId = contextId;
+        // The earlier request committed the message but evidently never started the agent (it crashed, or its
+        // start failed and could not even fail the task): start it now, once.
+        if (await PendingStartAsync(key, record.Task, message, ct).ConfigureAwait(false) is { } pendingSequence
+            && await _engine.TryClaimStartAsync(key, ct).ConfigureAwait(false))
+        {
+            // The agent gets the message that was committed, never the retry's content (same id, maybe other text).
+            message = record.Task.History![^1].DeepCopy();
+            message.ContextId = contextId;
+            var approval = ResolveApproval(record.Task, message, out var approvalResource, recovering: true);
+            var elicitation = message.GetElicitationAnswer();
+            ticket.Reason = ticket.PushReason = "recovered";
+            return new Accepted(message, contextId, existing, pendingSequence, false, true, approval, elicitation, approvalResource);
+        }
+        ticket.Reason = ticket.PushReason = "duplicate";
+        return new Accepted(message, contextId, existing, 0, true, false, ApprovalState.None, null, null);
+    }
+
+    /// <summary>What the message turned out to be. A duplicate keeps its first classification: nothing was done for it.</summary>
+    private static void ClassifyAccepted(AuditTicket ticket, Accepted accepted)
+    {
+        if (accepted.Duplicate) return;
+        if (accepted.Elicitation is not null)
+        {
+            ticket.Action = A2AAuditAction.ElicitationAnswered;
+            ticket.Reason = accepted.Elicitation.Action.ToString();
+        }
+        else if (accepted.Approval == ApprovalState.Approved)
+        {
+            ticket.Action = A2AAuditAction.ApprovalGranted;
+            ticket.Resource = accepted.ApprovalResource;
+        }
+        else ticket.Action = accepted.Approval == ApprovalState.NotApproved ? A2AAuditAction.ApprovalDeclined : A2AAuditAction.FollowUpSent;
     }
 
     /// <summary>

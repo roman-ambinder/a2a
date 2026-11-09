@@ -109,7 +109,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
         var taskId = await GatedAgent.Started(text).Task.WaitAsync(Timeout);
 
         var retry = Client(b).SendMessageAsync(message);
-        await Task.WhenAny(retry, Task.Delay(TimeSpan.FromSeconds(1)));
+        await Task.WhenAny(retry, Task.Delay(TimeSpan.FromSeconds(1))); // negative check: B must not return in this time
         Assert.False(retry.IsCompleted, "B returned while the agent on A was still working.");
 
         GatedAgent.Gate(text).TrySetResult();
@@ -246,7 +246,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
         Assert.True(await b.Services.GetRequiredService<ExecutionCoordinator>().IsRunningAsync(new TaskKey("", "alice", taskId)));
 
         var retry = Client(b).SendMessageAsync(message);
-        await Task.WhenAny(retry, Task.Delay(TimeSpan.FromMilliseconds(500)));
+        await Task.WhenAny(retry, Task.Delay(TimeSpan.FromMilliseconds(500))); // give the retry time to meet the live claim; nothing observable to wait for
         GatedAgent.Gate(text).TrySetResult();
 
         Assert.Equal("echo", Assert.IsType<MessageResponse>(await first.WaitAsync(Timeout)).Message.GetText());

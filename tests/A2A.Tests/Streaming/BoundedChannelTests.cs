@@ -202,7 +202,7 @@ public sealed class BoundedChannelTests
             resume.SetResult();
             using (var timeout = new CancellationTokenSource(Wait))
                 while (Volatile.Read(ref completed) < 9) await Task.Delay(5, timeout.Token);
-            await Task.Delay(200);
+            await Task.Delay(200); // negative check: the 10th call stays blocked in this time
             Assert.Equal(9, Volatile.Read(ref completed));
             Assert.Equal(8, await events.LastSequenceAsync(key));
         }
@@ -563,7 +563,7 @@ public sealed class BoundedChannelTests
 
             // The bus kept only the last artifact: a gap, and the store no longer has the first event after afterSequence.
             var wait = rig.Streamer.WaitForOutcomeAsync(followUp, key, sub, afterSequence, acceptedAt, returnImmediately: false, CancellationToken.None);
-            await Task.Delay(200);
+            await Task.Delay(200); // negative check: the wait does not finish on the old status in this time
             Assert.False(wait.IsCompleted, "the INPUT_REQUIRED from before the follow-up was taken as its outcome");
 
             go.SetResult();
@@ -593,7 +593,7 @@ public sealed class BoundedChannelTests
             followUp.Detach();
 
             var wait = rig.Engine.WaitUntilSettledAsync(key, afterSequence, acceptedAt, CancellationToken.None).AsTask();
-            await Task.Delay(200);
+            await Task.Delay(200); // negative check: the wait does not finish on the old status in this time
             Assert.False(wait.IsCompleted, "the INPUT_REQUIRED from before the follow-up was taken as its outcome");
 
             go.SetResult();
