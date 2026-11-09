@@ -19,7 +19,7 @@ An agent runs code on behalf of a peer you do not control. This guide covers the
 
 **Turn cap.** A peer can steer a long conversation one small step at a time. `MaxTurnsPerTask` counts the user messages in the stored history, including the one that created the task. A follow-up over the cap is refused with `UnsupportedOperation` before the agent runs, and the task is not changed. A retry of an accepted message is not a new turn. A value of 1 means no follow-ups. A custom `TaskStore` must keep the full history, or the cap does not hold.
 
-**Cancel requested.** CancelTask asks the agent to stop and waits up to `CancelGracePeriod`. If the agent has not stopped by then, the answer is the task as stored, with the metadata `a2a.cancelRequested = true`. That flag is never stored. The `CANCELED` state arrives later on the stream. A task that is already final gives `TaskNotCancelable`.
+**Cancel requested.** CancelTask asks the agent to stop and waits up to `CancelGracePeriod`. If the agent has not stopped by then, the answer is the task as stored, with the metadata `a2a.cancelRequested = true`. That flag is never stored. The `CANCELED` state arrives later on the stream. A task that is already final gives `TaskNotCancelable`, also a repeat cancel of a `CANCELED` task, because the TCK requires it ([A2A#2358](https://github.com/a2aproject/A2A/issues/2358)). `IdempotentCancel = true` answers a repeat cancel with the canceled task instead. `A2AClient.CancelTaskAsync` handles the repeat itself: on `TaskNotCancelable` it calls GetTask for the same id and tenant and returns the task when it is `CANCELED`. In every other case, including a failing GetTask, you get the original `TaskNotCancelable`.
 
 **Host shutdown.** When the host stops, the server first waits up to `ShutdownDrainTimeout` for running agents to finish (it honours the stop token too). Keep it below the host's shutdown timeout, 30 seconds by default. Agents still running after that are asked to stop, but their tasks are **not** moved to `CANCELED`: nobody cancelled them. They stay `WORKING`, and the lease expiry, the [retention](retention.md) sweep or a continuation handles them. Only a real CancelTask ends in `CANCELED`, even when it arrives during shutdown.
 
@@ -109,10 +109,28 @@ A `UrlPart` in a message points to a URL the peer chose. Do not fetch it with a 
 
 <xref:A2A.Security.Http.SafeHttpOptions> can allow plain HTTP, private networks or specific networks. Leave them off in production.
 
+## Check the endpoints an Agent Card names
+
+A card chooses the URL the client calls. A card served from the internet can name `http://169.254.169.254/` or an internal host (SSRF). <xref:A2A.Client.A2AClientOptions.EndpointPolicy> decides which endpoints a card may name. The factories (`A2AClientFactory.CreateAsync`, the gRPC and v0.3 factories, and `AddA2AClient`) check every interface the client could select (its binding is supported and the major version matches), not only the first, before they build a client. A refusal is `InvalidAgentResponse`; the message names only the host, never card text. Each refusal counts `a2a.client.endpoint.refused`.
+
+| Policy | Allows |
+|---|---|
+| <xref:A2A.Client.AgentEndpointPolicies.MatchCardNetwork> (default on .NET 8+) | Anything for a card the caller supplied. A private endpoint when the card's host resolves only to private addresses. Otherwise public endpoints only. Whoever controls the card host's DNS also controls this answer, so prefer `PublicOnly` for cards from the internet. |
+| <xref:A2A.Client.AgentEndpointPolicies.PublicOnly*> | Public endpoints only, plus the networks you pass in. |
+| <xref:A2A.Client.AgentEndpointPolicies.AllowAll> or `null` | Everything. No DNS lookup is made. |
+
+A custom policy is a `Func<AgentEndpointCheck, bool>`. It gets the endpoint, the binding, the card source and the addresses of both hosts. The presets allow a host that did not resolve (the connection fails anyway, or a proxy resolves it) and refuse an endpoint with no host, such as a URL that parses to nothing. A bare gRPC `host:port` is judged by its host.
+
+`localhost` and `*.localhost` count as loopback and IP literals are parsed, both without DNS. Other hosts are resolved on .NET 8 and later, with a 5 second limit; a failed lookup is not an error. `A2AClientFactory.Create(card, ...)` has no card source and makes no DNS lookup. On netstandard2.0 there is no default policy and no DNS: the presets need `A2A.Security.Http`, which that target does not reference. Set your own policy if you need one there.
+
+**The check is pre-flight only.** The host can resolve to another address when the client connects (DNS rebinding). For full protection, build the `HttpClient` on `SafeHttp.CreateHandler` (`A2A.Security.Http`), which checks the resolved address at connect time. `A2AClientFactory.EnsureEndpointsAllowedAsync(card, cardSource, options)` runs the same check yourself, for a client you build another way.
+
 ## What can go wrong
 
 - **Tasks fail with "Task exceeded its time limit".** The agent runs longer than `MaxTaskDuration`. Raise it, or report progress and finish sooner.
 - **A follow-up gets `UnsupportedOperation`.** The task is at `MaxTurnsPerTask`. Start a new task and list the old one in `referenceTaskIds`.
+- **`InvalidAgentResponse` from the client factory.** The endpoint policy refused an interface of the card. The message names the host. Use `AgentEndpointPolicies.PublicOnly` with the networks you trust, or `AllowAll` for a card you trust.
+- **A second CancelTask gives `TaskNotCancelable`.** You called the server directly, or the task is not `CANCELED`. `A2AClient` returns the canceled task by itself; for other callers set `IdempotentCancel`.
 - **Approval always `NotApproved`.** The client did not copy the hash into the follow-up's metadata.
 - **A hash is refused the second time.** Approvals work once.
 - **The form never reaches the client.** The client did not activate the extension (`UseElicitation`), or the agent card does not declare it. The client then sees the text only.

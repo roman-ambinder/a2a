@@ -26,3 +26,31 @@ public class GrpcClientFactoryCreateAsyncTests : IAsyncLifetime
         Assert.Equal("hi there", Assert.IsType<MessageResponse>(r).Message.GetText());
     }
 }
+
+public class GrpcEndpointPolicyTests
+{
+    private static AgentCard Card(string url) => new()
+    {
+        Name = "g", Description = "d", Version = "1", Capabilities = new(), DefaultInputModes = ["text/plain"], DefaultOutputModes = ["text/plain"], Skills = [],
+        SupportedInterfaces = [new AgentInterface { Url = url, ProtocolBinding = ProtocolBindings.Grpc, ProtocolVersion = "1.0" }],
+    };
+
+    [Fact]
+    public void A_bare_host_and_port_is_judged_by_its_host()
+    {
+        var options = new A2AClientOptions { EndpointPolicy = AgentEndpointPolicies.PublicOnly() };
+
+        var ex = Assert.Throws<A2AException>(() => A2AGrpcClientFactory.Create(Card("10.0.0.5:50051"), options));
+
+        Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
+        Assert.Contains("10.0.0.5", ex.Message);
+    }
+
+    [Fact]
+    public void A_public_bare_host_and_port_is_allowed()
+    {
+        var options = new A2AClientOptions { EndpointPolicy = AgentEndpointPolicies.PublicOnly() };
+
+        Assert.NotNull(A2AGrpcClientFactory.Create(Card("203.0.113.9:50051"), options));
+    }
+}

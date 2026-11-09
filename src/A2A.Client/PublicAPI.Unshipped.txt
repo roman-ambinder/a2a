@@ -2,3 +2,26 @@
 A2A.Client.A2AArtifactDownloader
 A2A.Client.A2AArtifactDownloader.A2AArtifactDownloader(System.Net.Http.HttpMessageHandler! agentHandler, System.Uri! agentOrigin, A2A.Security.Http.SafeHttpOptions? storageOptions = null) -> void
 A2A.Client.A2AArtifactDownloader.DownloadAsync(A2A.UrlPart! part, System.IO.Stream! destination, long maxBytes, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+A2A.Client.A2AClientOptions.EndpointPolicy.get -> System.Func<A2A.Client.AgentEndpointCheck!, bool>?
+A2A.Client.A2AClientOptions.EndpointPolicy.set -> void
+A2A.Client.AgentEndpointCheck
+A2A.Client.AgentEndpointCheck.AgentEndpointCheck(System.Uri! endpoint, string! protocolBinding, System.Uri? cardSource, System.Collections.Generic.IReadOnlyList<System.Net.IPAddress!>! endpointAddresses, System.Collections.Generic.IReadOnlyList<System.Net.IPAddress!>! cardSourceAddresses) -> void
+A2A.Client.AgentEndpointCheck.CardSource.get -> System.Uri?
+A2A.Client.AgentEndpointCheck.CardSourceAddresses.get -> System.Collections.Generic.IReadOnlyList<System.Net.IPAddress!>!
+A2A.Client.AgentEndpointCheck.Endpoint.get -> System.Uri!
+A2A.Client.AgentEndpointCheck.EndpointAddresses.get -> System.Collections.Generic.IReadOnlyList<System.Net.IPAddress!>!
+A2A.Client.AgentEndpointCheck.ProtocolBinding.get -> string!
+A2A.Client.AgentEndpointPolicies
+static A2A.Client.AgentEndpointPolicies.AllowAll.get -> System.Func<A2A.Client.AgentEndpointCheck!, bool>!
+static A2A.Client.AgentEndpointPolicies.MatchCardNetwork.get -> System.Func<A2A.Client.AgentEndpointCheck!, bool>!
+static A2A.Client.AgentEndpointPolicies.PublicOnly(params (System.Net.IPAddress! Network, int PrefixLength)[]! allowedNetworks) -> System.Func<A2A.Client.AgentEndpointCheck!, bool>!
+static A2A.Client.A2AClientFactory.EnsureEndpointsAllowedAsync(A2A.AgentCard! card, System.Uri? cardSource, A2A.Client.A2AClientOptions! options, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+A2A.Client.A2AClientOptions.CircuitBreaker.get -> A2A.Client.Resilience.CircuitBreakerOptions?
+A2A.Client.A2AClientOptions.CircuitBreaker.set -> void
+A2A.Client.Resilience.CircuitBreakerOptions
+A2A.Client.Resilience.CircuitBreakerOptions.CircuitBreakerOptions() -> void
+A2A.Client.Resilience.CircuitBreakerOptions.FailureThreshold.get -> int
+A2A.Client.Resilience.CircuitBreakerOptions.FailureThreshold.set -> void
+A2A.Client.Resilience.CircuitBreakerOptions.OpenDuration.get -> System.TimeSpan
+A2A.Client.Resilience.CircuitBreakerOptions.OpenDuration.set -> void
+A2A.Client.Resilience.CircuitOpenException

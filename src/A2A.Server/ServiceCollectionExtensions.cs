@@ -29,6 +29,9 @@ public static class A2AServerServiceCollectionExtensions
     {
         var options = services.AddOptions<A2AServerOptions>();
         if (configure is not null) options.Configure(configure);
+        // The security event log goes to the host's logging, when there is any.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<A2AServerOptions>, ConfigureOptions<A2AServerOptions>>(sp =>
+            new ConfigureOptions<A2AServerOptions>(o => o.SecurityLogger ??= sp.GetService<Microsoft.Extensions.Logging.ILoggerFactory>()?.CreateLogger(Telemetry.SecurityEventLog.Category))));
         services.TryAddSingleton<Storage.TaskStore>(InMemoryTaskStore);
         services.TryAddSingleton<Storage.PushConfigStore, Storage.InMemoryPushConfigStore>();
         services.TryAddSingleton<Storage.EventStore>(InMemoryEventStore);

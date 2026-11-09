@@ -110,6 +110,20 @@ A2A.Server.TaskUpdater.ReportUsageAsync(long tokens, decimal costUnits = 0, Syst
 A2A.Server.TaskUpdater.UsedTokens.get -> long
 A2A.Server.TaskUpdater.UsedCostUnits.get -> decimal
 A2A.Server.TaskContinuationStatus.AtCapacity = 6 -> A2A.Server.TaskContinuationStatus
+A2A.Server.A2AServerOptions.IdempotentCancel.get -> bool
+A2A.Server.A2AServerOptions.IdempotentCancel.set -> void
+A2A.Server.A2AServerOptions.ContextAccess.get -> System.Func<A2A.Server.Storage.ContextRecord!, A2A.Server.ServerCallContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<bool>>?
+A2A.Server.A2AServerOptions.ContextAccess.set -> void
+A2A.Server.Push.IPushOutboxStatistics
+A2A.Server.Push.IPushOutboxStatistics.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
+A2A.Server.Push.InMemoryPushOutbox.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
+A2A.Server.Push.PushOutboxStatistics
+A2A.Server.Push.PushOutboxStatistics.DeadLetterCount.get -> int
+A2A.Server.Push.PushOutboxStatistics.DeadLetterCount.init -> void
+A2A.Server.Push.PushOutboxStatistics.OldestDueAge.get -> System.TimeSpan
+A2A.Server.Push.PushOutboxStatistics.OldestDueAge.init -> void
+A2A.Server.Push.PushOutboxStatistics.PushOutboxStatistics() -> void
+A2A.Server.Push.PushOutboxStatistics.PushOutboxStatistics(System.TimeSpan OldestDueAge, int DeadLetterCount) -> void
 A2A.Server.AgentRequestContext.Conversation.get -> A2A.Server.ConversationMemory?
 A2A.Server.AgentRequestContext.Conversation.init -> void
 A2A.Server.ConversationMemory
@@ -174,3 +188,4 @@ A2A.Server.A2AServerOptions.SkillAuthorization.get -> A2A.Server.Authorization.S
 A2A.Server.AgentRequestContext.AuthorizedSkillId.get -> string?
 A2A.Server.AgentRequestContext.IsSkillAllowedAsync(string! skillId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeSkillAsync(A2A.Server.ServerCallContext! call, string! skillId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<bool>
+A2A.Server.Push.InMemoryPushOutbox.Count.get -> int

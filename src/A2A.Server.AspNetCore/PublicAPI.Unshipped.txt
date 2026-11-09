@@ -1,2 +1,24 @@
 #nullable enable
 static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AArtifacts(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern = "/") -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
+A2A.Server.AspNetCore.A2AHealthCheckOptions
+A2A.Server.AspNetCore.A2AHealthCheckOptions.A2AHealthCheckOptions() -> void
+A2A.Server.AspNetCore.A2AHealthCheckOptions.DeadLetterDegradedCount.get -> int?
+A2A.Server.AspNetCore.A2AHealthCheckOptions.DeadLetterDegradedCount.set -> void
+A2A.Server.AspNetCore.A2AHealthCheckOptions.DeadLetterUnhealthyCount.get -> int?
+A2A.Server.AspNetCore.A2AHealthCheckOptions.DeadLetterUnhealthyCount.set -> void
+A2A.Server.AspNetCore.A2AHealthCheckOptions.IncludePushOutbox.get -> bool
+A2A.Server.AspNetCore.A2AHealthCheckOptions.IncludePushOutbox.set -> void
+A2A.Server.AspNetCore.A2AHealthCheckOptions.PushBacklogDegradedAge.get -> System.TimeSpan?
+A2A.Server.AspNetCore.A2AHealthCheckOptions.PushBacklogDegradedAge.set -> void
+A2A.Server.AspNetCore.A2AHealthCheckOptions.PushBacklogUnhealthyAge.get -> System.TimeSpan?
+A2A.Server.AspNetCore.A2AHealthCheckOptions.PushBacklogUnhealthyAge.set -> void
+A2A.Server.AspNetCore.A2AHealthCheckOptions.Timeout.get -> System.TimeSpan
+A2A.Server.AspNetCore.A2AHealthCheckOptions.Timeout.set -> void
+A2A.Server.AspNetCore.A2AHealthChecks
+const A2A.Server.AspNetCore.A2AHealthChecks.CoordinatorName = "a2a_coordinator" -> string!
+const A2A.Server.AspNetCore.A2AHealthChecks.PushOutboxName = "a2a_push_outbox" -> string!
+const A2A.Server.AspNetCore.A2AHealthChecks.ReadyTag = "ready" -> string!
+const A2A.Server.AspNetCore.A2AHealthChecks.ShutdownName = "a2a_shutdown" -> string!
+const A2A.Server.AspNetCore.A2AHealthChecks.Tag = "a2a" -> string!
+const A2A.Server.AspNetCore.A2AHealthChecks.TaskStoreName = "a2a_task_store" -> string!
+static A2A.Server.AspNetCore.A2AHealthChecks.AddA2AHealthChecks(this Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder! builder, System.Action<A2A.Server.AspNetCore.A2AHealthCheckOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder!

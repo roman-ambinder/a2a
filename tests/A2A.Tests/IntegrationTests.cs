@@ -107,8 +107,8 @@ public class BindingTests : IAsyncLifetime
         var canceled = await client.CancelTaskAsync(task.Id);
         Assert.Equal(TaskState.Canceled, canceled.Status.State);
 
-        var again = await Assert.ThrowsAsync<A2AException>(() => client.CancelTaskAsync(task.Id));
-        Assert.Equal(A2AErrorCode.TaskNotCancelable, again.Code);
+        var again = await client.CancelTaskAsync(task.Id); // the client turns the repeat cancel into the canceled task
+        Assert.Equal(TaskState.Canceled, again.Status.State);
     }
 
     [Theory]
