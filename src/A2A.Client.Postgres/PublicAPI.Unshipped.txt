@@ -1,0 +1,25 @@
+#nullable enable
+A2A.Client.Postgres.PostgresClientOutboxOptions
+A2A.Client.Postgres.PostgresClientOutboxOptions.PostgresClientOutboxOptions() -> void
+A2A.Client.Postgres.PostgresClientOutboxOptions.Schema.get -> string!
+A2A.Client.Postgres.PostgresClientOutboxOptions.Schema.set -> void
+A2A.Client.Postgres.PostgresClientOutboxOptions.UseDatabaseClock.get -> bool
+A2A.Client.Postgres.PostgresClientOutboxOptions.UseDatabaseClock.set -> void
+A2A.Client.Postgres.PostgresClientOutboxSchema
+static A2A.Client.Postgres.PostgresClientOutboxSchema.EnsureSchemaAsync(Npgsql.NpgsqlDataSource! dataSource, string! schema = "public", System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+static A2A.Client.Postgres.PostgresClientOutboxSchema.Script.get -> string!
+static A2A.Client.Postgres.PostgresClientOutboxSchema.ScriptFor(string! schema) -> string!
+A2A.Client.Postgres.PostgresClientOutboxStore
+A2A.Client.Postgres.PostgresClientOutboxStore.PostgresClientOutboxStore(Npgsql.NpgsqlDataSource! dataSource, A2A.Client.Postgres.PostgresClientOutboxOptions? options = null, System.TimeProvider? time = null) -> void
+override A2A.Client.Postgres.PostgresClientOutboxStore.EnqueueAsync(A2A.Client.Outbox.ClientOutboxMessage! message, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Client.Postgres.PostgresClientOutboxStore.GetAsync(string! id, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Client.Outbox.ClientOutboxEntry?>
+override A2A.Client.Postgres.PostgresClientOutboxStore.LeaseDueAsync(int max, System.TimeSpan lease, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Client.Outbox.ClientOutboxEntry!>!>
+override A2A.Client.Postgres.PostgresClientOutboxStore.RescheduleAsync(A2A.Client.Outbox.ClientOutboxEntry! leased, System.TimeSpan delay, string? error, bool inDoubt, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Client.Postgres.PostgresClientOutboxStore.MarkTrackingAsync(A2A.Client.Outbox.ClientOutboxEntry! leased, string! taskId, string? contextId, A2A.TaskState state, System.TimeSpan delay, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Client.Postgres.PostgresClientOutboxStore.FinishAsync(A2A.Client.Outbox.ClientOutboxEntry! leased, A2A.Client.Outbox.ClientOutboxOutcome! outcome, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Client.Postgres.PostgresClientOutboxStore.LeaseResultsAsync(string? correlation, int max, System.TimeSpan lease, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Client.Outbox.ClientOutboxEntry!>!>
+override A2A.Client.Postgres.PostgresClientOutboxStore.AcknowledgeAsync(A2A.Client.Outbox.ClientOutboxEntry! leased, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Client.Postgres.PostgresClientOutboxStore.HastenAsync(string! peer, string! taskId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+override A2A.Client.Postgres.PostgresClientOutboxStore.PurgeCollectedAsync(System.TimeSpan olderThan, int max, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<int>
+A2A.Client.Postgres.PostgresClientOutboxStore.EnqueueAsync(A2A.Client.Outbox.ClientOutboxMessage! message, Npgsql.NpgsqlConnection! connection, Npgsql.NpgsqlTransaction? transaction, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+A2A.Client.Postgres.PostgresClientOutboxStore.AcknowledgeAsync(A2A.Client.Outbox.ClientOutboxEntry! leased, Npgsql.NpgsqlConnection! connection, Npgsql.NpgsqlTransaction? transaction, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>

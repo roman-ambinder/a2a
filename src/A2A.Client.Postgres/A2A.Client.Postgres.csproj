@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>A2A.Client.Postgres</RootNamespace>
+    <Description>PostgreSQL store for the A2A (Agent2Agent) client outbox: a durable list of the messages an agent sends to peers, written in your own transaction. Npgsql, no EF.</Description>
+    <PackageTags>$(PackageTags);postgres;postgresql;npgsql;outbox</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\A2A.Client\A2A.Client.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+</Project>
