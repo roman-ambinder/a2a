@@ -24,6 +24,8 @@
   href: typed-skills.md
 - name: Skill authorization
   href: skill-authorization.md
+- name: Custom operations
+  href: custom-operations.md
 - name: Microsoft.Extensions.AI
   href: extensions-ai.md
 - name: Conversation memory
