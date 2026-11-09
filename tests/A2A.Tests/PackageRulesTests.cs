@@ -73,6 +73,10 @@ public sealed class PackageRulesTests
         AssertOnlyAbstractions("A2A.Server.Redis", r => r == "StackExchange.Redis" || IsExtensionsAbstraction(r));
 
     [Fact]
+    public void TypedSkills_references_only_system_text_json_and_extensions_abstractions() =>
+        AssertOnlyAbstractions("A2A.Server.TypedSkills", r => r == "System.Text.Json" || IsExtensionsAbstraction(r));
+
+    [Fact]
     public void No_InternalsVisibleTo_targets_a_src_assembly()
     {
         var srcNames = SrcProjects().Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
