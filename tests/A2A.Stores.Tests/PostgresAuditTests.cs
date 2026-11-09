@@ -57,7 +57,7 @@ public sealed class PostgresAuditTests(PostgresFixture db)
         return rows;
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Event_round_trips_with_every_field()
     {
         var schema = await db.NewSchemaAsync();
@@ -73,7 +73,7 @@ public sealed class PostgresAuditTests(PostgresFixture db)
             row);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Event_with_only_the_required_fields_stores_nulls()
     {
         var schema = await db.NewSchemaAsync();
@@ -91,7 +91,7 @@ public sealed class PostgresAuditTests(PostgresFixture db)
         Assert.All(row[6..], Assert.Null);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Rows_are_appended_in_order_and_a_final_row_keeps_the_id_of_its_attempt()
     {
         var schema = await db.NewSchemaAsync();
@@ -105,7 +105,7 @@ public sealed class PostgresAuditTests(PostgresFixture db)
         Assert.Equal(["Attempted", "Succeeded"], rows.Select(r => r[3]));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task A_sanitized_event_with_a_NUL_is_stored_and_a_raw_one_is_refused_by_the_database()
     {
         var schema = await db.NewSchemaAsync();
@@ -121,7 +121,7 @@ public sealed class PostgresAuditTests(PostgresFixture db)
         Assert.Equal("al_ice", row[4]);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Schema_script_runs_twice()
     {
         var schema = await db.NewSchemaAsync(); // creates it once
@@ -133,7 +133,7 @@ public sealed class PostgresAuditTests(PostgresFixture db)
         Assert.Equal(4L, await cmd.ExecuteScalarAsync()); // the primary key and the three lookup indexes
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Registration_replaces_the_logger_sink_and_a_later_sink_replaces_it()
     {
         var schema = await db.NewSchemaAsync();
@@ -159,7 +159,7 @@ public sealed class PostgresAuditTests(PostgresFixture db)
         Assert.IsType<RecordingSink>(later.GetRequiredService<A2AAuditSink>());
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Registration_creates_the_table_at_startup()
     {
         db.SkipIfUnavailable();

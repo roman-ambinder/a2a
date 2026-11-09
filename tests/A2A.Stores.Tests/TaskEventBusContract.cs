@@ -27,7 +27,7 @@ public abstract class TaskEventBusContract
         return list;
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Subscriber_gets_every_event_in_order()
     {
         var (pub, subBus) = await CreateBusesAsync();
@@ -39,7 +39,7 @@ public abstract class TaskEventBusContract
         Assert.Equal("task", status.StatusUpdate.TaskId);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Subscriber_gets_the_encoded_bytes_as_published()
     {
         // The server encodes an event once; a bus hands subscribers the same bytes (streams write them as they are).
@@ -52,7 +52,7 @@ public abstract class TaskEventBusContract
         Assert.True(sent.Json.Span.SequenceEqual(got.Json.Span), "the event's bytes arrive unchanged");
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Every_subscriber_gets_every_event_and_topics_are_separate()
     {
         var (pub, subBus) = await CreateBusesAsync();
@@ -69,7 +69,7 @@ public abstract class TaskEventBusContract
         Assert.Equal([7L], (await ReadAsync(other, 1)).Select(e => e.Sequence));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Complete_ends_subscriptions_after_earlier_events()
     {
         var (pub, subBus) = await CreateBusesAsync();
@@ -84,7 +84,7 @@ public abstract class TaskEventBusContract
         Assert.Equal([1L, 2], all);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Disposed_subscription_gets_nothing_more()
     {
         var (pub, subBus) = await CreateBusesAsync();
@@ -130,7 +130,7 @@ public sealed class RedisTaskEventBusTests(RedisFixture redis) : TaskEventBusCon
         return bus;
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Local_subscriber_gets_each_event_once()
     {
         var (pub, _) = await CreateBusesAsync();
@@ -143,7 +143,7 @@ public sealed class RedisTaskEventBusTests(RedisFixture redis) : TaskEventBusCon
         Assert.False(local.Reader.TryRead(out _));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Deployments_with_different_prefixes_do_not_see_each_other()
     {
         var a = await NewBusAsync($"a:{Guid.NewGuid():N}:");
@@ -154,7 +154,7 @@ public sealed class RedisTaskEventBusTests(RedisFixture redis) : TaskEventBusCon
         Assert.False(sub.Reader.TryRead(out _));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Publish_does_not_throw_when_redis_is_unreachable()
     {
         redis.SkipIfUnavailable();
@@ -169,9 +169,9 @@ public sealed class RedisTaskEventBusTests(RedisFixture redis) : TaskEventBusCon
         Assert.Equal([1L], (await ReadAsync(local, 1)).Select(e => e.Sequence)); // local delivery still works
     }
 
-    public Task InitializeAsync() => Task.CompletedTask;
+    public ValueTask InitializeAsync() => ValueTask.CompletedTask;
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         foreach (var d in _cleanup) await d.DisposeAsync();
     }

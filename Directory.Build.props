@@ -68,6 +68,8 @@
 
   <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/tests/')) Or $(MSBuildProjectDirectory.Contains('\tests\'))">
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- xUnit1051 (xunit v3): pass TestContext.Current.CancellationToken to async calls. Advisory; not adopted yet. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(IsPackable)' == 'true'">

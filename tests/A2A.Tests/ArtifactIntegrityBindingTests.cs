@@ -9,9 +9,9 @@ public sealed class ArtifactIntegrityBindingTests : IAsyncLifetime
 
     public static TheoryData<string> Bindings => new() { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson };
 
-    public async Task InitializeAsync() => _host = await TestAgentHost.StartAsync();
+    public async ValueTask InitializeAsync() => _host = await TestAgentHost.StartAsync();
 
-    public async Task DisposeAsync() => await _host.DisposeAsync();
+    public async ValueTask DisposeAsync() => await _host.DisposeAsync();
 
     // sha256 of "hello ", "hello w\u00f6rld" (computed outside .NET)
     private const string FirstChunk = "sha256:5e3235a8346e5a4585f8c58562f5052b8fe26a3bb122e1e96c76784964dfc461";
