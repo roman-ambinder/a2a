@@ -393,6 +393,12 @@ dotnet run --project samples/EchoClient -- http://localhost:5100/ "hello" secret
 # Two instances + Postgres + Redis: see samples/MultiInstance/README.md
 ```
 
+Or run them all and check each one (`--with-docker` adds MultiInstance; names such as `echo mcp` pick some):
+
+```bash
+samples/run-samples.sh
+```
+
 `docs/a2a.proto` is the normative proto this SDK was built against.
 
 ## Releasing
