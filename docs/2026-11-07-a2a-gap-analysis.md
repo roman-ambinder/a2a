@@ -1,5 +1,7 @@
 # A2A .NET SDK: additions beyond the v1.0 spec
 
+> **Historical snapshot.** This is the analysis the SDK was planned from, on 2026-11-07. Most items have shipped since, sometimes in a different form, and upstream issues may have moved. For what exists today, read the [README](../README.md) and [spec decisions](site/guides/spec-decisions.md).
+
 Date: 2026-11-07. Scope: what this SDK should add on top of A2A v1.0 (proto in `docs/a2a.proto`) to close known gaps in (a) the A2A specification and (b) the official `a2aproject/a2a-dotnet` SDK. Everything proposed is additive and wire-compatible: other v1.0 peers ignore the extra headers and metadata.
 
 Severity: **High** = breaks or endangers real deployments today. **Med** = needs custom workarounds. **Low** = edge or annoyance.
@@ -197,6 +199,8 @@ Status: D27, D28, D30 and D32 are done (abstract extension points and sealed opt
 - Replacing Kestrel-level protections; SDK limits are defaults, not a WAF.
 
 ## Part 5: Package layout implied
+
+This was the plan, not the result. The packages that shipped are listed in the [README](../README.md); for example, durable stores are `A2A.Server.Postgres` and `A2A.Server.Redis`, not EF Core or Cosmos packages.
 
 ```
 A2A.Protocol                 models, STJ source-gen, errors, canonicalizer, card signer/verifier, validators

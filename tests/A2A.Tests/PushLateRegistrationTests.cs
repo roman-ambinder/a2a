@@ -24,7 +24,11 @@ public class PushLateRegistrationTests
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(10);
+        while (!condition())
+        {
+            if (DateTime.UtcNow >= deadline) throw new TimeoutException("The condition never became true.");
+            await Task.Delay(10);
+        }
     }
 
     private static async Task WaitForStateAsync(A2A.Client.A2AClient client, string taskId, TaskState state)
@@ -91,8 +95,9 @@ public class PushLateRegistrationTests
         Assert.Empty(host.Webhooks.Calls);
 
         await client.CreateTaskPushNotificationConfigAsync(Hook(task.Id));
+        await WaitUntilAsync(() => host.Webhooks.Calls.Count > 0);
         await host.WaitIdleAsync();
-        await Task.Delay(100);
+        await Task.Delay(100); // negative check: no second delivery appears in this time
 
         var call = Assert.Single(host.Webhooks.Calls);
         var snapshot = Assert.IsType<TaskEvent>(A2AJson.Deserialize<StreamResponse>(call.Body)).Task;
@@ -112,7 +117,7 @@ public class PushLateRegistrationTests
 
         await client.CreateTaskPushNotificationConfigAsync(Hook(task.Id));
         await host.WaitForPushIdleAsync();
-        await Task.Delay(100);
+        await Task.Delay(100); // negative check: no delivery appears in this time
         Assert.Empty(host.Webhooks.Calls);
 
         ScenarioAgent.Gate("gate late-running").SetResult();
@@ -149,7 +154,7 @@ public class PushLateRegistrationTests
 
         await client.CreateTaskPushNotificationConfigAsync(Hook(task.Id));
         await host.WaitIdleAsync();
-        await Task.Delay(100);
+        await Task.Delay(100); // negative check: no catch-up delivery appears in this time
 
         Assert.Empty(host.Webhooks.Calls);
     }
@@ -183,7 +188,7 @@ public class PushLateRegistrationTests
         ScenarioAgent.Gate("gate late-relist").SetResult();
         await WaitUntilAsync(() => CallsTo(host, "late").Count > 0);
         await host.WaitIdleAsync();
-        await Task.Delay(100);
+        await Task.Delay(100); // negative check: no second delivery of "late" appears in this time
 
         var call = Assert.Single(CallsTo(host, "late"));
         var snapshot = Assert.IsType<TaskEvent>(A2AJson.Deserialize<StreamResponse>(call.Body)).Task;
@@ -204,7 +209,7 @@ public class PushLateRegistrationTests
 
         ScenarioAgent.Gate("gate late-relist-off").SetResult();
         await host.WaitIdleAsync();
-        await Task.Delay(100);
+        await Task.Delay(100); // negative check: the relisting delivers nothing in this time
 
         Assert.Empty(host.Webhooks.Calls);
     }
