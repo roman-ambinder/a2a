@@ -122,3 +122,12 @@ Contract suite run against in-memory and Postgres (`tests/A2A.Stores.Tests`). Fa
 6. Stale lease holder writes nothing.
 7. Two dispatchers on one Postgres table: each entry sent once.
 8. `RetryInDoubt = false`: crash mid-send gives `Failed`, no second call.
+
+## Changes made while building
+
+- A not-final poll uses `RescheduleAsync`, so the poll backoff can grow. `MarkTrackingAsync` runs only after a send.
+- A retry keeps an earlier doubt. `ClientOutboxOutcome.InDoubt` is written by `FinishAsync`, so `InDoubt` on a `Failed` entry can be trusted.
+- A sweep leases and runs at most `MaxConcurrency` entries at a time, up to `BatchSize` per sweep, so a lease never waits behind other calls.
+- `Retry-After` is capped at `RetryMaxDelay`.
+- Sorting uses `A2AErrors.HttpStatus(code)` when the HTTP status is missing or 2xx, because JSON-RPC errors arrive with status 200.
+- Purge loops in batches of 1000 until done.
