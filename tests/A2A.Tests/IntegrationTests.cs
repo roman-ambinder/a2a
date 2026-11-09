@@ -16,9 +16,9 @@ public class BindingTests : IAsyncLifetime
 
     public static TheoryData<string> Bindings => new() { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson };
 
-    public async Task InitializeAsync() => _host = await TestAgentHost.StartAsync();
+    public async ValueTask InitializeAsync() => _host = await TestAgentHost.StartAsync();
 
-    public async Task DisposeAsync() => await _host.DisposeAsync();
+    public async ValueTask DisposeAsync() => await _host.DisposeAsync();
 
     [Theory]
     [MemberData(nameof(Bindings))]

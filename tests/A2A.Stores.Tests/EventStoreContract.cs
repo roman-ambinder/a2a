@@ -24,7 +24,7 @@ public abstract class EventStoreContract
         return list;
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Sequences_start_at_1_and_increase_per_task()
     {
         var store = await CreateStoreAsync(new StreamingOptions());
@@ -44,7 +44,7 @@ public abstract class EventStoreContract
         Assert.Equal([2L, 3], (await ReadAllAsync(store, a, after: 1)).Select(e => e.Sequence));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Events_round_trip_in_order()
     {
         var store = await CreateStoreAsync(new StreamingOptions());
@@ -60,7 +60,7 @@ public abstract class EventStoreContract
         Assert.Empty(await ReadAllAsync(store, key, after: 3));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Stored_bytes_are_returned_unchanged()
     {
         // The server encodes an event once; replays write the stored bytes to the wire as they are.
@@ -74,7 +74,7 @@ public abstract class EventStoreContract
         Assert.Equal(TaskState.Working, ((TaskEvent)read.Event).Task.Status.State);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Sequences_are_scoped_by_owner_and_tenant()
     {
         var store = await CreateStoreAsync(new StreamingOptions());
@@ -85,7 +85,7 @@ public abstract class EventStoreContract
         Assert.Null(await store.OldestRetainedAsync(new TaskKey("", "carol", "t")));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadAfter_keeps_event_metadata_and_returns_nothing_for_another_owner()
     {
         // The supported server-side read path of a task's raw events: event-level metadata is part of what comes back.
@@ -105,7 +105,7 @@ public abstract class EventStoreContract
         Assert.Empty(await ReadAllAsync(store, new TaskKey("other", "alice", "x")));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Buffer_that_wrapped_many_times_reads_from_any_point()
     {
         var store = await CreateStoreAsync(new StreamingOptions { ReplayBufferSize = 5 });
@@ -120,7 +120,7 @@ public abstract class EventStoreContract
         Assert.Empty(await ReadAllAsync(store, key, after: 99));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task ReadRange_returns_only_the_events_between_the_bounds()
     {
         var store = await CreateStoreAsync(new StreamingOptions { ReplayBufferSize = 5 });
@@ -144,7 +144,7 @@ public abstract class EventStoreContract
         await foreach (var _ in store.ReadRangeAsync(new TaskKey("", "bob", "t"), 0, 100)) Assert.Fail("another owner");
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Buffer_larger_than_the_log_keeps_every_event()
     {
         var store = await CreateStoreAsync(new StreamingOptions { ReplayBufferSize = 1000 });
@@ -155,7 +155,7 @@ public abstract class EventStoreContract
         Assert.Equal([36L, 37], (await ReadAllAsync(store, key, after: 35)).Select(e => e.Sequence));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Buffer_trims_to_replay_size()
     {
         var store = await CreateStoreAsync(new StreamingOptions { ReplayBufferSize = 3 });
@@ -167,7 +167,7 @@ public abstract class EventStoreContract
         Assert.Equal([3L, 4, 5], (await ReadAllAsync(store, key)).Select(e => e.Sequence));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Terminal_buffer_evicted_after_retention()
     {
         var clock = new FakeTimeProvider();
@@ -185,7 +185,7 @@ public abstract class EventStoreContract
         Assert.Empty(await ReadAllAsync(store, key));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Second_mark_terminal_does_not_extend_retention()
     {
         var clock = new FakeTimeProvider();
@@ -199,7 +199,7 @@ public abstract class EventStoreContract
         Assert.Null(await store.OldestRetainedAsync(key));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Mark_terminal_without_events_is_a_no_op()
     {
         var clock = new FakeTimeProvider();
@@ -212,7 +212,7 @@ public abstract class EventStoreContract
         Assert.Equal(1, await store.OldestRetainedAsync(key)); // the early mark set no deadline
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Log_starts_over_after_eviction()
     {
         var clock = new FakeTimeProvider();
@@ -233,7 +233,7 @@ public abstract class EventStoreContract
         Assert.Equal(1, await store.LastSequenceAsync(key));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Concurrent_appends_get_distinct_contiguous_sequences()
     {
         var store = await CreateStoreAsync(new StreamingOptions { ReplayBufferSize = 1000 });
@@ -243,7 +243,7 @@ public abstract class EventStoreContract
         Assert.Equal(40, (await ReadAllAsync(store, key)).Count);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Delete_drops_the_log_and_restarts_sequences()
     {
         var store = await CreateStoreAsync(new StreamingOptions());
@@ -262,7 +262,7 @@ public abstract class EventStoreContract
         await store.DeleteAsync(new TaskKey("t", "alice", "never-existed")); // nothing to delete is fine
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Delete_with_another_owner_or_tenant_deletes_nothing()
     {
         var store = await CreateStoreAsync(new StreamingOptions());
@@ -287,7 +287,7 @@ public sealed class PostgresEventStoreTests(PostgresFixture db) : EventStoreCont
     protected override async Task<EventStore> CreateStoreAsync(StreamingOptions options, TimeProvider? time = null) =>
         new PostgresEventStore(db.DataSource, options, await db.NewSchemaAsync(time), time);
 
-    [SkippableFact]
+    [Fact]
     public async Task Maintenance_deletes_expired_logs_and_keeps_live_ones()
     {
         var clock = new FakeTimeProvider();

@@ -32,6 +32,10 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 
+    <!-- PolySharp 1.17+ emits IsClosedTypeAttribute as a public type on netstandard2.0 only, which fails package validation
+         (CP0001). Closed hierarchies are not used. -->
+    <PolySharpExcludeGeneratedTypes>System.Runtime.CompilerServices.IsClosedTypeAttribute</PolySharpExcludeGeneratedTypes>
+
     <!-- NuGet identity: assembly names and namespaces stay A2A.*; package IDs are owner-prefixed so they never clash
          with the official "A2A" packages. -->
     <PackageId>RomanAmbinder.$(MSBuildProjectName)</PackageId>
@@ -68,6 +72,8 @@
 
   <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/tests/')) Or $(MSBuildProjectDirectory.Contains('\tests\'))">
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- xUnit1051 (xunit v3): pass TestContext.Current.CancellationToken to async calls. Advisory; not adopted yet. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(IsPackable)' == 'true'">

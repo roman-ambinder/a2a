@@ -14,12 +14,12 @@ public sealed class S3ArtifactObjectStoreTests(MinioFixture minio) : ArtifactObj
     private static readonly ArtifactObjectInfo Info = new("text/html", "page.html");
     private readonly List<IDisposable> _disposables = [];
 
-    public Task InitializeAsync() => Task.CompletedTask;
+    public ValueTask InitializeAsync() => ValueTask.CompletedTask;
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         foreach (var d in _disposables) d.Dispose();
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     private async Task<(S3ArtifactObjectStore Store, AmazonS3Client Client, string Bucket)> NewAsync(string prefix = "")

@@ -46,7 +46,7 @@ public abstract class ExecutionCoordinatorContract
     private static async Task<bool> ExpiredContainsAsync(ExecutionCoordinator c, TaskKey task, string executionId) =>
         (await c.ListExpiredAsync(100)).Contains((task, executionId));
 
-    [SkippableFact]
+    [Fact]
     public async Task Registered_execution_runs_everywhere_until_unregistered()
     {
         var (a, b) = await CreatePairAsync();
@@ -60,7 +60,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.Empty(await b.ListExpiredAsync(10));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Running_is_scoped_to_tenant_owner_and_task()
     {
         var (a, b) = await CreatePairAsync();
@@ -71,7 +71,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.False(await b.IsRunningAsync(Key("x", tenant: "u")));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Task_runs_while_any_of_its_executions_runs()
     {
         var (a, b) = await CreatePairAsync();
@@ -83,7 +83,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.False(await a.IsRunningAsync(Key()));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Exclusive_register_succeeds_on_a_free_task_and_counts_as_running()
     {
         var (a, b) = await CreatePairAsync();
@@ -92,7 +92,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.True(await b.IsRunningAsync(Key()));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Exclusive_register_is_refused_while_another_lease_runs()
     {
         var (a, b) = await CreatePairAsync();
@@ -103,7 +103,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.True(await b.TryRegisterExclusiveAsync(Key(), "e2"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Exclusive_register_ignores_an_expired_lease()
     {
         var (a, b) = await CreatePairAsync();
@@ -112,7 +112,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.True(await b.TryRegisterExclusiveAsync(Key(), "e2"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Exclusive_register_is_scoped_to_tenant_owner_and_task()
     {
         var (a, b) = await CreatePairAsync();
@@ -123,7 +123,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.False(await b.TryRegisterExclusiveAsync(Key("x"), "e5"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Concurrent_exclusive_registers_have_one_winner()
     {
         var (a, b) = await CreatePairAsync();
@@ -132,7 +132,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.Equal(1, results.Count(won => won));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Stale_execution_id_never_touches_a_newer_lease()
     {
         var (a, b) = await CreatePairAsync();
@@ -150,7 +150,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.Empty(await a.ListExpiredAsync(10));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Lease_without_heartbeat_expires_and_is_listed()
     {
         var (a, b) = await CreatePairAsync();
@@ -161,7 +161,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.Equal([(Key(), "e1")], await b.ListExpiredAsync(10));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Heartbeats_keep_the_lease_alive()
     {
         var (a, b) = await CreatePairAsync();
@@ -177,7 +177,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.Empty(await b.ListExpiredAsync(10));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Heartbeat_never_brings_back_an_expired_lease()
     {
         var (a, b) = await CreatePairAsync();
@@ -190,7 +190,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.True(await ExpiredContainsAsync(b, Key(), "e1"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Heartbeat_of_a_missing_lease_creates_nothing()
     {
         var (a, b) = await CreatePairAsync();
@@ -200,7 +200,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.Empty(await b.ListExpiredAsync(10));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Unregistered_expired_lease_is_no_longer_listed()
     {
         var (a, b) = await CreatePairAsync();
@@ -211,7 +211,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.Empty(await b.ListExpiredAsync(10));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Expired_listing_is_oldest_first_and_capped()
     {
         var (a, b) = await CreatePairAsync();
@@ -225,7 +225,7 @@ public abstract class ExecutionCoordinatorContract
         Assert.Equal([(Key("x"), "first")], await b.ListExpiredAsync(1));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Keys_with_separator_characters_round_trip()
     {
         var (a, b) = await CreatePairAsync();
@@ -240,7 +240,7 @@ public abstract class ExecutionCoordinatorContract
     /// <summary>True when <see cref="CreatePairAsync"/> returns two instances; false when it returns one instance twice.</summary>
     protected abstract bool HasTwoInstances { get; }
 
-    [SkippableFact]
+    [Fact]
     public async Task Cancel_request_reaches_every_reader_of_the_other_instances_but_not_the_sender()
     {
         var (a, b) = await CreatePairAsync();
@@ -277,7 +277,7 @@ public abstract class ExecutionCoordinatorContract
         cts.Cancel();
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Sweep_lease_is_held_by_one_caller_until_it_expires()
     {
         var (a, b) = await CreatePairAsync();
@@ -392,7 +392,7 @@ public sealed class PostgresExecutionCoordinatorTests(PostgresFixture db) : Exec
         return coordinator;
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Lease_expiry_follows_the_injected_clock()
     {
         var (a, _) = await CreatePairAsync();
@@ -404,7 +404,7 @@ public sealed class PostgresExecutionCoordinatorTests(PostgresFixture db) : Exec
     }
 
     /// <summary>Stale rows are deleted by the next request, so the table cannot grow without bound.</summary>
-    [SkippableFact]
+    [Fact]
     public async Task Old_cancel_requests_are_deleted_by_the_next_request()
     {
         var schema = await db.NewSchemaAsync(_clock);
@@ -419,7 +419,7 @@ public sealed class PostgresExecutionCoordinatorTests(PostgresFixture db) : Exec
     }
 
     /// <summary>Only requests made after the coordinator started are delivered.</summary>
-    [SkippableFact]
+    [Fact]
     public async Task Requests_made_before_the_coordinator_started_are_not_delivered()
     {
         var schema = await db.NewSchemaAsync(_clock);
@@ -444,9 +444,9 @@ public sealed class PostgresExecutionCoordinatorTests(PostgresFixture db) : Exec
         return (long)(await cmd.ExecuteScalarAsync())!;
     }
 
-    public Task InitializeAsync() => Task.CompletedTask;
+    public ValueTask InitializeAsync() => ValueTask.CompletedTask;
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         foreach (var c in _cleanup) await c.DisposeAsync();
     }
@@ -490,7 +490,7 @@ public sealed class RedisExecutionCoordinatorTests(RedisFixture redis) : Executi
     /// A cancel reader that falls its capacity (1,024 requests) behind drops the oldest
     /// and logs it. The log runs outside the coordinator's reader lock: while logging, another thread can still add a reader.
     /// </summary>
-    [SkippableFact]
+    [Fact]
     public async Task Dropped_cancel_request_is_logged_outside_the_reader_lock()
     {
         var prefix = $"coord:{Guid.NewGuid():N}:";
@@ -549,7 +549,7 @@ public sealed class RedisExecutionCoordinatorTests(RedisFixture redis) : Executi
     }
 
     /// <summary>Review Focus 4: an instance whose clock runs 60 s ahead neither expires nor misreads a fresh lease.</summary>
-    [SkippableFact]
+    [Fact]
     public async Task Skewed_instance_clock_does_not_expire_a_fresh_lease()
     {
         var prefix = $"coord:{Guid.NewGuid():N}:";
@@ -579,7 +579,7 @@ public sealed class RedisExecutionCoordinatorTests(RedisFixture redis) : Executi
         }
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Event_bus_registration_can_leave_the_coordinator_out()
     {
         var mux = await redis.ConnectAsync();
@@ -598,9 +598,9 @@ public sealed class RedisExecutionCoordinatorTests(RedisFixture redis) : Executi
         Assert.IsType<TaskEventBus>(explicitSp.GetRequiredService<TaskEventBus>()); // the bus stays local
     }
 
-    public Task InitializeAsync() => Task.CompletedTask;
+    public ValueTask InitializeAsync() => ValueTask.CompletedTask;
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         foreach (var d in _cleanup) await d.DisposeAsync();
     }

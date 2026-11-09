@@ -18,7 +18,7 @@ public sealed class JsonRpcWriterTests
         },
     });
 
-    public static TheoryData<string?> Ids => new() { null, "\"abc\"", "42", "null", "\"x\\\"y\"" };
+    public static TheoryData<string?> Ids => new([null, "\"abc\"", "42", "null", "\"x\\\"y\""]);
 
     [Theory]
     [MemberData(nameof(Ids))]
