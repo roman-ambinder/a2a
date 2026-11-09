@@ -21,9 +21,15 @@ public static class ProtoMapper
     private static readonly UTF8Encoding Utf8 = new(false);
     private const int MaxRetainedBytes = 256 * 1024;
 
-    // One reusable buffer per thread. A buffer that grew past MaxRetainedBytes is dropped so one large message does not pin memory.
+    // Below this size a model's JSON is decoded to one string for the parser: smaller than a StreamReader's own buffers.
+    private const int MaxStringBytes = 16 * 1024;
+
+    // One reusable buffer and writer per thread. A buffer that grew past MaxRetainedBytes is dropped (with its writer) so one
+    // large message does not pin memory.
     [ThreadStatic]
     private static MemoryStream? t_buffer;
+    [ThreadStatic]
+    private static StreamWriter? t_writer;
 
     /// <summary>Proto → model.</summary>
     public static T ToModel<T>(IMessage proto) => ToModelCore<T>(proto, maxDepth: 0);
@@ -40,11 +46,15 @@ public static class ProtoMapper
         ArgumentNullException.ThrowIfNull(proto);
         var buffer = t_buffer ??= new MemoryStream();
         buffer.SetLength(0);
+        // The writer (and its 4 KB char buffer) is reused: one per thread, not one per message.
+        var writer = t_writer ??= new StreamWriter(buffer, Utf8, 4096, leaveOpen: true);
+        var written = false;
         try
         {
             // The writer encodes straight into UTF-8 bytes, so no UTF-16 string holds the whole message.
-            using (var writer = new StreamWriter(buffer, Utf8, 4096, leaveOpen: true))
-                Formatter.Format(proto, writer);
+            Formatter.Format(proto, writer);
+            writer.Flush();
+            written = true;
             var json = new ReadOnlySpan<byte>(buffer.GetBuffer(), 0, (int)buffer.Length);
             var reader = new Utf8JsonReader(json, new JsonReaderOptions { MaxDepth = maxDepth });
             return JsonSerializer.Deserialize(ref reader, A2AJson.GetTypeInfo<T>()) ?? throw new JsonException($"Null {typeof(T).Name} payload.");
@@ -55,7 +65,12 @@ public static class ProtoMapper
         }
         finally
         {
-            if (buffer.Capacity > MaxRetainedBytes) t_buffer = null;
+            // A failed format may leave text in the writer's buffer: start over with a new pair.
+            if (!written || buffer.Capacity > MaxRetainedBytes)
+            {
+                t_buffer = null;
+                t_writer = null;
+            }
             else buffer.SetLength(0);
         }
     }
@@ -65,12 +80,25 @@ public static class ProtoMapper
     public static TProto ToProto<TProto, TModel>(TModel model) where TProto : IMessage<TProto>, new()
     {
         ArgumentNullException.ThrowIfNull(model);
+        // The declared type's metadata writes the wire form (for unions, the member name).
+        return ToProto<TProto>(JsonSerializer.SerializeToUtf8Bytes(model, A2AJson.GetTypeInfo<TModel>()));
+    }
+
+    /// <summary>
+    /// Model JSON → proto: <paramref name="modelJson"/> is the ProtoJSON form of a model, as the SDK's serializer writes it (for
+    /// example the stored bytes of a stream event), so a model that is already encoded is not encoded again.
+    /// </summary>
+    public static TProto ToProto<TProto>(ReadOnlyMemory<byte> modelJson) where TProto : IMessage<TProto>, new()
+    {
         try
         {
-            // The declared type's metadata writes the wire form (for unions, the member name).
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(model, A2AJson.GetTypeInfo<TModel>());
-            // JsonParser reads only a string or a TextReader; the reader decodes the UTF-8 in small chunks.
-            using var reader = new StreamReader(new MemoryStream(bytes, writable: false), Utf8);
+            // JsonParser reads only a string or a TextReader. A small message is one short string; a large one is read through
+            // a reader that decodes the UTF-8 in small chunks, so no UTF-16 string holds the whole message.
+            if (modelJson.Length <= MaxStringBytes) return Parser.Parse<TProto>(Utf8.GetString(modelJson.Span));
+            var bytes = System.Runtime.InteropServices.MemoryMarshal.TryGetArray(modelJson, out var segment)
+                ? new MemoryStream(segment.Array!, segment.Offset, segment.Count, writable: false)
+                : new MemoryStream(modelJson.ToArray(), writable: false);
+            using var reader = new StreamReader(bytes, Utf8);
             return Parser.Parse<TProto>(reader);
         }
         catch (InvalidProtocolBufferException ex)

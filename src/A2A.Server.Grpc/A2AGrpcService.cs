@@ -137,7 +137,8 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
                     headersSent = true;
                     await GrpcCallSupport.WriteExtensionsHeaderAsync(context, call).ConfigureAwait(false);
                 }
-                await writer.WriteAsync(ProtoMapper.ToProto<A2aPb.StreamResponse, StreamResponse>(evt.Event)).ConfigureAwait(false);
+                // The event's stored bytes are its wire JSON already: map from them instead of encoding the event again.
+                await writer.WriteAsync(ProtoMapper.ToProto<A2aPb.StreamResponse>(EventEncoder.EnsureEncoded(evt).Json)).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is not RpcException)

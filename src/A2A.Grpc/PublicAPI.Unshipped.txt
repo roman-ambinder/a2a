@@ -186,3 +186,4 @@ override Lf.A2a.V1.TimelineEntry.GetHashCode() -> int
 ~virtual Lf.A2a.V1.A2AService.A2AServiceBase.SendLiveMessage(Grpc.Core.IAsyncStreamReader<Lf.A2a.V1.StreamRequest> requestStream, Grpc.Core.IServerStreamWriter<Lf.A2a.V1.StreamResponse> responseStream, Grpc.Core.ServerCallContext context) -> System.Threading.Tasks.Task
 ~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SendLiveMessage(Grpc.Core.CallOptions options) -> Grpc.Core.AsyncDuplexStreamingCall<Lf.A2a.V1.StreamRequest, Lf.A2a.V1.StreamResponse>
 ~virtual Lf.A2a.V1.A2AService.A2AServiceClient.SendLiveMessage(Grpc.Core.Metadata headers = null, System.DateTime? deadline = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> Grpc.Core.AsyncDuplexStreamingCall<Lf.A2a.V1.StreamRequest, Lf.A2a.V1.StreamResponse>
+static A2A.Grpc.ProtoMapper.ToProto<TProto>(System.ReadOnlyMemory<byte> modelJson) -> TProto
