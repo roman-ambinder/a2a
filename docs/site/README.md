@@ -7,6 +7,8 @@ This folder builds the docs site with [DocFX](https://dotnet.github.io/docfx/) 2
 - `guides/` : hand-written guides. `guides/toc.yml` sets the order.
 - `snippets/` : the C# samples, one library project (`A2A.DocSnippets`). It is in `A2A.slnx`, so a normal build compiles it. Warnings are errors.
 - `api/` : generated from `src/**/*.csproj`. Only `api/index.md` is committed.
+- `template/` : site theme on top of the DocFX `modern` template. `public/main.css` holds the style tweaks, `public/main.js` adds the GitHub icon to the top bar.
+- `images/` : the logo and favicon.
 - `filterConfig.yml` : leaves the generated gRPC types (namespace `Lf.A2a.V1`) out of the API pages.
 - `check-guides.py` : checks the guides (see below).
 
@@ -55,5 +57,7 @@ The `docs` job in `.github/workflows/ci.yml` runs these steps, then checks links
 `.github/workflows/docs-pages.yml` runs after CI succeeds on `main`. It takes the `docs-site` artifact from that CI run (no rebuild) and deploys it to https://roman-ambinder.github.io/a2a/.
 
 One-time setup: repo **Settings** > **Pages** > **Build and deployment** > **Source**: choose **GitHub Actions**.
+
+Do not choose **Deploy from a branch**. GitHub then publishes the raw markdown with Jekyll instead of the DocFX site: the C# samples show as `[!code-csharp[](...)]` text, and `<xref:...>` links and the API reference are missing. Until the source is **GitHub Actions**, the `Deploy to GitHub Pages` step fails with `Failed to create deployment (status: 404)`. After you change the source, re-run the latest failed **Docs Pages** run (or push to `main`) to publish the site.
 
 Links in the site are relative, so serving under `/a2a/` needs no base path change.

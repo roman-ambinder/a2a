@@ -27,13 +27,22 @@
         "files": ["api/**/*.yml", "api/index.md"]
       }
     ],
+    "resource": [
+      {
+        "files": ["images/**"]
+      }
+    ],
     "output": "_site",
     "globalMetadata": {
       "_appTitle": "A2A .NET SDK",
       "_enableSearch": true,
-      "_disableContribution": true
+      "_disableContribution": true,
+      "_appName": "A2A .NET SDK",
+      "_appLogoPath": "images/logo.svg",
+      "_appFaviconPath": "images/logo.svg",
+      "_appFooter": "A2A .NET SDK · <a href=\"https://github.com/roman-ambinder/a2a\">GitHub</a> · Apache License 2.0"
     },
-    "template": ["default", "modern"],
+    "template": ["default", "modern", "template"],
     "markdownEngineProperties": {
       "markdigExtensions": ["Alerts"]
     }
