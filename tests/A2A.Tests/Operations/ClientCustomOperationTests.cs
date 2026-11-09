@@ -67,6 +67,17 @@ public sealed partial class ClientCustomOperationTests
     }
 
     [Theory, MemberData(nameof(Bindings))]
+    public async Task The_tenant_of_the_client_applies_when_the_transport_has_other_options(string binding)
+    {
+        await using var host = await StartAsync();
+        var client = new A2AClient(host.Client(binding), new A2AClientOptions { Tenant = "t2" });
+
+        var result = await client.InvokeExtensionOperationAsync(Method, Uri, Json("""{"say":"hi"}"""));
+
+        Assert.Equal("t2", result.GetProperty("tenant").GetString());
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
     public async Task The_tenant_in_the_params_wins_over_the_options(string binding)
     {
         await using var host = await StartAsync();

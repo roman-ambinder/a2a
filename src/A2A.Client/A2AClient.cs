@@ -491,6 +491,10 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         ExtensionOperationParams.RequireMethod(method);
         if (_transport is not IA2AExtensionOperationClient transport)
             throw new A2AException(A2AErrorCode.UnsupportedOperation, "The transport of this client does not support custom operations.");
+        // As the other operations: this client's tenant applies, also when the transport has other options. Params that are not
+        // an object are left to the transport, because HTTP+JSON can still carry the tenant in the path.
+        parameters = ExtensionOperationParams.Normalize(parameters);
+        if (parameters.ValueKind == JsonValueKind.Object) parameters = ExtensionOperationParams.WithTenant(parameters, _options.Tenant);
         return ClientTelemetry.TraceAsync(method, this, ExtensionOperationParams.TenantOf(parameters) ?? _options.Tenant, null,
             () => Guard(() => transport.InvokeExtensionOperationAsync(method, parameters, options, cancellationToken)), cancellationToken);
     }
