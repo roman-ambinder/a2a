@@ -30,6 +30,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | `A2A.Client.Postgres` | PostgreSQL store for the client outbox (`A2A.Client.Outbox`): a durable list of the messages an agent sends to peers, written in your own transaction |
 | `A2A.Server.Postgres` | PostgreSQL stores (tasks, events, push configs, push outbox, idempotency) via Npgsql |
 | `A2A.Server.Redis` | Redis pub/sub `TaskEventBus` and execution coordinator for running several server instances |
+| `A2A.Server.TypedSkills` | Typed skills: .NET input and output types, JSON Schema on the card, bad input refused before the agent runs (`AddTypedSkills`; experimental) |
 | `A2A.TestKit` | Test tools: an in-process agent host, a scripted fake peer agent, assertions for task states and event order, a fake clock and a push receiver. Works with any test framework ([guide](docs/site/guides/testing.md)) |
 
 ## Documentation

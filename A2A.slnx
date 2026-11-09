@@ -19,6 +19,7 @@
     <Project Path="samples/ChatAgent/ChatAgent.csproj" />
     <Project Path="samples/ElicitationAgent/ElicitationAgent.csproj" />
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
+    <Project Path="samples/TypedSkillAgent/TypedSkillAgent.csproj" />
     <Project Path="samples/EchoClient/EchoClient.csproj" />
     <Project Path="samples/MultiInstance/Agent/MultiInstanceAgent.csproj" />
     <Project Path="samples/MultiInstance/Client/MultiInstanceClient.csproj" />
@@ -39,6 +40,7 @@
     <Project Path="src/A2A.Server.Postgres/A2A.Server.Postgres.csproj" />
     <Project Path="src/A2A.Server.Redis/A2A.Server.Redis.csproj" />
     <Project Path="src/A2A.Server.Storage.S3/A2A.Server.Storage.S3.csproj" />
+    <Project Path="src/A2A.Server.TypedSkills/A2A.Server.TypedSkills.csproj" />
     <Project Path="src/A2A.Server.Storage.AzureBlob/A2A.Server.Storage.AzureBlob.csproj" />
     <Project Path="src/A2A.Server.V0_3Compat/A2A.Server.V0_3Compat.csproj" />
     <Project Path="src/A2A.V0_3Compat/A2A.V0_3Compat.csproj" />

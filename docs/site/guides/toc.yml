@@ -20,6 +20,8 @@
   href: peer-identity.md
 - name: Skill selection
   href: skill-selection.md
+- name: Typed skills
+  href: typed-skills.md
 - name: Skill authorization
   href: skill-authorization.md
 - name: Microsoft.Extensions.AI
