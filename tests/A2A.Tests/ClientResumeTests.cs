@@ -252,6 +252,150 @@ public class ClientResumeTests
         Assert.Equal([500, 1000, 2000, 4000, 8000], time.Delays.Select(d => (int)d.TotalMilliseconds).ToArray());
     }
 
+    public static TheoryData<string, int> ReconnectableStatuses
+    {
+        get
+        {
+            var data = new TheoryData<string, int>();
+            foreach (var binding in new[] { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson })
+                foreach (var status in new[] { 429, 502, 503, 504 }) data.Add(binding, status);
+            return data;
+        }
+    }
+
+    public static TheoryData<string, int> FatalStatuses
+    {
+        get
+        {
+            var data = new TheoryData<string, int>();
+            foreach (var binding in new[] { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson })
+                foreach (var status in new[] { 400, 401, 500 }) data.Add(binding, status);
+            return data;
+        }
+    }
+
+    private static HttpResponseMessage Status(int status, int? retryAfterSeconds = null)
+    {
+        var response = new HttpResponseMessage((HttpStatusCode)status);
+        if (retryAfterSeconds is { } seconds) response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(seconds));
+        return response;
+    }
+
+    [Theory]
+    [MemberData(nameof(ReconnectableStatuses))]
+    public async Task Observe_reconnects_with_the_cursor_after_a_busy_or_unavailable_status(string binding, int status)
+    {
+        var handler = new ScriptedHandler(
+            _ => SseResponse(Sse(binding, Run.Take(2)), drop: true),
+            _ => Status(status),
+            _ => SseResponse(Sse(binding, Run.Skip(2)), drop: false));
+        var client = NewClient(handler, binding);
+
+        var events = await Collect(client.ObserveTaskAsync("t1"));
+
+        Assert.Equal(Run.Select(f => Describe(Parse(f))).ToList(), events.Select(Describe).ToList());
+        var calls = handler.Calls.ToArray();
+        Assert.Equal(3, calls.Length);
+        Assert.Equal("t1:2", calls[1].LastEventId);
+        Assert.Equal("t1:2", calls[2].LastEventId);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Observe_waits_for_a_Retry_After_longer_than_the_backoff(string binding)
+    {
+        var time = new FakeTimeProvider();
+        var handler = new ScriptedHandler(
+            _ => SseResponse(Sse(binding, Run.Take(2)), drop: true),
+            _ => Status(503, retryAfterSeconds: 20),
+            _ => SseResponse(Sse(binding, Run.Skip(2)), drop: false));
+        var client = NewClient(handler, binding, time);
+
+        await Collect(client.ObserveTaskAsync("t1"));
+
+        // The first wait is the backoff; the second would be 1 s, but the server asked for 20 s.
+        Assert.Equal([TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(20)], time.Delays.ToArray());
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Observe_keeps_the_backoff_when_Retry_After_is_shorter(string binding)
+    {
+        var time = new FakeTimeProvider();
+        var handler = new ScriptedHandler(
+            _ => SseResponse(Sse(binding, Run.Take(2)), drop: true),
+            _ => Status(503, retryAfterSeconds: 0),
+            _ => SseResponse(Sse(binding, Run.Skip(2)), drop: false));
+        var client = NewClient(handler, binding, time);
+
+        await Collect(client.ObserveTaskAsync("t1"));
+
+        Assert.Equal([TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(1)], time.Delays.ToArray());
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Observe_does_not_reconnect_when_Retry_After_is_over_the_limit(string binding)
+    {
+        var time = new FakeTimeProvider();
+        var handler = new ScriptedHandler(
+            _ => SseResponse(Sse(binding, Run.Take(2)), drop: true),
+            _ => Status(503, retryAfterSeconds: 61));
+        var client = NewClient(handler, binding, time);
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => Collect(client.ObserveTaskAsync("t1")));
+
+        Assert.Equal(503, ex.HttpStatus);
+        Assert.Equal(2, handler.Calls.Count);
+        Assert.Single(time.Delays); // only the wait before the one reconnect
+    }
+
+    [Theory]
+    [MemberData(nameof(FatalStatuses))]
+    public async Task Observe_does_not_reconnect_after_other_error_statuses(string binding, int status)
+    {
+        var time = new FakeTimeProvider();
+        var handler = new ScriptedHandler(
+            _ => SseResponse(Sse(binding, Run.Take(2)), drop: true),
+            _ => Status(status));
+        var client = NewClient(handler, binding, time);
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => Collect(client.ObserveTaskAsync("t1")));
+
+        Assert.Equal(status, ex.HttpStatus);
+        Assert.Equal(2, handler.Calls.Count);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Observe_rethrows_the_status_error_when_the_reconnect_budget_ends(string binding)
+    {
+        var time = new FakeTimeProvider();
+        var handler = new ScriptedHandler(_ => Status(503));
+        var client = NewClient(handler, binding, time);
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => Collect(client.ObserveTaskAsync("t1")));
+
+        Assert.Equal(503, ex.HttpStatus);
+        Assert.Equal(6, handler.Calls.Count); // the first connect plus five reconnects
+        Assert.Equal([500, 1000, 2000, 4000, 8000], time.Delays.Select(d => (int)d.TotalMilliseconds).ToArray());
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task SendStreaming_is_not_repeated_when_the_first_request_gets_a_503(string binding)
+    {
+        var time = new FakeTimeProvider();
+        var handler = new ScriptedHandler(_ => Status(503, retryAfterSeconds: 1));
+        var client = NewClient(handler, binding, time);
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => Collect(client.SendStreamingMessageAsync(Message.FromUser("hi"))));
+
+        Assert.Equal(503, ex.HttpStatus);
+        Assert.Single(handler.Calls); // no task id yet: a repeat could create the task twice
+        Assert.Empty(time.Delays);
+    }
+
     [Theory]
     [MemberData(nameof(Bindings))]
     public async Task SendStreaming_resumes_through_subscribe_once_the_task_id_is_known(string binding)
