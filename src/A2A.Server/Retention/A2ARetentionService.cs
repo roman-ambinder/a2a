@@ -2,6 +2,7 @@ using A2A.Server.Coordination;
 using A2A.Server.Execution;
 using A2A.Server.Storage;
 using A2A.Server.Telemetry;
+using A2A.Server.Uploads;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -28,7 +29,12 @@ namespace A2A.Server.Retention;
 /// <item>deletes the contexts older than <see cref="A2ARetentionOptions.OrphanContextRetention"/> that no task uses;</item>
 /// <item>when an <see cref="ArtifactObjectStore"/> is registered, deletes the artifact objects older than
 /// <see cref="ArtifactStorageOptions.OrphanGracePeriod"/> whose task no longer exists or does not refer to them. A task that
-/// cannot be read keeps its objects.</item>
+/// cannot be read keeps its objects;</item>
+/// <item>when <see cref="ArtifactUploadOptions.Enabled"/> is true and an object store is registered, deletes the inbound uploads
+/// that no task uses, once they are older than <see cref="ArtifactUploadOptions.UnusedUploadTtl"/> plus
+/// <see cref="ArtifactStorageOptions.OrphanGracePeriod"/>, and the references that point at nothing. A task that cannot be read
+/// keeps its uploads. At most <see cref="A2ARetentionOptions.BatchSize"/> objects per sweep, and at most once per
+/// <see cref="ArtifactStorageOptions.OrphanSweepInterval"/>.</item>
 /// </list>
 /// Status changes go through the normal commit path, so subscribers and webhooks see them. Each step reads batches of
 /// <see cref="A2ARetentionOptions.BatchSize"/> new items (plus the items it skipped, which stay listed). A failing step or item is logged as a warning and the sweep goes on;
@@ -60,6 +66,8 @@ public sealed class A2ARetentionService : BackgroundService
     private readonly TimeSpan _orphanGracePeriod;
     private readonly TimeSpan _orphanSweepInterval;
     private DateTimeOffset? _lastOrphanStep;
+    private readonly InboundFiles? _uploads;
+    private DateTimeOffset? _lastUploadStep;
 
     /// <summary>Creates the sweep. In an app the DI container does this (<c>AddA2ARetention</c>).</summary>
     /// <param name="options">The sweep settings.</param>
@@ -89,6 +97,9 @@ public sealed class A2ARetentionService : BackgroundService
         _objects = objects;
         _orphanGracePeriod = serverOptions.ArtifactStorage.OrphanGracePeriod;
         _orphanSweepInterval = serverOptions.ArtifactStorage.OrphanSweepInterval;
+        // Built here, not injected: the sweep only needs the store, the options and the clock.
+        if (objects is not null && serverOptions.ArtifactStorage.Uploads.Enabled)
+            _uploads = new InboundFiles(objects, serverOptions.ArtifactStorage, _time, logger);
     }
 
     /// <summary>Checks the options (<see cref="ValidateOptions"/>), then starts sweeping.</summary>
@@ -169,7 +180,16 @@ public sealed class A2ARetentionService : BackgroundService
                 // A failed step, or one that stopped at BatchSize, is not recorded: the next sweep runs it again, so a backlog drains.
                 if (!await DeleteOrphanObjectsAsync(objects, c).ConfigureAwait(false)) _lastOrphanStep = _time.GetUtcNow();
             }, cancellationToken).ConfigureAwait(false);
+        if (_uploads is { } uploads && UploadStepDue())
+            await StepAsync("unused uploads", async c =>
+            {
+                // Recorded like the orphan step: a failed or batch-limited run is not, so a backlog drains on the next sweep.
+                if (!await uploads.SweepAsync(_tasks, _options.BatchSize, c).ConfigureAwait(false)) _lastUploadStep = _time.GetUtcNow();
+            }, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>True when this instance has not run the unused-uploads step, or the last run is at least <see cref="ArtifactStorageOptions.OrphanSweepInterval"/> ago.</summary>
+    private bool UploadStepDue() => _lastUploadStep is not { } last || _time.GetUtcNow() - last >= _orphanSweepInterval;
 
     /// <summary>True when this instance has not run the orphan step, or the last run is at least <see cref="ArtifactStorageOptions.OrphanSweepInterval"/> ago.</summary>
     private bool OrphanStepDue() => _lastOrphanStep is not { } last || _time.GetUtcNow() - last >= _orphanSweepInterval;

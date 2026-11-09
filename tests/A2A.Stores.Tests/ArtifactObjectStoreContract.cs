@@ -1,6 +1,10 @@
+using System.Security.Claims;
 using System.Security.Cryptography;
 using A2A.Integrity;
+using A2A.Server;
 using A2A.Server.Storage;
+using A2A.Server.Uploads;
+using A2A.Server.Streaming;
 
 namespace A2A.Stores.Tests;
 
@@ -300,6 +304,228 @@ public abstract class ArtifactObjectStoreContract
         var url = await s.TryCreateDownloadUrlAsync(key, TimeSpan.FromMinutes(1));
 
         Assert.True(url is null || url.IsAbsoluteUri);
+    }
+
+    // =====================================================================
+    // Inbound uploads (InboundFiles): the same behavior on every provider
+    // =====================================================================
+
+    private static readonly Uri LinkBase = new("https://agent.test/a2a");
+
+    /// <summary>The real clock plus an offset, so a store that stamps objects with the real time can still be aged.</summary>
+    private sealed class OffsetClock : TimeProvider
+    {
+        public TimeSpan Offset { get; set; }
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow + Offset;
+    }
+
+    private static ArtifactStorageOptions UploadOptions(Action<ArtifactUploadOptions>? configure = null)
+    {
+        var storage = new ArtifactStorageOptions { PublicBaseUrl = LinkBase };
+        storage.Uploads.Enabled = true;
+        configure?.Invoke(storage.Uploads);
+        return storage;
+    }
+
+    private static ServerCallContext Caller(string principal = "alice", string tenant = "t") => new()
+    {
+        Principal = principal,
+        Tenant = tenant,
+        User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", principal)], "test")),
+    };
+
+    private static Message MessageWith(params UrlPart[] parts) =>
+        new() { MessageId = Guid.NewGuid().ToString(), Role = Role.User, Parts = [.. parts] };
+
+    private static string ObjectIdOf(UrlPart part) => part.Url.AbsolutePath[(part.Url.AbsolutePath.LastIndexOf('/') + 1)..];
+
+    private static async Task<List<ArtifactObjectEntry>> Entries(ArtifactObjectStore s, string prefix)
+    {
+        var entries = new List<ArtifactObjectEntry>();
+        await foreach (var e in s.ListAsync(prefix)) entries.Add(e);
+        return entries;
+    }
+
+    [Fact]
+    public async Task List_reports_the_size_of_every_object()
+    {
+        var s = await CreateStoreAsync();
+        var small = NewKey("sizes");
+        var large = NewKey("sizes");
+        await s.PutAsync(small, new MemoryStream(Bytes(10)), Info, 100);
+        await s.PutAsync(large, new MemoryStream(Bytes(100_000)), Info, 1_000_000);
+        var empty = NewKey("sizes");
+        await s.PutAsync(empty, new MemoryStream(), Info, 100);
+
+        var entries = (await Entries(s, ArtifactObjectKey.TaskPrefix("t", "sizes"))).ToDictionary(e => e.Key, e => e.SizeBytes);
+
+        Assert.Equal(10, entries[small]);
+        Assert.Equal(100_000, entries[large]);
+        Assert.Equal(0, entries[empty]);
+    }
+
+    [Fact]
+    public async Task Upload_round_trips_through_InboundFiles()
+    {
+        var s = await CreateStoreAsync();
+        var files = new InboundFiles(s, UploadOptions(), TimeProvider.System);
+        var call = Caller();
+        var data = Bytes(50_000);
+
+        var part = await files.UploadAsync(call, new OneWayStream(data), "text/plain", "dir/notes.txt", declaredLength: null, CancellationToken.None);
+
+        Assert.Equal("notes.txt", part.Filename);
+        Assert.Equal("text/plain", part.MediaType);
+        Assert.Equal(ArtifactHash.Format(SHA256.HashData(data)), part.Metadata!["sha256"].GetString());
+        Assert.Equal(data.Length, part.Metadata["sizeBytes"].GetInt64());
+        Assert.Equal(ArtifactLink.CreateUpload(LinkBase, "t", ObjectIdOf(part)), part.Url);
+        var content = await files.OpenAsync(call, part, null, CancellationToken.None);
+        Assert.NotNull(content);
+        Assert.Equal("text/plain", content.ContentType);
+        Assert.Equal("notes.txt", content.FileName);
+        Assert.Equal(data, await ReadAll(content));
+        var ranged = await files.OpenAsync(call, ObjectIdOf(part), new ArtifactByteRange(10, 20), CancellationToken.None);
+        Assert.Equal(data.AsSpan(10, 20).ToArray(), await ReadAll(ranged!));
+    }
+
+    [Fact]
+    public async Task Upload_over_the_cap_throws_and_leaves_no_object()
+    {
+        var s = await CreateStoreAsync();
+        var files = new InboundFiles(s, UploadOptions(o => o.MaxUploadBytes = 1_000), TimeProvider.System);
+
+        var ex = await Assert.ThrowsAsync<A2AException>(async () =>
+            await files.UploadAsync(Caller(), new OneWayStream(Bytes(1_001)), null, null, null, CancellationToken.None));
+
+        Assert.Equal(413, ex.HttpStatus);
+        Assert.Empty(await Entries(s, UploadObjectKey.UploadsPrefix));
+        // Announced too large: refused before a byte is read.
+        var announced = await Assert.ThrowsAsync<A2AException>(async () =>
+            await files.UploadAsync(Caller(), new OneWayStream(Bytes(10)), null, null, 1_001, CancellationToken.None));
+        Assert.Equal(413, announced.HttpStatus);
+        Assert.Empty(await Entries(s, UploadObjectKey.UploadsPrefix));
+    }
+
+    [Fact]
+    public async Task Upload_of_another_length_than_announced_is_refused_and_not_kept()
+    {
+        var s = await CreateStoreAsync();
+        var files = new InboundFiles(s, UploadOptions(), TimeProvider.System);
+
+        await Assert.ThrowsAsync<A2AException>(async () =>
+            await files.UploadAsync(Caller(), new OneWayStream(Bytes(100)), null, null, 99, CancellationToken.None));
+
+        Assert.Empty(await Entries(s, UploadObjectKey.UploadsPrefix));
+    }
+
+    [Fact]
+    public async Task Quota_refuses_and_leaves_no_object()
+    {
+        var s = await CreateStoreAsync();
+        var files = new InboundFiles(s, UploadOptions(o =>
+        {
+            o.MaxStoredBytesPerCaller = 1_500;
+            o.MaxUploadsPerCaller = 2;
+        }), TimeProvider.System);
+        var alice = Caller();
+        await files.UploadAsync(alice, new OneWayStream(Bytes(1_000)), null, null, null, CancellationToken.None);
+
+        // 500 bytes are left in the byte quota: a larger stream is cut off and refused with 429, not 413.
+        var tooBig = await Assert.ThrowsAsync<A2AException>(async () =>
+            await files.UploadAsync(alice, new OneWayStream(Bytes(501)), null, null, null, CancellationToken.None));
+        Assert.Equal(429, tooBig.HttpStatus ?? A2AErrors.HttpStatus(tooBig.Code));
+        Assert.NotNull(tooBig.RetryAfter);
+        Assert.Single(await Entries(s, UploadObjectKey.UploadsPrefix));
+
+        // Another caller has a quota of their own.
+        await files.UploadAsync(Caller("bob"), new OneWayStream(Bytes(1_000)), null, null, null, CancellationToken.None);
+
+        // The count quota: alice may keep two files, so the third is refused whatever its size.
+        await files.UploadAsync(alice, new OneWayStream(Bytes(100)), null, null, null, CancellationToken.None);
+        var third = await Assert.ThrowsAsync<A2AException>(async () =>
+            await files.UploadAsync(alice, new OneWayStream(Bytes(1)), null, null, null, CancellationToken.None));
+        Assert.Equal(429, third.HttpStatus ?? A2AErrors.HttpStatus(third.Code));
+        var alices = await Entries(s, UploadObjectKey.UploadPrefix("t", UploadObjectKey.OwnerHash("alice")));
+        Assert.Equal(2, alices.Count);
+    }
+
+    [Fact]
+    public async Task One_owner_cannot_open_another_owners_upload()
+    {
+        var s = await CreateStoreAsync();
+        var files = new InboundFiles(s, UploadOptions(), TimeProvider.System);
+        var part = await files.UploadAsync(Caller("alice"), new MemoryStream(Bytes(100)), null, null, null, CancellationToken.None);
+
+        Assert.NotNull(await files.OpenAsync(Caller("alice"), part, null, CancellationToken.None));
+        Assert.Null(await files.OpenAsync(Caller("bob"), part, null, CancellationToken.None));
+        Assert.Null(await files.OpenAsync(Caller("bob"), ObjectIdOf(part), null, CancellationToken.None));
+        Assert.Null(await files.OpenAsync(Caller("alice", tenant: "other"), ObjectIdOf(part), null, CancellationToken.None));
+        // A message of bob that names alice's link is refused, with the one fixed text.
+        var ex = await Assert.ThrowsAsync<A2AException>(async () =>
+            await files.AttachAsync(Caller("bob"), "task-1", MessageWith(part), CancellationToken.None));
+        Assert.Equal(InboundFiles.LinkRefusedText, ex.Message);
+        Assert.Empty(await Entries(s, UploadObjectKey.ReferencesPrefix));
+    }
+
+    [Fact]
+    public async Task Sweep_removes_an_unused_upload_after_ttl_and_grace_and_keeps_a_referenced_one()
+    {
+        var s = await CreateStoreAsync();
+        var clock = new OffsetClock();
+        var storage = UploadOptions();
+        var files = new InboundFiles(s, storage, clock);
+        var tasks = new InMemoryTaskStore(new InMemoryEventStore(new StreamingOptions()));
+        var alice = Caller();
+        var unused = await files.UploadAsync(alice, new MemoryStream(Bytes(100)), null, null, null, CancellationToken.None);
+        var used = await files.UploadAsync(alice, new MemoryStream(Bytes(100)), null, null, null, CancellationToken.None);
+        var message = MessageWith(used);
+        await files.AttachAsync(alice, "task-1", message, CancellationToken.None);
+        var now = DateTimeOffset.UtcNow;
+        await tasks.CreateAsync(new TaskRecord("t", "alice", new AgentTask
+        {
+            Id = "task-1", ContextId = "ctx", Status = new AgentTaskStatus { State = TaskState.Completed }, History = [message],
+        }, 0, now, now));
+        var unusedKey = UploadObjectKey.CreateUpload("t", UploadObjectKey.OwnerHash("alice"), ObjectIdOf(unused));
+        var usedKey = UploadObjectKey.CreateUpload("t", UploadObjectKey.OwnerHash("alice"), ObjectIdOf(used));
+        var referenceKey = UploadObjectKey.CreateReference("t", UploadObjectKey.OwnerHash("alice"), ObjectIdOf(used), "task-1");
+        Assert.True(await s.ExistsAsync(referenceKey));
+
+        // Past the attach window but not past the grace period: nothing goes yet.
+        clock.Offset = storage.Uploads.UnusedUploadTtl + TimeSpan.FromMinutes(1);
+        Assert.False(await files.SweepAsync(tasks, 100, CancellationToken.None));
+        Assert.True(await s.ExistsAsync(unusedKey));
+
+        clock.Offset = storage.Uploads.UnusedUploadTtl + storage.OrphanGracePeriod + TimeSpan.FromMinutes(1);
+        Assert.False(await files.SweepAsync(tasks, 100, CancellationToken.None));
+
+        Assert.False(await s.ExistsAsync(unusedKey));
+        Assert.True(await s.ExistsAsync(usedKey));      // its task still refers to it
+        Assert.True(await s.ExistsAsync(referenceKey));
+
+        // The task goes: the next sweep finds it gone, deletes the reference, then the upload.
+        Assert.True(await tasks.DeleteAsync(new TaskKey("t", "alice", "task-1")));
+        Assert.False(await files.SweepAsync(tasks, 100, CancellationToken.None));
+        Assert.False(await s.ExistsAsync(usedKey));
+        Assert.False(await s.ExistsAsync(referenceKey));
+        Assert.Empty(await Entries(s, UploadObjectKey.UploadsPrefix));
+        Assert.Empty(await Entries(s, UploadObjectKey.ReferencesPrefix));
+    }
+
+    [Fact]
+    public async Task Upload_and_reference_keys_are_not_artifact_keys()
+    {
+        var s = await CreateStoreAsync();
+        var files = new InboundFiles(s, UploadOptions(), TimeProvider.System);
+        var alice = Caller();
+        var part = await files.UploadAsync(alice, new MemoryStream(Bytes(10)), null, null, null, CancellationToken.None);
+        await files.AttachAsync(alice, "task-1", MessageWith(part), CancellationToken.None);
+
+        var keys = (await Entries(s, string.Empty)).Select(e => e.Key).ToList();
+
+        Assert.Equal(2, keys.Count);
+        Assert.Contains(keys, k => UploadObjectKey.TryParseUpload(k, out _, out _, out _));
+        Assert.Contains(keys, k => UploadObjectKey.TryParseReference(k, out _, out _, out _, out _));
+        foreach (var key in keys) Assert.False(ArtifactObjectKey.TryParse(key, out _, out _, out _), key);
     }
 }
 

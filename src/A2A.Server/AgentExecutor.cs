@@ -128,6 +128,25 @@ public sealed class AgentRequestContext
     /// <remarks>The values are what the user typed. Treat them as untrusted input, and do not use them for authorization.</remarks>
     public ElicitationAnswer? ElicitationAnswer { get; init; }
 
+    /// <summary>Reads an inbound upload; set by the server when uploads are enabled. Null otherwise.</summary>
+    internal Func<UrlPart, ArtifactByteRange?, CancellationToken, ValueTask<ArtifactObjectContent?>>? UploadOpener { get; init; }
+
+    /// <summary>
+    /// Opens the file a client uploaded and then sent as <paramref name="part"/> (<c>MapA2AUploads</c> in A2A.Server.AspNetCore). Returns
+    /// null when the part is not the link of one of the caller's own uploads: an external URL, a file of another owner or tenant, a
+    /// missing file, or when inbound uploads are not enabled. Another owner's file is never returned, whatever the message said. The
+    /// call was authorized as SendMessage, so the read needs no authorization of its own. The caller disposes the result; the bytes stream from the object store and are never buffered.
+    /// </summary>
+    /// <param name="part">A <c>url</c> part of the incoming message.</param>
+    /// <param name="range">The bytes to read, or null for all.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <exception cref="A2AException">The caller is not authenticated (Unauthenticated).</exception>
+    public ValueTask<ArtifactObjectContent?> OpenUploadAsync(UrlPart part, ArtifactByteRange? range = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(part);
+        return UploadOpener is { } open ? open(part, range, cancellationToken) : ValueTask.FromResult<ArtifactObjectContent?>(null);
+    }
+
     /// <summary>The registered token exchanger, set by the server. Null when none is registered.</summary>
     internal ITokenExchanger? TokenExchanger { get; init; }
 
