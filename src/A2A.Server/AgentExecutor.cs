@@ -74,6 +74,17 @@ public sealed class AgentRequestContext
     /// </summary>
     public ApprovalState Approval { get; init; }
 
+    /// <summary>
+    /// A2A 1.1: the artifacts the client wrote and sent with this message (<see cref="SendMessageRequest.ArtifactUpdates"/>), in
+    /// the order they were applied, each with <see cref="Artifact.Role"/> user. They are already stored on the task (for a new task,
+    /// once it is created). Null when the client sent none. Do not change them: the stored task shares them.
+    /// </summary>
+    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public IReadOnlyList<Artifact>? UserArtifacts => UserArtifactUpdates?.Select(u => u.Artifact).ToList();
+
+    /// <summary>The checked artifact updates behind <see cref="UserArtifacts"/>; the engine stores them for a new task.</summary>
+    internal IReadOnlyList<TaskArtifactUpdateEvent>? UserArtifactUpdates { get; init; }
+
     /// <summary>Concatenated text of the incoming message.</summary>
     public string UserText => Message.GetText();
 

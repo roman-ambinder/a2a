@@ -112,6 +112,12 @@ target netstandard2.0. .NET 8 is not a target: its support ends on 10 November 2
   `lastSeenGeneration` (REST `?lastSeenGeneration=`) resumes after it without a snapshot; a push config created by a 1.1
   caller has `protocolVersion` 1.1 (or the `1.0` it asks for), and its webhook gets `A2A-Version: 1.1`, the `generation` of
   each event and the message updates. Configs of 1.0 callers stay 1.0.
+- A2A 1.1 client-written artifacts (`AgentCapabilities.UserArtifacts`): a 1.1 caller may send `artifactUpdates` with its
+  message, or without a message to an existing task. They are stored after the message, in list order, each one change,
+  with `role` user; the client's `generation` is ignored. The agent reads them in `AgentRequestContext.UserArtifacts`. The
+  agent cannot change a client's artifact and the client cannot change an agent's. At most
+  `A2ALimits.MaxUserArtifactsPerRequest` (16) per request, each held to the message limits and input media types. Without the
+  capability the request is `UnsupportedOperation`. `SendMessageRequest.Message` is now nullable for these requests.
 - A follow-up message is now stored as an event of the task (a message update), so it takes a sequence number. 1.0
   callers do not see it, but stream ids and webhook sequences skip its number.
 - The Agent Card endpoint answers with `application/a2a-agent-card+json` when the request asks for it, and with

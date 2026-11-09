@@ -172,7 +172,7 @@ public class AgentFunctionTests
     {
         var transport = new FakeTransport { Send = (_, _) => Task.FromResult(FakeTransport.Respond(FakeTransport.TaskIn(TaskState.Completed))) };
         await InvokeAsync(transport.AsClient().AsAIFunction("n", "d"), "hello", "ctx-1", "task-1");
-        var sent = Assert.Single(transport.Sent).Message;
+        var sent = Assert.Single(transport.Sent).Message!;
         Assert.Equal("ctx-1", sent.ContextId);
         Assert.Equal("task-1", sent.TaskId);
         Assert.Equal(Role.User, sent.Role);
@@ -185,7 +185,7 @@ public class AgentFunctionTests
         var transport = new FakeTransport { Send = (_, _) => Task.FromResult(FakeTransport.Respond(FakeTransport.TaskIn(TaskState.Completed))) };
         var fn = transport.AsClient().AsAIFunction("n", "d");
         await fn.InvokeAsync(new AIFunctionArguments { ["message"] = JsonDocument.Parse("\"from json\"").RootElement, ["contextId"] = JsonDocument.Parse("\"cj\"").RootElement });
-        var sent = Assert.Single(transport.Sent).Message;
+        var sent = Assert.Single(transport.Sent).Message!;
         Assert.Equal("cj", sent.ContextId);
         Assert.Equal("from json", ((TextPart)sent.Parts[0]).Text);
     }

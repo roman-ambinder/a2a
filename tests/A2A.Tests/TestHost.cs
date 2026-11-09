@@ -35,6 +35,10 @@ public sealed class ScenarioAgent : IAgentExecutor
     public static TaskCompletionSource Gate(string text) =>
         GateSignals.GetOrAdd(text, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
 
+    /// <summary>" [ids]" of the artifacts the client sent with the message (A2A 1.1), or "" when none.</summary>
+    private static string UserArtifactIds(AgentRequestContext context) =>
+        context.UserArtifacts is { Count: > 0 } a ? " [" + string.Join(",", a.Select(x => x.ArtifactId)) + "]" : "";
+
     public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct)
     {
         var text = context.UserText;
@@ -46,7 +50,7 @@ public sealed class ScenarioAgent : IAgentExecutor
                 await updater.RequireInputAsync("need even more", ct);
                 return;
             }
-            await updater.CompleteAsync($"got: {text}", ct);
+            await updater.CompleteAsync($"got: {text}" + UserArtifactIds(context), ct);
             return;
         }
 
@@ -59,6 +63,13 @@ public sealed class ScenarioAgent : IAgentExecutor
                 break;
             case "hello":
                 await updater.ReplyAsync("hi there", ct);
+                break;
+            case "artifact-input": // leaves an agent artifact on a task that waits for input
+                await updater.AddArtifactAsync([Part.FromText("agent")], artifactId: "agent-out", cancellationToken: ct);
+                await updater.RequireInputAsync("need more", ct);
+                break;
+            case "user-artifacts": // reports the artifacts the client sent with the message
+                await updater.CompleteAsync("seen:" + UserArtifactIds(context), ct);
                 break;
             case "task":
                 await updater.StartWorkAsync("working", ct);

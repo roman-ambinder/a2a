@@ -8,7 +8,17 @@ public static partial class A2AValidator
     public static void ValidateOutgoing(SendMessageRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.Message is null) throw A2AException.InvalidParams("message is required");
+        if (request.Message is null)
+        {
+            // A2A 1.1: artifact updates to an existing task may come without a message; each names its task.
+            if (request.ArtifactUpdates is not { Count: > 0 } updates) throw A2AException.InvalidParams("message is required");
+            for (var i = 0; i < updates.Count; i++)
+            {
+                if (string.IsNullOrEmpty(updates[i]?.TaskId))
+                    throw A2AException.InvalidParams($"artifactUpdates[{i}].taskId is required when the request has no message");
+            }
+            return;
+        }
         ValidateMessage(request.Message, "message");
         if (request.Message.Role == Role.Unspecified) throw A2AException.InvalidParams("message.role is required");
         var parts = request.Message.Parts;

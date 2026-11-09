@@ -233,7 +233,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 updater.SeedUsage(context.Task?.Metadata); // the usage earlier runs stored
                 return executor.ExecuteAsync(context, updater, ct);
             }, agent, pushEnabled,
-            claim, context.Metadata, _options.MaxTaskDuration, ExecuteKind);
+            claim, context.Metadata, _options.MaxTaskDuration, ExecuteKind, context.IsNewTask ? context.UserArtifactUpdates : null);
 
     /// <summary>Runs <see cref="IAgentExecutor.CancelAsync"/> for a task. The executor gets its own copy of <paramref name="task"/>.</summary>
     internal Task<Execution> StartCancelAsync(TaskKey key, AgentTask task, Dictionary<string, JsonElement>? metadata, RentedAgent agent, bool pushEnabled)
@@ -354,7 +354,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     private async Task<Execution> StartRawAsync(TaskKey key, string contextId, bool isNewTask, Message? userMessage,
         TaskPushNotificationConfig? push, bool emitInitialSnapshot, Func<IAgentExecutor, TaskUpdater, CancellationToken, Task> run, RentedAgent agent,
         bool pushEnabled, IdempotencyClaim? claim = null, Dictionary<string, JsonElement>? requestMetadata = null, TimeSpan? timeLimit = null,
-        string kind = ExecuteKind)
+        string kind = ExecuteKind, IReadOnlyList<TaskArtifactUpdateEvent>? userArtifacts = null)
     {
         var taskId = key.TaskId;
         claim ??= IdempotencyClaim.None;
@@ -371,6 +371,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             Claim = claim,
             PushEnabled = pushEnabled,
             TaskStored = !isNewTask,
+            UserArtifacts = userArtifacts,
             Usage = usage,
         };
         var scope = ScopeKey(key.Tenant, taskId);
@@ -656,6 +657,17 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
                         // Needed for stores that cannot write the outcome in the commit; where they can, this changes nothing.
                         await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
+                        // A2A 1.1 (§3.2.1): the client's artifacts come right after its message, in list order, each one change.
+                        // Only now: a direct reply creates no task and stores neither.
+                        if (exec.UserArtifacts is { Count: > 0 } userArtifacts)
+                        {
+                            foreach (var update in userArtifacts)
+                            {
+                                if (await ApplyAndStoreAsync(key, record, Encode(StreamResponse.Of(update)), exec.PushEnabled, exec: exec).ConfigureAwait(false) is { } storedArtifact)
+                                    Publish(exec, scope, storedArtifact);
+                                record = exec.Committed ?? await _tasks.GetAsync(key).ConfigureAwait(false) ?? record;
+                            }
+                        }
                     }
                     else
                     {
@@ -1125,6 +1137,21 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         return deliveries;
     }
 
+    /// <summary>
+    /// A2A 1.1: stores one artifact update the client wrote (already checked, <see cref="Artifact.Role"/> set to user) on an
+    /// existing task, as one change with its push deliveries, and publishes it to the task's subscribers. The caller holds the
+    /// task lock. Returns the stored record and the event's sequence, or null when the update was dropped (the task is terminal).
+    /// </summary>
+    internal async ValueTask<(TaskRecord Record, long Sequence)?> StoreClientArtifactAsync(TaskKey key, TaskRecord record, TaskArtifactUpdateEvent update,
+        CancellationToken ct)
+    {
+        var pushEnabled = await PushEnabledForTenantAsync(key, ct).ConfigureAwait(false);
+        if (await ApplyAndStoreAsync(key, record, Encode(StreamResponse.Of(update)), pushEnabled).ConfigureAwait(false) is not { } stored) return null;
+        _bus.Publish(ScopeKey(key.Tenant, key.TaskId), stored);
+        var fresh = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? record;
+        return (fresh, stored.Sequence);
+    }
+
     /// <summary>Wakes the push delivery service after a commit made outside the engine queued deliveries.</summary>
     internal void NotifyPushPending() => _outbox.NotifyPending();
 
@@ -1215,6 +1242,9 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         {
             var incoming = au.Artifact;
             var existing = IndexOfArtifact(current.Artifacts, incoming.ArtifactId);
+            // A2A 1.1: an artifact belongs to the side that wrote it. The agent cannot change a client's artifact, nor the client
+            // an agent's (the request is refused before this; here it is dropped).
+            if (existing >= 0 && (current.Artifacts![existing].Role == Role.User) != (incoming.Role == Role.User)) return null;
             // An empty part list is valid only to seal an artifact or update its metadata: an append to one that exists.
             A2AValidator.ValidateArtifact(incoming, "artifact", allowEmptyParts: au.Append && existing >= 0);
             var next = current.CopyForUpdate();

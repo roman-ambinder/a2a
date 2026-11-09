@@ -62,7 +62,7 @@ public class TypedSkillClientTests
     {
         var transport = new FakeTransport(_ => new TaskResponse(NewTask(TaskState.Completed, Data("a", ResultJson))));
         await Call(ClientOf(transport));
-        var message = transport.Sent!.Message;
+        var message = transport.Sent!.Message!;
         Assert.Equal("book", message.GetRequestedSkillId());
         var part = Assert.IsType<DataPart>(Assert.Single(message.Parts));
         Assert.Equal("Oslo", part.Data.GetProperty("city").GetString());

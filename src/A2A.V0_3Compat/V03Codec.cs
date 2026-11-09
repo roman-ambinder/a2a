@@ -283,7 +283,7 @@ internal abstract class V03Codec
     /// <summary>The v0.3 send request: <c>message</c>, <c>configuration</c> and <c>metadata</c>. The tenant is never sent.</summary>
     public JsonObject WriteSendRequest(SendMessageRequest request)
     {
-        var o = new JsonObject { ["message"] = WriteMessage(request.Message) };
+        var o = new JsonObject { ["message"] = WriteMessage(request.Message ?? throw A2AException.InvalidParams("message is required (v0.3 has no artifact-only requests)")) };
         var configuration = new JsonObject();
         if (request.Configuration is { } c)
         {
