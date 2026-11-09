@@ -94,6 +94,24 @@ public sealed class ShutdownTests
     }
 
     [Fact]
+    public async Task Wait_for_a_kept_lease_ends_when_the_grace_period_is_over()
+    {
+        var worker = new Worker();
+        await using var host = await StartAsync(worker);
+        var task = await SendAsync(host);
+        await worker.Started.Task.WaitAsync(Wait);
+
+        // The stopped execution keeps its lease: nothing runs here, but the task counts as running elsewhere until the lease expires.
+        host.Engine.Shutdown();
+        await host.Engine.WhenIdleAsync().WaitAsync(Wait);
+
+        // The grace period is already over when the loop asks again, the case a loaded machine reaches by timing. Task.Run: a
+        // loop that does not end never yields, so a timeout on the call itself would not start.
+        var key = new TaskKey(Call().Tenant, Call().Principal, task.Id);
+        await Task.Run(() => host.Engine.WaitUntilStoppedAsync(key, TimeSpan.Zero, CancellationToken.None)).WaitAsync(Wait);
+    }
+
+    [Fact]
     public async Task Shutdown_leaves_a_continuation_non_terminal()
     {
         var worker = new Worker();
