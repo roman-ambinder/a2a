@@ -537,6 +537,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                 Message = message,
                 TaskId = taskId,
                 ContextId = contextId,
+                Conversation = new ConversationMemory(_tasks, call.Tenant, call.Principal, contextId, taskId),
                 Task = existing?.DeepCopy(), // the executor's own view: changing it never changes the stored task
                 Configuration = request.Configuration,
                 Metadata = request.Metadata,

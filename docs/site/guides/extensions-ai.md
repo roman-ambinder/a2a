@@ -26,7 +26,7 @@ Secure the endpoints as for any agent. See [authentication and ownership](auth-a
 
 ### Options
 
-<xref:A2A.Extensions.AI.ChatClientAgentOptions> has these settings. Both numbers throw `ArgumentOutOfRangeException` when set below 1.
+<xref:A2A.Extensions.AI.ChatClientAgentOptions> has these settings. Every number throws `ArgumentOutOfRangeException` when set below 1.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -37,6 +37,9 @@ Secure the endpoints as for any agent. See [authentication and ownership](auth-a
 | `StreamChunkSize` | 64 | Text characters to collect before a chunk goes to the caller |
 | `AllowUrlParts` | `false` | See [Untrusted text](#untrusted-text) |
 | `KeepConversationOpen` | `false` | End each turn in `INPUT_REQUIRED` instead of `COMPLETED` |
+| `UseContextMemory` | `false` | Give the model the earlier tasks of the same `contextId`. See [Conversation memory](conversation-memory.md) |
+| `ContextMemoryMaxTasks` | 20 | With `UseContextMemory`: how many earlier tasks to read |
+| `ContextMemoryMaxBytes` | 262144 | With `UseContextMemory`: size limit for earlier messages (UTF-8 bytes of their JSON) |
 
 [!code-csharp[](../snippets/ExtensionsAI.cs#HostOptions)]
 
@@ -44,11 +47,13 @@ Chunks are sent per `StreamChunkSize`, not per token, because durable stores wri
 
 ### History and multi-turn chats
 
-History is per task. A new task in the same `contextId` does not see earlier tasks.
+By default history is per task. A new task in the same `contextId` does not see earlier tasks. Set `UseContextMemory = true` to change that (see below).
 
 The model gets the system message, then the task history, then the new message. At most `MaxHistoryMessages` are kept, newest first. If the cut would leave an agent reply first, the prompt starts at the next user message, because some providers refuse a chat that starts with an agent turn. A message with no content the model can use is skipped.
 
 A task keeps only status messages in its history. So a finished reply is not part of the next turn's prompt. For a multi-turn chat, set `KeepConversationOpen = true`. Each turn then ends in `INPUT_REQUIRED` and the full reply is stored as a status message. The caller sends the next message with the same `taskId`, and the model sees the earlier turns. The task stays open between turns. With retention on, an open task is cancelled after `InterruptedTimeout` (24 hours by default). See [retention](retention.md).
+
+To let a new task in the same context see the earlier tasks, set `UseContextMemory = true`. The prompt is then the system message, the context summary if there is one (as a user message), the earlier messages, and this task's history. `MaxHistoryMessages` counts the earlier messages and the task history together, and the summary is not counted. A completed task also stores its reply as the status message, so the next task sees it. That means the reply is stored twice. The guide [Conversation memory](conversation-memory.md) has the details and the limits.
 
 Callers who read the task back get at most <xref:A2A.Server.A2ALimits.MaxHistoryLengthReturned> messages (100 by default).
 
@@ -236,7 +241,7 @@ On net8.0 this package pulls in `System.Text.Json` 10. It comes from `Microsoft.
 
 - **Every task fails with `The agent failed to process the request.`** The server log has the real error. Common causes: the model returned an error, stopped on a content filter, or asked for a tool call that nothing ran. For the last one, add function invocation to the `IChatClient` pipeline.
 - **A caller gets `rejected` with `URL parts are not accepted by this agent.`** The message had a URL part and `AllowUrlParts` is off.
-- **The model forgets earlier turns.** History is per task, and a finished task's reply is not in the next prompt. Set `KeepConversationOpen`, and send follow-ups with the same `taskId`. A chat longer than `MaxHistoryMessages` loses its oldest turns.
+- **The model forgets earlier turns.** History is per task, and a finished task's reply is not in the next prompt. Set `UseContextMemory` to read earlier tasks of the same `contextId`, or set `KeepConversationOpen` and send follow-ups with the same `taskId`. A chat longer than `MaxHistoryMessages` loses its oldest turns, and with `UseContextMemory` older tasks are also cut by `ContextMemoryMaxTasks` and `ContextMemoryMaxBytes`.
 - **`AsAIFunction` throws `ArgumentException`.** The name is not 1 to 64 letters, digits, `_` or `-`, or the description is empty.
 - **The tool throws `TimeoutException`.** The remote agent took longer than `Timeout`. The remote task is canceled on a best-effort basis.
 - **The tool result is cut.** `truncated` is `true`. Raise `MaxResultCharacters` or ask the agent for less.

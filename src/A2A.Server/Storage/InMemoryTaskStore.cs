@@ -12,7 +12,7 @@ namespace A2A.Server.Storage;
 /// </summary>
 /// <param name="events">The event store that <see cref="CommitAsync"/> appends to.</param>
 /// <param name="outbox">The push outbox that <see cref="CommitAsync"/> queues deliveries in, or null when no push is used.</param>
-public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOutbox? outbox = null) : TaskStore
+public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOutbox? outbox = null) : TaskStore, IContextSummaryStore
 {
     private readonly InMemoryEventStore _events = events ?? throw new ArgumentNullException(nameof(events));
     private readonly ConcurrentDictionary<(string Tenant, string TaskId), TaskRecord> _tasks = new();
@@ -134,6 +134,26 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
     public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken cancellationToken = default)
     {
         lock (_contextLock) return ValueTask.FromResult(_contexts.GetOrAdd((record.Tenant, record.ContextId), record));
+    }
+
+    /// <inheritdoc />
+    public override ValueTask<ContextPage> ListContextsAsync(ContextQuery query, CancellationToken cancellationToken = default)
+    {
+        ValidateContextQuery(query);
+        return ValueTask.FromResult(PageContexts(
+            _contexts.Values.Where(c => string.Equals(c.Tenant, query.Tenant, StringComparison.Ordinal) && string.Equals(c.Owner, query.Owner, StringComparison.Ordinal)),
+            query));
+    }
+
+    /// <inheritdoc />
+    public ValueTask<bool> SetContextSummaryAsync(string tenant, string owner, string contextId, string? summary, CancellationToken cancellationToken = default)
+    {
+        lock (_contextLock)
+        {
+            if (!_contexts.TryGetValue((tenant, contextId), out var c) || !string.Equals(c.Owner, owner, StringComparison.Ordinal)) return ValueTask.FromResult(false);
+            _contexts[(tenant, contextId)] = c with { Summary = summary };
+            return ValueTask.FromResult(true);
+        }
     }
 
     /// <inheritdoc />
