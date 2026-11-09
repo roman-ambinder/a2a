@@ -121,6 +121,21 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
         }
     }
 
+    /// <summary>
+    /// A2A 1.1: a stored event carries the task's generation, which equals its sequence. An event read back from the store's
+    /// bytes may not have it in its model, so it is set here when missing.
+    /// </summary>
+    private static void FillGeneration(A2aPb.StreamResponse proto, long sequence)
+    {
+        switch (proto.PayloadCase)
+        {
+            case A2aPb.StreamResponse.PayloadOneofCase.Task when proto.Task.Generation == 0: proto.Task.Generation = sequence; break;
+            case A2aPb.StreamResponse.PayloadOneofCase.StatusUpdate when proto.StatusUpdate.Generation == 0: proto.StatusUpdate.Generation = sequence; break;
+            case A2aPb.StreamResponse.PayloadOneofCase.ArtifactUpdate when proto.ArtifactUpdate.Generation == 0: proto.ArtifactUpdate.Generation = sequence; break;
+            case A2aPb.StreamResponse.PayloadOneofCase.MessageUpdate when proto.MessageUpdate.Generation == 0: proto.MessageUpdate.Generation = sequence; break;
+        }
+    }
+
     private async Task Stream(GrpcContext context, IServerStreamWriter<A2aPb.StreamResponse> writer,
         Func<ServerCallContext, CancellationToken, IAsyncEnumerable<SequencedEvent>> source)
     {
@@ -137,7 +152,9 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
                     headersSent = true;
                     await GrpcCallSupport.WriteExtensionsHeaderAsync(context, call).ConfigureAwait(false);
                 }
-                await writer.WriteAsync(ProtoMapper.ToProto<A2aPb.StreamResponse, StreamResponse>(evt.Event)).ConfigureAwait(false);
+                var proto = ProtoMapper.ToProto<A2aPb.StreamResponse, StreamResponse>(evt.Event);
+                if (evt.Sequence > 0 && A2AProtocol.IsVersion11OrLater(call.ProtocolVersion)) FillGeneration(proto, evt.Sequence);
+                await writer.WriteAsync(proto).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is not RpcException)

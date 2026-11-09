@@ -190,7 +190,11 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     {
         call.BindTenant(tenant);
         var events = await _pipeline.RunAsync(operation, call, request, open, cancellationToken).ConfigureAwait(false);
-        await foreach (var e in events.WithCancellation(cancellationToken).ConfigureAwait(false)) yield return e;
+        await foreach (var e in events.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            // The A2A 1.1 event kinds go only to 1.1 callers; every binding gets its events here.
+            if (EventEncoder.IsVisibleTo(e.Event, call.ProtocolVersion)) yield return e;
+        }
     }
 
     // =====================================================================
@@ -230,7 +234,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         {
             // A duplicate follow-up: nothing started, so there is nothing to wait for.
             var current = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
-            return new TaskResponse(Shape(current.Task, request.Configuration?.HistoryLength));
+            return new TaskResponse(Shape(current.Task, request.Configuration?.HistoryLength, timelineLength: request.Configuration?.TimelineLength));
         }
         var reply = await _streamer.WaitForOutcomeAsync(exec, key, sub, afterSequence, acceptedStatusTimestamp,
             request.Configuration?.ReturnImmediately == true, cancellationToken).ConfigureAwait(false);
@@ -238,7 +242,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
         var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false)
             ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The agent finished without replying or creating a task.");
-        return new TaskResponse(Shape(record.Task, request.Configuration?.HistoryLength));
+        return new TaskResponse(Shape(record.Task, request.Configuration?.HistoryLength, timelineLength: request.Configuration?.TimelineLength));
     }
 
     /// <summary>
@@ -650,7 +654,8 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                 }
                 // The stored record belongs to the store: append to a copy, with a copy of the message the executor gets.
                 var next = record.Task.CopyForUpdate();
-                (next.History ??= []).Add(message.DeepCopy());
+                var stored = message.DeepCopy();
+                (next.History ??= []).Add(stored);
                 // Same update as the approving message: the approval cannot be used twice, also across instances (CAS).
                 if (consume is not null) (next.Metadata ??= [])[A2AProtocol.ApprovalConsumedKey] = StringElement(consume);
                 // Same for an answered form: a used form is no longer pending, also across instances (CAS).
@@ -661,7 +666,14 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                 // the task's version, so the commit below would conflict and this loop would read again). Read before the commit,
                 // so a failing read leaves nothing committed; the marker lets a retry tell that the agent never started.
                 var sequenceBefore = await _events.LastSequenceAsync(key, ct).ConfigureAwait(false);
-                (next.Metadata ??= [])[PendingStartKey] = StringElement(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{sequenceBefore}:{message.MessageId}"));
+                // A2A 1.1: the message is one change of the task. It is committed as an event (a message update) with the
+                // next sequence, so the task's generation (which equals its last sequence) moves by one, and the message is
+                // the next timeline entry. A task stored before generations existed starts from its last sequence.
+                var messageSequence = sequenceBefore + 1;
+                var generation = (record.Task.Generation ?? sequenceBefore) + 1;
+                next.Generation = generation;
+                (next.Timeline ??= []).Add(TimelineEntry.FromMessage(stored, generation));
+                (next.Metadata ??= [])[PendingStartKey] = StringElement(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{messageSequence}:{message.MessageId}"));
                 EnsureTaskSizeCapacity(next);
                 if (push is not null && !pushSaved)
                 {
@@ -671,11 +683,24 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                 }
                 try
                 {
-                    await _tasks.UpdateAsync(record with { Task = next }, record.Version, ct).ConfigureAwait(false);
+                    var added = StreamResponse.Of(new TaskMessageUpdateEvent
+                    {
+                        TaskId = taskId,
+                        ContextId = next.ContextId,
+                        Message = stored,
+                        Generation = generation,
+                    });
+                    // No push deliveries: the message update is a 1.1 event, and the push configs get the 1.0 events.
+                    var encoded = EventEncoder.Encode(0, added);
+                    var result = await _tasks.CommitAsync(new TaskCommit(record with { Task = next }, record.Version, encoded, []), ct).ConfigureAwait(false);
+                    // Published under the task lock, like every stored event, so subscribers see it in sequence order. Only
+                    // 1.1 streams write it (EventEncoder.IsVisibleTo).
+                    _engine.PublishStored(key, encoded with { Sequence = result.Sequence });
                     committed = true;
                     // Until the execution is registered, a retry must not start the message a second time.
                     _engine.BeginStart(key);
-                    return new Accepted(message, contextId, next, sequenceBefore, false, true, approval, elicitation, approvalResource);
+                    // The caller's own stream starts after its message: the task it gets already holds it.
+                    return new Accepted(message, contextId, next, result.Sequence, false, true, approval, elicitation, approvalResource);
                 }
                 catch (ConcurrencyException) when (attempt < TaskExecutionEngine.MaxConflictRetries)
                 {
@@ -894,8 +919,9 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         await _requestCards.RequireAgentForTaskAsync(call, request.Id, cancellationToken).ConfigureAwait(false);
         A2AValidator.RequireId(request.Id, "id");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
+        if (request.TimelineLength is < 0) throw A2AException.InvalidParams("timelineLength must be >= 0");
         var record = await _tasks.GetAsync(Key(call, request.Id), cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
-        return Shape(record.Task, request.HistoryLength);
+        return Shape(record.Task, request.HistoryLength, timelineLength: request.TimelineLength);
     }
 
     /// <summary>
@@ -1016,6 +1042,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         await _requestCards.RequireAgentAsync(call, cancellationToken).ConfigureAwait(false);
         if (request.PageSize is < 1) throw A2AException.InvalidParams("pageSize must be between 1 and 100");
         if (request.HistoryLength is < 0) throw A2AException.InvalidParams("historyLength must be >= 0");
+        if (request.TimelineLength is < 0) throw A2AException.InvalidParams("timelineLength must be >= 0");
         var pageSize = Math.Min(request.PageSize ?? 50, _options.Limits.MaxListPageSize);
 
         var result = await _tasks.ListAsync(new TaskQuery(
@@ -1030,7 +1057,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         var include = request.IncludeArtifacts == true;
         return new ListTasksResponse
         {
-            Tasks = result.Records.Select(r => Shape(r.Task, request.HistoryLength, include)).ToList(),
+            Tasks = result.Records.Select(r => Shape(r.Task, request.HistoryLength, include, request.TimelineLength)).ToList(),
             NextPageToken = result.NextPageToken,
             PageSize = pageSize,
             TotalSize = result.TotalSize,
@@ -1278,8 +1305,8 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private static TaskKey Key(ServerCallContext call, string taskId) => new(call.Tenant, call.Principal, taskId);
 
-    private AgentTask Shape(AgentTask task, int? historyLength, bool includeArtifacts = true) =>
-        TaskShaper.Shape(task, historyLength, _options.Limits, includeArtifacts);
+    private AgentTask Shape(AgentTask task, int? historyLength, bool includeArtifacts = true, int? timelineLength = null) =>
+        TaskShaper.Shape(task, historyLength, _options.Limits, includeArtifacts, timelineLength);
 
     private static A2AException NotCancelable(string taskId) =>
         new(A2AErrorCode.TaskNotCancelable) { Metadata = new() { ["taskId"] = taskId } };

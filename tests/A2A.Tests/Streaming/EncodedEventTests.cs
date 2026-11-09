@@ -168,7 +168,8 @@ public sealed class EncodedEventTests
         {
             Assert.False(published[i].Json.IsEmpty);
             Assert.True(published[i].Json.Equals(stored[i].Json), "the stored event carries the published bytes");
-            Assert.Equal(A2AJson.SerializeToUtf8Bytes(stored[i].Event), stored[i].Json.ToArray());
+            // The stored bytes are the 1.0 shape: the 1.1 members (generation, timeline) are left out.
+            Assert.Equal(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(stored[i].Event, A2AJson.GetTypeInfo<StreamResponse>(A2AProtocol.Version)), stored[i].Json.ToArray());
         }
     }
 
