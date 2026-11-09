@@ -57,7 +57,7 @@ public sealed class InMemoryArtifactObjectStore(TimeProvider? time = null) : Art
         foreach (var (key, entry) in _objects.ToArray())
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (key.StartsWith(prefix, StringComparison.Ordinal)) yield return new ArtifactObjectEntry(key, entry.CreatedAt);
+            if (key.StartsWith(prefix, StringComparison.Ordinal)) yield return new ArtifactObjectEntry(key, entry.CreatedAt) { SizeBytes = entry.Bytes.LongLength };
         }
     }
 }

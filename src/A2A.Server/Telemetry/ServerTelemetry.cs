@@ -59,6 +59,8 @@ internal static class ServerTelemetry
 
     /// <summary>Tag of <see cref="ExecutionsRejected"/>: why the start was refused.</summary>
     public const string RejectionReasonTag = "a2a.rejection.reason";
+    public static readonly Counter<long> UploadsPurged =
+        Meter.CreateCounter<long>("a2a.server.artifact.uploads.purged", description: "Unused inbound uploads the retention sweep deleted from the artifact object store.");
 
     /// <summary>
     /// The outcome of a call: <see cref="A2ATelemetry.Outcomes.Ok"/>; <see cref="A2ATelemetry.Outcomes.Canceled"/> for an

@@ -64,7 +64,14 @@ public sealed record ArtifactObjectWriteResult(long SizeBytes, string Sha256);
 /// <summary>One object found by <see cref="ArtifactObjectStore.ListAsync"/>.</summary>
 /// <param name="Key">The object key.</param>
 /// <param name="CreatedAt">When the object was written.</param>
-public sealed record ArtifactObjectEntry(string Key, DateTimeOffset CreatedAt);
+public sealed record ArtifactObjectEntry(string Key, DateTimeOffset CreatedAt)
+{
+    /// <summary>
+    /// Size of the object in bytes, or null when the store did not report it. The built-in stores always set it. For a store that
+    /// leaves it null, the server reads the size from a <c>(0, 0)</c> range read (<see cref="ArtifactObjectContent.TotalLength"/>).
+    /// </summary>
+    public long? SizeBytes { get; init; }
+}
 
 /// <summary>A span of bytes to read.</summary>
 /// <param name="Offset">First byte, from 0.</param>

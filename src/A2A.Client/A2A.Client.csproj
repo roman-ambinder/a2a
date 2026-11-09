@@ -25,6 +25,8 @@
     <Compile Remove="ArtifactVerifier.cs" />
     <!-- SafeHttp is not available on netstandard2.0. -->
     <Compile Remove="A2AArtifactDownloader.cs" />
+    <!-- Like the downloader, the uploader is for .NET 8 and later. -->
+    <Compile Remove="A2AFileUploader.cs" />
   </ItemGroup>
   <!-- netstandard2.0 surface is a subset of net8.0 by design; package validation proves it. CS1574/CS1580: doc crefs to SocketsHttpHandler. -->
   <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">

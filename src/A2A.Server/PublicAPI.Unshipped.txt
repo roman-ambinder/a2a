@@ -189,3 +189,25 @@ A2A.Server.AgentRequestContext.AuthorizedSkillId.get -> string?
 A2A.Server.AgentRequestContext.IsSkillAllowedAsync(string! skillId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeSkillAsync(A2A.Server.ServerCallContext! call, string! skillId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<bool>
 A2A.Server.Push.InMemoryPushOutbox.Count.get -> int
+A2A.Server.ArtifactStorageOptions.Uploads.get -> A2A.Server.ArtifactUploadOptions!
+A2A.Server.ArtifactUploadOptions
+A2A.Server.ArtifactUploadOptions.ArtifactUploadOptions() -> void
+A2A.Server.ArtifactUploadOptions.Enabled.get -> bool
+A2A.Server.ArtifactUploadOptions.Enabled.set -> void
+A2A.Server.ArtifactUploadOptions.MaxConcurrentUploadsPerCaller.get -> int
+A2A.Server.ArtifactUploadOptions.MaxConcurrentUploadsPerCaller.set -> void
+A2A.Server.ArtifactUploadOptions.MaxStoredBytesPerCaller.get -> long
+A2A.Server.ArtifactUploadOptions.MaxStoredBytesPerCaller.set -> void
+A2A.Server.ArtifactUploadOptions.MaxUploadBytes.get -> long
+A2A.Server.ArtifactUploadOptions.MaxUploadBytes.set -> void
+A2A.Server.ArtifactUploadOptions.MaxUploadsPerCaller.get -> int
+A2A.Server.ArtifactUploadOptions.MaxUploadsPerCaller.set -> void
+A2A.Server.ArtifactUploadOptions.UnusedUploadTtl.get -> System.TimeSpan
+A2A.Server.ArtifactUploadOptions.UnusedUploadTtl.set -> void
+A2A.Server.Storage.ArtifactObjectEntry.SizeBytes.get -> long?
+A2A.Server.Storage.ArtifactObjectEntry.SizeBytes.init -> void
+const A2A.Server.A2ARequestHandler.ReadUploadOperationName = "a2a.files.read" -> string!
+const A2A.Server.A2ARequestHandler.UploadOperationName = "a2a.files.upload" -> string!
+A2A.Server.A2ARequestHandler.OpenUploadAsync(string! objectId, A2A.Server.Storage.ArtifactByteRange? range, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.ArtifactDownload!>
+A2A.Server.A2ARequestHandler.UploadFileAsync(System.IO.Stream! content, string? mediaType, string? fileName, long? contentLength, A2A.Server.ServerCallContext! call, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.UrlPart!>
+A2A.Server.AgentRequestContext.OpenUploadAsync(A2A.UrlPart! part, A2A.Server.Storage.ArtifactByteRange? range = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ArtifactObjectContent?>

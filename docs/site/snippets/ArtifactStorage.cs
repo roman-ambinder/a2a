@@ -71,6 +71,56 @@ internal static class Samples
         #endregion
     }
 
+    public static void EnableUploads(IServiceCollection services, WebApplication app)
+    {
+        #region EnableUploads
+        services.AddA2AServer(o =>
+        {
+            o.ArtifactStorage.PublicBaseUrl = new Uri("https://agent.example.com/a2a");
+            o.ArtifactStorage.Uploads.Enabled = true;
+            o.ArtifactStorage.Uploads.MaxUploadBytes = 2L << 30; // 2 GiB
+        });
+
+        // Without the retention sweep, uploads that no message used are never deleted.
+        services.AddA2ARetention();
+
+        // Next to MapA2A and MapA2AArtifacts, with the same pattern and the same authorization.
+        app.MapA2AUploads("/a2a").RequireAuthorization();
+        #endregion
+    }
+
+    public static async Task<UrlPart> UploadFile(HttpMessageHandler handler, string path, CancellationToken ct)
+    {
+        #region UploadFile
+        // The handler adds your A2A credentials and must not follow redirects. The URL is {base}/uploads/{tenant or _}.
+        var uploader = new A2AFileUploader(handler, new Uri("https://agent.example.com/a2a/uploads/_"));
+
+        await using var file = File.OpenRead(path);
+        UrlPart part = await uploader.UploadAsync(file, "application/pdf", Path.GetFileName(path), ct);
+
+        // Send the part like any other part. The server checks the link before it stores the message.
+        var message = new Message { MessageId = Guid.NewGuid().ToString(), Role = Role.User, Parts = [Part.FromText("Summarize this file."), part] };
+        #endregion
+        _ = message;
+        return part;
+    }
+
+    public static async Task ReadUpload(AgentRequestContext context, CancellationToken ct)
+    {
+        #region ReadUpload
+        foreach (var part in context.Message.Parts.OfType<UrlPart>())
+        {
+            // Null: not one of the caller's own uploads (an ordinary URL, or a file of someone else).
+            await using var file = await context.OpenUploadAsync(part, cancellationToken: ct);
+            if (file is null) continue;
+
+            using var reader = new StreamReader(file.Content);
+            var firstLine = await reader.ReadLineAsync(ct);
+            _ = firstLine;
+        }
+        #endregion
+    }
+
     public static A2AArtifactDownloader DownloadFromPrivateStore(HttpMessageHandler handler)
     {
         #region PrivateStore
