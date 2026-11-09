@@ -257,6 +257,7 @@ public sealed partial class TaskExecutionEngine
     /// </summary>
     internal async ValueTask<List<Task>?> RunningWaitsAsync(TaskKey key, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested(); // the wait loops must end when their time is over: a wait below can be already complete
         var local = RunningCompletions(key);
         if (local.Count > 0) return local;
         if (!await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false)) return null;
