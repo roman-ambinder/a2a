@@ -97,6 +97,14 @@ A2A.Client.Cards.CardPin.Hash.get -> string!
 A2A.Client.Cards.CardPin.Hash.init -> void
 A2A.Client.Cards.CardPin.KeyId.get -> string?
 A2A.Client.Cards.CardPin.KeyId.init -> void
+A2A.Client.Cards.CardPin.<Clone>$() -> A2A.Client.Cards.CardPin!
+A2A.Client.Cards.CardPin.Deconstruct(out string! Hash, out string? KeyId) -> void
+A2A.Client.Cards.CardPin.Equals(A2A.Client.Cards.CardPin? other) -> bool
+override A2A.Client.Cards.CardPin.Equals(object? obj) -> bool
+override A2A.Client.Cards.CardPin.GetHashCode() -> int
+override A2A.Client.Cards.CardPin.ToString() -> string!
+static A2A.Client.Cards.CardPin.operator !=(A2A.Client.Cards.CardPin? left, A2A.Client.Cards.CardPin? right) -> bool
+static A2A.Client.Cards.CardPin.operator ==(A2A.Client.Cards.CardPin? left, A2A.Client.Cards.CardPin? right) -> bool
 A2A.Client.Cards.ICardPinStore
 A2A.Client.Cards.ICardPinStore.GetAsync(string! origin, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Client.Cards.CardPin?>
 A2A.Client.Cards.ICardPinStore.SetAsync(string! origin, A2A.Client.Cards.CardPin! pin, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
@@ -159,6 +167,14 @@ A2A.Client.ResolvedSkill.Examples.init -> void
 A2A.Client.ResolvedSkill.Name.get -> A2A.Client.Cards.UntrustedText
 A2A.Client.ResolvedSkill.Name.init -> void
 A2A.Client.ResolvedSkill.ResolvedSkill(A2A.Client.Cards.UntrustedText Name, A2A.Client.Cards.UntrustedText Description, System.Collections.Generic.IReadOnlyList<A2A.Client.Cards.UntrustedText>! Examples) -> void
+A2A.Client.ResolvedSkill.<Clone>$() -> A2A.Client.ResolvedSkill!
+A2A.Client.ResolvedSkill.Deconstruct(out A2A.Client.Cards.UntrustedText Name, out A2A.Client.Cards.UntrustedText Description, out System.Collections.Generic.IReadOnlyList<A2A.Client.Cards.UntrustedText>! Examples) -> void
+A2A.Client.ResolvedSkill.Equals(A2A.Client.ResolvedSkill? other) -> bool
+override A2A.Client.ResolvedSkill.Equals(object? obj) -> bool
+override A2A.Client.ResolvedSkill.GetHashCode() -> int
+override A2A.Client.ResolvedSkill.ToString() -> string!
+static A2A.Client.ResolvedSkill.operator !=(A2A.Client.ResolvedSkill? left, A2A.Client.ResolvedSkill? right) -> bool
+static A2A.Client.ResolvedSkill.operator ==(A2A.Client.ResolvedSkill? left, A2A.Client.ResolvedSkill? right) -> bool
 A2A.Client.Sse.SseEvent
 A2A.Client.Sse.SseEvent.Data.get -> string!
 A2A.Client.Sse.SseEvent.Data.init -> void
@@ -181,6 +197,13 @@ A2A.Client.Streaming.StreamFrame.Response.get -> A2A.StreamResponse!
 A2A.Client.Streaming.StreamFrame.Response.init -> void
 A2A.Client.Streaming.StreamFrame.StreamFrame() -> void
 A2A.Client.Streaming.StreamFrame.StreamFrame(A2A.StreamResponse! Response, string? Id) -> void
+A2A.Client.Streaming.StreamFrame.Deconstruct(out A2A.StreamResponse! Response, out string? Id) -> void
+A2A.Client.Streaming.StreamFrame.Equals(A2A.Client.Streaming.StreamFrame other) -> bool
+override A2A.Client.Streaming.StreamFrame.GetHashCode() -> int
+static A2A.Client.Streaming.StreamFrame.operator !=(A2A.Client.Streaming.StreamFrame left, A2A.Client.Streaming.StreamFrame right) -> bool
+static A2A.Client.Streaming.StreamFrame.operator ==(A2A.Client.Streaming.StreamFrame left, A2A.Client.Streaming.StreamFrame right) -> bool
+~override A2A.Client.Streaming.StreamFrame.Equals(object obj) -> bool
+~override A2A.Client.Streaming.StreamFrame.ToString() -> string
 A2A.Client.Transports.HttpJsonTransport
 A2A.Client.Transports.HttpJsonTransport.CancelTaskAsync(A2A.CancelTaskRequest! request, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
 A2A.Client.Transports.HttpJsonTransport.CreateTaskPushNotificationConfigAsync(A2A.TaskPushNotificationConfig! config, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TaskPushNotificationConfig!>!
@@ -215,6 +238,12 @@ A2A.Client.Transports.JsonRpcTransport.SubscribeToTaskAsync(A2A.SubscribeToTaskR
 const A2A.Client.Cards.UntrustedText.DefaultMaxLength = 2000 -> int
 override A2A.Client.Cards.UntrustedText.ToString() -> string!
 override A2A.Client.Sse.SseEvent.GetHashCode() -> int
+A2A.Client.Sse.SseEvent.<Clone>$() -> A2A.Client.Sse.SseEvent!
+A2A.Client.Sse.SseEvent.Deconstruct(out string! Data, out string? EventType, out string? Id) -> void
+override A2A.Client.Sse.SseEvent.Equals(object? obj) -> bool
+override A2A.Client.Sse.SseEvent.ToString() -> string!
+static A2A.Client.Sse.SseEvent.operator !=(A2A.Client.Sse.SseEvent? left, A2A.Client.Sse.SseEvent? right) -> bool
+static A2A.Client.Sse.SseEvent.operator ==(A2A.Client.Sse.SseEvent? left, A2A.Client.Sse.SseEvent? right) -> bool
 static A2A.Client.A2ACardResolver.GetCardUri(System.Uri! agentUrl) -> System.Uri!
 static A2A.Client.A2AClientFactory.Create(A2A.AgentCard! card, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions? options = null) -> A2A.Client.A2AClient!
 static A2A.Client.A2AClientFactory.CreateAsync(System.Uri! agentUrl, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions? options = null, A2A.Client.A2ACardResolverOptions? resolverOptions = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.A2AClient!>!
@@ -242,6 +271,14 @@ A2A.Client.ReceivedMessage.Source.get -> A2A.Client.ReceivedMessageSource
 A2A.Client.ReceivedMessage.Source.init -> void
 A2A.Client.ReceivedMessage.TaskId.get -> string?
 A2A.Client.ReceivedMessage.TaskId.init -> void
+A2A.Client.ReceivedMessage.<Clone>$() -> A2A.Client.ReceivedMessage!
+A2A.Client.ReceivedMessage.Deconstruct(out A2A.Message! Message, out A2A.Client.ReceivedMessageSource Source, out string? TaskId, out string? ContextId) -> void
+A2A.Client.ReceivedMessage.Equals(A2A.Client.ReceivedMessage? other) -> bool
+override A2A.Client.ReceivedMessage.Equals(object? obj) -> bool
+override A2A.Client.ReceivedMessage.GetHashCode() -> int
+override A2A.Client.ReceivedMessage.ToString() -> string!
+static A2A.Client.ReceivedMessage.operator !=(A2A.Client.ReceivedMessage? left, A2A.Client.ReceivedMessage? right) -> bool
+static A2A.Client.ReceivedMessage.operator ==(A2A.Client.ReceivedMessage? left, A2A.Client.ReceivedMessage? right) -> bool
 A2A.Client.ReceivedMessageSource
 A2A.Client.ReceivedMessageSource.DirectReply = 0 -> A2A.Client.ReceivedMessageSource
 A2A.Client.ReceivedMessageSource.StatusUpdate = 1 -> A2A.Client.ReceivedMessageSource
@@ -275,6 +312,14 @@ A2A.Client.Peers.AgentRegistration.PreviousIdentity.get -> A2A.Client.Peers.Peer
 A2A.Client.Peers.AgentRegistration.PreviousIdentity.init -> void
 A2A.Client.Peers.AgentRegistration.Resolved.get -> A2A.Client.ResolvedAgentCard!
 A2A.Client.Peers.AgentRegistration.Resolved.init -> void
+A2A.Client.Peers.AgentRegistration.<Clone>$() -> A2A.Client.Peers.AgentRegistration!
+A2A.Client.Peers.AgentRegistration.Deconstruct(out A2A.Client.Peers.PeerIdentity! Identity, out A2A.Client.Cards.UntrustedText Name, out A2A.Client.ResolvedAgentCard! Resolved) -> void
+A2A.Client.Peers.AgentRegistration.Equals(A2A.Client.Peers.AgentRegistration? other) -> bool
+override A2A.Client.Peers.AgentRegistration.Equals(object? obj) -> bool
+override A2A.Client.Peers.AgentRegistration.GetHashCode() -> int
+override A2A.Client.Peers.AgentRegistration.ToString() -> string!
+static A2A.Client.Peers.AgentRegistration.operator !=(A2A.Client.Peers.AgentRegistration? left, A2A.Client.Peers.AgentRegistration? right) -> bool
+static A2A.Client.Peers.AgentRegistration.operator ==(A2A.Client.Peers.AgentRegistration? left, A2A.Client.Peers.AgentRegistration? right) -> bool
 A2A.Client.Peers.AgentRegistrationException
 A2A.Client.Peers.AgentRegistrationException.AgentRegistrationException(A2A.Client.Peers.AgentRegistrationRejection reason, A2A.Client.Peers.PeerIdentity! identity, A2A.Client.Peers.PeerIdentity? conflictingIdentity, string! message) -> void
 A2A.Client.Peers.AgentRegistrationException.ConflictingIdentity.get -> A2A.Client.Peers.PeerIdentity?
@@ -324,8 +369,30 @@ A2A.Client.Peers.PeerIdentityContext.Source.get -> System.Uri!
 A2A.Client.Peers.PeerIdentityContext.Source.init -> void
 A2A.Client.Peers.PeerIdentityContext.Verification.get -> A2A.Signing.AgentCardVerificationResult!
 A2A.Client.Peers.PeerIdentityContext.Verification.init -> void
+A2A.Client.Peers.PeerIdentityContext.<Clone>$() -> A2A.Client.Peers.PeerIdentityContext!
+A2A.Client.Peers.PeerIdentityContext.Deconstruct(out A2A.AgentCard! Card, out System.Uri! Source, out A2A.Signing.AgentCardVerificationResult! Verification, out A2A.Client.Peers.PeerIdentity! Baseline) -> void
+A2A.Client.Peers.PeerIdentityContext.Equals(A2A.Client.Peers.PeerIdentityContext? other) -> bool
+override A2A.Client.Peers.PeerIdentityContext.Equals(object? obj) -> bool
+override A2A.Client.Peers.PeerIdentityContext.GetHashCode() -> int
+override A2A.Client.Peers.PeerIdentityContext.ToString() -> string!
+static A2A.Client.Peers.PeerIdentityContext.operator !=(A2A.Client.Peers.PeerIdentityContext? left, A2A.Client.Peers.PeerIdentityContext? right) -> bool
+static A2A.Client.Peers.PeerIdentityContext.operator ==(A2A.Client.Peers.PeerIdentityContext? left, A2A.Client.Peers.PeerIdentityContext? right) -> bool
 A2A.Client.ResolvedAgentCard.Identity.get -> A2A.Client.Peers.PeerIdentity!
+A2A.Client.ResolvedAgentCard.<Clone>$() -> A2A.Client.ResolvedAgentCard!
+A2A.Client.ResolvedAgentCard.Deconstruct(out A2A.AgentCard! Card, out string! RawJson, out System.Uri! Source, out A2A.Signing.AgentCardVerificationResult! Verification) -> void
+A2A.Client.ResolvedAgentCard.Equals(A2A.Client.ResolvedAgentCard? other) -> bool
+override A2A.Client.ResolvedAgentCard.Equals(object? obj) -> bool
+override A2A.Client.ResolvedAgentCard.GetHashCode() -> int
+override A2A.Client.ResolvedAgentCard.ToString() -> string!
+static A2A.Client.ResolvedAgentCard.operator !=(A2A.Client.ResolvedAgentCard? left, A2A.Client.ResolvedAgentCard? right) -> bool
+static A2A.Client.ResolvedAgentCard.operator ==(A2A.Client.ResolvedAgentCard? left, A2A.Client.ResolvedAgentCard? right) -> bool
 override A2A.Client.Peers.PeerIdentity.ToString() -> string!
+A2A.Client.Peers.PeerIdentity.<Clone>$() -> A2A.Client.Peers.PeerIdentity!
+A2A.Client.Peers.PeerIdentity.Equals(A2A.Client.Peers.PeerIdentity? other) -> bool
+override A2A.Client.Peers.PeerIdentity.Equals(object? obj) -> bool
+override A2A.Client.Peers.PeerIdentity.GetHashCode() -> int
+static A2A.Client.Peers.PeerIdentity.operator !=(A2A.Client.Peers.PeerIdentity? left, A2A.Client.Peers.PeerIdentity? right) -> bool
+static A2A.Client.Peers.PeerIdentity.operator ==(A2A.Client.Peers.PeerIdentity? left, A2A.Client.Peers.PeerIdentity? right) -> bool
 static A2A.Client.Peers.CardPeerIdentityResolver.Instance.get -> A2A.Client.Peers.CardPeerIdentityResolver!
 A2A.Client.Credentials.A2AMutualTls
 A2A.Client.Credentials.ApiKeyCredentialProvider
@@ -408,26 +475,26 @@ A2A.Client.Delegation.OAuthTokenExchanger.Dispose() -> void
 A2A.Client.Delegation.OAuthTokenExchanger.ExchangeAsync(A2A.Delegation.TokenExchangeRequest! request, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Delegation.TokenExchangeResult!>
 A2A.Client.Delegation.DelegationRequestOptionsExtensions
 static A2A.Client.Delegation.DelegationRequestOptionsExtensions.UseBearerToken(this A2A.Client.A2ARequestOptions! options, A2A.Delegation.TokenExchangeResult! token, System.Uri! agentUrl) -> A2A.Client.A2ARequestOptions!
-A2A.Client.A2AClient.SelectSkill(A2A.Message! message, string! skillId, A2A.Client.A2ARequestOptions? options = null) -> A2A.Client.A2ARequestOptions!
+[A2AEXP001]A2A.Client.A2AClient.SelectSkill(A2A.Message! message, string! skillId, A2A.Client.A2ARequestOptions? options = null) -> A2A.Client.A2ARequestOptions!
 A2A.Client.ElicitationClientExtensions
 static A2A.Client.ElicitationClientExtensions.AnswerElicitationAsync(this A2A.Client.IA2AClient! client, A2A.AgentTask! task, A2A.Elicitations.ElicitationAnswer! answer, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.SendMessageResponse!>!
 static A2A.Client.ElicitationClientExtensions.UseElicitation(this A2A.Client.A2ARequestOptions! options) -> A2A.Client.A2ARequestOptions!
-A2A.Client.ArtifactVerificationStatus
-A2A.Client.ArtifactVerificationStatus.NoHash = 0 -> A2A.Client.ArtifactVerificationStatus
-A2A.Client.ArtifactVerificationStatus.Verified = 1 -> A2A.Client.ArtifactVerificationStatus
-A2A.Client.ArtifactVerificationStatus.Mismatch = 2 -> A2A.Client.ArtifactVerificationStatus
-A2A.Client.ArtifactVerificationStatus.Unverifiable = 3 -> A2A.Client.ArtifactVerificationStatus
-A2A.Client.ArtifactVerification
-A2A.Client.ArtifactVerification.ArtifactVerification(string! artifactId, A2A.Client.ArtifactVerificationStatus status, string? expected = null, string? actual = null) -> void
-A2A.Client.ArtifactVerification.ArtifactId.get -> string!
-A2A.Client.ArtifactVerification.Status.get -> A2A.Client.ArtifactVerificationStatus
-A2A.Client.ArtifactVerification.Expected.get -> string?
-A2A.Client.ArtifactVerification.Actual.get -> string?
-A2A.Client.ArtifactVerifier
-A2A.Client.ArtifactVerifier.ArtifactVerifier() -> void
-A2A.Client.ArtifactVerifier.Dispose() -> void
-A2A.Client.ArtifactVerifier.Observe(A2A.StreamResponse! evt) -> System.Collections.Generic.IReadOnlyList<A2A.Client.ArtifactVerification!>!
-static A2A.Client.ArtifactVerifier.Verify(A2A.Artifact! artifact) -> A2A.Client.ArtifactVerification!
+[A2AEXP003]A2A.Client.ArtifactVerificationStatus
+[A2AEXP003]A2A.Client.ArtifactVerificationStatus.NoHash = 0 -> A2A.Client.ArtifactVerificationStatus
+[A2AEXP003]A2A.Client.ArtifactVerificationStatus.Verified = 1 -> A2A.Client.ArtifactVerificationStatus
+[A2AEXP003]A2A.Client.ArtifactVerificationStatus.Mismatch = 2 -> A2A.Client.ArtifactVerificationStatus
+[A2AEXP003]A2A.Client.ArtifactVerificationStatus.Unverifiable = 3 -> A2A.Client.ArtifactVerificationStatus
+[A2AEXP003]A2A.Client.ArtifactVerification
+[A2AEXP003]A2A.Client.ArtifactVerification.ArtifactVerification(string! artifactId, A2A.Client.ArtifactVerificationStatus status, string? expected = null, string? actual = null) -> void
+[A2AEXP003]A2A.Client.ArtifactVerification.ArtifactId.get -> string!
+[A2AEXP003]A2A.Client.ArtifactVerification.Status.get -> A2A.Client.ArtifactVerificationStatus
+[A2AEXP003]A2A.Client.ArtifactVerification.Expected.get -> string?
+[A2AEXP003]A2A.Client.ArtifactVerification.Actual.get -> string?
+[A2AEXP003]A2A.Client.ArtifactVerifier
+[A2AEXP003]A2A.Client.ArtifactVerifier.ArtifactVerifier() -> void
+[A2AEXP003]A2A.Client.ArtifactVerifier.Dispose() -> void
+[A2AEXP003]A2A.Client.ArtifactVerifier.Observe(A2A.StreamResponse! evt) -> System.Collections.Generic.IReadOnlyList<A2A.Client.ArtifactVerification!>!
+[A2AEXP003]static A2A.Client.ArtifactVerifier.Verify(A2A.Artifact! artifact) -> A2A.Client.ArtifactVerification!
 A2A.Client.A2AClient.RegisterPushAsync(string! taskId, A2A.TaskPushNotificationConfig! config, int? historyLength = 0, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.Push.PushRegistration!>!
 A2A.Client.Push.InMemoryPushDeliveryStore
 A2A.Client.Push.InMemoryPushDeliveryStore.CompleteAsync(string! id, System.DateTimeOffset keepUntil, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
