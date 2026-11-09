@@ -27,6 +27,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | `A2A.Server.V0_3Compat` | `EnableV03Compat()`: lets v0.3 clients call a v1.0 agent |
 | `A2A.Client.V0_3Compat` | `V03CompatClientFactory`: lets a client call v0.3 agents |
 | `A2A.Extensions.AI` | `Microsoft.Extensions.AI` integration: host an `IChatClient` as an agent (`AddChatClientAgent`), call a remote agent as an AI tool (`AsAIFunction`) or as an `IChatClient` (`AsChatClient`) |
+| `A2A.Client.Postgres` | PostgreSQL store for the client outbox (`A2A.Client.Outbox`): a durable list of the messages an agent sends to peers, written in your own transaction |
 | `A2A.Server.Postgres` | PostgreSQL stores (tasks, events, push configs, push outbox, idempotency) via Npgsql |
 | `A2A.Server.Redis` | Redis pub/sub `TaskEventBus` and execution coordinator for running several server instances |
 
@@ -34,7 +35,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 
 Guides and API reference are built from [docs/site](docs/site/README.md) with DocFX. CI uploads the built site as the `docs-site` artifact on every run. The guides pull their C# samples from compiled snippets, so read them on the built site to see the code.
 
-Start with [Getting started](docs/site/guides/getting-started.md). Then: [bindings](docs/site/guides/bindings.md), [authentication and ownership](docs/site/guides/auth-and-ownership.md), [streaming](docs/site/guides/streaming.md), [push notifications](docs/site/guides/push-notifications.md), [proactive continuation](docs/site/guides/proactive-continuation.md), [Agent Card signing](docs/site/guides/agent-card-signing.md), [multi-tenancy](docs/site/guides/multi-tenancy.md), [durable stores](docs/site/guides/durable-stores.md), [retention](docs/site/guides/retention.md), [artifact storage](docs/site/guides/artifact-storage.md), [observability](docs/site/guides/observability.md), [limits](docs/site/guides/limits-and-rate-limiting.md), [task safety](docs/site/guides/task-safety.md), [interop](docs/site/guides/interop-and-conformance.md), [spec decisions](docs/site/guides/spec-decisions.md).
+Start with [Getting started](docs/site/guides/getting-started.md). Then: [bindings](docs/site/guides/bindings.md), [authentication and ownership](docs/site/guides/auth-and-ownership.md), [streaming](docs/site/guides/streaming.md), [push notifications](docs/site/guides/push-notifications.md), [proactive continuation](docs/site/guides/proactive-continuation.md), [client outbox](docs/site/guides/client-outbox.md), [Agent Card signing](docs/site/guides/agent-card-signing.md), [multi-tenancy](docs/site/guides/multi-tenancy.md), [durable stores](docs/site/guides/durable-stores.md), [retention](docs/site/guides/retention.md), [artifact storage](docs/site/guides/artifact-storage.md), [observability](docs/site/guides/observability.md), [limits](docs/site/guides/limits-and-rate-limiting.md), [task safety](docs/site/guides/task-safety.md), [interop](docs/site/guides/interop-and-conformance.md), [spec decisions](docs/site/guides/spec-decisions.md).
 
 ## Server in 20 lines
 

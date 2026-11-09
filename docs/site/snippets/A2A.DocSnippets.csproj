@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\..\src\A2A.Client\A2A.Client.csproj" />
     <ProjectReference Include="..\..\..\src\A2A.Client.DependencyInjection\A2A.Client.DependencyInjection.csproj" />
     <ProjectReference Include="..\..\..\src\A2A.Client.Grpc\A2A.Client.Grpc.csproj" />
+    <ProjectReference Include="..\..\..\src\A2A.Client.Postgres\A2A.Client.Postgres.csproj" />
     <ProjectReference Include="..\..\..\src\A2A.Security.Http\A2A.Security.Http.csproj" />
     <ProjectReference Include="..\..\..\src\A2A.Extensions.AI\A2A.Extensions.AI.csproj" />
     <ProjectReference Include="..\..\..\src\A2A.Server.V0_3Compat\A2A.Server.V0_3Compat.csproj" />

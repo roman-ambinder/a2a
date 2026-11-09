@@ -12,6 +12,8 @@
   href: push-notifications.md
 - name: Proactive continuation
   href: proactive-continuation.md
+- name: Client outbox
+  href: client-outbox.md
 - name: Agent card signing
   href: agent-card-signing.md
 - name: Peer identity and registry
