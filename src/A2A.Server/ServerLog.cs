@@ -1,4 +1,3 @@
-using A2A.Server.Audit;
 using Microsoft.Extensions.Logging;
 
 namespace A2A.Server;
@@ -8,7 +7,6 @@ namespace A2A.Server;
 /// <list type="bullet">
 /// <item><description>200-299: <see cref="Execution.TaskExecutionEngine"/>.</description></item>
 /// <item><description>300-399: <see cref="Push.PushDeliveryService"/>.</description></item>
-/// <item><description>270-279: <see cref="Audit.A2AAuditor"/> (and <see cref="Audit.LoggerAuditSink"/>, which has its own generated message).</description></item>
 /// <item><description>400-499: <see cref="Idempotency.IdempotencyCoordinator"/>.</description></item>
 /// <item><description>1200-1299: security events (<see cref="Telemetry.SecurityEventLog"/>).</description></item>
 /// </list>
@@ -16,16 +14,6 @@ namespace A2A.Server;
 /// </summary>
 internal static partial class ServerLog
 {
-    // A2AAuditor: 270-279
-    [LoggerMessage(EventId = 271, Level = LogLevel.Error, Message = "The audit sink failed to write the {AuditAction} event {AuditId}; the request goes on")]
-    public static partial void AuditWriteFailed(ILogger logger, Exception exception, A2AAuditAction auditAction, string auditId);
-
-    [LoggerMessage(EventId = 272, Level = LogLevel.Error, Message = "The audit sink failed to write the Attempted row of the {AuditAction} event {AuditId}; the request is refused because Audit.FailClosed is on")]
-    public static partial void AuditBeginFailed(ILogger logger, Exception exception, A2AAuditAction auditAction, string auditId);
-
-    [LoggerMessage(EventId = 273, Level = LogLevel.Warning, Message = "Dropped the {AuditAction} audit event {AuditId}: {Limit} detached audit writes are already in flight")]
-    public static partial void AuditDetachedDropped(ILogger logger, A2AAuditAction auditAction, string auditId, int limit);
-
     // TaskExecutionEngine: 200-299
     [LoggerMessage(EventId = 200, Level = LogLevel.Error, Message = "Agent executor failed for task {TaskId}")]
     public static partial void ExecutorFailed(ILogger logger, Exception exception, string taskId);
@@ -209,11 +197,11 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 255, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.InMemoryObjectsMessage)]
     public static partial void InMemoryObjectsWithDurableStore(ILogger logger, string taskStore);
 
-    [LoggerMessage(EventId = 257, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.SharedBusMessage)]
-    public static partial void SharedBusWithInMemoryStores(ILogger logger, string bus, string inMemoryStores);
-
     [LoggerMessage(EventId = 259, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.TenantsWithoutAuthorizationMessage)]
     public static partial void TenantsWithoutAuthorization(ILogger logger);
+
+    [LoggerMessage(EventId = 257, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.SharedBusMessage)]
+    public static partial void SharedBusWithInMemoryStores(ILogger logger, string bus, string inMemoryStores);
 
     // Inbound uploads: 680-689
     [LoggerMessage(EventId = 680, Level = LogLevel.Information, Message = "Deleted the unused inbound upload {Key}")]
