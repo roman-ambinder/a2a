@@ -19,7 +19,7 @@ public abstract class IdempotencyStoreContract
     protected static async Task<Guid> BeginAsync(IdempotencyStore s, IdempotencyScope? scope = null, byte[]? hash = null) =>
         Assert.IsType<IdempotencyResult.New>(await s.TryBeginAsync(scope ?? Scope, hash ?? Hash)).ClaimId;
 
-    [SkippableFact]
+    [Fact]
     public async Task First_claim_is_new_and_repeat_is_in_progress()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -29,7 +29,7 @@ public abstract class IdempotencyStoreContract
         await s.AbandonAsync(Scope, claim);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Different_hash_is_a_mismatch_while_running_and_after()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -39,7 +39,7 @@ public abstract class IdempotencyStoreContract
         Assert.IsType<IdempotencyResult.Mismatch>(await s.TryBeginAsync(Scope, OtherHash));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Completed_request_returns_its_task_outcome()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -49,7 +49,7 @@ public abstract class IdempotencyStoreContract
         Assert.Equal(new IdempotencyOutcome.TaskCreated("task-1", 7), done.Outcome);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Completed_follow_up_keeps_its_accepted_status_timestamp()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -60,7 +60,7 @@ public abstract class IdempotencyStoreContract
         Assert.Equal(new IdempotencyOutcome.TaskCreated("task-1", 7, at), done.Outcome);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Completed_request_returns_its_direct_message()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -75,7 +75,7 @@ public abstract class IdempotencyStoreContract
         Assert.Equal("hi there", Assert.IsType<TextPart>(Assert.Single(message.Parts)).Text);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Second_complete_does_not_change_the_outcome()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -86,7 +86,7 @@ public abstract class IdempotencyStoreContract
         Assert.Equal("first", Assert.IsType<IdempotencyOutcome.TaskCreated>(done.Outcome).TaskId);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Waiting_request_gets_the_outcome_when_it_completes()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -97,7 +97,7 @@ public abstract class IdempotencyStoreContract
         Assert.Equal("task-1", Assert.IsType<IdempotencyOutcome.TaskCreated>(outcome).TaskId);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Abandon_cancels_waiters_and_frees_the_key()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -109,7 +109,7 @@ public abstract class IdempotencyStoreContract
         Assert.IsType<IdempotencyResult.New>(await s.TryBeginAsync(Scope, OtherHash));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Abandon_after_complete_keeps_the_outcome()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -119,7 +119,7 @@ public abstract class IdempotencyStoreContract
         Assert.IsType<IdempotencyResult.Completed>(await s.TryBeginAsync(Scope, Hash));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Keys_are_scoped_by_tenant_and_principal()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -128,7 +128,7 @@ public abstract class IdempotencyStoreContract
         Assert.IsType<IdempotencyResult.New>(await s.TryBeginAsync(Scope with { Tenant = "u" }, OtherHash));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Finished_entry_expires_after_retention()
     {
         var clock = new FakeTimeProvider();
@@ -142,7 +142,7 @@ public abstract class IdempotencyStoreContract
         Assert.IsType<IdempotencyResult.New>(await s.TryBeginAsync(Scope, OtherHash));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Concurrent_claims_have_exactly_one_new()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -152,7 +152,7 @@ public abstract class IdempotencyStoreContract
         await s.AbandonAsync(Scope, results.OfType<IdempotencyResult.New>().Single().ClaimId);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Renew_keeps_a_running_claim_running()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -162,7 +162,7 @@ public abstract class IdempotencyStoreContract
         await s.AbandonAsync(Scope, claim);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Renew_of_a_missing_scope_does_nothing()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -170,7 +170,7 @@ public abstract class IdempotencyStoreContract
         Assert.IsType<IdempotencyResult.New>(await s.TryBeginAsync(Scope, Hash));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Renew_of_a_completed_scope_does_not_change_it()
     {
         var clock = new FakeTimeProvider();
@@ -184,7 +184,7 @@ public abstract class IdempotencyStoreContract
         Assert.IsType<IdempotencyResult.New>(await s.TryBeginAsync(Scope, Hash));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Claims_have_different_ids()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -193,7 +193,7 @@ public abstract class IdempotencyStoreContract
         Assert.NotEqual(first, await BeginAsync(s));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Old_claim_cannot_complete_the_entry_of_a_newer_claim()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -210,7 +210,7 @@ public abstract class IdempotencyStoreContract
         Assert.Equal("current", Assert.IsType<IdempotencyOutcome.TaskCreated>(done.Outcome).TaskId);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Old_claim_cannot_abandon_the_entry_of_a_newer_claim()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -224,7 +224,7 @@ public abstract class IdempotencyStoreContract
         await s.AbandonAsync(Scope, current);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Old_claim_cannot_renew_the_entry_of_a_newer_claim()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -237,7 +237,7 @@ public abstract class IdempotencyStoreContract
         await s.AbandonAsync(Scope, current);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Old_claim_cannot_change_a_completed_entry_of_a_newer_claim()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -253,7 +253,7 @@ public abstract class IdempotencyStoreContract
         Assert.Equal("current", Assert.IsType<IdempotencyOutcome.TaskCreated>(done.Outcome).TaskId);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Unknown_claim_id_changes_nothing()
     {
         var s = await CreateStoreAsync(new IdempotencyOptions());
@@ -281,7 +281,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         return new PostgresIdempotencyStore(db.DataSource, options, schema, time);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Stale_claim_of_a_crashed_instance_can_be_taken_over()
     {
         var clock = new FakeTimeProvider();
@@ -296,7 +296,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         Assert.IsType<IdempotencyResult.New>(await other.TryBeginAsync(Scope, Hash));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Waiter_on_another_instance_sees_the_outcome()
     {
         var schema = await db.NewSchemaAsync();
@@ -310,7 +310,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         Assert.Equal("task-1", Assert.IsType<IdempotencyOutcome.TaskCreated>(await waiting.Completion.WaitAsync(TimeSpan.FromSeconds(10))).TaskId);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Renew_pushes_the_claim_timeout_out_from_now()
     {
         var clock = new FakeTimeProvider();
@@ -328,7 +328,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         Assert.IsType<IdempotencyResult.New>(await other.TryBeginAsync(Scope, Hash));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Renew_by_another_principal_or_tenant_does_not_extend_the_claim()
     {
         var clock = new FakeTimeProvider();
@@ -345,7 +345,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         Assert.IsType<IdempotencyResult.New>(await s.TryBeginAsync(Scope, Hash));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Crashed_owner_cannot_complete_abandon_or_renew_after_a_takeover()
     {
         var clock = new FakeTimeProvider();
@@ -373,7 +373,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         await other.AbandonAsync(Scope, current);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Commit_with_an_idempotency_outcome_completes_the_entry_without_a_complete_call()
     {
         var clock = new FakeTimeProvider();
@@ -391,7 +391,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         Assert.IsType<IdempotencyResult.New>(await idem.TryBeginAsync(Scope, OtherHash));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Rolled_back_commit_leaves_the_outcome_empty()
     {
         var (tasks, idem) = await NewStoresAsync(new FakeTimeProvider(), TimeSpan.FromHours(1));
@@ -405,7 +405,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         await idem.AbandonAsync(Scope, claim);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Commit_with_another_claim_id_commits_the_task_and_records_no_outcome()
     {
         var (tasks, idem) = await NewStoresAsync(new FakeTimeProvider(), TimeSpan.FromHours(1));
@@ -420,7 +420,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         await idem.AbandonAsync(Scope, claim);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Commit_does_not_overwrite_a_completed_entry()
     {
         var (tasks, idem) = await NewStoresAsync(new FakeTimeProvider(), TimeSpan.FromHours(1));
@@ -446,7 +446,7 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         return new TaskCommit(record, 0, StreamResponse.Of(record.Task.DeepCopy()), []);
     }
 
-    [SkippableFact]
+    [Fact]
     public void Claim_timeout_defaults_to_two_minutes() =>
         Assert.Equal(TimeSpan.FromMinutes(2), new PostgresStoreOptions().IdempotencyClaimTimeout);
 }

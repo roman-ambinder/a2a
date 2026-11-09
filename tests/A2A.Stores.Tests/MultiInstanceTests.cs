@@ -31,7 +31,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
 {
     private const string BaseUrl = "http://localhost/a2a";
 
-    [SkippableFact]
+    [Fact]
     public async Task Task_started_on_one_instance_streams_and_reads_on_another()
     {
         var schema = await db.NewSchemaAsync();
@@ -72,7 +72,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     }
 
 
-    [SkippableFact]
+    [Fact]
     public async Task CancelTask_on_one_instance_cancels_the_execution_on_another()
     {
         var schema = await db.NewSchemaAsync();
@@ -93,7 +93,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
         Assert.Equal(TaskState.Canceled, (await Client(a).GetTaskAsync(taskId)).Status.State);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Blocking_retry_on_one_instance_returns_when_the_execution_on_another_finishes()
     {
         var schema = await db.NewSchemaAsync();
@@ -123,7 +123,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     /// Review Focus 2: a follow-up on B runs while the first execution still writes on A. Subscribers on both instances get
     /// the same events in the same order.
     /// </summary>
-    [SkippableFact]
+    [Fact]
     public async Task Follow_up_on_one_instance_during_an_execution_on_another_streams_the_same_events_everywhere()
     {
         var schema = await db.NewSchemaAsync();
@@ -161,7 +161,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     /// unregistering). Its lease stops being renewed, and instance B sees it expire. B's retention sweep then fails the task:
     /// a subscriber on B gets FAILED with "The agent stopped unexpectedly.", and the PostgreSQL row is FAILED.
     /// </summary>
-    [SkippableFact]
+    [Fact]
     public async Task Execution_of_a_dead_instance_is_reported_expired_on_another_and_failed_by_its_sweep()
     {
         var schema = await db.NewSchemaAsync();
@@ -221,7 +221,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     /// The heartbeat renews the idempotency claim of a running request: a direct reply that takes longer than the claim
     /// timeout keeps its key, so a retry on another instance waits for that reply instead of running the agent again.
     /// </summary>
-    [SkippableFact]
+    [Fact]
     public async Task Long_direct_reply_keeps_its_idempotency_claim()
     {
         var schema = await db.NewSchemaAsync();
@@ -258,7 +258,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     /// Review ruling R2: an instance ignores the echo of its own cancel request. A follow-up started on A right after A's
     /// CancelTask is not cancelled by it, and a CancelTask from B still stops that follow-up on A.
     /// </summary>
-    [SkippableFact]
+    [Fact]
     public async Task Own_cancel_echo_does_not_cancel_a_later_follow_up_but_another_instance_still_can()
     {
         var schema = await db.NewSchemaAsync();
@@ -302,7 +302,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     /// A continuation started on A with no inbound request reaches a stream on B through the Redis bus, with no push config.
     /// The task ends COMPLETED in PostgreSQL.
     /// </summary>
-    [SkippableFact]
+    [Fact]
     public async Task Continuation_on_one_instance_reaches_a_stream_on_another()
     {
         var schema = await db.NewSchemaAsync();
@@ -338,7 +338,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     }
 
     /// <summary>Both instances fire a continuation at once: the PostgreSQL and Redis lease lets exactly one start.</summary>
-    [SkippableFact]
+    [Fact]
     public async Task Only_one_instance_wins_a_continuation_race()
     {
         var schema = await db.NewSchemaAsync();
@@ -368,7 +368,7 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
     }
 
     /// <summary>CancelTask on B reaches a continuation running on A through the Redis cancel channel.</summary>
-    [SkippableFact]
+    [Fact]
     public async Task CancelTask_on_one_instance_stops_a_continuation_on_another()
     {
         var schema = await db.NewSchemaAsync();

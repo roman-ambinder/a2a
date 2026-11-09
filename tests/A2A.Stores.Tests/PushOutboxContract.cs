@@ -59,7 +59,7 @@ public abstract class PushOutboxContract
         return result;
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Commit_writes_deliveries_due_now_with_the_event_sequence()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -74,7 +74,7 @@ public abstract class PushOutboxContract
         Assert.Null(leased.LastError);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Payload_is_the_committed_event_and_survives_dead_letter_and_redrive()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -96,7 +96,7 @@ public abstract class PushOutboxContract
 
     private static string Utf8(ReadOnlyMemory<byte> bytes) => System.Text.Encoding.UTF8.GetString(bytes.Span);
 
-    [SkippableFact]
+    [Fact]
     public async Task Trace_parent_is_kept()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -106,7 +106,7 @@ public abstract class PushOutboxContract
         Assert.Equal(parent, Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Delivery.TraceParent);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Failed_commit_writes_no_delivery()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -120,7 +120,7 @@ public abstract class PushOutboxContract
         Assert.Empty(await outbox.LeaseDueAsync(10, Lease));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Leased_entry_is_hidden_until_the_lease_ends()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -134,7 +134,7 @@ public abstract class PushOutboxContract
         Assert.Equal(d, Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Delivery);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Only_the_oldest_entry_per_task_and_config_is_leased()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -150,7 +150,7 @@ public abstract class PushOutboxContract
         Assert.Equal(second[0], Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Delivery);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Lease_returns_at_most_max_entries()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -161,7 +161,7 @@ public abstract class PushOutboxContract
         Assert.Empty(await outbox.LeaseDueAsync(2, Lease));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Reschedule_sets_attempt_due_time_and_error()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -181,7 +181,7 @@ public abstract class PushOutboxContract
         Assert.Equal("HTTP 500", entry.LastError);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Dead_letter_moves_the_entry_and_releases_the_next()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -201,7 +201,7 @@ public abstract class PushOutboxContract
         Assert.Equal(second, Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Delivery);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Dead_letters_are_listed_per_tenant_oldest_first_up_to_max()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -220,7 +220,7 @@ public abstract class PushOutboxContract
         Assert.Empty(await outbox.ListDeadLettersAsync("nobody", 10));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Redrive_returns_a_dead_letter_to_the_outbox()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -240,7 +240,7 @@ public abstract class PushOutboxContract
         Assert.Equal(_time.GetUtcNow(), entry.DueAt);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Delete_all_removes_entries_and_dead_letters_of_one_task_only()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -256,7 +256,7 @@ public abstract class PushOutboxContract
         Assert.Equal(otherOwner, Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Delivery);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Writes_for_unknown_or_unleased_entries_do_nothing()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -277,7 +277,7 @@ public abstract class PushOutboxContract
         Assert.Equal(d, Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Delivery);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task A_stale_holder_cannot_change_a_re_leased_entry()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -300,7 +300,7 @@ public abstract class PushOutboxContract
         Assert.Equal(next, Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Delivery);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task A_new_delivery_never_replaces_an_existing_entry()
     {
         var (tasks, events, outbox) = await CreateWithEventsAsync(_time);
@@ -316,7 +316,7 @@ public abstract class PushOutboxContract
         Assert.IsType<TaskEvent>(A2AJson.Deserialize<StreamResponse>(Utf8(entry.Payload))); // the first event's body, not the second's
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Redrive_on_a_key_collision_keeps_the_pending_entry_and_the_dead_letter()
     {
         var (tasks, events, outbox) = await CreateWithEventsAsync(_time);
@@ -339,7 +339,7 @@ public abstract class PushOutboxContract
 
     private static OutboxEntry Entry(IEnumerable<OutboxEntry> leased, PushDelivery d) => Assert.Single(leased, e => e.Delivery == d);
 
-    [SkippableFact]
+    [Fact]
     public async Task Two_leasing_instances_never_get_the_same_entry()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -358,7 +358,7 @@ public abstract class PushOutboxContract
 
     private static readonly byte[] Snapshot = System.Text.Encoding.UTF8.GetBytes("{\"task\":{\"id\":\"task1\"}}");
 
-    [SkippableFact]
+    [Fact]
     public async Task Enqueue_queues_one_due_delivery_with_its_payload_and_is_idempotent_on_the_key()
     {
         var (_, outbox) = await CreateAsync(_time);
@@ -376,7 +376,7 @@ public abstract class PushOutboxContract
         Assert.True(await outbox.EnqueueAsync(d with { Sequence = 5 }, Snapshot)); // another sequence: a new entry
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Enqueue_does_nothing_when_a_dead_letter_has_the_key()
     {
         var (_, outbox) = await CreateAsync(_time);
@@ -390,7 +390,7 @@ public abstract class PushOutboxContract
         Assert.Single(await outbox.ListDeadLettersAsync("t", 10));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Concurrent_enqueues_of_one_key_queue_it_once_across_instances()
     {
         var (_, outbox) = await CreateAsync(_time);
@@ -404,7 +404,7 @@ public abstract class PushOutboxContract
         Assert.Single(await outbox.LeaseDueAsync(10, Lease));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Age_counts_from_queueing_survives_retries_and_a_redrive_starts_over()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -435,7 +435,7 @@ public abstract class PushOutboxContract
         foreach (var leased in await outbox.LeaseDueAsync(100, Lease)) Assert.True(await outbox.DeadLetterAsync(leased, "HTTP 404"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Statistics_of_an_empty_outbox_are_zero()
     {
         var (_, outbox) = await CreateAsync(_time);
@@ -446,7 +446,7 @@ public abstract class PushOutboxContract
         Assert.Equal(0, stats.DeadLetterCount);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Statistics_age_is_how_long_the_oldest_due_entry_waited_and_leased_entries_count()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -463,7 +463,7 @@ public abstract class PushOutboxContract
         Assert.Equal(TimeSpan.FromMinutes(5), (await Stats(outbox).GetStatisticsAsync(10)).OldestDueAge);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Statistics_age_ignores_a_retry_backoff_but_counts_the_entries_queued_behind_it()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -483,7 +483,7 @@ public abstract class PushOutboxContract
         Assert.Equal(TimeSpan.Zero, (await Stats(outbox2).GetStatisticsAsync(10)).OldestDueAge);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Statistics_count_dead_letters_of_every_tenant_and_stop_at_the_limit()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -498,7 +498,7 @@ public abstract class PushOutboxContract
         Assert.Equal(TimeSpan.Zero, (await Stats(outbox).GetStatisticsAsync(2)).OldestDueAge); // dead letters are not due
     }
 
-    [SkippableTheory]
+    [Theory]
     [InlineData(0)]
     [InlineData(-1)]
     [InlineData(int.MinValue)]
@@ -515,7 +515,7 @@ public abstract class PushOutboxContract
 
     private static IEnumerable<string> Owners(IEnumerable<OutboxEntry> entries) => entries.Select(e => e.Delivery.Task.Owner);
 
-    [SkippableFact]
+    [Fact]
     public async Task Capped_lease_leaves_an_owner_that_is_at_the_cap_while_another_owner_still_leases()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -529,7 +529,7 @@ public abstract class PushOutboxContract
         Assert.Equal(["bob"], Owners(second));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Capped_lease_never_gives_an_owner_more_than_the_cap_in_one_call()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -546,7 +546,7 @@ public abstract class PushOutboxContract
         Assert.Equal(4, leased.Count);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Completing_a_delivery_frees_one_slot_of_its_owner()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -561,7 +561,7 @@ public abstract class PushOutboxContract
         Assert.Empty(await outbox.LeaseDueCappedAsync(10, Lease, 2));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task An_expired_lease_no_longer_counts_toward_the_cap()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -577,7 +577,7 @@ public abstract class PushOutboxContract
         Assert.Equal(first, Assert.Single(await outbox.LeaseDueCappedAsync(10, Lease, 1)).Delivery);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task The_cap_ignores_the_tenant()
     {
         var (tasks, outbox) = await CreateAsync(_time);
@@ -590,7 +590,7 @@ public abstract class PushOutboxContract
         Assert.Empty(await outbox.LeaseDueCappedAsync(10, Lease, 2));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task A_saturated_owners_older_backlog_does_not_hide_another_owner()
     {
         var (tasks, outbox) = await CreateAsync(_time);

@@ -16,7 +16,7 @@ public abstract class PushConfigStoreContract
         Authentication = new AuthenticationInfo { Scheme = "Bearer", Credentials = "protected-creds" },
     });
 
-    [SkippableFact]
+    [Fact]
     public async Task Save_then_get_round_trips()
     {
         var s = await CreateStoreAsync();
@@ -29,7 +29,7 @@ public abstract class PushConfigStoreContract
         Assert.Equal("protected-creds", got.Config.Authentication!.Credentials);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Save_with_same_id_replaces()
     {
         var s = await CreateStoreAsync();
@@ -39,7 +39,7 @@ public abstract class PushConfigStoreContract
         Assert.Equal("https://hooks.example/v2", (await s.GetAsync(Alice, "c1"))!.Config.Url);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Configs_of_another_owner_task_or_tenant_look_missing()
     {
         var s = await CreateStoreAsync();
@@ -54,7 +54,7 @@ public abstract class PushConfigStoreContract
         Assert.NotNull(await s.GetAsync(Alice, "c1"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task List_is_ordered_by_id_ordinal_and_count_matches()
     {
         var s = await CreateStoreAsync();
@@ -64,7 +64,7 @@ public abstract class PushConfigStoreContract
         Assert.Equal(5, await s.CountAsync(Alice));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Delete_removes_once()
     {
         var s = await CreateStoreAsync();
@@ -74,7 +74,7 @@ public abstract class PushConfigStoreContract
         Assert.Null(await s.GetAsync(Alice, "c1"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Saved_config_reads_back_with_the_same_content()
     {
         // Stores own the configs they are given and return; callers never mutate them (a change is a new SaveAsync).
@@ -90,7 +90,7 @@ public abstract class PushConfigStoreContract
         Assert.Equal("https://changed.example", (await s.GetAsync(Alice, "c1"))!.Config.Url);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task DeleteAll_removes_every_config_of_the_task_only()
     {
         var s = await CreateStoreAsync();
@@ -104,7 +104,7 @@ public abstract class PushConfigStoreContract
         await s.DeleteAllAsync(Alice); // nothing left is fine
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task DeleteAll_with_another_owner_or_tenant_deletes_nothing()
     {
         var s = await CreateStoreAsync();
@@ -114,7 +114,7 @@ public abstract class PushConfigStoreContract
         Assert.Equal(1, await s.CountAsync(Alice));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task SaveIfUnderLimit_adds_until_the_limit_then_refuses_new_ids()
     {
         var s = await CreateStoreAsync();
@@ -125,7 +125,7 @@ public abstract class PushConfigStoreContract
         Assert.Equal(2, await s.CountAsync(Alice));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task SaveIfUnderLimit_replaces_an_existing_id_even_at_the_limit()
     {
         var s = await CreateStoreAsync();
@@ -135,7 +135,7 @@ public abstract class PushConfigStoreContract
         Assert.Equal(1, await s.CountAsync(Alice));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task SaveIfUnderLimit_counts_per_task_and_owner()
     {
         var s = await CreateStoreAsync();
@@ -145,7 +145,7 @@ public abstract class PushConfigStoreContract
         Assert.False(await s.SaveIfUnderLimitAsync(Config(Alice, "c2"), 1));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task SaveIfUnderLimit_is_atomic_under_parallel_savers()
     {
         var s = await CreateStoreAsync();
@@ -174,7 +174,7 @@ public sealed class PostgresPushConfigStoreTests(PostgresFixture db) : PushConfi
     protected override async Task<PushConfigStore> CreateStoreAsync() => new PostgresPushConfigStore(db.DataSource, await db.NewSchemaAsync());
 
     /// <summary>The 20-saver race again, with the task's row present (the production case; the contract test has no task row).</summary>
-    [SkippableFact]
+    [Fact]
     public async Task SaveIfUnderLimit_is_atomic_under_parallel_savers_when_the_task_row_exists()
     {
         var schema = await db.NewSchemaAsync();

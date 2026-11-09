@@ -26,7 +26,7 @@ public abstract class ClientOutboxContract
     private static ClientOutboxOutcome Done(string taskId = "t1") =>
         ClientOutboxOutcome.Finished(new TaskResponse(ScriptedA2AClient.Make(taskId, TaskState.Completed)));
 
-    [SkippableFact]
+    [Fact]
     public async Task Enqueue_adds_a_queued_entry_due_now()
     {
         var store = await CreateAsync(Time);
@@ -48,7 +48,7 @@ public abstract class ClientOutboxContract
         Assert.Null(await store.GetAsync("missing"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Enqueue_of_an_existing_id_returns_false_and_keeps_the_old_entry()
     {
         var store = await CreateAsync(Time);
@@ -59,7 +59,7 @@ public abstract class ClientOutboxContract
         Assert.Equal("first", (await store.GetAsync("a"))!.Peer);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Lease_gives_due_entries_oldest_first_and_counts_the_attempt()
     {
         var store = await CreateAsync(Time);
@@ -73,7 +73,7 @@ public abstract class ClientOutboxContract
         Assert.All(leased, e => { Assert.Equal(1, e.Attempts); Assert.NotNull(e.LeaseToken); });
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Lease_respects_max_and_hides_leased_entries_until_the_lease_runs_out()
     {
         var store = await CreateAsync(Time);
@@ -87,7 +87,7 @@ public abstract class ClientOutboxContract
         Assert.Equal(3, (await store.LeaseDueAsync(10, Lease)).Count);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Lease_returns_the_doubt_from_before_and_sets_it_for_queued_entries()
     {
         var store = await CreateAsync(Time);
@@ -103,7 +103,7 @@ public abstract class ClientOutboxContract
         Assert.Equal(2, second.Attempts);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Lease_skips_entries_that_are_not_due()
     {
         var store = await CreateAsync(Time);
@@ -115,7 +115,7 @@ public abstract class ClientOutboxContract
         Assert.Single(await store.LeaseDueAsync(10, Lease));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Reschedule_sets_due_error_and_doubt_and_clears_the_lease()
     {
         var store = await CreateAsync(Time);
@@ -134,7 +134,7 @@ public abstract class ClientOutboxContract
         Assert.Single(await store.LeaseDueAsync(10, Lease));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task MarkTracking_records_the_peers_ids_and_resets_attempts_and_doubt()
     {
         var store = await CreateAsync(Time);
@@ -154,7 +154,7 @@ public abstract class ClientOutboxContract
         Assert.Empty(await store.LeaseDueAsync(10, Lease));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task A_tracking_entry_is_leased_again_without_doubt()
     {
         var store = await CreateAsync(Time);
@@ -169,7 +169,7 @@ public abstract class ClientOutboxContract
         Assert.False((await store.GetAsync("a"))!.InDoubt);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Finish_stores_the_result_and_makes_it_harvestable()
     {
         var store = await CreateAsync(Time);
@@ -184,7 +184,7 @@ public abstract class ClientOutboxContract
         Assert.Empty(await store.LeaseDueAsync(10, Lease)); // finished entries are not leased for work
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Finish_as_failed_keeps_the_remote_ids_the_entry_already_has()
     {
         var store = await CreateAsync(Time);
@@ -202,7 +202,7 @@ public abstract class ClientOutboxContract
         Assert.Null(e.GetResult());
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Finish_writes_the_doubt_of_the_outcome()
     {
         var store = await CreateAsync(Time);
@@ -217,7 +217,7 @@ public abstract class ClientOutboxContract
         Assert.False((await store.GetAsync(leased[2].Id))!.InDoubt);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task A_stale_lease_holder_writes_nothing()
     {
         var store = await CreateAsync(Time);
@@ -237,7 +237,7 @@ public abstract class ClientOutboxContract
         Assert.True(await store.FinishAsync(current, Done())); // the current holder still can
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task An_entry_without_a_lease_cannot_be_written()
     {
         var store = await CreateAsync(Time);
@@ -248,7 +248,7 @@ public abstract class ClientOutboxContract
         Assert.False(await store.FinishAsync(unleased, Done()));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Writes_after_the_entry_ended_change_nothing()
     {
         var store = await CreateAsync(Time);
@@ -260,7 +260,7 @@ public abstract class ClientOutboxContract
         Assert.Equal(ClientOutboxStatus.Finished, (await store.GetAsync("a"))!.Status);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Results_are_leased_oldest_first_by_correlation_and_hidden_until_the_lease_runs_out()
     {
         var store = await CreateAsync(Time);
@@ -284,7 +284,7 @@ public abstract class ClientOutboxContract
         Assert.Equal(["a", "b", "c"], (await store.LeaseResultsAsync(null, 10, Lease)).Select(e => e.Id));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Failed_entries_are_harvested_too_and_max_is_respected()
     {
         var store = await CreateAsync(Time);
@@ -297,7 +297,7 @@ public abstract class ClientOutboxContract
         Assert.Equal("no " + one.Id, one.LastError);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Acknowledge_collects_the_result_once_and_an_unacknowledged_result_comes_back()
     {
         var store = await CreateAsync(Time);
@@ -319,7 +319,7 @@ public abstract class ClientOutboxContract
         Assert.Empty(await store.LeaseResultsAsync(null, 10, Lease));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Results_survive_a_restart()
     {
         var store = await CreateAsync(Time);
@@ -332,7 +332,7 @@ public abstract class ClientOutboxContract
         Assert.Equal("t5", Assert.IsType<TaskResponse>(result.GetResult()).Task.Id);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Hasten_makes_the_tracking_entry_of_that_peers_task_due_now()
     {
         var store = await CreateAsync(Time);
@@ -348,7 +348,7 @@ public abstract class ClientOutboxContract
         Assert.Equal("a", Assert.Single(await store.LeaseDueAsync(10, Lease)).Id);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Hasten_ignores_entries_that_are_not_tracking()
     {
         var store = await CreateAsync(Time);
@@ -358,7 +358,7 @@ public abstract class ClientOutboxContract
         Assert.False(await store.HastenAsync("peer", "t1"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Purge_deletes_old_collected_entries_only_and_frees_their_ids()
     {
         var store = await CreateAsync(Time);
@@ -380,7 +380,7 @@ public abstract class ClientOutboxContract
         Assert.Equal(0, await store.PurgeCollectedAsync(TimeSpan.FromDays(1), 10));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Purge_respects_max()
     {
         var store = await CreateAsync(Time);
@@ -393,7 +393,7 @@ public abstract class ClientOutboxContract
         Assert.Equal(1, await store.PurgeCollectedAsync(TimeSpan.Zero, 2));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Age_is_counted_from_enqueue()
     {
         var store = await CreateAsync(Time);
@@ -404,7 +404,7 @@ public abstract class ClientOutboxContract
         Assert.Equal(TimeSpan.FromHours(3), (await LeaseOneAsync(store)).Age);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Two_store_objects_over_one_storage_never_lease_the_same_entry()
     {
         var a = await CreateAsync(Time);
@@ -439,7 +439,7 @@ public sealed class PostgresClientOutboxStoreTests(PostgresFixture db) : ClientO
 
     protected override ClientOutboxStore SecondInstance(ClientOutboxStore store, TimeProvider time) => new PostgresClientOutboxStore(db.DataSource, _options, time);
 
-    [SkippableFact]
+    [Fact]
     public async Task Enqueue_in_the_apps_transaction_is_visible_after_commit()
     {
         var store = (PostgresClientOutboxStore)await CreateAsync(Time);
@@ -455,7 +455,7 @@ public sealed class PostgresClientOutboxStoreTests(PostgresFixture db) : ClientO
         Assert.NotNull(await store.GetAsync("a"));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Enqueue_in_a_rolled_back_transaction_leaves_nothing()
     {
         var store = (PostgresClientOutboxStore)await CreateAsync(Time);
@@ -470,7 +470,7 @@ public sealed class PostgresClientOutboxStoreTests(PostgresFixture db) : ClientO
         Assert.Empty(await store.LeaseDueAsync(10, Lease));
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Acknowledge_in_the_apps_transaction_counts_only_after_commit()
     {
         var store = (PostgresClientOutboxStore)await CreateAsync(Time);
@@ -497,7 +497,7 @@ public sealed class PostgresClientOutboxStoreTests(PostgresFixture db) : ClientO
         Assert.NotNull((await store.GetAsync("a"))!.CollectedAt);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task The_database_clock_is_used_by_default()
     {
         db.SkipIfUnavailable();
@@ -510,7 +510,7 @@ public sealed class PostgresClientOutboxStoreTests(PostgresFixture db) : ClientO
         Assert.True((await store.GetAsync("a"))!.CreatedAt > new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero)); // the fake clock is ignored
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Schema_script_is_idempotent_and_checks_the_schema_name()
     {
         db.SkipIfUnavailable();

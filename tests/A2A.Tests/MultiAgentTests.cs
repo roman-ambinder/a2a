@@ -71,12 +71,12 @@ public class MultiAgentTests : IAsyncLifetime
 
     public static TheoryData<string> Bindings => new() { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson, ProtocolBindings.Grpc };
 
-    public async Task InitializeAsync() => _host = await TestAgentHost.StartAsync(
+    public async ValueTask InitializeAsync() => _host = await TestAgentHost.StartAsync(
         configureHttp: h => h.SigningKey = GlobalKey,
         services: s => s.AddA2AServer().AddTenantCardProvider<TenantCards>().AddAgentExecutorResolver<TenantAgents>(),
         grpc: true);
 
-    public async Task DisposeAsync() => await _host.DisposeAsync();
+    public async ValueTask DisposeAsync() => await _host.DisposeAsync();
 
     private A2AClient Client(string binding, string tenant, string user = "alice") =>
         _host.Client(binding, user, new A2AClientOptions { Tenant = tenant, ValidateCapabilities = false });
@@ -358,14 +358,14 @@ public class MultiAgentResolutionTests : IAsyncLifetime
     private readonly ControlledAgents _agents = new();
     private TestAgentHost _host = null!;
 
-    public async Task InitializeAsync() => _host = await TestAgentHost.StartAsync(services: s =>
+    public async ValueTask InitializeAsync() => _host = await TestAgentHost.StartAsync(services: s =>
     {
         s.AddA2AServer();
         s.AddSingleton<TenantCardProvider>(_cards);
         s.AddSingleton<AgentExecutorResolver>(_agents);
     }, grpc: true);
 
-    public async Task DisposeAsync() => await _host.DisposeAsync();
+    public async ValueTask DisposeAsync() => await _host.DisposeAsync();
 
     private A2AClient Client(string tenant) => _host.Client(ProtocolBindings.JsonRpc, options: new A2AClientOptions { Tenant = tenant });
 

@@ -42,7 +42,7 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
         }));
 
     /// <summary>A durable push outbox with the default per-process protector: secrets cannot be read after a restart.</summary>
-    [SkippableFact]
+    [Fact]
     public async Task Durable_outbox_with_the_per_process_protector_logs_an_error()
     {
         var logs = await StartWithPostgresStoresAsync(await db.NewSchemaAsync());
@@ -54,7 +54,7 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
     }
 
     /// <summary>A durable task store with the process-local coordinator: a crash leaves the running tasks unrecovered.</summary>
-    [SkippableFact]
+    [Fact]
     public async Task Durable_task_store_with_the_local_coordinator_logs_a_warning()
     {
         var logs = await StartWithPostgresStoresAsync(await db.NewSchemaAsync(), coordinator: false);
@@ -68,7 +68,7 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
     }
 
     /// <summary>The Postgres stores bring the Postgres coordinator, so there is nothing to warn about.</summary>
-    [SkippableFact]
+    [Fact]
     public async Task Postgres_stores_with_their_default_coordinator_do_not_log_the_local_coordinator_warning()
     {
         var logs = await StartWithPostgresStoresAsync(await db.NewSchemaAsync());
@@ -77,7 +77,7 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
     }
 
     /// <summary>A durable task store without the retention sweep: nothing is ever deleted or timed out.</summary>
-    [SkippableFact]
+    [Fact]
     public async Task Durable_task_store_without_retention_logs_a_warning()
     {
         var logs = await StartWithPostgresStoresAsync(await db.NewSchemaAsync());
@@ -89,7 +89,7 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
         Assert.Contains("stay WORKING", entry.Message, StringComparison.Ordinal);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Persistent_protector_and_shared_coordinator_log_nothing()
     {
         var schema = await db.NewSchemaAsync();
@@ -127,7 +127,7 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
     private const string SharedBus = "spans server instances";
 
     /// <summary>A bus that spans instances over stores kept in this process: events cross, tasks and events do not.</summary>
-    [SkippableFact]
+    [Fact]
     public async Task Redis_event_bus_with_in_memory_stores_logs_a_warning_once()
     {
         var redis = await redisFixture.ConnectAsync();
@@ -144,7 +144,7 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
         Assert.Contains("AddPostgresStores", entry.Message, StringComparison.Ordinal);
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task Redis_event_bus_with_postgres_stores_does_not_log_the_shared_bus_warning()
     {
         var schema = await db.NewSchemaAsync();
