@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using A2A.Server;
+using A2A.Server.Agents;
 using A2A.Server.Authorization;
 using A2A.Server.Execution;
 using A2A.Server.Idempotency;
@@ -320,7 +321,10 @@ public sealed class BoundedChannelTests
             var engine = new TaskExecutionEngine(tasks, events, new DelegateFactory(agent), bus, new InMemoryPushOutbox(), idempotency,
                 new PushConfigService(new InMemoryPushConfigStore(), new EphemeralPushSecretProtector(), options), options,
                 new AgentCardProvider(options, []), logger);
-            var streamer = new TaskStreamer(tasks, events, engine, idempotency, new AllowAllAuthorizationHandler([]), options, new AgentCardProvider(options, []));
+            var allowAll = new AllowAllAuthorizationHandler([]);
+            var cards = new AgentCardProvider(options, []);
+            var streamer = new TaskStreamer(tasks, events, engine, idempotency, allowAll, options, cards,
+                new SkillAuthorizer(allowAll, options.SkillAuthorization, cards, new RequestCards(cards)));
             return new Rig(engine, streamer, bus);
         }
 

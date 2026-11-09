@@ -95,6 +95,9 @@ public sealed class ServerCallContext
     /// <summary>The card resolved for this request and the tenant it was resolved for (resolved at most once per request and tenant).</summary>
     internal (string Tenant, AgentCard? Card)? ResolvedCard { get; set; }
 
+    /// <summary>The skill id the server checked and allowed for this message (see <see cref="Authorization.SkillAuthorizationOptions"/>). Null when no check ran or no skill was named.</summary>
+    internal string? AuthorizedSkillId { get; set; }
+
     /// <summary>Value of the A2A-Version header, or null if absent.</summary>
     public string? ProtocolVersion { get; init; }
 

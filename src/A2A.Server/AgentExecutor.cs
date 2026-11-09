@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using A2A.Delegation;
 using A2A.Elicitations;
 using A2A.Integrity;
+using A2A.Server.Authorization;
 using A2A.Server.Storage;
 using A2A.Skills;
 
@@ -76,11 +77,34 @@ public sealed class AgentRequestContext
     /// </summary>
     /// <remarks>
     /// This is a hint from the caller. Unless the card opts in with <see cref="SkillSelection.CreateExtension"/> (<c>rejectUnknownSkills: true</c>), it may name a skill
-    /// the agent does not have. Do not use it for authorization.
+    /// the agent does not have. Do not use it for authorization: branch on <see cref="AuthorizedSkillId"/> instead.
     /// </remarks>
     [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP001", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
     public string? RequestedSkillId =>
         Call.ActivatedExtensions.Contains(SkillSelection.ExtensionUri) ? Message.GetRequestedSkillId() : null;
+
+    /// <summary>
+    /// The skill id the server checked and allowed for this message (<see cref="A2AServerOptions.SkillAuthorization"/>). Null when
+    /// skill authorization is off, or the message named no skill. Unlike <see cref="RequestedSkillId"/> this is an authorization
+    /// result, and it is the one to branch on. A later change to the message cannot alter it.
+    /// </summary>
+    public string? AuthorizedSkillId => Call.AuthorizedSkillId;
+
+    /// <summary>Set by the server: answers <see cref="IsSkillAllowedAsync"/>. Null for a context built by hand.</summary>
+    internal SkillAuthorizer? SkillAuthorizer { get; init; }
+
+    /// <summary>
+    /// Asks whether the caller may use the skill <paramref name="skillId"/>: the same decision the server makes for a message that
+    /// names it (the skill must be on the agent's card, then <see cref="A2AAuthorizationHandler.AuthorizeSkillAsync"/> must allow it).
+    /// Works in any <see cref="SkillAuthorizationMode"/>. An agent that routes by itself calls this before it runs a skill.
+    /// False for an unknown skill, and when the context was built by hand.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="skillId"/> is null or empty.</exception>
+    public ValueTask<bool> IsSkillAllowedAsync(string skillId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(skillId);
+        return SkillAuthorizer is { } authorizer ? authorizer.IsAllowedAsync(Call, skillId, cancellationToken) : ValueTask.FromResult(false);
+    }
 
     /// <summary>
     /// True when a form passed to <see cref="TaskUpdater.RequireInputAsync(AgentRequestContext, ElicitationForm, string, CancellationToken)"/>

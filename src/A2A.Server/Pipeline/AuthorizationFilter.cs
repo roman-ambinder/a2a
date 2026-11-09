@@ -4,10 +4,10 @@ namespace A2A.Server.Pipeline;
 
 /// <summary>
 /// The built-in first step of the operation pipeline: <see cref="OperationAuthorization.RequireAsync"/> (the anonymous
-/// backstop, then the <see cref="A2AAuthorizationHandler"/>). A denial of a call whose request names a task looks like a
+/// backstop, then the <see cref="A2AAuthorizationHandler"/>, then the skill check of a send when <see cref="A2AServerOptions.SkillAuthorization"/> is on). A denial of a call whose request names a task looks like a
 /// missing task; any other denial is <see cref="A2AErrorCode.PermissionDenied"/>.
 /// </summary>
-internal sealed class AuthorizationFilter(A2AAuthorizationHandler handler, A2AServerOptions options) : IA2AOperationFilter
+internal sealed class AuthorizationFilter(A2AAuthorizationHandler handler, A2AServerOptions options, SkillAuthorizer skills) : IA2AOperationFilter
 {
     public ValueTask<object?> InvokeAsync(A2AOperationContext context, object request, A2AOperationDelegate next, CancellationToken cancellationToken)
     {
@@ -22,8 +22,19 @@ internal sealed class AuthorizationFilter(A2AAuthorizationHandler handler, A2ASe
     }
 
     /// <summary>Authorizes <paramref name="call"/> for <paramref name="operation"/>; throws when it is refused.</summary>
-    public Task RequireAsync(A2AOperationDescriptor operation, ServerCallContext call, object request, CancellationToken cancellationToken) =>
-        handler.RequireAsync(options, call, operation, request, TaskIdOf(request), cancellationToken);
+    public Task RequireAsync(A2AOperationDescriptor operation, ServerCallContext call, object request, CancellationToken cancellationToken)
+    {
+        var taskId = TaskIdOf(request);
+        var authorized = handler.RequireAsync(options, call, operation, request, taskId, cancellationToken);
+        // Skill authorization off, or not a send: no extra work.
+        return skills.AppliesTo(operation) ? ThenSkillAsync(authorized, operation, call, request, taskId, cancellationToken) : authorized;
+    }
+
+    private async Task ThenSkillAsync(Task authorized, A2AOperationDescriptor operation, ServerCallContext call, object request, string? taskId, CancellationToken ct)
+    {
+        await authorized.ConfigureAwait(false);
+        await skills.RequireAsync(operation, call, request, taskId, ct).ConfigureAwait(false);
+    }
 
     /// <summary>The task a request names, if any: a denial of such a call is reported as TaskNotFound.</summary>
     internal static string? TaskIdOf(object request) => request switch
