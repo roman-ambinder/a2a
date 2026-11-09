@@ -503,7 +503,7 @@ internal sealed class TaskStreamer
                 }
 
                 busWait ??= sub.Reader.WaitToReadAsync(stop.Token).AsTask();
-                tick ??= Task.Delay(interval, _engine.Time, stop.Token);
+                tick ??= Task.Delay(interval, _engine.Clock, stop.Token);
                 await Task.WhenAny(busWait, tick).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (busWait.IsCompleted)

@@ -12,6 +12,7 @@ using A2A.Server.Push;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
 using A2A.Server.Telemetry;
+using A2A.Server.Uploads;
 using A2A.Validation;
 using A2A.Server.Authorization;
 
@@ -45,6 +46,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private readonly OperationPipeline _pipeline;
     private readonly A2A.Delegation.ITokenExchanger? _tokenExchanger;
     private readonly ArtifactObjectStore? _objects;
+    private readonly InboundFiles? _inbound;
 
     // One cached delegate per operation, so a call through the pipeline creates no closure for its operation.
     private readonly Func<SendMessageRequest, ServerCallContext, CancellationToken, ValueTask<SendMessageResponse>> _sendMessage;
@@ -63,6 +65,15 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private static readonly A2AOperationDescriptor SendStreamingOperation = A2AOperationDescriptor.For(A2AOperation.SendStreamingMessage);
     private static readonly A2AOperationDescriptor SubscribeOperation = A2AOperationDescriptor.For(A2AOperation.SubscribeToTask);
+
+    /// <summary>The operation name an authorization handler sees for an inbound file upload.</summary>
+    public const string UploadOperationName = "a2a.files.upload";
+
+    /// <summary>The operation name an authorization handler sees for the owner's download of an uploaded file.</summary>
+    public const string ReadUploadOperationName = "a2a.files.read";
+
+    private static readonly A2AOperationDescriptor UploadOperation = A2AOperationDescriptor.Extension(UploadOperationName);
+    private static readonly A2AOperationDescriptor ReadUploadOperation = A2AOperationDescriptor.Extension(ReadUploadOperationName);
 
     /// <summary>Creates the handler. In an ASP.NET Core app the DI container does this; the parameters are the registered services.</summary>
     /// <remarks>
@@ -106,6 +117,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         _validator = validator;
         _pushConfigs = pushConfigs;
         _engine = engine;
+        if (objects is not null && options.ArtifactStorage.Uploads.Enabled) _inbound = new InboundFiles(objects, options.ArtifactStorage, engine.Clock);
         // Built here, not registered: it shares the handler's services and has no public surface of its own.
         _skills = new SkillAuthorizer(authorization, options.SkillAuthorization, cards, _requestCards, options);
         _streamer = new TaskStreamer(tasks, events, engine, idempotency, authorization, options, cards, _skills);
@@ -429,6 +441,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
             var pushIsNew = false;   // the config id did not exist before this request
             var pushSaved = false;
             var committed = false;
+            var attached = false; // the upload references are written once, however often the commit is retried
             var gate = await _engine.LockAsync(key, ct).ConfigureAwait(false);
             try
             {
@@ -479,6 +492,14 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     elicitation = answersForm ? ElicitationValidator.Resolve(record.Task, message, out answeredForm) : null;
                     contextId = record.Task.ContextId;
                     message.ContextId = contextId;
+                    // The task is the caller's (read with its key) and the message is not a duplicate; nothing is committed yet. No start
+                    // is claimed either (BeginStart comes after the commit), so a refusal here needs no EndStart: the finally below only
+                    // drops the push config.
+                    if (_inbound is not null && !attached)
+                    {
+                        await _inbound.AttachAsync(call, taskId, message, ct).ConfigureAwait(false);
+                        attached = true;
+                    }
                     // The stored record belongs to the store: append to a copy, with a copy of the message the executor gets.
                     var next = record.Task.CopyForUpdate();
                     (next.History ??= []).Add(message.DeepCopy());
@@ -531,6 +552,8 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         {
             contextId = await ResolveContextAsync(message.ContextId, call, ct).ConfigureAwait(false);
             message.ContextId = contextId;
+            // A new task: nothing is stored yet, and no start was claimed, so a refusal needs no EndStart.
+            if (_inbound is not null) await _inbound.AttachAsync(call, taskId, message, ct).ConfigureAwait(false);
         }
 
         // A new task saves its push config when the task is created; a follow-up saved it above, before its message was committed.
@@ -551,6 +574,7 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
                 ElicitationAnswer = elicitation,
                 TokenExchanger = _tokenExchanger,
                 SkillAuthorizer = _skills,
+                UploadOpener = _inbound is { } inbound ? (part, range, token) => inbound.OpenAsync(call, part, range, token) : null,
             };
             return new Prepared(context, existing is null ? push : null, lastSequence, duplicate, isFollowUp ? existing?.Status : null, startPending);
         }
@@ -758,6 +782,67 @@ public sealed class A2ARequestHandler : IA2ARequestHandler, IDisposable
         }
         var content = await _objects.OpenReadAsync(key, range, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
         return new ArtifactDownload(null, content);
+    }
+
+    /// <summary>
+    /// Stores an uploaded file for the caller and returns the <see cref="UrlPart"/> that stands for it: <c>url</c> (the link the
+    /// caller puts in a message), <c>mediaType</c>, <c>filename</c>, and <c>metadata</c> with <c>sha256</c> and <c>sizeBytes</c>. It
+    /// runs through the pipeline as the extension operation <see cref="UploadOperationName"/>, so a custom
+    /// <see cref="A2AAuthorizationHandler"/> must allow that name. The caller must be authenticated, also when
+    /// <see cref="A2AServerOptions.AllowAnonymous"/> is set. The file belongs to the caller's tenant and principal. The content is
+    /// streamed and never buffered. See <see cref="ArtifactUploadOptions"/> for the limits.
+    /// </summary>
+    /// <param name="content">The file bytes. Not disposed.</param>
+    /// <param name="mediaType">The media type, or null for <c>application/octet-stream</c>.</param>
+    /// <param name="fileName">The file name, or null. Any path is removed; a name over 255 characters or with a control character is refused.</param>
+    /// <param name="contentLength">The announced length, or null. A body of another length is refused and not kept.</param>
+    /// <param name="call">The caller, with its tenant bound.</param>
+    /// <param name="cancellationToken">Cancels the upload.</param>
+    /// <exception cref="InvalidOperationException">Inbound uploads are not enabled, or no object store is registered.</exception>
+    /// <exception cref="A2AException">
+    /// Unauthenticated; PermissionDenied; InvalidParams (file name, tenant, length mismatch); a payload over
+    /// <see cref="ArtifactUploadOptions.MaxUploadBytes"/> (<see cref="A2AException.PayloadTooLarge"/>, HTTP 413); RateLimited (the caller's quota
+    /// or concurrency limit, HTTP 429, with <see cref="A2AException.RetryAfter"/>).
+    /// </exception>
+    public async ValueTask<UrlPart> UploadFileAsync(Stream content, string? mediaType, string? fileName, long? contentLength, ServerCallContext call,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(call);
+        var inbound = _inbound ?? throw new InvalidOperationException("Inbound file uploads are not enabled: set ArtifactStorage.Uploads.Enabled and register an ArtifactObjectStore.");
+        UrlPart? part = null;
+        await _pipeline.RunExtensionAsync(UploadOperation, call, A2A.Json.A2AJson.EmptyObject, async (_, _, ct) =>
+        {
+            await _requestCards.RequireAgentAsync(call, ct).ConfigureAwait(false);
+            part = await inbound.UploadAsync(call, content, mediaType, fileName, contentLength, ct).ConfigureAwait(false);
+            return A2A.Json.A2AJson.EmptyObject;
+        }, cancellationToken).ConfigureAwait(false);
+        return part!;
+    }
+
+    /// <summary>
+    /// Opens the caller's own uploaded file for download. It runs through the pipeline as the extension operation
+    /// <see cref="ReadUploadOperationName"/>. The key is built from the call's tenant and principal and <paramref name="objectId"/>, so
+    /// another owner's file is not found. Every miss (not enabled, bad id, no file, another owner or tenant) is <c>TaskNotFound</c>.
+    /// The caller must be authenticated. The caller disposes the result, which never has a redirect.
+    /// </summary>
+    /// <param name="objectId">The object id from the upload link.</param>
+    /// <param name="range">The bytes to read, or null for all.</param>
+    /// <param name="call">The caller, with its tenant bound.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <exception cref="A2AException">Unauthenticated; PermissionDenied; or the file cannot be found (<see cref="A2AErrorCode.TaskNotFound"/>).</exception>
+    public async ValueTask<ArtifactDownload> OpenUploadAsync(string objectId, ArtifactByteRange? range, ServerCallContext call, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(objectId);
+        ArgumentNullException.ThrowIfNull(call);
+        ArtifactObjectContent? content = null;
+        await _pipeline.RunExtensionAsync(ReadUploadOperation, call, A2A.Json.A2AJson.EmptyObject, async (_, _, ct) =>
+        {
+            await _requestCards.RequireAgentAsync(call, ct).ConfigureAwait(false);
+            if (_inbound is not null) content = await _inbound.OpenAsync(call, objectId, range, ct).ConfigureAwait(false);
+            return A2A.Json.A2AJson.EmptyObject;
+        }, cancellationToken).ConfigureAwait(false);
+        return new ArtifactDownload(null, content ?? throw A2AException.TaskNotFound(objectId));
     }
 
     /// <summary>ListTasks (spec §3.1.4). Returns the caller's tasks, newest status first. The page size defaults to 50 and is capped by <see cref="A2ALimits.MaxListPageSize"/>.</summary>

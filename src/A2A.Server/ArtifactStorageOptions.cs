@@ -29,6 +29,9 @@ public sealed class ArtifactStorageOptions
     /// money, so the step is skipped on the sweeps in between. Must be greater than zero.
     /// </summary>
     public TimeSpan OrphanSweepInterval { get; set; } = TimeSpan.FromHours(6);
+
+    /// <summary>Inbound file uploads: clients send a large file to the object store first, then refer to it in a message. Off by default.</summary>
+    public ArtifactUploadOptions Uploads { get; } = new();
 }
 
 /// <summary>How the server delivers an artifact download.</summary>

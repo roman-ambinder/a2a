@@ -163,6 +163,45 @@ public static partial class A2AEndpointRouteBuilderExtensions
         return group;
     }
 
+    /// <summary>
+    /// Maps <c>POST {pattern}/uploads/{tenant or _}</c> and <c>GET {pattern}/uploads/{tenant or _}/{objectId}</c>, which let a client
+    /// upload a large file to the <see cref="Storage.ArtifactObjectStore"/> first and then send it in a message as an ordinary <c>url</c>
+    /// part (see <see cref="ArtifactUploadOptions"/>). The POST body is the raw file, streamed to the store and never buffered, and
+    /// may be larger than <see cref="A2ALimits.MaxRequestBodyBytes"/>; <c>Content-Type</c> is the media type and
+    /// <c>Content-Disposition: attachment; filename*=...</c> the optional file name. The answer is 201 with the JSON of the
+    /// <c>url</c> part (<c>sha256</c> and <c>sizeBytes</c> in its metadata) and a <c>Location</c> header with the link. The owner reads the
+    /// file back with the GET; every miss, also another owner's file, is 404. The caller needs the same credentials as for A2A
+    /// calls and must be authenticated, also when <see cref="A2AServerOptions.AllowAnonymous"/> is set. The operations run through
+    /// the pipeline as <c>a2a.files.upload</c> and <c>a2a.files.read</c>, so a custom <see cref="Authorization.A2AAuthorizationHandler"/>
+    /// must allow those two names. Over <see cref="ArtifactUploadOptions.MaxUploadBytes"/> the answer is 413; over the caller's quota,
+    /// or with too many uploads running, 429 with <c>Retry-After</c>. Like <see cref="MapA2A"/>, the routes are covered by the startup
+    /// authorization check and the <c>"a2a"</c> rate limit policy, so call <c>RequireAuthorization()</c> on the returned group. Map it at the
+    /// same <paramref name="pattern"/> as <see cref="MapA2A"/>, and give the agent card the origin that the links use, so clients send
+    /// credentials. Requires <see cref="A2AServiceCollectionExtensions.AddA2AServerAspNetCore"/>.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// <c>services.AddA2AServerAspNetCore()</c> was not called, <see cref="ArtifactUploadOptions.Enabled"/> is false, no
+    /// <see cref="Storage.ArtifactObjectStore"/> is registered, or an upload option is out of range.
+    /// </exception>
+    public static RouteGroupBuilder MapA2AUploads(this IEndpointRouteBuilder endpoints, string pattern = "/")
+    {
+        RequireRegistration(endpoints);
+        var services = endpoints.ServiceProvider;
+        var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<A2AServerOptions>>().Value;
+        if (!options.ArtifactStorage.Uploads.Enabled)
+            throw new InvalidOperationException("MapA2AUploads needs A2AServerOptions.ArtifactStorage.Uploads.Enabled = true.");
+        if (services.GetService<Storage.ArtifactObjectStore>() is null)
+            throw new InvalidOperationException("MapA2AUploads needs an ArtifactObjectStore: register one (the S3 or Azure Blob store, or InMemoryArtifactObjectStore for tests).");
+        // The handler checks the upload options when it is built (InvalidOperationException for a value out of range), so resolve it now.
+        services.GetRequiredService<A2ARequestHandler>();
+        var group = endpoints.MapGroup(pattern);
+        var uploads = ActivatorUtilities.CreateInstance<UploadEndpoint>(services);
+        group.MapPost("/uploads/{uploadTenant}", uploads.PostAsync).WithDisplayName(UploadEndpoint.DisplayName);
+        group.MapGet("/uploads/{uploadTenant}/{objectId}", uploads.GetAsync).WithDisplayName(UploadEndpoint.DisplayName + " (read)");
+        ApplyRateLimiting(endpoints, group);
+        return group;
+    }
+
     private static void MapJsonRpc(IEndpointRouteBuilder endpoints, RouteGroupBuilder group, bool tenantInPattern, IA2AProtocolAdapter? adapter = null)
     {
         var rpc = ActivatorUtilities.CreateInstance<JsonRpcEndpoint>(endpoints.ServiceProvider);

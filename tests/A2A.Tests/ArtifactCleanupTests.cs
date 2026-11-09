@@ -78,7 +78,7 @@ public sealed class ArtifactCleanupTests
         public ValueTask DisposeAsync() => Host.DisposeAsync();
     }
 
-    private static async Task<Rig> StartAsync(bool withStore = true, TimeSpan? grace = null, TimeSpan? interval = null)
+    private static async Task<Rig> StartAsync(bool withStore = true, TimeSpan? grace = null, TimeSpan? interval = null, bool uploads = false)
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var log = new List<string>();
@@ -90,6 +90,7 @@ public sealed class ArtifactCleanupTests
                 o.ArtifactStorage.PublicBaseUrl = Base;
                 o.ArtifactStorage.OrphanGracePeriod = grace ?? Grace;
                 if (interval is { } i) o.ArtifactStorage.OrphanSweepInterval = i;
+                o.ArtifactStorage.Uploads.Enabled = uploads;
             },
             services: s =>
             {
@@ -411,5 +412,214 @@ public sealed class ArtifactCleanupTests
 
         await sweeper.StartAsync(CancellationToken.None);
         await sweeper.StopAsync(CancellationToken.None);
+    }
+
+    // =====================================================================
+    // Inbound uploads: the "unused uploads" step
+    // =====================================================================
+
+    private static readonly TimeSpan UploadTtl = new A2AServerOptions().ArtifactStorage.Uploads.UnusedUploadTtl;
+
+    private static string OwnerHash(string owner = "alice") => UploadObjectKey.OwnerHash(owner);
+
+    private static async Task<string> PutUploadAsync(Rig rig, string tenant = "", string owner = "alice")
+    {
+        var id = ArtifactObjectKey.NewObjectId();
+        await PutKeyAsync(rig, UploadObjectKey.CreateUpload(tenant, OwnerHash(owner), id));
+        return id;
+    }
+
+    private static Task PutReferenceAsync(Rig rig, string uploadId, string taskId, string tenant = "", string owner = "alice") =>
+        PutKeyAsync(rig, UploadObjectKey.CreateReference(tenant, OwnerHash(owner), uploadId, taskId));
+
+    private static string UploadKey(string id, string tenant = "", string owner = "alice") => UploadObjectKey.CreateUpload(tenant, OwnerHash(owner), id);
+
+    private static string ReferenceKey(string id, string taskId, string tenant = "", string owner = "alice") =>
+        UploadObjectKey.CreateReference(tenant, OwnerHash(owner), id, taskId);
+
+    /// <summary>A task (history message) that links to the uploads.</summary>
+    private static async Task CreateTaskWithUploadsAsync(Rig rig, string taskId, string tenant, params string[] uploadIds)
+    {
+        var now = rig.Clock.GetUtcNow();
+        var message = new Message
+        {
+            MessageId = "m1", Role = Role.User,
+            Parts = uploadIds.Select(id => (Part)Part.FromUrl(ArtifactLink.CreateUpload(Base, tenant, id))).ToList(),
+        };
+        await rig.Tasks.CreateAsync(new TaskRecord(tenant, "alice", new AgentTask
+        {
+            Id = taskId, ContextId = "ctx", Status = new AgentTaskStatus { State = TaskState.Completed, Timestamp = now }, History = [message],
+        }, 0, now, now));
+    }
+
+    private static readonly TimeSpan PastTtlAndGrace = UploadTtl + Grace + TimeSpan.FromMinutes(1);
+
+    [Fact]
+    public async Task Unused_upload_is_purged_only_after_ttl_plus_grace()
+    {
+        await using var rig = await StartAsync(uploads: true);
+        var id = await PutUploadAsync(rig);
+
+        rig.Clock.Advance(UploadTtl + Grace - TimeSpan.FromMinutes(1));
+        await rig.Sweeper().RunOnceAsync(CancellationToken.None);
+        Assert.True(await ExistsAsync(rig, UploadKey(id)));
+
+        rig.Clock.Advance(TimeSpan.FromMinutes(2));
+        await rig.Sweeper().RunOnceAsync(CancellationToken.None);
+        Assert.False(await ExistsAsync(rig, UploadKey(id)));
+    }
+
+    [Fact]
+    public async Task Referenced_upload_is_kept_while_the_task_lives_and_purged_after_it_is_deleted()
+    {
+        await using var rig = await StartAsync(uploads: true);
+        var id = await PutUploadAsync(rig);
+        await PutReferenceAsync(rig, id, "t1");
+        var key = new TaskKey("", "alice", "t1");
+        await CreateTaskWithUploadsAsync(rig, "t1", "", id);
+        rig.Clock.Advance(PastTtlAndGrace);
+
+        await rig.Sweeper().RunOnceAsync(CancellationToken.None);
+        Assert.True(await ExistsAsync(rig, UploadKey(id)));
+        Assert.True(await ExistsAsync(rig, ReferenceKey(id, "t1")));
+
+        Assert.True(await rig.Tasks.DeleteAsync(key));
+        await rig.Sweeper().RunOnceAsync(CancellationToken.None);
+        Assert.False(await ExistsAsync(rig, ReferenceKey(id, "t1")));
+        Assert.False(await ExistsAsync(rig, UploadKey(id)));
+    }
+
+    [Fact]
+    public async Task A_reference_to_a_task_that_does_not_refer_to_the_link_is_removed_and_the_upload_with_it()
+    {
+        await using var rig = await StartAsync(uploads: true);
+        var id = await PutUploadAsync(rig);
+        await PutReferenceAsync(rig, id, "t1");
+        await CreateTaskWithUploadsAsync(rig, "t1", ""); // the task exists but the commit never carried the link
+        rig.Clock.Advance(PastTtlAndGrace);
+
+        await rig.Sweeper().RunOnceAsync(CancellationToken.None);
+
+        Assert.False(await ExistsAsync(rig, ReferenceKey(id, "t1")));
+        Assert.False(await ExistsAsync(rig, UploadKey(id)));
+    }
+
+    [Fact]
+    public async Task A_young_reference_keeps_an_old_upload()
+    {
+        await using var rig = await StartAsync(uploads: true);
+        var id = await PutUploadAsync(rig);
+        rig.Clock.Advance(PastTtlAndGrace);
+        await PutReferenceAsync(rig, id, "in-flight"); // its message may be committing right now
+
+        await rig.Sweeper().RunOnceAsync(CancellationToken.None);
+        Assert.True(await ExistsAsync(rig, UploadKey(id)));
+        Assert.True(await ExistsAsync(rig, ReferenceKey(id, "in-flight")));
+
+        rig.Clock.Advance(Grace + TimeSpan.FromMinutes(1)); // no task came
+        await rig.Sweeper().RunOnceAsync(CancellationToken.None);
+        Assert.False(await ExistsAsync(rig, UploadKey(id)));
+        Assert.False(await ExistsAsync(rig, ReferenceKey(id, "in-flight")));
+    }
+
+    [Fact]
+    public async Task A_task_that_cannot_be_read_keeps_its_upload()
+    {
+        await using var rig = await StartAsync(uploads: true);
+        var id = await PutUploadAsync(rig);
+        await PutReferenceAsync(rig, id, "t1");
+        rig.Clock.Advance(PastTtlAndGrace);
+        rig.Tasks.FailMaintenanceRead = true;
+
+        await rig.Sweeper().RunOnceAsync(CancellationToken.None);
+
+        Assert.True(await ExistsAsync(rig, UploadKey(id)));
+        Assert.True(await ExistsAsync(rig, ReferenceKey(id, "t1")));
+    }
+
+    [Fact]
+    public async Task Upload_step_respects_the_batch_size_and_a_limited_run_does_not_count()
+    {
+        var interval = TimeSpan.FromDays(7);
+        await using var rig = await StartAsync(uploads: true, interval: interval);
+        var ids = new List<string>();
+        for (var i = 0; i < 5; i++) ids.Add(await PutUploadAsync(rig));
+        rig.Clock.Advance(PastTtlAndGrace);
+        var sweeper = rig.Sweeper(o => o.BatchSize = 2);
+        async Task<int> Left() => (await Task.WhenAll(ids.Select(id => ExistsAsync(rig, UploadKey(id))))).Count(x => x);
+
+        await sweeper.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(3, await Left());
+        await sweeper.RunOnceAsync(CancellationToken.None); // not recorded: no interval needed
+        Assert.Equal(1, await Left());
+        await sweeper.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(0, await Left());
+
+        var late = await PutUploadAsync(rig);
+        rig.Clock.Advance(PastTtlAndGrace);
+        await sweeper.RunOnceAsync(CancellationToken.None); // finished before: waits for the interval
+        Assert.True(await ExistsAsync(rig, UploadKey(late)));
+        rig.Clock.Advance(interval);
+        await sweeper.RunOnceAsync(CancellationToken.None);
+        Assert.False(await ExistsAsync(rig, UploadKey(late)));
+    }
+
+    [Fact]
+    public async Task Dangling_references_are_removed_once_they_are_older_than_the_grace_period()
+    {
+        await using var rig = await StartAsync(uploads: true);
+        var gone = ArtifactObjectKey.NewObjectId();
+        await PutReferenceAsync(rig, gone, "t1"); // its upload does not exist
+        var live = await PutUploadAsync(rig);
+        await PutReferenceAsync(rig, live, "t2");
+        await CreateTaskWithUploadsAsync(rig, "t2", "", live);
+
+        rig.Clock.Advance(Grace - TimeSpan.FromMinutes(1));
+        await rig.Sweeper().RunOnceAsync(CancellationToken.None);
+        Assert.True(await ExistsAsync(rig, ReferenceKey(gone, "t1"))); // young
+
+        rig.Clock.Advance(TimeSpan.FromMinutes(2));
+        await rig.Sweeper().RunOnceAsync(CancellationToken.None);
+        Assert.False(await ExistsAsync(rig, ReferenceKey(gone, "t1")));
+        Assert.True(await ExistsAsync(rig, ReferenceKey(live, "t2"))); // its upload exists
+    }
+
+    [Fact]
+    public async Task The_artifact_orphan_step_leaves_upload_keys_alone()
+    {
+        await using var rig = await StartAsync(uploads: false); // only the orphan step runs
+        var id = await PutUploadAsync(rig);
+        await PutReferenceAsync(rig, id, "t1");
+        var orphan = await PutAsync(rig, "", "gone");
+        rig.Clock.Advance(PastTtlAndGrace);
+
+        await rig.Sweeper().RunOnceAsync(CancellationToken.None);
+
+        Assert.False(await ExistsAsync(rig, KeyOf("", "gone", orphan))); // the step ran
+        Assert.True(await ExistsAsync(rig, UploadKey(id)));
+        Assert.True(await ExistsAsync(rig, ReferenceKey(id, "t1")));
+    }
+
+    [Fact]
+    public async Task A_tenant_named_uploads_is_not_confused_with_the_upload_keys()
+    {
+        await using var rig = await StartAsync(uploads: true);
+        // Artifact objects of the tenant "_uploads" have 3 segments, like "_uploads/{taskId}/{objectId}".
+        var kept = ArtifactObjectKey.NewObjectId();
+        await PutKeyAsync(rig, KeyOf("_uploads", "t1", kept));
+        await CreateTaskAsync(rig, "_uploads", "alice", "t1", kept);
+        var orphan = await PutAsync(rig, "_uploads", "gone");
+        // And a real upload of that tenant has 4.
+        var upload = await PutUploadAsync(rig, tenant: "_uploads");
+        Assert.False(UploadObjectKey.TryParseUpload(KeyOf("_uploads", "t1", kept), out _, out _, out _));
+        Assert.True(UploadObjectKey.TryParseUpload(UploadKey(upload, "_uploads"), out var tenant, out _, out _));
+        Assert.Equal("_uploads", tenant);
+        rig.Clock.Advance(PastTtlAndGrace);
+
+        await rig.Sweeper().RunOnceAsync(CancellationToken.None);
+
+        Assert.True(await ExistsAsync(rig, KeyOf("_uploads", "t1", kept)));   // the upload step did not touch it
+        Assert.False(await ExistsAsync(rig, KeyOf("_uploads", "gone", orphan))); // the orphan step still sees it as an artifact
+        Assert.False(await ExistsAsync(rig, UploadKey(upload, "_uploads")));  // the upload step purged the upload
     }
 }

@@ -200,6 +200,16 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 257, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.SharedBusMessage)]
     public static partial void SharedBusWithInMemoryStores(ILogger logger, string bus, string inMemoryStores);
 
+    // Inbound uploads: 680-689
+    [LoggerMessage(EventId = 680, Level = LogLevel.Information, Message = "Deleted the unused inbound upload {Key}")]
+    public static partial void UploadPurged(ILogger logger, string key);
+
+    [LoggerMessage(EventId = 681, Level = LogLevel.Warning, Message = "Inbound upload {Key}: could not tell whether a task still uses it, so it is kept; the next sweep tries again")]
+    public static partial void UploadCheckFailed(ILogger logger, Exception exception, string key);
+
+    [LoggerMessage(EventId = 682, Level = LogLevel.Warning, Message = A2AStartupDiagnostics.UploadsWithoutRetentionMessage)]
+    public static partial void UploadsWithoutRetention(ILogger logger);
+
     // IdempotencyCoordinator: 400-499
     [LoggerMessage(EventId = 400, Level = LogLevel.Error, Message = "Failed to record the idempotency outcome for task {TaskId}")]
     public static partial void IdempotencyRecordFailed(ILogger logger, Exception exception, string taskId);

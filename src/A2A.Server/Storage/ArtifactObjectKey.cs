@@ -25,11 +25,40 @@ internal static class ArtifactObjectKey
     /// <exception cref="ArgumentException">The tenant is the literal <c>_</c>.</exception>
     public static string TaskPrefix(string tenant, string taskId)
     {
-        ArgumentNullException.ThrowIfNull(tenant);
         ArgumentNullException.ThrowIfNull(taskId);
-        if (tenant == EmptyTenant) throw new ArgumentException("The tenant '_' is reserved for the default tenant.", nameof(tenant));
-        return (tenant.Length == 0 ? EmptyTenant : Encode(tenant)) + "/" + Encode(taskId) + "/";
+        return TenantSegment(tenant) + "/" + TaskSegment(taskId) + "/";
     }
+
+    /// <summary>The key segment of a tenant: percent-encoded, and <c>_</c> for the default tenant.</summary>
+    /// <exception cref="ArgumentException">The tenant is the literal <c>_</c>.</exception>
+    public static string TenantSegment(string tenant)
+    {
+        ArgumentNullException.ThrowIfNull(tenant);
+        if (tenant == EmptyTenant) throw new ArgumentException("The tenant '_' is reserved for the default tenant.", nameof(tenant));
+        return tenant.Length == 0 ? EmptyTenant : Encode(tenant);
+    }
+
+    /// <summary>The key segment of a task id: percent-encoded, so it can add no segment and is never <c>.</c> or <c>..</c>.</summary>
+    public static string TaskSegment(string taskId)
+    {
+        ArgumentNullException.ThrowIfNull(taskId);
+        return Encode(taskId);
+    }
+
+    /// <summary>Reads a <see cref="TenantSegment"/>. Returns false when the segment would decode to the reserved tenant <c>_</c>.</summary>
+    public static bool TryReadTenantSegment(string segment, [NotNullWhen(true)] out string? tenant)
+    {
+        tenant = segment == EmptyTenant ? string.Empty : Uri.UnescapeDataString(segment);
+        if (tenant == EmptyTenant)
+        {
+            tenant = null;
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>Reads a <see cref="TaskSegment"/>.</summary>
+    public static string ReadTaskSegment(string segment) => Uri.UnescapeDataString(segment);
 
     /// <summary>Splits a key made by <see cref="Create"/>. Returns false for any other string.</summary>
     public static bool TryParse(string key, [NotNullWhen(true)] out string? tenant, [NotNullWhen(true)] out string? taskId, [NotNullWhen(true)] out string? objectId)
@@ -37,10 +66,10 @@ internal static class ArtifactObjectKey
         tenant = taskId = objectId = null;
         var parts = key.Split('/');
         if (parts.Length != 3 || !IsValidObjectId(parts[2])) return false;
-        var t = parts[0] == EmptyTenant ? string.Empty : Uri.UnescapeDataString(parts[0]);
-        var id = Uri.UnescapeDataString(parts[1]);
         // Only the exact form Create writes is a key: this rejects "%2e", "%5F" and other spellings of the same ids.
-        if (t == EmptyTenant || Create(t, id, parts[2]) != key) return false;
+        if (!TryReadTenantSegment(parts[0], out var t)) return false;
+        var id = ReadTaskSegment(parts[1]);
+        if (Create(t, id, parts[2]) != key) return false;
         (tenant, taskId, objectId) = (t, id, parts[2]);
         return true;
     }
