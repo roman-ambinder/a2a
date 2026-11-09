@@ -76,6 +76,11 @@
     <NoWarn>$(NoWarn);xUnit1051</NoWarn>
   </PropertyGroup>
 
+  <!-- Code coverage for the CI coverage job only (build property A2ACoverage=true). Normal runs do not load it. -->
+  <ItemGroup Condition="'$(A2ACoverage)' == 'true' And '$(IsTestProject)' == 'true'">
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(IsPackable)' == 'true'">
     <None Include="$(MSBuildProjectDirectory)/README.md" Pack="true" PackagePath="/" Condition="Exists('$(MSBuildProjectDirectory)/README.md')" />
   </ItemGroup>

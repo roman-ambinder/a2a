@@ -369,10 +369,11 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         # API pages link to learn.microsoft.com heavily, so only the hand-written markdown is checked.
         # This private repo is covered by check-guides.py.
+        # 502 to 504 are the remote host having a bad moment, not a dead link; they failed main with a 504 from github.com.
         run: >-
           lychee
           --no-progress --max-retries 3 --retry-wait-time 5 --timeout 30
-          --accept '100..=399,429'
+          --accept '100..=399,429,502..=504'
           --exclude 'github\.com/roman-ambinder/a2a'
           'docs/site/index.md' 'docs/site/guides/*.md'
 
@@ -383,6 +384,41 @@ jobs:
           name: docs-site
           path: docs/site/_site
           if-no-files-found: error
+
+  coverage:
+    name: Coverage report
+    # Report only. Instrumentation slows tests and would add timing flakes, so it runs after merges, never on a pull request,
+    # and it is deliberately not in all-green. Store tests need containers and are not included.
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test with coverage (net10.0)
+        run: |
+          status=0
+          for p in A2A.Tests A2A.Grpc.Tests A2A.V0_3Compat.Tests A2A.Extensions.AI.Tests A2A.Mcp.Tests A2A.TestKit.Tests; do
+            dotnet test --project "tests/$p/$p.csproj" -c Release -f net10.0 -p:A2ACoverage=true --coverage --coverage-output-format cobertura --results-directory coverage || status=1
+          done
+          exit $status
+
+      - name: Write summary
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/coverage_summary.py coverage >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/**/*.cobertura.xml
+          if-no-files-found: warn
 
   all-green:
     name: all-green
