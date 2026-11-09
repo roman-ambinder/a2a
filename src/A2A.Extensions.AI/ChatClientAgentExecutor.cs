@@ -16,10 +16,15 @@ namespace A2A.Extensions.AI;
 /// A model error, a content filter stop, or a tool call that nothing resolved throws <see cref="InvalidOperationException"/>.
 /// The server then marks the task failed with a generic message and logs the real error. Cancellation ends the task as canceled.
 /// </para>
-/// <para>History is per task: a new task in the same context does not see earlier tasks. Use <see cref="ChatClientAgentOptions.KeepConversationOpen"/> for multi-turn chats.</para>
+/// <para>
+/// By default history is per task: a new task in the same context does not see earlier tasks. Turn on
+/// <see cref="ChatClientAgentOptions.UseContextMemory"/> to give the model the earlier tasks of the context, or use
+/// <see cref="ChatClientAgentOptions.KeepConversationOpen"/> to continue one task.
+/// </para>
 /// </remarks>
 public sealed class ChatClientAgentExecutor : IAgentExecutor
 {
+    private const string SummaryPrefix = "Summary of the earlier conversation:\n";
     private const string UrlRejectedText = "URL parts are not accepted by this agent.";
 
     private readonly IChatClient _chatClient;
@@ -44,7 +49,7 @@ public sealed class ChatClientAgentExecutor : IAgentExecutor
             return;
         }
 
-        var messages = BuildPrompt(context);
+        var messages = await BuildPromptAsync(context, cancellationToken).ConfigureAwait(false);
         var chatOptions = _options.ChatOptions?.Clone() ?? new ChatOptions();
         chatOptions.ConversationId = null;
 
@@ -70,15 +75,26 @@ public sealed class ChatClientAgentExecutor : IAgentExecutor
             var reply = run.Reply.Count == 0 ? null : updater.NewAgentMessage(run.Reply.ToArray());
             await updater.UpdateStatusAsync(TaskState.InputRequired, reply, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
+        else if (_options.UseContextMemory && run.Reply.Count > 0)
+        {
+            // The next task in this context reads status messages from history, so the reply goes into this one. It is stored twice.
+            await updater.UpdateStatusAsync(TaskState.Completed, updater.NewAgentMessage(run.Reply.ToArray()), cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
         else
         {
             await updater.CompleteAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private List<ChatMessage> BuildPrompt(AgentRequestContext context)
+    private async ValueTask<List<ChatMessage>> BuildPromptAsync(AgentRequestContext context, CancellationToken cancellationToken)
     {
         var source = new List<Message>();
+        string? summary = null;
+        if (_options.UseContextMemory && context.Conversation is { } memory)
+        {
+            summary = await memory.GetSummaryAsync(cancellationToken).ConfigureAwait(false);
+            source.AddRange(await memory.ReadEarlierMessagesAsync(_options.ContextMemoryMaxTasks, _options.ContextMemoryMaxBytes, cancellationToken).ConfigureAwait(false));
+        }
         if (context.Task?.History is { } history) source.AddRange(history);
         // History normally has the new message already; add it only when it is missing.
         if (source.Count == 0 || source[^1].MessageId != context.Message.MessageId) source.Add(context.Message);
@@ -88,6 +104,8 @@ public sealed class ChatClientAgentExecutor : IAgentExecutor
         while (skip < source.Count - 1 && source[skip].Role == Role.Agent) skip++;
         var messages = new List<ChatMessage>(source.Count - skip + 1);
         if (!string.IsNullOrEmpty(_options.Instructions)) messages.Add(new ChatMessage(ChatRole.System, _options.Instructions));
+        // The summary comes from caller text, so it is a user message and never gains system rights. It does not count toward MaxHistoryMessages.
+        if (!string.IsNullOrEmpty(summary)) messages.Add(new ChatMessage(ChatRole.User, SummaryPrefix + summary));
         for (var i = skip; i < source.Count; i++)
         {
             var contents = new List<AIContent>();

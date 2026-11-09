@@ -7,3 +7,12 @@ A2A.Client.TypedSkillCallException
 A2A.Client.TypedSkillCallException.State.get -> A2A.TaskState
 A2A.Client.TypedSkillCallException.Task.get -> A2A.AgentTask!
 A2A.Client.TypedSkillCallException.TypedSkillCallException(A2A.AgentTask! task) -> void
+A2A.Client.A2AClientOptions.CircuitBreaker.get -> A2A.Client.Resilience.CircuitBreakerOptions?
+A2A.Client.A2AClientOptions.CircuitBreaker.set -> void
+A2A.Client.Resilience.CircuitBreakerOptions
+A2A.Client.Resilience.CircuitBreakerOptions.CircuitBreakerOptions() -> void
+A2A.Client.Resilience.CircuitBreakerOptions.FailureThreshold.get -> int
+A2A.Client.Resilience.CircuitBreakerOptions.FailureThreshold.set -> void
+A2A.Client.Resilience.CircuitBreakerOptions.OpenDuration.get -> System.TimeSpan
+A2A.Client.Resilience.CircuitBreakerOptions.OpenDuration.set -> void
+A2A.Client.Resilience.CircuitOpenException

@@ -12,7 +12,7 @@ namespace A2A.Server.Postgres;
 /// so several instances can share one outbox. Due times and leases are on the database clock (see
 /// <see cref="PostgresStoreOptions.UseDatabaseClock"/>), so instances whose clocks disagree do not take each other's leases.
 /// </summary>
-public sealed class PostgresPushOutbox : PushOutbox
+public sealed class PostgresPushOutbox : PushOutbox, IPushOutboxStatistics
 {
     private const string Columns = "tenant, owner, task_id, config_id, seq, delivery_id, trace_parent, attempt, payload";
     private const string KeyFilter = "tenant = $1 AND owner = $2 AND task_id = $3 AND config_id = $4 AND seq = $5";
@@ -215,6 +215,20 @@ public sealed class PostgresPushOutbox : PushOutbox
             batch.BatchCommands.Add(delete);
         }
         await batch.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<PushOutboxStatistics> GetStatisticsAsync(int maxDeadLetters, CancellationToken cancellationToken = default)
+    {
+        // One statement. min(due_ticks) uses a2a_push_outbox_due_ix; the dead letter count stops at the limit.
+        await using var cmd = _db.CreateCommand(
+            $"SELECT {DbClock.Now(1)} - (SELECT min(due_ticks) FROM {_outbox}), (SELECT count(*) FROM (SELECT 1 FROM {_dead} LIMIT $2) d)");
+        cmd.Parameters.Add(_clock.NowParam());
+        cmd.Parameters.Add(new NpgsqlParameter<int> { TypedValue = Math.Max(0, maxDeadLetters) });
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var age = reader.IsDBNull(0) ? TimeSpan.Zero : TimeSpan.FromTicks(Math.Max(0, reader.GetInt64(0)));
+        return new PushOutboxStatistics(age, (int)reader.GetInt64(1));
     }
 
     /// <summary>The parameters of <see cref="LeasedFilter"/> for <paramref name="leased"/>; false when it carries no lease.</summary>

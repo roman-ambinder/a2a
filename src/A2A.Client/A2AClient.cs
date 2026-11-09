@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using A2A.Client.Resilience;
 using A2A.Client.Streaming;
 using A2A.Skills;
 using A2A.Validation;
@@ -15,6 +16,8 @@ namespace A2A.Client;
 /// Every operation is a span of the <c>A2A.Client</c> <see cref="System.Diagnostics.ActivitySource"/> (see
 /// <see cref="A2A.Diagnostics.A2ATelemetry"/>), covering retries and stream reconnects; stream events are span events. The
 /// transports send the current span as a W3C <c>traceparent</c> header (gRPC metadata), so server spans join the trace.
+/// With <see cref="A2AClientOptions.CircuitBreaker"/> set, the client also stops calling a peer that keeps failing. Only the
+/// transport call counts; checks before it and <see cref="A2AClientOptions.OnMessageReceived"/> do not.
 /// </remarks>
 public sealed class A2AClient : IA2AClient
 {
@@ -22,6 +25,7 @@ public sealed class A2AClient : IA2AClient
     private readonly A2AClientOptions _options;
     private readonly string? _binding;
     private readonly AgentCard? _telemetryCard;
+    private readonly CircuitBreaker? _breaker;
     private volatile bool _extendedCardLoaded;
 
     /// <summary>Creates a client over <paramref name="transport"/>. <paramref name="options"/> defaults to a new <see cref="A2AClientOptions"/>. <paramref name="agentCard"/> enables capability checks when given.</summary>
@@ -31,6 +35,7 @@ public sealed class A2AClient : IA2AClient
         _options = options ?? new A2AClientOptions();
         AgentCard = agentCard;
         _telemetryCard = agentCard;
+        _breaker = _options.CircuitBreaker is { } breaker ? new CircuitBreaker(breaker, _options.TimeProvider, agentCard?.Name) : null;
         _binding = (transport as ITransportBinding)?.Binding;
     }
 
@@ -244,7 +249,7 @@ public sealed class A2AClient : IA2AClient
         if (request.Configuration?.TaskPushNotificationConfig is not null) RequireCapability(AgentCard?.Capabilities.PushNotifications, A2AErrorCode.PushNotificationNotSupported);
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.SendMessage, this, request.Tenant, request.Message?.TaskId, () =>
         {
-            var call = _transport.SendMessageAsync(request, options, cancellationToken);
+            var call = Guard(() => _transport.SendMessageAsync(request, options, cancellationToken));
             return _options.OnMessageReceived is null ? call : InspectAsync(call, cancellationToken);
         }, cancellationToken, request.Message);
     }
@@ -310,14 +315,14 @@ public sealed class A2AClient : IA2AClient
         A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
-        return ClientTelemetry.TraceStream(A2AProtocol.Methods.SendStreamingMessage, this, request.Tenant, request.Message?.TaskId, Inspect(ResumableStream.RunAsync(
+        return ClientTelemetry.TraceStream(A2AProtocol.Methods.SendStreamingMessage, this, request.Tenant, request.Message?.TaskId, Inspect(Guard(ResumableStream.RunAsync(
             knownTaskId: null,
             ct => _transport is IResumableTransport rt
                 ? rt.SendStreamingFramesAsync(request, options, ct)
                 : Frames(_transport.SendStreamingMessageAsync(request, options, ct), ct),
             (taskId, cursor, ct) => Resubscribe(request.Tenant, taskId, cursor, options, ct),
             (taskId, ct) => GetTaskForResume(request.Tenant, taskId, options, ct),
-            _options.TimeProvider, cancellationToken)), request.Message);
+            _options.TimeProvider, cancellationToken))), request.Message);
     }
 
     /// <summary>
@@ -336,12 +341,12 @@ public sealed class A2AClient : IA2AClient
         A2AValidator.RequireId(taskId, "id");
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
         var tenant = _options.Tenant;
-        return ClientTelemetry.TraceStream(A2AProtocol.Methods.SubscribeToTask, this, tenant, taskId, Inspect(ResumableStream.RunAsync(
+        return ClientTelemetry.TraceStream(A2AProtocol.Methods.SubscribeToTask, this, tenant, taskId, Inspect(Guard(ResumableStream.RunAsync(
             knownTaskId: taskId,
             ct => Resubscribe(tenant, taskId, null, options, ct),
             (id, cursor, ct) => Resubscribe(tenant, id, cursor, options, ct),
             (id, ct) => GetTaskForResume(tenant, id, options, ct),
-            _options.TimeProvider, cancellationToken)));
+            _options.TimeProvider, cancellationToken))));
     }
 
     private IAsyncEnumerable<StreamFrame> Resubscribe(string? tenant, string taskId, string? lastEventId, A2ARequestOptions? options, CancellationToken ct)
@@ -367,7 +372,7 @@ public sealed class A2AClient : IA2AClient
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.GetTask, this, request.Tenant, request.Id, () =>
         {
-            var call = _transport.GetTaskAsync(request, options, cancellationToken);
+            var call = Guard(() => _transport.GetTaskAsync(request, options, cancellationToken));
             return _options.OnMessageReceived is null ? call : InspectAsync(call, cancellationToken);
         }, cancellationToken);
     }
@@ -378,7 +383,7 @@ public sealed class A2AClient : IA2AClient
         ArgumentNullException.ThrowIfNull(request);
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.ListTasks, this, request.Tenant, null,
-            () => _transport.ListTasksAsync(request, options, cancellationToken), cancellationToken);
+            () => Guard(() => _transport.ListTasksAsync(request, options, cancellationToken)), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -388,7 +393,7 @@ public sealed class A2AClient : IA2AClient
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.CancelTask, this, request.Tenant, request.Id, () =>
         {
-            var call = _transport.CancelTaskAsync(request, options, cancellationToken);
+            var call = Guard(() => _transport.CancelTaskAsync(request, options, cancellationToken));
             return _options.OnMessageReceived is null ? call : InspectAsync(call, cancellationToken);
         }, cancellationToken);
     }
@@ -400,7 +405,7 @@ public sealed class A2AClient : IA2AClient
         request.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation, "Agent does not declare streaming support.");
         return ClientTelemetry.TraceStream(A2AProtocol.Methods.SubscribeToTask, this, request.Tenant, request.Id,
-            Inspect(_transport.SubscribeToTaskAsync(request, options, cancellationToken)));
+            Inspect(Guard(_transport.SubscribeToTaskAsync(request, options, cancellationToken))));
     }
 
     /// <inheritdoc />
@@ -410,7 +415,7 @@ public sealed class A2AClient : IA2AClient
         config.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.PushNotifications, A2AErrorCode.PushNotificationNotSupported);
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.CreateTaskPushNotificationConfig, this, config.Tenant, config.TaskId,
-            () => _transport.CreateTaskPushNotificationConfigAsync(config, options, cancellationToken), cancellationToken);
+            () => Guard(() => _transport.CreateTaskPushNotificationConfigAsync(config, options, cancellationToken)), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -419,7 +424,7 @@ public sealed class A2AClient : IA2AClient
         A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.GetTaskPushNotificationConfig, this, request.Tenant, request.TaskId,
-            () => _transport.GetTaskPushNotificationConfigAsync(request, options, cancellationToken), cancellationToken);
+            () => Guard(() => _transport.GetTaskPushNotificationConfigAsync(request, options, cancellationToken)), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -428,7 +433,7 @@ public sealed class A2AClient : IA2AClient
         A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.ListTaskPushNotificationConfigs, this, request.Tenant, request.TaskId,
-            () => _transport.ListTaskPushNotificationConfigsAsync(request, options, cancellationToken), cancellationToken);
+            () => Guard(() => _transport.ListTaskPushNotificationConfigsAsync(request, options, cancellationToken)), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -437,7 +442,7 @@ public sealed class A2AClient : IA2AClient
         A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.DeleteTaskPushNotificationConfig, this, request.Tenant, request.TaskId,
-            () => _transport.DeleteTaskPushNotificationConfigAsync(request, options, cancellationToken), cancellationToken);
+            () => Guard(() => _transport.DeleteTaskPushNotificationConfigAsync(request, options, cancellationToken)), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -447,8 +452,16 @@ public sealed class A2AClient : IA2AClient
         request.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.ExtendedAgentCard, A2AErrorCode.UnsupportedOperation, "Agent does not declare an extended agent card.");
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.GetExtendedAgentCard, this, request.Tenant, null,
-            () => _transport.GetExtendedAgentCardAsync(request, options, cancellationToken), cancellationToken);
+            () => Guard(() => _transport.GetExtendedAgentCardAsync(request, options, cancellationToken)), cancellationToken);
     }
+
+    // ---- Circuit breaker: wraps only the transport call ----
+
+    private Task<T> Guard<T>(Func<Task<T>> call) => _breaker is null ? call() : _breaker.RunAsync(call);
+
+    private Task Guard(Func<Task> call) => _breaker is null ? call() : _breaker.RunAsync<object?>(async () => { await call().ConfigureAwait(false); return null; });
+
+    private IAsyncEnumerable<StreamResponse> Guard(IAsyncEnumerable<StreamResponse> source) => _breaker is null ? source : _breaker.RunStreamAsync(source);
 
     private static void EnsureMessageId(SendMessageRequest request)
     {

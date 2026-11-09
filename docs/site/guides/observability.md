@@ -74,6 +74,12 @@ A failed operation gets status `Error`, the `error.type` tag and, for A2A errors
 
 A run span is an error when the agent throws, when it hits <xref:A2A.Server.A2AServerOptions.MaxTaskDuration> (`error.type` is `TimeLimit`), or when it leaves the task `FAILED` (`error.type` is `TaskFailed`). A cancellation the caller asked for sets `a2a.canceled` to `true` and is not an error.
 
+## Health checks
+
+`services.AddHealthChecks().AddA2AHealthChecks()` adds four checks, all tagged `a2a`: `a2a_task_store` and `a2a_coordinator` each do one cheap read, `a2a_push_outbox` reports the age of the oldest due delivery and the dead letter count, and `a2a_shutdown` turns Unhealthy when `ApplicationStopping` fires, while running tasks drain. Everything except the push outbox check also has the `ready` tag, so one dead webhook does not take every instance out of the load balancer. The shutdown check cannot help for long: the server stops accepting connections soon after, so on Kubernetes still add a preStop delay if you want probes to see it.
+
+Set the thresholds on `A2AHealthCheckOptions`: `PushBacklogDegradedAge`, `PushBacklogUnhealthyAge`, `DeadLetterDegradedCount` and `DeadLetterUnhealthyCount` (null turns one off), `Timeout` per check, and `IncludePushOutbox`. The push check needs a `PushOutbox` that implements `IPushOutboxStatistics` (the in-memory and PostgreSQL outboxes do); the host fails at startup if it does not. The output holds no connection details, tenant, task id or URL: a failure shows only the exception type, and the full exception goes to the log.
+
 ## No content
 
 Tags never hold message text, parts, metadata, tokens, credentials, webhook URLs or exception messages. Ids and outcomes only. The `gen_ai.agent.*` fields come from the public Agent Card.
@@ -110,6 +116,7 @@ All counters are `Counter<long>`.
 | `A2A` | `a2a.card.changed` | `origin` | cards that differ from the pinned card of their origin |
 | `A2A` | `a2a.card.unsigned` | `origin` | unsigned cards accepted because signatures are not required |
 | `A2A` | `a2a.registry.name_lookalike` | `origin` | agent names that look like the name of another registered agent. See [Peer identity and registry](peer-identity.md) |
+| `A2A` | `a2a.client.circuit.state_changes` | `gen_ai.agent.name` (when known), `a2a.circuit.state` (`closed`, `open`, `half_open`) | circuit breaker state changes of a client. See [Client resilience](client-resilience.md) |
 | `A2A` | `a2a.compat.v0_3.dropped` | `field` (for example `part.filename`) | values dropped because v0.3 cannot carry them. See [v0.3 compatibility](v03-compatibility.md) |
 | `A2A` | `a2a.compat.v0_3.requests` | `binding`, `operation` | requests served on the v0.3 surface. See [v0.3 compatibility](v03-compatibility.md) |
 
@@ -117,7 +124,7 @@ A stream whose reader stops early counts as `canceled`. A cancellation that the 
 
 The push counters are also exposed as `PushDeliveryService.DeliveriesCounterName` and `PushDeliveryService.DeadLettersCounterName`. The idempotency counter is `InMemoryIdempotencyStore.EvictionsCounterName` on `InMemoryIdempotencyStore.MeterName`.
 
-The card counters come from the client's `A2ACardResolver`, so they exist in client processes. `a2a.registry.name_lookalike` comes from `AgentRegistry`, also on the client side. The v0.3 counters come from the v0.3 compatibility packages. The meter `A2A` therefore needs `AddMeter("A2A")` in any process that resolves cards, keeps an agent registry, serves or converts v0.3, or runs the in-memory idempotency store.
+The card counters come from the client's `A2ACardResolver`, so they exist in client processes. `a2a.registry.name_lookalike` comes from `AgentRegistry`, also on the client side. The v0.3 counters come from the v0.3 compatibility packages. The meter `A2A` therefore needs `AddMeter("A2A")` in any process that resolves cards, keeps an agent registry, serves or converts v0.3, runs the in-memory idempotency store, or uses a circuit breaker.
 
 ## Logs
 
