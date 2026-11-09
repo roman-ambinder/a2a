@@ -495,13 +495,16 @@ internal sealed class TaskStreamer
     /// <summary>A task with its last and oldest retained event sequences, read together.</summary>
     private readonly record struct StreamStart(AgentTask Task, long Last, long? Oldest);
 
-    /// <summary>Reads the task and its sequences under the task lock, so the snapshot and the sequences belong together.</summary>
+    /// <summary>
+    /// Reads the task and its sequences under the task lock, so the snapshot and the sequences belong together on this
+    /// instance. Another instance can still commit meanwhile: the sequence is read as <see cref="TaskExecutionEngine.ReadTaskAtSequenceAsync"/> does.
+    /// </summary>
     private async Task<StreamStart> ReadStartAsync(TaskKey key, CancellationToken ct)
     {
         using (await _engine.LockAsync(key, ct).ConfigureAwait(false))
         {
-            var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
-            var last = await _events.LastSequenceAsync(key, ct).ConfigureAwait(false);
+            var (record, last) = await _engine.ReadTaskAtSequenceAsync(key, ct).ConfigureAwait(false);
+            if (record is null) throw A2AException.TaskNotFound(key.TaskId);
             var oldest = await _events.OldestRetainedAsync(key, ct).ConfigureAwait(false);
             return new StreamStart(record.Task, last, oldest);
         }

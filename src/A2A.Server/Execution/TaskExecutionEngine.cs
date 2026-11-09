@@ -554,9 +554,9 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 await snapshotGate.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                    var current = await _tasks.GetAsync(key).ConfigureAwait(false);
+                    var (current, sequence) = await ReadTaskAtSequenceAsync(key, CancellationToken.None).ConfigureAwait(false);
                     if (current is not null)
-                        exec.Emit(new SequencedEvent(await _events.LastSequenceAsync(key).ConfigureAwait(false), StreamResponse.Of(current.Task)));
+                        exec.Emit(new SequencedEvent(sequence, StreamResponse.Of(current.Task)));
                 }
                 finally
                 {
@@ -910,24 +910,36 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
+    /// Reads the task and a sequence it is at least as new as. The task lock is local to one instance, so another instance can
+    /// commit between the two reads. Each try reads the last sequence, the task, then the last sequence again, and stops when
+    /// the task is missing or the sequence did not change (at most 5 tries). The result is always the sequence read BEFORE the
+    /// last task read, also when the tries run out: every event up to it was committed before the task was read, so the task
+    /// holds it. The worst case is a live event the stream sends twice, never one it loses.
+    /// </summary>
+    internal async ValueTask<(TaskRecord? Record, long Sequence)> ReadTaskAtSequenceAsync(TaskKey key, CancellationToken ct)
+    {
+        TaskRecord? record = null;
+        long before = 0;
+        for (var i = 0; i < 5; i++)
+        {
+            before = await _events.LastSequenceAsync(key, ct).ConfigureAwait(false);
+            record = await _tasks.GetAsync(key, ct).ConfigureAwait(false);
+            if (record is null) break;
+            if (await _events.LastSequenceAsync(key, ct).ConfigureAwait(false) == before) break;
+        }
+        return (record, before);
+    }
+
+    /// <summary>
     /// A webhook was just registered (its config is saved): when the task is terminal or interrupted, queues one delivery of the
-    /// task snapshot for that config, at the task's latest event sequence. The sequence and the task are read until the
-    /// sequence is the same before and after the task read, so the snapshot is the state of that very event. Does nothing for a
+    /// task snapshot for that config, at the task's latest event sequence (see <see cref="ReadTaskAtSequenceAsync"/>). Does nothing for a
     /// running task (its next event reaches the config), a missing task, or when
     /// <see cref="PushNotificationOptions.CatchUpOnRegistration"/> is off.
     /// </summary>
     internal async ValueTask CatchUpAsync(TaskKey key, string configId, CancellationToken cancellationToken)
     {
         if (!_options.PushNotifications.CatchUpOnRegistration) return;
-        TaskRecord? record = null;
-        long sequence = 0;
-        for (var i = 0; i < 5; i++)
-        {
-            var before = await _events.LastSequenceAsync(key, cancellationToken).ConfigureAwait(false);
-            record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false);
-            sequence = await _events.LastSequenceAsync(key, cancellationToken).ConfigureAwait(false);
-            if (record is null || before == sequence) break;
-        }
+        var (record, sequence) = await ReadTaskAtSequenceAsync(key, cancellationToken).ConfigureAwait(false);
         if (record is null || !PushCatchUp.IsFinalForNow(record.Task.Status.State)) return;
         await QueueCatchUpAsync(key, configId, record.Task, sequence, cancellationToken).ConfigureAwait(false);
     }
