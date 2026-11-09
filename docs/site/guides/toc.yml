@@ -44,6 +44,8 @@
   href: task-safety.md
 - name: Interop and conformance
   href: interop-and-conformance.md
+- name: Testing your agent
+  href: testing.md
 - name: Spec decisions
   href: spec-decisions.md
 - name: Versioning

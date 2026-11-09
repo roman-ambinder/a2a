@@ -14,7 +14,7 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox
     private readonly Dictionary<(TaskKey Task, string ConfigId, long Sequence), OutboxEntry> _dead = new();
 
     /// <summary>Entries not yet delivered or dead-lettered, leased ones included.</summary>
-    internal int Count
+    public int Count
     {
         get { lock (_gate) return _pending.Values.Sum(g => g.Count); }
     }

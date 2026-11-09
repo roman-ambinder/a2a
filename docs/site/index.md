@@ -23,6 +23,12 @@ dotnet add package RomanAmbinder.A2A.Server.V0_3Compat
 dotnet add package RomanAmbinder.A2A.Client.V0_3Compat
 ```
 
+To test your agent:
+
+```shell
+dotnet add package RomanAmbinder.A2A.TestKit
+```
+
 ## Guides
 
 - [Getting started](guides/getting-started.md)
@@ -44,6 +50,7 @@ dotnet add package RomanAmbinder.A2A.Client.V0_3Compat
 - [Client resilience](guides/client-resilience.md)
 - [Task safety](guides/task-safety.md)
 - [Interop and conformance](guides/interop-and-conformance.md)
+- [Testing your agent](guides/testing.md)
 - [Spec decisions](guides/spec-decisions.md)
 
 ## API reference

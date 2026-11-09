@@ -61,6 +61,15 @@ public sealed class PackageRulesTests
         AssertOnlyAbstractions("A2A.Server", r => r.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal)
             && (r.EndsWith(".Abstractions", StringComparison.Ordinal) || r == "Microsoft.Extensions.Options"));
 
+    [Fact]
+    public void TestKit_references_no_test_framework()
+    {
+        var offenders = RefsOf("A2A.TestKit").Where(r =>
+            r.StartsWith("xunit", StringComparison.OrdinalIgnoreCase) || r.StartsWith("NUnit", StringComparison.OrdinalIgnoreCase)
+            || r.StartsWith("MSTest", StringComparison.OrdinalIgnoreCase) || r.StartsWith("Microsoft.NET.Test.Sdk", StringComparison.OrdinalIgnoreCase)).ToArray();
+        Assert.Empty(offenders);
+    }
+
     private static bool IsExtensionsAbstraction(string r) =>
         r.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal) && r.EndsWith(".Abstractions", StringComparison.Ordinal);
 

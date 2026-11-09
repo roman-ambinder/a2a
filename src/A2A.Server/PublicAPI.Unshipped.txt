@@ -158,3 +158,4 @@ A2A.Server.A2AServerOptions.SkillAuthorization.get -> A2A.Server.Authorization.S
 A2A.Server.AgentRequestContext.AuthorizedSkillId.get -> string?
 A2A.Server.AgentRequestContext.IsSkillAllowedAsync(string! skillId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeSkillAsync(A2A.Server.ServerCallContext! call, string! skillId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<bool>
+A2A.Server.Push.InMemoryPushOutbox.Count.get -> int
