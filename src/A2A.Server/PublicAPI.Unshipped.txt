@@ -94,3 +94,17 @@ A2A.Server.ServerCallContext.SkipRequiredExtensions.get -> bool
 A2A.Server.ServerCallContext.SkipRequiredExtensions.init -> void
 A2A.Server.A2AServerOptions.ShutdownDrainTimeout.get -> System.TimeSpan
 A2A.Server.A2AServerOptions.ShutdownDrainTimeout.set -> void
+A2A.Server.Authorization.SkillAuthorizationMode
+A2A.Server.Authorization.SkillAuthorizationMode.Off = 0 -> A2A.Server.Authorization.SkillAuthorizationMode
+A2A.Server.Authorization.SkillAuthorizationMode.Required = 2 -> A2A.Server.Authorization.SkillAuthorizationMode
+A2A.Server.Authorization.SkillAuthorizationMode.WhenNamed = 1 -> A2A.Server.Authorization.SkillAuthorizationMode
+A2A.Server.Authorization.SkillAuthorizationOptions
+A2A.Server.Authorization.SkillAuthorizationOptions.FilterExtendedCard.get -> bool
+A2A.Server.Authorization.SkillAuthorizationOptions.FilterExtendedCard.set -> void
+A2A.Server.Authorization.SkillAuthorizationOptions.Mode.get -> A2A.Server.Authorization.SkillAuthorizationMode
+A2A.Server.Authorization.SkillAuthorizationOptions.Mode.set -> void
+A2A.Server.Authorization.SkillAuthorizationOptions.SkillAuthorizationOptions() -> void
+A2A.Server.A2AServerOptions.SkillAuthorization.get -> A2A.Server.Authorization.SkillAuthorizationOptions!
+A2A.Server.AgentRequestContext.AuthorizedSkillId.get -> string?
+A2A.Server.AgentRequestContext.IsSkillAllowedAsync(string! skillId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeSkillAsync(A2A.Server.ServerCallContext! call, string! skillId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<bool>

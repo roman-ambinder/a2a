@@ -36,7 +36,8 @@ public delegate ValueTask<object?> A2AOperationDelegate(A2AOperationContext cont
 /// </para>
 /// <para>
 /// On an open stream, the periodic re-authorization (every <see cref="A2ALimits.StreamReauthInterval"/>) calls only the
-/// <see cref="Authorization.A2AAuthorizationHandler"/>; host filters are not run again.
+/// <see cref="Authorization.A2AAuthorizationHandler"/> (its operation check, and for a <c>SendStreamingMessage</c> stream that was
+/// authorized for a skill, its skill check); host filters are not run again.
 /// </para>
 /// <para>
 /// Results and events reach host filters as their own copies: a filter may change them, and they belong to the caller once
