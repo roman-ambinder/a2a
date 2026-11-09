@@ -78,6 +78,18 @@ public sealed class PackageRulesTests
         AssertOnlyAbstractions("A2A.Server.Postgres", r => r == "Npgsql" || IsExtensionsAbstraction(r));
 
     [Fact]
+    public void Client_Postgres_references_only_npgsql() =>
+        AssertOnlyAbstractions("A2A.Client.Postgres", r => r == "Npgsql");
+
+    [Fact]
+    public void Client_Postgres_does_not_reference_the_server()
+    {
+        var doc = SrcProjects().Single(p => p.Name == "A2A.Client.Postgres").Doc;
+        var projects = doc.Descendants("ProjectReference").Select(e => (string?)e.Attribute("Include") ?? "").ToArray();
+        Assert.All(projects, p => Assert.DoesNotContain("A2A.Server", p, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Redis_references_only_stackexchange_redis_and_extensions_abstractions() =>
         AssertOnlyAbstractions("A2A.Server.Redis", r => r == "StackExchange.Redis" || IsExtensionsAbstraction(r));
 

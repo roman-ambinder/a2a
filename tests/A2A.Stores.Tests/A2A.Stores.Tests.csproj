@@ -27,10 +27,12 @@
     <ProjectReference Include="..\..\src\A2A.Server.Storage.AzureBlob\A2A.Server.Storage.AzureBlob.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client.Postgres\A2A.Client.Postgres.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- Shared with A2A.Tests: the manual clock drives retention in every store. -->
     <Compile Include="..\A2A.Tests\FakeTimeProvider.cs" Link="FakeTimeProvider.cs" />
+    <Compile Include="..\A2A.Tests\ClientOutboxFakes.cs" Link="ClientOutboxFakes.cs" />
   </ItemGroup>
   <ItemGroup>
     <!-- schema-v1.sql: the last schema script that stamped version 1, frozen, to test upgrades from it. -->

@@ -12,10 +12,10 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 
 ### Packages
 
-- 16 packages on NuGet, all with the ID prefix `RomanAmbinder.`, so they never clash with the official `A2A` packages.
+- 18 packages on NuGet, all with the ID prefix `RomanAmbinder.`, so they never clash with the official `A2A` packages.
   Assemblies and namespaces are `A2A.*`.
 - Client: `A2A.Protocol`, `A2A.Security.Http`, `A2A.Client`, `A2A.Client.DependencyInjection`, `A2A.Client.Grpc`,
-  `A2A.Client.V0_3Compat`.
+  `A2A.Client.Postgres`, `A2A.Client.V0_3Compat`.
 - Server: `A2A.Server`, `A2A.Server.AspNetCore`, `A2A.Server.Grpc`, `A2A.Server.Postgres`, `A2A.Server.Redis`, `A2A.Server.TypedSkills`,
   `A2A.Server.V0_3Compat`.
 - Shared: `A2A.Grpc` (gRPC types) and `A2A.V0_3Compat` (v0.3 codecs).
@@ -180,6 +180,12 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
 - The run is exclusive against every execution of the task on every instance. A request that cannot start returns a status
   (`TaskNotFound`, `TaskTerminal`, `InterruptedTimedOut`, `AlreadyRunning`, `NotSupported`) and changes nothing.
 - The API does not check the caller. A host that exposes it must authenticate its callers.
+
+### Client outbox
+
+- A durable list of the messages an agent sends to peers: `A2A.Client.Outbox` (`ClientOutboxStore`, `InMemoryClientOutboxStore`, `ClientOutboxDispatcher`) and the new package
+  `A2A.Client.Postgres`, which can enqueue and acknowledge in your own database transaction. Sends carry the entry id as `Idempotency-Key`; a crash
+  between "call the peer" and "save" cannot create a second task on an SDK server. See "Client outbox" in the guides.
 
 ### Retention
 

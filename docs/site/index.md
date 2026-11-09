@@ -18,6 +18,7 @@ dotnet add package RomanAmbinder.A2A.Server.Redis
 dotnet add package RomanAmbinder.A2A.Server.TypedSkills
 dotnet add package RomanAmbinder.A2A.Client.DependencyInjection
 dotnet add package RomanAmbinder.A2A.Client.Grpc
+dotnet add package RomanAmbinder.A2A.Client.Postgres
 dotnet add package RomanAmbinder.A2A.Security.Http
 dotnet add package RomanAmbinder.A2A.Extensions.AI
 dotnet add package RomanAmbinder.A2A.Server.V0_3Compat
