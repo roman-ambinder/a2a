@@ -32,8 +32,12 @@ public static class JsonCanonicalizer
             case JsonObject obj:
                 sb.Append('{');
                 var first = true;
-                // RFC 8785 §3.2.3: sort by UTF-16 code units.
-                foreach (var kv in obj.OrderBy(p => p.Key, StringComparer.Ordinal))
+                // RFC 8785 §3.2.3: sort by UTF-16 code units (ordinal). An array sort: no LINQ buffers per object.
+                var members = new KeyValuePair<string, JsonNode?>[obj.Count];
+                var m = 0;
+                foreach (var member in obj) members[m++] = member;
+                Array.Sort(members, static (a, b) => string.CompareOrdinal(a.Key, b.Key));
+                foreach (var kv in members)
                 {
                     if (!first) sb.Append(',');
                     first = false;

@@ -97,7 +97,9 @@ public sealed class AgentCardVerifier
         if (card["signatures"] is not JsonArray sigs || sigs.Count == 0)
             return new(AgentCardVerificationStatus.Unsigned, null, issuer, "the card has no signatures");
 
-        var payload = new Lazy<byte[]>(() => AgentCardCanonicalizer.Canonicalize(card));
+        // The signed bytes and the case-variant check come from one prune of the card.
+        IReadOnlyList<string> caseVariantMembers = [];
+        var payload = new Lazy<byte[]>(() => AgentCardCanonicalizer.CanonicalizeChecked(card, out caseVariantMembers));
         var jkuFetches = new HashSet<string>(StringComparer.Ordinal);
         var failed = new List<(string? Kid, string Reason)>();
         var unverified = new List<(string? Kid, string Reason)>();
@@ -109,7 +111,7 @@ public sealed class AgentCardVerifier
             {
                 case AgentCardVerificationStatus.Verified:
                     // A case-insensitive reader would bind these to model properties although the signature does not cover them.
-                    var caseVariants = AgentCardCanonicalizer.CaseVariantMembers(card);
+                    var caseVariants = payload.IsValueCreated ? caseVariantMembers : AgentCardCanonicalizer.CaseVariantMembers(card);
                     if (caseVariants.Count > 0)
                     {
                         return new(AgentCardVerificationStatus.Failed, kid, issuer,
@@ -136,7 +138,8 @@ public sealed class AgentCardVerifier
         const AgentCardVerificationStatus Failed = AgentCardVerificationStatus.Failed;
 
         AgentCardSignature? sig;
-        try { sig = node is null ? null : A2AJson.Deserialize<AgentCardSignature>(node.ToJsonString()); }
+        // Read straight from the tree: no JSON text in between.
+        try { sig = node?.Deserialize(A2AJson.GetTypeInfo<AgentCardSignature>()); }
         catch (JsonException ex) { return (Failed, null, $"malformed ({TextSanitizer.ForMessage(ex.Message)})"); }
         if (sig is null || string.IsNullOrEmpty(sig.Protected) || string.IsNullOrEmpty(sig.Signature))
             return (Failed, null, "missing protected header or signature");
@@ -179,14 +182,21 @@ public sealed class AgentCardVerifier
         {
             if (!JwsAlgorithms.KeyMatches(alg, jwk)) continue;
             if (jwk.Alg is not null && jwk.Alg != alg) continue;
+            AsymmetricAlgorithm? pub = null;
             try
             {
-                using var pub = jwk.ToPublicKey();
-                if (Check(sig.Protected, payload.Value, alg, pub, sigBytes)) return (AgentCardVerificationStatus.Verified, kid, null);
+                // Importing a key costs more than checking a signature with it: keep imported keys per trusted key.
+                var pool = KeyPool.For(jwk);
+                pub = pool.Rent(jwk);
+                var verified = Check(sig.Protected, payload.Value, alg, pub, sigBytes);
+                pool.Return(pub);
+                pub = null;
+                if (verified) return (AgentCardVerificationStatus.Verified, kid, null);
             }
             catch (Exception ex) when (ex is FormatException or NotSupportedException or CryptographicException)
             {
                 // An unusable trusted key cannot verify anything; fall through to the next one.
+                pub?.Dispose();
             }
         }
         return (Failed, kid, $"signature does not verify with trusted key '{TextSanitizer.ForMessage(kid)}'");
@@ -250,9 +260,50 @@ public sealed class AgentCardVerifier
     private static string? StringMember(Dictionary<string, JsonElement> header, string name) =>
         header.TryGetValue(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
-    private static bool Check(string protectedB64, byte[] payload, string alg, AsymmetricAlgorithm key, byte[] sig)
+    private static bool Check(string protectedB64, byte[] payload, string alg, AsymmetricAlgorithm key, byte[] sig) =>
+        JwsAlgorithms.Verify(alg, key, SigningInput(protectedB64, payload), sig);
+
+    /// <summary>The JWS signing input, <c>ASCII(protected) "." base64url(payload)</c>, built in one array.</summary>
+    internal static byte[] SigningInput(string protectedB64, byte[] payload)
     {
-        var input = Encoding.ASCII.GetBytes(protectedB64 + "." + Base64Url.Encode(payload));
-        return JwsAlgorithms.Verify(alg, key, input, sig);
+        var input = new byte[Encoding.ASCII.GetByteCount(protectedB64) + 1 + Base64Url.EncodedLength(payload.Length)];
+        var at = Encoding.ASCII.GetBytes(protectedB64, 0, protectedB64.Length, input, 0);
+        input[at++] = (byte)'.';
+        Base64Url.EncodeToUtf8(payload, input.AsSpan(at));
+        return input;
+    }
+
+    /// <summary>
+    /// Imported public keys of one trusted <see cref="Jwk"/>, reused across verifications. A key object is used by one
+    /// verification at a time (instances are not documented as thread-safe), and a pool whose key fields no longer match the
+    /// <see cref="Jwk"/> (it was changed) is replaced.
+    /// </summary>
+    private sealed class KeyPool
+    {
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Jwk, KeyPool> Pools = new();
+        private const int MaxIdle = 8;
+        private readonly (string Kty, string? Crv, string? X, string? Y, string? N, string? E) _material;
+        private readonly ConcurrentBag<AsymmetricAlgorithm> _idle = new();
+
+        private KeyPool(Jwk jwk) => _material = Material(jwk);
+
+        private static (string, string?, string?, string?, string?, string?) Material(Jwk jwk) => (jwk.Kty, jwk.Crv, jwk.X, jwk.Y, jwk.N, jwk.E);
+
+        public static KeyPool For(Jwk jwk)
+        {
+            var pool = Pools.GetValue(jwk, static j => new KeyPool(j));
+            if (pool._material == Material(jwk)) return pool;
+            // The key was changed: drop its keys. A race only builds one pool more.
+            Pools.Remove(jwk);
+            return Pools.GetValue(jwk, static j => new KeyPool(j));
+        }
+
+        public AsymmetricAlgorithm Rent(Jwk jwk) => _idle.TryTake(out var key) ? key : jwk.ToPublicKey();
+
+        public void Return(AsymmetricAlgorithm key)
+        {
+            if (_idle.Count < MaxIdle) _idle.Add(key);
+            else key.Dispose();
+        }
     }
 }
