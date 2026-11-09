@@ -2,7 +2,7 @@ using System.Text.Json;
 using A2A.Client;
 using A2A.Client.Grpc;
 using Grpc.Core;
-using Pb = Lf.A2a.V1;
+using A2aPb = Lf.A2a.V1;
 
 namespace A2A.Grpc.Tests;
 
@@ -27,8 +27,8 @@ public class ProtoMapperTests
             Artifacts = [new Artifact { ArtifactId = "a", Parts = [Part.FromText("x"), Part.FromBytes(new byte[] { 1, 2, 3 }, "application/octet-stream"), Part.FromData(JsonSerializer.SerializeToElement(new { n = 1, s = "\u00fc" })), Part.FromUrl(new Uri("https://x/y"))] }],
             Metadata = new() { ["k"] = JsonSerializer.SerializeToElement(new { deep = true }) },
         };
-        var oldProto = OldToProto<Pb.Task>(task);
-        var newProto = ProtoMapper.ToProto<Pb.Task, AgentTask>(task);
+        var oldProto = OldToProto<A2aPb.Task>(task);
+        var newProto = ProtoMapper.ToProto<A2aPb.Task, AgentTask>(task);
         Assert.Equal(oldProto, newProto);
         Assert.Equal(
             A2A.Json.A2AJson.Serialize(OldToModel<AgentTask>(oldProto)),
@@ -36,8 +36,8 @@ public class ProtoMapperTests
 
         var card = GrpcHost.Card();
         card.Capabilities.PushNotifications = false;
-        var oldCard = OldToProto<Pb.AgentCard>(card);
-        var newCard = ProtoMapper.ToProto<Pb.AgentCard, AgentCard>(card);
+        var oldCard = OldToProto<A2aPb.AgentCard>(card);
+        var newCard = ProtoMapper.ToProto<A2aPb.AgentCard, AgentCard>(card);
         Assert.Equal(oldCard, newCard);
         Assert.Equal(
             A2A.Json.A2AJson.Serialize(OldToModel<AgentCard>(oldCard)),
@@ -66,8 +66,8 @@ public class ProtoMapperTests
             ],
             Metadata = new() { ["k"] = JsonSerializer.SerializeToElement(new { deep = true }) },
         };
-        var proto = ProtoMapper.ToProto<Pb.Task, AgentTask>(task);
-        Assert.Equal(Pb.TaskState.InputRequired, proto.Status.State);
+        var proto = ProtoMapper.ToProto<A2aPb.Task, AgentTask>(task);
+        Assert.Equal(A2aPb.TaskState.InputRequired, proto.Status.State);
         Assert.Equal(Google.Protobuf.ByteString.CopyFrom(1, 2, 3), proto.Artifacts[0].Parts[1].Raw);
 
         var back = ProtoMapper.ToModel<AgentTask>(proto);
@@ -81,16 +81,16 @@ public class ProtoMapperTests
     [Fact]
     public void Response_unions_keep_their_member()
     {
-        var reply = ProtoMapper.ToProto<Pb.SendMessageResponse, SendMessageResponse>(new MessageResponse(Message.FromAgent("hi")));
-        Assert.Equal(Pb.SendMessageResponse.PayloadOneofCase.Message, reply.PayloadCase);
+        var reply = ProtoMapper.ToProto<A2aPb.SendMessageResponse, SendMessageResponse>(new MessageResponse(Message.FromAgent("hi")));
+        Assert.Equal(A2aPb.SendMessageResponse.PayloadOneofCase.Message, reply.PayloadCase);
         var back = Assert.IsType<MessageResponse>(ProtoMapper.ToModel<SendMessageResponse>(reply));
         Assert.Equal("hi", back.Message.GetText());
 
-        var evt = ProtoMapper.ToProto<Pb.StreamResponse, StreamResponse>(StreamResponse.Of(new TaskStatusUpdateEvent
+        var evt = ProtoMapper.ToProto<A2aPb.StreamResponse, StreamResponse>(StreamResponse.Of(new TaskStatusUpdateEvent
         {
             TaskId = "t", ContextId = "c", Status = new AgentTaskStatus { State = TaskState.Working },
         }));
-        Assert.Equal(Pb.StreamResponse.PayloadOneofCase.StatusUpdate, evt.PayloadCase);
+        Assert.Equal(A2aPb.StreamResponse.PayloadOneofCase.StatusUpdate, evt.PayloadCase);
         Assert.IsType<StatusUpdateEvent>(ProtoMapper.ToModel<StreamResponse>(evt));
     }
 
@@ -99,7 +99,7 @@ public class ProtoMapperTests
     {
         var card = GrpcHost.Card();
         card.Capabilities.PushNotifications = false;
-        var proto = ProtoMapper.ToProto<Pb.AgentCard, AgentCard>(card);
+        var proto = ProtoMapper.ToProto<A2aPb.AgentCard, AgentCard>(card);
         Assert.True(proto.Capabilities.HasPushNotifications);
         Assert.False(ProtoMapper.ToModel<AgentCard>(proto).Capabilities.PushNotifications!.Value);
     }
@@ -272,11 +272,11 @@ public class GrpcBindingTests : IAsyncLifetime
     public async Task Missing_version_metadata_is_rejected_and_extensions_are_echoed()
     {
         var raw = _host.Raw();
-        var noVersion = await Assert.ThrowsAsync<RpcException>(() => raw.GetTaskAsync(new Pb.GetTaskRequest { Id = "x" }).ResponseAsync);
+        var noVersion = await Assert.ThrowsAsync<RpcException>(() => raw.GetTaskAsync(new A2aPb.GetTaskRequest { Id = "x" }).ResponseAsync);
         Assert.Equal(A2AErrorCode.VersionNotSupported, GrpcErrors.FromRpcException(noVersion).Code);
 
         var headers = new Metadata { { "a2a-version", "1.0" }, { "a2a-extensions", $"{GrpcHost.Extension},urn:other" } };
-        var msg = new Pb.SendMessageRequest { Message = new Pb.Message { MessageId = "m", Role = Pb.Role.User, Parts = { new Pb.Part { Text = "hello" } } } };
+        var msg = new A2aPb.SendMessageRequest { Message = new A2aPb.Message { MessageId = "m", Role = A2aPb.Role.User, Parts = { new A2aPb.Part { Text = "hello" } } } };
         using var call = raw.SendMessageAsync(msg, headers);
         await call.ResponseAsync;
         Assert.Equal(GrpcHost.Extension, (await call.ResponseHeadersAsync).GetValue("a2a-extensions"));
@@ -286,7 +286,7 @@ public class GrpcBindingTests : IAsyncLifetime
     public async Task Repeated_extension_metadata_entries_are_read_like_a_comma_list()
     {
         var headers = new Metadata { { "a2a-version", "1.0" }, { "a2a-extensions", GrpcHost.Extension }, { "a2a-extensions", "urn:other" } };
-        var msg = new Pb.SendMessageRequest { Message = new Pb.Message { MessageId = "m", Role = Pb.Role.User, Parts = { new Pb.Part { Text = "hello" } } } };
+        var msg = new A2aPb.SendMessageRequest { Message = new A2aPb.Message { MessageId = "m", Role = A2aPb.Role.User, Parts = { new A2aPb.Part { Text = "hello" } } } };
         using var call = _host.Raw().SendMessageAsync(msg, headers);
         await call.ResponseAsync;
         Assert.Equal(GrpcHost.Extension, (await call.ResponseHeadersAsync).GetValue("a2a-extensions"));
@@ -296,7 +296,7 @@ public class GrpcBindingTests : IAsyncLifetime
     public async Task Streaming_call_echoes_extensions_in_initial_metadata()
     {
         var headers = new Metadata { { "a2a-version", "1.0" }, { "a2a-extensions", $"{GrpcHost.Extension},urn:other" } };
-        var msg = new Pb.SendMessageRequest { Message = new Pb.Message { MessageId = "m", Role = Pb.Role.User, Parts = { new Pb.Part { Text = "hello" } } } };
+        var msg = new A2aPb.SendMessageRequest { Message = new A2aPb.Message { MessageId = "m", Role = A2aPb.Role.User, Parts = { new A2aPb.Part { Text = "hello" } } } };
         using var call = _host.Raw().SendStreamingMessage(msg, headers);
         Assert.Equal(GrpcHost.Extension, (await call.ResponseHeadersAsync).GetValue("a2a-extensions"));
         Assert.True(await call.ResponseStream.MoveNext(default));
@@ -308,7 +308,7 @@ public class GrpcBindingTests : IAsyncLifetime
     public async Task Failed_call_echoes_extensions_in_trailers()
     {
         var headers = new Metadata { { "a2a-version", "1.0" }, { "a2a-extensions", $"{GrpcHost.Extension},urn:other" } };
-        using var call = _host.Raw().GetTaskAsync(new Pb.GetTaskRequest { Id = "does-not-exist" }, headers);
+        using var call = _host.Raw().GetTaskAsync(new A2aPb.GetTaskRequest { Id = "does-not-exist" }, headers);
         var ex = await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
         Assert.Equal(StatusCode.NotFound, ex.StatusCode);
         Assert.Equal(GrpcHost.Extension, call.GetTrailers().GetValue("a2a-extensions"));
@@ -318,7 +318,7 @@ public class GrpcBindingTests : IAsyncLifetime
     [Fact]
     public async Task Failed_call_without_extensions_has_no_echo()
     {
-        using var call = _host.Raw().GetTaskAsync(new Pb.GetTaskRequest { Id = "does-not-exist" }, new Metadata { { "a2a-version", "1.0" } });
+        using var call = _host.Raw().GetTaskAsync(new A2aPb.GetTaskRequest { Id = "does-not-exist" }, new Metadata { { "a2a-version", "1.0" } });
         await Assert.ThrowsAsync<RpcException>(() => call.ResponseAsync);
         Assert.Null(call.GetTrailers().GetValue("a2a-extensions"));
     }
@@ -326,7 +326,7 @@ public class GrpcBindingTests : IAsyncLifetime
     [Fact]
     public async Task Invalid_request_maps_to_invalid_argument()
     {
-        var bad = new Pb.SendMessageRequest { Message = new Pb.Message { MessageId = "m", Role = Pb.Role.User } };
+        var bad = new A2aPb.SendMessageRequest { Message = new A2aPb.Message { MessageId = "m", Role = A2aPb.Role.User } };
         var ex = await Assert.ThrowsAsync<RpcException>(() => _host.Raw().SendMessageAsync(bad, new Metadata { { "a2a-version", "1.0" } }).ResponseAsync);
         Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
     }
