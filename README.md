@@ -29,6 +29,8 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | `A2A.Extensions.AI` | `Microsoft.Extensions.AI` integration: host an `IChatClient` as an agent (`AddChatClientAgent`), call a remote agent as an AI tool (`AsAIFunction`) or as an `IChatClient` (`AsChatClient`) |
 | `A2A.Server.Postgres` | PostgreSQL stores (tasks, events, push configs, push outbox, idempotency) via Npgsql |
 | `A2A.Server.Redis` | Redis pub/sub `TaskEventBus` and execution coordinator for running several server instances |
+| `A2A.Server.Storage.S3` | `AddA2AS3ArtifactStore`: keeps large artifact bytes in Amazon S3 or an S3-compatible service (such as MinIO); downloads use presigned URLs |
+| `A2A.Server.Storage.AzureBlob` | `AddA2AAzureBlobArtifactStore`: keeps large artifact bytes in Azure Blob Storage as block blobs; downloads use SAS URLs when the client holds the account key, otherwise the server proxies them |
 | `A2A.TestKit` | Test tools: an in-process agent host, a scripted fake peer agent, assertions for task states and event order, a fake clock and a push receiver. Works with any test framework ([guide](docs/site/guides/testing.md)) |
 
 ## Documentation
@@ -398,3 +400,7 @@ git push origin v0.1.0
 ```
 
 One-time setup: add a nuget.org API key as the repository secret `NUGET_API_KEY`, scoped to push `RomanAmbinder.A2A.*`.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to build, test and send a pull request. To report a vulnerability, follow [SECURITY.md](SECURITY.md).
