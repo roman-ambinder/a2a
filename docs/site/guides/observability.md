@@ -102,6 +102,10 @@ All counters are `Counter<long>`.
 | `A2A.Server` | `a2a.server.streams.opened` | none | streams admitted (`SendStreamingMessage`, `SubscribeToTask`) |
 | `A2A.Server` | `a2a.server.push.deliveries` | `a2a.outcome` (`sent`, `retried`, `dead_lettered`) | one per delivery attempt, counted when its result is recorded |
 | `A2A.Server` | `a2a.server.push.dead_letters` | none | deliveries that failed for good |
+| `A2A.Server` | `a2a.server.executions.active` | none | agents holding an execution slot on this instance (up-down counter). See [Execution limits](execution-limits.md) |
+| `A2A.Server` | `a2a.server.executions.queued` | none | requests waiting for an execution slot (up-down counter) |
+| `A2A.Server` | `a2a.server.executions.rejected` | `a2a.rejection.reason` (`queue_full`, `queue_timeout`, `shutdown`) | requests refused for lack of an execution slot |
+| `A2A.Server` | `a2a.server.tasks.budget_exceeded` | none | tasks failed for going past their budget |
 | `A2A.Server` | `a2a.server.artifact.objects.written` | none | objects written to the artifact object store |
 | `A2A.Server` | `a2a.server.artifact.bytes.written` | none | bytes written to the artifact object store |
 | `A2A.Server` | `a2a.server.artifact.bytes.served` | none | artifact bytes the server streamed to callers (redirects are not counted) |

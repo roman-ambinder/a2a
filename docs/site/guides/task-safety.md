@@ -15,6 +15,8 @@ An agent runs code on behalf of a peer you do not control. This guide covers the
 
 **Time limit.** One execution is one incoming message. When it runs longer than `MaxTaskDuration`, the task moves to `FAILED` with the text "Task exceeded its time limit". Streams and webhooks get it like any final event. The execution's cancellation token fires, and events the agent sends afterwards are dropped. A task waiting in `INPUT_REQUIRED` or `AUTH_REQUIRED` with no agent running is not affected. Each follow-up gets the full time again. Null, zero, a negative value, or about 24.8 days or more turns the limit off. The clock is the `TimeProvider` in DI. For tasks that wait too long for input, see [retention](retention.md).
 
+**Budgets.** To stop a task by what it spends rather than how long it runs, see [execution limits and budgets](execution-limits.md).
+
 **Turn cap.** A peer can steer a long conversation one small step at a time. `MaxTurnsPerTask` counts the user messages in the stored history, including the one that created the task. A follow-up over the cap is refused with `UnsupportedOperation` before the agent runs, and the task is not changed. A retry of an accepted message is not a new turn. A value of 1 means no follow-ups. A custom `TaskStore` must keep the full history, or the cap does not hold.
 
 **Cancel requested.** CancelTask asks the agent to stop and waits up to `CancelGracePeriod`. If the agent has not stopped by then, the answer is the task as stored, with the metadata `a2a.cancelRequested = true`. That flag is never stored. The `CANCELED` state arrives later on the stream. A task that is already final gives `TaskNotCancelable`.

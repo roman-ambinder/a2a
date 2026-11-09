@@ -32,6 +32,8 @@
   href: observability.md
 - name: Limits and rate limiting
   href: limits-and-rate-limiting.md
+- name: Execution limits and budgets
+  href: execution-limits.md
 - name: Artifact storage
   href: artifact-storage.md
 - name: Task safety
