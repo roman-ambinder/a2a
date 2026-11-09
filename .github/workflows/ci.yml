@@ -10,8 +10,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # PR runs replace older runs of the same PR. Runs on main each get their own group: GitHub keeps only one pending
+  # run per group, so a shared group would still drop a merge in a burst of merges. Release also needs each commit's run.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   DOTNET_NOLOGO: true
@@ -40,22 +42,29 @@ jobs:
         run: dotnet restore A2A.slnx
 
       - name: Build (warnings as errors in src)
+        id: build
         run: dotnet build A2A.slnx -c Release --no-restore
 
       - name: Test (net8.0 + net10.0)
         run: dotnet test tests/A2A.Tests/A2A.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=results" --results-directory TestResults
 
+      # Run every suite even if an earlier one failed, so one run shows all results. The job still fails. No use after a failed build.
       - name: Test gRPC (net8.0 + net10.0)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=grpc-results" --results-directory TestResults
 
       - name: Test v0.3 compat (net8.0 + net10.0)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=v03-results" --results-directory TestResults
+
       - name: Test Extensions.AI (net8.0 + net10.0)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build --logger "trx;LogFilePrefix=ai-results" --results-directory TestResults
 
       # D25: the netstandard2.0 builds of A2A.Protocol and A2A.Client against a real EchoAgent process.
       # net10.0 runs the netstandard2.0 DLLs on every OS; net48 runs them on .NET Framework (Windows only).
       - name: Smoke test netstandard2.0 (net10.0, and net48 on Windows)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: bash
         env:
           SMOKE_URL: http://127.0.0.1:18741
@@ -191,6 +200,8 @@ jobs:
   pack:
     name: Pack NuGet packages
     needs: build-test
+    # build-test is a matrix, so `needs` waits for every OS. Still run when only one OS failed.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -217,6 +228,8 @@ jobs:
     name: Benchmarks (regression check)
     # Blocking: fails on an allocation regression over 10% against tests/A2A.Benchmarks/baseline.json (from an ubuntu-latest run).
     needs: build-test
+    # build-test is a matrix, so `needs` waits for every OS. Still run when only one OS failed.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -250,6 +263,8 @@ jobs:
   aot-publish:
     name: AOT publish (samples)
     needs: build-test
+    # build-test is a matrix, so `needs` waits for every OS. Still run when only one OS failed.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -337,3 +352,19 @@ jobs:
           name: docs-site
           path: docs/site/_site
           if-no-files-found: error
+
+  all-green:
+    name: all-green
+    # The single check to require in branch protection. `always()` matters: a skipped job counts as passing a required
+    # check, so this job must run after a failure or cancel and report it. List every job here.
+    if: ${{ always() }}
+    needs: [build-test, stores, interop, conformance, interop-v03, pack, benchmarks, aot-publish, docs]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless every job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'all(.result == "success")' > /dev/null
