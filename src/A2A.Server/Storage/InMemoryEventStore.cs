@@ -26,7 +26,15 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
     /// compare-and-set here, so commits to one task are serialized and the log follows their order. Then, still under the
     /// lock, <paramref name="appended"/> (which must not fail) gets the new sequence.
     /// </summary>
-    internal long AppendAfter(TaskKey task, SequencedEvent evt, Action write, Action<long>? appended = null)
+    internal long AppendAfter(TaskKey task, SequencedEvent evt, Action write, Action<long>? appended = null) =>
+        AppendManyAfter(task, [evt], write, appended);
+
+    /// <summary>
+    /// Like <see cref="AppendAfter"/> for several events: runs <paramref name="write"/>, then appends every event with
+    /// consecutive sequences, all under the task's log lock. <paramref name="appended"/> gets the first sequence.
+    /// Returns the first sequence.
+    /// </summary>
+    internal long AppendManyAfter(TaskKey task, IReadOnlyList<SequencedEvent> events, Action write, Action<long>? appended = null)
     {
         var capacity = Math.Max(1, options.ReplayBufferSize);
         while (true)
@@ -46,11 +54,10 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
                     _logs.TryRemove(new KeyValuePair<TaskKey, TaskLog>(task, log));
                     throw;
                 }
-                var seq = ++log.Last;
-                log.Events.Add(evt with { Sequence = seq });
-                if (log.Events.Count > capacity) log.Events.RemoveRange(0, log.Events.Count - capacity);
-                appended?.Invoke(seq);
-                return seq;
+                var first = log.Last + 1;
+                foreach (var evt in events) log.Add(evt with { Sequence = ++log.Last }, capacity);
+                appended?.Invoke(first);
+                return first;
             }
         }
     }
@@ -62,7 +69,24 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
         SequencedEvent[] snapshot = [];
         if (_logs.TryGetValue(task, out var log))
         {
-            lock (log) snapshot = log.Events.Where(e => e.Sequence > afterSequence).ToArray();
+            lock (log) snapshot = log.CopyAfter(afterSequence);
+        }
+        foreach (var e in snapshot)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return e;
+        }
+        await Task.CompletedTask.ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public override async IAsyncEnumerable<SequencedEvent> ReadRangeAsync(TaskKey task, long afterSequence, long beforeSequence,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        SequencedEvent[] snapshot = [];
+        if (beforeSequence > afterSequence + 1 && _logs.TryGetValue(task, out var log))
+        {
+            lock (log) snapshot = log.CopyAfter(afterSequence, beforeSequence);
         }
         foreach (var e in snapshot)
         {
@@ -76,7 +100,7 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
     public override ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken cancellationToken = default)
     {
         if (!_logs.TryGetValue(task, out var log)) return ValueTask.FromResult<long?>(null);
-        lock (log) return ValueTask.FromResult<long?>(log.Events.Count == 0 ? null : log.Events[0].Sequence);
+        lock (log) return ValueTask.FromResult<long?>(log.Count == 0 ? null : log.Last - log.Count + 1);
     }
 
     /// <inheritdoc />
@@ -115,11 +139,56 @@ public sealed class InMemoryEventStore(StreamingOptions options, TimeProvider? t
         _logs.TryRemove(new KeyValuePair<TaskKey, TaskLog>(task, log));
     }
 
+    /// <summary>
+    /// The retained events of one task: a ring buffer that grows (doubling) up to the replay buffer size, then overwrites the
+    /// oldest event. Sequences in it are consecutive and end at <see cref="Last"/>, so an event is found by arithmetic.
+    /// Use under the log's lock.
+    /// </summary>
     private sealed class TaskLog
     {
-        public readonly List<SequencedEvent> Events = [];
+        private SequencedEvent[] _ring = new SequencedEvent[8];
+        private int _start; // index of the oldest retained event
+        public int Count;
         public long Last;
         public bool Evicted;
         public ITimer? Timer;
+
+        public void Add(SequencedEvent evt, int capacity)
+        {
+            if (Count >= capacity)
+            {
+                // Full: the oldest is dropped.
+                _ring[_start] = default;
+                _start = (_start + 1) % _ring.Length;
+                Count--;
+            }
+            else if (Count == _ring.Length) Grow(capacity);
+            _ring[(_start + Count) % _ring.Length] = evt;
+            Count++;
+        }
+
+        /// <summary>
+        /// The retained events with a sequence above <paramref name="afterSequence"/> and below <paramref name="beforeSequence"/>,
+        /// oldest first.
+        /// </summary>
+        public SequencedEvent[] CopyAfter(long afterSequence, long beforeSequence = long.MaxValue)
+        {
+            var oldest = Last - Count + 1;
+            var skip = afterSequence < oldest ? 0 : afterSequence - oldest + 1;
+            if (skip >= Count) return [];
+            var end = beforeSequence > Last ? Count : beforeSequence - oldest; // exclusive index
+            if (end <= skip) return [];
+            var result = new SequencedEvent[(int)(end - skip)];
+            for (var i = 0; i < result.Length; i++) result[i] = _ring[(_start + (int)skip + i) % _ring.Length];
+            return result;
+        }
+
+        private void Grow(int capacity)
+        {
+            var bigger = new SequencedEvent[(int)Math.Min(capacity, (long)_ring.Length * 2)];
+            for (var i = 0; i < Count; i++) bigger[i] = _ring[(_start + i) % _ring.Length];
+            _ring = bigger;
+            _start = 0;
+        }
     }
 }

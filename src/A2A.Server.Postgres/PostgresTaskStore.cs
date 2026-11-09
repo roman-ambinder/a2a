@@ -15,7 +15,7 @@ namespace A2A.Server.Postgres;
 /// push deliveries (the outbox <see cref="PostgresPushOutbox"/> reads) in one transaction, so give these stores the same
 /// data source, <see cref="StreamingOptions"/> and schema.
 /// </summary>
-public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore
+public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchTaskCommit
 {
     private readonly NpgsqlDataSource _db;
     private readonly StreamingOptions _streaming;
@@ -154,6 +154,47 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore
         if (commit.Idempotency is { } idem) await WriteIdempotencyOutcomeAsync(conn, tx, idem, cancellationToken).ConfigureAwait(false);
         await tx.CommitAsync(CancellationToken.None).ConfigureAwait(false);
         return new CommitResult(stored, seq);
+    }
+
+    /// <summary>
+    /// One transaction, like <see cref="CommitAsync"/>: the task compare-and-set once (the task is serialized once for the whole
+    /// batch), then each event with its sequence and its push deliveries. Sequences are consecutive: the task row lock taken by
+    /// the update serializes commits to the task.
+    /// </summary>
+    /// <inheritdoc />
+    public async ValueTask<BatchCommitResult> CommitBatchAsync(TaskBatchCommit commit, CancellationToken cancellationToken = default)
+    {
+        ValidateBatch(commit);
+        var key = commit.Record.Key;
+        var (json, stored) = ForUpdate(commit.Record, commit.ExpectedVersion);
+
+        await using var conn = await _db.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var tx = await conn.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (var update = new NpgsqlCommand(_updateSql, conn, tx))
+        {
+            AddUpdateParameters(update, stored, json, commit.ExpectedVersion);
+            if (await update.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not long createdTicks)
+                throw new ConcurrencyException(key, commit.ExpectedVersion);
+            stored = stored with { CreatedAt = new DateTimeOffset(createdTicks, TimeSpan.Zero) };
+        }
+
+        var now = _clock.NowTicks;
+        var capacity = Math.Max(1, _streaming.ReplayBufferSize);
+        long first = 0;
+        await using var deliveries = new NpgsqlBatch(conn, tx);
+        foreach (var e in commit.Events)
+        {
+            var eventBytes = EventEncoder.EnsureEncoded(e.Event).Json;
+            var seq = await AppendEventAsync(conn, tx, _eventTables, key, System.Text.Encoding.UTF8.GetString(eventBytes.Span), capacity, now, cancellationToken)
+                .ConfigureAwait(false);
+            if (first == 0) first = seq;
+            if (e.Deliveries.Count == 0) continue;
+            var payload = eventBytes.ToArray(); // the webhook body, stored with the event
+            foreach (var d in e.Deliveries) deliveries.BatchCommands.Add(PostgresPushOutbox.InsertCommand(_outbox, d, seq, payload, now));
+        }
+        if (deliveries.BatchCommands.Count > 0) await deliveries.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await tx.CommitAsync(CancellationToken.None).ConfigureAwait(false);
+        return new BatchCommitResult(stored, first);
     }
 
     /// <summary>

@@ -38,6 +38,22 @@ public abstract class EventStore
     /// </summary>
     public abstract IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Reads the retained events with a sequence greater than <paramref name="afterSequence"/> and less than
+    /// <paramref name="beforeSequence"/>, in order. Streams use it to fill a gap, so a store should read only that range. The
+    /// default reads <see cref="ReadAfterAsync"/> and stops at <paramref name="beforeSequence"/>.
+    /// </summary>
+    public virtual async IAsyncEnumerable<SequencedEvent> ReadRangeAsync(TaskKey task, long afterSequence, long beforeSequence,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (beforeSequence <= afterSequence + 1) yield break;
+        await foreach (var e in ReadAfterAsync(task, afterSequence, cancellationToken).ConfigureAwait(false))
+        {
+            if (e.Sequence >= beforeSequence) yield break;
+            yield return e;
+        }
+    }
+
     /// <summary>The lowest retained sequence, or null when no events are retained.</summary>
     public abstract ValueTask<long?> OldestRetainedAsync(TaskKey task, CancellationToken cancellationToken = default);
 

@@ -15,7 +15,8 @@ internal sealed class TaskLocks
 
     /// <summary>The index of the task's lock (tasks on the same stripe share a lock).</summary>
     public int Stripe(string tenant, string taskId) =>
-        (StringComparer.Ordinal.GetHashCode(TaskExecutionEngine.ScopeKey(tenant, taskId)) & 0x7fffffff) % _locks.Length;
+        // No scope string is built: this runs for every event.
+        (HashCode.Combine(StringComparer.Ordinal.GetHashCode(tenant), StringComparer.Ordinal.GetHashCode(taskId)) & 0x7fffffff) % _locks.Length;
 
     /// <summary>Waits for the task's lock; dispose the result to release it. Nothing is held when the wait is cancelled.</summary>
     public async ValueTask<Releaser> AcquireAsync(TaskKey key, CancellationToken cancellationToken)

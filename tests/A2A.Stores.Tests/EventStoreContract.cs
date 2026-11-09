@@ -106,6 +106,56 @@ public abstract class EventStoreContract
     }
 
     [SkippableFact]
+    public async Task Buffer_that_wrapped_many_times_reads_from_any_point()
+    {
+        var store = await CreateStoreAsync(new StreamingOptions { ReplayBufferSize = 5 });
+        var key = new TaskKey("", "alice", "t");
+        for (var i = 0; i < 23; i++) await store.AppendAsync(key, Evt("t"));
+        Assert.Equal(19, await store.OldestRetainedAsync(key));
+        Assert.Equal(23, await store.LastSequenceAsync(key));
+        Assert.Equal([19L, 20, 21, 22, 23], (await ReadAllAsync(store, key)).Select(e => e.Sequence));
+        Assert.Equal([19L, 20, 21, 22, 23], (await ReadAllAsync(store, key, after: 10)).Select(e => e.Sequence));
+        Assert.Equal([21L, 22, 23], (await ReadAllAsync(store, key, after: 20)).Select(e => e.Sequence));
+        Assert.Empty(await ReadAllAsync(store, key, after: 23));
+        Assert.Empty(await ReadAllAsync(store, key, after: 99));
+    }
+
+    [SkippableFact]
+    public async Task ReadRange_returns_only_the_events_between_the_bounds()
+    {
+        var store = await CreateStoreAsync(new StreamingOptions { ReplayBufferSize = 5 });
+        var key = new TaskKey("", "alice", "t");
+        for (var i = 0; i < 12; i++) await store.AppendAsync(key, Evt("t")); // retained: 8..12
+
+        async Task<long[]> Range(long after, long before)
+        {
+            var list = new List<long>();
+            await foreach (var e in store.ReadRangeAsync(key, after, before)) list.Add(e.Sequence);
+            return list.ToArray();
+        }
+
+        Assert.Equal(new long[] { 9, 10 }, await Range(8, 11));
+        Assert.Equal(new long[] { 8, 9 }, await Range(0, 10)); // the start was trimmed
+        Assert.Equal(new long[] { 11, 12 }, await Range(10, long.MaxValue));
+        Assert.Empty(await Range(9, 10));
+        Assert.Empty(await Range(10, 5));
+        Assert.Empty(await Range(12, 20));
+        Assert.Empty(await Range(0, 3)); // trimmed
+        await foreach (var _ in store.ReadRangeAsync(new TaskKey("", "bob", "t"), 0, 100)) Assert.Fail("another owner");
+    }
+
+    [SkippableFact]
+    public async Task Buffer_larger_than_the_log_keeps_every_event()
+    {
+        var store = await CreateStoreAsync(new StreamingOptions { ReplayBufferSize = 1000 });
+        var key = new TaskKey("", "alice", "t");
+        for (var i = 0; i < 37; i++) await store.AppendAsync(key, Evt("t"));
+        Assert.Equal(1, await store.OldestRetainedAsync(key));
+        Assert.Equal(Enumerable.Range(1, 37).Select(i => (long)i), (await ReadAllAsync(store, key)).Select(e => e.Sequence));
+        Assert.Equal([36L, 37], (await ReadAllAsync(store, key, after: 35)).Select(e => e.Sequence));
+    }
+
+    [SkippableFact]
     public async Task Buffer_trims_to_replay_size()
     {
         var store = await CreateStoreAsync(new StreamingOptions { ReplayBufferSize = 3 });

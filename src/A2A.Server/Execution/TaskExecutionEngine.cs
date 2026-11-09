@@ -37,6 +37,7 @@ namespace A2A.Server.Execution;
 public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
 {
     private readonly TaskStore _tasks;
+    private readonly IBatchTaskCommit? _batchCommit; // _tasks, when it commits batches
     private readonly EventStore _events;
     private readonly IAgentExecutorFactory _executors;
     private readonly TaskEventBus _bus;
@@ -106,6 +107,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             throw new InvalidOperationException("An ArtifactObjectStore is registered, but A2AServerOptions.ArtifactStorage.PublicBaseUrl (or PublicBaseUrlResolver) is not set. Artifact links need a base URL.");
         _objects = objects;
         _tasks = tasks;
+        _batchCommit = tasks as IBatchTaskCommit;
         _events = events;
         _executors = executors;
         _bus = bus;
@@ -570,8 +572,19 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 }
             }
 
-            await foreach (var produced in exec.Incoming.Reader.ReadAllAsync().ConfigureAwait(false))
+            var gate = _locks.For(key.Tenant, taskId);
+            var reader = exec.Incoming.Reader;
+            // Events read from the channel for a batch but not stored by it: they come before anything still in the channel.
+            Queue<StreamResponse>? pending = null;
+            while (true)
             {
+                StreamResponse produced;
+                if (pending is { Count: > 0 }) produced = pending.Dequeue();
+                else if (!reader.TryRead(out produced!))
+                {
+                    if (!await reader.WaitToReadAsync().ConfigureAwait(false)) break;
+                    continue;
+                }
                 // Encoded once: the size check, the event store, streams and webhooks all use these bytes.
                 var encoded = Encode(produced);
                 if (encoded.Json.Length > _options.Limits.MaxEventBytes)
@@ -591,7 +604,6 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                     continue;
                 }
 
-                var gate = _locks.For(key.Tenant, taskId);
                 await gate.WaitAsync().ConfigureAwait(false);
                 try
                 {
@@ -637,26 +649,55 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         record = committed.Record;
                         created = true;
                         exec.TaskStored = true;
-                        Publish(exec, key, snapshot with { Sequence = committed.Sequence });
+                        Publish(exec, scope, snapshot with { Sequence = committed.Sequence });
                         // Retries of this request now attach to the task (its first event is stored, so a replay starts complete).
                         // Needed for stores that cannot write the outcome in the commit; where they can, this changes nothing.
                         await _idempotency.RecordAsync(claim, new IdempotencyOutcome.TaskCreated(taskId), taskId).ConfigureAwait(false);
                     }
                     else
                     {
-                        record = await _tasks.GetAsync(key).ConfigureAwait(false);
+                        record = exec.Committed ?? await _tasks.GetAsync(key).ConfigureAwait(false);
                         if (record is null)
                         {
                             ServerLog.TaskDisappeared(_logger, taskId);
                             continue;
                         }
                     }
+                    var mayBeStale = ReferenceEquals(record, exec.Committed);
 
-                    if (await ApplyAndStoreAsync(key, record, encoded, exec.PushEnabled, exec: exec).ConfigureAwait(false) is not { } stored) continue;
+                    // Artifact chunks queued behind this one are applied to one copy of the task and committed together.
+                    // Only when nothing read earlier is still pending: the channel's events come after those.
+                    if (created && _batchCommit is not null && pending is not { Count: > 0 } && IsBatchable(evt)
+                        && reader.TryPeek(out var queued) && IsBatchable(queued))
+                    {
+                        var batch = new List<SequencedEvent>(8) { encoded };
+                        while (batch.Count < MaxCommitBatch && reader.TryPeek(out queued) && IsBatchable(queued) && reader.TryRead(out queued))
+                        {
+                            var next = Encode(queued);
+                            if (next.Json.Length > _options.Limits.MaxEventBytes)
+                            {
+                                (pending ??= new()).Enqueue(queued); // the single path fails the task for it
+                                break;
+                            }
+                            batch.Add(next);
+                        }
+                        var storedCount = await ApplyBatchAndStoreAsync(key, record, batch, exec, scope).ConfigureAwait(false);
+                        if (storedCount > 0 || batch.Count > 1)
+                        {
+                            // The events the batch did not store go first, then those already waiting, in order.
+                            var rest = new Queue<StreamResponse>();
+                            for (var i = Math.Max(storedCount, 0); i < batch.Count; i++) rest.Enqueue(batch[i].Event);
+                            if (pending is not null) while (pending.Count > 0) rest.Enqueue(pending.Dequeue());
+                            pending = rest;
+                            continue;
+                        }
+                    }
+
+                    if (await ApplyAndStoreAsync(key, record, encoded, exec.PushEnabled, exec: exec, recordMayBeStale: mayBeStale).ConfigureAwait(false) is not { } stored) continue;
 
                     // Still under the task lock, so sinks see events in sequence order even with concurrent executions.
                     // Every sink is non-blocking.
-                    Publish(exec, key, stored);
+                    Publish(exec, scope, stored);
                     // The stored event is not the produced one when the task grew past its cap.
                     if (exec.Activity is not null && stored.Event is StatusUpdateEvent { StatusUpdate.Status.State: var recorded })
                         exec.Activity.SetTag(A2ATelemetry.Tags.TaskState, A2ATelemetry.TaskStateValue(recorded));
@@ -805,9 +846,10 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// belongs to the store and is never changed. <paramref name="encoded"/> comes from <see cref="Encode"/>; the stored and
     /// returned event, and every push delivery, carry its bytes.
     /// </summary>
-    private async Task<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, SequencedEvent encoded, bool pushEnabled,
-        Func<TaskRecord, bool>? precondition = null, Execution? exec = null)
+    private async ValueTask<SequencedEvent?> ApplyAndStoreAsync(TaskKey key, TaskRecord record, SequencedEvent encoded, bool pushEnabled,
+        Func<TaskRecord, bool>? precondition = null, Execution? exec = null, bool recordMayBeStale = false)
     {
+        if (exec is not null) exec.Committed = null; // set again only by a successful commit
         var evt = encoded.Event;
         var deliveries = await DeliveriesAsync(key, pushEnabled).ConfigureAwait(false);
         for (var attempt = 0; ; attempt++)
@@ -852,6 +894,12 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             {
                 var committed = await _tasks.CommitAsync(new TaskCommit(record with { Task = next }, record.Version, encoded, deliveries)).ConfigureAwait(false);
                 exec?.Usage.MarkStored(usage);
+                if (exec is not null)
+                {
+                    exec.Committed = committed.Record;
+                    // A store may return its own instance of the task (one it read back): the size carried over still holds for it.
+                    if (ReferenceEquals(exec.MeasuredTask, next)) exec.MeasuredTask = committed.Record.Task;
+                }
                 if (deliveries.Count > 0) _outbox.NotifyPending();
                 ServerTelemetry.Events.Add(1);
                 // A webhook saved after the listing above is not among the deliveries. For an event that ends or interrupts the
@@ -864,9 +912,16 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
             catch (ConcurrencyException) when (attempt < MaxConflictRetries)
             {
+                if (recordMayBeStale)
+                {
+                    // The record was this run's last commit, not a fresh read: another writer may have committed since. Reload
+                    // at once, without a backoff and without using up a retry.
+                    recordMayBeStale = false;
+                    attempt--;
+                }
                 // Sleeps under the striped task lock (inherited from main), so tasks on the same stripe wait too. Acceptable:
                 // conflicts come only from other instances (writers here share the lock), so this is rare and short.
-                await ConflictBackoffAsync(attempt, CancellationToken.None).ConfigureAwait(false);
+                else await ConflictBackoffAsync(attempt, CancellationToken.None).ConfigureAwait(false);
                 var fresh = await _tasks.GetAsync(key).ConfigureAwait(false);
                 if (fresh is null)
                 {
@@ -876,6 +931,92 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 record = fresh;
             }
         }
+    }
+
+    /// <summary>Most events in one batch commit.</summary>
+    internal const int MaxCommitBatch = 64;
+
+    /// <summary>
+    /// Whether an event may go into a batch commit: an append of parts that adds nothing else (no name, description or
+    /// metadata) and does not seal the artifact. Its effect on the task and on the task's size is then known without
+    /// walking the task. Anything else is stored on its own.
+    /// </summary>
+    private static bool IsBatchable(StreamResponse evt) =>
+        evt is ArtifactUpdateEvent { ArtifactUpdate: { LastChunk: false } } && TaskSize.AppendedBytes(evt) is not null;
+
+    /// <summary>
+    /// Applies the leading events of <paramref name="batch"/> (all batchable) to one copy of the task and commits them together
+    /// (<see cref="IBatchTaskCommit"/>). Stops at the first event that the single path must handle: the task is terminal, the
+    /// artifact is missing or sealed, the artifact is invalid, or the task would grow past its cap. Returns how many leading
+    /// events were stored and published; 0 when fewer than two could be batched, or the commit lost a version race (nothing
+    /// was stored). The caller stores the rest one by one. The caller holds the task lock.
+    /// </summary>
+    private async ValueTask<int> ApplyBatchAndStoreAsync(TaskKey key, TaskRecord record, List<SequencedEvent> batch, Execution exec, string scope)
+    {
+        if (batch.Count < 2 || record.Task.Status.State.IsTerminal()) return 0;
+        var size = ReferenceEquals(exec.MeasuredTask, record.Task) ? exec.MeasuredBytes : TaskSize.Measure(record.Task);
+        AgentTask? next = null;
+        HashSet<int>? copied = null; // artifacts already replaced by a copy owned by this batch
+        var count = 0;
+        foreach (var e in batch)
+        {
+            var au = ((ArtifactUpdateEvent)e.Event).ArtifactUpdate;
+            var artifacts = (next ?? record.Task).Artifacts;
+            var index = IndexOfArtifact(artifacts, au.Artifact.ArtifactId);
+            if (index < 0 || ArtifactSeal.IsSealed(artifacts![index])) break;
+            try { A2AValidator.ValidateArtifact(au.Artifact, "artifact", allowEmptyParts: true); }
+            catch (A2AException) { break; } // the single path refuses it
+            var added = TaskSize.AppendedBytes(e.Event)!.Value;
+            if (size + added > _options.Limits.MaxTaskBytes) break; // the single path fails the task for it
+
+            next ??= record.Task.CopyForUpdate();
+            if ((copied ??= []).Add(index))
+            {
+                // As in ApplyToCopy: the stored artifact is never changed; the copy belongs to this batch.
+                var merged = next.Artifacts![index].CopyWithParts(au.Artifact.Parts);
+                ArtifactSeal.Set(merged, false);
+                next.Artifacts[index] = merged;
+            }
+            else next.Artifacts![index].Parts.AddRange(au.Artifact.Parts);
+            size += added;
+            count++;
+        }
+        if (count < 2) return 0;
+
+        var usage = exec.Usage.Pending();
+        TaskUsageMeter.Apply(next!, usage);
+        var configs = await DeliveriesAsync(key, exec.PushEnabled).ConfigureAwait(false);
+        var events = new BatchedEvent[count];
+        for (var i = 0; i < count; i++)
+        {
+            IReadOnlyList<PushDelivery> deliveries = configs;
+            if (i > 0 && configs.Count > 0)
+            {
+                var fresh = new PushDelivery[configs.Count]; // a delivery id per event
+                for (var j = 0; j < fresh.Length; j++) fresh[j] = NewDelivery(key, configs[j].ConfigId);
+                deliveries = fresh;
+            }
+            events[i] = new BatchedEvent(batch[i], deliveries);
+        }
+        BatchCommitResult committed;
+        try
+        {
+            committed = await _batchCommit!.CommitBatchAsync(new TaskBatchCommit(record with { Task = next! }, record.Version, events)).ConfigureAwait(false);
+        }
+        catch (ConcurrencyException)
+        {
+            exec.Committed = null; // the single path reloads the task
+            return 0;
+        }
+        exec.Usage.MarkStored(usage);
+        exec.Committed = committed.Record;
+        exec.MeasuredTask = committed.Record.Task;
+        exec.MeasuredBytes = size;
+        if (configs.Count > 0) _outbox.NotifyPending();
+        ServerTelemetry.Events.Add(count);
+        // Still under the task lock, so sinks see events in sequence order.
+        for (var i = 0; i < count; i++) Publish(exec, scope, batch[i] with { Sequence = committed.FirstSequence + i });
+        return count;
     }
 
     /// <summary>
@@ -1007,10 +1148,10 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     }
 
     /// <summary>Sends a stored event to the request that started the run and to subscribers. Its webhooks were queued by its commit.</summary>
-    private void Publish(Execution exec, TaskKey key, SequencedEvent evt)
+    private void Publish(Execution exec, string scope, SequencedEvent evt)
     {
         exec.Emit(evt);
-        _bus.Publish(ScopeKey(key.Tenant, key.TaskId), evt);
+        _bus.Publish(scope, evt);
     }
 
     /// <summary>
@@ -1038,7 +1179,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         if (evt is ArtifactUpdateEvent { ArtifactUpdate: var au })
         {
             var incoming = au.Artifact;
-            var existing = current.Artifacts?.FindIndex(a => a.ArtifactId == incoming.ArtifactId) ?? -1;
+            var existing = IndexOfArtifact(current.Artifacts, incoming.ArtifactId);
             // An empty part list is valid only to seal an artifact or update its metadata: an append to one that exists.
             A2AValidator.ValidateArtifact(incoming, "artifact", allowEmptyParts: au.Append && existing >= 0);
             var next = current.CopyForUpdate();
@@ -1067,6 +1208,15 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             return next;
         }
         return null;
+    }
+
+    /// <summary>The index of the artifact with this id, or -1. A loop: no closure per event.</summary>
+    private static int IndexOfArtifact(List<Artifact>? artifacts, string artifactId)
+    {
+        if (artifacts is null) return -1;
+        for (var i = 0; i < artifacts.Count; i++)
+            if (artifacts[i].ArtifactId == artifactId) return i;
+        return -1;
     }
 
     /// <summary>

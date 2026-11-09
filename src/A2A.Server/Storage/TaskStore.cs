@@ -117,12 +117,28 @@ public abstract class TaskStore
     protected static void ValidateDeliveries(TaskCommit commit)
     {
         ArgumentNullException.ThrowIfNull(commit);
-        var key = commit.Record.Key;
-        foreach (var d in commit.Deliveries)
+        CheckDeliveries(commit.Record.Key, commit.Deliveries, nameof(commit));
+    }
+
+    /// <summary>
+    /// Checks a <see cref="TaskBatchCommit"/> before anything is written: at least one event, not a create, and every delivery for
+    /// the committed task. Throws <see cref="ArgumentException"/> otherwise. Call it in <see cref="IBatchTaskCommit.CommitBatchAsync"/>.
+    /// </summary>
+    protected static void ValidateBatch(TaskBatchCommit commit)
+    {
+        ArgumentNullException.ThrowIfNull(commit);
+        if (commit.Events is not { Count: > 0 }) throw new ArgumentException("A batch needs at least one event.", nameof(commit));
+        if (commit.ExpectedVersion <= 0) throw new ArgumentException("A batch cannot create a task.", nameof(commit));
+        foreach (var e in commit.Events) CheckDeliveries(commit.Record.Key, e.Deliveries, nameof(commit));
+    }
+
+    private static void CheckDeliveries(TaskKey key, IReadOnlyList<PushDelivery> deliveries, string paramName)
+    {
+        foreach (var d in deliveries)
         {
-            if (d.Task != key) throw new ArgumentException("Every push delivery must be for the committed task.", nameof(commit));
-            ArgumentException.ThrowIfNullOrEmpty(d.ConfigId, nameof(commit));
-            ArgumentException.ThrowIfNullOrEmpty(d.DeliveryId, nameof(commit));
+            if (d.Task != key) throw new ArgumentException("Every push delivery must be for the committed task.", paramName);
+            ArgumentException.ThrowIfNullOrEmpty(d.ConfigId, paramName);
+            ArgumentException.ThrowIfNullOrEmpty(d.DeliveryId, paramName);
         }
     }
 

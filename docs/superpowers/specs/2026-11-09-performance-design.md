@@ -48,7 +48,8 @@ public sealed record BatchCommitResult(TaskRecord Record, long FirstSequence);
 
 Engine rules:
 
-- After reading one event, it takes more with `TryRead`, up to a cap (`StreamingOptions.MaxCommitBatch`, default 64). It never waits for more.
+- After reading one event, it takes more with `TryRead`, up to 64 (an internal constant, not an option). It never waits for more.
+- Only plain appends go into a batch: an append of parts with no name, description or metadata that does not seal the artifact. Their effect on the task and its size is known without walking the task. Anything else is stored on its own, as today.
 - It applies all of them to **one** task copy. An append adds to the copy's list, which this batch owns, so no copy per chunk.
 - Size limit, state machine and validation run per event, in order, as today. An event that would be refused ends the batch before it; that event then takes the normal single path.
 - A terminal status ends the batch.
@@ -63,20 +64,24 @@ Stores: `InMemoryTaskStore` and `PostgresTaskStore` implement it (Postgres: one 
 | Fix | Where |
 |---|---|
 | Size the list once in `CopyWithParts`, no LINQ. | `ModelCopies.cs:39` |
+| New virtual `EventStore.ReadRangeAsync(after, before)` (fallback: `ReadAfterAsync` with a stop). In-memory and Postgres read only the range. Streams fill gaps with it. | `EventStore.cs`, `TaskStreamer.ReadContiguousAsync` |
 | Event log becomes a ring buffer; `ReadAfterAsync` copies only the asked range and gets an upper bound. No `RemoveRange(0, …)`. | `InMemoryEventStore.cs:51,65` |
-| A gap is filled up to the store's last sequence, not to the live event. | `TaskStreamer.FillGapAsync` |
 | Skip the in-order iterator when the event is a duplicate (`live.Sequence <= position.Last`). | `TaskStreamer.cs:323,328,505` |
 | One long-lived cancellation registration instead of `WaitToReadAsync(token)` + `AsTask` + `WhenAny` per event. | `TaskStreamer.cs:169,342,509` |
 | Re-auth check by timestamp between events, not a `Task.Delay` per event. | `TaskStreamer.LimitStreamAsync:680` |
-| Merge `ShapeHistoryAsync` into the stream; skip it when `historyLength` is null. | `TaskStreamer.cs:97`, `A2ARequestHandler.cs:193` |
 | `ApplyAndStoreAsync` returns `ValueTask`. | `TaskExecutionEngine.cs:808` |
 | Keep the committed record on `Execution`; re-read only after a `ConcurrencyException`. | `TaskExecutionEngine.cs:647` |
 | Cache scope key and lock stripe on `Execution`. Plain loop instead of `FindIndex(lambda)`. | `TaskExecutionEngine.cs:170,1013,1041`, `TaskLocks.cs:18` |
-| Operation filters: pass encoded bytes through; deep-copy only if a filter reads events. | `OperationPipeline.cs:211` |
-| Telemetry: cap span events per stream (e.g. first 32, then a count). | `A2ATelemetry.AddStreamEvent` |
-| Usage meter writes the JSON element directly, no `JsonDocument` per report. | `TaskUsageMeter.cs:87` |
-| Request hash writes canonical JSON into a pooled buffer, no `JsonNode` tree. | `RequestHasher.cs:22` |
-| Remove the second message deep copy per request. | `A2ARequestHandler.cs:508,620` |
+
+Looked at and left out of PR 1 (measured with an allocation profile of the benchmarks):
+
+- Message deep copies per request: they keep the stored history safe from an agent that changes its message. Not worth the risk.
+- Event copies with host filters: a filter may change the events. Only with host filters.
+- Cap on span events per stream: changes what traces show. Owner's decision, not a performance fix.
+- Usage meter `JsonDocument`: only when an agent reports usage; small.
+- `ShapeHistoryAsync` layer: small next to the JSON work.
+- Request hash: it uses the JCS canonicalizer; it gets faster with the canonicalizer rewrite in PR 5.
+- Per-request `ChannelClosedException` objects: made by .NET when a channel completes; never thrown.
 
 ### 3.3 Wire format (server side)
 
@@ -137,7 +142,7 @@ New benchmarks, added in the PR that needs them:
 
 | Benchmark | PR | Measures |
 |---|---|---|
-| `StreamingTaskBenchmark.ThousandEventsSlowAgent` (agent yields between chunks, so no batching) | 1 | The non-batched path stays good. |
+| `StreamingTaskBenchmark.ThousandEventsSlowAgent` (agent yields between chunks, so no batching) | 2 | The non-batched path stays good. Added together with a baseline from CI. |
 | `RestStreamingBenchmark` | 2 | SSE over REST. |
 | `SseParseBenchmark` (client only, canned bytes) | 3 | Client per-event cost alone. |
 | `CardResolveCachedBenchmark` | 3 | A cache hit. |

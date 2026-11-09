@@ -305,7 +305,8 @@ internal sealed class TaskStreamer
                     // error.
                     while (own.TryRead(out var queued))
                     {
-                        await foreach (var e in InOrderAsync(key, queued, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                        if (TryInOrder(queued, position, out var isNextQueued)) { if (isNextQueued) yield return queued; }
+                        else await foreach (var e in InOrderAsync(key, queued, position, cancellationToken).ConfigureAwait(false)) yield return e;
                         if (position.Final) yield break;
                     }
                     await foreach (var stored in ReadContiguousAsync(key, position.Last, exec.LastSequence + 1, cancellationToken).ConfigureAwait(false))
@@ -320,12 +321,14 @@ internal sealed class TaskStreamer
                 // The bus first: another execution's event may come before this execution's next one.
                 while (sub.Reader.TryRead(out var other))
                 {
-                    await foreach (var e in InOrderAsync(key, other, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                    if (TryInOrder(other, position, out var isNextOther)) { if (isNextOther) yield return other; }
+                    else await foreach (var e in InOrderAsync(key, other, position, cancellationToken).ConfigureAwait(false)) yield return e;
                     if (position.Final) yield break;
                 }
                 if (!ownDone && own.TryRead(out var mine))
                 {
-                    await foreach (var e in InOrderAsync(key, mine, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                    if (TryInOrder(mine, position, out var isNextMine)) { if (isNextMine) yield return mine; }
+                    else await foreach (var e in InOrderAsync(key, mine, position, cancellationToken).ConfigureAwait(false)) yield return e;
                     if (position.Final) yield break;
                     continue;
                 }
@@ -387,6 +390,22 @@ internal sealed class TaskStreamer
         public long Last { get; set; } = last;
 
         public bool Final { get; set; }
+    }
+
+    /// <summary>
+    /// The common cases of <see cref="InOrderAsync"/> without an async iterator: true when <paramref name="live"/> was handled,
+    /// as a repeat (dropped, <paramref name="next"/> false) or as the next event (<paramref name="position"/> updated; the caller
+    /// sends it). False when there is a gap before it: the caller uses <see cref="InOrderAsync"/>.
+    /// </summary>
+    private static bool TryInOrder(SequencedEvent live, StreamPosition position, out bool next)
+    {
+        next = false;
+        if (live.Sequence <= position.Last) return true;
+        if (live.Sequence != position.Last + 1) return false;
+        position.Last = live.Sequence;
+        position.Final = IsFinal(live.Event);
+        next = true;
+        return true;
     }
 
     /// <summary>
@@ -502,7 +521,8 @@ internal sealed class TaskStreamer
                 while (sub.Reader.TryRead(out var live))
                 {
                     sawLive = true;
-                    await foreach (var e in InOrderAsync(key, live, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                    if (TryInOrder(live, position, out var isNextLive)) { if (isNextLive) yield return live; }
+                    else await foreach (var e in InOrderAsync(key, live, position, cancellationToken).ConfigureAwait(false)) yield return e;
                     if (position.Final) yield break;
                 }
 
@@ -639,7 +659,7 @@ internal sealed class TaskStreamer
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var expected = after + 1;
-        await foreach (var stored in _events.ReadAfterAsync(key, after, ct).ConfigureAwait(false))
+        await foreach (var stored in _events.ReadRangeAsync(key, after, before, ct).ConfigureAwait(false))
         {
             if (stored.Sequence >= before || stored.Sequence != expected) yield break;
             yield return stored;
@@ -672,31 +692,36 @@ internal sealed class TaskStreamer
 
         var events = source.GetAsyncEnumerator(stop.Token);
         Task<bool>? move = null;
+        Task? deadline = null; // one timer for the re-check, kept across events until it fires
         var reauthAt = reauthEvery is { } first ? Stopwatch.GetTimestamp() + Ticks(first) : long.MaxValue;
         try
         {
             while (true)
             {
-                move = events.MoveNextAsync().AsTask();
-                // Idle stream: wake up at the re-check deadline while waiting for the next event.
-                while (reauthEvery is not null && !move.IsCompleted)
-                {
-                    var wait = Stopwatch.GetElapsedTime(Stopwatch.GetTimestamp(), reauthAt);
-                    if (wait > TimeSpan.Zero)
-                    {
-                        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
-                        var delay = Task.Delay(wait, delayCts.Token);
-                        var winner = await Task.WhenAny(move, delay).ConfigureAwait(false);
-                        delayCts.Cancel();
-                        if (winner == move || stop.IsCancellationRequested) break;
-                    }
-                    if (!await StillAuthorizedAsync().ConfigureAwait(false)) yield break; // the finally stops the source
-                }
-
                 bool more;
                 try
                 {
-                    more = await move.ConfigureAwait(false);
+                    var next = events.MoveNextAsync();
+                    if (reauthEvery is null || next.IsCompleted) more = await next.ConfigureAwait(false); // no timer, no Task
+                    else
+                    {
+                        // Idle stream: wake up at the re-check deadline while waiting for the next event.
+                        move = next.AsTask();
+                        while (!move.IsCompleted)
+                        {
+                            var wait = Stopwatch.GetElapsedTime(Stopwatch.GetTimestamp(), reauthAt);
+                            if (wait > TimeSpan.Zero)
+                            {
+                                deadline ??= Task.Delay(wait, stop.Token);
+                                if (await Task.WhenAny(move, deadline).ConfigureAwait(false) == move || stop.IsCancellationRequested) break;
+                                deadline = null;
+                                if (Stopwatch.GetTimestamp() < reauthAt) continue; // moved by a check between events: wait again
+                            }
+                            if (!await StillAuthorizedAsync().ConfigureAwait(false)) yield break; // the finally stops the source
+                        }
+                        more = await move.ConfigureAwait(false);
+                        move = null;
+                    }
                 }
                 catch (OperationCanceledException) when (stop.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
                 {
