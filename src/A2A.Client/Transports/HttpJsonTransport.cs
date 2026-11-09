@@ -169,15 +169,16 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IA2AExten
 #else
         await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
 #endif
-        await foreach (var evt in SseReader.ReadAsync(stream, ct).ConfigureAwait(false))
+        // Each event is parsed from its UTF-8 bytes in the reader's buffer: no string and no copy per event.
+        await foreach (var frame in SseReader.ReadFramesAsync(stream, SseReader.DefaultMaxEventBytes, ct).ConfigureAwait(false))
         {
             StreamResponse? item = null;
             try
             {
-                item = ParseStreamEvent(evt.Data, evt.EventType);
+                item = ParseStreamEvent(frame);
             }
             catch (JsonException ex) { throw ProtocolError($"Malformed stream event: {ex.Message}", ex); }
-            if (item is not null) yield return new StreamFrame(item, evt.FrameId);
+            if (item is not null) yield return new StreamFrame(item, frame.FrameId);
         }
     }
 
@@ -191,19 +192,21 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IA2AExten
     /// is thrown. The common case (an object with a known member and no <c>error</c>) binds straight from the event's UTF-8
     /// bytes; the rest takes the <see cref="JsonDocument"/> path, so malformed events fail exactly as before.
     /// </summary>
-    private static StreamResponse? ParseStreamEvent(string data, string? eventType)
+    private static StreamResponse? ParseStreamEvent(Sse.SseFrame frame)
     {
-        var errorFrame = string.Equals(eventType, "error", StringComparison.Ordinal);
-        if (!errorFrame)
+        var errorFrame = string.Equals(frame.EventType, "error", StringComparison.Ordinal);
+        var bytes = frame.Data.Span;
+        // Invalid UTF-8 takes the text path below, where it becomes U+FFFD as it always did.
+        if (!errorFrame && System.Text.Unicode.Utf8.IsValid(bytes))
         {
-            using var bytes = ResponseBody.FromString(data);
             Span<(int Start, int End)> found = stackalloc (int, int)[5];
-            if (JsonMembers.TryScan(bytes.Span, EventMembers, found, out var root, out var isObject) && isObject && found[0].Start < 0)
+            if (JsonMembers.TryScan(bytes, EventMembers, found, out var root, out var isObject) && isObject && found[0].Start < 0)
             {
                 var known = found[1].Start >= 0 || found[2].Start >= 0 || found[3].Start >= 0 || found[4].Start >= 0;
-                return known ? JsonSerializer.Deserialize(bytes.Span[root], A2AJson.GetTypeInfo<StreamResponse>()) ?? throw ProtocolError("Empty stream event.") : null;
+                return known ? JsonSerializer.Deserialize(bytes[root], A2AJson.GetTypeInfo<StreamResponse>()) ?? throw ProtocolError("Empty stream event.") : null;
             }
         }
+        var data = frame.DataText;
         using var doc = JsonDocument.Parse(data);
         var element = doc.RootElement;
         if (element.ValueKind == JsonValueKind.Object && element.TryGetProperty("error", out var err)) throw ParseStatus(err, null);
