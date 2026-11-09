@@ -20,6 +20,8 @@
   href: skill-selection.md
 - name: Microsoft.Extensions.AI
   href: extensions-ai.md
+- name: Conversation memory
+  href: conversation-memory.md
 - name: v0.3 compatibility
   href: v03-compatibility.md
 - name: Multi-tenancy
