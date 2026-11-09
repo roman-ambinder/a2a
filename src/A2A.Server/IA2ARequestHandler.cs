@@ -130,7 +130,10 @@ public interface IA2ARequestHandler
     /// Runs the extension operation registered as <paramref name="method"/> (see <see cref="Pipeline.A2AExtensionOperation"/>)
     /// through the operation pipeline, with <see cref="Pipeline.A2AOperationDescriptor.Extension"/> as its descriptor. When
     /// <paramref name="parameters"/> is an object with a string <c>tenant</c> property, that tenant is bound like the tenant
-    /// of a built-in request. Throws MethodNotFound when no extension operation has that name.
+    /// of a built-in request. After authorization, the call must pass the tenant's card (a tenant no agent serves is UnsupportedOperation) and
+    /// must have activated the operation's extension (the caller sent its URI in <see cref="ServerCallContext.RequestedExtensions"/>
+    /// and the card lists it); otherwise the call fails with ExtensionSupportRequired and the handler does not run.
+    /// Throws MethodNotFound when no extension operation has that name.
     /// </summary>
     /// <param name="method">The registered method name (case-sensitive).</param>
     /// <param name="parameters">The request params.</param>

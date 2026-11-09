@@ -19,7 +19,7 @@ public sealed class A2AOperationTable
 
     /// <summary>Builds the table. In an ASP.NET Core app the DI container does this, with the registered extension operations.</summary>
     /// <param name="extensions">The registered extension operations.</param>
-    /// <exception cref="InvalidOperationException">Two extension operations have the same name (ignoring case), or one has a built-in method name.</exception>
+    /// <exception cref="InvalidOperationException">Two extension operations have the same name (ignoring case), or one has a reserved name (<see cref="A2AProtocol.Methods.IsReserved"/>).</exception>
     public A2AOperationTable(IEnumerable<A2AExtensionOperation> extensions)
     {
         ArgumentNullException.ThrowIfNull(extensions);
@@ -58,8 +58,8 @@ public sealed class A2AOperationTable
         var byName = new Dictionary<string, A2AExtensionOperation>(StringComparer.OrdinalIgnoreCase); // HTTP routes ignore case
         foreach (var extension in extensions)
         {
-            if (methods.Keys.Any(m => string.Equals(m, extension.Method, StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException($"The extension operation '{extension.Method}' has the name of a built-in A2A method.");
+            if (A2AProtocol.Methods.IsReserved(extension.Method))
+                throw new InvalidOperationException($"The extension operation '{extension.Method}' has a reserved name (a built-in A2A method, or a name that starts with 'rpc.').");
             if (!byName.TryAdd(extension.Method, extension))
                 throw new InvalidOperationException($"More than one extension operation is registered as '{extension.Method}'.");
             var descriptor = A2AOperationDescriptor.Extension(extension.Method);

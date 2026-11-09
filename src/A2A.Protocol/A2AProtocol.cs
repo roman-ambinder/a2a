@@ -96,5 +96,29 @@ public static class A2AProtocol
         public const string DeleteTaskPushNotificationConfig = "DeleteTaskPushNotificationConfig";
         /// <summary>GetExtendedAgentCard: fetches the authenticated, extended Agent Card (spec §3.1.11).</summary>
         public const string GetExtendedAgentCard = "GetExtendedAgentCard";
+
+        private static readonly string[] BuiltIn =
+        [
+            SendMessage, SendStreamingMessage, GetTask, ListTasks, CancelTask, SubscribeToTask,
+            CreateTaskPushNotificationConfig, GetTaskPushNotificationConfig, ListTaskPushNotificationConfigs,
+            DeleteTaskPushNotificationConfig, GetExtendedAgentCard,
+        ];
+
+        /// <summary>
+        /// True when <paramref name="method"/> may not name a custom operation: one of the 11 built-in method names, or a name that
+        /// starts with <c>rpc.</c> (JSON-RPC 2.0 reserves it). Both are compared ignoring case.
+        /// </summary>
+        /// <param name="method">The method name to check.</param>
+        /// <returns>True when the name is reserved.</returns>
+        public static bool IsReserved(string method)
+        {
+            if (method is null) return false;
+            if (method.StartsWith("rpc.", StringComparison.OrdinalIgnoreCase)) return true;
+            foreach (var builtIn in BuiltIn)
+            {
+                if (string.Equals(builtIn, method, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
     }
 }

@@ -13,3 +13,4 @@ const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.PermissionDenied = "permis
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.Unauthenticated = "unauthenticated" -> string!
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.WebhookRefused = "webhook_refused" -> string!
 const A2A.Diagnostics.A2ATelemetry.Tags.SecurityEvent = "a2a.security.event" -> string!
+static A2A.A2AProtocol.Methods.IsReserved(string! method) -> bool
