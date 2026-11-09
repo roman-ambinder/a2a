@@ -317,7 +317,8 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
 
 /// <summary>
 /// Lets <see cref="A2AClientFactory"/> select gRPC interfaces. Add it with
-/// <see cref="A2AGrpcClientOptionsExtensions.UseGrpc"/>. Each created transport owns its own <see cref="GrpcChannel"/>.
+/// <see cref="A2AGrpcClientOptionsExtensions.UseGrpc"/>. Transports to the same address with the same channel options share one
+/// <see cref="GrpcChannel"/> (one HTTP/2 connection pool), which stays open for the life of those options.
 /// </summary>
 public sealed class GrpcTransportFactory(GrpcChannelOptions? channelOptions = null) : IA2ATransportFactory
 {
@@ -333,9 +334,29 @@ public sealed class GrpcTransportFactory(GrpcChannelOptions? channelOptions = nu
         catch (UriFormatException) { return false; }
     }
 
-    /// <summary>Creates a transport with its own channel. <paramref name="httpClient"/> is not used: gRPC needs its own HTTP/2 handler.</summary>
+    /// <summary>
+    /// Creates a transport on the shared channel of its address (see the class remarks). <paramref name="httpClient"/> is not
+    /// used: gRPC needs its own HTTP/2 handler.
+    /// </summary>
     public IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options) =>
-        new GrpcTransport(GrpcTransport.ParseAddress(agentInterface.Url), options, channelOptions);
+        new GrpcTransport(ChannelFor(GrpcTransport.ParseAddress(agentInterface.Url), channelOptions).CreateCallInvoker(), options);
+
+    // A channel per address and channel options. Before, every client opened a channel that nothing disposed. Channels made
+    // with given options live as long as those options (a weak table), so a caller that makes options per client keeps its
+    // channels collectable; the default options share one table for the process.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GrpcChannel> DefaultChannels = new(StringComparer.Ordinal);
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GrpcChannelOptions, System.Collections.Concurrent.ConcurrentDictionary<string, GrpcChannel>> ChannelsByOptions = new();
+
+    private static GrpcChannel ChannelFor(Uri address, GrpcChannelOptions? options)
+    {
+        var channels = options is null ? DefaultChannels : ChannelsByOptions.GetValue(options, static _ => new(StringComparer.Ordinal));
+        var key = address.AbsoluteUri;
+        if (channels.TryGetValue(key, out var existing)) return existing;
+        var created = GrpcChannel.ForAddress(address, options ?? new GrpcChannelOptions());
+        var winner = channels.GetOrAdd(key, created);
+        if (!ReferenceEquals(winner, created)) created.Dispose(); // lost a race: use the one already stored
+        return winner;
+    }
 }
 
 /// <summary>Registers the gRPC transport on <see cref="A2AClientOptions"/>.</summary>

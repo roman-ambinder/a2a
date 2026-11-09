@@ -22,5 +22,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="A2A.Tests" />
+    <InternalsVisibleTo Include="A2A.Grpc.Tests" />
   </ItemGroup>
 </Project>
