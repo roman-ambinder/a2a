@@ -20,6 +20,9 @@ First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Ta
   `A2A.Server.V0_3Compat`.
 - Shared: `A2A.Grpc` (gRPC types) and `A2A.V0_3Compat` (v0.3 codecs).
 - Microsoft.Extensions.AI: `A2A.Extensions.AI`.
+- Testing: `A2A.TestKit`, for agent authors. An in-process agent host, a scripted fake peer agent, assertions for task states
+  and event order, a fake clock (`TestClock`) and a push receiver. It works with any test framework. It does not claim AOT
+  compatibility and has no gRPC.
 - Every package has a README, the Apache-2.0 license, SourceLink and a symbol package. The libraries are AOT compatible.
   (#4, #13)
 

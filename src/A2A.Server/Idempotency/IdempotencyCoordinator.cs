@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using A2A.Diagnostics;
 using A2A.Server.Pipeline;
 using A2A.Server.Storage;
+using A2A.Server.Telemetry;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -53,6 +55,7 @@ public sealed class IdempotencyCoordinator(IdempotencyStore store, TaskStore tas
                         break; // the first request failed before creating anything: try again, possibly as the new owner
                     }
                 case IdempotencyResult.Mismatch:
+                    SecurityEventLog.Record(options, A2ATelemetry.SecurityEventNames.IdempotencyKeyMismatch, A2AProtocol.Methods.SendMessage, call, request.Message.TaskId);
                     throw A2AException.IdempotencyKeyMismatch();
                 default:
                     throw new UnreachableException();

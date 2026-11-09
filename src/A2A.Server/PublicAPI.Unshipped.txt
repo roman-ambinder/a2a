@@ -94,6 +94,70 @@ A2A.Server.ServerCallContext.SkipRequiredExtensions.get -> bool
 A2A.Server.ServerCallContext.SkipRequiredExtensions.init -> void
 A2A.Server.A2AServerOptions.ShutdownDrainTimeout.get -> System.TimeSpan
 A2A.Server.A2AServerOptions.ShutdownDrainTimeout.set -> void
+A2A.Server.A2AServerOptions.IdempotentCancel.get -> bool
+A2A.Server.A2AServerOptions.IdempotentCancel.set -> void
+A2A.Server.A2AServerOptions.ContextAccess.get -> System.Func<A2A.Server.Storage.ContextRecord!, A2A.Server.ServerCallContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<bool>>?
+A2A.Server.A2AServerOptions.ContextAccess.set -> void
+A2A.Server.Push.IPushOutboxStatistics
+A2A.Server.Push.IPushOutboxStatistics.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
+A2A.Server.Push.InMemoryPushOutbox.GetStatisticsAsync(int maxDeadLetters, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Push.PushOutboxStatistics>
+A2A.Server.Push.PushOutboxStatistics
+A2A.Server.Push.PushOutboxStatistics.DeadLetterCount.get -> int
+A2A.Server.Push.PushOutboxStatistics.DeadLetterCount.init -> void
+A2A.Server.Push.PushOutboxStatistics.OldestDueAge.get -> System.TimeSpan
+A2A.Server.Push.PushOutboxStatistics.OldestDueAge.init -> void
+A2A.Server.Push.PushOutboxStatistics.PushOutboxStatistics() -> void
+A2A.Server.Push.PushOutboxStatistics.PushOutboxStatistics(System.TimeSpan OldestDueAge, int DeadLetterCount) -> void
+A2A.Server.AgentRequestContext.Conversation.get -> A2A.Server.ConversationMemory?
+A2A.Server.AgentRequestContext.Conversation.init -> void
+A2A.Server.ConversationMemory
+A2A.Server.ConversationMemory.CanStoreSummary.get -> bool
+A2A.Server.ConversationMemory.GetSummaryAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<string?>
+A2A.Server.ConversationMemory.ReadEarlierMessagesAsync(int maxTasks = 20, long maxBytes = 262144, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Message!>!>
+A2A.Server.ConversationMemory.SetSummaryAsync(string? summary, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+A2A.Server.Storage.ContextHistoryQuery
+A2A.Server.Storage.ContextHistoryQuery.ContextHistoryQuery(string! Tenant, string! Owner, string! ContextId, int MaxTasks, long MaxBytes, string? ExcludeTaskId = null) -> void
+A2A.Server.Storage.ContextHistoryQuery.ContextId.get -> string!
+A2A.Server.Storage.ContextHistoryQuery.ContextId.init -> void
+A2A.Server.Storage.ContextHistoryQuery.ExcludeTaskId.get -> string?
+A2A.Server.Storage.ContextHistoryQuery.ExcludeTaskId.init -> void
+A2A.Server.Storage.ContextHistoryQuery.MaxBytes.get -> long
+A2A.Server.Storage.ContextHistoryQuery.MaxBytes.init -> void
+A2A.Server.Storage.ContextHistoryQuery.MaxTasks.get -> int
+A2A.Server.Storage.ContextHistoryQuery.MaxTasks.init -> void
+A2A.Server.Storage.ContextHistoryQuery.Owner.get -> string!
+A2A.Server.Storage.ContextHistoryQuery.Owner.init -> void
+A2A.Server.Storage.ContextHistoryQuery.Tenant.get -> string!
+A2A.Server.Storage.ContextHistoryQuery.Tenant.init -> void
+A2A.Server.Storage.ContextPage
+A2A.Server.Storage.ContextPage.ContextPage(System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.ContextRecord!>! Records, string! NextPageToken) -> void
+A2A.Server.Storage.ContextPage.NextPageToken.get -> string!
+A2A.Server.Storage.ContextPage.NextPageToken.init -> void
+A2A.Server.Storage.ContextPage.Records.get -> System.Collections.Generic.IReadOnlyList<A2A.Server.Storage.ContextRecord!>!
+A2A.Server.Storage.ContextPage.Records.init -> void
+A2A.Server.Storage.ContextQuery
+A2A.Server.Storage.ContextQuery.ContextQuery(string! Tenant, string! Owner, int PageSize, string? PageToken) -> void
+A2A.Server.Storage.ContextQuery.Owner.get -> string!
+A2A.Server.Storage.ContextQuery.Owner.init -> void
+A2A.Server.Storage.ContextQuery.PageSize.get -> int
+A2A.Server.Storage.ContextQuery.PageSize.init -> void
+A2A.Server.Storage.ContextQuery.PageToken.get -> string?
+A2A.Server.Storage.ContextQuery.PageToken.init -> void
+A2A.Server.Storage.ContextQuery.Tenant.get -> string!
+A2A.Server.Storage.ContextQuery.Tenant.init -> void
+A2A.Server.Storage.ContextRecord.Summary.get -> string?
+A2A.Server.Storage.ContextRecord.Summary.init -> void
+A2A.Server.Storage.IContextSummaryStore
+A2A.Server.Storage.IContextSummaryStore.SetContextSummaryAsync(string! tenant, string! owner, string! contextId, string? summary, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+A2A.Server.Storage.InMemoryTaskStore.SetContextSummaryAsync(string! tenant, string! owner, string! contextId, string? summary, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+const A2A.Server.ConversationMemory.DefaultMaxBytes = 262144 -> long
+const A2A.Server.ConversationMemory.DefaultMaxTasks = 20 -> int
+override A2A.Server.Storage.InMemoryTaskStore.ListContextsAsync(A2A.Server.Storage.ContextQuery! query, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ContextPage!>
+static A2A.Server.Storage.PageCursor.Encode(A2A.Server.Storage.ContextRecord! last) -> string!
+static A2A.Server.Storage.TaskStore.ValidateContextQuery(A2A.Server.Storage.ContextQuery! query) -> void
+static A2A.Server.Storage.TaskStore.ValidateHistoryQuery(A2A.Server.Storage.ContextHistoryQuery! query) -> void
+virtual A2A.Server.Storage.TaskStore.ListContextsAsync(A2A.Server.Storage.ContextQuery! query, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<A2A.Server.Storage.ContextPage!>
+virtual A2A.Server.Storage.TaskStore.ReadContextMessagesAsync(A2A.Server.Storage.ContextHistoryQuery! query, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<A2A.Message!>!>
 A2A.Server.Authorization.SkillAuthorizationMode
 A2A.Server.Authorization.SkillAuthorizationMode.Off = 0 -> A2A.Server.Authorization.SkillAuthorizationMode
 A2A.Server.Authorization.SkillAuthorizationMode.Required = 2 -> A2A.Server.Authorization.SkillAuthorizationMode
@@ -108,3 +172,4 @@ A2A.Server.A2AServerOptions.SkillAuthorization.get -> A2A.Server.Authorization.S
 A2A.Server.AgentRequestContext.AuthorizedSkillId.get -> string?
 A2A.Server.AgentRequestContext.IsSkillAllowedAsync(string! skillId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 virtual A2A.Server.Authorization.A2AAuthorizationHandler.AuthorizeSkillAsync(A2A.Server.ServerCallContext! call, string! skillId, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<bool>
+A2A.Server.Push.InMemoryPushOutbox.Count.get -> int

@@ -22,6 +22,7 @@
     <Project Path="samples/EchoClient/EchoClient.csproj" />
     <Project Path="samples/MultiInstance/Agent/MultiInstanceAgent.csproj" />
     <Project Path="samples/MultiInstance/Client/MultiInstanceClient.csproj" />
+    <Project Path="samples/TestingAgent/TestingAgent.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/A2A.Client.Grpc/A2A.Client.Grpc.csproj" />
@@ -42,6 +43,7 @@
     <Project Path="src/A2A.Server.V0_3Compat/A2A.Server.V0_3Compat.csproj" />
     <Project Path="src/A2A.V0_3Compat/A2A.V0_3Compat.csproj" />
     <Project Path="src/A2A.Server/A2A.Server.csproj" />
+    <Project Path="src/A2A.TestKit/A2A.TestKit.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/A2A.Benchmarks/A2A.Benchmarks.csproj" />
@@ -49,6 +51,7 @@
     <Project Path="tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj" />
     <Project Path="tests/A2A.NetStandard.Smoke/A2A.NetStandard.Smoke.csproj" />
     <Project Path="tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj" />
+    <Project Path="tests/A2A.TestKit.Tests/A2A.TestKit.Tests.csproj" />
     <Project Path="tests/A2A.Tests/A2A.Tests.csproj" />
     <Project Path="tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj" />
   </Folder>

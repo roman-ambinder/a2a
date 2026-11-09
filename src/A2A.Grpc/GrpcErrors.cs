@@ -113,6 +113,7 @@ public static class GrpcErrors
             reason = A2AErrors.PayloadTooLargeReason;
             httpStatus = 413;
         }
+        if (info is null && ex.StatusCode == StatusCode.Unavailable) httpStatus = 503; // the gRPC form of HTTP 503
         return new A2AException(code, string.IsNullOrEmpty(message) ? null : message, ex)
         {
             HttpStatus = httpStatus,
