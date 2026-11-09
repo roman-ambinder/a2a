@@ -67,8 +67,7 @@ internal sealed class PostgresStoreHostedService(
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         // Before the app takes requests, so the first request finds the tables.
-        if (options.CreateSchemaOnStartup)
-            await PostgresSchema.EnsureSchemaAsync(dataSource, options.Schema, cancellationToken).ConfigureAwait(false);
+        await PostgresSchema.PrepareForStartupAsync(dataSource, options, _logger, cancellationToken).ConfigureAwait(false);
         await base.StartAsync(cancellationToken).ConfigureAwait(false);
     }
 
