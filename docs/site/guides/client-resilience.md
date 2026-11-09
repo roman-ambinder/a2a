@@ -12,17 +12,7 @@ Retries help with a short fault. When a peer is down for minutes, every call sti
 
 Turn it on with <xref:A2A.Client.A2AClientOptions.CircuitBreaker>:
 
-```csharp
-var options = new A2AClientOptions
-{
-    CircuitBreaker = new CircuitBreakerOptions
-    {
-        FailureThreshold = 5,                      // consecutive failed calls
-        OpenDuration = TimeSpan.FromSeconds(30),   // wait before a test call
-    },
-};
-var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), httpClient, options);
-```
+[!code-csharp[](../snippets/ClientResilience.cs#TurnOn)]
 
 ### States
 
@@ -60,16 +50,7 @@ The breaker works with every binding, gRPC included. A bare gRPC `UNAVAILABLE` c
 
 ### Handle the exception
 
-```csharp
-try
-{
-    var task = await client.GetTaskAsync("task-1");
-}
-catch (CircuitOpenException ex)
-{
-    // No request was sent. Try again after ex.RetryAfter, or use another agent.
-}
-```
+[!code-csharp[](../snippets/ClientResilience.cs#HandleOpen)]
 
 `CircuitOpenException` is an `A2AException` with code `Internal`. Its `RetryAfter` is the time until the next test call.
 
