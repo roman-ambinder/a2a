@@ -48,6 +48,12 @@ public sealed class AgentRequestContext
     /// </summary>
     public AgentTask? Task { get; init; }
 
+    /// <summary>
+    /// The memory of this conversation: messages of earlier tasks in the same context, and a rolling summary. Set by the server
+    /// for the caller's tenant and principal. Null only for a context built by hand.
+    /// </summary>
+    public ConversationMemory? Conversation { get; init; }
+
     /// <summary>Options from the SendMessage request. Null when the client sent none.</summary>
     public SendMessageConfiguration? Configuration { get; init; }
 
