@@ -93,6 +93,9 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 222, Level = LogLevel.Error, Message = "Could not remove push config {ConfigId} of task {TaskId} that was not created or committed")]
     public static partial void PushConfigCleanupFailed(ILogger logger, Exception exception, string configId, string taskId);
 
+    [LoggerMessage(EventId = 225, Level = LogLevel.Warning, Message = "Task {TaskId}: the periodic check of an idle stream failed; the stream stays open and the next check tries again")]
+    public static partial void StreamCheckFailed(ILogger logger, Exception exception, string taskId);
+
     // Push delivery (PushDeliveryService, PushWebhookSender): 300-399
     [LoggerMessage(EventId = 302, Level = LogLevel.Error, Message = "Cannot unprotect secrets of webhook {ConfigId} for task {TaskId}; dead-lettering the delivery")]
     public static partial void PushUnprotectFailed(ILogger logger, Exception exception, string? configId, string taskId);

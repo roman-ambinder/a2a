@@ -88,6 +88,7 @@ Rules:
 | `LeaseTtl` | 30 seconds | How long an execution's lease lasts without a heartbeat. Must be longer than 2 x `Heartbeat`. |
 | `Heartbeat` | 10 seconds | How often a running execution renews its lease and its idempotency claim. |
 | `RunningPollInterval` | 1 second | How often a waiting request checks whether an execution on another instance still runs. |
+| `StreamCheckInterval` | 30 seconds | How often an idle SubscribeToTask stream looks in the store for events a lost bus message dropped. Costs one small set of store reads per idle stream per interval. |
 
 [!code-csharp[](../snippets/DurableStores.cs#Coordination)]
 

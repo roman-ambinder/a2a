@@ -24,6 +24,9 @@ public sealed class FaultyCoordinator(TimeProvider? time = null) : ExecutionCoor
     /// <summary>IsRunningAsync waits until its token is cancelled, then answers "running" (a lease that is still valid).</summary>
     public bool HoldRunningCheckUntilCancelled { get; set; }
 
+    /// <summary>IsRunningAsync answers "running" while true (an execution on another instance).</summary>
+    public bool ReportRunning { get; set; }
+
     public int RegisterCalls => Volatile.Read(ref _registerCalls);
 
     public override ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken ct = default)
@@ -39,6 +42,7 @@ public sealed class FaultyCoordinator(TimeProvider? time = null) : ExecutionCoor
     public override async ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default)
     {
         if (ThrowOnIsRunning) throw new InvalidOperationException("coordinator unavailable");
+        if (ReportRunning) return true;
         if (HoldRunningCheckUntilCancelled)
         {
             try { await Task.Delay(Timeout.Infinite, ct); }

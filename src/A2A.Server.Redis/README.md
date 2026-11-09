@@ -35,7 +35,7 @@ Lease expiry uses Redis `TIME` inside Lua scripts, never the instance clock, so 
 Registration rules:
 - The coordinator is **in memory by default**. `AddRedisEventBus` replaces it with the Redis one unless `RegisterCoordinator = false`; `AddRedisExecutionCoordinator` registers it alone.
 - Pass the **same connection string** to `AddRedisEventBus` and `AddRedisExecutionCoordinator`. They share one connection, and a different string throws `InvalidOperationException`. (With your own `IConnectionMultiplexer`, pass the same instance.)
-- Timing is `A2AServerOptions.Coordination` (`CoordinationOptions`): `LeaseTtl` 30 s, `Heartbeat` 10 s, `RunningPollInterval` 1 s. `LeaseTtl` must be longer than 2 x `Heartbeat`. An execution whose heartbeats lapse past `LeaseTtl` is treated as dead: with `services.AddA2ARetention()` its task is marked `FAILED`. Without retention nobody recovers it.
+- Timing is `A2AServerOptions.Coordination` (`CoordinationOptions`): `LeaseTtl` 30 s, `Heartbeat` 10 s, `RunningPollInterval` 1 s, `StreamCheckInterval` 30 s (how often an idle SubscribeToTask stream looks in the store, which finds events a lost bus message dropped; one small set of store reads per idle stream per interval). `LeaseTtl` must be longer than 2 x `Heartbeat`. An execution whose heartbeats lapse past `LeaseTtl` is treated as dead: with `services.AddA2ARetention()` its task is marked `FAILED`. Without retention nobody recovers it.
 
 A runnable example with two instances is in [samples/MultiInstance](https://github.com/roman-ambinder/a2a/tree/main/samples/MultiInstance).
 
