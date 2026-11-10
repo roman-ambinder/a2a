@@ -15,6 +15,17 @@ If A2A endpoints have no authorization, the app does not start. The check is fai
 - If no endpoint exists yet when the host starts, the check runs again on `ApplicationStarted` and stops the app on failure.
 - <xref:A2A.Server.A2ARequestHandler> also refuses unauthenticated callers on its own, as a backstop.
 
+### Use the schemes the card declares
+
+The spec says an agent must authenticate requests with one of the schemes in its card's `securitySchemes` and `securityRequirements` (7.4, 13.3). Your ASP.NET Core schemes have their own names, so map each card scheme to one: `app.MapA2A("/a2a").RequireAuthorization().RequireAgentCardSchemes(new Dictionary<string, string> { ["bearer"] = "Bearer" })` (<xref:A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.RequireAgentCardSchemes*>). It works on `MapA2AGrpc` too.
+
+- A request passes when every scheme of one of the card's requirements authenticated it. It uses the card of the request's tenant.
+- A card without requirements, or with an empty requirement, allows anonymous callers, as the client reads the card. A card scheme you did not map can never be met.
+- It adds to `RequireAuthorization()`; it does not replace it. Scopes are not checked: check them in your policies.
+- A request that fails gets the ASP.NET Core answer (401 challenge or 403) before the A2A layer runs.
+
+Without it, the SDK does not check which scheme authenticated the caller.
+
 ## Allow anonymous callers
 
 [!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#Anonymous)]

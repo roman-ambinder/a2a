@@ -142,6 +142,9 @@ You give the token (`expectedToken`), the decoded signing secret (`signingSecret
 | `HandlerFailed` | 500 | The handler threw. The id is forgotten, so the retry reaches the handler again. |
 | `Unauthorized` | 401 | Bad token, bad signature, or stale timestamp. The handler did not run. |
 | `BadRequest` | 400 | The credentials are right, but the body is not a `StreamResponse`. |
+| `UnexpectedTask` | 404 | `ExpectedTask` is set and the event is for a task you did not create, or has no task id. The handler did not run. |
+
+**Check the task id** (spec 4.3.3: clients must check that a notification is for a task they expect). Set <xref:A2A.Client.Push.PushNotificationReceiver.ExpectedTask> to a function that says whether a task id is yours; <xref:A2A.Client.Push.PushTaskTracker.IsTrackedAsync*> is one. A delivery for another task is `UnexpectedTask` before your handler runs. The check comes after the duplicate check, so a retry of a delivery you already handled is still `Duplicate` after the task stops being tracked, and a refused delivery is not remembered. Without `ExpectedTask` there is no check, so check the task id in your handler.
 
 The server retries only 408, 429 and 5xx, and dead-letters other 4xx. That is why a call in progress gets 503 and never 409.
 
