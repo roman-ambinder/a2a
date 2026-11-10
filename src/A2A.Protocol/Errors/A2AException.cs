@@ -393,6 +393,30 @@ public static class A2AErrors
         return false;
     }
 
+    /// <summary>
+    ///     The string metadata of the A2A ErrorInfo in a details array (the first ErrorInfo with the A2A domain), or null
+    ///     when there is none or it has no metadata. Clients put it in <see cref="A2AException.Metadata" />, so an error
+    ///     reads the same on every binding.
+    /// </summary>
+    public static Dictionary<string, string>? GetErrorInfoMetadata(IEnumerable<JsonElement>? details)
+    {
+        if (details is null) return null;
+        foreach (var d in details)
+        {
+            if (d.ValueKind != JsonValueKind.Object) continue;
+            if (!d.TryGetProperty("@type", out var t) || t.GetString() != ErrorInfoType) continue;
+            if (d.TryGetProperty("domain", out var dom) && dom.GetString() != A2AProtocol.ErrorDomain) continue;
+            if (!d.TryGetProperty("metadata", out var m) || m.ValueKind != JsonValueKind.Object) return null;
+            var metadata = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var p in m.EnumerateObject())
+                if (p.Value.ValueKind == JsonValueKind.String)
+                    metadata[p.Name] = p.Value.GetString()!;
+            return metadata.Count > 0 ? metadata : null;
+        }
+
+        return null;
+    }
+
     /// <summary>Recovers an error code from a details array (looks for an ErrorInfo with the A2A domain).</summary>
     public static bool TryGetCodeFromDetails(IEnumerable<JsonElement>? details, out A2AErrorCode code)
     {

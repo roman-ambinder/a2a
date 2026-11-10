@@ -159,3 +159,4 @@ override A2A.Signing.JwksFetchResult.GetHashCode() -> int
 override A2A.Signing.JwksFetchResult.ToString() -> string!
 static A2A.Signing.JwksFetchResult.operator !=(A2A.Signing.JwksFetchResult? left, A2A.Signing.JwksFetchResult? right) -> bool
 static A2A.Signing.JwksFetchResult.operator ==(A2A.Signing.JwksFetchResult? left, A2A.Signing.JwksFetchResult? right) -> bool
+static A2A.A2AErrors.GetErrorInfoMetadata(System.Collections.Generic.IEnumerable<System.Text.Json.JsonElement>? details) -> System.Collections.Generic.Dictionary<string!, string!>?

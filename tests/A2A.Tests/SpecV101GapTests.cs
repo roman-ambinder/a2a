@@ -145,20 +145,9 @@ public class SpecV101GapTests
         var ex = await Assert.ThrowsAsync<A2AException>(() => client.ListTasksAsync(new ListTasksRequest()));
 
         Assert.Equal(A2AErrorCode.PermissionDenied, ex.Code);
-        var metadata = ErrorInfoMetadata(ex);
+        var metadata = ex.Metadata!; // filled from the ErrorInfo on every binding
         Assert.Equal("operation", metadata["permission"]);
         Assert.Equal("ListTasks", metadata["operation"]);
         Assert.Contains("ListTasks", ex.Message);
-    }
-
-    /// <summary>
-    ///     The ErrorInfo metadata as the client received it: the gRPC client puts it in <see cref="A2AException.Metadata" />,
-    ///     the HTTP clients keep it in the ErrorInfo entry of <see cref="A2AException.Details" />.
-    /// </summary>
-    private static IReadOnlyDictionary<string, string> ErrorInfoMetadata(A2AException ex)
-    {
-        if (ex.Metadata is { } metadata) return metadata;
-        var info = Assert.Single(ex.Details!, d => d.GetProperty("@type").GetString() == A2AErrors.ErrorInfoType);
-        return info.GetProperty("metadata").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString()!);
     }
 }

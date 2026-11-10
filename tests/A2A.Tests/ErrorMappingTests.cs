@@ -94,4 +94,20 @@ public class ErrorMappingTests
         var badRequest = Assert.Single(details, d => d.GetProperty("@type").GetString() == A2AErrors.BadRequestType);
         return Assert.Single(badRequest.GetProperty("fieldViolations").EnumerateArray());
     }
+
+    [Fact]
+    public void ErrorInfo_metadata_is_read_from_the_A2A_entry_only()
+    {
+        using var doc = JsonDocument.Parse("""
+            [{"@type":"type.googleapis.com/google.rpc.ErrorInfo","domain":"other.example","metadata":{"a":"wrong"}},
+             {"@type":"type.googleapis.com/google.rpc.ErrorInfo","domain":"a2a-protocol.org","reason":"TASK_NOT_FOUND",
+              "metadata":{"taskId":"t1","retryable":"false","n":1}}]
+            """);
+        var metadata = A2AErrors.GetErrorInfoMetadata(doc.RootElement.EnumerateArray().ToList());
+
+        Assert.Equal(new Dictionary<string, string> { ["taskId"] = "t1", ["retryable"] = "false" }, metadata);
+        Assert.Null(A2AErrors.GetErrorInfoMetadata(null));
+        using var none = JsonDocument.Parse("""[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","domain":"a2a-protocol.org"}]""");
+        Assert.Null(A2AErrors.GetErrorInfoMetadata(none.RootElement.EnumerateArray().ToList()));
+    }
 }

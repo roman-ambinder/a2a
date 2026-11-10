@@ -473,7 +473,8 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IA2AExtens
     {
         return new A2AException(ex.Code, ex.Message)
         {
-            Details = ex.Details, HttpStatus = (int)response.StatusCode, RetryAfter = RetryAfterOf(response, ex.Details)
+            Details = ex.Details, Metadata = ex.Metadata, HttpStatus = (int)response.StatusCode,
+            RetryAfter = RetryAfterOf(response, ex.Details)
         };
     }
 }
