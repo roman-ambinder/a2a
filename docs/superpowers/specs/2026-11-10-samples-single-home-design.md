@@ -1,6 +1,6 @@
 # samples/ is the single home of every usage example
 
-Date: 2026-11-10. Status: draft, for review.
+Date: 2026-11-10. Status: approved for implementation.
 
 ## 1. Goal
 
@@ -32,10 +32,11 @@ Every C# usage example in the repository lives under `samples/`:
 
 **D1. Hybrid layout.** A runnable sample is the first home of a region. A guide region points into a runnable sample
 when that sample already does exactly what the region shows. Everything else (short fragments such as a card with
-`Streaming = true`) goes to one compile-only project, `samples/Snippets`. A runnable sample is never bent out of
+`Streaming = true`) goes to one compile-only project, `samples/Snippets/Snippets.csproj`. A runnable sample is never bent out of
 shape to host a region: if the code would only be there for the guide, it goes to `samples/Snippets`.
 
-**D2. `samples/Snippets` replaces `docs/site/snippets`.** Same rules as today: library, `net10.0`, not packable,
+**D2. `samples/Snippets` replaces `docs/site/snippets`.** The project is renamed from `A2A.DocSnippets` to
+`Snippets` (file `Snippets.csproj`, root namespace `Snippets`). Same rules as today: library, `net10.0`, not packable,
 warnings as errors, in `A2A.slnx`. One file per guide stays the naming rule. `docs/site/snippets` is deleted; nothing
 is left behind there.
 
@@ -78,7 +79,6 @@ sample is written.
 ## 5. Not in scope
 
 - mTLS as a runnable sample: it needs certificates made at run time. It stays a region in `samples/Snippets`.
-  (Open question Q2.)
 - Public API changes. If a sample cannot be written without one, that is a separate spec.
 - AOT publish and line budgets for the new samples. The AOT gate and `HelloWorldGateTests` stay on `EchoAgent` and
   `EchoClient` only.
@@ -86,8 +86,8 @@ sample is written.
 ## 6. CI
 
 - The "Build doc snippets" step builds `samples/Snippets/Snippets.csproj` instead.
-- A new job runs `samples/run-samples.sh` (no Docker) on every push. Docker samples run in a separate job that is
-  allowed to be slower; whether it runs on every push or nightly is Q3.
+- A new job runs `samples/run-samples.sh` (no Docker) on every push. Docker samples (`multi`, `ArtifactStorage`,
+  `ClientOutbox`) run in a separate nightly job (`schedule`), not on every push.
 - The coverage test from D5 runs with the other tests in `tests/A2A.Tests`.
 
 ## 7. Plan, in order
@@ -116,10 +116,9 @@ Each step is its own commit and leaves the build, tests and docs site green.
 - **R4. Demo code copied into production.** The token endpoint in `ClientFeatures` and the fixed keys are demo values;
   each sample says so in its README and in a comment at the place they are set, as `MultiInstance` does today.
 
-## 9. Open questions
+## 9. Resolved questions (2026-11-10)
 
-- **Q1.** Server feature grouping: three apps (`TenantAgent`, `ObservedAgent`, `MemoryAgent`) as in section 4, or one
-  app per guide?
-- **Q2.** mTLS: compile-only region (as proposed), or a runnable sample that makes a throwaway CA at start-up?
-- **Q3.** Docker samples in CI: every push, nightly, or manual only?
-- **Q4.** Keep the project name `A2A.DocSnippets` (fewer changes) or rename it to `Snippets`?
+- **Q1.** Server features: three apps, `TenantAgent`, `ObservedAgent`, `MemoryAgent`, as in section 4.
+- **Q2.** mTLS: compile-only region in `samples/Snippets`.
+- **Q3.** Docker samples in CI: nightly.
+- **Q4.** The snippets project is renamed to `Snippets`.
