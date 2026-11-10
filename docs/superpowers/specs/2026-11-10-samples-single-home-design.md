@@ -50,9 +50,12 @@ that starts with `OK:` and exits 0 on success (non-zero otherwise). Each one get
 `README.md` (what it shows, how to run it, expected output) and an entry in `A2A.slnx`. Docker samples run only with
 `--with-docker`, like `multi`.
 
-**D5. Coverage is checked, not promised.** A new test fails when a packable project under `src/` is not referenced by
-any `samples/**/*.csproj`. A short allow-list holds packages that are reached only through another package and say
-why (for example `A2A.Grpc`, `A2A.V0_3Compat` if they are only used through the server and client packages).
+**D5. Coverage is checked, not promised.** `tests/A2A.Tests/SamplesCoverageTests.cs` fails when a project under
+`src/` is not used by any runnable sample. A package counts as used when a sample project references it, directly or
+through other `src/` projects, or when a sample script runs it with `--project src/<Name>` (for the `Cli` sample).
+`samples/Snippets` does not count: it references almost every package, so counting it would make the test pass
+without any runnable sample. An allow-list (`NotYetCovered`) names each gap and the sample that will close it. A second
+test fails on a stale entry, so each sample that closes a gap must also remove its entry.
 
 **D6. One index.** `samples/README.md` has a table: sample, what it shows, packages, guide. The repo `README.md` links
 to it instead of listing samples one by one.
@@ -125,6 +128,8 @@ sample is written.
    the sample tests do not use); `GettingStarted#*` (the guide needs the minimal hello world); `DurableStores#Register`
    (the sample has no Data Protection lines).*
 4. Add the coverage test (D5) with the allow-list set to today's gaps, so it passes. Each later step removes entries.
+   *Done (2026-11-10). The allow-list holds the ten packages listed in section 2. Checked by hand: removing an entry
+   fails the first test; a stale entry, or a sample script with `--project src/A2A.Cli`, fails the second.*
 5. Non-Docker package samples: `Grpc`, `V03Compat`, `Cli`.
 6. Feature samples: `TenantAgent`, `ObservedAgent`, `MemoryAgent`, `ClientFeatures`. Move their guide regions into
    them where D1 allows.
