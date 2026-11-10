@@ -5,15 +5,18 @@ using System.Text.Json.Serialization;
 namespace A2A.Json;
 
 /// <summary>
-/// Writes timestamps as UTC ISO 8601 with millisecond precision (<c>YYYY-MM-DDTHH:mm:ss.sssZ</c>, spec §5.6.1).
-/// Reads any ISO 8601 value and normalizes it to UTC.
+///     Writes timestamps as UTC ISO 8601 with millisecond precision (<c>YYYY-MM-DDTHH:mm:ss.sssZ</c>, spec §5.6.1).
+///     Reads any ISO 8601 value and normalizes it to UTC.
 /// </summary>
 public sealed class TimestampConverter : JsonConverter<DateTimeOffset>
 {
     /// <summary>The write format: UTC with millisecond precision.</summary>
     public const string Format = "yyyy-MM-dd'T'HH:mm:ss.fff'Z'";
 
-    /// <summary>Reads an ISO 8601 string and normalizes it to UTC. Throws <see cref="JsonException"/> when it is not a valid timestamp.</summary>
+    /// <summary>
+    ///     Reads an ISO 8601 string and normalizes it to UTC. Throws <see cref="JsonException" /> when it is not a valid
+    ///     timestamp.
+    /// </summary>
     public override DateTimeOffset Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         var s = reader.GetString() ?? throw new JsonException("Timestamp must be a string.");
@@ -23,7 +26,7 @@ public sealed class TimestampConverter : JsonConverter<DateTimeOffset>
         return value.ToUniversalTime();
     }
 
-    /// <summary>Writes the timestamp in <see cref="Format"/>.</summary>
+    /// <summary>Writes the timestamp in <see cref="Format" />.</summary>
     public override void Write(Utf8JsonWriter writer, DateTimeOffset value, JsonSerializerOptions options)
     {
 #if NET
@@ -38,7 +41,9 @@ public sealed class TimestampConverter : JsonConverter<DateTimeOffset>
         writer.WriteStringValue(FormatUtc(value));
     }
 
-    /// <summary>Formats a timestamp in <see cref="Format"/>, after converting it to UTC.</summary>
+    /// <summary>Formats a timestamp in <see cref="Format" />, after converting it to UTC.</summary>
     public static string FormatUtc(DateTimeOffset value)
-        => value.UtcDateTime.ToString(Format, CultureInfo.InvariantCulture);
+    {
+        return value.UtcDateTime.ToString(Format, CultureInfo.InvariantCulture);
+    }
 }

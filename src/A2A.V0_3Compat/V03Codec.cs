@@ -4,10 +4,14 @@ using System.Text.Json.Nodes;
 namespace A2A.V0_3Compat;
 
 /// <summary>
-/// Converts between the v1.0 model and one v0.3 wire dialect, as <see cref="JsonNode"/> trees. The two dialects share their
-/// structure (messages, tasks, artifacts, statuses, push configs) and differ in a few shapes, which the subclasses supply:
-/// <see cref="V03JsonCodec"/> (JSON-RPC, from the v0.3 JSON schema) and <see cref="V03ProtoJsonCodec"/> (HTTP+JSON, from the v0.3 proto).
-/// Readers throw <see cref="JsonException"/> on bad input. Writers report what they drop to <see cref="V03LossReporter"/>.
+///     Converts between the v1.0 model and one v0.3 wire dialect, as <see cref="JsonNode" /> trees. The two dialects share
+///     their
+///     structure (messages, tasks, artifacts, statuses, push configs) and differ in a few shapes, which the subclasses
+///     supply:
+///     <see cref="V03JsonCodec" /> (JSON-RPC, from the v0.3 JSON schema) and <see cref="V03ProtoJsonCodec" /> (HTTP+JSON,
+///     from the v0.3 proto).
+///     Readers throw <see cref="JsonException" /> on bad input. Writers report what they drop to
+///     <see cref="V03LossReporter" />.
 /// </summary>
 internal abstract class V03Codec
 {
@@ -22,6 +26,13 @@ internal abstract class V03Codec
     /// <summary>Name of the member of the send configuration that holds the push config.</summary>
     protected abstract string SendPushConfigName { get; }
 
+    /// <summary>
+    ///     What a missing <c>blocking</c> means. JSON-RPC: blocking. HTTP+JSON is ProtoJSON, where a false bool is not
+    ///     written, so
+    ///     missing means false, like the a2a-sdk 0.3 Python server and client (which never send <c>blocking: false</c>).
+    /// </summary>
+    protected virtual bool BlockingWhenAbsent => true;
+
     protected abstract string StateName(TaskState state);
     protected abstract TaskState ParseState(string name);
     protected abstract string RoleName(Role role);
@@ -32,7 +43,10 @@ internal abstract class V03Codec
     /// <summary>A stream event (or a push body) as it appears in the dialect.</summary>
     public abstract JsonObject WriteStreamEvent(StreamResponse evt);
 
-    /// <summary>Reads a stream event. <paramref name="final"/> is the <c>final</c> flag of a status update (false for other events).</summary>
+    /// <summary>
+    ///     Reads a stream event. <paramref name="final" /> is the <c>final</c> flag of a status update (false for other
+    ///     events).
+    /// </summary>
     public abstract StreamResponse ReadStreamEvent(JsonNode node, out bool final);
 
     /// <summary>The result of message send: a task or a message.</summary>
@@ -49,9 +63,15 @@ internal abstract class V03Codec
 
     // ---- parts ----
 
-    public JsonObject WritePartNode(Part part) => WritePart(part);
+    public JsonObject WritePartNode(Part part)
+    {
+        return WritePart(part);
+    }
 
-    public Part ReadPartNode(JsonNode? node) => ReadPart(V03Json.Obj(node, "part"));
+    public Part ReadPartNode(JsonNode? node)
+    {
+        return ReadPart(V03Json.Obj(node, "part"));
+    }
 
     // ---- messages ----
 
@@ -73,6 +93,7 @@ internal abstract class V03Codec
             if (Tagged) o["referenceTaskIds"] = V03Json.StrArray(message.ReferenceTaskIds);
             else V03LossReporter.Drop("message.referenceTaskIds");
         }
+
         return o;
     }
 
@@ -90,7 +111,7 @@ internal abstract class V03Codec
             TaskId = V03Json.Str(o, "taskId"),
             Metadata = V03Json.Metadata(o),
             Extensions = V03Json.StrList(o, "extensions"),
-            ReferenceTaskIds = V03Json.StrList(o, "referenceTaskIds"),
+            ReferenceTaskIds = V03Json.StrList(o, "referenceTaskIds")
         };
     }
 
@@ -115,9 +136,10 @@ internal abstract class V03Codec
         var o = V03Json.Obj(node, "status");
         return new AgentTaskStatus
         {
-            State = V03Json.Str(o, "state") is { } s ? ParseState(s) : (Tagged ? throw new JsonException("state is required") : TaskState.Unspecified),
+            State = V03Json.Str(o, "state") is { } s ? ParseState(s) :
+                Tagged ? throw new JsonException("state is required") : TaskState.Unspecified,
             Message = V03Json.OptObj(o, "message") is { } m ? ReadMessage(m) : null,
-            Timestamp = V03Json.Timestamp(o, "timestamp"),
+            Timestamp = V03Json.Timestamp(o, "timestamp")
         };
     }
 
@@ -144,7 +166,7 @@ internal abstract class V03Codec
             Description = V03Json.Str(o, "description"),
             Parts = V03Json.List(o, "parts", ReadPartNode) ?? [],
             Metadata = V03Json.Metadata(o),
-            Extensions = V03Json.StrList(o, "extensions"),
+            Extensions = V03Json.StrList(o, "extensions")
         };
     }
 
@@ -161,12 +183,14 @@ internal abstract class V03Codec
             foreach (var a in artifacts) V03Json.Append(array, WriteArtifact(a));
             o["artifacts"] = array;
         }
+
         if (task.History is { Count: > 0 } history)
         {
             var array = new JsonArray();
             foreach (var m in history) V03Json.Append(array, WriteMessage(m));
             o["history"] = array;
         }
+
         V03Json.SetMetadata(o, task.Metadata);
         return o;
     }
@@ -181,14 +205,17 @@ internal abstract class V03Codec
             Status = o["status"] is { } status ? ReadStatus(status) : throw new JsonException("status is required"),
             Artifacts = V03Json.List(o, "artifacts", ReadArtifact),
             History = V03Json.List(o, "history", ReadMessage),
-            Metadata = V03Json.Metadata(o),
+            Metadata = V03Json.Metadata(o)
         };
     }
 
     // ---- stream event bodies (without the dialect's wrapper) ----
 
     /// <summary><c>final</c> of a status update: the core closes the stream on terminal and interrupted states.</summary>
-    protected static bool IsFinal(TaskState state) => state.IsTerminal() || state.IsInterrupted();
+    protected static bool IsFinal(TaskState state)
+    {
+        return state.IsTerminal() || state.IsInterrupted();
+    }
 
     protected JsonObject WriteStatusUpdateBody(TaskStatusUpdateEvent e)
     {
@@ -211,7 +238,7 @@ internal abstract class V03Codec
             TaskId = V03Json.ReqStr(o, "taskId"),
             ContextId = V03Json.Str(o, "contextId") ?? string.Empty,
             Status = o["status"] is { } status ? ReadStatus(status) : throw new JsonException("status is required"),
-            Metadata = V03Json.Metadata(o),
+            Metadata = V03Json.Metadata(o)
         };
     }
 
@@ -228,15 +255,20 @@ internal abstract class V03Codec
         return o;
     }
 
-    protected TaskArtifactUpdateEvent ReadArtifactUpdateBody(JsonObject o) => new()
+    protected TaskArtifactUpdateEvent ReadArtifactUpdateBody(JsonObject o)
     {
-        TaskId = V03Json.ReqStr(o, "taskId"),
-        ContextId = V03Json.Str(o, "contextId") ?? string.Empty,
-        Artifact = o["artifact"] is { } artifact ? ReadArtifact(artifact) : throw new JsonException("artifact is required"),
-        Append = V03Json.Bool(o, "append") ?? false,
-        LastChunk = V03Json.Bool(o, "lastChunk") ?? false,
-        Metadata = V03Json.Metadata(o),
-    };
+        return new TaskArtifactUpdateEvent
+        {
+            TaskId = V03Json.ReqStr(o, "taskId"),
+            ContextId = V03Json.Str(o, "contextId") ?? string.Empty,
+            Artifact = o["artifact"] is { } artifact
+                ? ReadArtifact(artifact)
+                : throw new JsonException("artifact is required"),
+            Append = V03Json.Bool(o, "append") ?? false,
+            LastChunk = V03Json.Bool(o, "lastChunk") ?? false,
+            Metadata = V03Json.Metadata(o)
+        };
+    }
 
     // ---- push notification config ----
 
@@ -253,6 +285,7 @@ internal abstract class V03Codec
             V03Json.Set(a, "credentials", auth.Credentials);
             o["authentication"] = a;
         }
+
         return o;
     }
 
@@ -263,7 +296,7 @@ internal abstract class V03Codec
         {
             Id = V03Json.Str(o, "id"),
             Url = V03Json.ReqStr(o, "url"),
-            Token = V03Json.Str(o, "token"),
+            Token = V03Json.Str(o, "token")
         };
         if (V03Json.OptObj(o, "authentication") is { } auth)
         {
@@ -272,9 +305,10 @@ internal abstract class V03Codec
             config.Authentication = new AuthenticationInfo
             {
                 Scheme = schemes.Count > 0 ? schemes[0] : "Bearer",
-                Credentials = V03Json.Str(auth, "credentials"),
+                Credentials = V03Json.Str(auth, "credentials")
             };
         }
+
         return config;
     }
 
@@ -283,14 +317,22 @@ internal abstract class V03Codec
     /// <summary>The v0.3 send request: <c>message</c>, <c>configuration</c> and <c>metadata</c>. The tenant is never sent.</summary>
     public JsonObject WriteSendRequest(SendMessageRequest request)
     {
-        var o = new JsonObject { ["message"] = WriteMessage(request.Message ?? throw A2AException.InvalidParams("message is required (v0.3 has no artifact-only requests)")) };
+        var o = new JsonObject
+        {
+            ["message"] = WriteMessage(request.Message ??
+                                       throw A2AException.InvalidParams(
+                                           "message is required (v0.3 has no artifact-only requests)"))
+        };
         var configuration = new JsonObject();
         if (request.Configuration is { } c)
         {
-            if (c.AcceptedOutputModes is { Count: > 0 }) configuration["acceptedOutputModes"] = V03Json.StrArray(c.AcceptedOutputModes);
+            if (c.AcceptedOutputModes is { Count: > 0 })
+                configuration["acceptedOutputModes"] = V03Json.StrArray(c.AcceptedOutputModes);
             if (c.HistoryLength is { } h) configuration["historyLength"] = h;
-            if (c.TaskPushNotificationConfig is { } push) configuration[SendPushConfigName] = WritePushNotificationConfig(push);
+            if (c.TaskPushNotificationConfig is { } push)
+                configuration[SendPushConfigName] = WritePushNotificationConfig(push);
         }
+
         // Absent means blocking in v0.3; the value is always sent so the intent is clear.
         configuration["blocking"] = request.Configuration?.ReturnImmediately != true;
         o["configuration"] = configuration;
@@ -300,8 +342,9 @@ internal abstract class V03Codec
     }
 
     /// <summary>
-    /// Reads a v0.3 send request. <c>blocking: false</c> becomes <c>ReturnImmediately</c>; absent means blocking (not on HTTP+JSON, see <see cref="BlockingWhenAbsent"/>). A push config in
-    /// the request is carried in <c>Configuration.TaskPushNotificationConfig</c>: the server compat layer refuses it.
+    ///     Reads a v0.3 send request. <c>blocking: false</c> becomes <c>ReturnImmediately</c>; absent means blocking (not on
+    ///     HTTP+JSON, see <see cref="BlockingWhenAbsent" />). A push config in
+    ///     the request is carried in <c>Configuration.TaskPushNotificationConfig</c>: the server compat layer refuses it.
     /// </summary>
     public SendMessageRequest ReadSendRequest(JsonNode? node)
     {
@@ -309,36 +352,33 @@ internal abstract class V03Codec
         var request = new SendMessageRequest
         {
             Message = o["message"] is { } m ? ReadMessage(m) : throw new JsonException("message is required"),
-            Metadata = V03Json.Metadata(o),
+            Metadata = V03Json.Metadata(o)
         };
         if (V03Json.OptObj(o, "configuration") is { } c)
-        {
             request.Configuration = new SendMessageConfiguration
             {
                 AcceptedOutputModes = V03Json.StrList(c, "acceptedOutputModes"),
                 HistoryLength = V03Json.Int(c, "historyLength"),
-                ReturnImmediately = (V03Json.Bool(c, "blocking") ?? BlockingWhenAbsent) == false,
-                TaskPushNotificationConfig = V03Json.OptObj(c, SendPushConfigName) is { } push ? ReadPushNotificationConfig(push) : null,
+                ReturnImmediately = !(V03Json.Bool(c, "blocking") ?? BlockingWhenAbsent),
+                TaskPushNotificationConfig = V03Json.OptObj(c, SendPushConfigName) is { } push
+                    ? ReadPushNotificationConfig(push)
+                    : null
             };
-        }
         else if (!BlockingWhenAbsent) request.Configuration = new SendMessageConfiguration { ReturnImmediately = true };
         return request;
     }
 
-    /// <summary>
-    /// What a missing <c>blocking</c> means. JSON-RPC: blocking. HTTP+JSON is ProtoJSON, where a false bool is not written, so
-    /// missing means false, like the a2a-sdk 0.3 Python server and client (which never send <c>blocking: false</c>).
-    /// </summary>
-    protected virtual bool BlockingWhenAbsent => true;
-
     // ---- shared by the dialects ----
 
-    protected static TaskState ParseStateFrom(string name, IReadOnlyDictionary<string, TaskState> map) =>
-        map.TryGetValue(name, out var state) ? state : throw new JsonException($"Unknown task state '{name}'");
+    protected static TaskState ParseStateFrom(string name, IReadOnlyDictionary<string, TaskState> map)
+    {
+        return map.TryGetValue(name, out var state) ? state : throw new JsonException($"Unknown task state '{name}'");
+    }
 
     protected static void DropPartExtras(Part part, string defaultMediaType, bool keepFilename, bool keepMediaType)
     {
         if (part.Filename is not null && !keepFilename) V03LossReporter.Drop("part.filename");
-        if (part.MediaType is not null && !keepMediaType && part.MediaType != defaultMediaType) V03LossReporter.Drop("part.mediaType");
+        if (part.MediaType is not null && !keepMediaType && part.MediaType != defaultMediaType)
+            V03LossReporter.Drop("part.mediaType");
     }
 }

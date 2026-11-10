@@ -7,7 +7,7 @@ public enum FollowUpPolicy
     InterruptedOnly,
 
     /// <summary>Also lets callers steer <c>Submitted</c> and <c>Working</c> tasks.</summary>
-    AllowSteering,
+    AllowSteering
 }
 
 /// <summary>What to do with a contextId the client sends for a new task when the server has never seen it.</summary>
@@ -17,22 +17,34 @@ public enum ClientContextIdPolicy
     Reject,
 
     /// <summary>Create the context for the caller and use the client's id.</summary>
-    AdoptIfUnknown,
+    AdoptIfUnknown
 }
 
 /// <summary>Task lifecycle rules. Terminal states are final: first writer wins.</summary>
 public static class TaskStateMachine
 {
-    private static bool IsFinal(TaskState s) => s is TaskState.Completed or TaskState.Failed or TaskState.Canceled or TaskState.Rejected;
-
-    /// <summary>True when a task in <paramref name="from"/> may move to <paramref name="to"/>. Nothing leaves a terminal state.</summary>
-    public static bool CanTransition(TaskState from, TaskState to) => !IsFinal(from);
-
-    /// <summary>True when a task in <paramref name="state"/> accepts a new user message under <paramref name="policy"/>.</summary>
-    public static bool AcceptsFollowUp(TaskState state, FollowUpPolicy policy) => state switch
+    private static bool IsFinal(TaskState s)
     {
-        TaskState.InputRequired or TaskState.AuthRequired => true,
-        TaskState.Submitted or TaskState.Working => policy == FollowUpPolicy.AllowSteering,
-        _ => false,
-    };
+        return s is TaskState.Completed or TaskState.Failed or TaskState.Canceled or TaskState.Rejected;
+    }
+
+    /// <summary>
+    ///     True when a task in <paramref name="from" /> may move to <paramref name="to" />. Nothing leaves a terminal
+    ///     state.
+    /// </summary>
+    public static bool CanTransition(TaskState from, TaskState to)
+    {
+        return !IsFinal(from);
+    }
+
+    /// <summary>True when a task in <paramref name="state" /> accepts a new user message under <paramref name="policy" />.</summary>
+    public static bool AcceptsFollowUp(TaskState state, FollowUpPolicy policy)
+    {
+        return state switch
+        {
+            TaskState.InputRequired or TaskState.AuthRequired => true,
+            TaskState.Submitted or TaskState.Working => policy == FollowUpPolicy.AllowSteering,
+            _ => false
+        };
+    }
 }

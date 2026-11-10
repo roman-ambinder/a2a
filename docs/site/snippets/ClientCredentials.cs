@@ -4,7 +4,6 @@ using A2A.Client;
 using A2A.Client.Credentials;
 using A2A.Client.Grpc;
 using Grpc.Net.Client;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.ClientCredentials;
 

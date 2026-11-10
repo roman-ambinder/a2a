@@ -6,8 +6,10 @@ internal static class A2AMcpNames
 {
     internal const int MaxToolNameLength = 128;
 
-    internal static bool IsAllowedNameCharacter(char c) =>
-        c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '_' or '.' or '-';
+    internal static bool IsAllowedNameCharacter(char c)
+    {
+        return c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '_' or '.' or '-';
+    }
 
     /// <summary>Replaces every character outside <c>[A-Za-z0-9_.-]</c> with an underscore.</summary>
     internal static string Sanitize(string id)

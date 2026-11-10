@@ -1,11 +1,9 @@
 using System.Net;
-using System.Text.Json;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Pipeline;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;

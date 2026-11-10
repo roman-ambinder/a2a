@@ -1,24 +1,26 @@
-using A2A.Client.Transports;
 using A2A.V0_3Compat;
 
 namespace A2A.Client.V0_3Compat;
 
 /// <summary>
-/// Creates clients that can talk to A2A protocol v0.3 agents. Calling this factory is the opt-in:
-/// <see cref="A2AClientFactory"/> is unchanged. The result is a normal <see cref="A2AClient"/>.
+///     Creates clients that can talk to A2A protocol v0.3 agents. Calling this factory is the opt-in:
+///     <see cref="A2AClientFactory" /> is unchanged. The result is a normal <see cref="A2AClient" />.
 /// </summary>
 /// <remarks>
-/// A card that offers a v1.x interface always takes the normal v1.0 path: it is never downgraded. Otherwise the first v0.3
-/// <c>JSONRPC</c> or <c>HTTP+JSON</c> interface in card order is used. gRPC is not supported on v0.3.
+///     A card that offers a v1.x interface always takes the normal v1.0 path: it is never downgraded. Otherwise the first
+///     v0.3
+///     <c>JSONRPC</c> or <c>HTTP+JSON</c> interface in card order is used. gRPC is not supported on v0.3.
 /// </remarks>
 public static class V03CompatClientFactory
 {
     /// <summary>
-    /// Resolves the card at <paramref name="agentUrl"/> and creates a client for it. A v0.3 card (top-level
-    /// <c>protocolVersion</c> <c>0.3.x</c>, no <c>supportedInterfaces</c>) is converted to the v1.0 model first, and reads as
-    /// unsigned. <paramref name="resolverOptions"/> is copied, never changed.
+    ///     Resolves the card at <paramref name="agentUrl" /> and creates a client for it. A v0.3 card (top-level
+    ///     <c>protocolVersion</c> <c>0.3.x</c>, no <c>supportedInterfaces</c>) is converted to the v1.0 model first, and reads
+    ///     as
+    ///     unsigned. <paramref name="resolverOptions" /> is copied, never changed.
     /// </summary>
-    public static async Task<A2AClient> CreateAsync(Uri agentUrl, HttpClient httpClient, A2AClientOptions? options = null,
+    public static async Task<A2AClient> CreateAsync(Uri agentUrl, HttpClient httpClient,
+        A2AClientOptions? options = null,
         A2ACardResolverOptions? resolverOptions = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(agentUrl);
@@ -28,14 +30,15 @@ public static class V03CompatClientFactory
         resolverCopy.CardNormalizer = V03CardCodec.NormalizeForResolver;
         var resolver = new A2ACardResolver(httpClient, resolverCopy);
         var card = await resolver.GetAgentCardAsync(agentUrl, cancellationToken).ConfigureAwait(false);
-        await EnsureEndpointsAllowedAsync(card, agentUrl, options ?? new A2AClientOptions(), cancellationToken).ConfigureAwait(false);
+        await EnsureEndpointsAllowedAsync(card, agentUrl, options ?? new A2AClientOptions(), cancellationToken)
+            .ConfigureAwait(false);
         return Create(card, httpClient, options);
     }
 
     /// <summary>
-    /// Creates a client for <paramref name="card"/>. If the card offers a v1.x interface the normal v1.0 path is used.
-    /// Otherwise the first v0.3 JSON-RPC or HTTP+JSON interface (marked <c>0.3</c> or <c>0.3.x</c>) in card order is used.
-    /// Throws <see cref="A2AErrorCode.UnsupportedOperation"/> when neither exists.
+    ///     Creates a client for <paramref name="card" />. If the card offers a v1.x interface the normal v1.0 path is used.
+    ///     Otherwise the first v0.3 JSON-RPC or HTTP+JSON interface (marked <c>0.3</c> or <c>0.3.x</c>) in card order is used.
+    ///     Throws <see cref="A2AErrorCode.UnsupportedOperation" /> when neither exists.
     /// </summary>
     public static A2AClient Create(AgentCard card, HttpClient httpClient, A2AClientOptions? options = null)
     {
@@ -45,11 +48,12 @@ public static class V03CompatClientFactory
         options ??= new A2AClientOptions();
 
         // A card that offers v1.0 is never downgraded.
-        if (A2AClientFactory.SelectInterface(card, options) is not null) return A2AClientFactory.Create(card, httpClient, options);
+        if (A2AClientFactory.SelectInterface(card, options) is not null)
+            return A2AClientFactory.Create(card, httpClient, options);
 
         var selected = SelectV03Interface(card, options)
-            ?? throw new A2AException(A2AErrorCode.UnsupportedOperation,
-                $"No supported interface in Agent Card '{card.Name}'. The client supports v1.x and v0.3 over {string.Join(", ", options.SupportedBindings.Where(b => b is ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson))}.");
+                       ?? throw new A2AException(A2AErrorCode.UnsupportedOperation,
+                           $"No supported interface in Agent Card '{card.Name}'. The client supports v1.x and v0.3 over {string.Join(", ", options.SupportedBindings.Where(b => b is ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson))}.");
 
         var v03Options = V03ClientSupport.CopyForV03(options, selected.Tenant);
         EnsureAllowedNoDns(card, v03Options);
@@ -60,18 +64,29 @@ public static class V03CompatClientFactory
         return new A2AClient(transport, v03Options, card);
     }
 
-    /// <summary>The endpoint check for a card that may be v1.x or v0.3: every interface the client could select under either version, with the card source.</summary>
-    private static ValueTask EnsureEndpointsAllowedAsync(AgentCard card, Uri cardSource, A2AClientOptions options, CancellationToken ct) =>
-        A2AClientFactory.EnsureAllowedAsync(Candidates(card, options), cardSource, options, allowDns: true, ct);
+    /// <summary>
+    ///     The endpoint check for a card that may be v1.x or v0.3: every interface the client could select under either
+    ///     version, with the card source.
+    /// </summary>
+    private static ValueTask EnsureEndpointsAllowedAsync(AgentCard card, Uri cardSource, A2AClientOptions options,
+        CancellationToken ct)
+    {
+        return A2AClientFactory.EnsureAllowedAsync(Candidates(card, options), cardSource, options, true, ct);
+    }
 
-    private static void EnsureAllowedNoDns(AgentCard card, A2AClientOptions options) =>
-        A2AClientFactory.EnsureAllowedAsync(Candidates(card, options), null, options, allowDns: false, CancellationToken.None).AsTask().GetAwaiter().GetResult();
+    private static void EnsureAllowedNoDns(AgentCard card, A2AClientOptions options)
+    {
+        A2AClientFactory.EnsureAllowedAsync(Candidates(card, options), null, options, false, CancellationToken.None)
+            .AsTask().GetAwaiter().GetResult();
+    }
 
     private static List<AgentInterface> Candidates(AgentCard card, A2AClientOptions options)
     {
         var v1 = A2AClientFactory.SelectableInterfaces(card, options).ToHashSet();
         return (card.SupportedInterfaces ?? []).Where(i => v1.Contains(i)
-            || (V03Compat.IsV03Version(i.ProtocolVersion) && options.SupportedBindings.Contains(i.ProtocolBinding))).ToList();
+                                                           || (V03Compat.IsV03Version(i.ProtocolVersion) &&
+                                                               options.SupportedBindings.Contains(i.ProtocolBinding)))
+            .ToList();
     }
 
     private static AgentInterface? SelectV03Interface(AgentCard card, A2AClientOptions options)
@@ -84,9 +99,13 @@ public static class V03CompatClientFactory
             if (!Uri.TryCreate(itf.Url, UriKind.Absolute, out _)) continue;
             return itf;
         }
+
         return null;
     }
 
-    private static void RequireSameVersion() =>
-        V03Compat.RequireSameVersion(typeof(V03CompatClientFactory).Assembly, typeof(A2AClient).Assembly, typeof(V03Compat).Assembly, typeof(AgentCard).Assembly);
+    private static void RequireSameVersion()
+    {
+        V03Compat.RequireSameVersion(typeof(V03CompatClientFactory).Assembly, typeof(A2AClient).Assembly,
+            typeof(V03Compat).Assembly, typeof(AgentCard).Assembly);
+    }
 }

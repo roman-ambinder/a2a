@@ -1,6 +1,6 @@
 using System.Text.Json;
-using A2A.Json;
 using System.Text.Json.Serialization;
+using A2A.Json;
 
 namespace A2A.JsonRpc;
 
@@ -15,7 +15,7 @@ public sealed class JsonRpcRequest
     [JsonPropertyName("id")]
     public JsonElement? Id { get; set; }
 
-    /// <summary>Name of the A2A operation to call; see <see cref="A2AProtocol.Methods"/>.</summary>
+    /// <summary>Name of the A2A operation to call; see <see cref="A2AProtocol.Methods" />.</summary>
     [JsonPropertyName("method")]
     public string Method { get; set; } = string.Empty;
 
@@ -24,7 +24,7 @@ public sealed class JsonRpcRequest
     public JsonElement? Params { get; set; }
 }
 
-/// <summary>JSON-RPC 2.0 response envelope. Exactly one of <see cref="Result"/> or <see cref="Error"/> is set.</summary>
+/// <summary>JSON-RPC 2.0 response envelope. Exactly one of <see cref="Result" /> or <see cref="Error" /> is set.</summary>
 public sealed class JsonRpcResponse
 {
     /// <summary>Protocol marker. Always <c>"2.0"</c>.</summary>
@@ -44,21 +44,29 @@ public sealed class JsonRpcResponse
     [JsonPropertyName("error")]
     public JsonRpcError? Error { get; set; }
 
-    /// <summary>Builds a success response for the request <paramref name="id"/>.</summary>
-    public static JsonRpcResponse Success(JsonElement? id, JsonElement result) => new() { Id = id, Result = result };
-
-    /// <summary>Builds an error response for the request <paramref name="id"/> from an <see cref="A2AException"/>.</summary>
-    public static JsonRpcResponse Failure(JsonElement? id, A2AException ex) => new()
+    /// <summary>Builds a success response for the request <paramref name="id" />.</summary>
+    public static JsonRpcResponse Success(JsonElement? id, JsonElement result)
     {
-        Id = id,
-        Error = new JsonRpcError
+        return new JsonRpcResponse { Id = id, Result = result };
+    }
+
+    /// <summary>Builds an error response for the request <paramref name="id" /> from an <see cref="A2AException" />.</summary>
+    public static JsonRpcResponse Failure(JsonElement? id, A2AException ex)
+    {
+        return new JsonRpcResponse
         {
-            // Auth errors have no JSON-RPC number in the spec; send Internal and let the ErrorInfo reason carry the type.
-            Code = ex.Code is A2AErrorCode.Unauthenticated or A2AErrorCode.PermissionDenied ? (int)A2AErrorCode.Internal : (int)ex.Code,
-            Message = ex.Message,
-            Data = A2AErrors.BuildDetails(ex),
-        },
-    };
+            Id = id,
+            Error = new JsonRpcError
+            {
+                // Auth errors have no JSON-RPC number in the spec; send Internal and let the ErrorInfo reason carry the type.
+                Code = ex.Code is A2AErrorCode.Unauthenticated or A2AErrorCode.PermissionDenied
+                    ? (int)A2AErrorCode.Internal
+                    : (int)ex.Code,
+                Message = ex.Message,
+                Data = A2AErrors.BuildDetails(ex)
+            }
+        };
+    }
 }
 
 /// <summary>JSON-RPC 2.0 error object.</summary>
@@ -84,7 +92,7 @@ public sealed class JsonRpcError
         set => DataRaw = value is null ? null : A2AJson.SerializeToElement(value);
     }
 
-    /// <summary>Converts the error into an <see cref="A2AException"/>. The ErrorInfo reason wins over the numeric code.</summary>
+    /// <summary>Converts the error into an <see cref="A2AException" />. The ErrorInfo reason wins over the numeric code.</summary>
     public A2AException ToException()
     {
         // Prefer the ErrorInfo reason (it can express codes JSON-RPC has no number for, e.g. UNAUTHENTICATED).

@@ -4,8 +4,6 @@ using System.Text.Json.Nodes;
 using A2A.Server.AspNetCore;
 using A2A.Server.Pipeline;
 using A2A.Server.V0_3Compat;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 

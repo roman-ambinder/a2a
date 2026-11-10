@@ -6,8 +6,6 @@ using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Authorization;
 using A2A.Server.Pipeline;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.AuthAndOwnership;
 

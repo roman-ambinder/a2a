@@ -1,13 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="ModelContextProtocol.AspNetCore" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\A2A.Mcp\A2A.Mcp.csproj" />
-    <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj" />
-    <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
-  </ItemGroup>
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="ModelContextProtocol.AspNetCore"/>
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\A2A.Mcp\A2A.Mcp.csproj"/>
+        <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj"/>
+        <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj"/>
+    </ItemGroup>
 </Project>

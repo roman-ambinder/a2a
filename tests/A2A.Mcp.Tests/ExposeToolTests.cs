@@ -1,7 +1,6 @@
 using System.Text.Json;
 using A2A.Client;
 using ModelContextProtocol;
-using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 

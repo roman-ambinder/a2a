@@ -7,7 +7,10 @@ using Microsoft.Extensions.Options;
 namespace A2A.TestKit;
 
 /// <summary>Authenticates a request that carries the <c>X-Test-User</c> header. Without it the request is anonymous.</summary>
-internal sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+internal sealed class TestAuthHandler(
+    IOptionsMonitor<AuthenticationSchemeOptions> options,
+    ILoggerFactory logger,
+    UrlEncoder encoder)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "A2ATestKit";
@@ -18,6 +21,7 @@ internal sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOption
         var user = Request.Headers[UserHeader].ToString();
         if (string.IsNullOrEmpty(user)) return Task.FromResult(AuthenticateResult.NoResult());
         var identity = new ClaimsIdentity([new Claim("sub", user), new Claim(ClaimTypes.Name, user)], SchemeName);
-        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
+        return Task.FromResult(
+            AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
     }
 }

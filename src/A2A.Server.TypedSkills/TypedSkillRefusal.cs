@@ -5,19 +5,24 @@ using A2A.Skills;
 
 namespace A2A.Server.TypedSkills;
 
-/// <summary>Builds the InvalidParams errors of typed skills. Texts are fixed: they never repeat a value, an id or a .NET type name from the caller's side.</summary>
+/// <summary>
+///     Builds the InvalidParams errors of typed skills. Texts are fixed: they never repeat a value, an id or a .NET
+///     type name from the caller's side.
+/// </summary>
 internal static class TypedSkillRefusal
 {
     private const string BadRequestType = "type.googleapis.com/google.rpc.BadRequest";
     private const int MaxViolations = 20;
     private const int MaxTextLength = 200;
 
-    public static A2AException Refuse(string text, IReadOnlyList<TypedSkillValidationError>? violations = null) =>
-        new(A2AErrorCode.InvalidParams, text)
+    public static A2AException Refuse(string text, IReadOnlyList<TypedSkillValidationError>? violations = null)
+    {
+        return new A2AException(A2AErrorCode.InvalidParams, text)
         {
-            Metadata = new() { ["extension"] = TypedSkillExtension.ExtensionUri },
-            Details = violations is { Count: > 0 } ? [BadRequest(violations)] : null,
+            Metadata = new Dictionary<string, string> { ["extension"] = TypedSkillExtension.ExtensionUri },
+            Details = violations is { Count: > 0 } ? [BadRequest(violations)] : null
         };
+    }
 
     private static JsonElement BadRequest(IReadOnlyList<TypedSkillValidationError> violations)
     {
@@ -34,18 +39,24 @@ internal static class TypedSkillRefusal
                 writer.WriteString("description", Clip(violations[i].Description));
                 writer.WriteEndObject();
             }
+
             writer.WriteEndArray();
             writer.WriteEndObject();
         }
+
         using var document = JsonDocument.Parse(stream.ToArray());
         return document.RootElement.Clone();
     }
 
-    private static string Clip(string text) => text.Length <= MaxTextLength ? text : text.Substring(0, MaxTextLength);
+    private static string Clip(string text)
+    {
+        return text.Length <= MaxTextLength ? text : text.Substring(0, MaxTextLength);
+    }
 
     /// <summary>
-    /// The path of a <see cref="JsonException"/>, without keys and indexes a caller chose. It keeps the property names of the type and
-    /// cuts the path (with <c>[*]</c>) where it leaves them: below a dictionary, a list or a property it cannot place.
+    ///     The path of a <see cref="JsonException" />, without keys and indexes a caller chose. It keeps the property names of
+    ///     the type and
+    ///     cuts the path (with <c>[*]</c>) where it leaves them: below a dictionary, a list or a property it cannot place.
     /// </summary>
     public static string SafePath(string? path, JsonTypeInfo root)
     {
@@ -70,6 +81,7 @@ internal static class TypedSkillRefusal
                 break;
             }
         }
+
         if (i < path.Length) safe.Append("[*]");
         return safe.ToString();
     }

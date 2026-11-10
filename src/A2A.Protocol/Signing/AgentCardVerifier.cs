@@ -1,15 +1,15 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Json;
 using A2A.Text;
-using A2A.Validation;
 
 namespace A2A.Signing;
 
-/// <summary>Outcome of checking an Agent Card's signatures against a <see cref="CardTrustPolicy"/> (spec §7.5).</summary>
+/// <summary>Outcome of checking an Agent Card's signatures against a <see cref="CardTrustPolicy" /> (spec §7.5).</summary>
 public enum AgentCardVerificationStatus
 {
     /// <summary>A signature verified with a trusted key.</summary>
@@ -18,30 +18,47 @@ public enum AgentCardVerificationStatus
     /// <summary>The card has no signatures.</summary>
     Unsigned,
 
-    /// <summary>Signatures are present but no trusted key applies to any of them. A forged card with an attacker <c>jku</c> lands here.</summary>
+    /// <summary>
+    ///     Signatures are present but no trusted key applies to any of them. A forged card with an attacker <c>jku</c>
+    ///     lands here.
+    /// </summary>
     Unverified,
 
-    /// <summary>A trusted key applies and the signature does not verify, or a signature header is invalid (<c>typ</c>, <c>alg</c>, <c>crit</c>, encoding).</summary>
-    Failed,
+    /// <summary>
+    ///     A trusted key applies and the signature does not verify, or a signature header is invalid (<c>typ</c>,
+    ///     <c>alg</c>, <c>crit</c>, encoding).
+    /// </summary>
+    Failed
 }
 
-/// <summary>Result of <see cref="AgentCardVerifier"/>.</summary>
+/// <summary>Result of <see cref="AgentCardVerifier" />.</summary>
 /// <param name="Status">The outcome.</param>
 /// <param name="KeyId">The <c>kid</c> of the signature that verified, or of the signature the outcome is about.</param>
-/// <param name="Issuer">The card origin (<see cref="CardTrustPolicy.OriginOf"/>) trust was evaluated for.</param>
-/// <param name="Reason">Why the card is not <see cref="AgentCardVerificationStatus.Verified"/>; <see langword="null"/> when it is.</param>
-public sealed record AgentCardVerificationResult(AgentCardVerificationStatus Status, string? KeyId, string? Issuer, string? Reason);
+/// <param name="Issuer">The card origin (<see cref="CardTrustPolicy.OriginOf" />) trust was evaluated for.</param>
+/// <param name="Reason">
+///     Why the card is not <see cref="AgentCardVerificationStatus.Verified" />; <see langword="null" />
+///     when it is.
+/// </param>
+public sealed record AgentCardVerificationResult(
+    AgentCardVerificationStatus Status,
+    string? KeyId,
+    string? Issuer,
+    string? Reason);
 
 /// <summary>
-/// Verifies Agent Card JWS signatures (spec §8.4.3, §7.5) against a <see cref="CardTrustPolicy"/>: the key must be pinned for the
-/// card's origin or come from an allowlisted <c>jku</c> host (HTTPS, fetched by an <see cref="IJwksFetcher"/>). Also enforces a <c>typ</c> and
-/// algorithm allowlist (no "none"/HS*), rejects <c>crit</c>, and checks key/algorithm matching. The payload is
-/// <see cref="AgentCardCanonicalizer.Canonicalize(JsonObject)"/>, which matches a2a-python and a2a-js.
+///     Verifies Agent Card JWS signatures (spec §8.4.3, §7.5) against a <see cref="CardTrustPolicy" />: the key must be
+///     pinned for the
+///     card's origin or come from an allowlisted <c>jku</c> host (HTTPS, fetched by an <see cref="IJwksFetcher" />). Also
+///     enforces a <c>typ</c> and
+///     algorithm allowlist (no "none"/HS*), rejects <c>crit</c>, and checks key/algorithm matching. The payload is
+///     <see cref="AgentCardCanonicalizer.Canonicalize(JsonObject)" />, which matches a2a-python and a2a-js.
 /// </summary>
 /// <remarks>
-/// With several signatures, one that verifies with a trusted key makes the card <see cref="AgentCardVerificationStatus.Verified"/>
-/// (others may use keys or algorithms this client does not know). Otherwise any failed signature makes it
-/// <see cref="AgentCardVerificationStatus.Failed"/>, and if none failed it is <see cref="AgentCardVerificationStatus.Unverified"/>.
+///     With several signatures, one that verifies with a trusted key makes the card
+///     <see cref="AgentCardVerificationStatus.Verified" />
+///     (others may use keys or algorithms this client does not know). Otherwise, any failed signature makes it
+///     <see cref="AgentCardVerificationStatus.Failed" />, and if none failed it is
+///     <see cref="AgentCardVerificationStatus.Unverified" />.
 /// </remarks>
 public sealed class AgentCardVerifier
 {
@@ -49,20 +66,25 @@ public sealed class AgentCardVerifier
     internal const int MaxJkuFetchesPerVerification = 5;
 
     private static readonly TimeSpan JwksCacheDuration = TimeSpan.FromMinutes(10);
+
     private static readonly TimeSpan JwksFailureCacheDuration = TimeSpan.FromSeconds(60);
 
-    private readonly IJwksFetcher? _jwksFetcher;
     // A failed fetch is cached too (Set null, Failure set) so a card cannot make every verification hit the host again.
     private readonly ConcurrentDictionary<string, JwksCacheEntry> _jwksCache = new(StringComparer.Ordinal);
 
+    private readonly IJwksFetcher? _jwksFetcher;
+
     /// <summary>
-    /// Creates a verifier. <c>jku</c> key sets (HTTPS, host allowlisted for the card origin) are fetched with
-    /// <paramref name="jwksFetcher"/>, cached for 10 minutes (failures for 60 seconds), and at most
-    /// <see cref="MaxJkuFetchesPerVerification"/> distinct key sets are fetched per verification.
+    ///     Creates a verifier. <c>jku</c> key sets (HTTPS, host allowlisted for the card origin) are fetched with
+    ///     <paramref name="jwksFetcher" />, cached for 10 minutes (failures for 60 seconds), and at most
+    ///     <see cref="MaxJkuFetchesPerVerification" /> distinct key sets are fetched per verification.
     /// </summary>
     /// <param name="policy">Decides which keys are trusted.</param>
-    /// <param name="jwksFetcher">Fetches <c>jku</c> key sets. With <see langword="null"/>, a signature that needs a <c>jku</c> fetch is
-    /// <see cref="AgentCardVerificationStatus.Unverified"/> (reason "no JWKS fetcher configured"). Use <c>A2A.Security.Http.GuardedJwksFetcher</c> for an SSRF-guarded one.</param>
+    /// <param name="jwksFetcher">
+    ///     Fetches <c>jku</c> key sets. With <see langword="null" />, a signature that needs a <c>jku</c> fetch is
+    ///     <see cref="AgentCardVerificationStatus.Unverified" /> (reason "no JWKS fetcher configured"). Use
+    ///     <c>A2A.Security.Http.GuardedJwksFetcher</c> for an SSRF-guarded one.
+    /// </param>
     public AgentCardVerifier(CardTrustPolicy policy, IJwksFetcher? jwksFetcher = null)
     {
         Policy = policy ?? throw new ArgumentNullException(nameof(policy));
@@ -72,30 +94,42 @@ public sealed class AgentCardVerifier
     /// <summary>The policy that decides which keys are trusted.</summary>
     public CardTrustPolicy Policy { get; }
 
-    /// <inheritdoc cref="VerifyAsync(JsonObject, Uri, CancellationToken)"/>
-    public Task<AgentCardVerificationResult> VerifyAsync(AgentCard card, Uri source, CancellationToken cancellationToken = default) =>
-        VerifyAsync(AgentCardCanonicalizer.ToNode(card), source, cancellationToken);
+    /// <inheritdoc cref="VerifyAsync(JsonObject, Uri, CancellationToken)" />
+    public Task<AgentCardVerificationResult> VerifyAsync(AgentCard card, Uri source,
+        CancellationToken cancellationToken = default)
+    {
+        return VerifyAsync(AgentCardCanonicalizer.ToNode(card), source, cancellationToken);
+    }
 
-    /// <inheritdoc cref="VerifyAsync(JsonObject, Uri, CancellationToken)"/>
-    public Task<AgentCardVerificationResult> VerifyAsync(string rawCardJson, Uri source, CancellationToken cancellationToken = default) =>
-        VerifyAsync(JsonNode.Parse(rawCardJson)?.AsObject() ?? throw new JsonException("Agent Card must be a JSON object."), source, cancellationToken);
+    /// <inheritdoc cref="VerifyAsync(JsonObject, Uri, CancellationToken)" />
+    public Task<AgentCardVerificationResult> VerifyAsync(string rawCardJson, Uri source,
+        CancellationToken cancellationToken = default)
+    {
+        return VerifyAsync(
+            JsonNode.Parse(rawCardJson)?.AsObject() ?? throw new JsonException("Agent Card must be a JSON object."),
+            source, cancellationToken);
+    }
 
-    /// <summary>Verifies the card exactly as received from <paramref name="source"/>, whose origin selects the trusted keys.</summary>
+    /// <summary>Verifies the card exactly as received from <paramref name="source" />, whose origin selects the trusted keys.</summary>
     /// <remarks>
-    /// <b>Security:</b> a <see cref="AgentCardVerificationStatus.Verified"/> result covers only the canonical form.
-    /// Members outside the A2A v1.0 Agent Card schema, and values listed by <see cref="AgentCardCanonicalizer.PrunedPaths"/>,
-    /// are not covered by the signature and must not be trusted from a signed card. A card that would verify but has a member
-    /// that matches a v1.0 field only when case is ignored (<see cref="AgentCardCanonicalizer.CaseVariantMembers"/>) is
-    /// <see cref="AgentCardVerificationStatus.Failed"/>.
+    ///     <b>Security:</b> a <see cref="AgentCardVerificationStatus.Verified" /> result covers only the canonical form.
+    ///     Members outside the A2A v1.0 Agent Card schema, and values listed by
+    ///     <see cref="AgentCardCanonicalizer.PrunedPaths" />,
+    ///     are not covered by the signature and must not be trusted from a signed card. A card that would verify but has a
+    ///     member
+    ///     that matches a v1.0 field only when case is ignored (<see cref="AgentCardCanonicalizer.CaseVariantMembers" />) is
+    ///     <see cref="AgentCardVerificationStatus.Failed" />.
     /// </remarks>
-    public async Task<AgentCardVerificationResult> VerifyAsync(JsonObject card, Uri source, CancellationToken cancellationToken = default)
+    public async Task<AgentCardVerificationResult> VerifyAsync(JsonObject card, Uri source,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(source);
         var issuer = CardTrustPolicy.OriginOf(source);
 
         if (card["signatures"] is not JsonArray sigs || sigs.Count == 0)
-            return new(AgentCardVerificationStatus.Unsigned, null, issuer, "the card has no signatures");
+            return new AgentCardVerificationResult(AgentCardVerificationStatus.Unsigned, null, issuer,
+                "the card has no signatures");
 
         // The signed bytes and the case-variant check come from one prune of the card.
         IReadOnlyList<string> caseVariantMembers = [];
@@ -106,18 +140,21 @@ public sealed class AgentCardVerifier
 
         for (var i = 0; i < sigs.Count; i++)
         {
-            var (outcome, kid, reason) = await CheckAsync(sigs[i], issuer, payload, jkuFetches, cancellationToken).ConfigureAwait(false);
+            var (outcome, kid, reason) = await CheckAsync(sigs[i], issuer, payload, jkuFetches, cancellationToken)
+                .ConfigureAwait(false);
             switch (outcome)
             {
                 case AgentCardVerificationStatus.Verified:
                     // A case-insensitive reader would bind these to model properties although the signature does not cover them.
-                    var caseVariants = payload.IsValueCreated ? caseVariantMembers : AgentCardCanonicalizer.CaseVariantMembers(card);
+                    var caseVariants = payload.IsValueCreated
+                        ? caseVariantMembers
+                        : AgentCardCanonicalizer.CaseVariantMembers(card);
                     if (caseVariants.Count > 0)
-                    {
-                        return new(AgentCardVerificationStatus.Failed, kid, issuer,
-                            string.Join("; ", caseVariants.Select(p => $"member '{TextSanitizer.ForMessage(p)}' differs from a v1.0 Agent Card field only by case and is not signed")));
-                    }
-                    return new(AgentCardVerificationStatus.Verified, kid, issuer, null);
+                        return new AgentCardVerificationResult(AgentCardVerificationStatus.Failed, kid, issuer,
+                            string.Join("; ",
+                                caseVariants.Select(p =>
+                                    $"member '{TextSanitizer.ForMessage(p)}' differs from a v1.0 Agent Card field only by case and is not signed")));
+                    return new AgentCardVerificationResult(AgentCardVerificationStatus.Verified, kid, issuer, null);
                 case AgentCardVerificationStatus.Failed:
                     failed.Add((kid, $"signature[{i}]: {reason}"));
                     break;
@@ -128,34 +165,46 @@ public sealed class AgentCardVerifier
         }
 
         return failed.Count > 0
-            ? new(AgentCardVerificationStatus.Failed, failed[0].Kid, issuer, string.Join("; ", failed.Concat(unverified).Select(f => f.Reason)))
-            : new(AgentCardVerificationStatus.Unverified, unverified[0].Kid, issuer, string.Join("; ", unverified.Select(f => f.Reason)));
+            ? new AgentCardVerificationResult(AgentCardVerificationStatus.Failed, failed[0].Kid, issuer,
+                string.Join("; ", failed.Concat(unverified).Select(f => f.Reason)))
+            : new AgentCardVerificationResult(AgentCardVerificationStatus.Unverified, unverified[0].Kid, issuer,
+                string.Join("; ", unverified.Select(f => f.Reason)));
     }
 
     private async Task<(AgentCardVerificationStatus Outcome, string? Kid, string? Reason)> CheckAsync(
-        JsonNode? node, string issuer, Lazy<byte[]> payload, HashSet<string> jkuFetches, CancellationToken cancellationToken)
+        JsonNode? node, string issuer, Lazy<byte[]> payload, HashSet<string> jkuFetches,
+        CancellationToken cancellationToken)
     {
-        const AgentCardVerificationStatus Failed = AgentCardVerificationStatus.Failed;
+        const AgentCardVerificationStatus failed = AgentCardVerificationStatus.Failed;
 
         AgentCardSignature? sig;
         // Read straight from the tree: no JSON text in between.
-        try { sig = node?.Deserialize(A2AJson.GetTypeInfo<AgentCardSignature>()); }
-        catch (JsonException ex) { return (Failed, null, $"malformed ({TextSanitizer.ForMessage(ex.Message)})"); }
+        try
+        {
+            sig = node?.Deserialize(A2AJson.GetTypeInfo<AgentCardSignature>());
+        }
+        catch (JsonException ex)
+        {
+            return (failed, null, $"malformed ({TextSanitizer.ForMessage(ex.Message)})");
+        }
+
         if (sig is null || string.IsNullOrEmpty(sig.Protected) || string.IsNullOrEmpty(sig.Signature))
-            return (Failed, null, "missing protected header or signature");
+            return (failed, null, "missing protected header or signature");
 
         Dictionary<string, JsonElement>? header;
         byte[] sigBytes;
         try
         {
-            header = JsonSerializer.Deserialize(Base64Url.Decode(sig.Protected), A2AJson.GetTypeInfo<Dictionary<string, JsonElement>>());
+            header = JsonSerializer.Deserialize(Base64Url.Decode(sig.Protected),
+                A2AJson.GetTypeInfo<Dictionary<string, JsonElement>>());
             sigBytes = Base64Url.Decode(sig.Signature);
         }
         catch (Exception ex) when (ex is FormatException or JsonException)
         {
-            return (Failed, null, $"undecodable ({TextSanitizer.ForMessage(ex.Message)})");
+            return (failed, null, $"undecodable ({TextSanitizer.ForMessage(ex.Message)})");
         }
-        if (header is null) return (Failed, null, "empty header");
+
+        if (header is null) return (failed, null, "empty header");
 
         var alg = StringMember(header, "alg");
         var kid = StringMember(header, "kid");
@@ -163,12 +212,14 @@ public sealed class AgentCardVerifier
         var jku = StringMember(header, "jku");
 
         // Header values come from the card: sanitize before they reach Reason, exception messages and logs.
-        if (typ is null) return (Failed, kid, "missing typ header");
-        if (!Policy.AcceptedTyp.Contains(typ)) return (Failed, kid, $"typ '{TextSanitizer.ForMessage(typ)}' not accepted");
+        if (typ is null) return (failed, kid, "missing typ header");
+        if (!Policy.AcceptedTyp.Contains(typ))
+            return (failed, kid, $"typ '{TextSanitizer.ForMessage(typ)}' not accepted");
         if (alg is null || !Policy.AllowedAlgorithms.Contains(alg) || !JwsAlgorithms.IsSupported(alg))
-            return (Failed, kid, $"algorithm '{TextSanitizer.ForMessage(alg)}' not allowed");
-        if (header.ContainsKey("crit")) return (Failed, kid, "unsupported 'crit' header");
-        if (kid is null || kid.Length == 0) return (AgentCardVerificationStatus.Unverified, null, "missing kid, no trusted key applies");
+            return (failed, kid, $"algorithm '{TextSanitizer.ForMessage(alg)}' not allowed");
+        if (header.ContainsKey("crit")) return (failed, kid, "unsupported 'crit' header");
+        if (kid == null || kid.Length == 0)
+            return (AgentCardVerificationStatus.Unverified, null, "missing kid, no trusted key applies");
 
         var keys = Policy.TrustedKeysFor(issuer, kid);
         string? jkuNote = null;
@@ -176,7 +227,8 @@ public sealed class AgentCardVerifier
             (keys, jkuNote) = await JkuKeysAsync(jku, kid, issuer, jkuFetches, cancellationToken).ConfigureAwait(false);
         if (keys.Count == 0)
             return (AgentCardVerificationStatus.Unverified, kid,
-                $"no trusted key for kid '{TextSanitizer.ForMessage(kid)}' at {issuer}" + (jkuNote is null ? "" : $" ({jkuNote})"));
+                $"no trusted key for kid '{TextSanitizer.ForMessage(kid)}' at {issuer}" +
+                (jkuNote is null ? "" : $" ({jkuNote})"));
 
         foreach (var jwk in keys)
         {
@@ -199,11 +251,16 @@ public sealed class AgentCardVerifier
                 pub?.Dispose();
             }
         }
-        return (Failed, kid, $"signature does not verify with trusted key '{TextSanitizer.ForMessage(kid)}'");
+
+        return (failed, kid, $"signature does not verify with trusted key '{TextSanitizer.ForMessage(kid)}'");
     }
 
-    /// <summary>The keys with <paramref name="kid"/> from <paramref name="jku"/>, when its host is allowed for the card origin <paramref name="issuer"/>.</summary>
-    private async Task<(IReadOnlyList<Jwk> Keys, string? Note)> JkuKeysAsync(string jku, string kid, string issuer, HashSet<string> fetches, CancellationToken cancellationToken)
+    /// <summary>
+    ///     The keys with <paramref name="kid" /> from <paramref name="jku" />, when its host is allowed for the card
+    ///     origin <paramref name="issuer" />.
+    /// </summary>
+    private async Task<(IReadOnlyList<Jwk> Keys, string? Note)> JkuKeysAsync(string jku, string kid, string issuer,
+        HashSet<string> fetches, CancellationToken cancellationToken)
     {
         if (!Uri.TryCreate(jku, UriKind.Absolute, out var uri)) return ([], "jku is not an absolute URL");
         if (uri.Scheme != Uri.UriSchemeHttps) return ([], "jku must use https");
@@ -225,13 +282,16 @@ public sealed class AgentCardVerifier
                 entry = new JwksCacheEntry(DateTimeOffset.UtcNow + JwksCacheDuration, set, null);
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException
-                                       || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+                                       || (ex is OperationCanceledException &&
+                                           !cancellationToken.IsCancellationRequested))
             {
                 entry = new JwksCacheEntry(DateTimeOffset.UtcNow + JwksFailureCacheDuration, null, Messages(ex));
             }
+
             EvictExpired(DateTimeOffset.UtcNow);
             _jwksCache[cacheKey] = entry;
         }
+
         if (entry.Set is null) return ([], $"jku fetch failed: {entry.Failure}");
         return (entry.Set.Keys.Where(k => string.Equals(k.Kid, kid, StringComparison.Ordinal)).ToList(), null);
     }
@@ -239,29 +299,29 @@ public sealed class AgentCardVerifier
     private void EvictExpired(DateTimeOffset now)
     {
         foreach (var (key, cached) in _jwksCache)
-        {
-            if (cached.Expires < now) _jwksCache.TryRemove(new KeyValuePair<string, JwksCacheEntry>(key, cached));
-        }
+            if (cached.Expires < now)
+                _jwksCache.TryRemove(new KeyValuePair<string, JwksCacheEntry>(key, cached));
     }
 
-    // The SSRF guard's reason (e.g. a private address) can sit in an inner exception of the handler's HttpRequestException.
+    // The SSRF guard's reason (e.g. a private address) can sit in an inner exception to the handler's HttpRequestException.
     private static string Messages(Exception ex)
     {
         var parts = new List<string>();
         for (var e = ex; e is not null; e = e.InnerException)
-        {
-            if (!parts.Contains(e.Message)) parts.Add(e.Message);
-        }
+            if (!parts.Contains(e.Message))
+                parts.Add(e.Message);
         return TextSanitizer.ForMessage(string.Join(" ", parts));
     }
 
-    private sealed record JwksCacheEntry(DateTimeOffset Expires, JwkSet? Set, string? Failure);
+    private static string? StringMember(Dictionary<string, JsonElement> header, string name)
+    {
+        return header.TryGetValue(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+    }
 
-    private static string? StringMember(Dictionary<string, JsonElement> header, string name) =>
-        header.TryGetValue(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-
-    private static bool Check(string protectedB64, byte[] payload, string alg, AsymmetricAlgorithm key, byte[] sig) =>
-        JwsAlgorithms.Verify(alg, key, SigningInput(protectedB64, payload), sig);
+    private static bool Check(string protectedB64, byte[] payload, string alg, AsymmetricAlgorithm key, byte[] sig)
+    {
+        return JwsAlgorithms.Verify(alg, key, SigningInput(protectedB64, payload), sig);
+    }
 
     /// <summary>The JWS signing input, <c>ASCII(protected) "." base64url(payload)</c>, built in one array.</summary>
     internal static byte[] SigningInput(string protectedB64, byte[] payload)
@@ -273,21 +333,30 @@ public sealed class AgentCardVerifier
         return input;
     }
 
+    private sealed record JwksCacheEntry(DateTimeOffset Expires, JwkSet? Set, string? Failure);
+
     /// <summary>
-    /// Imported public keys of one trusted <see cref="Jwk"/>, reused across verifications. A key object is used by one
-    /// verification at a time (instances are not documented as thread-safe), and a pool whose key fields no longer match the
-    /// <see cref="Jwk"/> (it was changed) is replaced.
+    ///     Imported public keys of one trusted <see cref="Jwk" />, reused across verifications. A key object is used by one
+    ///     verification at a time (instances are not documented as thread-safe), and a pool whose key fields no longer match
+    ///     the
+    ///     <see cref="Jwk" /> (it was changed) is replaced.
     /// </summary>
     private sealed class KeyPool
     {
-        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Jwk, KeyPool> Pools = new();
         private const int MaxIdle = 8;
-        private readonly (string Kty, string? Crv, string? X, string? Y, string? N, string? E) _material;
+        private static readonly ConditionalWeakTable<Jwk, KeyPool> Pools = new();
         private readonly ConcurrentBag<AsymmetricAlgorithm> _idle = new();
+        private readonly (string Kty, string? Crv, string? X, string? Y, string? N, string? E) _material;
 
-        private KeyPool(Jwk jwk) => _material = Material(jwk);
+        private KeyPool(Jwk jwk)
+        {
+            _material = Material(jwk);
+        }
 
-        private static (string, string?, string?, string?, string?, string?) Material(Jwk jwk) => (jwk.Kty, jwk.Crv, jwk.X, jwk.Y, jwk.N, jwk.E);
+        private static (string, string?, string?, string?, string?, string?) Material(Jwk jwk)
+        {
+            return (jwk.Kty, jwk.Crv, jwk.X, jwk.Y, jwk.N, jwk.E);
+        }
 
         public static KeyPool For(Jwk jwk)
         {
@@ -298,7 +367,10 @@ public sealed class AgentCardVerifier
             return Pools.GetValue(jwk, static j => new KeyPool(j));
         }
 
-        public AsymmetricAlgorithm Rent(Jwk jwk) => _idle.TryTake(out var key) ? key : jwk.ToPublicKey();
+        public AsymmetricAlgorithm Rent(Jwk jwk)
+        {
+            return _idle.TryTake(out var key) ? key : jwk.ToPublicKey();
+        }
 
         public void Return(AsymmetricAlgorithm key)
         {

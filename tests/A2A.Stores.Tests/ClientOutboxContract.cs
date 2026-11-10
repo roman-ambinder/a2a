@@ -1,7 +1,6 @@
 using A2A.Client.Outbox;
 using A2A.Client.Postgres;
 using A2A.Tests;
-using Npgsql;
 
 namespace A2A.Stores.Tests;
 

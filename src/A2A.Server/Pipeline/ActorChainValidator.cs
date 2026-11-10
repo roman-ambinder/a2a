@@ -8,8 +8,9 @@ namespace A2A.Server.Pipeline;
 internal static class ActorChainValidator
 {
     /// <summary>
-    /// Refuses a chain with more hops than <see cref="A2ALimits.MaxActorChainHops"/>, then a malformed chain when the caller
-    /// activated the actor-chain extension. A message without the key costs one dictionary lookup.
+    ///     Refuses a chain with more hops than <see cref="A2ALimits.MaxActorChainHops" />, then a malformed chain when the
+    ///     caller
+    ///     activated the actor-chain extension. A message without the key costs one dictionary lookup.
     /// </summary>
     public static void Validate(Message message, A2ALimits limits, ServerCallContext call)
     {
@@ -24,9 +25,11 @@ internal static class ActorChainValidator
             if (actors.GetArrayLength() > max)
                 throw new A2AException(A2AErrorCode.InvalidRequest, $"The actor chain has more than {max} hops")
                 {
-                    Metadata = new() { ["maxActorChainHops"] = max.ToString(CultureInfo.InvariantCulture) },
+                    Metadata = new Dictionary<string, string>
+                        { ["maxActorChainHops"] = max.ToString(CultureInfo.InvariantCulture) }
                 };
         }
+
         if (call.ActivatedExtensions.Contains(ActorChain.ExtensionUri) && WellFormedChain(message) is null)
             throw A2AException.InvalidParams("metadata.actorChain is not a valid actor chain");
     }

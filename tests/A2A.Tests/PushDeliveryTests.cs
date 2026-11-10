@@ -1,11 +1,8 @@
 using System.Net;
 using A2A.Client.Push;
 using A2A.Security.Http;
-using A2A.Server;
 using A2A.Server.Push;
 using A2A.Server.Storage;
-using A2A.Server.Streaming;
-using Microsoft.Extensions.Options;
 
 namespace A2A.Tests;
 

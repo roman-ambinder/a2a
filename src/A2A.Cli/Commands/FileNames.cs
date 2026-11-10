@@ -12,13 +12,15 @@ internal static class FileNames
     {
         "CON", "PRN", "AUX", "NUL",
         "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
     };
 
     /// <summary>
-    /// Keeps only the last path segment (split at both <c>/</c> and <c>\</c>), drops control and invisible characters and leading
-    /// dots, replaces characters that Windows does not allow, and caps the length. Uses <paramref name="fallback"/>, sanitized the
-    /// same way, when nothing usable is left.
+    ///     Keeps only the last path segment (split at both <c>/</c> and <c>\</c>), drops control and invisible characters and
+    ///     leading
+    ///     dots, replaces characters that Windows does not allow, and caps the length. Uses <paramref name="fallback" />,
+    ///     sanitized the
+    ///     same way, when nothing usable is left.
     /// </summary>
     public static string Sanitize(string? name, string fallback)
     {
@@ -37,7 +39,8 @@ internal static class FileNames
         foreach (var ch in segment)
         {
             var category = char.GetUnicodeCategory(ch);
-            if (char.IsControl(ch) || category is UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator) continue;
+            if (char.IsControl(ch) || category is UnicodeCategory.Format or UnicodeCategory.LineSeparator
+                    or UnicodeCategory.ParagraphSeparator) continue;
             sb.Append(ch is '<' or '>' or ':' or '"' or '|' or '?' or '*' ? '_' : ch);
         }
 
@@ -49,6 +52,7 @@ internal static class FileNames
             if (char.IsHighSurrogate(text[^1])) text = text[..^1];
             text = text.TrimEnd('.', ' ');
         }
+
         if (text.Length == 0) return "";
 
         var dot = text.IndexOf('.', StringComparison.Ordinal);
@@ -56,7 +60,10 @@ internal static class FileNames
         return ReservedDeviceNames.Contains(stem) ? "_" + text : text;
     }
 
-    /// <summary>Adds <c>-2</c>, <c>-3</c> before the extension until the name is not in <paramref name="used"/>, and records it.</summary>
+    /// <summary>
+    ///     Adds <c>-2</c>, <c>-3</c> before the extension until the name is not in <paramref name="used" />, and records
+    ///     it.
+    /// </summary>
     public static string Unique(string name, ISet<string> used)
     {
         var candidate = name;

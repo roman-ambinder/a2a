@@ -1,8 +1,11 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace A2A.Server.TypedSkills;
 
 /// <summary>Card text and the validator of one typed skill.</summary>
 /// <typeparam name="TInput">The input type of the skill.</typeparam>
-[global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP001", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+[Experimental("A2AEXP001",
+    UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public sealed class TypedSkillOptions<TInput>
 {
     internal TypedSkillOptions()
@@ -22,8 +25,10 @@ public sealed class TypedSkillOptions<TInput>
     public List<string> Examples { get; } = [];
 
     /// <summary>
-    /// Checks rules the type cannot say, such as a range. Return no errors when the input is fine. It runs when the request is
-    /// checked and again when the handler starts, so keep it pure and fast. The errors go to the caller: do not put the caller's values in them.
+    ///     Checks rules the type cannot say, such as a range. Return no errors when the input is fine. It runs when the
+    ///     request is
+    ///     checked and again when the handler starts, so keep it pure and fast. The errors go to the caller: do not put the
+    ///     caller's values in them.
     /// </summary>
     public Func<TInput, IEnumerable<TypedSkillValidationError>>? Validate { get; set; }
 }

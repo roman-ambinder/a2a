@@ -6,7 +6,6 @@ using A2A.Server.Storage;
 using A2A.Tests;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using StackExchange.Redis;
 
 namespace A2A.Stores.Tests;
 

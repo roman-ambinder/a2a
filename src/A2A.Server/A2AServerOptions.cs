@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using A2A.Server.Audit;
 using A2A.Server.Authorization;
 using A2A.Server.Coordination;
@@ -12,78 +13,80 @@ namespace A2A.Server;
 public sealed class A2AServerOptions
 {
     /// <summary>
-    /// The public Agent Card. Required, unless a <see cref="Agents.TenantCardProvider"/> supplies each tenant's card; without one,
-    /// this card serves every tenant.
+    ///     The public Agent Card. Required, unless a <see cref="Agents.TenantCardProvider" /> supplies each tenant's card;
+    ///     without one,
+    ///     this card serves every tenant.
     /// </summary>
     public AgentCard AgentCard { get; set; } = new()
     {
         Name = string.Empty, Description = string.Empty, SupportedInterfaces = [], Version = string.Empty,
-        Capabilities = new(), DefaultInputModes = [], DefaultOutputModes = [], Skills = [],
+        Capabilities = new AgentCapabilities(), DefaultInputModes = [], DefaultOutputModes = [], Skills = []
     };
 
     /// <summary>
-    /// A2A 1.1 long-poll (GetTask with <c>currentGeneration</c>, §3.2.7): the longest a GetTask waits for the task to change
-    /// before it answers with the task as it is. Default 30 seconds; values above 5 minutes count as 5 minutes, and zero or
-    /// less turns the wait off (GetTask then always answers at once, which the spec allows). A waiting call holds a stream slot,
-    /// so the per-caller and per-task stream limits apply to it.
+    ///     A2A 1.1 long-poll (GetTask with <c>currentGeneration</c>, §3.2.7): the longest a GetTask waits for the task to
+    ///     change
+    ///     before it answers with the task as it is. Default 30 seconds; values above 5 minutes count as 5 minutes, and zero
+    ///     or
+    ///     less turns the wait off (GetTask then always answers at once, which the spec allows). A waiting call holds a stream
+    ///     slot,
+    ///     so the per-caller and per-task stream limits apply to it.
     /// </summary>
     public TimeSpan LongPollTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>Accepted protocol versions (Major.Minor). Default {"1.0"}.</summary>
-    public ISet<string> SupportedVersions { get; } = new HashSet<string>(StringComparer.Ordinal) { A2AProtocol.Version };
+    public ISet<string> SupportedVersions { get; } =
+        new HashSet<string>(StringComparer.Ordinal) { A2AProtocol.Version };
 
     /// <summary>
-    /// Serves A2A 1.1 (release candidate) next to 1.0: adds <c>"1.1"</c> to <see cref="SupportedVersions"/>. A caller that sends
-    /// <c>A2A-Version: 1.1</c> then gets the 1.1 wire (generation, timeline, message events, streams that stay open on an
-    /// interrupted state); a 1.0 caller sees no change. A card completed from the mapped bindings lists a 1.1 interface for each
-    /// binding first. Experimental until 1.1 is final.
-    /// </summary>
-    /// <returns>These options.</returns>
-    [global::System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
-    public A2AServerOptions EnableProtocolV11()
-    {
-        SupportedVersions.Add(A2AProtocol.Version11);
-        return this;
-    }
-
-    /// <summary>
-    /// The spec says a missing A2A-Version header means 0.3 (§3.6.2), which this server rejects unless listed in
-    /// <see cref="SupportedVersions"/>. Set true to treat a missing header as <see cref="A2AProtocol.Version"/> instead
-    /// (handy for curl and older tooling, but not strictly compliant). Default false.
+    ///     The spec says a missing A2A-Version header means 0.3 (§3.6.2), which this server rejects unless listed in
+    ///     <see cref="SupportedVersions" />. Set true to treat a missing header as <see cref="A2AProtocol.Version" /> instead
+    ///     (handy for curl and older tooling, but not strictly compliant). Default false.
     /// </summary>
     public bool TreatMissingVersionAsCurrent { get; set; }
 
     /// <summary>
-    /// Allow callers that are not authenticated. Default false: at startup the ASP.NET Core layer fails unless every A2A
-    /// endpoint has an authorization policy (<c>MapA2A(...).RequireAuthorization()</c>). Set true to opt in to anonymous
-    /// access. All anonymous callers then share one owner (<see cref="ServerCallContext.AnonymousPrincipal"/>) and can
-    /// read each other's tasks. A warning is logged once at startup.
+    ///     Allow callers that are not authenticated. Default false: at startup the ASP.NET Core layer fails unless every A2A
+    ///     endpoint has an authorization policy (<c>MapA2A(...).RequireAuthorization()</c>). Set true to opt in to anonymous
+    ///     access. All anonymous callers then share one owner (<see cref="ServerCallContext.AnonymousPrincipal" />) and can
+    ///     read each other's tasks. A warning is logged once at startup.
     /// </summary>
     public bool AllowAnonymous { get; set; }
 
     /// <summary>
-    /// Returns the extended card for an authenticated caller (spec §3.1.11). Requires
-    /// <c>AgentCard.Capabilities.ExtendedAgentCard = true</c>. Return null when no card is configured. The second argument is the
-    /// completed public card (<see cref="IAgentCardProvider.Get"/>, with its interfaces and extension entries): copy it, do not change it.
-    /// It can also run during a send, for a caller authorized for GetExtendedAgentCard, when the skill-selection extension
-    /// refuses unknown skills (<see cref="A2A.Skills.SkillSelection.CreateExtension"/> with <c>rejectUnknownSkills: true</c>).
-    /// Used when one agent serves every tenant; with a <see cref="Agents.TenantCardProvider"/>, extended cards come from
-    /// <see cref="Agents.TenantCardProvider.GetExtendedCardAsync"/> instead, and this delegate is not called.
+    ///     Returns the extended card for an authenticated caller (spec §3.1.11). Requires
+    ///     <c>AgentCard.Capabilities.ExtendedAgentCard = true</c>. Return null when no card is configured. The second argument
+    ///     is the
+    ///     completed public card (<see cref="IAgentCardProvider.Get" />, with its interfaces and extension entries): copy it,
+    ///     do not change it.
+    ///     It can also run during a send, for a caller authorized for GetExtendedAgentCard, when the skill-selection extension
+    ///     refuses unknown skills (<see cref="A2A.Skills.SkillSelection.CreateExtension" /> with
+    ///     <c>rejectUnknownSkills: true</c>).
+    ///     Used when one agent serves every tenant; with a <see cref="Agents.TenantCardProvider" />, extended cards come from
+    ///     <see cref="Agents.TenantCardProvider.GetExtendedCardAsync" /> instead, and this delegate is not called.
     /// </summary>
-    public Func<ServerCallContext, AgentCard, CancellationToken, ValueTask<AgentCard?>>? ExtendedAgentCardProvider { get; set; }
+    public Func<ServerCallContext, AgentCard, CancellationToken, ValueTask<AgentCard?>>? ExtendedAgentCardProvider
+    {
+        get;
+        set;
+    }
 
     /// <summary>Webhook delivery and URL policy for push notifications.</summary>
     public PushNotificationOptions PushNotifications { get; } = new();
 
-    /// <summary>Per-skill authorization: when the server checks the skill a message names, and whether the extended card is filtered.</summary>
+    /// <summary>
+    ///     Per-skill authorization: when the server checks the skill a message names, and whether the extended card is
+    ///     filtered.
+    /// </summary>
     public SkillAuthorizationOptions SkillAuthorization { get; } = new();
 
-    /// <summary>Retry, lease and polling settings of the push outbox (<see cref="PushDeliveryService"/>).</summary>
+    /// <summary>Retry, lease and polling settings of the push outbox (<see cref="PushDeliveryService" />).</summary>
     public PushDeliveryOptions PushDelivery { get; } = new();
 
     /// <summary>
-    /// Lease, heartbeat and polling settings of the <see cref="ExecutionCoordinator"/>, which tracks running executions across
-    /// instances. Checked when the request handler is created.
+    ///     Lease, heartbeat and polling settings of the <see cref="ExecutionCoordinator" />, which tracks running executions
+    ///     across
+    ///     instances. Checked when the request handler is created.
     /// </summary>
     public CoordinationOptions Coordination { get; } = new();
 
@@ -91,75 +94,96 @@ public sealed class A2AServerOptions
     public TimeSpan CancelGracePeriod { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
-    /// Answer a repeat CancelTask for a task that is already <see cref="TaskState.Canceled"/> with that task, instead of
-    /// TaskNotCancelable. Other final states still give TaskNotCancelable. Default false, because the A2A TCK
-    /// (CORE-CANCEL-002) expects the error; see https://github.com/a2aproject/A2A/issues/2358.
+    ///     Answer a repeat CancelTask for a task that is already <see cref="TaskState.Canceled" /> with that task, instead of
+    ///     TaskNotCancelable. Other final states still give TaskNotCancelable. Default false, because the A2A TCK
+    ///     (CORE-CANCEL-002) expects the error; see https://github.com/a2aproject/A2A/issues/2358.
     /// </summary>
     public bool IdempotentCancel { get; set; }
 
     /// <summary>
-    /// How long a host stop waits for running executions to finish before the engine stops them. Agents still running after
-    /// that are asked to stop, and their tasks stay as they are (not <see cref="TaskState.Canceled"/>): the lease expiry, the
-    /// retention sweep or a continuation deals with them. Keep it below the host's shutdown timeout (30 seconds by default).
-    /// <see cref="TimeSpan.Zero"/> (or less) turns the wait off. Default 20 seconds.
+    ///     How long a host stop waits for running executions to finish before the engine stops them. Agents still running
+    ///     after
+    ///     that are asked to stop, and their tasks stay as they are (not <see cref="TaskState.Canceled" />): the lease expiry,
+    ///     the
+    ///     retention sweep or a continuation deals with them. Keep it below the host's shutdown timeout (30 seconds by
+    ///     default).
+    ///     <see cref="TimeSpan.Zero" /> (or less) turns the wait off. Default 20 seconds.
     /// </summary>
     public TimeSpan ShutdownDrainTimeout { get; set; } = TimeSpan.FromSeconds(20);
 
     /// <summary>
-    /// Longest one execution of the agent (one incoming message) may run. When it runs longer, the task moves to
-    /// <see cref="TaskState.Failed"/> with the status text "Task exceeded its time limit" (sent to streams and webhooks like
-    /// any final event), and the execution's cancellation token fires. Events the agent sends after that are dropped.
-    /// Time is measured per execution, so a task waiting in <c>INPUT_REQUIRED</c> or <c>AUTH_REQUIRED</c> with no agent
-    /// running is not affected, and each follow-up message gets the full time again. Null, zero, negative, or too large for a
-    /// timer (<see cref="int.MaxValue"/> milliseconds, about 24.8 days, or more) turns the limit off. Default null (off). The clock is the <see cref="TimeProvider"/> registered in DI, else <see cref="TimeProvider.System"/>.
+    ///     Longest one execution of the agent (one incoming message) may run. When it runs longer, the task moves to
+    ///     <see cref="TaskState.Failed" /> with the status text "Task exceeded its time limit" (sent to streams and webhooks
+    ///     like
+    ///     any final event), and the execution's cancellation token fires. Events the agent sends after that are dropped.
+    ///     Time is measured per execution, so a task waiting in <c>INPUT_REQUIRED</c> or <c>AUTH_REQUIRED</c> with no agent
+    ///     running is not affected, and each follow-up message gets the full time again. Null, zero, negative, or too large
+    ///     for a
+    ///     timer (<see cref="int.MaxValue" /> milliseconds, about 24.8 days, or more) turns the limit off. Default null (off).
+    ///     The clock is the <see cref="TimeProvider" /> registered in DI, else <see cref="TimeProvider.System" />.
     /// </summary>
     public TimeSpan? MaxTaskDuration { get; set; }
 
     /// <summary>
-    /// Longest a task may wait in <c>INPUT_REQUIRED</c> or <c>AUTH_REQUIRED</c> with no agent running. After that the retention
-    /// sweep (<c>AddA2ARetention</c>) moves it to <see cref="TaskState.Canceled"/> with the status text "The task waited too
-    /// long for input." (sent to streams and webhooks like any final event). Measured from the task's status timestamp, on the
-    /// sweep's clock, so a task is cancelled up to one sweep interval late. Separate from <see cref="MaxTaskDuration"/>, which
-    /// limits running executions. Null turns the timeout off; otherwise it must be positive (checked when the sweep starts).
-    /// Default 24 hours. This timeout, dead-execution recovery and the retention purges run only when
-    /// <c>AddA2ARetention</c> is registered; without it this setting has no effect.
+    ///     Longest a task may wait in <c>INPUT_REQUIRED</c> or <c>AUTH_REQUIRED</c> with no agent running. After that the
+    ///     retention
+    ///     sweep (<c>AddA2ARetention</c>) moves it to <see cref="TaskState.Canceled" /> with the status text "The task waited
+    ///     too
+    ///     long for input." (sent to streams and webhooks like any final event). Measured from the task's status timestamp, on
+    ///     the
+    ///     sweep's clock, so a task is cancelled up to one sweep interval late. Separate from <see cref="MaxTaskDuration" />,
+    ///     which
+    ///     limits running executions. Null turns the timeout off; otherwise it must be positive (checked when the sweep
+    ///     starts).
+    ///     Default 24 hours. This timeout, dead-execution recovery and the retention purges run only when
+    ///     <c>AddA2ARetention</c> is registered; without it this setting has no effect.
     /// </summary>
     public TimeSpan? InterruptedTimeout { get; set; } = TimeSpan.FromHours(24);
 
     /// <summary>
-    /// Most incoming messages (SendMessage or SendStreamingMessage calls) one task accepts, counting the message that
-    /// created it. A follow-up that would go over the cap is refused with <see cref="A2AErrorCode.UnsupportedOperation"/>
-    /// before the agent runs, and the task is not changed. A defense against multi-turn "agent session smuggling", where a
-    /// peer agent steers a long conversation step by step. A retry of an accepted message (same idempotency key) is not a
-    /// new turn. Turns are counted from the user messages in the stored task history, so a custom
-    /// <see cref="Storage.TaskStore"/> must keep the full history for the cap to hold. Null (default) turns the cap off;
-    /// 1 means no follow-ups at all.
+    ///     Most incoming messages (SendMessage or SendStreamingMessage calls) one task accepts, counting the message that
+    ///     created it. A follow-up that would go over the cap is refused with <see cref="A2AErrorCode.UnsupportedOperation" />
+    ///     before the agent runs, and the task is not changed. A defense against multi-turn "agent session smuggling", where a
+    ///     peer agent steers a long conversation step by step. A retry of an accepted message (same idempotency key) is not a
+    ///     new turn. Turns are counted from the user messages in the stored task history, so a custom
+    ///     <see cref="Storage.TaskStore" /> must keep the full history for the cap to hold. Null (default) turns the cap off;
+    ///     1 means no follow-ups at all.
     /// </summary>
     public int? MaxTurnsPerTask { get; set; }
 
     /// <summary>
-    /// Append the exception type and message to the text of unexpected (non-A2A) errors sent to callers.
-    /// Null (default) means true only when the host environment is Development. The ASP.NET Core layer resolves the null.
+    ///     Append the exception type and message to the text of unexpected (non-A2A) errors sent to callers.
+    ///     Null (default) means true only when the host environment is Development. The ASP.NET Core layer resolves the null.
     /// </summary>
     public bool? IncludeExceptionDetails { get; set; }
 
-    /// <summary>Which task states accept follow-up messages. Default <see cref="Server.FollowUpPolicy.InterruptedOnly"/>.</summary>
+    /// <summary>Which task states accept follow-up messages. Default <see cref="Server.FollowUpPolicy.InterruptedOnly" />.</summary>
     public FollowUpPolicy FollowUpPolicy { get; set; } = FollowUpPolicy.InterruptedOnly;
 
     /// <summary>
-    /// Lets callers other than the owner join an existing context. Called when a SendMessage names a context that another
-    /// principal owns (never for the owner, and never for a new context): return true to accept it. Null (default) or false:
-    /// the call fails with InvalidParams "contextId not found" and counts a <c>context_denied</c> security event. Exceptions of
-    /// the delegate propagate. Tasks stay owner-scoped: the second principal gets a task of its own in the context and never sees
-    /// the owner's tasks. The agent still sees one <see cref="AgentRequestContext.ContextId"/> for both, so an agent that keeps
-    /// per-context memory shares that memory between them.
+    ///     Lets callers other than the owner join an existing context. Called when a SendMessage names a context that another
+    ///     principal owns (never for the owner, and never for a new context): return true to accept it. Null (default) or
+    ///     false:
+    ///     the call fails with InvalidParams "contextId not found" and counts a <c>context_denied</c> security event.
+    ///     Exceptions of
+    ///     the delegate propagate. Tasks stay owner-scoped: the second principal gets a task of its own in the context and
+    ///     never sees
+    ///     the owner's tasks. The agent still sees one <see cref="AgentRequestContext.ContextId" /> for both, so an agent that
+    ///     keeps
+    ///     per-context memory shares that memory between them.
     /// </summary>
     public Func<ContextRecord, ServerCallContext, CancellationToken, ValueTask<bool>>? ContextAccess { get; set; }
 
-    /// <summary>Logger of the security event log lines (<see cref="Telemetry.SecurityEventLog"/>). Set by <c>AddA2AServer</c>; null means no log line (the counter still counts).</summary>
+    /// <summary>
+    ///     Logger of the security event log lines (<see cref="Telemetry.SecurityEventLog" />). Set by <c>AddA2AServer</c>
+    ///     ; null means no log line (the counter still counts).
+    /// </summary>
     internal ILogger? SecurityLogger { get; set; }
 
-    /// <summary>How to treat an unknown client-supplied contextId on a new task. Default <see cref="Server.ClientContextIdPolicy.Reject"/>.</summary>
+    /// <summary>
+    ///     How to treat an unknown client-supplied contextId on a new task. Default
+    ///     <see cref="Server.ClientContextIdPolicy.Reject" />.
+    /// </summary>
     public ClientContextIdPolicy ClientContextIdPolicy { get; set; } = ClientContextIdPolicy.Reject;
 
     /// <summary>Size, count and time limits (request body, parts, JSON depth, history, page size, streams, push configs).</summary>
@@ -169,25 +193,50 @@ public sealed class A2AServerOptions
     public StreamingOptions Streaming { get; } = new();
 
     /// <summary>
-    /// Idempotent SendMessage (retention and size of the in-memory store). A retried SendMessage with the same
-    /// <c>Idempotency-Key</c> header, or without one the same message id, from the same tenant and principal is answered with
-    /// the first request's task or reply instead of running again.
+    ///     Idempotent SendMessage (retention and size of the in-memory store). A retried SendMessage with the same
+    ///     <c>Idempotency-Key</c> header, or without one the same message id, from the same tenant and principal is answered
+    ///     with
+    ///     the first request's task or reply instead of running again.
     /// </summary>
     public IdempotencyOptions Idempotency { get; } = new();
 
-    /// <summary>Where large artifact bytes go, and the links to them. Used only when an <see cref="Storage.ArtifactObjectStore"/> is registered.</summary>
+    /// <summary>
+    ///     Where large artifact bytes go, and the links to them. Used only when an
+    ///     <see cref="Storage.ArtifactObjectStore" /> is registered.
+    /// </summary>
     public ArtifactStorageOptions ArtifactStorage { get; } = new();
 
-    /// <summary>The audit trail: write timeout and fail-open or fail-closed (see <see cref="A2AAuditSink"/>). Checked when the auditor is created.</summary>
+    /// <summary>
+    ///     The audit trail: write timeout and fail-open or fail-closed (see <see cref="A2AAuditSink" />). Checked when
+    ///     the auditor is created.
+    /// </summary>
     public A2AAuditOptions Audit { get; } = new();
+
+    /// <summary>
+    ///     Serves A2A 1.1 (release candidate) next to 1.0: adds <c>"1.1"</c> to <see cref="SupportedVersions" />. A caller
+    ///     that sends
+    ///     <c>A2A-Version: 1.1</c> then gets the 1.1 wire (generation, timeline, message events, streams that stay open on an
+    ///     interrupted state); a 1.0 caller sees no change. A card completed from the mapped bindings lists a 1.1 interface
+    ///     for each
+    ///     binding first. Experimental until 1.1 is final.
+    /// </summary>
+    /// <returns>These options.</returns>
+    [Experimental("A2AEXP005",
+        UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public A2AServerOptions EnableProtocolV11()
+    {
+        SupportedVersions.Add(A2AProtocol.Version11);
+        return this;
+    }
 }
 
 /// <summary>Settings for the per-task event log and for SSE streams.</summary>
 public sealed class StreamingOptions
 {
     /// <summary>
-    /// Events kept per task for replay. Default 1000. <see cref="Storage.InMemoryEventStore"/> keeps each retained event as the
-    /// model plus its UTF-8 bytes, so memory per event is roughly double the model alone.
+    ///     Events kept per task for replay. Default 1000. <see cref="Storage.InMemoryEventStore" /> keeps each retained event
+    ///     as the
+    ///     model plus its UTF-8 bytes, so memory per event is roughly double the model alone.
     /// </summary>
     public int ReplayBufferSize { get; set; } = 1000;
 
@@ -198,14 +247,23 @@ public sealed class StreamingOptions
     public TimeSpan KeepAliveInterval { get; set; } = TimeSpan.FromSeconds(15);
 
     /// <summary>
-    /// Capacity of each per-task bounded event channel. Default 256; values below 1 count as 1. When a channel is full:
-    /// <list type="bullet">
-    /// <item>the agent's next <see cref="TaskUpdater"/> write waits until the engine catches up (a fast agent is throttled);</item>
-    /// <item>a stream or subscription that falls behind drops queued events and fills the gap from the event store, so it still
-    /// sends the task's events in order (a snapshot replaces events the store no longer has);</item>
-    /// <item>the push delivery queue of a task keeps every event: later events wait, in order, until the sender catches up.</item>
-    /// </list>
-    /// No channel write waits while the task's lock is held.
+    ///     Capacity of each per-task bounded event channel. Default 256; values below 1 count as 1. When a channel is full:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             the agent's next <see cref="TaskUpdater" /> write waits until the engine catches up (a fast agent is
+    ///             throttled);
+    ///         </item>
+    ///         <item>
+    ///             a stream or subscription that falls behind drops queued events and fills the gap from the event store, so
+    ///             it still
+    ///             sends the task's events in order (a snapshot replaces events the store no longer has);
+    ///         </item>
+    ///         <item>
+    ///             the push delivery queue of a task keeps every event: later events wait, in order, until the sender
+    ///             catches up.
+    ///         </item>
+    ///     </list>
+    ///     No channel write waits while the task's lock is held.
     /// </summary>
     public int ChannelCapacity { get; set; } = 256;
 }

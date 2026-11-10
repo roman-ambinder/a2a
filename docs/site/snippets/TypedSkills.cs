@@ -5,7 +5,6 @@ using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.TypedSkills;
 using A2A.Skills;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.TypedSkills;
 

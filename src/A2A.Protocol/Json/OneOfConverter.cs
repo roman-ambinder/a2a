@@ -5,10 +5,12 @@ using System.Text.Json.Serialization.Metadata;
 namespace A2A.Json;
 
 /// <summary>
-/// Base converter for a closed union that is a JSON object with exactly one of a fixed set of members (a proto oneof).
-/// Zero or more than one known member is a <see cref="JsonException"/> that names the members found. Unknown members are
-/// skipped; members set to <c>null</c> count as absent. Uses only reader/writer primitives plus <c>JsonTypeInfo</c> lookups
-/// for the nested payloads, so it works with source-generated contexts.
+///     Base converter for a closed union that is a JSON object with exactly one of a fixed set of members (a proto oneof).
+///     Zero or more than one known member is a <see cref="JsonException" /> that names the members found. Unknown members
+///     are
+///     skipped; members set to <c>null</c> count as absent. Uses only reader/writer primitives plus <c>JsonTypeInfo</c>
+///     lookups
+///     for the nested payloads, so it works with source-generated contexts.
 /// </summary>
 /// <typeparam name="TUnion">The abstract union type.</typeparam>
 public abstract class OneOfConverter<TUnion> : JsonConverter<TUnion> where TUnion : class
@@ -19,10 +21,10 @@ public abstract class OneOfConverter<TUnion> : JsonConverter<TUnion> where TUnio
     /// <summary>The wire names of the members, in documentation order.</summary>
     protected abstract IReadOnlyList<string> MemberNames { get; }
 
-    /// <summary>Reads the payload of <paramref name="member"/> (the reader is on the payload's first token) into its case.</summary>
+    /// <summary>Reads the payload of <paramref name="member" /> (the reader is on the payload's first token) into its case.</summary>
     protected abstract TUnion ReadCase(ref Utf8JsonReader reader, string member, JsonSerializerOptions options);
 
-    /// <summary>Writes the single property (name and payload) for <paramref name="value"/>.</summary>
+    /// <summary>Writes the single property (name and payload) for <paramref name="value" />.</summary>
     protected abstract void WriteCase(Utf8JsonWriter writer, TUnion value, JsonSerializerOptions options);
 
     /// <inheritdoc />
@@ -46,6 +48,7 @@ public abstract class OneOfConverter<TUnion> : JsonConverter<TUnion> where TUnio
                 reader.Skip();
                 continue;
             }
+
             if (first is null)
             {
                 first = name;
@@ -61,7 +64,8 @@ public abstract class OneOfConverter<TUnion> : JsonConverter<TUnion> where TUnio
         if (first is null)
             throw new JsonException($"{UnionName} must set exactly one of {string.Join(", ", names)}; found none");
         if (more is not null)
-            throw new JsonException($"{UnionName} must set exactly one of {string.Join(", ", names)}; found: {string.Join(", ", more)}");
+            throw new JsonException(
+                $"{UnionName} must set exactly one of {string.Join(", ", names)}; found: {string.Join(", ", more)}");
         return result!;
     }
 
@@ -77,20 +81,24 @@ public abstract class OneOfConverter<TUnion> : JsonConverter<TUnion> where TUnio
     private static string? MemberAt(ref Utf8JsonReader reader, IReadOnlyList<string> names)
     {
         for (var i = 0; i < names.Count; i++)
-            if (reader.ValueTextEquals(names[i])) return names[i];
+            if (reader.ValueTextEquals(names[i]))
+                return names[i];
         return null;
     }
 
     /// <summary>
-    /// Reads a nested payload. The single place the union converters call back into the serializer, so a source-generated
-    /// resolver only has to serve <typeparamref name="T"/> through <c>options.GetTypeInfo</c>.
+    ///     Reads a nested payload. The single place the union converters call back into the serializer, so a source-generated
+    ///     resolver only has to serve <typeparamref name="T" /> through <c>options.GetTypeInfo</c>.
     /// </summary>
-    protected static T ReadPayload<T>(ref Utf8JsonReader reader, JsonSerializerOptions options) where T : class =>
-        JsonSerializer.Deserialize(ref reader, (JsonTypeInfo<T>)options.GetTypeInfo(typeof(T)))
-            ?? throw new JsonException($"{typeof(T).Name} payload must not be null");
+    protected static T ReadPayload<T>(ref Utf8JsonReader reader, JsonSerializerOptions options) where T : class
+    {
+        return JsonSerializer.Deserialize(ref reader, (JsonTypeInfo<T>)options.GetTypeInfo(typeof(T)))
+               ?? throw new JsonException($"{typeof(T).Name} payload must not be null");
+    }
 
-    /// <summary>Writes <paramref name="name"/> followed by the serialized payload.</summary>
-    protected static void WriteProperty<T>(Utf8JsonWriter writer, string name, T payload, JsonSerializerOptions options) where T : class
+    /// <summary>Writes <paramref name="name" /> followed by the serialized payload.</summary>
+    protected static void WriteProperty<T>(Utf8JsonWriter writer, string name, T payload, JsonSerializerOptions options)
+        where T : class
     {
         writer.WritePropertyName(name);
         JsonSerializer.Serialize(writer, payload, (JsonTypeInfo<T>)options.GetTypeInfo(typeof(T)));
@@ -98,8 +106,10 @@ public abstract class OneOfConverter<TUnion> : JsonConverter<TUnion> where TUnio
 }
 
 /// <summary>
-/// Converter for one concrete case of a union. System.Text.Json does not apply the base type's converter when the declared
-/// type is a derived record, so each case names this converter. It shares the logic of <typeparamref name="TConverter"/>.
+///     Converter for one concrete case of a union. System.Text.Json does not apply the base type's converter when the
+///     declared
+///     type is a derived record, so each case names this converter. It shares the logic of
+///     <typeparamref name="TConverter" />.
 /// </summary>
 /// <typeparam name="TUnion">The abstract union type.</typeparam>
 /// <typeparam name="TCase">The case type.</typeparam>
@@ -112,11 +122,15 @@ public sealed class OneOfCaseConverter<TUnion, TCase, TConverter> : JsonConverte
     private static readonly TConverter Union = new();
 
     /// <inheritdoc />
-    public override TCase Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
-        Union.Read(ref reader, typeof(TUnion), options) as TCase
-            ?? throw new JsonException($"{typeof(TUnion).Name} content does not match {typeof(TCase).Name}");
+    public override TCase Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return Union.Read(ref reader, typeof(TUnion), options) as TCase
+               ?? throw new JsonException($"{typeof(TUnion).Name} content does not match {typeof(TCase).Name}");
+    }
 
     /// <inheritdoc />
-    public override void Write(Utf8JsonWriter writer, TCase value, JsonSerializerOptions options) =>
+    public override void Write(Utf8JsonWriter writer, TCase value, JsonSerializerOptions options)
+    {
         Union.Write(writer, value, options);
+    }
 }

@@ -3,13 +3,22 @@ using A2A.Text;
 
 namespace A2A.Elicitations;
 
-/// <summary>Reads a form or an answer from peer JSON. Strict: a keyword that is not in the spec makes the whole value unreadable. Never throws.</summary>
+/// <summary>
+///     Reads a form or an answer from peer JSON. Strict: a keyword that is not in the spec makes the whole value
+///     unreadable. Never throws.
+/// </summary>
 internal static class ElicitationReader
 {
     public static ElicitationForm? ReadForm(JsonElement element)
     {
-        try { return ReadFormCore(element); }
-        catch (Exception e) when (e is ArgumentException or InvalidOperationException) { return null; } // a rule of a field, or text that is not valid UTF-16
+        try
+        {
+            return ReadFormCore(element);
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
+        {
+            return null;
+        } // a rule of a field, or text that is not valid UTF-16
     }
 
     private static ElicitationForm? ReadFormCore(JsonElement element)
@@ -18,7 +27,6 @@ internal static class ElicitationReader
         string? id = null;
         JsonElement schema = default;
         foreach (var property in element.EnumerateObject())
-        {
             switch (property.Name)
             {
                 case "id":
@@ -28,29 +36,30 @@ internal static class ElicitationReader
                 case "requestedSchema": schema = property.Value; break;
                 default: return null;
             }
-        }
+
         if (id is null || schema.ValueKind != JsonValueKind.Object) return null;
 
         JsonElement properties = default;
         var hasType = false;
         var required = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in schema.EnumerateObject())
-        {
             switch (property.Name)
             {
                 case "type":
-                    if (property.Value.ValueKind != JsonValueKind.String || property.Value.GetString() != "object") return null;
+                    if (property.Value.ValueKind != JsonValueKind.String || property.Value.GetString() != "object")
+                        return null;
                     hasType = true;
                     break;
                 case "properties": properties = property.Value; break;
                 case "required":
                     if (property.Value.ValueKind != JsonValueKind.Array) return null;
                     foreach (var name in property.Value.EnumerateArray())
-                        if (name.ValueKind != JsonValueKind.String || !required.Add(name.GetString()!)) return null;
+                        if (name.ValueKind != JsonValueKind.String || !required.Add(name.GetString()!))
+                            return null;
                     break;
                 default: return null;
             }
-        }
+
         if (!hasType || properties.ValueKind != JsonValueKind.Object) return null;
 
         var fields = new List<ElicitationField>();
@@ -63,9 +72,10 @@ internal static class ElicitationReader
             if (ReadField(property.Name, property.Value, isRequired) is not { } field) return null;
             fields.Add(field);
         }
+
         if (requiredFound != required.Count) return null; // a required name with no field
 
-        return new ElicitationForm(fields, id, allowSensitiveFields: true); // the client decides what to do with a sensitive field
+        return new ElicitationForm(fields, id, true); // the client decides what to do with a sensitive field
     }
 
     private static ElicitationField? ReadField(string name, JsonElement element, bool required)
@@ -108,7 +118,7 @@ internal static class ElicitationReader
                         "email" => ElicitationFormat.Email,
                         "date" => ElicitationFormat.Date,
                         "date-time" => ElicitationFormat.DateTime,
-                        _ => null,
+                        _ => null
                     };
                     if (format is null) return null; // for example "uri"
                     break;
@@ -120,6 +130,7 @@ internal static class ElicitationReader
                         if (option.ValueKind != JsonValueKind.String) return null;
                         options.Add(option.GetString()!);
                     }
+
                     break;
                 case "minimum":
                     if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var lo)) return null;
@@ -132,17 +143,19 @@ internal static class ElicitationReader
                 default: return null; // nesting, arrays, default, pattern, and anything else
             }
         }
+
         var fieldType = type switch
         {
             "string" => ElicitationFieldType.String,
             "integer" => ElicitationFieldType.Integer,
             "number" => ElicitationFieldType.Number,
             "boolean" => ElicitationFieldType.Boolean,
-            _ => (ElicitationFieldType?)null,
+            _ => (ElicitationFieldType?)null
         };
         return fieldType is null
             ? null
-            : ElicitationField.Create(name, fieldType.Value, title, description, required, minLength, maxLength, minimum, maximum, format, options);
+            : ElicitationField.Create(name, fieldType.Value, title, description, required, minLength, maxLength,
+                minimum, maximum, format, options);
     }
 
     /// <summary>A whole number that fits an int. gRPC turns every number into a double, so 3.0 counts.</summary>
@@ -155,8 +168,14 @@ internal static class ElicitationReader
 
     public static ElicitationAnswer? ReadAnswer(JsonElement element)
     {
-        try { return ReadAnswerCore(element); }
-        catch (InvalidOperationException) { return null; } // a name or text that is not valid UTF-16
+        try
+        {
+            return ReadAnswerCore(element);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        } // a name or text that is not valid UTF-16
     }
 
     private static ElicitationAnswer? ReadAnswerCore(JsonElement element)
@@ -166,7 +185,6 @@ internal static class ElicitationReader
         JsonElement content = default;
         var hasContent = false;
         foreach (var property in element.EnumerateObject())
-        {
             switch (property.Name)
             {
                 case "id":
@@ -183,14 +201,14 @@ internal static class ElicitationReader
                     break;
                 default: return null;
             }
-        }
+
         if (id is null || !Elicitation.IsFormId(id)) return null;
         var kind = action switch
         {
             "accept" => ElicitationAction.Accept,
             "decline" => ElicitationAction.Decline,
             "cancel" => ElicitationAction.Cancel,
-            _ => (ElicitationAction?)null,
+            _ => (ElicitationAction?)null
         };
         if (kind is null) return null;
         if (kind != ElicitationAction.Accept) return hasContent ? null : ElicitationAnswer.Create(id, kind.Value, null);
@@ -203,7 +221,13 @@ internal static class ElicitationReader
 
     private static string? ReadText(JsonElement value)
     {
-        try { return value.GetString(); }
-        catch (InvalidOperationException) { return null; } // not valid UTF-16
+        try
+        {
+            return value.GetString();
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        } // not valid UTF-16
     }
 }

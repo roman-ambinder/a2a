@@ -3,7 +3,6 @@ using A2A.Server;
 using A2A.Server.Postgres;
 using A2A.Server.Push;
 using A2A.Server.Storage;
-using A2A.Server.Streaming;
 using A2A.Tests;
 
 namespace A2A.Stores.Tests;

@@ -3,18 +3,22 @@ using Microsoft.Extensions.AI;
 
 namespace A2A.Extensions.AI;
 
-/// <summary>Options for <see cref="ChatClientAgentExecutor"/>.</summary>
+/// <summary>Options for <see cref="ChatClientAgentExecutor" />.</summary>
 public sealed class ChatClientAgentOptions
 {
+    private long _contextMemoryMaxBytes = ConversationMemory.DefaultMaxBytes;
+    private int _contextMemoryMaxTasks = ConversationMemory.DefaultMaxTasks;
     private int _maxHistoryMessages = 100;
     private int _streamChunkSize = 64;
-    private int _contextMemoryMaxTasks = ConversationMemory.DefaultMaxTasks;
-    private long _contextMemoryMaxBytes = ConversationMemory.DefaultMaxBytes;
 
     /// <summary>Added as the first system message of every run. Null for none.</summary>
     public string? Instructions { get; set; }
 
-    /// <summary>Options for each model call (tools, temperature, ...). Cloned for each run. <see cref="ChatOptions.ConversationId"/> is always cleared, so callers never share provider state.</summary>
+    /// <summary>
+    ///     Options for each model call (tools, temperature, ...). Cloned for each run.
+    ///     <see cref="Microsoft.Extensions.AI.ChatOptions.ConversationId" /> is always cleared, so callers never share
+    ///     provider state.
+    /// </summary>
     public ChatOptions? ChatOptions { get; set; }
 
     /// <summary>Name of the artifact that holds the reply. Default <c>response</c>.</summary>
@@ -43,23 +47,29 @@ public sealed class ChatClientAgentOptions
     }
 
     /// <summary>
-    /// Whether URL parts from callers reach the model. Default false: a model provider may fetch the URL, which lets a
-    /// caller make your server request addresses of its choice. A message with a URL part is rejected.
+    ///     Whether URL parts from callers reach the model. Default false: a model provider may fetch the URL, which lets a
+    ///     caller make your server request addresses of its choice. A message with a URL part is rejected.
     /// </summary>
     public bool AllowUrlParts { get; set; }
 
-    /// <summary>End each turn in <c>INPUT_REQUIRED</c> instead of <c>COMPLETED</c>, so the caller can continue the same task. The full reply is stored as a status message, so the next turn sees it.</summary>
+    /// <summary>
+    ///     End each turn in <c>INPUT_REQUIRED</c> instead of <c>COMPLETED</c>, so the caller can continue the same task.
+    ///     The full reply is stored as a status message, so the next turn sees it.
+    /// </summary>
     public bool KeepConversationOpen { get; set; }
 
     /// <summary>
-    /// Give the model the earlier tasks of the same context (<see cref="AgentRequestContext.Conversation"/>), and the context's
-    /// summary when there is one. Default false: a new task sees only its own history. When on, a completed task also stores the
-    /// reply as its status message, because a task's history holds status messages only. So the reply is stored twice (as the
-    /// artifact and as the status message) and counts twice toward the task size limit.
+    ///     Give the model the earlier tasks of the same context (<see cref="AgentRequestContext.Conversation" />), and the
+    ///     context's
+    ///     summary when there is one. Default false: a new task sees only its own history. When on, a completed task also
+    ///     stores the
+    ///     reply as its status message, because a task's history holds status messages only. So the reply is stored twice (as
+    ///     the
+    ///     artifact and as the status message) and counts twice toward the task size limit.
     /// </summary>
     public bool UseContextMemory { get; set; }
 
-    /// <summary>With <see cref="UseContextMemory"/>: how many earlier tasks to read. At least 1. Default 20.</summary>
+    /// <summary>With <see cref="UseContextMemory" />: how many earlier tasks to read. At least 1. Default 20.</summary>
     public int ContextMemoryMaxTasks
     {
         get => _contextMemoryMaxTasks;
@@ -70,7 +80,10 @@ public sealed class ChatClientAgentOptions
         }
     }
 
-    /// <summary>With <see cref="UseContextMemory"/>: the size limit for earlier messages, as the UTF-8 length of their JSON. At least 1. Default 262144.</summary>
+    /// <summary>
+    ///     With <see cref="UseContextMemory" />: the size limit for earlier messages, as the UTF-8 length of their JSON.
+    ///     At least 1. Default 262144.
+    /// </summary>
     public long ContextMemoryMaxBytes
     {
         get => _contextMemoryMaxBytes;

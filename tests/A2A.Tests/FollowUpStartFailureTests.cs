@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using A2A.Server;
 using A2A.Server.Execution;
-using A2A.Tests.Parity;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.Tests;

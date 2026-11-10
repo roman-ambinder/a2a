@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using A2A.Client;
-using A2A.Server;
 using A2A.Server.Pipeline;
 
 namespace A2A.Grpc.Tests;

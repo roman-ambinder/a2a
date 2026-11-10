@@ -1,6 +1,5 @@
 using System.Diagnostics.Metrics;
 using System.Text.Json.Nodes;
-using A2A.V0_3Compat;
 
 namespace A2A.V0_3Compat.Tests;
 

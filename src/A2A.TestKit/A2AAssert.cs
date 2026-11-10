@@ -1,8 +1,12 @@
 using System.Diagnostics;
+using A2A.Client;
 
 namespace A2A.TestKit;
 
-/// <summary>Assertions on A2A responses, task states and event order. A failure throws <see cref="A2AAssertionException"/>.</summary>
+/// <summary>
+///     Assertions on A2A responses, task states and event order. A failure throws
+///     <see cref="A2AAssertionException" />.
+/// </summary>
 public static class A2AAssert
 {
     /// <summary>Checks that the response is a task, and returns it.</summary>
@@ -29,12 +33,16 @@ public static class A2AAssert
         ArgumentNullException.ThrowIfNull(task);
         var actual = task.Status.State;
         if (actual != expected)
-            throw new A2AAssertionException($"Expected task {task.Id} to be {TestEvents.StateName(expected)} but it is {TestEvents.StateName(actual)}.");
+            throw new A2AAssertionException(
+                $"Expected task {task.Id} to be {TestEvents.StateName(expected)} but it is {TestEvents.StateName(actual)}.");
         return task;
     }
 
     /// <summary>Checks that the response is a task in the expected state, and returns the task.</summary>
-    public static AgentTask HasState(SendMessageResponse response, TaskState expected) => HasState(IsTask(response), expected);
+    public static AgentTask HasState(SendMessageResponse response, TaskState expected)
+    {
+        return HasState(IsTask(response), expected);
+    }
 
     /// <summary>Checks that the task has an artifact with this name or id, and returns it.</summary>
     public static Artifact HasArtifact(AgentTask task, string nameOrId)
@@ -43,14 +51,16 @@ public static class A2AAssert
         ArgumentNullException.ThrowIfNull(nameOrId);
         var artifacts = task.Artifacts ?? [];
         return artifacts.FirstOrDefault(a => a.Name == nameOrId || a.ArtifactId == nameOrId)
-            ?? throw new A2AAssertionException(
-                $"Expected task {task.Id} to have an artifact '{nameOrId}'. Artifacts: " +
-                (artifacts.Count == 0 ? "(none)" : string.Join(", ", artifacts.Select(a => a.Name ?? a.ArtifactId))) + ".");
+               ?? throw new A2AAssertionException(
+                   $"Expected task {task.Id} to have an artifact '{nameOrId}'. Artifacts: " +
+                   (artifacts.Count == 0
+                       ? "(none)"
+                       : string.Join(", ", artifacts.Select(a => a.Name ?? a.ArtifactId))) + ".");
     }
 
     /// <summary>
-    /// Checks the exact order of states in the events: the state of every task event and status update event, with no
-    /// de-duplication. Message and artifact events are skipped.
+    ///     Checks the exact order of states in the events: the state of every task event and status update event, with no
+    ///     de-duplication. Message and artifact events are skipped.
     /// </summary>
     public static void StateOrder(IEnumerable<StreamResponse> events, params TaskState[] expected)
     {
@@ -63,7 +73,7 @@ public static class A2AAssert
                 $"Expected state order: {TestEvents.StateList(expected)}\nActual state order:   {TestEvents.StateList(actual)}\nActual events: {TestEvents.Describe(list)}");
     }
 
-    /// <summary>Checks that the events are exactly <paramref name="expected"/>, in order.</summary>
+    /// <summary>Checks that the events are exactly <paramref name="expected" />, in order.</summary>
     public static void EventOrder(IEnumerable<StreamResponse> events, params ExpectedEvent[] expected)
     {
         ArgumentNullException.ThrowIfNull(events);
@@ -71,18 +81,23 @@ public static class A2AAssert
         var list = events.ToList();
         var mismatch = -1;
         for (var i = 0; i < Math.Max(list.Count, expected.Length); i++)
-        {
-            if (i >= list.Count || i >= expected.Length || !expected[i].Matches(list[i])) { mismatch = i; break; }
-        }
+            if (i >= list.Count || i >= expected.Length || !expected[i].Matches(list[i]))
+            {
+                mismatch = i;
+                break;
+            }
+
         if (mismatch < 0) return;
-        var where = mismatch >= list.Count ? $"event {mismatch + 1} is missing"
-            : mismatch >= expected.Length ? $"event {mismatch + 1} ({TestEvents.Describe(list[mismatch])}) is not expected"
-            : $"event {mismatch + 1} is {TestEvents.Describe(list[mismatch])}, expected {expected[mismatch]}";
+        var where = mismatch >= list.Count
+            ? $"event {mismatch + 1} is missing"
+            : mismatch >= expected.Length
+                ? $"event {mismatch + 1} ({TestEvents.Describe(list[mismatch])}) is not expected"
+                : $"event {mismatch + 1} is {TestEvents.Describe(list[mismatch])}, expected {expected[mismatch]}";
         throw new A2AAssertionException(
             $"Event order does not match: {where}.\nExpected events: {Join(expected)}\nActual events:   {TestEvents.Describe(list)}");
     }
 
-    /// <summary>Checks that the events contain <paramref name="expected"/> in this order. Other events may sit in between.</summary>
+    /// <summary>Checks that the events contain <paramref name="expected" /> in this order. Other events may sit in between.</summary>
     public static void ContainsEventOrder(IEnumerable<StreamResponse> events, params ExpectedEvent[] expected)
     {
         ArgumentNullException.ThrowIfNull(events);
@@ -99,7 +114,10 @@ public static class A2AAssert
         }
     }
 
-    /// <summary>Runs <paramref name="action"/> and checks that it throws an <see cref="A2AException"/>, with the code <paramref name="expected"/> when given. Returns the exception.</summary>
+    /// <summary>
+    ///     Runs <paramref name="action" /> and checks that it throws an <see cref="A2AException" />, with the code
+    ///     <paramref name="expected" /> when given. Returns the exception.
+    /// </summary>
     public static async Task<A2AException> ThrowsA2AAsync(Func<Task> action, A2AErrorCode? expected = null)
     {
         ArgumentNullException.ThrowIfNull(action);
@@ -115,14 +133,19 @@ public static class A2AAssert
         }
         catch (Exception e)
         {
-            throw new A2AAssertionException($"Expected an A2AException{(expected is null ? "" : $" ({expected})")} but got {e.GetType().Name}: {e.Message}", e);
+            throw new A2AAssertionException(
+                $"Expected an A2AException{(expected is null ? "" : $" ({expected})")} but got {e.GetType().Name}: {e.Message}",
+                e);
         }
-        throw new A2AAssertionException($"Expected an A2AException{(expected is null ? "" : $" ({expected})")} but nothing was thrown.");
+
+        throw new A2AAssertionException(
+            $"Expected an A2AException{(expected is null ? "" : $" ({expected})")} but nothing was thrown.");
     }
 
     /// <summary>
-    /// Polls GetTask every 10 ms (real time) until the task has the expected state, and returns it. A task that does not exist
-    /// yet counts as not there yet.
+    ///     Polls GetTask every 10 ms (real time) until the task has the expected state, and returns it. A task that does not
+    ///     exist
+    ///     yet counts as not there yet.
     /// </summary>
     /// <param name="client">The client to ask.</param>
     /// <param name="taskId">The task id.</param>
@@ -130,19 +153,21 @@ public static class A2AAssert
     /// <param name="timeout">How long to wait, in real time. Default 30 seconds.</param>
     /// <param name="cancellationToken">Cancels the wait.</param>
     /// <exception cref="A2AAssertionException">The task did not reach the state in time.</exception>
-    public static async Task<AgentTask> EventuallyHasStateAsync(A2A.Client.IA2AClient client, string taskId, TaskState expected,
+    public static async Task<AgentTask> EventuallyHasStateAsync(IA2AClient client, string taskId, TaskState expected,
         TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(taskId);
         var limit = timeout ?? TimeSpan.FromSeconds(30);
         var watch = Stopwatch.StartNew();
-        string last = "the task was not found";
+        var last = "the task was not found";
         while (true)
         {
             try
             {
-                var task = await client.GetTaskAsync(new GetTaskRequest { Id = taskId }, cancellationToken: cancellationToken).ConfigureAwait(false);
+                var task = await client
+                    .GetTaskAsync(new GetTaskRequest { Id = taskId }, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
                 if (task.Status.State == expected) return task;
                 last = $"its state is {TestEvents.StateName(task.Status.State)}";
             }
@@ -150,18 +175,23 @@ public static class A2AAssert
             {
                 last = "the task was not found";
             }
+
             if (watch.Elapsed >= limit)
-                throw new A2AAssertionException($"Task {taskId} did not reach {TestEvents.StateName(expected)} within {limit}: {last}.");
+                throw new A2AAssertionException(
+                    $"Task {taskId} did not reach {TestEvents.StateName(expected)} within {limit}: {last}.");
             await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private static TaskState? StateOf(StreamResponse e) => e switch
+    private static TaskState? StateOf(StreamResponse e)
     {
-        TaskEvent t => t.Task.Status.State,
-        StatusUpdateEvent s => s.StatusUpdate.Status.State,
-        _ => null,
-    };
+        return e switch
+        {
+            TaskEvent t => t.Task.Status.State,
+            StatusUpdateEvent s => s.StatusUpdate.Status.State,
+            _ => null
+        };
+    }
 
     private static string Join(IEnumerable<ExpectedEvent> events)
     {

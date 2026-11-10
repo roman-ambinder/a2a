@@ -1,12 +1,9 @@
 using A2A.Client;
 using A2A.Client.Cards;
 using A2A.Client.V0_3Compat;
-using A2A.Server;
 using A2A.Signing;
 using A2A.Server.AspNetCore;
 using A2A.Server.V0_3Compat;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry.Metrics;
 
 namespace A2A.DocSnippets.V03Compatibility;

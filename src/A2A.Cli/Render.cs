@@ -4,38 +4,48 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using A2A.Client;
 using A2A.Json;
-using A2A.Signing;
 
 namespace A2A.Cli;
 
-/// <summary>Builds the output of the commands. Text from the agent always goes through <see cref="Output.One"/> or <see cref="Output.Block"/>.</summary>
+/// <summary>
+///     Builds the output of the commands. Text from the agent always goes through <see cref="Output.One" /> or
+///     <see cref="Output.Block" />.
+/// </summary>
 internal static class Render
 {
-    private static readonly JsonWriterOptions WriterOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+    private static readonly JsonWriterOptions WriterOptions = new()
+        { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    /// <summary>Writes JSON with <see cref="Utf8JsonWriter"/> and returns it as one line.</summary>
+    /// <summary>Writes JSON with <see cref="Utf8JsonWriter" /> and returns it as one line.</summary>
     public static string Json(Action<Utf8JsonWriter> write)
     {
         using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream, WriterOptions)) write(writer);
+        using (var writer = new Utf8JsonWriter(stream, WriterOptions))
+        {
+            write(writer);
+        }
+
         return Encoding.UTF8.GetString(stream.GetBuffer(), 0, (int)stream.Length);
     }
 
     // ---- card ----
 
-    public static string CardJson(ResolvedAgentCard resolved) => Json(w =>
+    public static string CardJson(ResolvedAgentCard resolved)
     {
-        w.WriteStartObject();
-        w.WriteString("source", resolved.Source.AbsoluteUri);
-        w.WriteStartObject("verification");
-        w.WriteString("status", resolved.Verification.Status.ToString().ToLowerInvariant());
-        w.WriteString("keyId", resolved.Verification.KeyId);
-        w.WriteString("reason", resolved.Verification.Reason);
-        w.WriteEndObject();
-        w.WritePropertyName("card");
-        JsonSerializer.Serialize(w, resolved.Card, A2AJson.GetTypeInfo<AgentCard>());
-        w.WriteEndObject();
-    });
+        return Json(w =>
+        {
+            w.WriteStartObject();
+            w.WriteString("source", resolved.Source.AbsoluteUri);
+            w.WriteStartObject("verification");
+            w.WriteString("status", resolved.Verification.Status.ToString().ToLowerInvariant());
+            w.WriteString("keyId", resolved.Verification.KeyId);
+            w.WriteString("reason", resolved.Verification.Reason);
+            w.WriteEndObject();
+            w.WritePropertyName("card");
+            JsonSerializer.Serialize(w, resolved.Card, A2AJson.GetTypeInfo<AgentCard>());
+            w.WriteEndObject();
+        });
+    }
 
     public static IEnumerable<string> CardText(ResolvedAgentCard r, Output o)
     {
@@ -52,14 +62,16 @@ internal static class Render
         var reason = v.Reason is null ? "" : $": {o.One(v.Reason)}";
         yield return $"Verification: {v.Status}{key}{reason}";
         var id = r.Identity;
-        yield return $"Peer:         {o.One(id.Origin)}{(id.KeyId is null ? "" : "#" + o.One(id.KeyId))}, assurance {id.Assurance}";
+        yield return
+            $"Peer:         {o.One(id.Origin)}{(id.KeyId is null ? "" : "#" + o.One(id.KeyId))}, assurance {id.Assurance}";
 
         yield return "Interfaces:";
         foreach (var i in card.SupportedInterfaces)
             yield return $"  {o.One(i.ProtocolBinding)} {o.One(i.Url.Split('?')[0])} (v{o.One(i.ProtocolVersion)})";
         yield return "Skills:";
         for (var n = 0; n < r.Skills.Count; n++)
-            yield return $"  {o.One(card.Skills[n].Id)}: {o.One(r.Skills[n].Name.Raw)}: {o.One(r.Skills[n].Description.Raw, 200)}";
+            yield return
+                $"  {o.One(card.Skills[n].Id)}: {o.One(r.Skills[n].Name.Raw)}: {o.One(r.Skills[n].Description.Raw, 200)}";
         yield return $"Streaming:    {(card.Capabilities.Streaming == true ? "yes" : "no")}";
     }
 
@@ -89,14 +101,18 @@ internal static class Render
     }
 
     // The part URL is never shown: presigned URLs are secrets.
-    public static string PartText(Part part, Output o) => part switch
+    public static string PartText(Part part, Output o)
     {
-        TextPart t => $"[text] {o.One(t.Text, 200)}",
-        UrlPart u => $"[file] {o.One(u.Filename ?? "(no name)", 100)}{(u.MediaType is null ? "" : " (" + o.One(u.MediaType, 60) + ")")}",
-        RawPart r => $"[raw] {r.Raw.Length} bytes",
-        DataPart => "[data]",
-        _ => "[part]",
-    };
+        return part switch
+        {
+            TextPart t => $"[text] {o.One(t.Text, 200)}",
+            UrlPart u =>
+                $"[file] {o.One(u.Filename ?? "(no name)", 100)}{(u.MediaType is null ? "" : " (" + o.One(u.MediaType, 60) + ")")}",
+            RawPart r => $"[raw] {r.Raw.Length} bytes",
+            DataPart => "[data]",
+            _ => "[part]"
+        };
+    }
 
     public static IEnumerable<string> MessageText(Message m, Output o)
     {
@@ -105,29 +121,43 @@ internal static class Render
         foreach (var part in m.Parts.Where(p => p is not TextPart)) yield return "  " + PartText(part, o);
     }
 
-    public static IEnumerable<string> SendText(SendMessageResponse r, Output o) => r switch
+    public static IEnumerable<string> SendText(SendMessageResponse r, Output o)
     {
-        TaskResponse t => TaskText(t.Task, o),
-        MessageResponse m => MessageText(m.Message, o),
-        _ => [],
-    };
+        return r switch
+        {
+            TaskResponse t => TaskText(t.Task, o),
+            MessageResponse m => MessageText(m.Message, o),
+            _ => []
+        };
+    }
 
     /// <summary>One line for one stream event.</summary>
-    public static string EventLine(StreamResponse e, Output o) => e switch
+    public static string EventLine(StreamResponse e, Output o)
     {
-        TaskEvent t => $"task {o.One(t.Task.Id)} {t.Task.Status.State}",
-        MessageEvent m => $"message {m.Message.Role}: {o.One(m.Message.GetText())}",
-        StatusUpdateEvent s => $"status {o.One(s.StatusUpdate.TaskId)} {s.StatusUpdate.Status.State}"
-            + (s.StatusUpdate.Status.Message is { } sm && sm.GetText().Length > 0 ? ": " + o.One(sm.GetText()) : ""),
-        ArtifactUpdateEvent a => $"artifact {o.One(a.ArtifactUpdate.Artifact.ArtifactId, 100)}"
-            + (a.ArtifactUpdate.Append ? " (append)" : "") + (a.ArtifactUpdate.LastChunk ? " (last)" : "")
-            + ": " + string.Join(" ", a.ArtifactUpdate.Artifact.Parts.Select(p => PartText(p, o))),
-        MessageUpdateEvent u => $"message added {o.One(u.MessageUpdate.TaskId)} {u.MessageUpdate.Message.Role}: {o.One(u.MessageUpdate.Message.GetText())}",
-        StreamErrorEvent x => $"refused {x.Error.Code}" + (x.Error.Message is { Length: > 0 } em ? ": " + o.One(em) : ""),
-        _ => "event",
-    };
+        return e switch
+        {
+            TaskEvent t => $"task {o.One(t.Task.Id)} {t.Task.Status.State}",
+            MessageEvent m => $"message {m.Message.Role}: {o.One(m.Message.GetText())}",
+            StatusUpdateEvent s => $"status {o.One(s.StatusUpdate.TaskId)} {s.StatusUpdate.Status.State}"
+                                   + (s.StatusUpdate.Status.Message is { } sm && sm.GetText().Length > 0
+                                       ? ": " + o.One(sm.GetText())
+                                       : ""),
+            ArtifactUpdateEvent a => $"artifact {o.One(a.ArtifactUpdate.Artifact.ArtifactId, 100)}"
+                                     + (a.ArtifactUpdate.Append ? " (append)" : "") +
+                                     (a.ArtifactUpdate.LastChunk ? " (last)" : "")
+                                     + ": " + string.Join(" ",
+                                         a.ArtifactUpdate.Artifact.Parts.Select(p => PartText(p, o))),
+            MessageUpdateEvent u =>
+                $"message added {o.One(u.MessageUpdate.TaskId)} {u.MessageUpdate.Message.Role}: {o.One(u.MessageUpdate.Message.GetText())}",
+            StreamErrorEvent x => $"refused {x.Error.Code}" +
+                                  (x.Error.Message is { Length: > 0 } em ? ": " + o.One(em) : ""),
+            _ => "event"
+        };
+    }
 
-    public static string TaskLine(AgentTask t, Output o) =>
-        $"{o.One(t.Id, 100)}  {t.Status.State}  {o.One(t.ContextId, 100)}"
-        + (t.Status.Timestamp is { } ts ? "  " + ts.ToString("u", CultureInfo.InvariantCulture) : "");
+    public static string TaskLine(AgentTask t, Output o)
+    {
+        return $"{o.One(t.Id, 100)}  {t.Status.State}  {o.One(t.ContextId, 100)}"
+               + (t.Status.Timestamp is { } ts ? "  " + ts.ToString("u", CultureInfo.InvariantCulture) : "");
+    }
 }

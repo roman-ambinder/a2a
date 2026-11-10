@@ -6,8 +6,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 var agentUrl = new Uri(args.Length > 0 ? args[0] : "http://localhost:5100/");
 var text = args.Length > 1 ? args[1] : "hello from the A2A .NET SDK";
-var apiKey = args.Length > 2 ? args[2] : Environment.GetEnvironmentVariable("ECHO_AGENT_API_KEY")
-    ?? throw new InvalidOperationException("Pass the API key as the third argument or set ECHO_AGENT_API_KEY.");
+var apiKey = args.Length > 2
+    ? args[2]
+    : Environment.GetEnvironmentVariable("ECHO_AGENT_API_KEY")
+      ?? throw new InvalidOperationException("Pass the API key as the third argument or set ECHO_AGENT_API_KEY.");
 var jwksFile = Environment.GetEnvironmentVariable("ECHO_AGENT_JWKS_FILE");
 
 // The agent requires the key in the X-Api-Key header on every A2A call.
@@ -26,7 +28,9 @@ services.AddA2AClient("echo", o =>
 await using var provider = services.BuildServiceProvider();
 var client = await provider.GetRequiredService<IA2AClientFactory>().GetClientAsync("echo");
 Console.WriteLine($"Connected to '{client.AgentCard!.Name}': {client.AgentCard.Description}");
-Console.WriteLine(jwksFile is null ? "Card signature: not checked (no JWKS pinned)" : "Card signature: verified against the pinned JWKS");
+Console.WriteLine(jwksFile is null
+    ? "Card signature: not checked (no JWKS pinned)"
+    : "Card signature: verified against the pinned JWKS");
 
 // 1. Simple request/response.
 var pong = await client.SendMessageAsync("ping");
@@ -36,20 +40,25 @@ Console.WriteLine($"ping -> {(pong as MessageResponse)?.Message.GetText()}");
 Console.Write("stream -> ");
 await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser(text)))
 {
-    if (evt is ArtifactUpdateEvent { ArtifactUpdate: var a }) Console.Write(string.Concat(a.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)));
-    if (evt is StatusUpdateEvent { StatusUpdate: var s } && s.Status.State.IsTerminal()) Console.WriteLine($"  [{s.Status.State}]");
+    if (evt is ArtifactUpdateEvent { ArtifactUpdate: var a })
+        Console.Write(string.Concat(a.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)));
+    if (evt is StatusUpdateEvent { StatusUpdate: var s } && s.Status.State.IsTerminal())
+        Console.WriteLine($"  [{s.Status.State}]");
 }
 
 // 3. Start a task without waiting, then follow it. ObserveTaskAsync reconnects with Last-Event-ID if the connection
 //    drops, so no event is lost or repeated.
-var started = await client.SendMessageAsync(Message.FromUser(text), new SendMessageConfiguration { ReturnImmediately = true });
+var started =
+    await client.SendMessageAsync(Message.FromUser(text), new SendMessageConfiguration { ReturnImmediately = true });
 if (started is TaskResponse { Task: var task })
 {
     Console.Write($"observe {task.Id} -> ");
     await foreach (var evt in client.ObserveTaskAsync(task.Id))
     {
-        if (evt is ArtifactUpdateEvent { ArtifactUpdate: var a }) Console.Write(string.Concat(a.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)));
-        if (evt is StatusUpdateEvent { StatusUpdate: var s } && s.Status.State.IsTerminal()) Console.WriteLine($"  [{s.Status.State}]");
+        if (evt is ArtifactUpdateEvent { ArtifactUpdate: var a })
+            Console.Write(string.Concat(a.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)));
+        if (evt is StatusUpdateEvent { StatusUpdate: var s } && s.Status.State.IsTerminal())
+            Console.WriteLine($"  [{s.Status.State}]");
         if (evt is TaskEvent { Task: var t } && t.Status.State.IsTerminal()) Console.WriteLine($"  [{t.Status.State}]");
     }
 }
@@ -61,7 +70,8 @@ Console.WriteLine($"tasks visible to me: {tasks.TotalSize}");
 /// <summary>Adds the <c>X-Api-Key</c> header to every request.</summary>
 internal sealed class ApiKeyHandler(string apiKey) : DelegatingHandler
 {
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+        CancellationToken cancellationToken)
     {
         request.Headers.Remove("X-Api-Key");
         request.Headers.Add("X-Api-Key", apiKey);

@@ -1,8 +1,6 @@
-using A2A.Client;
 using A2A.Server;
 using A2A.Server.Agents;
 using Grpc.Core;
-using Microsoft.Extensions.DependencyInjection;
 using A2aPb = Lf.A2a.V1;
 
 namespace A2A.Grpc.Tests;

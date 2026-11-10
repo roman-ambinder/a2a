@@ -4,10 +4,11 @@ using System.Text.Json.Nodes;
 namespace A2A.V0_3Compat;
 
 /// <summary>
-/// The v0.3 HTTP+JSON dialect, shaped after the v0.3 proto read as ProtoJSON: no <c>kind</c>, parts without a tag
-/// (<c>{"text":…}</c>, <c>{"file":{"fileWithUri":…}}</c>, <c>{"data":{"data":{…}}}</c>), <c>TASK_STATE_*</c> states
-/// (<c>TASK_STATE_CANCELLED</c> with two Ls), <c>ROLE_*</c> roles, the parts of a message named <c>content</c>, and stream
-/// events wrapped as <c>{"statusUpdate":…}</c>. A part has no <c>metadata</c> and no <c>filename</c> here.
+///     The v0.3 HTTP+JSON dialect, shaped after the v0.3 proto read as ProtoJSON: no <c>kind</c>, parts without a tag
+///     (<c>{"text":…}</c>, <c>{"file":{"fileWithUri":…}}</c>, <c>{"data":{"data":{…}}}</c>), <c>TASK_STATE_*</c> states
+///     (<c>TASK_STATE_CANCELLED</c> with two Ls), <c>ROLE_*</c> roles, the parts of a message named <c>content</c>, and
+///     stream
+///     events wrapped as <c>{"statusUpdate":…}</c>. A part has no <c>metadata</c> and no <c>filename</c> here.
 /// </summary>
 internal sealed class V03ProtoJsonCodec : V03Codec
 {
@@ -24,45 +25,59 @@ internal sealed class V03ProtoJsonCodec : V03Codec
         ["TASK_STATE_CANCELED"] = TaskState.Canceled, // one L is accepted on read
         ["TASK_STATE_INPUT_REQUIRED"] = TaskState.InputRequired,
         ["TASK_STATE_REJECTED"] = TaskState.Rejected,
-        ["TASK_STATE_AUTH_REQUIRED"] = TaskState.AuthRequired,
+        ["TASK_STATE_AUTH_REQUIRED"] = TaskState.AuthRequired
     };
 
-    private V03ProtoJsonCodec() { }
+    private V03ProtoJsonCodec()
+    {
+    }
 
     protected override bool Tagged => false;
     protected override string MessagePartsName => "content";
     protected override string SendPushConfigName => "pushNotification";
     protected override bool BlockingWhenAbsent => false;
 
-    protected override string StateName(TaskState state) => state switch
+    protected override string StateName(TaskState state)
     {
-        TaskState.Submitted => "TASK_STATE_SUBMITTED",
-        TaskState.Working => "TASK_STATE_WORKING",
-        TaskState.InputRequired => "TASK_STATE_INPUT_REQUIRED",
-        TaskState.Completed => "TASK_STATE_COMPLETED",
-        TaskState.Canceled => "TASK_STATE_CANCELLED",
-        TaskState.Failed => "TASK_STATE_FAILED",
-        TaskState.Rejected => "TASK_STATE_REJECTED",
-        TaskState.AuthRequired => "TASK_STATE_AUTH_REQUIRED",
-        _ => "TASK_STATE_UNSPECIFIED",
-    };
+        return state switch
+        {
+            TaskState.Submitted => "TASK_STATE_SUBMITTED",
+            TaskState.Working => "TASK_STATE_WORKING",
+            TaskState.InputRequired => "TASK_STATE_INPUT_REQUIRED",
+            TaskState.Completed => "TASK_STATE_COMPLETED",
+            TaskState.Canceled => "TASK_STATE_CANCELLED",
+            TaskState.Failed => "TASK_STATE_FAILED",
+            TaskState.Rejected => "TASK_STATE_REJECTED",
+            TaskState.AuthRequired => "TASK_STATE_AUTH_REQUIRED",
+            _ => "TASK_STATE_UNSPECIFIED"
+        };
+    }
 
-    protected override TaskState ParseState(string name) => ParseStateFrom(name, States);
-
-    protected override string RoleName(Role role) => role switch
+    protected override TaskState ParseState(string name)
     {
-        Role.User => "ROLE_USER",
-        Role.Agent => "ROLE_AGENT",
-        _ => "ROLE_UNSPECIFIED",
-    };
+        return ParseStateFrom(name, States);
+    }
 
-    protected override Role ParseRole(string name) => name switch
+    protected override string RoleName(Role role)
     {
-        "ROLE_USER" => Role.User,
-        "ROLE_AGENT" => Role.Agent,
-        "ROLE_UNSPECIFIED" => Role.Unspecified,
-        _ => throw new JsonException($"Unknown role '{name}'"),
-    };
+        return role switch
+        {
+            Role.User => "ROLE_USER",
+            Role.Agent => "ROLE_AGENT",
+            _ => "ROLE_UNSPECIFIED"
+        };
+    }
+
+    protected override Role ParseRole(string name)
+    {
+        return name switch
+        {
+            "ROLE_USER" => Role.User,
+            "ROLE_AGENT" => Role.Agent,
+            "ROLE_UNSPECIFIED" => Role.Unspecified,
+            _ => throw new JsonException($"Unknown role '{name}'")
+        };
+    }
 
     // ---- parts ----
 
@@ -73,15 +88,15 @@ internal sealed class V03ProtoJsonCodec : V03Codec
         {
             case TextPart t:
                 o["text"] = t.Text;
-                DropPartExtras(part, "text/plain", keepFilename: false, keepMediaType: false);
+                DropPartExtras(part, "text/plain", false, false);
                 break;
             case RawPart r:
                 o["file"] = File(part, "fileWithBytes", Convert.ToBase64String(r.Raw.Span));
-                DropPartExtras(part, "", keepFilename: false, keepMediaType: true);
+                DropPartExtras(part, "", false, true);
                 break;
             case UrlPart u:
                 o["file"] = File(part, "fileWithUri", u.Url.OriginalString);
-                DropPartExtras(part, "", keepFilename: false, keepMediaType: true);
+                DropPartExtras(part, "", false, true);
                 break;
             case DataPart d:
                 // The proto holds a Struct: an object. Anything else is wrapped; a proto part has no metadata to mark it with.
@@ -89,13 +104,14 @@ internal sealed class V03ProtoJsonCodec : V03Codec
                 {
                     ["data"] = d.Data.ValueKind == JsonValueKind.Object
                         ? V03Json.ToNode(d.Data)
-                        : new JsonObject { ["value"] = V03Json.ToNode(d.Data) },
+                        : new JsonObject { ["value"] = V03Json.ToNode(d.Data) }
                 };
-                DropPartExtras(part, "application/json", keepFilename: false, keepMediaType: false);
+                DropPartExtras(part, "application/json", false, false);
                 break;
             default:
                 throw new JsonException($"Unknown part type {part.GetType().Name}");
         }
+
         if (part.Metadata is { Count: > 0 }) V03LossReporter.Drop("part.metadata");
         return o;
     }
@@ -123,49 +139,69 @@ internal sealed class V03ProtoJsonCodec : V03Codec
             if (bytes is not null && uri is null)
             {
                 byte[] raw;
-                try { raw = Convert.FromBase64String(bytes); }
-                catch (FormatException) { throw new JsonException("fileWithBytes must be valid base64"); }
+                try
+                {
+                    raw = Convert.FromBase64String(bytes);
+                }
+                catch (FormatException)
+                {
+                    throw new JsonException("fileWithBytes must be valid base64");
+                }
+
                 return new RawPart(raw) { MediaType = mimeType };
             }
+
             if (uri is not null && bytes is null)
             {
-                if (!Uri.TryCreate(uri, UriKind.RelativeOrAbsolute, out var parsed)) throw new JsonException("fileWithUri is not a valid URI");
+                if (!Uri.TryCreate(uri, UriKind.RelativeOrAbsolute, out var parsed))
+                    throw new JsonException("fileWithUri is not a valid URI");
                 return new UrlPart(parsed) { MediaType = mimeType };
             }
+
             throw new JsonException("file must set exactly one of fileWithBytes, fileWithUri");
         }
+
         var inner = V03Json.OptObj(data!, "data");
-        return new DataPart(inner is null ? V03Json.ToElement(new JsonObject()) : V03Json.ToElement(inner)) { MediaType = "application/json" };
+        return new DataPart(inner is null ? V03Json.ToElement(new JsonObject()) : V03Json.ToElement(inner))
+            { MediaType = "application/json" };
     }
 
     // ---- results and events ----
 
-    public override JsonObject WriteStreamEvent(StreamResponse evt) => evt switch
+    public override JsonObject WriteStreamEvent(StreamResponse evt)
     {
-        TaskEvent t => new JsonObject { ["task"] = WriteTask(t.Task) },
-        MessageEvent m => new JsonObject { ["message"] = WriteMessage(m.Message) },
-        StatusUpdateEvent s => new JsonObject { ["statusUpdate"] = WriteStatusUpdateBody(s.StatusUpdate) },
-        ArtifactUpdateEvent a => new JsonObject { ["artifactUpdate"] = WriteArtifactUpdateBody(a.ArtifactUpdate) },
-        _ => throw new JsonException($"Unknown stream event {evt.GetType().Name}"),
-    };
+        return evt switch
+        {
+            TaskEvent t => new JsonObject { ["task"] = WriteTask(t.Task) },
+            MessageEvent m => new JsonObject { ["message"] = WriteMessage(m.Message) },
+            StatusUpdateEvent s => new JsonObject { ["statusUpdate"] = WriteStatusUpdateBody(s.StatusUpdate) },
+            ArtifactUpdateEvent a => new JsonObject { ["artifactUpdate"] = WriteArtifactUpdateBody(a.ArtifactUpdate) },
+            _ => throw new JsonException($"Unknown stream event {evt.GetType().Name}")
+        };
+    }
 
     public override StreamResponse ReadStreamEvent(JsonNode node, out bool final)
     {
         var o = V03Json.Obj(node, "event");
         final = false;
-        if (V03Json.OptObj(o, "statusUpdate") is { } status) return new StatusUpdateEvent(ReadStatusUpdateBody(status, out final));
-        if (V03Json.OptObj(o, "artifactUpdate") is { } artifact) return new ArtifactUpdateEvent(ReadArtifactUpdateBody(artifact));
+        if (V03Json.OptObj(o, "statusUpdate") is { } status)
+            return new StatusUpdateEvent(ReadStatusUpdateBody(status, out final));
+        if (V03Json.OptObj(o, "artifactUpdate") is { } artifact)
+            return new ArtifactUpdateEvent(ReadArtifactUpdateBody(artifact));
         if (V03Json.OptObj(o, "task") is { } task) return new TaskEvent(ReadTask(task));
         if (V03Json.OptObj(o, "message") is { } message) return new MessageEvent(ReadMessage(message));
         throw new JsonException("event must set one of task, message, statusUpdate, artifactUpdate");
     }
 
-    public override JsonObject WriteSendResult(SendMessageResponse response) => response switch
+    public override JsonObject WriteSendResult(SendMessageResponse response)
     {
-        TaskResponse t => new JsonObject { ["task"] = WriteTask(t.Task) },
-        MessageResponse m => new JsonObject { ["message"] = WriteMessage(m.Message) },
-        _ => throw new JsonException($"Unknown send result {response.GetType().Name}"),
-    };
+        return response switch
+        {
+            TaskResponse t => new JsonObject { ["task"] = WriteTask(t.Task) },
+            MessageResponse m => new JsonObject { ["message"] = WriteMessage(m.Message) },
+            _ => throw new JsonException($"Unknown send result {response.GetType().Name}")
+        };
+    }
 
     public override SendMessageResponse ReadSendResult(JsonNode node)
     {
@@ -178,8 +214,12 @@ internal sealed class V03ProtoJsonCodec : V03Codec
     // ---- push config ----
 
     /// <summary>The resource name of a push config: <c>tasks/{taskId}/pushNotificationConfigs/{id}</c>.</summary>
-    public static string PushConfigName(string taskId, string? configId) =>
-        configId is null ? $"tasks/{taskId}/pushNotificationConfigs" : $"tasks/{taskId}/pushNotificationConfigs/{configId}";
+    public static string PushConfigName(string taskId, string? configId)
+    {
+        return configId is null
+            ? $"tasks/{taskId}/pushNotificationConfigs"
+            : $"tasks/{taskId}/pushNotificationConfigs/{configId}";
+    }
 
     /// <summary>Splits <c>tasks/{id}</c> or <c>tasks/{id}/pushNotificationConfigs[/{configId}]</c>.</summary>
     public static bool TryParseName(string name, out string taskId, out string? configId)
@@ -195,18 +235,23 @@ internal sealed class V03ProtoJsonCodec : V03Codec
         return true;
     }
 
-    public override JsonObject WritePushConfig(TaskPushNotificationConfig config) => new()
+    public override JsonObject WritePushConfig(TaskPushNotificationConfig config)
     {
-        ["name"] = PushConfigName(config.TaskId ?? string.Empty, config.Id),
-        ["pushNotificationConfig"] = WritePushNotificationConfig(config),
-    };
+        return new JsonObject
+        {
+            ["name"] = PushConfigName(config.TaskId ?? string.Empty, config.Id),
+            ["pushNotificationConfig"] = WritePushNotificationConfig(config)
+        };
+    }
 
     public override TaskPushNotificationConfig ReadPushConfig(JsonNode node)
     {
         var o = V03Json.Obj(node, "push config");
-        var inner = V03Json.OptObj(o, "pushNotificationConfig") ?? throw new JsonException("pushNotificationConfig is required");
+        var inner = V03Json.OptObj(o, "pushNotificationConfig") ??
+                    throw new JsonException("pushNotificationConfig is required");
         var config = ReadPushNotificationConfig(inner);
-        if (!TryParseName(V03Json.ReqStr(o, "name"), out var taskId, out var configId)) throw new JsonException("name is not a task push config name");
+        if (!TryParseName(V03Json.ReqStr(o, "name"), out var taskId, out var configId))
+            throw new JsonException("name is not a task push config name");
         config.TaskId = taskId;
         config.Id ??= configId;
         return config;
@@ -215,12 +260,18 @@ internal sealed class V03ProtoJsonCodec : V03Codec
     // ---- errors ----
 
     /// <summary>
-    /// The REST error body: <c>{"code":&lt;number&gt;,"message":…}</c>. The code is the A2A error number; the auth codes (no number)
-    /// use the HTTP status.
+    ///     The REST error body: <c>{"code":&lt;number&gt;,"message":…}</c>. The code is the A2A error number; the auth codes
+    ///     (no number)
+    ///     use the HTTP status.
     /// </summary>
-    public static JsonObject WriteError(A2AException ex, int httpStatus) => new()
+    public static JsonObject WriteError(A2AException ex, int httpStatus)
     {
-        ["code"] = ex.Code is A2AErrorCode.Unauthenticated or A2AErrorCode.PermissionDenied ? httpStatus : (int)ex.Code,
-        ["message"] = ex.Message,
-    };
+        return new JsonObject
+        {
+            ["code"] = ex.Code is A2AErrorCode.Unauthenticated or A2AErrorCode.PermissionDenied
+                ? httpStatus
+                : (int)ex.Code,
+            ["message"] = ex.Message
+        };
+    }
 }

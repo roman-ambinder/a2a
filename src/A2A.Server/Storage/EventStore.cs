@@ -1,50 +1,63 @@
+using System.Runtime.CompilerServices;
 using A2A.Server.Streaming;
 
 namespace A2A.Server.Storage;
 
 /// <summary>
-/// Per-task event log. Every event applied to a task gets a monotonic sequence number that starts at 1. The sequence is
-/// the ordering and deduplication key for streams (resume) and push notifications. Like the task store, the log is
-/// owner-scoped: it is addressed by <see cref="TaskKey"/>.
+///     Per-task event log. Every event applied to a task gets a monotonic sequence number that starts at 1. The sequence
+///     is
+///     the ordering and deduplication key for streams (resume) and push notifications. Like the task store, the log is
+///     owner-scoped: it is addressed by <see cref="TaskKey" />.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Ownership: an appended event belongs to the store, and the events it returns are never mutated by callers. The server
-/// stores an event before it publishes the same instance to streams and webhooks, and nobody changes it after that.
-/// </para>
-/// <para>
-/// Encoding: the server encodes each event once (<see cref="EventEncoder"/>) and appends it with its bytes in
-/// <see cref="SequencedEvent.Json"/>. Keep those bytes and return them from <see cref="ReadAfterAsync"/>: replays and gap
-/// fills write them as they are. A store that persists only the bytes may rebuild the event from them; a store that does not
-/// keep the bytes may return events with an empty <see cref="SequencedEvent.Json"/>, and readers then encode them again.
-/// Return stored <see cref="SequencedEvent.Json"/> bytes unchanged: they are written to the wire without validation, so a
-/// store that alters, truncates or re-encodes them corrupts the stream.
-/// </para>
+///     <para>
+///         Ownership: an appended event belongs to the store, and the events it returns are never mutated by callers. The
+///         server
+///         stores an event before it publishes the same instance to streams and webhooks, and nobody changes it after
+///         that.
+///     </para>
+///     <para>
+///         Encoding: the server encodes each event once (<see cref="EventEncoder" />) and appends it with its bytes in
+///         <see cref="SequencedEvent.Json" />. Keep those bytes and return them from <see cref="ReadAfterAsync" />:
+///         replays and gap
+///         fills write them as they are. A store that persists only the bytes may rebuild the event from them; a store
+///         that does not
+///         keep the bytes may return events with an empty <see cref="SequencedEvent.Json" />, and readers then encode them
+///         again.
+///         Return stored <see cref="SequencedEvent.Json" /> bytes unchanged: they are written to the wire without
+///         validation, so a
+///         store that alters, truncates or re-encodes them corrupts the stream.
+///     </para>
 /// </remarks>
 public abstract class EventStore
 {
     /// <summary>
-    /// Appends an event and returns the sequence the store assigned to it. The first event of a task gets 1. The execution
-    /// engine does not call this: it appends through <see cref="TaskStore.CommitAsync"/>, together with the task change.
-    /// <see cref="SequencedEvent.Sequence"/> of <paramref name="evt"/> is ignored (the server passes 0): store
-    /// <c>evt with { Sequence = assigned }</c>. <see cref="SequencedEvent.Json"/> carries the encoded event (it never
-    /// contains the sequence, so it was encoded before the sequence was known).
+    ///     Appends an event and returns the sequence the store assigned to it. The first event of a task gets 1. The execution
+    ///     engine does not call this: it appends through <see cref="TaskStore.CommitAsync" />, together with the task change.
+    ///     <see cref="SequencedEvent.Sequence" /> of <paramref name="evt" /> is ignored (the server passes 0): store
+    ///     <c>evt with { Sequence = assigned }</c>. <see cref="SequencedEvent.Json" /> carries the encoded event (it never
+    ///     contains the sequence, so it was encoded before the sequence was known).
     /// </summary>
-    public abstract ValueTask<long> AppendAsync(TaskKey task, SequencedEvent evt, CancellationToken cancellationToken = default);
+    public abstract ValueTask<long> AppendAsync(TaskKey task, SequencedEvent evt,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reads the retained events with a sequence greater than <paramref name="afterSequence"/>, in order. This is the supported
-    /// server-side read path for a task's raw events, with their event metadata; only the retained events are there.
+    ///     Reads the retained events with a sequence greater than <paramref name="afterSequence" />, in order. This is the
+    ///     supported
+    ///     server-side read path for a task's raw events, with their event metadata; only the retained events are there.
     /// </summary>
-    public abstract IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence, CancellationToken cancellationToken = default);
+    public abstract IAsyncEnumerable<SequencedEvent> ReadAfterAsync(TaskKey task, long afterSequence,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Reads the retained events with a sequence greater than <paramref name="afterSequence"/> and less than
-    /// <paramref name="beforeSequence"/>, in order. Streams use it to fill a gap, so a store should read only that range. The
-    /// default reads <see cref="ReadAfterAsync"/> and stops at <paramref name="beforeSequence"/>.
+    ///     Reads the retained events with a sequence greater than <paramref name="afterSequence" /> and less than
+    ///     <paramref name="beforeSequence" />, in order. Streams use it to fill a gap, so a store should read only that range.
+    ///     The
+    ///     default reads <see cref="ReadAfterAsync" /> and stops at <paramref name="beforeSequence" />.
     /// </summary>
-    public virtual async IAsyncEnumerable<SequencedEvent> ReadRangeAsync(TaskKey task, long afterSequence, long beforeSequence,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public virtual async IAsyncEnumerable<SequencedEvent> ReadRangeAsync(TaskKey task, long afterSequence,
+        long beforeSequence,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         if (beforeSequence <= afterSequence + 1) yield break;
         await foreach (var e in ReadAfterAsync(task, afterSequence, cancellationToken).ConfigureAwait(false))
@@ -64,8 +77,8 @@ public abstract class EventStore
     public abstract ValueTask MarkTerminalAsync(TaskKey task, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes the task's whole log, retained events and the sequence counter included: a later append starts at 1 again.
-    /// Owner-scoped through <paramref name="task"/>; another owner's key, or a task without a log, deletes nothing.
+    ///     Deletes the task's whole log, retained events and the sequence counter included: a later append starts at 1 again.
+    ///     Owner-scoped through <paramref name="task" />; another owner's key, or a task without a log, deletes nothing.
     /// </summary>
     public abstract ValueTask DeleteAsync(TaskKey task, CancellationToken cancellationToken = default);
 }

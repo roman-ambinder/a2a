@@ -11,7 +11,6 @@ using A2A.Server.Authorization;
 using A2A.Server.Pipeline;
 using A2A.Server.Push;
 using A2A.Server.Storage;
-using A2A.Server.Streaming;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;

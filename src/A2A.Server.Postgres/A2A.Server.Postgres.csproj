@@ -1,18 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>A2A.Server.Postgres</RootNamespace>
-    <Description>PostgreSQL stores for the A2A (Agent2Agent) server: tasks, event log, push configs, push outbox and idempotency keys. Npgsql, no EF.</Description>
-    <PackageTags>$(PackageTags);postgres;postgresql;npgsql</PackageTags>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\A2A.Server\A2A.Server.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="Migrations\*.sql" LogicalName="A2A.Server.Postgres.Migrations.%(Filename)%(Extension)" />
-    <InternalsVisibleTo Include="A2A.Stores.Tests" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Npgsql" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
-  </ItemGroup>
+    <PropertyGroup>
+        <RootNamespace>A2A.Server.Postgres</RootNamespace>
+        <Description>PostgreSQL stores for the A2A (Agent2Agent) server: tasks, event log, push configs, push outbox and idempotency keys. Npgsql, no EF.</Description>
+        <PackageTags>$(PackageTags);postgres;postgresql;npgsql</PackageTags>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.Server\A2A.Server.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <EmbeddedResource Include="Migrations\*.sql" LogicalName="A2A.Server.Postgres.Migrations.%(Filename)%(Extension)"/>
+        <InternalsVisibleTo Include="A2A.Stores.Tests"/>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Npgsql"/>
+        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions"/>
+    </ItemGroup>
 </Project>

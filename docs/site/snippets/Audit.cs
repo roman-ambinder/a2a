@@ -4,7 +4,6 @@ using A2A.Server.Postgres;
 using A2A.Server.Push;
 using A2A.Server.Retention;
 using A2A.Server.Storage;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.Audit;
 

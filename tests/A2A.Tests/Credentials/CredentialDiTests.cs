@@ -3,7 +3,6 @@ using A2A.Client;
 using A2A.Client.Credentials;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Xunit;
 
 namespace A2A.Tests.Credentials;
 

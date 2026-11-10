@@ -5,7 +5,6 @@ using System.Text.Json;
 using A2A.Client;
 using A2A.Client.Transports;
 using Microsoft.Extensions.DependencyInjection;
-using Xunit;
 
 namespace A2A.Tests;
 

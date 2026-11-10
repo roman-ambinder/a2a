@@ -7,6 +7,11 @@ namespace A2A.Server.Execution;
 // TaskExecutionEngine.cs: everything here works on the running executions and the coordinator, never on events.
 public sealed partial class TaskExecutionEngine
 {
+    private readonly Dictionary<string, int> _starting = [];
+
+    /// <summary>Consecutive failures to read cancel requests. Only the listener loop touches it.</summary>
+    private int _cancelReadFailures;
+
     /// <summary>Registers the execution's lease. A failure is logged: the next heartbeat registers it instead.</summary>
     private async Task RegisterAsync(Execution exec)
     {
@@ -17,13 +22,14 @@ public sealed partial class TaskExecutionEngine
         }
         catch (Exception ex)
         {
-            ServerLog.LeaseRegisterFailed(_logger, ex, exec.TaskId);
+            ServerLog.LeaseRegisterFailed(Logger, ex, exec.TaskId);
         }
     }
 
     /// <summary>
-    /// Ends the execution's lease. Waits for a heartbeat still under way and keeps later ones out (the gate is held for good), so
-    /// a late register cannot outlive the unregister. Fenced by the execution id: never ends a newer execution's lease.
+    ///     Ends the execution's lease. Waits for a heartbeat still under way and keeps later ones out (the gate is held for
+    ///     good), so
+    ///     a late register cannot outlive the unregister. Fenced by the execution id: never ends a newer execution's lease.
     /// </summary>
     private async Task UnregisterAsync(Execution exec, bool keepLease = false)
     {
@@ -35,14 +41,17 @@ public sealed partial class TaskExecutionEngine
         }
         catch (Exception ex)
         {
-            ServerLog.LeaseUnregisterFailed(_logger, ex, exec.TaskId);
+            ServerLog.LeaseUnregisterFailed(Logger, ex, exec.TaskId);
         }
     }
 
     /// <summary>
-    /// Renews the execution's lease, or registers it when it has none (the register at start failed, or the lease was lost;
-    /// then <see cref="CancelIfEndedAsync"/> checks the task after the register), and renews its idempotency claim. Runs on
-    /// the heartbeat timer; skips a beat while the previous one is still running. Failures are logged and the execution goes on.
+    ///     Renews the execution's lease, or registers it when it has none (the register at start failed, or the lease was
+    ///     lost;
+    ///     then <see cref="CancelIfEndedAsync" /> checks the task after the register), and renews its idempotency claim. Runs
+    ///     on
+    ///     the heartbeat timer; skips a beat while the previous one is still running. Failures are logged and the execution
+    ///     goes on.
     /// </summary>
     private async Task HeartbeatAsync(Execution exec)
     {
@@ -53,7 +62,8 @@ public sealed partial class TaskExecutionEngine
             {
                 if (exec.Registered)
                 {
-                    if (!await _coordinator.HeartbeatAsync(exec.Key, exec.Id, CancellationToken.None).ConfigureAwait(false))
+                    if (!await _coordinator.HeartbeatAsync(exec.Key, exec.Id, CancellationToken.None)
+                            .ConfigureAwait(false))
                         await OnLeaseLostAsync(exec).ConfigureAwait(false);
                 }
                 else
@@ -68,15 +78,16 @@ public sealed partial class TaskExecutionEngine
             }
             catch (Exception ex)
             {
-                ServerLog.LeaseRenewFailed(_logger, ex, exec.TaskId);
+                ServerLog.LeaseRenewFailed(Logger, ex, exec.TaskId);
             }
+
             try
             {
                 await exec.Claim.RenewAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                ServerLog.ClaimRenewFailed(_logger, ex, exec.TaskId);
+                ServerLog.ClaimRenewFailed(Logger, ex, exec.TaskId);
             }
         }
         finally
@@ -86,42 +97,48 @@ public sealed partial class TaskExecutionEngine
     }
 
     /// <summary>
-    /// The execution's lease lapsed (its heartbeats missed the lease, for example during a long pause) and the coordinator no
-    /// longer holds it. Called under the heartbeat gate. When the task ended (<see cref="TaskEndedAsync"/>: the retention sweep
-    /// may have failed it as dead), the execution is cancelled: its later events would be dropped anyway. Otherwise the
-    /// execution registers again with its next heartbeat, so every instance sees it running.
+    ///     The execution's lease lapsed (its heartbeats missed the lease, for example during a long pause) and the coordinator
+    ///     no
+    ///     longer holds it. Called under the heartbeat gate. When the task ended (<see cref="TaskEndedAsync" />: the retention
+    ///     sweep
+    ///     may have failed it as dead), the execution is cancelled: its later events would be dropped anyway. Otherwise the
+    ///     execution registers again with its next heartbeat, so every instance sees it running.
     /// </summary>
     private async Task OnLeaseLostAsync(Execution exec)
     {
         if (await TaskEndedAsync(exec).ConfigureAwait(false))
         {
-            ServerLog.LeaseLostTaskEnded(_logger, exec.TaskId);
+            ServerLog.LeaseLostTaskEnded(Logger, exec.TaskId);
             CancelAll([exec]);
             return;
         }
-        ServerLog.LeaseLost(_logger, exec.TaskId);
+
+        ServerLog.LeaseLost(Logger, exec.TaskId);
         exec.LeaseLost = true;
         exec.Registered = false;
     }
 
     /// <summary>
-    /// Called under the heartbeat gate right after the heartbeat registered an execution that had lost its lease. While it
-    /// had none, another instance may have ended the task (the retention sweep fails it as dead), and that instance's cancel
-    /// request may never have arrived. So the task is read again, and when it is terminal or gone the execution is cancelled.
+    ///     Called under the heartbeat gate right after the heartbeat registered an execution that had lost its lease. While it
+    ///     had none, another instance may have ended the task (the retention sweep fails it as dead), and that instance's
+    ///     cancel
+    ///     request may never have arrived. So the task is read again, and when it is terminal or gone the execution is
+    ///     cancelled.
     /// </summary>
     private async Task CancelIfEndedAsync(Execution exec)
     {
         var ended = await TaskEndedAsync(exec).ConfigureAwait(false);
         exec.LeaseLost = false;
         if (!ended) return;
-        ServerLog.LeaseLostTaskEnded(_logger, exec.TaskId);
+        ServerLog.LeaseLostTaskEnded(Logger, exec.TaskId);
         CancelAll([exec]);
     }
 
     /// <summary>
-    /// Whether the execution's task ended: it is terminal, or it was stored and is gone (deleted). A new task that is not stored
-    /// yet (the agent has sent no event) has not ended: nothing else can end a task that does not exist. The flag is read
-    /// before the task, so a first event stored in between is seen in the record.
+    ///     Whether the execution's task ended: it is terminal, or it was stored and is gone (deleted). A new task that is not
+    ///     stored
+    ///     yet (the agent has sent no event) has not ended: nothing else can end a task that does not exist. The flag is read
+    ///     before the task, so a first event stored in between is seen in the record.
     /// </summary>
     private async Task<bool> TaskEndedAsync(Execution exec)
     {
@@ -131,9 +148,10 @@ public sealed partial class TaskExecutionEngine
     }
 
     /// <summary>
-    /// Reads the cancel requests of every instance and cancels the matching executions here, until shutdown. The first reader
-    /// is registered before this returns, so no request sent after the engine exists is missed; after a failure it reads
-    /// again every <see cref="CoordinationOptions.RunningPollInterval"/>.
+    ///     Reads the cancel requests of every instance and cancels the matching executions here, until shutdown. The first
+    ///     reader
+    ///     is registered before this returns, so no request sent after the engine exists is missed; after a failure it reads
+    ///     again every <see cref="CoordinationOptions.RunningPollInterval" />.
     /// </summary>
     private void StartCancelListener(CancellationToken stopping)
     {
@@ -158,7 +176,8 @@ public sealed partial class TaskExecutionEngine
     }
 #pragma warning restore CA2012
 
-    private async Task ListenForCancelRequestsAsync(IAsyncEnumerator<TaskKey>? requests, ValueTask<bool> next, CancellationToken stopping)
+    private async Task ListenForCancelRequestsAsync(IAsyncEnumerator<TaskKey>? requests, ValueTask<bool> next,
+        CancellationToken stopping)
     {
         while (true)
         {
@@ -180,40 +199,55 @@ public sealed partial class TaskExecutionEngine
                 {
                     LogCancelReadFailure(ex);
                 }
-                try { await requests.DisposeAsync().ConfigureAwait(false); }
-                catch (Exception ex) { ServerLog.CancelReaderDisposeFailed(_logger, ex); }
+
+                try
+                {
+                    await requests.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    ServerLog.CancelReaderDisposeFailed(Logger, ex);
+                }
             }
+
             if (stopping.IsCancellationRequested) return;
-            try { await Task.Delay(_options.Coordination.RunningPollInterval, stopping).ConfigureAwait(false); }
-            catch (OperationCanceledException) { return; }
+            try
+            {
+                await Task.Delay(_options.Coordination.RunningPollInterval, stopping).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
             (requests, next) = ReadCancelRequests(stopping);
         }
     }
 
-    /// <summary>Consecutive failures to read cancel requests. Only the listener loop touches it.</summary>
-    private int _cancelReadFailures;
-
     /// <summary>The first of a run of failures is a warning; the retries that fail again are debug, until reading works.</summary>
     private void LogCancelReadFailure(Exception ex)
     {
-        if (_cancelReadFailures++ == 0) ServerLog.CancelReadFailed(_logger, ex, _options.Coordination.RunningPollInterval);
-        else ServerLog.CancelReadStillFailing(_logger, ex, _cancelReadFailures);
+        if (_cancelReadFailures++ == 0)
+            ServerLog.CancelReadFailed(Logger, ex, _options.Coordination.RunningPollInterval);
+        else ServerLog.CancelReadStillFailing(Logger, ex, _cancelReadFailures);
     }
 
     /// <summary>
-    /// Cancels this instance's executions of <paramref name="task"/> that another instance asked to cancel, except
-    /// CancelTask runs (they record the cancellation).
+    ///     Cancels this instance's executions of <paramref name="task" /> that another instance asked to cancel, except
+    ///     CancelTask runs (they record the cancellation).
     /// </summary>
-    private void CancelHere(TaskKey task) =>
-        CancelAll(_running.Snapshot(ScopeKey(task.Tenant, task.TaskId)).Where(exec => !exec.IsCancelRun && exec.Key == task));
+    private void CancelHere(TaskKey task)
+    {
+        CancelAll(_running.Snapshot(ScopeKey(task.Tenant, task.TaskId))
+            .Where(exec => !exec.IsCancelRun && exec.Key == task));
+    }
 
     /// <summary>Cancels each execution; a cancellation callback that throws is logged and does not stop the others.</summary>
     private void CancelAll(IEnumerable<Execution> executions)
     {
         foreach (var exec in executions)
-        {
-            if (exec.Cancel() is { } error) ServerLog.CancelCallbackFailed(_logger, error, exec.TaskId);
-        }
+            if (exec.Cancel() is { } error)
+                ServerLog.CancelCallbackFailed(Logger, error, exec.TaskId);
     }
 
     /// <summary>Asks every execution of the task running on this instance to stop (CancelTask runs included); returns them.</summary>
@@ -225,8 +259,9 @@ public sealed partial class TaskExecutionEngine
     }
 
     /// <summary>
-    /// Cancels every execution of the task: this instance's at once (CancelTask runs included), the other instances' through
-    /// <see cref="ExecutionCoordinator.RequestCancelAsync"/>. Does not wait for them to stop.
+    ///     Cancels every execution of the task: this instance's at once (CancelTask runs included), the other instances'
+    ///     through
+    ///     <see cref="ExecutionCoordinator.RequestCancelAsync" />. Does not wait for them to stop.
     /// </summary>
     internal async Task CancelExecutionsAsync(TaskKey key, CancellationToken ct = default)
     {
@@ -235,8 +270,9 @@ public sealed partial class TaskExecutionEngine
     }
 
     /// <summary>
-    /// Asks the other instances to cancel their executions of the task (CancelTask: this instance's were cancelled directly). A
-    /// failing coordinator is logged; the cancel still runs here.
+    ///     Asks the other instances to cancel their executions of the task (CancelTask: this instance's were cancelled
+    ///     directly). A
+    ///     failing coordinator is logged; the cancel still runs here.
     /// </summary>
     internal async Task RequestCancelElsewhereAsync(TaskKey key, CancellationToken ct)
     {
@@ -246,14 +282,15 @@ public sealed partial class TaskExecutionEngine
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            ServerLog.RequestCancelFailed(_logger, ex, key.TaskId);
+            ServerLog.RequestCancelFailed(Logger, ex, key.TaskId);
         }
     }
 
     /// <summary>
-    /// Whether an execution of the task runs on any instance. Null when none does; otherwise what to wait on before asking
-    /// again: the completions of the executions on this instance, or, when only other instances run one, a
-    /// <see cref="CoordinationOptions.RunningPollInterval"/> delay. Executions here are checked first, without a coordinator round trip.
+    ///     Whether an execution of the task runs on any instance. Null when none does; otherwise what to wait on before asking
+    ///     again: the completions of the executions on this instance, or, when only other instances run one, a
+    ///     <see cref="CoordinationOptions.RunningPollInterval" /> delay. Executions here are checked first, without a
+    ///     coordinator round trip.
     /// </summary>
     internal async ValueTask<List<Task>?> RunningWaitsAsync(TaskKey key, CancellationToken ct)
     {
@@ -264,20 +301,23 @@ public sealed partial class TaskExecutionEngine
         return [Task.Delay(_options.Coordination.RunningPollInterval, ct)];
     }
 
-    private readonly Dictionary<string, int> _starting = [];
-
     /// <summary>
-    /// A follow-up's message was committed and its execution is not registered yet (call <see cref="EndStart"/> once it is, or
-    /// the start failed). Until then <see cref="TryClaimStartAsync"/> refuses, so a retry does not start the message twice.
-    /// Called under the task lock, right after the commit.
+    ///     A follow-up's message was committed and its execution is not registered yet (call <see cref="EndStart" /> once it
+    ///     is, or
+    ///     the start failed). Until then <see cref="TryClaimStartAsync" /> refuses, so a retry does not start the message
+    ///     twice.
+    ///     Called under the task lock, right after the commit.
     /// </summary>
     internal void BeginStart(TaskKey key)
     {
         var scope = ScopeKey(key.Tenant, key.TaskId);
-        lock (_starting) _starting[scope] = _starting.GetValueOrDefault(scope) + 1;
+        lock (_starting)
+        {
+            _starting[scope] = _starting.GetValueOrDefault(scope) + 1;
+        }
     }
 
-    /// <summary>Ends a <see cref="BeginStart"/>.</summary>
+    /// <summary>Ends a <see cref="BeginStart" />.</summary>
     internal void EndStart(TaskKey key)
     {
         var scope = ScopeKey(key.Tenant, key.TaskId);
@@ -290,16 +330,24 @@ public sealed partial class TaskExecutionEngine
     }
 
     /// <summary>
-    /// Takes the start of a follow-up whose message was committed but evidently never started. Call under the task lock. False
-    /// when a start is pending here, an execution of the task runs here, or one runs on another instance; a coordinator that
-    /// fails counts as running (unlike <see cref="IsRunningAnywhereAsync"/>: starting on a guess could run the agent twice). On
-    /// true a start is pending (<see cref="BeginStart"/>): the caller ends it with <see cref="EndStart"/>. The window with
-    /// another instance that is between its own commit and start is not closed: it takes a client retry in that window.
+    ///     Takes the start of a follow-up whose message was committed but evidently never started. Call under the task lock.
+    ///     False
+    ///     when a start is pending here, an execution of the task runs here, or one runs on another instance; a coordinator
+    ///     that
+    ///     fails counts as running (unlike <see cref="IsRunningAnywhereAsync" />: starting on a guess could run the agent
+    ///     twice). On
+    ///     true a start is pending (<see cref="BeginStart" />): the caller ends it with <see cref="EndStart" />. The window
+    ///     with
+    ///     another instance that is between its own commit and start is not closed: it takes a client retry in that window.
     /// </summary>
     internal async Task<bool> TryClaimStartAsync(TaskKey key, CancellationToken ct)
     {
         var scope = ScopeKey(key.Tenant, key.TaskId);
-        lock (_starting) if (_starting.ContainsKey(scope)) return false;
+        lock (_starting)
+        {
+            if (_starting.ContainsKey(scope)) return false;
+        }
+
         if (RunningCompletions(key).Count > 0) return false;
         try
         {
@@ -307,15 +355,17 @@ public sealed partial class TaskExecutionEngine
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            ServerLog.RunningCheckFailed(_logger, ex, key.TaskId);
+            ServerLog.RunningCheckFailed(Logger, ex, key.TaskId);
             return false;
         }
+
         lock (_starting)
         {
             if (_starting.ContainsKey(scope)) return false; // another retry of the same instance took it meanwhile
             _starting[scope] = 1;
         }
-        ServerLog.FollowUpRestarted(_logger, key.TaskId);
+
+        ServerLog.FollowUpRestarted(Logger, key.TaskId);
         return true;
     }
 
@@ -323,18 +373,22 @@ public sealed partial class TaskExecutionEngine
     internal async Task<bool> IsRunningAnywhereAsync(TaskKey key, CancellationToken ct)
     {
         if (RunningCompletions(key).Count > 0) return true;
-        try { return await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false); }
+        try
+        {
+            return await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false);
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            ServerLog.RunningCheckFailed(_logger, ex, key.TaskId);
+            ServerLog.RunningCheckFailed(Logger, ex, key.TaskId);
             return false;
         }
     }
 
     /// <summary>
-    /// Waits until no execution of the task runs on any instance (the cancelled ones and the CancelTask execution), or
-    /// <paramref name="grace"/> has passed. When the coordinator fails, waits out the grace period (logged), so CancelTask
-    /// still answers.
+    ///     Waits until no execution of the task runs on any instance (the cancelled ones and the CancelTask execution), or
+    ///     <paramref name="grace" /> has passed. When the coordinator fails, waits out the grace period (logged), so
+    ///     CancelTask
+    ///     still answers.
     /// </summary>
     internal async Task WaitUntilStoppedAsync(TaskKey key, TimeSpan grace, CancellationToken ct)
     {
@@ -360,18 +414,26 @@ public sealed partial class TaskExecutionEngine
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // The coordinator failed: other instances cannot be checked, so give them the whole grace period.
-            ServerLog.RunningCheckFailed(_logger, ex, key.TaskId);
-            try { await Task.Delay(Timeout.Infinite, timeout.Token).ConfigureAwait(false); }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested) { }
+            ServerLog.RunningCheckFailed(Logger, ex, key.TaskId);
+            try
+            {
+                await Task.Delay(Timeout.Infinite, timeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+            }
         }
     }
 
     /// <summary>
-    /// For the retention sweep: true when the execution <paramref name="executionId"/>, whose lease expired, still runs on this
-    /// instance (its heartbeats lapsed, for example during a long pause). The sweep must then neither fail its task nor remove
-    /// its lease. Its next heartbeat registers it again under the same id: when no heartbeat is under way, this marks it
-    /// unregistered. A heartbeat under way finds the lease lost and handles it itself; an ending execution unregisters itself
-    /// (it holds the heartbeat gate before it unregisters, so a finished execution is never brought back).
+    ///     For the retention sweep: true when the execution <paramref name="executionId" />, whose lease expired, still runs
+    ///     on this
+    ///     instance (its heartbeats lapsed, for example during a long pause). The sweep must then neither fail its task nor
+    ///     remove
+    ///     its lease. Its next heartbeat registers it again under the same id: when no heartbeat is under way, this marks it
+    ///     unregistered. A heartbeat under way finds the lease lost and handles it itself; an ending execution unregisters
+    ///     itself
+    ///     (it holds the heartbeat gate before it unregisters, so a finished execution is never brought back).
     /// </summary>
     internal bool TryReclaimLocal(TaskKey key, string executionId)
     {
@@ -384,6 +446,7 @@ public sealed partial class TaskExecutionEngine
             exec.Registered = false;
             exec.HeartbeatGate.Release();
         }
+
         return true;
     }
 }

@@ -6,8 +6,9 @@ using Microsoft.AspNetCore.Http;
 namespace A2A.Server.AspNetCore;
 
 /// <summary>
-/// A request body held in an <see cref="ArrayPool{T}"/> array. <see cref="Dispose"/> clears the bytes and returns the array.
-/// It is a mutable struct: keep it in one local (<c>using var</c>) and never copy it, or the array is returned twice.
+///     A request body held in an <see cref="ArrayPool{T}" /> array. <see cref="Dispose" /> clears the bytes and returns
+///     the array.
+///     It is a mutable struct: keep it in one local (<c>using var</c>) and never copy it, or the array is returned twice.
 /// </summary>
 internal struct PooledBody : IDisposable
 {
@@ -24,8 +25,9 @@ internal struct PooledBody : IDisposable
     /// <summary>Number of body bytes.</summary>
     public int Length { get; }
 
-    /// <summary>The body bytes. Valid until <see cref="Dispose"/>.</summary>
-    public readonly ReadOnlyMemory<byte> Memory => _array is null ? ReadOnlyMemory<byte>.Empty : _array.AsMemory(0, Length);
+    /// <summary>The body bytes. Valid until <see cref="Dispose" />.</summary>
+    public readonly ReadOnlyMemory<byte> Memory =>
+        _array is null ? ReadOnlyMemory<byte>.Empty : _array.AsMemory(0, Length);
 
     public void Dispose()
     {
@@ -42,7 +44,8 @@ internal struct EnvelopeMembers
 {
     public (int Start, int End) JsonRpc, Id, Method, Params;
 
-    public static EnvelopeMembers None => new() { JsonRpc = (-1, -1), Id = (-1, -1), Method = (-1, -1), Params = (-1, -1) };
+    public static EnvelopeMembers None =>
+        new() { JsonRpc = (-1, -1), Id = (-1, -1), Method = (-1, -1), Params = (-1, -1) };
 }
 
 internal static partial class HttpPlumbing
@@ -50,20 +53,23 @@ internal static partial class HttpPlumbing
     private const int ChunkedBodyInitialBuffer = 16 * 1024;
 
     /// <summary>
-    /// Most bytes rented before any body byte arrives. A declared <c>Content-Length</c> is trusted only up to here, so a client
-    /// that announces a large body and sends it slowly cannot make every connection hold a limit-sized array; the buffer
-    /// doubles as bytes actually arrive.
+    ///     Most bytes rented before any body byte arrives. A declared <c>Content-Length</c> is trusted only up to here, so a
+    ///     client
+    ///     that announces a large body and sends it slowly cannot make every connection hold a limit-sized array; the buffer
+    ///     doubles as bytes actually arrive.
     /// </summary>
     internal const int MaxInitialBodyBuffer = 64 * 1024;
 
     /// <summary>
-    /// Reads the request body into a pooled buffer. More than <paramref name="maxBytes"/> bytes is
-    /// <see cref="A2AException.PayloadTooLarge"/> (HTTP 413): a larger <c>Content-Length</c> is refused before reading, and
-    /// otherwise reading stops as soon as the running total passes the limit (at most <paramref name="maxBytes"/> + 1 bytes are read).
+    ///     Reads the request body into a pooled buffer. More than <paramref name="maxBytes" /> bytes is
+    ///     <see cref="A2AException.PayloadTooLarge" /> (HTTP 413): a larger <c>Content-Length</c> is refused before reading,
+    ///     and
+    ///     otherwise reading stops as soon as the running total passes the limit (at most <paramref name="maxBytes" /> + 1
+    ///     bytes are read).
     /// </summary>
     /// <param name="request">The request.</param>
     /// <param name="maxBytes">The body limit.</param>
-    /// <param name="pool">The pool to rent from; <see cref="ArrayPool{T}.Shared"/> when null (tests pass their own).</param>
+    /// <param name="pool">The pool to rent from; <see cref="ArrayPool{T}.Shared" /> when null (tests pass their own).</param>
     public static async Task<PooledBody> ReadBodyAsync(HttpRequest request, long maxBytes, ArrayPool<byte>? pool = null)
     {
         if (request.ContentLength > maxBytes) throw A2AException.PayloadTooLarge(maxBytes);
@@ -72,7 +78,7 @@ internal static partial class HttpPlumbing
         // (computed without "maxBytes + 1", which would overflow for long.MaxValue).
         var cap = maxBytes >= Array.MaxLength ? Array.MaxLength : (int)Math.Max(maxBytes, 0) + 1;
         var initial = request.ContentLength is { } declared
-            ? (declared >= MaxInitialBodyBuffer ? MaxInitialBodyBuffer : (int)Math.Max(declared, 0) + 1)
+            ? declared >= MaxInitialBodyBuffer ? MaxInitialBodyBuffer : (int)Math.Max(declared, 0) + 1
             : ChunkedBodyInitialBuffer;
         var buffer = pool.Rent(Math.Min(initial, cap));
         var total = 0;
@@ -92,11 +98,13 @@ internal static partial class HttpPlumbing
                     buffer = bigger;
                     room = Math.Min(buffer.Length, cap);
                 }
+
                 var read = await request.Body.ReadAsync(buffer.AsMemory(total, room - total), ct).ConfigureAwait(false);
                 if (read == 0) break;
                 total += read;
                 if (total > maxBytes) throw A2AException.PayloadTooLarge(maxBytes);
             }
+
             return new PooledBody(buffer, total, pool);
         }
         catch
@@ -108,48 +116,54 @@ internal static partial class HttpPlumbing
     }
 
     /// <summary>
-    /// Checks a request body in one <see cref="Utf8JsonReader"/> pass: one well-formed JSON value, nesting no deeper than
-    /// <paramref name="maxDepth"/>, and no object that repeats a property name (compared after unescaping, case sensitive),
-    /// in one pass. Returns where the value sits in <paramref name="json"/> (surrounding white space excluded),
-    /// which is the slice to deserialize. A body that fails the pass is classified by <see cref="ClassifyFailure"/>, so every
-    /// rejection keeps its exact former exception and message.
+    ///     Checks a request body in one <see cref="Utf8JsonReader" /> pass: one well-formed JSON value, nesting no deeper than
+    ///     <paramref name="maxDepth" />, and no object that repeats a property name (compared after unescaping, case
+    ///     sensitive),
+    ///     in one pass. Returns where the value sits in <paramref name="json" /> (surrounding white space excluded),
+    ///     which is the slice to deserialize. A body that fails the pass is classified by <see cref="ClassifyFailure" />, so
+    ///     every
+    ///     rejection keeps its exact former exception and message.
     /// </summary>
     public static Range CheckDepthAndDuplicates(ReadOnlyMemory<byte> json, int maxDepth)
     {
         var members = EnvelopeMembers.None;
-        return CheckDepthAndDuplicates(json, maxDepth, collectEnvelope: false, ref members);
+        return CheckDepthAndDuplicates(json, maxDepth, false, ref members);
     }
 
     /// <summary>
-    /// <see cref="CheckDepthAndDuplicates(ReadOnlyMemory{byte}, int)"/> that also records where the <c>jsonrpc</c>, <c>id</c>,
-    /// <c>method</c> and <c>params</c> members of a root object sit, in the same pass.
+    ///     <see cref="CheckDepthAndDuplicates(ReadOnlyMemory{byte}, int)" /> that also records where the <c>jsonrpc</c>,
+    ///     <c>id</c>,
+    ///     <c>method</c> and <c>params</c> members of a root object sit, in the same pass.
     /// </summary>
     public static Range CheckJsonRpcBody(ReadOnlyMemory<byte> json, int maxDepth, out EnvelopeMembers members)
     {
         members = EnvelopeMembers.None;
-        return CheckDepthAndDuplicates(json, maxDepth, collectEnvelope: true, ref members);
+        return CheckDepthAndDuplicates(json, maxDepth, true, ref members);
     }
 
-    private static Range CheckDepthAndDuplicates(ReadOnlyMemory<byte> json, int maxDepth, bool collectEnvelope, ref EnvelopeMembers members)
+    private static Range CheckDepthAndDuplicates(ReadOnlyMemory<byte> json, int maxDepth, bool collectEnvelope,
+        ref EnvelopeMembers members)
     {
-        if (BodyScanner.TryScan(json.Span, maxDepth, checkDuplicates: true, collectEnvelope, ref members, out var root)) return root;
+        if (BodyScanner.TryScan(json.Span, maxDepth, true, collectEnvelope, ref members, out var root)) return root;
         ClassifyFailure(json, maxDepth);
         // The former parser accepted what the pass refused (not expected): accept it too, and locate the members without the duplicate check.
         members = EnvelopeMembers.None;
-        if (BodyScanner.TryScan(json.Span, maxDepth, checkDuplicates: false, collectEnvelope, ref members, out root)) return root;
+        if (BodyScanner.TryScan(json.Span, maxDepth, false, collectEnvelope, ref members, out root)) return root;
         throw new JsonException("Invalid request body.");
     }
 
     /// <summary>
-    /// Failure path only: replays the former parse so a rejected body gets exactly the exception it always got. Valid JSON that
-    /// breaks a limit is InvalidParams (<see cref="A2AException"/>); malformed JSON throws <see cref="JsonException"/>.
-    /// The parser rejects duplicate property names itself.
+    ///     Failure path only: replays the former parse so a rejected body gets exactly the exception it always got. Valid JSON
+    ///     that
+    ///     breaks a limit is InvalidParams (<see cref="A2AException" />); malformed JSON throws <see cref="JsonException" />.
+    ///     The parser rejects duplicate property names itself.
     /// </summary>
     private static void ClassifyFailure(ReadOnlyMemory<byte> body, int maxDepth)
     {
         try
         {
-            using var doc = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = maxDepth, AllowDuplicateProperties = false });
+            using var doc = JsonDocument.Parse(body,
+                new JsonDocumentOptions { MaxDepth = maxDepth, AllowDuplicateProperties = false });
         }
         catch (JsonException ex) when (IsWellFormed(body))
         {
@@ -162,7 +176,10 @@ internal static partial class HttpPlumbing
         }
     }
 
-    /// <summary>Failure path only: tells a limit violation (valid JSON) from a syntax error. Nesting beyond 1024 counts as malformed.</summary>
+    /// <summary>
+    ///     Failure path only: tells a limit violation (valid JSON) from a syntax error. Nesting beyond 1024 counts as
+    ///     malformed.
+    /// </summary>
     private static bool IsWellFormed(ReadOnlyMemory<byte> body)
     {
         try
@@ -176,16 +193,18 @@ internal static partial class HttpPlumbing
         }
     }
 
-    /// <summary>The single validation pass behind <see cref="CheckDepthAndDuplicates(ReadOnlyMemory{byte}, int)"/>.</summary>
+    /// <summary>The single validation pass behind <see cref="CheckDepthAndDuplicates(ReadOnlyMemory{byte}, int)" />.</summary>
     private ref struct BodyScanner
     {
         /// <summary>Objects with more names than this switch from pairwise comparison to a hash set.</summary>
         private const int LinearLimit = 16;
 
-        private int[] _nameStart;   // per recorded name: offset into the body, or ~offset into _scratch for unescaped copies
+        private int[]
+            _nameStart; // per recorded name: offset into the body, or ~offset into _scratch for unescaped copies
+
         private int[] _nameLength;
         private int _names;
-        private int[] _frames;      // per open container: index of its first name, or -1 for an array
+        private int[] _frames; // per open container: index of its first name, or -1 for an array
         private HashSet<string>?[]? _sets;
         private int _depth;
         private byte[]? _scratch;
@@ -217,14 +236,15 @@ internal static partial class HttpPlumbing
             }
         }
 
-        private bool Scan(ReadOnlySpan<byte> json, int maxDepth, bool checkDuplicates, bool collectEnvelope, ref EnvelopeMembers members, out Range root)
+        private bool Scan(ReadOnlySpan<byte> json, int maxDepth, bool checkDuplicates, bool collectEnvelope,
+            ref EnvelopeMembers members, out Range root)
         {
             root = default;
             var reader = new Utf8JsonReader(json, new JsonReaderOptions { MaxDepth = maxDepth });
             var rootStart = -1;
             var rootEnd = -1;
             var rootIsObject = false;
-            var member = 0;          // envelope member whose value comes next: 1 jsonrpc, 2 id, 3 method, 4 params
+            var member = 0; // envelope member whose value comes next: 1 jsonrpc, 2 id, 3 method, 4 params
             var memberStart = -1;
             while (reader.Read())
             {
@@ -235,13 +255,16 @@ internal static partial class HttpPlumbing
                     rootStart = (int)reader.TokenStartIndex;
                     rootIsObject = token == JsonTokenType.StartObject;
                 }
+
                 switch (token)
                 {
                     case JsonTokenType.PropertyName:
                         if (checkDuplicates && !AddName(ref reader, json)) return false;
                         if (collectEnvelope && depth == 1 && rootIsObject)
-                            member = reader.ValueTextEquals("jsonrpc"u8) ? 1 : reader.ValueTextEquals("id"u8) ? 2
-                                : reader.ValueTextEquals("method"u8) ? 3 : reader.ValueTextEquals("params"u8) ? 4 : 0;
+                            member = reader.ValueTextEquals("jsonrpc"u8) ? 1
+                                : reader.ValueTextEquals("id"u8) ? 2
+                                : reader.ValueTextEquals("method"u8) ? 3
+                                : reader.ValueTextEquals("params"u8) ? 4 : 0;
                         continue;
                     case JsonTokenType.StartObject:
                         if (checkDuplicates) Push(_names);
@@ -268,6 +291,7 @@ internal static partial class HttpPlumbing
                             case 3: members.Method = range; break;
                             default: members.Params = range; break;
                         }
+
                         member = 0;
                         memberStart = -1;
                     }
@@ -276,6 +300,7 @@ internal static partial class HttpPlumbing
                 if (depth == 0 && token is not (JsonTokenType.StartObject or JsonTokenType.StartArray))
                     rootEnd = (int)reader.BytesConsumed;
             }
+
             if (rootStart < 0 || rootEnd < 0) return false;
             root = new Range(rootStart, rootEnd);
             return true;
@@ -317,8 +342,10 @@ internal static partial class HttpPlumbing
                         _scratch.AsSpan(0, _scratchUsed).Clear();
                         ArrayPool<byte>.Shared.Return(_scratch);
                     }
+
                     _scratch = bigger;
                 }
+
                 var written = reader.CopyString(_scratch.AsSpan(_scratchUsed));
                 name = _scratch.AsSpan(_scratchUsed, written);
                 start = ~_scratchUsed;
@@ -331,7 +358,8 @@ internal static partial class HttpPlumbing
             if (set is not null) return set.Add(Key(name));
 
             for (var i = first; i < _names; i++)
-                if (Name(i, json).SequenceEqual(name)) return false;
+                if (Name(i, json).SequenceEqual(name))
+                    return false;
 
             if (_names - first < LinearLimit)
             {
@@ -340,6 +368,7 @@ internal static partial class HttpPlumbing
                     Grow(ref _nameStart, _names);
                     Grow(ref _nameLength, _names);
                 }
+
                 _nameStart[_names] = start;
                 _nameLength[_names] = name.Length;
                 _names++;
@@ -362,7 +391,10 @@ internal static partial class HttpPlumbing
             return start >= 0 ? json.Slice(start, _nameLength[i]) : _scratch.AsSpan(~start, _nameLength[i]);
         }
 
-        private static string Key(ReadOnlySpan<byte> name) => Encoding.Latin1.GetString(name);
+        private static string Key(ReadOnlySpan<byte> name)
+        {
+            return Encoding.Latin1.GetString(name);
+        }
 
         private static void Grow(ref int[] array, int used)
         {

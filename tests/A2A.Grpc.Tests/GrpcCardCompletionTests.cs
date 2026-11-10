@@ -1,5 +1,4 @@
 using A2A.Json;
-using A2A.Server;
 
 namespace A2A.Grpc.Tests;
 

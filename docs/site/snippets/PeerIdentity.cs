@@ -1,6 +1,5 @@
 using A2A.Client;
 using A2A.Client.Peers;
-using Microsoft.Extensions.Logging;
 
 namespace A2A.DocSnippets.PeerIdentityGuide;
 

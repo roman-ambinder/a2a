@@ -2,10 +2,7 @@ using A2A.Extensions.AI;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Storage;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.ConversationMemory;
 

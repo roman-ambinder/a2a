@@ -1,13 +1,11 @@
 using System.Diagnostics.Metrics;
 using System.Net;
-using A2A.Client;
 using A2A.Json;
 using A2A.Server;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 
 namespace A2A.Tests;
 

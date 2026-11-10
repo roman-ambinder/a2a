@@ -41,17 +41,21 @@ internal static partial class ErrorText
     [GeneratedRegex(@"^(https?://)[^/@\s]*@", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex UserInfoPattern();
 
-    public static string StripUrlSecrets(string text) => UrlPattern().Replace(text, m =>
+    public static string StripUrlSecrets(string text)
     {
-        var url = UserInfoPattern().Replace(m.Value, "$1");
-        var cut = url.IndexOfAny(['?', '#']);
-        return cut < 0 ? url : url[..cut];
-    });
+        return UrlPattern().Replace(text, m =>
+        {
+            var url = UserInfoPattern().Replace(m.Value, "$1");
+            var cut = url.IndexOfAny(['?', '#']);
+            return cut < 0 ? url : url[..cut];
+        });
+    }
 }
 
 /// <summary>
-/// The only way text reaches stdout and stderr. It redacts secrets, and its <see cref="One"/> and <see cref="Block"/>
-/// methods strip terminal escape and bidi tricks from text that an agent controls.
+///     The only way text reaches stdout and stderr. It redacts secrets, and its <see cref="One" /> and
+///     <see cref="Block" />
+///     methods strip terminal escape and bidi tricks from text that an agent controls.
 /// </summary>
 internal sealed class Output(CliEnvironment env, bool json)
 {
@@ -60,7 +64,10 @@ internal sealed class Output(CliEnvironment env, bool json)
     /// <summary>True when <c>--json</c> was given: protocol objects are printed as JSON.</summary>
     public bool Json { get; set; } = json;
 
-    public void AddSecret(string? secret) => _redactor.Add(secret);
+    public void AddSecret(string? secret)
+    {
+        _redactor.Add(secret);
+    }
 
     public void Line(string text)
     {
@@ -75,10 +82,14 @@ internal sealed class Output(CliEnvironment env, bool json)
     }
 
     /// <summary>Agent text as one safe line. Secrets go first, so a cut at the length limit cannot leave half a secret.</summary>
-    public string One(string? text, int maxLength = 300) =>
-        Block(text, maxLength).Replace('\n', ' ').Replace('\t', ' ');
+    public string One(string? text, int maxLength = 300)
+    {
+        return Block(text, maxLength).Replace('\n', ' ').Replace('\t', ' ');
+    }
 
     /// <summary>Agent text that may span lines, safe to show.</summary>
-    public string Block(string? text, int maxLength = 2000) =>
-        new UntrustedText(text is null ? null : _redactor.Redact(text), maxLength).ToString();
+    public string Block(string? text, int maxLength = 2000)
+    {
+        return new UntrustedText(text is null ? null : _redactor.Redact(text), maxLength).ToString();
+    }
 }

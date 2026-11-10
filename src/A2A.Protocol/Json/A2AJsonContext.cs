@@ -4,13 +4,14 @@ using A2A.Delegation;
 using A2A.JsonRpc;
 using A2A.Signing;
 
-
 namespace A2A.Json;
 
 /// <summary>
-/// Source-generated metadata for every type the SDK reads or writes as JSON. <see cref="A2AJson.Options"/> serves metadata from
-/// this context only (no reflection fallback), so the libraries are trimming and Native AOT safe. Naming, null handling, depth
-/// and the other behavioural settings come from <see cref="A2AJson.Options"/>, not from this context.
+///     Source-generated metadata for every type the SDK reads or writes as JSON. <see cref="A2AJson.Options" /> serves
+///     metadata from
+///     this context only (no reflection fallback), so the libraries are trimming and Native AOT safe. Naming, null
+///     handling, depth
+///     and the other behavioural settings come from <see cref="A2AJson.Options" />, not from this context.
 /// </summary>
 [JsonSerializable(typeof(Message))]
 [JsonSerializable(typeof(Artifact))]

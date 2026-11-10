@@ -6,30 +6,37 @@ using ModelContextProtocol.Protocol;
 
 namespace A2A.Mcp;
 
-/// <summary>Builds the results of the tools made by <see cref="A2AClientMcpExtensions.AsMcpTools"/>.</summary>
+/// <summary>Builds the results of the tools made by <see cref="A2AClientMcpExtensions.AsMcpTools" />.</summary>
 internal sealed class A2AMcpResults(A2AMcpToolOptions options, string? getTaskToolName)
 {
     internal const string UnknownTaskText = "Unknown or expired task.";
-    internal const string AuthRequiredText = "The remote agent needs authorization. Authorization happens outside MCP, so this tool cannot continue. Ask the user to authorize at the remote agent, then start again.";
+
+    internal const string AuthRequiredText =
+        "The remote agent needs authorization. Authorization happens outside MCP, so this tool cannot continue. Ask the user to authorize at the remote agent, then start again.";
 
     /// <summary>A tool error: fixed text, no structured content.</summary>
-    internal static CallToolResult Error(string text) => new()
+    internal static CallToolResult Error(string text)
     {
-        IsError = true,
-        Content = [new TextContentBlock { Text = text }],
-    };
+        return new CallToolResult
+        {
+            IsError = true,
+            Content = [new TextContentBlock { Text = text }]
+        };
+    }
 
     /// <summary>A direct reply of the remote agent: always completed.</summary>
     internal CallToolResult FromMessage(Message reply)
     {
         var content = new Collector(options);
         content.AddBlock(reply.Parts);
-        return Build(TaskState.Completed, reply.TaskId, reply.ContextId, content, isError: false);
+        return Build(TaskState.Completed, reply.TaskId, reply.ContextId, content, false);
     }
 
     /// <summary>
-    /// A task snapshot. <paramref name="knownArtifacts"/> are the artifact ids the caller has seen in an earlier turn; null means all
-    /// artifacts count. <paramref name="cancelCall"/> is true for the cancel tool: a canceled task is what the caller asked for.
+    ///     A task snapshot. <paramref name="knownArtifacts" /> are the artifact ids the caller has seen in an earlier turn;
+    ///     null means all
+    ///     artifacts count. <paramref name="cancelCall" /> is true for the cancel tool: a canceled task is what the caller
+    ///     asked for.
     /// </summary>
     internal CallToolResult FromTask(AgentTask task, HashSet<string>? knownArtifacts, bool cancelCall = false)
     {
@@ -58,6 +65,7 @@ internal sealed class A2AMcpResults(A2AMcpToolOptions options, string? getTaskTo
                 if (content.IsEmpty) AddArtifacts(content, task, knownArtifacts);
                 break;
         }
+
         var isError = A2AMcpState.IsError(state) && !(cancelCall && state == TaskState.Canceled);
         return Build(state, task.Id, task.ContextId, content, isError);
     }
@@ -67,7 +75,7 @@ internal sealed class A2AMcpResults(A2AMcpToolOptions options, string? getTaskTo
     {
         var content = new Collector(options);
         content.AddText(text);
-        return Build(TaskState.Unspecified, null, contextId, content, isError: true);
+        return Build(TaskState.Unspecified, null, contextId, content, true);
     }
 
     private static void AddArtifacts(Collector content, AgentTask task, HashSet<string>? known)
@@ -93,7 +101,8 @@ internal sealed class A2AMcpResults(A2AMcpToolOptions options, string? getTaskTo
         }
 
         var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+        using (var writer = new Utf8JsonWriter(buffer,
+                   new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
         {
             writer.WriteStartObject();
             writer.WriteString("state", A2AMcpState.Name(state));
@@ -105,6 +114,7 @@ internal sealed class A2AMcpResults(A2AMcpToolOptions options, string? getTaskTo
             writer.WriteString("notice", options.UntrustedContentNotice);
             writer.WriteEndObject();
         }
+
         var json = Encoding.UTF8.GetString(buffer.WrittenSpan);
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
 
@@ -114,7 +124,7 @@ internal sealed class A2AMcpResults(A2AMcpToolOptions options, string? getTaskTo
         {
             IsError = isError,
             StructuredContent = document.RootElement.Clone(),
-            Content = blocks,
+            Content = blocks
         };
     }
 
@@ -122,10 +132,10 @@ internal sealed class A2AMcpResults(A2AMcpToolOptions options, string? getTaskTo
     private sealed class Collector(A2AMcpToolOptions options)
     {
         private readonly StringBuilder _text = new();
-        private bool _blockHasContent;
-        private bool _previousWasData;
         private long _binaryBytes;
+        private bool _blockHasContent;
         private int _partIndex;
+        private bool _previousWasData;
 
         public List<ContentBlock> Blocks { get; } = [];
         public int OmittedParts { get; private set; }
@@ -137,7 +147,7 @@ internal sealed class A2AMcpResults(A2AMcpToolOptions options, string? getTaskTo
         {
             _blockHasContent = false;
             _previousWasData = false;
-            Append(text, isData: false);
+            Append(text, false);
         }
 
         public void AddBlock(IEnumerable<Part> parts)
@@ -149,8 +159,8 @@ internal sealed class A2AMcpResults(A2AMcpToolOptions options, string? getTaskTo
                 var index = _partIndex++;
                 switch (part)
                 {
-                    case TextPart text: Append(text.Text, isData: false); break;
-                    case DataPart data: Append(data.Data.GetRawText(), isData: true); break;
+                    case TextPart text: Append(text.Text, false); break;
+                    case DataPart data: Append(data.Data.GetRawText(), true); break;
                     case RawPart raw: AddRaw(raw, index); break;
                     case UrlPart url: AddUrl(url); break;
                     default: OmittedParts++; break;
@@ -165,6 +175,7 @@ internal sealed class A2AMcpResults(A2AMcpToolOptions options, string? getTaskTo
                 OmittedParts++;
                 return;
             }
+
             _binaryBytes += raw.Raw.Length;
             Blocks.Add(A2AMcpContentExtensions.RawToBlock(raw, index));
         }
@@ -182,6 +193,7 @@ internal sealed class A2AMcpResults(A2AMcpToolOptions options, string? getTaskTo
                 if (!_blockHasContent) _text.Append("\n\n");
                 else if (isData || _previousWasData) _text.Append('\n');
             }
+
             _text.Append(value);
             _blockHasContent = true;
             _previousWasData = isData;

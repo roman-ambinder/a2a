@@ -2,7 +2,6 @@ using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Postgres;
 using A2A.Server.Redis;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;

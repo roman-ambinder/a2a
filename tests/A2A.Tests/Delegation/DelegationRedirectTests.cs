@@ -1,10 +1,8 @@
-using System.Net;
 using A2A.Client;
 using A2A.Client.Delegation;
 using A2A.Delegation;
 using A2A.Tests.Credentials;
 using Microsoft.AspNetCore.Http;
-using Xunit;
 
 namespace A2A.Tests;
 

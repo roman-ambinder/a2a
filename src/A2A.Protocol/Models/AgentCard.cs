@@ -9,6 +9,7 @@ public sealed class AgentCard : IJsonOnDeserialized
 {
     /// <summary>Human-readable name of the agent.</summary>
     public required string Name { get; set; } = string.Empty;
+
     /// <summary>What the agent does, for people choosing an agent.</summary>
     public required string Description { get; set; } = string.Empty;
 
@@ -17,24 +18,34 @@ public sealed class AgentCard : IJsonOnDeserialized
 
     /// <summary>The organization that runs the agent. Null when not stated.</summary>
     public AgentProvider? Provider { get; set; }
+
     /// <summary>Version of the agent, as the operator defines it. Not the protocol version.</summary>
     public required string Version { get; set; } = string.Empty;
+
     /// <summary>URL of documentation for the agent. Null when none.</summary>
     public string? DocumentationUrl { get; set; }
+
     /// <summary>Optional features the agent supports.</summary>
     public AgentCapabilities Capabilities { get; set; } = new();
+
     /// <summary>Security schemes the agent accepts, by name. Null when the agent needs no authentication.</summary>
     public Dictionary<string, SecurityScheme>? SecuritySchemes { get; set; }
+
     /// <summary>Alternative sets of schemes that grant access to the agent. A caller satisfies any one entry. Null when none.</summary>
     public List<SecurityRequirement>? SecurityRequirements { get; set; }
+
     /// <summary>Media types the agent accepts as input when a skill does not say otherwise.</summary>
     public List<string> DefaultInputModes { get; set; } = new();
+
     /// <summary>Media types the agent produces when a skill does not say otherwise.</summary>
     public List<string> DefaultOutputModes { get; set; } = new();
+
     /// <summary>Skills the agent offers.</summary>
     public List<AgentSkill> Skills { get; set; } = new();
+
     /// <summary>JWS signatures over the card. Null when the card is unsigned.</summary>
     public List<AgentCardSignature>? Signatures { get; set; }
+
     /// <summary>URL of an icon for the agent. Null when none.</summary>
     public string? IconUrl { get; set; }
 
@@ -44,12 +55,12 @@ public sealed class AgentCard : IJsonOnDeserialized
     {
         Name ??= string.Empty;
         Description ??= string.Empty;
-        SupportedInterfaces ??= new();
+        SupportedInterfaces ??= new List<AgentInterface>();
         Version ??= string.Empty;
-        Capabilities ??= new();
-        DefaultInputModes ??= new();
-        DefaultOutputModes ??= new();
-        Skills ??= new();
+        Capabilities ??= new AgentCapabilities();
+        DefaultInputModes ??= new List<string>();
+        DefaultOutputModes ??= new List<string>();
+        Skills ??= new List<AgentSkill>();
     }
 }
 
@@ -58,8 +69,10 @@ public static class ProtocolBindings
 {
     /// <summary>JSON-RPC 2.0 over HTTP.</summary>
     public const string JsonRpc = "JSONRPC";
+
     /// <summary>gRPC.</summary>
     public const string Grpc = "GRPC";
+
     /// <summary>HTTP with JSON bodies (REST-style).</summary>
     public const string HttpJson = "HTTP+JSON";
 }
@@ -69,13 +82,14 @@ public sealed class AgentInterface
 {
     /// <summary>Absolute URL of the endpoint for this binding.</summary>
     public string Url { get; set; } = string.Empty;
-    /// <summary>Binding of the endpoint. One of the values in <see cref="ProtocolBindings"/>.</summary>
+
+    /// <summary>Binding of the endpoint. One of the values in <see cref="ProtocolBindings" />.</summary>
     public string ProtocolBinding { get; set; } = string.Empty;
 
     /// <summary>Opaque routing value. When set, clients send it as <c>tenant</c> on every request.</summary>
     public string? Tenant { get; set; }
 
-    /// <summary>Protocol version the endpoint speaks. Defaults to <see cref="A2AProtocol.Version"/>.</summary>
+    /// <summary>Protocol version the endpoint speaks. Defaults to <see cref="A2AProtocol.Version" />.</summary>
     public string ProtocolVersion { get; set; } = A2AProtocol.Version;
 }
 
@@ -84,6 +98,7 @@ public sealed class AgentProvider
 {
     /// <summary>Website of the organization.</summary>
     public string Url { get; set; } = string.Empty;
+
     /// <summary>Name of the organization.</summary>
     public string Organization { get; set; } = string.Empty;
 }
@@ -93,13 +108,20 @@ public sealed class AgentCapabilities
 {
     /// <summary>True if the agent supports streaming. Null means not stated.</summary>
     public bool? Streaming { get; set; }
+
     /// <summary>True if the agent supports push notifications. Null means not stated.</summary>
     public bool? PushNotifications { get; set; }
+
     /// <summary>Extensions the agent supports. Null when none.</summary>
     public List<AgentExtension>? Extensions { get; set; }
+
     /// <summary>True if the agent serves an extended card to authenticated callers. Null means not stated.</summary>
     public bool? ExtendedAgentCard { get; set; }
-    /// <summary>A2A 1.1: true if the agent accepts artifacts written by the client (<see cref="SendMessageRequest.ArtifactUpdates"/>). Null means not stated.</summary>
+
+    /// <summary>
+    ///     A2A 1.1: true if the agent accepts artifacts written by the client (
+    ///     <see cref="SendMessageRequest.ArtifactUpdates" />). Null means not stated.
+    /// </summary>
     public bool? UserArtifacts { get; set; }
 }
 
@@ -108,6 +130,7 @@ public sealed class AgentExtension
 {
     /// <summary>URI that identifies the extension.</summary>
     public string Uri { get; set; } = string.Empty;
+
     /// <summary>What the extension does. Null when not stated.</summary>
     public string? Description { get; set; }
 
@@ -124,18 +147,25 @@ public sealed class AgentSkill
 {
     /// <summary>Identifier of the skill, unique within the card.</summary>
     public string Id { get; set; } = string.Empty;
+
     /// <summary>Human-readable name of the skill.</summary>
     public string Name { get; set; } = string.Empty;
+
     /// <summary>What the skill does.</summary>
     public string Description { get; set; } = string.Empty;
+
     /// <summary>Keywords that describe the skill. Empty by default.</summary>
     public List<string> Tags { get; set; } = new();
+
     /// <summary>Example prompts that show how to use the skill. Null when none.</summary>
     public List<string>? Examples { get; set; }
+
     /// <summary>Input media types for this skill. Null means use the card's defaults.</summary>
     public List<string>? InputModes { get; set; }
+
     /// <summary>Output media types for this skill. Null means use the card's defaults.</summary>
     public List<string>? OutputModes { get; set; }
+
     /// <summary>Security requirements for this skill. Null means use the card's requirements.</summary>
     public List<SecurityRequirement>? SecurityRequirements { get; set; }
 }
@@ -153,7 +183,7 @@ public sealed class AgentCardSignature
     public Dictionary<string, JsonElement>? Header { get; set; }
 }
 
-/// <summary>A list of strings. Wrapper used as the value type of <see cref="SecurityRequirement.Schemes"/>.</summary>
+/// <summary>A list of strings. Wrapper used as the value type of <see cref="SecurityRequirement.Schemes" />.</summary>
 public sealed class StringList
 {
     /// <summary>The strings, for example the required OAuth scopes. Empty by default.</summary>
@@ -171,15 +201,26 @@ public sealed class SecurityRequirement
 [JsonConverter(typeof(SecuritySchemeConverter))]
 public abstract record SecurityScheme
 {
-    private protected SecurityScheme() { }
+    private protected SecurityScheme()
+    {
+    }
 
-    /// <summary>Creates an HTTP bearer scheme. <paramref name="bearerFormat"/> defaults to <c>"JWT"</c>.</summary>
-    public static HttpAuthScheme Bearer(string? bearerFormat = "JWT", string? description = null) =>
-        new(new HttpAuthSecurityScheme { Scheme = "Bearer", BearerFormat = bearerFormat, Description = description });
+    /// <summary>Creates an HTTP bearer scheme. <paramref name="bearerFormat" /> defaults to <c>"JWT"</c>.</summary>
+    public static HttpAuthScheme Bearer(string? bearerFormat = "JWT", string? description = null)
+    {
+        return new HttpAuthScheme(new HttpAuthSecurityScheme
+            { Scheme = "Bearer", BearerFormat = bearerFormat, Description = description });
+    }
 
-    /// <summary>Creates an API key scheme. <paramref name="location"/> is <c>"header"</c>, <c>"query"</c> or <c>"cookie"</c>; it defaults to <c>"header"</c>.</summary>
-    public static ApiKeyScheme ApiKey(string name, string location = "header", string? description = null) =>
-        new(new ApiKeySecurityScheme { Name = name, Location = location, Description = description });
+    /// <summary>
+    ///     Creates an API key scheme. <paramref name="location" /> is <c>"header"</c>, <c>"query"</c> or <c>"cookie"</c>;
+    ///     it defaults to <c>"header"</c>.
+    /// </summary>
+    public static ApiKeyScheme ApiKey(string name, string location = "header", string? description = null)
+    {
+        return new ApiKeyScheme(
+            new ApiKeySecurityScheme { Name = name, Location = location, Description = description });
+    }
 }
 
 /// <summary>API key scheme (wire member <c>apiKeySecurityScheme</c>).</summary>
@@ -220,8 +261,10 @@ public sealed class HttpAuthSecurityScheme
 {
     /// <summary>What the scheme is for. Null when not stated.</summary>
     public string? Description { get; set; }
+
     /// <summary>HTTP auth scheme name from the IANA registry. Defaults to <c>"Bearer"</c>.</summary>
     public string Scheme { get; set; } = "Bearer";
+
     /// <summary>Hint about the token format, for example <c>"JWT"</c>. Null when not stated.</summary>
     public string? BearerFormat { get; set; }
 }
@@ -231,8 +274,10 @@ public sealed class OAuth2SecurityScheme
 {
     /// <summary>What the scheme is for. Null when not stated.</summary>
     public string? Description { get; set; }
+
     /// <summary>The OAuth flows the agent supports.</summary>
     public OAuthFlows Flows { get; set; } = new();
+
     /// <summary>URL of the authorization server metadata (RFC 8414). Null when not stated.</summary>
     public string? Oauth2MetadataUrl { get; set; }
 }
@@ -242,6 +287,7 @@ public sealed class OpenIdConnectSecurityScheme
 {
     /// <summary>What the scheme is for. Null when not stated.</summary>
     public string? Description { get; set; }
+
     /// <summary>URL of the OpenID Connect discovery document.</summary>
     public string OpenIdConnectUrl { get; set; } = string.Empty;
 }
@@ -258,6 +304,7 @@ public sealed class OAuthFlows
 {
     /// <summary>Authorization code flow.</summary>
     public AuthorizationCodeOAuthFlow? AuthorizationCode { get; set; }
+
     /// <summary>Client credentials flow.</summary>
     public ClientCredentialsOAuthFlow? ClientCredentials { get; set; }
 
@@ -278,10 +325,13 @@ public sealed class AuthorizationCodeOAuthFlow
 {
     /// <summary>URL of the authorization endpoint.</summary>
     public string AuthorizationUrl { get; set; } = string.Empty;
+
     /// <summary>URL of the token endpoint.</summary>
     public string TokenUrl { get; set; } = string.Empty;
+
     /// <summary>URL used to refresh tokens. Null when not stated.</summary>
     public string? RefreshUrl { get; set; }
+
     /// <summary>Available scopes, as scope name to description.</summary>
     public Dictionary<string, string> Scopes { get; set; } = new();
 
@@ -295,8 +345,10 @@ public sealed class ClientCredentialsOAuthFlow
 {
     /// <summary>URL of the token endpoint.</summary>
     public string TokenUrl { get; set; } = string.Empty;
+
     /// <summary>URL used to refresh tokens. Null when not stated.</summary>
     public string? RefreshUrl { get; set; }
+
     /// <summary>Available scopes, as scope name to description.</summary>
     public Dictionary<string, string> Scopes { get; set; } = new();
 }
@@ -306,8 +358,10 @@ public sealed class ImplicitOAuthFlow
 {
     /// <summary>URL of the authorization endpoint.</summary>
     public string? AuthorizationUrl { get; set; }
+
     /// <summary>URL used to refresh tokens. Null when not stated.</summary>
     public string? RefreshUrl { get; set; }
+
     /// <summary>Available scopes, as scope name to description.</summary>
     public Dictionary<string, string>? Scopes { get; set; }
 }
@@ -317,8 +371,10 @@ public sealed class PasswordOAuthFlow
 {
     /// <summary>URL of the token endpoint.</summary>
     public string? TokenUrl { get; set; }
+
     /// <summary>URL used to refresh tokens. Null when not stated.</summary>
     public string? RefreshUrl { get; set; }
+
     /// <summary>Available scopes, as scope name to description.</summary>
     public Dictionary<string, string>? Scopes { get; set; }
 }
@@ -328,10 +384,13 @@ public sealed class DeviceCodeOAuthFlow
 {
     /// <summary>URL of the device authorization endpoint.</summary>
     public string DeviceAuthorizationUrl { get; set; } = string.Empty;
+
     /// <summary>URL of the token endpoint.</summary>
     public string TokenUrl { get; set; } = string.Empty;
+
     /// <summary>URL used to refresh tokens. Null when not stated.</summary>
     public string? RefreshUrl { get; set; }
+
     /// <summary>Available scopes, as scope name to description.</summary>
     public Dictionary<string, string> Scopes { get; set; } = new();
 }

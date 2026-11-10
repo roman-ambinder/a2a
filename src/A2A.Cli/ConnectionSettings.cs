@@ -35,11 +35,13 @@ internal sealed record ConnectionSettings
     /// <summary>Reads the shared options. An option beats the environment variable.</summary>
     public static ConnectionSettings From(ParsedArgs a, Func<string, string?> getEnv)
     {
-        string? Pick(string option, string variable) =>
-            a.Value(option) ?? (getEnv(variable) is { Length: > 0 } v ? v : null);
+        string? Pick(string option, string variable)
+        {
+            return a.Value(option) ?? (getEnv(variable) is { Length: > 0 } v ? v : null);
+        }
 
         var agentText = Pick("agent", AgentUrlVariable)
-            ?? throw CliException.Usage($"No agent URL. Use --agent or set {AgentUrlVariable}.");
+                        ?? throw CliException.Usage($"No agent URL. Use --agent or set {AgentUrlVariable}.");
         var agent = ParseUrl(agentText, "--agent");
 
         var transport = a.Value("transport")?.ToLowerInvariant();
@@ -52,7 +54,7 @@ internal sealed record ConnectionSettings
         var apiKey = Pick("api-key", ApiKeyVariable);
         var clientId = Pick("client-id", ClientIdVariable);
         var clientSecret = Pick("client-secret", ClientSecretVariable);
-        if ((clientId is null) != (clientSecret is null))
+        if (clientId is null != clientSecret is null)
             throw CliException.Usage("--client-id and --client-secret must be given together.");
 
         if (a.Values("trust-jku-host").Any(string.IsNullOrWhiteSpace))
@@ -75,7 +77,7 @@ internal sealed record ConnectionSettings
             Scopes = a.Values("scope"),
             TrustJwksPath = a.Value("trust-jwks"),
             JkuHosts = a.Values("trust-jku-host"),
-            RequireSignature = a.Has("require-signature"),
+            RequireSignature = a.Has("require-signature")
         };
     }
 
@@ -89,5 +91,8 @@ internal sealed record ConnectionSettings
         return uri;
     }
 
-    public static string FormatSeconds(TimeSpan t) => t.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+    public static string FormatSeconds(TimeSpan t)
+    {
+        return t.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+    }
 }

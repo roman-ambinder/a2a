@@ -1,20 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>A2A.V0_3Compat</RootNamespace>
-    <!-- CA1707: the assembly name A2A.V0_3Compat is fixed by the package plan. -->
-    <NoWarn>$(NoWarn);CA1707</NoWarn>
-    <Description>A2A (Agent2Agent) protocol v0.3 compatibility: wire codecs and Agent Card conversion between v0.3 and the v1.0 model. Used by the v0.3 server and client packages.</Description>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\A2A.Protocol\A2A.Protocol.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-  </ItemGroup>
-  <ItemGroup>
-    <!-- The codecs are internal on purpose: the compat packages are built together and version-checked at startup. -->
-    <InternalsVisibleTo Include="A2A.Server.V0_3Compat" />
-    <InternalsVisibleTo Include="A2A.Client.V0_3Compat" />
-    <InternalsVisibleTo Include="A2A.V0_3Compat.Tests" />
-  </ItemGroup>
+    <PropertyGroup>
+        <RootNamespace>A2A.V0_3Compat</RootNamespace>
+        <!-- CA1707: the assembly name A2A.V0_3Compat is fixed by the package plan. -->
+        <NoWarn>$(NoWarn);CA1707</NoWarn>
+        <Description>A2A (Agent2Agent) protocol v0.3 compatibility: wire codecs and Agent Card conversion between v0.3 and the v1.0 model. Used by the v0.3 server and client packages.</Description>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.Protocol\A2A.Protocol.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions"/>
+    </ItemGroup>
+    <ItemGroup>
+        <!-- The codecs are internal on purpose: the compat packages are built together and version-checked at startup. -->
+        <InternalsVisibleTo Include="A2A.Server.V0_3Compat"/>
+        <InternalsVisibleTo Include="A2A.Client.V0_3Compat"/>
+        <InternalsVisibleTo Include="A2A.V0_3Compat.Tests"/>
+    </ItemGroup>
 </Project>

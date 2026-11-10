@@ -1,5 +1,4 @@
 using A2A.Client.Credentials;
-using Xunit;
 
 namespace A2A.Tests.Credentials;
 

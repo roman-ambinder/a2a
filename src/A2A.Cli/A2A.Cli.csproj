@@ -1,20 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <RootNamespace>A2A.Cli</RootNamespace>
-    <Description>The a2a command line tool: fetch and verify Agent Cards, send messages, stream and manage tasks, and download artifacts of any A2A agent.</Description>
-    <PackAsTool>true</PackAsTool>
-    <ToolCommandName>a2a</ToolCommandName>
-    <PackageTags>$(PackageTags);cli;dotnet-tool</PackageTags>
-    <InvariantGlobalization>true</InvariantGlobalization>
-    <!-- A native AOT publish restores the ILCompiler package, and NuGet audit may report a known vulnerability for its current
-         version. That is a warning about the build tool, not about this tool's code, so it must not fail the publish. -->
-    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1903</WarningsNotAsErrors>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\A2A.Client\A2A.Client.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <InternalsVisibleTo Include="A2A.Tests" />
-  </ItemGroup>
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <RootNamespace>A2A.Cli</RootNamespace>
+        <Description>The a2a command line tool: fetch and verify Agent Cards, send messages, stream and manage tasks, and download artifacts of any A2A agent.</Description>
+        <PackAsTool>true</PackAsTool>
+        <ToolCommandName>a2a</ToolCommandName>
+        <PackageTags>$(PackageTags);cli;dotnet-tool</PackageTags>
+        <InvariantGlobalization>true</InvariantGlobalization>
+        <!-- A native AOT publish restores the ILCompiler package, and NuGet audit may report a known vulnerability for its current
+             version. That is a warning about the build tool, not about this tool's code, so it must not fail the publish. -->
+        <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1903</WarningsNotAsErrors>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.Client\A2A.Client.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="A2A.Tests"/>
+    </ItemGroup>
 </Project>

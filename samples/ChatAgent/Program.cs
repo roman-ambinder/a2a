@@ -31,7 +31,7 @@ var card = new AgentCard
     Capabilities = new AgentCapabilities { Streaming = true },
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
-    Skills = [new AgentSkill { Id = "chat", Name = "Chat", Description = "Answers simple questions", Tags = ["chat"] }],
+    Skills = [new AgentSkill { Id = "chat", Name = "Chat", Description = "Answers simple questions", Tags = ["chat"] }]
 };
 
 // AllowAnonymous is fine for a sample that only listens on loopback. A real agent needs authentication
@@ -66,10 +66,14 @@ await app.StopAsync();
 /// <summary>A stand-in for a real model. It answers from simple rules and streams the answer word by word.</summary>
 internal sealed class RuleBasedChatClient : IChatClient
 {
-    public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
-        Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, Answer(messages))));
+    public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, Answer(messages))));
+    }
 
-    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+        ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var words = Answer(messages).Split(' ');
@@ -80,17 +84,21 @@ internal sealed class RuleBasedChatClient : IChatClient
         }
     }
 
-    private static string Answer(IEnumerable<ChatMessage> messages)
+    public object? GetService(Type serviceType, object? serviceKey = null)
     {
-        var question = messages.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? "";
-        if (question.Contains("time", StringComparison.OrdinalIgnoreCase)) return $"It is {DateTimeOffset.UtcNow:HH:mm} UTC.";
-        if (question.Contains("hello", StringComparison.OrdinalIgnoreCase)) return "Hello! Ask me what time it is.";
-        return $"You said: {question}";
+        return null;
     }
-
-    public object? GetService(Type serviceType, object? serviceKey = null) => null;
 
     public void Dispose()
     {
+    }
+
+    private static string Answer(IEnumerable<ChatMessage> messages)
+    {
+        var question = messages.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? "";
+        if (question.Contains("time", StringComparison.OrdinalIgnoreCase))
+            return $"It is {DateTimeOffset.UtcNow:HH:mm} UTC.";
+        if (question.Contains("hello", StringComparison.OrdinalIgnoreCase)) return "Hello! Ask me what time it is.";
+        return $"You said: {question}";
     }
 }

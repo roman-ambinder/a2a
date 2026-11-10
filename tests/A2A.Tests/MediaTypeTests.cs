@@ -1,6 +1,3 @@
-using A2A.Server;
-using A2A.Server.AspNetCore;
-
 namespace A2A.Tests;
 
 public class MediaTypeTests

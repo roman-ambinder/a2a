@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using A2A.Server;
-using A2A.Server.Storage;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.Tests;

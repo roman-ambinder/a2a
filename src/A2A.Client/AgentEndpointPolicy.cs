@@ -6,44 +6,60 @@ using A2A.Security.Http;
 namespace A2A.Client;
 
 /// <summary>
-/// What an <see cref="A2AClientOptions.EndpointPolicy"/> judges: one endpoint that an Agent Card names, with the addresses its
-/// host and the card's own host resolve to. Empty address lists mean "not resolved": the host did not resolve, or no lookup was made.
+///     What an <see cref="A2AClientOptions.EndpointPolicy" /> judges: one endpoint that an Agent Card names, with the
+///     addresses its
+///     host and the card's own host resolve to. Empty address lists mean "not resolved": the host did not resolve, or no
+///     lookup was made.
 /// </summary>
-/// <param name="endpoint">The endpoint the client would call. Bare gRPC <c>host:port</c> values are read as <c>https://host:port</c>.</param>
-/// <param name="protocolBinding">The interface's binding (<see cref="ProtocolBindings"/>).</param>
+/// <param name="endpoint">
+///     The endpoint the client would call. Bare gRPC <c>host:port</c> values are read as
+///     <c>https://host:port</c>.
+/// </param>
+/// <param name="protocolBinding">The interface's binding (<see cref="ProtocolBindings" />).</param>
 /// <param name="cardSource">Where the card was fetched from, or null when the caller supplied the card.</param>
 /// <param name="endpointAddresses">The addresses of the endpoint host.</param>
-/// <param name="cardSourceAddresses">The addresses of the card source host. Empty when <paramref name="cardSource"/> is null.</param>
-public sealed class AgentEndpointCheck(Uri endpoint, string protocolBinding, Uri? cardSource,
-    IReadOnlyList<IPAddress> endpointAddresses, IReadOnlyList<IPAddress> cardSourceAddresses)
+/// <param name="cardSourceAddresses">
+///     The addresses of the card source host. Empty when <paramref name="cardSource" /> is
+///     null.
+/// </param>
+public sealed class AgentEndpointCheck(
+    Uri endpoint,
+    string protocolBinding,
+    Uri? cardSource,
+    IReadOnlyList<IPAddress> endpointAddresses,
+    IReadOnlyList<IPAddress> cardSourceAddresses)
 {
     /// <summary>The endpoint the client would call.</summary>
     public Uri Endpoint { get; } = endpoint ?? throw new ArgumentNullException(nameof(endpoint));
 
     /// <summary>The interface's binding.</summary>
-    public string ProtocolBinding { get; } = protocolBinding ?? throw new ArgumentNullException(nameof(protocolBinding));
+    public string ProtocolBinding { get; } =
+        protocolBinding ?? throw new ArgumentNullException(nameof(protocolBinding));
 
     /// <summary>Where the card was fetched from. Null when the caller supplied the card.</summary>
     public Uri? CardSource { get; } = cardSource;
 
     /// <summary>The addresses of the endpoint host. Empty when unresolved.</summary>
-    public IReadOnlyList<IPAddress> EndpointAddresses { get; } = endpointAddresses ?? throw new ArgumentNullException(nameof(endpointAddresses));
+    public IReadOnlyList<IPAddress> EndpointAddresses { get; } =
+        endpointAddresses ?? throw new ArgumentNullException(nameof(endpointAddresses));
 
-    /// <summary>The addresses of the card source host. Empty when unresolved or when <see cref="CardSource"/> is null.</summary>
-    public IReadOnlyList<IPAddress> CardSourceAddresses { get; } = cardSourceAddresses ?? throw new ArgumentNullException(nameof(cardSourceAddresses));
+    /// <summary>The addresses of the card source host. Empty when unresolved or when <see cref="CardSource" /> is null.</summary>
+    public IReadOnlyList<IPAddress> CardSourceAddresses { get; } =
+        cardSourceAddresses ?? throw new ArgumentNullException(nameof(cardSourceAddresses));
 }
 
 /// <summary>
-/// Ready-made values for <see cref="A2AClientOptions.EndpointPolicy"/>. A card chooses the URL the client calls, so a card from
-/// the internet can point the client at an internal address (SSRF). The policy is a pre-flight check on the card; it does not
-/// stop DNS rebinding. For that, use an <see cref="HttpClient"/> built on <c>SafeHttp.CreateHandler</c> (A2A.Security.Http).
+///     Ready-made values for <see cref="A2AClientOptions.EndpointPolicy" />. A card chooses the URL the client calls, so a
+///     card from
+///     the internet can point the client at an internal address (SSRF). The policy is a pre-flight check on the card; it
+///     does not
+///     stop DNS rebinding. For that, use an <see cref="HttpClient" /> built on <c>SafeHttp.CreateHandler</c>
+///     (A2A.Security.Http).
 /// </summary>
 public static class AgentEndpointPolicies
 {
-    private static readonly Func<AgentEndpointCheck, bool> AllowAllPolicy = _ => true;
-
     /// <summary>Allows every endpoint. The client makes no DNS lookup for it.</summary>
-    public static Func<AgentEndpointCheck, bool> AllowAll => AllowAllPolicy;
+    public static Func<AgentEndpointCheck, bool> AllowAll { get; } = _ => true;
 
 #if !NETSTANDARD2_0
     /// <summary>

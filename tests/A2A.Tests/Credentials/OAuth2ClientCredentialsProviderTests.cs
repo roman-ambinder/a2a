@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using A2A.Client.Credentials;
-using Xunit;
 
 namespace A2A.Tests.Credentials;
 

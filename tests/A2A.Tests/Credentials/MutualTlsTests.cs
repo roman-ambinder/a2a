@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using A2A.Client.Credentials;
-using Xunit;
 using static A2A.Tests.Credentials.Cards;
 
 namespace A2A.Tests.Credentials;

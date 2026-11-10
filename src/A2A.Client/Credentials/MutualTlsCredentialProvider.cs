@@ -1,11 +1,14 @@
-using System.Net.Security;
-using System.Security.Cryptography.X509Certificates;
-
 namespace A2A.Client.Credentials;
 
+// ReSharper disable once RedundantUsingDirective
+using System.Net.Security;
+// ReSharper disable once RedundantUsingDirective
+using System.Security.Cryptography.X509Certificates;
+
 /// <summary>
-/// Satisfies the card's <c>mutualTLS</c> scheme. The certificate lives in the transport, not in a header, so this provider
-/// adds nothing to the request. Build the transport with <see cref="A2AMutualTls.CreateHandler"/>.
+///     Satisfies the card's <c>mutualTLS</c> scheme. The certificate lives in the transport, not in a header, so this
+///     provider
+///     adds nothing to the request. Build the transport with <see cref="A2AMutualTls.CreateHandler" />.
 /// </summary>
 /// <param name="schemeName">When set, the provider only handles the card scheme with this name.</param>
 public sealed class MutualTlsCredentialProvider(string? schemeName = null) : IA2ACredentialProvider
@@ -15,11 +18,12 @@ public sealed class MutualTlsCredentialProvider(string? schemeName = null) : IA2
     {
         ArgumentNullException.ThrowIfNull(context);
         return context.Scheme is MutualTlsScheme
-            && (schemeName is null || string.Equals(schemeName, context.SchemeName, StringComparison.Ordinal));
+               && (schemeName is null || string.Equals(schemeName, context.SchemeName, StringComparison.Ordinal));
     }
 
     /// <inheritdoc />
-    public ValueTask ApplyAsync(HttpRequestMessage request, A2ACredentialContext context, CancellationToken cancellationToken)
+    public ValueTask ApplyAsync(HttpRequestMessage request, A2ACredentialContext context,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);

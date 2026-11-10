@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text;
-using System.Text.Json.Nodes;
 using A2A.Client;
 
 namespace A2A.V0_3Compat.Tests;

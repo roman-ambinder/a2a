@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Text;
 using System.Text.Json;
 using A2A.Json;
 using A2A.Server.Idempotency;
@@ -9,60 +10,78 @@ using static A2A.Server.Postgres.Sql;
 namespace A2A.Server.Postgres;
 
 /// <summary>
-/// PostgreSQL <see cref="IdempotencyStore"/>. Same behavior as <see cref="InMemoryIdempotencyStore"/> for claims, mismatches
-/// and retention (a finished entry is kept for <see cref="IdempotencyOptions.Retention"/>), with two differences that come
-/// from being shared by several instances:
-/// <list type="bullet">
-/// <item>A request waiting on a key held elsewhere polls the row every <see cref="PostgresStoreOptions.IdempotencyPollInterval"/>.</item>
-/// <item>A running claim older than <see cref="PostgresStoreOptions.IdempotencyClaimTimeout"/> counts as abandoned, so a crashed
-/// instance does not hold its keys forever. <see cref="RenewAsync"/> restarts that clock for a live request.</item>
-/// </list>
-/// Claim times and retention ends are on the database clock (<see cref="PostgresStoreOptions.UseDatabaseClock"/>), so an
-/// instance whose clock is off neither takes over a live claim nor drops a finished entry early.
-/// There is no <see cref="IdempotencyOptions.MaxEntries"/> cap: rows live until their retention ends.
+///     PostgreSQL <see cref="IdempotencyStore" />. Same behavior as <see cref="InMemoryIdempotencyStore" /> for claims,
+///     mismatches
+///     and retention (a finished entry is kept for <see cref="IdempotencyOptions.Retention" />), with two differences that
+///     come
+///     from being shared by several instances:
+///     <list type="bullet">
+///         <item>
+///             A request waiting on a key held elsewhere polls the row every
+///             <see cref="PostgresStoreOptions.IdempotencyPollInterval" />.
+///         </item>
+///         <item>
+///             A running claim older than <see cref="PostgresStoreOptions.IdempotencyClaimTimeout" /> counts as abandoned,
+///             so a crashed
+///             instance does not hold its keys forever. <see cref="RenewAsync" /> restarts that clock for a live request.
+///         </item>
+///     </list>
+///     Claim times and retention ends are on the database clock (<see cref="PostgresStoreOptions.UseDatabaseClock" />), so
+///     an
+///     instance whose clock is off neither takes over a live claim nor drops a finished entry early.
+///     There is no <see cref="IdempotencyOptions.MaxEntries" /> cap: rows live until their retention ends.
 /// </summary>
 public sealed class PostgresIdempotencyStore : IdempotencyStore
 {
     private static readonly IdempotencyResult Mismatch = new IdempotencyResult.Mismatch();
+    private readonly DbClock _clock;
 
     private readonly NpgsqlDataSource _db;
     private readonly IdempotencyOptions _options;
     private readonly PostgresStoreOptions _storeOptions;
-    private readonly TimeProvider _time;
-    private readonly DbClock _clock;
     private readonly string _table;
+    private readonly TimeProvider _time;
 
-    /// <summary>Creates the store over <paramref name="dataSource"/>. Create the tables first (<see cref="PostgresSchema"/>).</summary>
+    /// <summary>
+    ///     Creates the store over <paramref name="dataSource" />. Create the tables first (<see cref="PostgresSchema" />
+    ///     ).
+    /// </summary>
     /// <param name="dataSource">The database.</param>
-    /// <param name="options">Retention of finished entries (<see cref="IdempotencyOptions.Retention"/>).</param>
+    /// <param name="options">Retention of finished entries (<see cref="IdempotencyOptions.Retention" />).</param>
     /// <param name="storeOptions">The schema, claim timeout and poll interval.</param>
-    /// <param name="time">The clock for poll delays, and for retention and claim timeouts when
-    /// <see cref="PostgresStoreOptions.UseDatabaseClock"/> is off. Default <see cref="TimeProvider.System"/>.</param>
-    public PostgresIdempotencyStore(NpgsqlDataSource dataSource, IdempotencyOptions options, PostgresStoreOptions? storeOptions = null, TimeProvider? time = null)
+    /// <param name="time">
+    ///     The clock for poll delays, and for retention and claim timeouts when
+    ///     <see cref="PostgresStoreOptions.UseDatabaseClock" /> is off. Default <see cref="TimeProvider.System" />.
+    /// </param>
+    public PostgresIdempotencyStore(NpgsqlDataSource dataSource, IdempotencyOptions options,
+        PostgresStoreOptions? storeOptions = null, TimeProvider? time = null)
     {
         _db = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         _options = options ?? throw new ArgumentNullException(nameof(options));
-        _storeOptions = storeOptions ?? new();
+        _storeOptions = storeOptions ?? new PostgresStoreOptions();
         _time = time ?? TimeProvider.System;
         _clock = new DbClock(_time, _storeOptions);
         _table = $"{PostgresSchema.Quote(_storeOptions.Schema)}.a2a_idempotency";
     }
 
     /// <inheritdoc />
-    public override async ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash, CancellationToken cancellationToken = default)
+    public override async ValueTask<IdempotencyResult> TryBeginAsync(IdempotencyScope scope, byte[] requestHash,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(requestHash);
         while (true)
         {
             var claimId = Guid.NewGuid();
             await using (var insert = _db.CreateCommand(
-                $"INSERT INTO {_table} (tenant, principal, key, hash, claim_id, claimed_ticks) VALUES ($1, $2, $3, $4, $5, {DbClock.Now(6)}) ON CONFLICT DO NOTHING"))
+                             $"INSERT INTO {_table} (tenant, principal, key, hash, claim_id, claimed_ticks) VALUES ($1, $2, $3, $4, $5, {DbClock.Now(6)}) ON CONFLICT DO NOTHING"))
             {
                 AddScope(insert, scope);
-                insert.Parameters.Add(new NpgsqlParameter<byte[]> { TypedValue = requestHash, NpgsqlDbType = NpgsqlDbType.Bytea });
+                insert.Parameters.Add(new NpgsqlParameter<byte[]>
+                    { TypedValue = requestHash, NpgsqlDbType = NpgsqlDbType.Bytea });
                 insert.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = claimId });
                 insert.Parameters.Add(_clock.NowParam());
-                if (await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1) return new IdempotencyResult.New(claimId);
+                if (await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1)
+                    return new IdempotencyResult.New(claimId);
             }
 
             var row = await ReadAsync(scope, cancellationToken).ConfigureAwait(false);
@@ -74,6 +93,7 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
                 await DeleteClaimAsync(scope, r.ClaimId, cancellationToken).ConfigureAwait(false);
                 continue;
             }
+
             if (!r.Hash.AsSpan().SequenceEqual(requestHash)) return Mismatch;
             if (r.Outcome is not null) return new IdempotencyResult.Completed(OutcomeJson.Read(r.Outcome));
             return new IdempotencyResult.InProgress(WaitAsync(scope, r.ClaimId));
@@ -81,7 +101,8 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
     }
 
     /// <inheritdoc />
-    public override async ValueTask CompleteAsync(IdempotencyScope scope, Guid claimId, IdempotencyOutcome outcome, CancellationToken cancellationToken = default)
+    public override async ValueTask CompleteAsync(IdempotencyScope scope, Guid claimId, IdempotencyOutcome outcome,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(outcome);
         await using var cmd = _db.CreateCommand(
@@ -95,16 +116,20 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
     }
 
     /// <inheritdoc />
-    public override async ValueTask AbandonAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken = default)
+    public override async ValueTask AbandonAsync(IdempotencyScope scope, Guid claimId,
+        CancellationToken cancellationToken = default)
     {
-        await using var cmd = _db.CreateCommand($"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $4 AND outcome IS NULL");
+        await using var cmd =
+            _db.CreateCommand(
+                $"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $4 AND outcome IS NULL");
         AddScope(cmd, scope);
         cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = claimId });
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public override async ValueTask RenewAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken = default)
+    public override async ValueTask RenewAsync(IdempotencyScope scope, Guid claimId,
+        CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand(
             $"UPDATE {_table} SET claimed_ticks = {DbClock.Now(4)} WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $5 AND outcome IS NULL");
@@ -115,11 +140,13 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
     }
 
     /// <summary>
-    /// Polls the claim until it has an outcome (result), disappears or goes stale (canceled: the caller tries again).
+    ///     Polls the claim until it has an outcome (result), disappears or goes stale (canceled: the caller tries again).
     /// </summary>
     private async Task<IdempotencyOutcome> WaitAsync(IdempotencyScope scope, Guid claimId)
     {
-        var interval = _storeOptions.IdempotencyPollInterval > TimeSpan.Zero ? _storeOptions.IdempotencyPollInterval : TimeSpan.FromMilliseconds(200);
+        var interval = _storeOptions.IdempotencyPollInterval > TimeSpan.Zero
+            ? _storeOptions.IdempotencyPollInterval
+            : TimeSpan.FromMilliseconds(200);
         while (true)
         {
             await Task.Delay(interval, _time).ConfigureAwait(false);
@@ -133,7 +160,8 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
     private bool IsStale(long claimedTicks, long now)
     {
         var timeout = _storeOptions.IdempotencyClaimTimeout;
-        return timeout != Timeout.InfiniteTimeSpan && timeout > TimeSpan.Zero && AddClamped(claimedTicks, timeout) <= now;
+        return timeout != Timeout.InfiniteTimeSpan && timeout > TimeSpan.Zero &&
+               AddClamped(claimedTicks, timeout) <= now;
     }
 
     private async ValueTask<Row?> ReadAsync(IdempotencyScope scope, CancellationToken cancellationToken)
@@ -155,7 +183,9 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
 
     private async ValueTask DeleteClaimAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken)
     {
-        await using var cmd = _db.CreateCommand($"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $4");
+        await using var cmd =
+            _db.CreateCommand(
+                $"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $4");
         AddScope(cmd, scope);
         cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = claimId });
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -168,10 +198,16 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
         cmd.Parameters.Add(TextParam(scope.Key));
     }
 
-    private readonly record struct Row(byte[] Hash, Guid ClaimId, long ClaimedTicks, string? Outcome, long ExpiresTicks, long NowTicks);
+    private readonly record struct Row(
+        byte[] Hash,
+        Guid ClaimId,
+        long ClaimedTicks,
+        string? Outcome,
+        long ExpiresTicks,
+        long NowTicks);
 }
 
-/// <summary>JSON form of <see cref="IdempotencyOutcome"/>, written by hand so it needs no reflection.</summary>
+/// <summary>JSON form of <see cref="IdempotencyOutcome" />, written by hand so it needs no reflection.</summary>
 internal static class OutcomeJson
 {
     public static string Write(IdempotencyOutcome outcome)
@@ -196,9 +232,11 @@ internal static class OutcomeJson
                 default:
                     throw new ArgumentException($"Unknown outcome type {outcome.GetType().Name}.", nameof(outcome));
             }
+
             w.WriteEndObject();
         }
-        return System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     public static IdempotencyOutcome Read(string json)
@@ -207,10 +245,12 @@ internal static class OutcomeJson
         var root = doc.RootElement;
         return root.GetProperty("kind").GetString() switch
         {
-            "task" => new IdempotencyOutcome.TaskCreated(root.GetProperty("taskId").GetString()!, root.GetProperty("afterSequence").GetInt64(),
+            "task" => new IdempotencyOutcome.TaskCreated(root.GetProperty("taskId").GetString()!,
+                root.GetProperty("afterSequence").GetInt64(),
                 root.TryGetProperty("acceptedStatusTimestamp", out var at) ? at.GetDateTimeOffset() : null),
-            "message" => new IdempotencyOutcome.DirectMessage(A2AJson.Deserialize<Message>(root.GetProperty("message"))),
-            var kind => throw new JsonException($"Unknown idempotency outcome kind '{kind}'."),
+            "message" =>
+                new IdempotencyOutcome.DirectMessage(A2AJson.Deserialize<Message>(root.GetProperty("message"))),
+            var kind => throw new JsonException($"Unknown idempotency outcome kind '{kind}'.")
         };
     }
 }

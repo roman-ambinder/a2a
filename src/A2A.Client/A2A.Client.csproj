@@ -1,46 +1,46 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>A2A.Client</RootNamespace>
-    <Description>A2A (Agent2Agent) protocol client: JSON-RPC and HTTP+JSON transports, SSE streaming, Agent Card discovery and verification.</Description>
-  </PropertyGroup>
-  <ItemGroup Condition="'$(TargetFramework)' != 'netstandard2.0'">
-    <ProjectReference Include="..\A2A.Security.Http\A2A.Security.Http.csproj" />
-  </ItemGroup>
-  <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;net10.0</TargetFrameworks>
-  </PropertyGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-    <PackageReference Include="PolySharp" PrivateAssets="all" />
-    <PackageReference Include="System.Text.Json" />
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
-    <PackageReference Include="Microsoft.Bcl.HashCode" />
-    <PackageReference Include="Microsoft.Bcl.TimeProvider" />
-    <PackageReference Include="System.Diagnostics.DiagnosticSource" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-    <Compile Include="..\Shared\*.cs;..\Shared\Client\*.cs" Link="Shared\%(Filename)%(Extension)" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-    <!-- The streaming check needs IncrementalHash.GetCurrentHash, which netstandard2.0 does not have. -->
-    <Compile Remove="ArtifactVerifier.cs" />
-    <!-- SafeHttp is not available on netstandard2.0. -->
-    <Compile Remove="A2AArtifactDownloader.cs" />
-    <!-- Like the downloader, the uploader is for .NET 10. -->
-    <Compile Remove="A2AFileUploader.cs" />
-  </ItemGroup>
-  <!-- netstandard2.0 surface is a subset of net10.0 by design; package validation proves it. CS1574/CS1580: doc crefs to SocketsHttpHandler. -->
-  <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-    <NoWarn>$(NoWarn);RS0016;RS0017;CS1574;CS1580</NoWarn>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\A2A.Protocol\A2A.Protocol.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-  </ItemGroup>
-  <ItemGroup>
-    <InternalsVisibleTo Include="A2A.Tests" />
-    <InternalsVisibleTo Include="A2A.Client.V0_3Compat" />
-    <InternalsVisibleTo Include="A2A.V0_3Compat.Tests" />
-  </ItemGroup>
+    <PropertyGroup>
+        <RootNamespace>A2A.Client</RootNamespace>
+        <Description>A2A (Agent2Agent) protocol client: JSON-RPC and HTTP+JSON transports, SSE streaming, Agent Card discovery and verification.</Description>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(TargetFramework)' != 'netstandard2.0'">
+        <ProjectReference Include="..\A2A.Security.Http\A2A.Security.Http.csproj"/>
+    </ItemGroup>
+    <PropertyGroup>
+        <TargetFrameworks>netstandard2.0;net10.0</TargetFrameworks>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+        <PackageReference Include="PolySharp" PrivateAssets="all"/>
+        <PackageReference Include="System.Text.Json"/>
+        <PackageReference Include="Microsoft.Bcl.AsyncInterfaces"/>
+        <PackageReference Include="Microsoft.Bcl.HashCode"/>
+        <PackageReference Include="Microsoft.Bcl.TimeProvider"/>
+        <PackageReference Include="System.Diagnostics.DiagnosticSource"/>
+    </ItemGroup>
+    <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+        <Compile Include="..\Shared\*.cs;..\Shared\Client\*.cs" Link="Shared\%(Filename)%(Extension)"/>
+    </ItemGroup>
+    <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+        <!-- The streaming check needs IncrementalHash.GetCurrentHash, which netstandard2.0 does not have. -->
+        <Compile Remove="ArtifactVerifier.cs"/>
+        <!-- SafeHttp is not available on netstandard2.0. -->
+        <Compile Remove="A2AArtifactDownloader.cs"/>
+        <!-- Like the downloader, the uploader is for .NET 10. -->
+        <Compile Remove="A2AFileUploader.cs"/>
+    </ItemGroup>
+    <!-- netstandard2.0 surface is a subset of net10.0 by design; package validation proves it. CS1574/CS1580: doc crefs to SocketsHttpHandler. -->
+    <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+        <NoWarn>$(NoWarn);RS0016;RS0017;CS1574;CS1580</NoWarn>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.Protocol\A2A.Protocol.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions"/>
+    </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="A2A.Tests"/>
+        <InternalsVisibleTo Include="A2A.Client.V0_3Compat"/>
+        <InternalsVisibleTo Include="A2A.V0_3Compat.Tests"/>
+    </ItemGroup>
 </Project>

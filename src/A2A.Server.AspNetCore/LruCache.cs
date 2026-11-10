@@ -1,19 +1,27 @@
 namespace A2A.Server.AspNetCore;
 
 /// <summary>
-/// A thread-safe cache of at most <c>capacity</c> entries. When it is full, adding an entry evicts the least recently used one
-/// (a read or a write counts as a use), so entries in steady use stay while one-off entries pass through.
+///     A thread-safe cache of at most <c>capacity</c> entries. When it is full, adding an entry evicts the least recently
+///     used one
+///     (a read or a write counts as a use), so entries in steady use stay while one-off entries pass through.
 /// </summary>
-internal sealed class LruCache<TKey, TValue>(int capacity, IEqualityComparer<TKey>? comparer = null) where TKey : notnull
+internal sealed class LruCache<TKey, TValue>(int capacity, IEqualityComparer<TKey>? comparer = null)
+    where TKey : notnull
 {
     private readonly int _capacity = capacity > 0 ? capacity : throw new ArgumentOutOfRangeException(nameof(capacity));
+    private readonly object _gate = new();
     private readonly Dictionary<TKey, LinkedListNode<(TKey Key, TValue Value)>> _map = new(comparer);
     private readonly LinkedList<(TKey Key, TValue Value)> _order = new(); // most recently used first
-    private readonly object _gate = new();
 
     public int Count
     {
-        get { lock (_gate) return _map.Count; }
+        get
+        {
+            lock (_gate)
+            {
+                return _map.Count;
+            }
+        }
     }
 
     public bool TryGetValue(TKey key, out TValue value)
@@ -28,6 +36,7 @@ internal sealed class LruCache<TKey, TValue>(int capacity, IEqualityComparer<TKe
                 return true;
             }
         }
+
         value = default!;
         return false;
     }
@@ -47,6 +56,7 @@ internal sealed class LruCache<TKey, TValue>(int capacity, IEqualityComparer<TKe
                 _order.RemoveLast();
                 _map.Remove(oldest.Value.Key);
             }
+
             _map[key] = _order.AddFirst((key, value));
         }
     }

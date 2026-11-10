@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using A2A.Server;
 using A2A.Server.Agents;

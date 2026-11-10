@@ -1,10 +1,8 @@
-using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 using A2A.Client;
 using A2A.Client.V0_3Compat;
 using A2A.Json;
-using A2A.Signing;
 using static A2A.V0_3Compat.Tests.ClientData;
 
 namespace A2A.V0_3Compat.Tests;

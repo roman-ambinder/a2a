@@ -10,39 +10,47 @@ using A2A.Client.Cards;
 using A2A.Client.Peers;
 using A2A.Client.Transports;
 using A2A.Json;
+using A2A.Signing;
+using A2A.Text;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 #if !NETSTANDARD2_0
 using A2A.Security.Http;
 #endif
-using A2A.Signing;
-using A2A.Text;
-using A2A.Validation;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace A2A.Client;
 
-/// <summary>Settings of <see cref="A2ACardResolver"/>: signature trust, card pinning and text limits.</summary>
+/// <summary>Settings of <see cref="A2ACardResolver" />: signature trust, card pinning and text limits.</summary>
 public sealed class A2ACardResolverOptions
 {
     /// <summary>
-    /// Which keys card signatures must chain to (spec §7.5). With nothing configured, cards are returned with their status
-    /// (<see cref="AgentCardVerificationStatus.Unsigned"/> or <see cref="AgentCardVerificationStatus.Unverified"/>); once
-    /// trusted keys or <c>jku</c> hosts are configured, only <see cref="AgentCardVerificationStatus.Verified"/> cards resolve
-    /// unless <see cref="CardTrustPolicy.RequireSignature"/> is set to <see langword="false"/>.
-    /// <see cref="AgentCardVerificationStatus.Failed"/> always stops resolution. Changes apply to cached cards on the next resolve.
+    ///     Which keys card signatures must chain to (spec §7.5). With nothing configured, cards are returned with their status
+    ///     (<see cref="AgentCardVerificationStatus.Unsigned" /> or <see cref="AgentCardVerificationStatus.Unverified" />);
+    ///     once
+    ///     trusted keys or <c>jku</c> hosts are configured, only <see cref="AgentCardVerificationStatus.Verified" /> cards
+    ///     resolve
+    ///     unless <see cref="CardTrustPolicy.RequireSignature" /> is set to <see langword="false" />.
+    ///     <see cref="AgentCardVerificationStatus.Failed" /> always stops resolution. Changes apply to cached cards on the
+    ///     next resolve.
     /// </summary>
     public CardTrustPolicy Trust { get; set; } = new();
 
-    /// <summary>What to do when an origin's card content changes. Default <see cref="Cards.PinPolicy.Notify"/>.</summary>
+    /// <summary>What to do when an origin's card content changes. Default <see cref="Cards.PinPolicy.Notify" />.</summary>
     public PinPolicy PinPolicy { get; set; } = PinPolicy.Notify;
 
-    /// <summary>Where card pins are kept. Default: a new <see cref="InMemoryCardPinStore"/>.</summary>
+    /// <summary>Where card pins are kept. Default: a new <see cref="InMemoryCardPinStore" />.</summary>
     public ICardPinStore PinStore { get; set; } = new InMemoryCardPinStore();
 
-    /// <summary>Adds an external id (DID, SPIFFE) to the peer identity. Default <see cref="CardPeerIdentityResolver.Instance"/>.</summary>
+    /// <summary>
+    ///     Adds an external id (DID, SPIFFE) to the peer identity. Default
+    ///     <see cref="CardPeerIdentityResolver.Instance" />.
+    /// </summary>
     public IPeerIdentityResolver IdentityResolver { get; set; } = CardPeerIdentityResolver.Instance;
 
-    /// <summary>Length cap of the sanitized <see cref="UntrustedText"/> values of <see cref="ResolvedAgentCard"/>. Default 2000.</summary>
+    /// <summary>
+    ///     Length cap of the sanitized <see cref="UntrustedText" /> values of <see cref="ResolvedAgentCard" />. Default
+    ///     2000.
+    /// </summary>
     public int MaxCardTextLength { get; set; } = UntrustedText.DefaultMaxLength;
 
     /// <summary>Cache lifetime when the server sends no Cache-Control max-age. Default 5 minutes.</summary>
@@ -52,8 +60,8 @@ public sealed class A2ACardResolverOptions
     public bool RequireHttps { get; set; } = true;
 
     /// <summary>
-    /// Time limit for one card resolution (fetch, signature check, pin check). Default 100 seconds. Needed because the
-    /// HttpClient of <c>AddA2AClient</c> has an infinite timeout. <see cref="Timeout.InfiniteTimeSpan"/> disables it.
+    ///     Time limit for one card resolution (fetch, signature check, pin check). Default 100 seconds. Needed because the
+    ///     HttpClient of <c>AddA2AClient</c> has an infinite timeout. <see cref="Timeout.InfiniteTimeSpan" /> disables it.
     /// </summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(100);
 
@@ -61,21 +69,30 @@ public sealed class A2ACardResolverOptions
     internal HttpClient? JwksHttpClient { get; set; }
 
     /// <summary>
-    /// Seam for the v0.3 compat package. Runs on the parsed card before the model is read and before the signature is
-    /// checked, and returns the card to use (it may change the object or return a new one). Null (the default): no change.
+    ///     Seam for the v0.3 compat package. Runs on the parsed card before the model is read and before the signature is
+    ///     checked, and returns the card to use (it may change the object or return a new one). Null (the default): no change.
     /// </summary>
     internal Func<JsonObject, JsonObject>? CardNormalizer { get; set; }
 
     /// <summary>A shallow copy of these options (the trust policy, pin store and other objects are shared).</summary>
-    internal A2ACardResolverOptions Clone() => (A2ACardResolverOptions)MemberwiseClone();
+    internal A2ACardResolverOptions Clone()
+    {
+        return (A2ACardResolverOptions)MemberwiseClone();
+    }
 }
 
 /// <summary>
-/// The resolved card plus how it was checked. <see cref="Card"/> keeps plain strings for wire use; show or prompt with the
-/// <see cref="UntrustedText"/> views. Peer identity is <see cref="Identity"/>; the card's <c>name</c> is display only.
-/// <see cref="PeerIdentity.Assurance"/> says how strong the identity is.
+///     The resolved card plus how it was checked. <see cref="Card" /> keeps plain strings for wire use; show or prompt
+///     with the
+///     <see cref="UntrustedText" /> views. Peer identity is <see cref="Identity" />; the card's <c>name</c> is display
+///     only.
+///     <see cref="PeerIdentity.Assurance" /> says how strong the identity is.
 /// </summary>
-public sealed record ResolvedAgentCard(AgentCard Card, string RawJson, Uri Source, AgentCardVerificationResult Verification)
+public sealed record ResolvedAgentCard(
+    AgentCard Card,
+    string RawJson,
+    Uri Source,
+    AgentCardVerificationResult Verification)
 {
     /// <summary>The card description.</summary>
     public UntrustedText Description { get; init; }
@@ -84,46 +101,57 @@ public sealed record ResolvedAgentCard(AgentCard Card, string RawJson, Uri Sourc
     public IReadOnlyList<ResolvedSkill> Skills { get; init; } = [];
 
     /// <summary>
-    /// The peer identity: card origin, the <c>kid</c> that verified it (<see langword="null"/> unless <see cref="AgentCardVerificationStatus.Verified"/>)
-    /// and an optional external id.
+    ///     The peer identity: card origin, the <c>kid</c> that verified it (<see langword="null" /> unless
+    ///     <see cref="AgentCardVerificationStatus.Verified" />)
+    ///     and an optional external id.
     /// </summary>
     public PeerIdentity Identity { get; init; } = PeerIdentity.FromCard(Source, Verification);
 }
 
 /// <summary>Untrusted text of one card skill.</summary>
-public sealed record ResolvedSkill(UntrustedText Name, UntrustedText Description, IReadOnlyList<UntrustedText> Examples);
+public sealed record ResolvedSkill(
+    UntrustedText Name,
+    UntrustedText Description,
+    IReadOnlyList<UntrustedText> Examples);
 
 /// <summary>Raised when an origin serves a card whose canonical content differs from the pinned one.</summary>
 public sealed class CardChangedEventArgs(string origin, string oldHash, string newHash) : EventArgs
 {
     /// <summary>Origin (<c>https://host[:port]</c>) that served the changed card.</summary>
     public string Origin { get; } = origin;
+
     /// <summary>Hash of the pinned card.</summary>
     public string OldHash { get; } = oldHash;
+
     /// <summary>Hash of the card that was received.</summary>
     public string NewHash { get; } = newHash;
 }
 
 /// <summary>
-/// Fetches Agent Cards from <c>/.well-known/agent-card.json</c> (spec §8.2) with HTTP caching (ETag / max-age, §8.6),
-/// signature verification against a <see cref="CardTrustPolicy"/> (§8.4, §7.5) and per-origin card pinning.
+///     Fetches Agent Cards from <c>/.well-known/agent-card.json</c> (spec §8.2) with HTTP caching (ETag / max-age, §8.6),
+///     signature verification against a <see cref="CardTrustPolicy" /> (§8.4, §7.5) and per-origin card pinning.
 /// </summary>
 public sealed class A2ACardResolver
 {
     // Spec: metrics live under the "A2A" meter.
     private static readonly Meter Meter = new("A2A");
-    private static readonly Counter<long> CardChangedCounter =
-        Meter.CreateCounter<long>("a2a.card.changed", description: "Agent Cards whose content differs from the pinned card of their origin.");
-    private static readonly Counter<long> CardUnsignedCounter =
-        Meter.CreateCounter<long>("a2a.card.unsigned", description: "Unsigned Agent Cards returned because signatures are not required.");
 
-    private readonly HttpClient _http;
-    private readonly A2ACardResolverOptions _options;
-    private readonly AgentCardVerifier _verifier;
-    private readonly ILogger _logger;
+    private static readonly Counter<long> CardChangedCounter =
+        Meter.CreateCounter<long>("a2a.card.changed",
+            description: "Agent Cards whose content differs from the pinned card of their origin.");
+
+    private static readonly Counter<long> CardUnsignedCounter =
+        Meter.CreateCounter<long>("a2a.card.unsigned",
+            description: "Unsigned Agent Cards returned because signatures are not required.");
+
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new();
 
-    /// <summary>Creates a resolver. <paramref name="options"/> defaults to a new <see cref="A2ACardResolverOptions"/>.</summary>
+    private readonly HttpClient _http;
+    private readonly ILogger _logger;
+    private readonly A2ACardResolverOptions _options;
+    private readonly AgentCardVerifier _verifier;
+
+    /// <summary>Creates a resolver. <paramref name="options" /> defaults to a new <see cref="A2ACardResolverOptions" />.</summary>
     public A2ACardResolver(HttpClient httpClient, A2ACardResolverOptions? options = null, ILogger? logger = null)
     {
         _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
@@ -143,7 +171,7 @@ public sealed class A2ACardResolver
         _logger = logger ?? NullLogger.Instance;
     }
 
-    /// <summary>Raised when a card's content differs from the pinned card of its origin (unless <see cref="PinPolicy.Off"/>).</summary>
+    /// <summary>Raised when a card's content differs from the pinned card of its origin (unless <see cref="PinPolicy.Off" />).</summary>
     public event EventHandler<CardChangedEventArgs>? CardChanged;
 
     /// <summary>Accepts an agent base URL (well-known path is appended) or a full card URL.</summary>
@@ -153,11 +181,19 @@ public sealed class A2ACardResolver
         return new Uri(agentUrl, A2AProtocol.WellKnownAgentCardPath);
     }
 
-    /// <summary>Fetches the card at <paramref name="agentUrl"/> after the signature and pin checks. Same as <see cref="ResolveAsync"/> but returns only the card.</summary>
-    public async Task<AgentCard> GetAgentCardAsync(Uri agentUrl, CancellationToken cancellationToken = default) =>
-        (await ResolveAsync(agentUrl, cancellationToken).ConfigureAwait(false)).Card;
+    /// <summary>
+    ///     Fetches the card at <paramref name="agentUrl" /> after the signature and pin checks. Same as
+    ///     <see cref="ResolveAsync" /> but returns only the card.
+    /// </summary>
+    public async Task<AgentCard> GetAgentCardAsync(Uri agentUrl, CancellationToken cancellationToken = default)
+    {
+        return (await ResolveAsync(agentUrl, cancellationToken).ConfigureAwait(false)).Card;
+    }
 
-    /// <summary>Fetches the card at <paramref name="agentUrl"/>, checks its signatures and pin, and returns the card with its verification result and sanitized text.</summary>
+    /// <summary>
+    ///     Fetches the card at <paramref name="agentUrl" />, checks its signatures and pin, and returns the card with its
+    ///     verification result and sanitized text.
+    /// </summary>
     public async Task<ResolvedAgentCard> ResolveAsync(Uri agentUrl, CancellationToken callerToken = default)
     {
         var uri = GetCardUri(agentUrl);
@@ -168,7 +204,7 @@ public sealed class A2ACardResolver
         _cache.TryGetValue(key, out var cached);
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
-        if (_options.Timeout != System.Threading.Timeout.InfiniteTimeSpan) timeoutCts.CancelAfter(_options.Timeout);
+        if (_options.Timeout != Timeout.InfiniteTimeSpan) timeoutCts.CancelAfter(_options.Timeout);
         var cancellationToken = timeoutCts.Token;
 
         // The trust policy is mutable. A cached card is checked against it again, so a removed key stops working at once.
@@ -192,8 +228,11 @@ public sealed class A2ACardResolver
             _cache[key] = refreshed;
             return refreshed.Result;
         }
+
         if (!response.IsSuccessStatusCode)
-            throw new A2AException(A2AErrorCode.Internal, $"Failed to fetch Agent Card from {uri}: HTTP {(int)response.StatusCode}") { HttpStatus = (int)response.StatusCode };
+            throw new A2AException(A2AErrorCode.Internal,
+                    $"Failed to fetch Agent Card from {uri}: HTTP {(int)response.StatusCode}")
+                { HttpStatus = (int)response.StatusCode };
 
         // The card is parsed from its UTF-8 bytes (no string round trip); the text is decoded once, for ResolvedAgentCard.Raw.
         string raw;
@@ -205,17 +244,28 @@ public sealed class A2ACardResolver
             node = ParseCard(body.Span);
             var normalizer = _options.CardNormalizer;
             if (normalizer is not null)
-            {
-                try { node = normalizer(node); }
-                catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex); }
-            }
+                try
+                {
+                    node = normalizer(node);
+                }
+                catch (JsonException ex)
+                {
+                    throw new A2AException(A2AErrorCode.InvalidAgentResponse,
+                        $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex);
+                }
+
             try
             {
                 card = normalizer is null
-                    ? JsonSerializer.Deserialize(body.Span, A2AJson.GetTypeInfo<AgentCard>()) ?? throw new JsonException("Null AgentCard payload.")
+                    ? JsonSerializer.Deserialize(body.Span, A2AJson.GetTypeInfo<AgentCard>()) ??
+                      throw new JsonException("Null AgentCard payload.")
                     : A2AJson.Deserialize<AgentCard>(node.ToJsonString());
             }
-            catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex); }
+            catch (JsonException ex)
+            {
+                throw new A2AException(A2AErrorCode.InvalidAgentResponse,
+                    $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex);
+            }
         }
 
         var verification = await _verifier.VerifyAsync(node, uri, cancellationToken).ConfigureAwait(false);
@@ -229,9 +279,12 @@ public sealed class A2ACardResolver
         await CheckPinAsync(origin, node, keyId, cancellationToken).ConfigureAwait(false);
 
         var baseline = PeerIdentity.FromCard(uri, verification);
-        var identity = await _options.IdentityResolver.ResolveAsync(new PeerIdentityContext(card, uri, verification, baseline), cancellationToken).ConfigureAwait(false);
+        var identity = await _options.IdentityResolver
+            .ResolveAsync(new PeerIdentityContext(card, uri, verification, baseline), cancellationToken)
+            .ConfigureAwait(false);
         if (identity is null || identity.Origin != baseline.Origin || identity.KeyId != baseline.KeyId)
-            throw new InvalidOperationException($"{_options.IdentityResolver.GetType().Name} must keep the card origin and signing key of the baseline identity; it may only add ExternalId.");
+            throw new InvalidOperationException(
+                $"{_options.IdentityResolver.GetType().Name} must keep the card origin and signing key of the baseline identity; it may only add ExternalId.");
 
         var max = _options.MaxCardTextLength;
         var result = new ResolvedAgentCard(card, raw, uri, verification)
@@ -241,19 +294,23 @@ public sealed class A2ACardResolver
                 new UntrustedText(s.Name, max),
                 new UntrustedText(s.Description, max),
                 (s.Examples ?? []).Select(e => new UntrustedText(e, max)).ToList())).ToList(),
-            Identity = identity,
+            Identity = identity
         };
         // Without a normalizer the tree is the parsed received text, which a cache hit checks again: keep it, not the text.
-        _cache[key] = new CacheEntry(result, response.Headers.ETag, Expiry(response)) { Parsed = _options.CardNormalizer is null ? node : null };
+        _cache[key] = new CacheEntry(result, response.Headers.ETag, Expiry(response))
+            { Parsed = _options.CardNormalizer is null ? node : null };
         return result;
     }
 
-    private bool IsRejected(AgentCardVerificationResult verification) => verification.Status switch
+    private bool IsRejected(AgentCardVerificationResult verification)
     {
-        AgentCardVerificationStatus.Verified => false,
-        AgentCardVerificationStatus.Failed => true,
-        _ => _options.Trust.EffectiveRequireSignature,
-    };
+        return verification.Status switch
+        {
+            AgentCardVerificationStatus.Verified => false,
+            AgentCardVerificationStatus.Failed => true,
+            _ => _options.Trust.EffectiveRequireSignature
+        };
+    }
 
     private async Task<bool> StillAcceptedAsync(CacheEntry entry, Uri uri, CancellationToken cancellationToken)
     {
@@ -270,14 +327,17 @@ public sealed class A2ACardResolver
     {
         try
         {
-            var node = JsonNode.Parse(raw, documentOptions: new JsonDocumentOptions { MaxDepth = A2AJson.MaxJsonDepth }) as JsonObject
+            var node =
+                JsonNode.Parse(raw,
+                    documentOptions: new JsonDocumentOptions { MaxDepth = A2AJson.MaxJsonDepth }) as JsonObject
                 ?? throw new JsonException("Agent Card must be a JSON object.");
             Materialize(node);
             return node;
         }
         catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException)
         {
-            throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex);
+            throw new A2AException(A2AErrorCode.InvalidAgentResponse,
+                $"Malformed Agent Card: {TextSanitizer.ForMessage(ex.Message)}", ex);
         }
     }
 
@@ -300,8 +360,15 @@ public sealed class A2ACardResolver
     {
         var signed = AgentCardCanonicalizer.SignedContent(received);
         if (received["signatures"] is { } signatures) signed["signatures"] = signatures.DeepClone();
-        try { return A2AJson.Deserialize<AgentCard>(signed.ToJsonString()); }
-        catch (JsonException ex) { throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"Malformed signed Agent Card content: {TextSanitizer.ForMessage(ex.Message)}", ex); }
+        try
+        {
+            return A2AJson.Deserialize<AgentCard>(signed.ToJsonString());
+        }
+        catch (JsonException ex)
+        {
+            throw new A2AException(A2AErrorCode.InvalidAgentResponse,
+                $"Malformed signed Agent Card content: {TextSanitizer.ForMessage(ex.Message)}", ex);
+        }
     }
 
     private async Task CheckPinAsync(string origin, JsonObject card, string? keyId, CancellationToken cancellationToken)
@@ -321,8 +388,10 @@ public sealed class A2ACardResolver
             if (keyId is not null && keyId != pinned.KeyId)
             {
                 ClientLog.CardKeyChanged(_logger, origin, keyId, pinned.KeyId);
-                await _options.PinStore.SetAsync(origin, pinned with { KeyId = keyId }, cancellationToken).ConfigureAwait(false);
+                await _options.PinStore.SetAsync(origin, pinned with { KeyId = keyId }, cancellationToken)
+                    .ConfigureAwait(false);
             }
+
             return;
         }
 
@@ -343,27 +412,34 @@ public sealed class A2ACardResolver
 
     private sealed record CacheEntry(ResolvedAgentCard Result, EntityTagHeaderValue? ETag, DateTimeOffset Expires)
     {
-        /// <summary>The received card as a parsed tree (<see cref="ResolvedAgentCard.RawJson"/> parsed), or null when it must be parsed again.</summary>
+        /// <summary>
+        ///     The received card as a parsed tree (<see cref="ResolvedAgentCard.RawJson" /> parsed), or null when it must be
+        ///     parsed again.
+        /// </summary>
         public JsonObject? Parsed { get; init; }
     }
 }
 
 /// <summary>The Agent Card failed signature verification or, with signatures required, is unsigned or unverified.</summary>
 public sealed class AgentCardVerificationException(AgentCardVerificationResult result)
-    : A2AException(A2AErrorCode.InvalidAgentResponse, $"Agent Card signature check failed ({result.Status}): {result.Reason}")
+    : A2AException(A2AErrorCode.InvalidAgentResponse,
+        $"Agent Card signature check failed ({result.Status}): {result.Reason}")
 {
     /// <summary>The verification result that caused the failure.</summary>
     public AgentCardVerificationResult Result { get; } = result;
 }
 
-/// <summary>With <see cref="PinPolicy.Strict"/>, the origin served a card whose content differs from the pinned one.</summary>
+/// <summary>With <see cref="PinPolicy.Strict" />, the origin served a card whose content differs from the pinned one.</summary>
 public sealed class AgentCardPinException(string origin, string oldHash, string newHash)
-    : A2AException(A2AErrorCode.InvalidAgentResponse, $"Agent Card from {origin} changed: pinned {oldHash}, received {newHash}")
+    : A2AException(A2AErrorCode.InvalidAgentResponse,
+        $"Agent Card from {origin} changed: pinned {oldHash}, received {newHash}")
 {
     /// <summary>Origin that served the changed card.</summary>
     public string Origin { get; } = origin;
+
     /// <summary>Hash of the pinned card.</summary>
     public string OldHash { get; } = oldHash;
+
     /// <summary>Hash of the card that was received.</summary>
     public string NewHash { get; } = newHash;
 }

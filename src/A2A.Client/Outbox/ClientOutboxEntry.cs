@@ -24,18 +24,23 @@ public sealed class ClientOutboxEntry
     /// <summary>The label the app gave, or null.</summary>
     public string? Correlation { get; init; }
 
-    /// <summary>The <see cref="SendMessageRequest"/> as JSON.</summary>
+    /// <summary>The <see cref="SendMessageRequest" /> as JSON.</summary>
     public ReadOnlyMemory<byte> Request { get; }
 
     /// <summary>Where the entry is in its life.</summary>
     public ClientOutboxStatus Status { get; }
 
-    /// <summary>Attempts of the current phase: sends while queued, polls while tracking. A lease counts as an attempt, so a leased entry shows the attempt it is in.</summary>
+    /// <summary>
+    ///     Attempts of the current phase: sends while queued, polls while tracking. A lease counts as an attempt, so a
+    ///     leased entry shows the attempt it is in.
+    /// </summary>
     public int Attempts { get; init; }
 
     /// <summary>
-    /// True when an earlier send may have reached the peer without the SDK learning it. A queued entry becomes in doubt when it is
-    /// leased, so a crash in the middle of a send leaves it set. The value returned by a lease is the one from before that lease.
+    ///     True when an earlier send may have reached the peer without the SDK learning it. A queued entry becomes in doubt
+    ///     when it is
+    ///     leased, so a crash in the middle of a send leaves it set. The value returned by a lease is the one from before that
+    ///     lease.
     /// </summary>
     public bool InDoubt { get; init; }
 
@@ -48,7 +53,10 @@ public sealed class ClientOutboxEntry
     /// <summary>The last known state of the peer's task, or null.</summary>
     public TaskState? RemoteState { get; init; }
 
-    /// <summary>Why the last attempt failed, or why the entry is <see cref="ClientOutboxStatus.Failed"/>. Never holds secrets.</summary>
+    /// <summary>
+    ///     Why the last attempt failed, or why the entry is <see cref="ClientOutboxStatus.Failed" />. Never holds
+    ///     secrets.
+    /// </summary>
     public string? LastError { get; init; }
 
     /// <summary>When the entry was enqueued.</summary>
@@ -60,21 +68,39 @@ public sealed class ClientOutboxEntry
     /// <summary>When the result was acknowledged, or null.</summary>
     public DateTimeOffset? CollectedAt { get; init; }
 
-    /// <summary>How long ago the entry was enqueued, by the store's own clock (the database clock for PostgreSQL), as of the call that returned it.</summary>
+    /// <summary>
+    ///     How long ago the entry was enqueued, by the store's own clock (the database clock for PostgreSQL), as of the
+    ///     call that returned it.
+    /// </summary>
     public TimeSpan Age { get; init; }
 
-    /// <summary>The lease this entry was returned under, or null. Writes after a lease apply only while the entry still holds it.</summary>
+    /// <summary>
+    ///     The lease this entry was returned under, or null. Writes after a lease apply only while the entry still holds
+    ///     it.
+    /// </summary>
     public Guid? LeaseToken { get; init; }
 
-    /// <summary>The final answer as a <see cref="SendMessageResponse"/> in JSON, or null while there is none (and for most failures).</summary>
+    /// <summary>
+    ///     The final answer as a <see cref="SendMessageResponse" /> in JSON, or null while there is none (and for most
+    ///     failures).
+    /// </summary>
     public ReadOnlyMemory<byte>? ResultPayload { get; init; }
 
-    /// <summary>Reads <see cref="Request"/>.</summary>
-    public SendMessageRequest GetRequest() => Read<SendMessageRequest>(Request.Span);
+    /// <summary>Reads <see cref="Request" />.</summary>
+    public SendMessageRequest GetRequest()
+    {
+        return Read<SendMessageRequest>(Request.Span);
+    }
 
-    /// <summary>Reads <see cref="ResultPayload"/>: the task or message the peer answered with, or null when there is none.</summary>
-    public SendMessageResponse? GetResult() => ResultPayload is { } p && !p.IsEmpty ? Read<SendMessageResponse>(p.Span) : null;
+    /// <summary>Reads <see cref="ResultPayload" />: the task or message the peer answered with, or null when there is none.</summary>
+    public SendMessageResponse? GetResult()
+    {
+        return ResultPayload is { } p && !p.IsEmpty ? Read<SendMessageResponse>(p.Span) : null;
+    }
 
-    internal static T Read<T>(ReadOnlySpan<byte> json) =>
-        JsonSerializer.Deserialize(json, A2AJson.GetTypeInfo<T>()) ?? throw new JsonException($"Null {typeof(T).Name} payload.");
+    internal static T Read<T>(ReadOnlySpan<byte> json)
+    {
+        return JsonSerializer.Deserialize(json, A2AJson.GetTypeInfo<T>()) ??
+               throw new JsonException($"Null {typeof(T).Name} payload.");
+    }
 }

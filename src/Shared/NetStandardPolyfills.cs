@@ -1,14 +1,14 @@
 // Polyfills for netstandard2.0. Compiled into A2A.Protocol and A2A.Client for netstandard2.0 only.
 // Every member keeps the meaning of the net8+ API it stands in for. All types are internal.
+
 #if NETSTANDARD2_0
 #nullable enable
 #pragma warning disable CA1812 // Internal types may be unused in one of the two assemblies.
 
 using System.Buffers;
 using System.Collections.Concurrent;
-using System.Globalization;
 using System.Diagnostics.CodeAnalysis;
-using System.Net.Http;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -35,7 +35,7 @@ namespace System.Diagnostics.CodeAnalysis
         PublicEvents = 0x0800,
         NonPublicEvents = 0x1000,
         Interfaces = 0x2000,
-        All = ~None,
+        All = ~None
     }
 
     [AttributeUsage(
@@ -45,7 +45,11 @@ namespace System.Diagnostics.CodeAnalysis
         Inherited = false)]
     internal sealed class DynamicallyAccessedMembersAttribute : Attribute
     {
-        public DynamicallyAccessedMembersAttribute(DynamicallyAccessedMemberTypes memberTypes) => MemberTypes = memberTypes;
+        public DynamicallyAccessedMembersAttribute(DynamicallyAccessedMemberTypes memberTypes)
+        {
+            MemberTypes =
+                memberTypes;
+        }
 
         public DynamicallyAccessedMemberTypes MemberTypes { get; }
     }
@@ -58,65 +62,54 @@ namespace System.Buffers
     internal sealed class ArrayBufferWriter<T> : IBufferWriter<T>
     {
         private T[] _buffer;
-        private int _index;
 
         public ArrayBufferWriter(int initialCapacity = 256)
         {
             if (initialCapacity <= 0)
-            {
                 throw new ArgumentException("Capacity must be positive.", nameof(initialCapacity));
-            }
 
             _buffer = new T[initialCapacity];
         }
 
-        public ReadOnlyMemory<T> WrittenMemory => _buffer.AsMemory(0, _index);
+        public ReadOnlyMemory<T> WrittenMemory => _buffer.AsMemory(0, WrittenCount);
 
-        public ReadOnlySpan<T> WrittenSpan => _buffer.AsSpan(0, _index);
+        public ReadOnlySpan<T> WrittenSpan => _buffer.AsSpan(0, WrittenCount);
 
-        public int WrittenCount => _index;
-
-        public void Clear()
-        {
-            _buffer.AsSpan(0, _index).Clear();
-            _index = 0;
-        }
+        public int WrittenCount { get; private set; }
 
         public void Advance(int count)
         {
-            if (count < 0 || _index > _buffer.Length - count)
-            {
+            if (count < 0 || WrittenCount > _buffer.Length - count)
                 throw new ArgumentOutOfRangeException(nameof(count));
-            }
 
-            _index += count;
+            WrittenCount += count;
         }
 
         public Memory<T> GetMemory(int sizeHint = 0)
         {
             Grow(sizeHint);
-            return _buffer.AsMemory(_index);
+            return _buffer.AsMemory(WrittenCount);
         }
 
         public Span<T> GetSpan(int sizeHint = 0)
         {
             Grow(sizeHint);
-            return _buffer.AsSpan(_index);
+            return _buffer.AsSpan(WrittenCount);
+        }
+
+        public void Clear()
+        {
+            _buffer.AsSpan(0, WrittenCount).Clear();
+            WrittenCount = 0;
         }
 
         private void Grow(int sizeHint)
         {
-            if (sizeHint < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(sizeHint));
-            }
+            if (sizeHint < 0) throw new ArgumentOutOfRangeException(nameof(sizeHint));
 
-            if (sizeHint == 0)
-            {
-                sizeHint = 1;
-            }
+            if (sizeHint == 0) sizeHint = 1;
 
-            if (sizeHint > _buffer.Length - _index)
+            if (sizeHint > _buffer.Length - WrittenCount)
             {
                 var newSize = checked(_buffer.Length + Math.Max(sizeHint, _buffer.Length));
                 Array.Resize(ref _buffer, newSize);
@@ -147,6 +140,9 @@ namespace System.Text.Unicode
 {
     internal static class Utf8
     {
+        private static readonly UTF8Encoding Strict =
+            new(false, true);
+
         // Strict check: overlong forms, surrogates and truncated sequences are invalid.
         public static bool IsValid(ReadOnlySpan<byte> value)
         {
@@ -160,8 +156,6 @@ namespace System.Text.Unicode
                 return false;
             }
         }
-
-        private static readonly UTF8Encoding Strict = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
     }
 }
 
@@ -171,50 +165,62 @@ namespace System.Text
     // an unpaired surrogate in a string becomes U+FFFD, as on net8+.
     internal readonly struct Rune : IEquatable<Rune>
     {
-        private readonly int _value;
-
         public Rune(int value)
         {
-            if (value is < 0 or > 0x10FFFF or (>= 0xD800 and <= 0xDFFF))
-            {
+            if (value is < 0 or > 0x10FFFF or >= 0xD800 and <= 0xDFFF)
                 throw new ArgumentOutOfRangeException(nameof(value));
-            }
 
-            _value = value;
+            Value = value;
         }
 
-        public int Value => _value;
+        public int Value { get; }
 
-        public static bool IsWhiteSpace(Rune value) => value._value <= 0xFFFF && char.IsWhiteSpace((char)value._value);
+        public static bool IsWhiteSpace(Rune value)
+        {
+            return value.Value <= 0xFFFF && char.IsWhiteSpace((char)value.Value);
+        }
 
-        public static UnicodeCategory GetUnicodeCategory(Rune value) =>
-            value._value <= 0xFFFF
-                ? CharUnicodeInfo.GetUnicodeCategory((char)value._value)
-                : CharUnicodeInfo.GetUnicodeCategory(char.ConvertFromUtf32(value._value), 0);
+        public static UnicodeCategory GetUnicodeCategory(Rune value)
+        {
+            return value.Value <= 0xFFFF
+                ? CharUnicodeInfo.GetUnicodeCategory((char)value.Value)
+                : CharUnicodeInfo.GetUnicodeCategory(char.ConvertFromUtf32(value.Value), 0);
+        }
 
-        public static bool IsLetterOrDigit(Rune value) =>
-            GetUnicodeCategory(value) is UnicodeCategory.UppercaseLetter or UnicodeCategory.LowercaseLetter
+        public static bool IsLetterOrDigit(Rune value)
+        {
+            return GetUnicodeCategory(value) is UnicodeCategory.UppercaseLetter or UnicodeCategory.LowercaseLetter
                 or UnicodeCategory.TitlecaseLetter or UnicodeCategory.ModifierLetter or UnicodeCategory.OtherLetter
                 or UnicodeCategory.DecimalDigitNumber;
+        }
 
         public static Rune ToLowerInvariant(Rune value)
         {
-            if (value._value <= 0xFFFF)
-            {
-                return new Rune(char.ToLowerInvariant((char)value._value));
-            }
+            if (value.Value <= 0xFFFF) return new Rune(char.ToLowerInvariant((char)value.Value));
 
-            var lower = char.ConvertFromUtf32(value._value).ToLowerInvariant();
+            var lower = char.ConvertFromUtf32(value.Value).ToLowerInvariant();
             return new Rune(char.ConvertToUtf32(lower, 0));
         }
 
-        public override string ToString() => char.ConvertFromUtf32(_value);
+        public override string ToString()
+        {
+            return char.ConvertFromUtf32(Value);
+        }
 
-        public bool Equals(Rune other) => _value == other._value;
+        public bool Equals(Rune other)
+        {
+            return Value == other.Value;
+        }
 
-        public override bool Equals(object? obj) => obj is Rune other && Equals(other);
+        public override bool Equals(object? obj)
+        {
+            return obj is Rune other && Equals(other);
+        }
 
-        public override int GetHashCode() => _value;
+        public override int GetHashCode()
+        {
+            return Value;
+        }
     }
 
     internal static class RuneExtensions
@@ -252,16 +258,10 @@ namespace System.Security.Cryptography
         [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]
         public static bool FixedTimeEquals(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
         {
-            if (left.Length != right.Length)
-            {
-                return false;
-            }
+            if (left.Length != right.Length) return false;
 
             var difference = 0;
-            for (var i = 0; i < left.Length; i++)
-            {
-                difference |= left[i] ^ right[i];
-            }
+            for (var i = 0; i < left.Length; i++) difference |= left[i] ^ right[i];
 
             return difference == 0;
         }
@@ -274,12 +274,11 @@ namespace System
     {
         extension(ArgumentNullException)
         {
-            public static void ThrowIfNull(object? argument, [CallerArgumentExpression(nameof(argument))] string? paramName = null)
+            public static void ThrowIfNull(object? argument, [CallerArgumentExpression(nameof(argument))]
+                string? paramName
+                    = null)
             {
-                if (argument is null)
-                {
-                    throw new ArgumentNullException(paramName);
-                }
+                if (argument is null) throw new ArgumentNullException(paramName);
             }
         }
 
@@ -287,96 +286,90 @@ namespace System
         {
             public static void ThrowIf(bool condition, object instance)
             {
-                if (condition)
-                {
-                    throw new ObjectDisposedException(instance?.GetType().FullName);
-                }
+                if (condition) throw new ObjectDisposedException(instance?.GetType().FullName);
             }
         }
 
         extension(ArgumentException)
         {
-            public static void ThrowIfNullOrEmpty(string? argument, [CallerArgumentExpression(nameof(argument))] string? paramName = null)
+            public static void ThrowIfNullOrEmpty(string? argument, [CallerArgumentExpression(nameof(argument))]
+                string? paramName
+                    = null)
             {
-                if (argument is null)
-                {
-                    throw new ArgumentNullException(paramName);
-                }
+                if (argument is null) throw new ArgumentNullException(paramName);
 
                 if (argument.Length == 0)
-                {
                     throw new ArgumentException("The value cannot be an empty string.", paramName);
-                }
             }
 
-            public static void ThrowIfNullOrWhiteSpace(string? argument, [CallerArgumentExpression(nameof(argument))] string? paramName = null)
+            public static void ThrowIfNullOrWhiteSpace(string? argument, [CallerArgumentExpression(nameof(argument))]
+                string? paramName
+                    = null)
             {
-                if (argument is null)
-                {
-                    throw new ArgumentNullException(paramName);
-                }
+                if (argument is null) throw new ArgumentNullException(paramName);
 
                 if (string.IsNullOrWhiteSpace(argument))
-                {
-                    throw new ArgumentException("The value cannot be an empty string or composed entirely of whitespace.", paramName);
-                }
+                    throw new ArgumentException(
+                        "The value cannot be an empty string or composed entirely of whitespace.", paramName);
             }
         }
 
         extension(ArgumentOutOfRangeException)
         {
-            public static void ThrowIfLessThan<T>(T value, T other, [CallerArgumentExpression(nameof(value))] string? paramName = null)
+            public static void ThrowIfLessThan<T>(T value, T other, [CallerArgumentExpression(nameof(value))]
+                string? paramName
+                    = null)
                 where T : IComparable<T>
             {
                 if (value.CompareTo(other) < 0)
-                {
-                    throw new ArgumentOutOfRangeException(paramName, value, $"{paramName} must be greater than or equal to {other}.");
-                }
+                    throw new ArgumentOutOfRangeException(paramName, value,
+                        $"{paramName} must be greater than or equal to {other}.");
             }
 
-            public static void ThrowIfGreaterThan<T>(T value, T other, [CallerArgumentExpression(nameof(value))] string? paramName = null)
+            public static void ThrowIfGreaterThan<T>(T value, T other, [CallerArgumentExpression(nameof(value))]
+                string? paramName
+                    = null)
                 where T : IComparable<T>
             {
                 if (value.CompareTo(other) > 0)
-                {
-                    throw new ArgumentOutOfRangeException(paramName, value, $"{paramName} must be less than or equal to {other}.");
-                }
+                    throw new ArgumentOutOfRangeException(paramName, value,
+                        $"{paramName} must be less than or equal to {other}.");
             }
 
-            public static void ThrowIfLessThanOrEqual<T>(T value, T other, [CallerArgumentExpression(nameof(value))] string? paramName = null)
+            public static void ThrowIfLessThanOrEqual<T>(T value, T other, [CallerArgumentExpression(nameof(value))]
+                string? paramName
+                    = null)
                 where T : IComparable<T>
             {
                 if (value.CompareTo(other) <= 0)
-                {
-                    throw new ArgumentOutOfRangeException(paramName, value, $"{paramName} must be greater than {other}.");
-                }
+                    throw new ArgumentOutOfRangeException(paramName, value,
+                        $"{paramName} must be greater than {other}.");
             }
 
-            public static void ThrowIfGreaterThanOrEqual<T>(T value, T other, [CallerArgumentExpression(nameof(value))] string? paramName = null)
+            public static void ThrowIfGreaterThanOrEqual<T>(T value, T other, [CallerArgumentExpression(nameof(value))]
+                string? paramName
+                    = null)
                 where T : IComparable<T>
             {
                 if (value.CompareTo(other) >= 0)
-                {
                     throw new ArgumentOutOfRangeException(paramName, value, $"{paramName} must be less than {other}.");
-                }
             }
 
-            public static void ThrowIfNegative<T>(T value, [CallerArgumentExpression(nameof(value))] string? paramName = null)
+            public static void ThrowIfNegative<T>(T value, [CallerArgumentExpression(nameof(value))] string? paramName =
+                null)
                 where T : struct, IComparable<T>
             {
                 if (value.CompareTo(default) < 0)
-                {
                     throw new ArgumentOutOfRangeException(paramName, value, $"{paramName} must be non-negative.");
-                }
             }
 
-            public static void ThrowIfNegativeOrZero<T>(T value, [CallerArgumentExpression(nameof(value))] string? paramName = null)
+            public static void ThrowIfNegativeOrZero<T>(T value, [CallerArgumentExpression(nameof(value))]
+                string? paramName
+                    = null)
                 where T : struct, IComparable<T>
             {
                 if (value.CompareTo(default) <= 0)
-                {
                     throw new ArgumentOutOfRangeException(paramName, value, $"{paramName} must be positive.");
-                }
             }
         }
 
@@ -400,9 +393,7 @@ namespace System
             public static int HashData(ReadOnlySpan<byte> source, Span<byte> destination)
             {
                 if (destination.Length < 32)
-                {
                     throw new ArgumentException("Destination is too short.", nameof(destination));
-                }
 
                 var hash = SHA256.HashData(source);
                 hash.CopyTo(destination);
@@ -429,9 +420,7 @@ namespace System
             public static int HashData(ReadOnlySpan<byte> key, ReadOnlySpan<byte> source, Span<byte> destination)
             {
                 if (destination.Length < 32)
-                {
                     throw new ArgumentException("Destination is too short.", nameof(destination));
-                }
 
                 var hash = HMACSHA256.HashData(key, source);
                 hash.CopyTo(destination);
@@ -441,7 +430,10 @@ namespace System
 
         extension(Convert)
         {
-            public static string ToBase64String(ReadOnlySpan<byte> bytes) => Convert.ToBase64String(bytes.ToArray());
+            public static string ToBase64String(ReadOnlySpan<byte> bytes)
+            {
+                return Convert.ToBase64String(bytes.ToArray());
+            }
 
             public static string ToHexString(byte[] inArray)
             {
@@ -456,7 +448,7 @@ namespace System
                 for (var i = 0; i < bytes.Length; i++)
                 {
                     chars[2 * i] = digits[bytes[i] >> 4];
-                    chars[(2 * i) + 1] = digits[bytes[i] & 0xF];
+                    chars[2 * i + 1] = digits[bytes[i] & 0xF];
                 }
 
                 return new string(chars);
@@ -477,10 +469,7 @@ namespace System
                     return false;
                 }
 
-                if (decoded.Length > bytes.Length)
-                {
-                    return false;
-                }
+                if (decoded.Length > bytes.Length) return false;
 
                 decoded.CopyTo(bytes);
                 bytesWritten = decoded.Length;
@@ -522,18 +511,25 @@ namespace System
 
         extension(double)
         {
-            public static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
+            public static bool IsFinite(double value)
+            {
+                return !double.IsNaN(value) && !double.IsInfinity(value);
+            }
         }
 
         extension(Enum)
         {
             public static TEnum[] GetValues<TEnum>()
                 where TEnum : struct, Enum
-                => (TEnum[])Enum.GetValues(typeof(TEnum));
+            {
+                return (TEnum[])Enum.GetValues(typeof(TEnum));
+            }
 
             public static bool IsDefined<TEnum>(TEnum value)
                 where TEnum : struct, Enum
-                => Enum.IsDefined(typeof(TEnum), value);
+            {
+                return Enum.IsDefined(typeof(TEnum), value);
+            }
         }
 
         extension(string)
@@ -547,15 +543,9 @@ namespace System
             public static string Create<TState>(int length, TState state, SpanAction<char, TState> action)
             {
                 ArgumentNullException.ThrowIfNull(action);
-                if (length < 0)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(length));
-                }
+                if (length < 0) throw new ArgumentOutOfRangeException(nameof(length));
 
-                if (length == 0)
-                {
-                    return string.Empty;
-                }
+                if (length == 0) return string.Empty;
 
                 var buffer = new char[length];
                 action(buffer, state);
@@ -565,39 +555,64 @@ namespace System
 
         extension(char)
         {
-            public static bool IsAscii(char c) => c < 0x80;
+            public static bool IsAscii(char c)
+            {
+                return c < 0x80;
+            }
 
-            public static bool IsAsciiDigit(char c) => c is >= '0' and <= '9';
+            public static bool IsAsciiDigit(char c)
+            {
+                return c is >= '0' and <= '9';
+            }
 
-            public static bool IsAsciiLetter(char c) => (uint)((c | 0x20) - 'a') <= 'z' - 'a';
+            public static bool IsAsciiLetter(char c)
+            {
+                return (uint)((c | 0x20) - 'a') <= 'z' - 'a';
+            }
 
-            public static bool IsAsciiLetterLower(char c) => c is >= 'a' and <= 'z';
+            public static bool IsAsciiLetterLower(char c)
+            {
+                return c is >= 'a' and <= 'z';
+            }
 
-            public static bool IsAsciiLetterUpper(char c) => c is >= 'A' and <= 'Z';
+            public static bool IsAsciiLetterUpper(char c)
+            {
+                return c is >= 'A' and <= 'Z';
+            }
 
-            public static bool IsAsciiLetterOrDigit(char c) => char.IsAsciiLetter(c) || char.IsAsciiDigit(c);
+            public static bool IsAsciiLetterOrDigit(char c)
+            {
+                return char.IsAsciiLetter(c) || char.IsAsciiDigit(c);
+            }
 
-            public static bool IsAsciiHexDigit(char c) => char.IsAsciiDigit(c) || (uint)((c | 0x20) - 'a') <= 'f' - 'a';
+            public static bool IsAsciiHexDigit(char c)
+            {
+                return char.IsAsciiDigit(c) || (uint)((c | 0x20) - 'a') <= 'f' - 'a';
+            }
         }
 
         extension(ValueTask)
         {
             public static ValueTask CompletedTask => default;
 
-            public static ValueTask<TResult> FromResult<TResult>(TResult result) => new(result);
+            public static ValueTask<TResult> FromResult<TResult>(TResult result)
+            {
+                return new ValueTask<TResult>(result);
+            }
         }
 
         extension(Encoding encoding)
         {
-            public string GetString(ReadOnlySpan<byte> bytes) => encoding.GetString(bytes.ToArray());
+            public string GetString(ReadOnlySpan<byte> bytes)
+            {
+                return encoding.GetString(bytes.ToArray());
+            }
 
             public int GetBytes(string s, Span<byte> bytes)
             {
                 var encoded = encoding.GetBytes(s);
                 if (encoded.Length > bytes.Length)
-                {
                     throw new ArgumentException("Destination is too short.", nameof(bytes));
-                }
 
                 encoded.CopyTo(bytes);
                 return encoded.Length;
@@ -606,34 +621,39 @@ namespace System
 
         extension(string)
         {
-            public static string Join(char separator, IEnumerable<string?> values) => string.Join(separator.ToString(), values);
+            public static string Join(char separator, IEnumerable<string?> values)
+            {
+                return string.Join(separator.ToString(), values);
+            }
         }
 
         extension<T>(IEnumerable<T> source)
         {
-            public IOrderedEnumerable<T> Order(IComparer<T>? comparer) => source.OrderBy(static x => x, comparer);
+            public IOrderedEnumerable<T> Order(IComparer<T>? comparer)
+            {
+                return source.OrderBy(static x => x, comparer);
+            }
         }
 
         extension(Task)
         {
             // Waits on the given time provider, so a test clock can drive it.
-            public static async Task Delay(TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken)
+            public static async Task Delay(TimeSpan delay, TimeProvider timeProvider,
+                CancellationToken cancellationToken)
             {
                 ArgumentNullException.ThrowIfNull(timeProvider);
                 if (delay != Timeout.InfiniteTimeSpan && delay < TimeSpan.Zero)
-                {
                     throw new ArgumentOutOfRangeException(nameof(delay));
-                }
 
                 cancellationToken.ThrowIfCancellationRequested();
-                if (delay == TimeSpan.Zero)
-                {
-                    return;
-                }
+                if (delay == TimeSpan.Zero) return;
 
                 var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                using var timer = timeProvider.CreateTimer(static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true), done, delay, Timeout.InfiniteTimeSpan);
-                using (cancellationToken.Register(static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(), done))
+                using var timer =
+                    timeProvider.CreateTimer(static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true),
+                        done, delay, Timeout.InfiniteTimeSpan);
+                using (cancellationToken.Register(static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(),
+                           done))
                 {
                     await done.Task.ConfigureAwait(false);
                 }
@@ -642,27 +662,37 @@ namespace System
 
         extension(long)
         {
-            public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider, out long result) =>
-                long.TryParse(s.ToString(), style, provider, out result);
+            public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider,
+                out long result)
+            {
+                return long.TryParse(s.ToString(), style, provider, out result);
+            }
         }
 
         extension(int)
         {
-            public static int Parse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider) =>
-                int.Parse(s.ToString(), style, provider);
+            public static int Parse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider? provider)
+            {
+                return int.Parse(s.ToString(), style, provider);
+            }
         }
 
         extension(IncrementalHash hash)
         {
-            public void AppendData(ReadOnlySpan<byte> data) => hash.AppendData(data.ToArray());
+            public void AppendData(ReadOnlySpan<byte> data)
+            {
+                hash.AppendData(data.ToArray());
+            }
         }
 
         extension<TKey, TValue>(ConcurrentDictionary<TKey, TValue> dictionary)
             where TKey : notnull
         {
             // Removes only when the stored value equals the given one, in one atomic step.
-            public bool TryRemove(KeyValuePair<TKey, TValue> item) =>
-                ((ICollection<KeyValuePair<TKey, TValue>>)dictionary).Remove(item);
+            public bool TryRemove(KeyValuePair<TKey, TValue> item)
+            {
+                return ((ICollection<KeyValuePair<TKey, TValue>>)dictionary).Remove(item);
+            }
         }
 
         extension(Random)
@@ -672,31 +702,41 @@ namespace System
 
         extension(string value)
         {
-            public bool Contains(char c) => value.IndexOf(c) >= 0;
+            public bool Contains(char c)
+            {
+                return value.IndexOf(c) >= 0;
+            }
 
-            public bool Contains(char c, StringComparison comparison) => value.IndexOf(c.ToString(), comparison) >= 0;
+            public bool Contains(char c, StringComparison comparison)
+            {
+                return value.IndexOf(c.ToString(), comparison) >= 0;
+            }
 
-            public bool StartsWith(char c) => value.Length > 0 && value[0] == c;
+            public bool StartsWith(char c)
+            {
+                return value.Length > 0 && value[0] == c;
+            }
 
-            public bool EndsWith(char c) => value.Length > 0 && value[value.Length - 1] == c;
+            public bool EndsWith(char c)
+            {
+                return value.Length > 0 && value[value.Length - 1] == c;
+            }
 
-            public bool Contains(string other, StringComparison comparison) => value.IndexOf(other, comparison) >= 0;
+            public bool Contains(string other, StringComparison comparison)
+            {
+                return value.IndexOf(other, comparison) >= 0;
+            }
 
             public string Replace(string oldValue, string? newValue, StringComparison comparison)
             {
                 ArgumentNullException.ThrowIfNull(oldValue);
                 if (oldValue.Length == 0)
-                {
                     throw new ArgumentException("The value cannot be an empty string.", nameof(oldValue));
-                }
 
                 var index = value.IndexOf(oldValue, comparison);
-                if (index < 0)
-                {
-                    return value;
-                }
+                if (index < 0) return value;
 
-                var builder = new System.Text.StringBuilder();
+                var builder = new StringBuilder();
                 var start = 0;
                 while (index >= 0)
                 {
@@ -708,11 +748,15 @@ namespace System
                 return builder.Append(value, start, value.Length - start).ToString();
             }
 
-            public string[] Split(char separator, StringSplitOptions options = StringSplitOptions.None) =>
-                value.Split(new[] { separator }, options);
+            public string[] Split(char separator, StringSplitOptions options = StringSplitOptions.None)
+            {
+                return value.Split(new[] { separator }, options);
+            }
 
-            public string[] Split(char separator, int count, StringSplitOptions options = StringSplitOptions.None) =>
-                value.Split(new[] { separator }, count, options);
+            public string[] Split(char separator, int count, StringSplitOptions options = StringSplitOptions.None)
+            {
+                return value.Split(new[] { separator }, count, options);
+            }
         }
 
         // HttpContent: the net8+ overloads take a token. These throw when the token is already cancelled
@@ -742,10 +786,7 @@ namespace System
         {
             public Task WaitAsync(CancellationToken cancellationToken)
             {
-                if (task.IsCompleted || !cancellationToken.CanBeCanceled)
-                {
-                    return task;
-                }
+                if (task.IsCompleted || !cancellationToken.CanBeCanceled) return task;
 
                 cancellationToken.ThrowIfCancellationRequested();
                 return WaitCore(task, cancellationToken);
@@ -756,10 +797,7 @@ namespace System
         {
             public Task<T> WaitAsync(CancellationToken cancellationToken)
             {
-                if (task.IsCompleted || !cancellationToken.CanBeCanceled)
-                {
-                    return task;
-                }
+                if (task.IsCompleted || !cancellationToken.CanBeCanceled) return task;
 
                 cancellationToken.ThrowIfCancellationRequested();
                 return WaitCore(task, cancellationToken);
@@ -772,9 +810,7 @@ namespace System
             public int ReadAtLeast(Span<byte> buffer, int minimumBytes, bool throwOnEndOfStream = true)
             {
                 if (minimumBytes < 0 || buffer.Length < minimumBytes)
-                {
                     throw new ArgumentOutOfRangeException(nameof(minimumBytes));
-                }
 
                 var temp = new byte[buffer.Length];
                 var total = 0;
@@ -783,10 +819,7 @@ namespace System
                     var read = stream.Read(temp, total, buffer.Length - total);
                     if (read == 0)
                     {
-                        if (throwOnEndOfStream)
-                        {
-                            throw new EndOfStreamException();
-                        }
+                        if (throwOnEndOfStream) throw new EndOfStreamException();
 
                         break;
                     }
@@ -815,11 +848,10 @@ namespace System
             public ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
             {
                 if (!cancellationToken.CanBeCanceled)
-                {
                     return MemoryMarshal.TryGetArray<byte>(buffer, out var segment) && segment.Array is not null
-                        ? new ValueTask<int>(stream.ReadAsync(segment.Array, segment.Offset, segment.Count, CancellationToken.None))
+                        ? new ValueTask<int>(stream.ReadAsync(segment.Array, segment.Offset, segment.Count,
+                            CancellationToken.None))
                         : new ValueTask<int>(ReadViaCopyAsync(stream, buffer, cancellationToken));
-                }
 
                 return new ValueTask<int>(ReadViaCopyAsync(stream, buffer, cancellationToken));
             }
@@ -827,10 +859,13 @@ namespace System
 
         // A read that ignores the token can finish after we stop waiting, so it gets a private array, never a pooled
         // or caller-owned one. Bytes are copied out only when the read finished before cancellation.
-        private static async Task<int> ReadViaCopyAsync(Stream stream, Memory<byte> buffer, CancellationToken cancellationToken)
+        private static async Task<int> ReadViaCopyAsync(Stream stream, Memory<byte> buffer,
+            CancellationToken cancellationToken)
         {
             var own = new byte[buffer.Length];
-            var read = await stream.ReadAsync(own, 0, own.Length, cancellationToken).WaitAsync(cancellationToken).ConfigureAwait(false);
+            var read =
+                await stream.ReadAsync(own, 0, own.Length, cancellationToken).WaitAsync(cancellationToken)
+                    .ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             own.AsMemory(0, read).CopyTo(buffer);
             return read;
@@ -839,7 +874,8 @@ namespace System
         private static async Task WaitCore(Task task, CancellationToken cancellationToken)
         {
             var cancelled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            using (cancellationToken.Register(static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true), cancelled))
+            using (cancellationToken.Register(static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true),
+                       cancelled))
             {
                 if (await Task.WhenAny(task, cancelled.Task).ConfigureAwait(false) != task)
                 {
@@ -871,20 +907,34 @@ namespace System
     {
         public static readonly SharedRandom Instance = new();
 
-        [ThreadStatic]
-        private static Random? t_random;
+        [ThreadStatic] private static Random? t_random;
 
         private static Random Local => t_random ??= new Random(Guid.NewGuid().GetHashCode());
 
-        public override int Next() => Local.Next();
+        public override int Next()
+        {
+            return Local.Next();
+        }
 
-        public override int Next(int maxValue) => Local.Next(maxValue);
+        public override int Next(int maxValue)
+        {
+            return Local.Next(maxValue);
+        }
 
-        public override int Next(int minValue, int maxValue) => Local.Next(minValue, maxValue);
+        public override int Next(int minValue, int maxValue)
+        {
+            return Local.Next(minValue, maxValue);
+        }
 
-        public override double NextDouble() => Local.NextDouble();
+        public override double NextDouble()
+        {
+            return Local.NextDouble();
+        }
 
-        public override void NextBytes(byte[] buffer) => Local.NextBytes(buffer);
+        public override void NextBytes(byte[] buffer)
+        {
+            Local.NextBytes(buffer);
+        }
     }
 }
 #endif

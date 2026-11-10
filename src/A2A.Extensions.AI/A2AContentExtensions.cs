@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
@@ -6,50 +7,68 @@ using Microsoft.Extensions.AI;
 namespace A2A.Extensions.AI;
 
 /// <summary>
-/// Conversions between A2A messages, artifacts and parts, and <c>Microsoft.Extensions.AI</c> chat messages and content.
+///     Conversions between A2A messages, artifacts and parts, and <c>Microsoft.Extensions.AI</c> chat messages and
+///     content.
 /// </summary>
 /// <remarks>
-/// Some content has no A2A form (function calls and results, reasoning, errors, usage, hosted files): <see cref="ToPart"/>
-/// returns null for it and the message conversions drop it. Text media type and file name are lost through
-/// <see cref="TextContent"/>. JSON in a data part is re-encoded: the bytes may differ, the meaning does not. Metadata values
-/// that are not JSON elements, strings, booleans or numbers are dropped.
+///     Some content has no A2A form (function calls and results, reasoning, errors, usage, hosted files):
+///     <see cref="ToPart" />
+///     returns null for it and the message conversions drop it. Text media type and file name are lost through
+///     <see cref="TextContent" />. JSON in a data part is re-encoded: the bytes may differ, the meaning does not. Metadata
+///     values
+///     that are not JSON elements, strings, booleans or numbers are dropped.
 /// </remarks>
 public static class A2AContentExtensions
 {
     private const string OctetStream = "application/octet-stream";
     private const string Json = "application/json";
 
-    /// <summary>Converts a part to AI content. Never returns null. An unusable media type becomes <c>application/octet-stream</c>; a URL part with a relative URL becomes plain <see cref="AIContent"/> that <see cref="ToPart"/> turns into null.</summary>
+    /// <summary>
+    ///     Converts a part to AI content. Never returns null. An unusable media type becomes
+    ///     <c>application/octet-stream</c>; a URL part with a relative URL becomes plain <see cref="AIContent" /> that
+    ///     <see cref="ToPart" /> turns into null.
+    /// </summary>
     public static AIContent ToAIContent(this Part part)
     {
         ArgumentNullException.ThrowIfNull(part);
-        var content = Convert(part, forModel: false, allowUrls: true) ?? new AIContent();
+        var content = Convert(part, false, true) ?? new AIContent();
         content.RawRepresentation = part;
         if (part.Metadata is { Count: > 0 } metadata)
         {
             content.AdditionalProperties = [];
             foreach (var (key, value) in metadata) content.AdditionalProperties[key] = value;
         }
+
         return content;
     }
 
-    /// <summary>Converts AI content to a part, or returns null when A2A has no form for it. Always built from the content, never from <see cref="AIContent.RawRepresentation"/>.</summary>
-    public static Part? ToPart(this AIContent content) => ConvertToPart(content, copyMetadata: true);
+    /// <summary>
+    ///     Converts AI content to a part, or returns null when A2A has no form for it. Always built from the content,
+    ///     never from <see cref="AIContent.RawRepresentation" />.
+    /// </summary>
+    public static Part? ToPart(this AIContent content)
+    {
+        return ConvertToPart(content, true);
+    }
 
-    /// <summary>Converts an A2A message to a chat message. <c>Agent</c> becomes <c>Assistant</c>, every other role becomes <c>User</c>.</summary>
+    /// <summary>
+    ///     Converts an A2A message to a chat message. <c>Agent</c> becomes <c>Assistant</c>, every other role becomes
+    ///     <c>User</c>.
+    /// </summary>
     public static ChatMessage ToChatMessage(this Message message)
     {
         ArgumentNullException.ThrowIfNull(message);
-        return new ChatMessage(message.Role == Role.Agent ? ChatRole.Assistant : ChatRole.User, ToContents(message.Parts))
+        return new ChatMessage(message.Role == Role.Agent ? ChatRole.Assistant : ChatRole.User,
+            ToContents(message.Parts))
         {
             MessageId = message.MessageId,
-            AdditionalProperties = ToProperties(message.Metadata),
+            AdditionalProperties = ToProperties(message.Metadata)
         };
     }
 
     /// <summary>
-    /// Converts a chat message to an A2A message with a new id when the chat message has none. <c>Assistant</c> becomes
-    /// <c>Agent</c>; every other role becomes <c>User</c>. Content without an A2A form is dropped.
+    ///     Converts a chat message to an A2A message with a new id when the chat message has none. <c>Assistant</c> becomes
+    ///     <c>Agent</c>; every other role becomes <c>User</c>. Content without an A2A form is dropped.
     /// </summary>
     public static Message ToA2AMessage(this ChatMessage message)
     {
@@ -59,7 +78,7 @@ public static class A2AContentExtensions
             MessageId = string.IsNullOrEmpty(message.MessageId) ? Message.NewId() : message.MessageId,
             Role = message.Role == ChatRole.Assistant ? Role.Agent : Role.User,
             Parts = ToParts(message.Contents),
-            Metadata = ToMetadata(message.AdditionalProperties),
+            Metadata = ToMetadata(message.AdditionalProperties)
         };
     }
 
@@ -71,11 +90,14 @@ public static class A2AContentExtensions
         {
             MessageId = artifact.ArtifactId,
             AuthorName = artifact.Name,
-            AdditionalProperties = ToProperties(artifact.Metadata),
+            AdditionalProperties = ToProperties(artifact.Metadata)
         };
     }
 
-    /// <summary>Converts a chat message to an artifact. <paramref name="artifactId"/> defaults to a new GUID, <paramref name="name"/> to null.</summary>
+    /// <summary>
+    ///     Converts a chat message to an artifact. <paramref name="artifactId" /> defaults to a new GUID,
+    ///     <paramref name="name" /> to null.
+    /// </summary>
     public static Artifact ToA2AArtifact(this ChatMessage message, string? artifactId = null, string? name = null)
     {
         ArgumentNullException.ThrowIfNull(message);
@@ -84,14 +106,20 @@ public static class A2AContentExtensions
             ArtifactId = string.IsNullOrEmpty(artifactId) ? Guid.NewGuid().ToString() : artifactId,
             Name = name,
             Parts = ToParts(message.Contents),
-            Metadata = ToMetadata(message.AdditionalProperties),
+            Metadata = ToMetadata(message.AdditionalProperties)
         };
     }
 
     // ---- internal: used by the executor and the client facade ----
 
-    /// <summary>Content for the model: data parts become text, metadata is not copied, URL parts only when allowed. Null when dropped.</summary>
-    internal static AIContent? ToModelContent(Part part, bool allowUrls) => Convert(part, forModel: true, allowUrls);
+    /// <summary>
+    ///     Content for the model: data parts become text, metadata is not copied, URL parts only when allowed. Null when
+    ///     dropped.
+    /// </summary>
+    internal static AIContent? ToModelContent(Part part, bool allowUrls)
+    {
+        return Convert(part, true, allowUrls);
+    }
 
     internal static Part? ConvertToPart(AIContent content, bool copyMetadata)
     {
@@ -109,7 +137,11 @@ public static class A2AContentExtensions
                 return new RawPart(bytes) { MediaType = mediaType, Filename = data.Name, Metadata = metadata };
             case UriContent uri:
                 return uri.Uri is { IsAbsoluteUri: true } url
-                    ? new UrlPart(url) { MediaType = string.IsNullOrWhiteSpace(uri.MediaType) ? OctetStream : uri.MediaType, Metadata = metadata }
+                    ? new UrlPart(url)
+                    {
+                        MediaType = string.IsNullOrWhiteSpace(uri.MediaType) ? OctetStream : uri.MediaType,
+                        Metadata = metadata
+                    }
                     : null;
             default:
                 return null;
@@ -164,6 +196,7 @@ public static class A2AContentExtensions
             // The media type comes from a remote peer and can be malformed.
             content = new DataContent(bytes, OctetStream);
         }
+
         content.Name = name;
         return content;
     }
@@ -191,22 +224,28 @@ public static class A2AContentExtensions
     {
         var list = new List<Part>(contents.Count);
         foreach (var content in contents)
-            if (content.ToPart() is { } part) list.Add(part);
+            if (content.ToPart() is { } part)
+                list.Add(part);
         return list;
     }
 
-    private static bool IsJson([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? mediaType)
+    private static bool IsJson([NotNullWhen(true)] string? mediaType)
     {
         if (string.IsNullOrWhiteSpace(mediaType)) return false;
         var semicolon = mediaType.IndexOf(';');
         var essence = (semicolon < 0 ? mediaType : mediaType[..semicolon]).Trim();
-        return essence.Equals(Json, StringComparison.OrdinalIgnoreCase) || essence.EndsWith("+json", StringComparison.OrdinalIgnoreCase);
+        return essence.Equals(Json, StringComparison.OrdinalIgnoreCase) ||
+               essence.EndsWith("+json", StringComparison.OrdinalIgnoreCase);
     }
 
     private static byte[] WriteJson(JsonElement element)
     {
         var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer)) element.WriteTo(writer);
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            element.WriteTo(writer);
+        }
+
         return buffer.WrittenSpan.ToArray();
     }
 
@@ -238,7 +277,8 @@ public static class A2AContentExtensions
         if (properties is not { Count: > 0 }) return null;
         Dictionary<string, JsonElement>? result = null;
         foreach (var (key, value) in properties)
-            if (TryToJson(value, out var element)) (result ??= new())[key] = element;
+            if (TryToJson(value, out var element))
+                (result ??= new Dictionary<string, JsonElement>())[key] = element;
         return result;
     }
 
@@ -257,6 +297,7 @@ public static class A2AContentExtensions
             default:
                 return false;
         }
+
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
         {
@@ -271,6 +312,7 @@ public static class A2AContentExtensions
                 default: writer.WriteNumberValue(System.Convert.ToInt64(value, CultureInfo.InvariantCulture)); break;
             }
         }
+
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
         element = document.RootElement.Clone();
         return true;

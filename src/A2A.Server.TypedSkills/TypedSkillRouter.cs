@@ -2,12 +2,16 @@ using A2A.Skills;
 
 namespace A2A.Server.TypedSkills;
 
-/// <summary>The executor of a host with typed skills: runs the typed skill a request names, and hands everything else to the fallback.</summary>
+/// <summary>
+///     The executor of a host with typed skills: runs the typed skill a request names, and hands everything else to
+///     the fallback.
+/// </summary>
 internal sealed class TypedSkillRouter(TypedSkillSet set, IServiceProvider services) : IAgentExecutor
 {
     public Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken)
     {
-        if (set.Resolve(context.Message, context.Call) is { } skill) return skill.RunAsync(context, updater, services, cancellationToken);
+        if (set.Resolve(context.Message, context.Call) is { } skill)
+            return skill.RunAsync(context, updater, services, cancellationToken);
         return set.CreateFallback(services)!.ExecuteAsync(context, updater, cancellationToken);
     }
 

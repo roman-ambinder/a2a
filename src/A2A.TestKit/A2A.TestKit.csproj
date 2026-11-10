@@ -1,19 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>A2A.TestKit</RootNamespace>
-    <Description>Test kit for A2A (Agent2Agent) agents: an in-process agent host, a scripted fake peer agent, assertions for task states and event order, a fake clock and a push notification receiver. Works with any test framework.</Description>
-    <PackageTags>$(PackageTags);testing</PackageTags>
-    <!-- Test-only package: it uses ASP.NET Core TestHost and does not claim AOT. -->
-    <IsAotCompatible>false</IsAotCompatible>
-  </PropertyGroup>
-  <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
-    <ProjectReference Include="..\A2A.Client\A2A.Client.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
-  </ItemGroup>
+    <PropertyGroup>
+        <RootNamespace>A2A.TestKit</RootNamespace>
+        <Description>Test kit for A2A (Agent2Agent) agents: an in-process agent host, a scripted fake peer agent, assertions for task states and event order, a fake clock and a push notification receiver. Works with any test framework.</Description>
+        <PackageTags>$(PackageTags);testing</PackageTags>
+        <!-- Test-only package: it uses ASP.NET Core TestHost and does not claim AOT. -->
+        <IsAotCompatible>false</IsAotCompatible>
+    </PropertyGroup>
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj"/>
+        <ProjectReference Include="..\A2A.Client\A2A.Client.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.AspNetCore.TestHost"/>
+    </ItemGroup>
 </Project>

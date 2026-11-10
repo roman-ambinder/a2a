@@ -1,17 +1,18 @@
 namespace A2A.Client.Credentials;
 
 /// <summary>
-/// Supplies a credential for one security scheme of an Agent Card. The SDK picks the provider once, at client creation,
-/// and calls <see cref="ApplyAsync"/> on every request to the card's origin.
+///     Supplies a credential for one security scheme of an Agent Card. The SDK picks the provider once, at client
+///     creation,
+///     and calls <see cref="ApplyAsync" /> on every request to the card's origin.
 /// </summary>
 public interface IA2ACredentialProvider
 {
-    /// <summary>Returns true when this provider can satisfy the scheme in <paramref name="context"/>.</summary>
+    /// <summary>Returns true when this provider can satisfy the scheme in <paramref name="context" />.</summary>
     bool CanHandle(A2ACredentialContext context);
 
     /// <summary>
-    /// Adds the credential to <paramref name="request"/>. Must not change <see cref="HttpRequestMessage.RequestUri"/>.
-    /// Called on every attempt, so retries get a fresh credential.
+    ///     Adds the credential to <paramref name="request" />. Must not change <see cref="HttpRequestMessage.RequestUri" />.
+    ///     Called on every attempt, so retries get a fresh credential.
     /// </summary>
     ValueTask ApplyAsync(HttpRequestMessage request, A2ACredentialContext context, CancellationToken cancellationToken);
 }
