@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <RootNamespace>A2A.Client.Identity.Azure</RootNamespace>
+        <Description>Azure identity for the A2A (Agent2Agent) client: call agents with a managed identity, workload identity or any Azure.Core TokenCredential instead of a client secret.</Description>
+        <PackageTags>$(PackageTags);azure;entra;managed-identity;workload-identity</PackageTags>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.Client\A2A.Client.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Azure.Core"/>
+    </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="A2A.Tests"/>
+    </ItemGroup>
+</Project>

@@ -171,3 +171,12 @@ static A2A.Client.Sse.SseReader.ReadAsync(System.IO.Stream! stream, int maxEvent
 [A2AEXP005]abstract A2A.Client.A2ALiveConnection.DisposeAsync() -> System.Threading.Tasks.ValueTask
 [A2AEXP005]abstract A2A.Client.A2ALiveConnection.Events.get -> System.Collections.Generic.IAsyncEnumerable<A2A.StreamResponse!>!
 [A2AEXP005]abstract A2A.Client.A2ALiveConnection.SendAsync(A2A.StreamRequest! request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+A2A.Client.Credentials.OAuth2ClientAssertionContext
+A2A.Client.Credentials.OAuth2ClientAssertionContext.ClientId.get -> string!
+A2A.Client.Credentials.OAuth2ClientAssertionContext.OAuth2ClientAssertionContext(string! clientId, System.Uri! tokenEndpoint) -> void
+A2A.Client.Credentials.OAuth2ClientAssertionContext.TokenEndpoint.get -> System.Uri!
+A2A.Client.Credentials.OAuth2ClientAssertions
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.ClientAssertion.get -> System.Func<A2A.Client.Credentials.OAuth2ClientAssertionContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>?
+A2A.Client.Credentials.OAuth2ClientCredentialsOptions.ClientAssertion.set -> void
+static A2A.Client.Credentials.OAuth2ClientAssertions.FromFile(string! path) -> System.Func<A2A.Client.Credentials.OAuth2ClientAssertionContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>!
+static A2A.Client.Credentials.OAuth2ClientAssertions.PrivateKeyJwt(A2A.Signing.AgentCardSigningKey! key, System.TimeSpan? lifetime = null, System.TimeProvider? timeProvider = null) -> System.Func<A2A.Client.Credentials.OAuth2ClientAssertionContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>!

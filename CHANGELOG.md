@@ -4,6 +4,20 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Identity providers
+
+- `OAuth2ClientCredentialsProvider` can log in without a secret. New `OAuth2ClientCredentialsOptions.ClientAssertion` sends a
+  signed JWT as `client_assertion` (RFC 7523) instead of `client_secret`. New `OAuth2ClientAssertions.FromFile` reads a
+  token file the platform rotates (Kubernetes service account tokens, Azure workload identity), and
+  `OAuth2ClientAssertions.PrivateKeyJwt` signs a `private_key_jwt` with your own key. `ClientSecret` and `ClientAssertion`
+  cannot both be set. `client_assertion` and `client_assertion_type` are refused in `AdditionalParameters`.
+- New package `RomanAmbinder.A2A.Client.Identity.Azure`: `AzureTokenCredentialProvider` gets tokens from any Azure.Core
+  `TokenCredential` (managed identity, workload identity, `DefaultAzureCredential`, ...). Scopes are required and set by the
+  host, never taken from the card. One provider binds to one agent origin. Tokens are cached and refreshed before expiry.
+- New guide: [Identity providers](docs/site/guides/identity-providers.md). Entra ID on the server (JWT bearer and an owner
+  id from `tid` and `oid`), and which client option fits which platform. AWS IAM (SigV4) is not built in; the guide says
+  what a custom provider must handle.
+
 ### Protocol and bindings
 
 - Validation errors of request fields carry a `google.rpc.BadRequest` detail with the field and the reason (spec v1.0.1

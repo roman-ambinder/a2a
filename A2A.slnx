@@ -38,6 +38,7 @@
     <Project Path="src/A2A.Client.Grpc/A2A.Client.Grpc.csproj" />
     <Project Path="src/A2A.Client.Postgres/A2A.Client.Postgres.csproj" />
     <Project Path="src/A2A.Client.DependencyInjection/A2A.Client.DependencyInjection.csproj" />
+    <Project Path="src/A2A.Client.Identity.Azure/A2A.Client.Identity.Azure.csproj" />
     <Project Path="src/A2A.Client.V0_3Compat/A2A.Client.V0_3Compat.csproj" />
     <Project Path="src/A2A.Extensions.AI/A2A.Extensions.AI.csproj" />
     <Project Path="src/A2A.Cli/A2A.Cli.csproj" />

@@ -50,9 +50,12 @@ Order matters twice: the card's order of requirements, and your order of provide
 | `httpAuthSecurityScheme` with scheme `Bearer`, or `openIdConnectSecurityScheme` | `OAuth2ClientCredentialsProvider`, only when `TokenEndpoint` is set | Same. |
 | `apiKeySecurityScheme` in a header or cookie | <xref:A2A.Client.Credentials.ApiKeyCredentialProvider> | Sends the key under the name the card declares. |
 | `mtlsSecurityScheme` | <xref:A2A.Client.Credentials.MutualTlsCredentialProvider> with <xref:A2A.Client.Credentials.A2AMutualTls> | Adds nothing per request. The certificate is in the connection. |
+| `oauth2SecurityScheme`, `openIdConnectSecurityScheme`, or `httpAuthSecurityScheme` with scheme `Bearer` | <xref:A2A.Client.Identity.Azure.AzureTokenCredentialProvider> (package `RomanAmbinder.A2A.Client.Identity.Azure`) | Gets a token from an Azure credential and sends `Authorization: Bearer`. See [Identity providers](identity-providers.md). |
 | Anything else | Your own <xref:A2A.Client.Credentials.IA2ACredentialProvider> | You decide. |
 
 Other OAuth2 flows, API keys in the query string and HTTP Basic are not covered by the built-in providers.
+
+To log in with no secret (a Kubernetes or Azure workload identity token file, or `private_key_jwt`), see [Identity providers](identity-providers.md).
 
 ### A custom provider
 
@@ -86,7 +89,7 @@ This is why you cannot pass a plain `HttpClient` together with providers. The re
 
 [!code-csharp[](../../../samples/Snippets/ClientCredentials.cs#OAuth2)]
 
-`ClientId` and `ClientSecret` are required.
+`ClientId` is required, and one of `ClientSecret` or `ClientAssertion`. `ClientAssertion` proves the client with a signed JWT instead of a secret (RFC 7523); `OAuth2ClientAssertions.FromFile` and `OAuth2ClientAssertions.PrivateKeyJwt` make one. See [Identity providers](identity-providers.md).
 
 **Token endpoint.** The client secret goes to the token endpoint, so the card cannot choose it freely.
 
@@ -102,8 +105,8 @@ The endpoint must be HTTPS (loopback is exempt, `RequireHttps` can turn this off
 
 **Tokens.**
 
-- Client authentication is HTTP Basic by default. Set `ClientAuthentication` to `ClientSecretPost` to send the id and secret in the form body.
-- `AdditionalParameters` adds form fields such as `audience`. `grant_type`, `scope`, `client_id` and `client_secret` are refused.
+- Client authentication is HTTP Basic by default. Set `ClientAuthentication` to `ClientSecretPost` to send the id and secret in the form body. With `ClientAssertion`, the form carries `client_id`, `client_assertion_type` and `client_assertion`, and `ClientAuthentication` is ignored.
+- `AdditionalParameters` adds form fields such as `audience`. `grant_type`, `scope`, `client_id`, `client_secret`, `client_assertion` and `client_assertion_type` are refused.
 - A token is cached per token endpoint, card origin and scope set (at most 256 entries). It is reused until `RefreshBeforeExpiry` (60 seconds, capped at half the token lifetime) before it expires.
 - Callers at the same time share one token request. The request has its own timeout (`TokenRequestTimeout`, 30 seconds), so one caller's cancellation does not fail the others.
 - If a refresh fails while the old token is still valid, the old token is used and the next call tries again.
@@ -172,6 +175,7 @@ The origin and HTTPS checks still apply. The handler under the channel must not 
 ## See also
 
 - [Authentication and ownership](auth-and-ownership.md#the-client-side) for the server side and delegation
+- [Identity providers](identity-providers.md) for Entra, Kubernetes, workload identity and `private_key_jwt`
 - [Agent card signing](agent-card-signing.md)
 - [Peer identity and registry](peer-identity.md)
 - [Bindings](bindings.md)

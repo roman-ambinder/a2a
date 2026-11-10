@@ -12,6 +12,8 @@
   href: auth-and-ownership.md
 - name: Client credentials
   href: client-credentials.md
+- name: Identity providers
+  href: identity-providers.md
 - name: Streaming and resume
   href: streaming.md
 - name: Push notifications

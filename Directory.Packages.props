@@ -31,6 +31,11 @@
     <PackageVersion Include="AWSSDK.S3" Version="4.0.104.11" />
     <PackageVersion Include="Testcontainers.Azurite" Version="4.16.0" />
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.30.1" />
+    <!-- The version Azure.Storage.Blobs 12.30.1 brings, so the repo has one Azure.Core. -->
+    <PackageVersion Include="Azure.Core" Version="1.60.0" />
+    <!-- Samples and snippets only. The Azure identity package depends on Azure.Core, not on this. -->
+    <PackageVersion Include="Azure.Identity" Version="1.21.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.14" />
     <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.20.1" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.20.2" />
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.20.1" />

@@ -95,7 +95,7 @@ With DI, <xref:A2A.Client.A2AClientServiceCollectionExtensions.AddA2AClient*> re
 
 <xref:A2A.Client.A2AClientServiceCollectionExtensions.AddBearerToken*> sets `Authorization: Bearer` on every request. The token provider runs per request, so cache inside it. On an `AddA2AClient` builder it refuses to send the token to an origin other than the `AgentUrl` origin.
 
-To let the client fetch tokens and attach API keys or client certificates from the card's security schemes, see [Client credentials](client-credentials.md).
+To let the client fetch tokens and attach API keys or client certificates from the card's security schemes, see [Client credentials](client-credentials.md). For Entra ID, workload identity and other identity providers, on either side, see [Identity providers](identity-providers.md).
 
 A2A clients do not follow redirects. `AddA2AClient` turns off redirects and cookies. A client that follows a redirect can send your credential headers to another host. If a response arrives through a redirect, the client refuses it with `InvalidAgentResponse`. That check runs after the response, so it cannot undo what a redirecting handler already sent. If you pass your own `HttpClient`, turn redirects off:
 
@@ -168,6 +168,7 @@ Warning: the server sends the caller's `Authorization: Bearer` value to the exch
 ## See also
 
 - [Client credentials](client-credentials.md)
+- [Identity providers](identity-providers.md)
 - [Multi-tenancy](multi-tenancy.md)
 - [Limits and rate limiting](limits-and-rate-limiting.md)
 - [Task safety](task-safety.md)

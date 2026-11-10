@@ -25,8 +25,17 @@ public sealed class OAuth2ClientCredentialsOptions
     /// <summary>The OAuth2 client id. Required.</summary>
     public string ClientId { get; set; } = "";
 
-    /// <summary>The OAuth2 client secret. Required.</summary>
+    /// <summary>The OAuth2 client secret. Required unless <see cref="ClientAssertion" /> is set. Set one of the two, not both.</summary>
     public string ClientSecret { get; set; } = "";
+
+    /// <summary>
+    ///     Proves the client with a signed JWT instead of a secret (RFC 7523): the token request carries
+    ///     <c>client_assertion</c> and <c>client_assertion_type</c>, and no client secret. Called for every token request, so
+    ///     a rotated token file or a fresh <c>jti</c> is picked up. <see cref="OAuth2ClientAssertions" /> has ready-made
+    ///     delegates. Set this or <see cref="ClientSecret" />, not both. <see cref="ClientAuthentication" /> is ignored when
+    ///     this is set.
+    /// </summary>
+    public Func<OAuth2ClientAssertionContext, CancellationToken, ValueTask<string>>? ClientAssertion { get; set; }
 
     /// <summary>
     ///     The token endpoint. When null, the provider uses the <c>tokenUrl</c> of the card's client credentials flow, but
@@ -88,12 +97,17 @@ public sealed class OAuth2ClientCredentialsOptions
 public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, IDisposable
 {
     private const int MaxSlots = 256;
-    private static readonly string[] ReservedParameters = ["grant_type", "scope", "client_id", "client_secret"];
+    private const int MaxAssertionLength = 64 * 1024;
+    private const string JwtBearerAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+
+    private static readonly string[] ReservedParameters =
+        ["grant_type", "scope", "client_id", "client_secret", "client_assertion", "client_assertion_type"];
     private readonly KeyValuePair<string, string>[] _additional;
     private readonly OAuth2ClientAuthentication _clientAuthentication;
 
     private readonly string _clientId;
     private readonly string _clientSecret;
+    private readonly Func<OAuth2ClientAssertionContext, CancellationToken, ValueTask<string>>? _clientAssertion;
     private readonly ConditionalWeakTable<A2ACredentialContext, string> _contextScopes = new();
     private readonly TimeSpan _defaultLifetime;
     private readonly string? _fixedScope;
@@ -120,8 +134,10 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         ArgumentNullException.ThrowIfNull(options);
         if (string.IsNullOrEmpty(options.ClientId))
             throw new ArgumentException("ClientId is required.", nameof(options));
-        if (string.IsNullOrEmpty(options.ClientSecret))
-            throw new ArgumentException("ClientSecret is required.", nameof(options));
+        if (string.IsNullOrEmpty(options.ClientSecret) && options.ClientAssertion is null)
+            throw new ArgumentException("ClientSecret or ClientAssertion is required.", nameof(options));
+        if (!string.IsNullOrEmpty(options.ClientSecret) && options.ClientAssertion is not null)
+            throw new ArgumentException("Set ClientSecret or ClientAssertion, not both.", nameof(options));
         if (options.TokenEndpoint is not null)
         {
             var problem = CheckEndpoint(options.TokenEndpoint, options.RequireHttps);
@@ -156,7 +172,8 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         }
 
         _clientId = options.ClientId;
-        _clientSecret = options.ClientSecret;
+        _clientSecret = options.ClientSecret ?? "";
+        _clientAssertion = options.ClientAssertion;
         _tokenEndpoint = options.TokenEndpoint;
         _scopes = options.Scopes is { Count: > 0 } ? [.. options.Scopes] : null;
         _fixedScope = _scopes is null ? null : ScopeString(_scopes);
@@ -351,7 +368,15 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         form.AddRange(_additional);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        if (_clientAuthentication == OAuth2ClientAuthentication.ClientSecretBasic)
+        string? assertion = null;
+        if (_clientAssertion is not null)
+        {
+            assertion = await GetAssertionAsync(endpoint, ct).ConfigureAwait(false);
+            form.Add(new KeyValuePair<string, string>("client_id", _clientId));
+            form.Add(new KeyValuePair<string, string>("client_assertion_type", JwtBearerAssertionType));
+            form.Add(new KeyValuePair<string, string>("client_assertion", assertion));
+        }
+        else if (_clientAuthentication == OAuth2ClientAuthentication.ClientSecretBasic)
         {
             var raw = WebUtility.UrlEncode(_clientId) + ":" + WebUtility.UrlEncode(_clientSecret);
             request.Headers.Authorization =
@@ -370,12 +395,41 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
             throw new A2AException(A2AErrorCode.Unauthenticated,
-                ErrorMessage(endpoint, (int)response.StatusCode, body));
+                ErrorMessage(endpoint, (int)response.StatusCode, body, assertion));
 
         return Parse(body, issuedAt);
     }
 
-    private string ErrorMessage(Uri endpoint, int status, string body)
+    private async ValueTask<string> GetAssertionAsync(Uri endpoint, CancellationToken ct)
+    {
+        string? assertion;
+        try
+        {
+            assertion = await _clientAssertion!(new OAuth2ClientAssertionContext(_clientId, endpoint), ct)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new A2AException(A2AErrorCode.Unauthenticated,
+                $"The client assertion could not be obtained ({ex.GetType().Name}).", ex);
+        }
+
+        if (string.IsNullOrEmpty(assertion))
+            throw new A2AException(A2AErrorCode.Unauthenticated, "The client assertion is empty.");
+        if (assertion.Length > MaxAssertionLength)
+            throw new A2AException(A2AErrorCode.Unauthenticated,
+                $"The client assertion is longer than {MaxAssertionLength} characters.");
+        if (assertion.Any(c => char.IsControl(c) || char.IsWhiteSpace(c)))
+            throw new A2AException(A2AErrorCode.Unauthenticated,
+                "The client assertion contains control or white space characters.");
+        return assertion;
+    }
+
+    private string ErrorMessage(Uri endpoint, int status, string body, string? assertion)
     {
         var sb = new StringBuilder(
             $"The token endpoint {endpoint.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped)} answered HTTP {status}.");
@@ -386,7 +440,7 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
                 foreach (var name in new[] { "error", "error_description" })
                     if (doc.RootElement.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String &&
                         p.GetString() is { Length: > 0 } text)
-                        sb.Append(' ').Append(name).Append(": ").Append(Clean(text));
+                        sb.Append(' ').Append(name).Append(": ").Append(Clean(text, assertion));
         }
         catch (JsonException)
         {
@@ -395,10 +449,11 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         return sb.ToString();
     }
 
-    private string Clean(string text)
+    private string Clean(string text, string? assertion)
     {
-        return TextSanitizer.Sanitize(text.Replace(_clientSecret, "[redacted]", StringComparison.Ordinal),
-            TextSanitizer.MaxHeaderValueLength);
+        if (_clientSecret.Length > 0) text = text.Replace(_clientSecret, "[redacted]", StringComparison.Ordinal);
+        if (assertion is { Length: > 0 }) text = text.Replace(assertion, "[redacted]", StringComparison.Ordinal);
+        return TextSanitizer.Sanitize(text, TextSanitizer.MaxHeaderValueLength);
     }
 
     private CachedToken Parse(string body, DateTimeOffset issuedAt)
