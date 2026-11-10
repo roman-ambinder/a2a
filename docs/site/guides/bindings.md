@@ -78,7 +78,7 @@ To require gRPC, use <xref:A2A.Client.Grpc.A2AGrpcClientFactory>. It throws `Uns
 
 | | JSON-RPC and HTTP+JSON | gRPC |
 |---|---|---|
-| Errors | JSON-RPC error object (HTTP 200 for most errors), or a `google.rpc.Status` body over HTTP+JSON | `google.rpc.Status` with an `ErrorInfo` detail. `retryable` and `retryAfter` are in its metadata. `RetryInfo` is added on rate limits. |
+| Errors | JSON-RPC error object (HTTP 200 for most errors), or a `google.rpc.Status` body over HTTP+JSON | `google.rpc.Status` with an `ErrorInfo` detail. `retryable` and `retryAfter` are in its metadata. `RetryInfo` is added on rate limits. A validation error of a request field also carries a `BadRequest`, as on the HTTP bindings. |
 | Request headers | `A2A-Version`, `A2A-Extensions`, `Idempotency-Key` | `a2a-version`, `a2a-extensions`, `idempotency-key` metadata |
 | Extensions echo | `A2A-Extensions` response header, also on errors | `a2a-extensions` initial metadata on success; in the trailers when the call fails |
 | Extension operations | `POST /ext/{method}`, or a JSON-RPC method | `a2a.extensions.v1.A2AExtensionService`, unary only. Map it with `MapA2AGrpcExtensions`. |

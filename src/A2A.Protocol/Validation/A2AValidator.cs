@@ -14,14 +14,14 @@ public static partial class A2AValidator
     /// </summary>
     public static void ValidateIncoming(SendMessageRequest request)
     {
-        if (request.Message is null) throw A2AException.InvalidParams("message is required");
+        if (request.Message is null) throw A2AException.InvalidField("message", "is required");
         ValidateMessage(request.Message, "message");
         if (request.Message.Role != Role.User)
-            throw A2AException.InvalidParams("message.role must be ROLE_USER for client messages");
+            throw A2AException.InvalidField("message.role", "must be ROLE_USER for client messages");
         if (request.Configuration is { HistoryLength: < 0 })
-            throw A2AException.InvalidParams("configuration.historyLength must be >= 0");
+            throw A2AException.InvalidField("configuration.historyLength", "must be >= 0");
         if (request.Configuration is { TimelineLength: < 0 })
-            throw A2AException.InvalidParams("configuration.timelineLength must be >= 0");
+            throw A2AException.InvalidField("configuration.timelineLength", "must be >= 0");
         if (request.Configuration?.TaskPushNotificationConfig is { } push)
             ValidatePushConfig(push, "configuration.taskPushNotificationConfig", false);
     }
@@ -33,18 +33,18 @@ public static partial class A2AValidator
     public static void ValidateMessage(Message message, string path)
     {
         if (string.IsNullOrWhiteSpace(message.MessageId))
-            throw A2AException.InvalidParams($"{path}.messageId is required");
+            throw A2AException.InvalidField($"{path}.messageId", "is required");
         if (message.Parts is null || message.Parts.Count == 0)
-            throw A2AException.InvalidParams($"{path}.parts must contain at least one part");
+            throw A2AException.InvalidField($"{path}.parts", "must contain at least one part");
         for (var i = 0; i < message.Parts.Count; i++)
             if (message.Parts[i] is null)
-                throw A2AException.InvalidParams($"{path}.parts[{i}] is null");
+                throw A2AException.InvalidField($"{path}.parts[{i}]", "is null");
     }
 
     /// <summary>Checks that a part is not null. <paramref name="path" /> prefixes the field name in error messages.</summary>
     public static void ValidatePart(Part part, string path)
     {
-        if (part is null) throw A2AException.InvalidParams($"{path} is null");
+        if (part is null) throw A2AException.InvalidField(path, "is null");
     }
 
     /// <summary>Checks an artifact an agent produced. Throws InvalidAgentResponse when the id or the parts are missing.</summary>
@@ -79,17 +79,17 @@ public static partial class A2AValidator
     public static void ValidatePushConfig(TaskPushNotificationConfig config, string path, bool requireTaskId)
     {
         if (string.IsNullOrWhiteSpace(config.Url))
-            throw A2AException.InvalidParams($"{path}.url is required");
+            throw A2AException.InvalidField($"{path}.url", "is required");
         if (!Uri.TryCreate(config.Url, UriKind.Absolute, out var uri) ||
             (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
-            throw A2AException.InvalidParams($"{path}.url must be an absolute http(s) URL");
+            throw A2AException.InvalidField($"{path}.url", "must be an absolute http(s) URL");
         if (requireTaskId && string.IsNullOrWhiteSpace(config.TaskId))
-            throw A2AException.InvalidParams($"{path}.taskId is required");
+            throw A2AException.InvalidField($"{path}.taskId", "is required");
         if (!string.IsNullOrEmpty(config.Id) && !IsValidPushConfigId(config.Id!))
-            throw A2AException.InvalidParams(
-                $"{path}.id must be at most {MaxPushConfigIdLength} visible ASCII characters"); // never echoes the value
+            throw A2AException.InvalidField($"{path}.id",
+                $"must be at most {MaxPushConfigIdLength} visible ASCII characters"); // never echoes the value
         if (config.Authentication is { } auth && string.IsNullOrWhiteSpace(auth.Scheme))
-            throw A2AException.InvalidParams($"{path}.authentication.scheme is required");
+            throw A2AException.InvalidField($"{path}.authentication.scheme", "is required");
         if (config.Authentication is { } sig && string.Equals(sig.Scheme, WebhookSignature.Scheme,
                                                  StringComparison.OrdinalIgnoreCase)
                                              && !WebhookSignature.TryParseSecret(sig.Credentials, out _))
@@ -111,6 +111,6 @@ public static partial class A2AValidator
     /// </summary>
     public static void RequireId(string? id, string name)
     {
-        if (string.IsNullOrWhiteSpace(id)) throw A2AException.InvalidParams($"{name} is required");
+        if (string.IsNullOrWhiteSpace(id)) throw A2AException.InvalidField(name, "is required");
     }
 }

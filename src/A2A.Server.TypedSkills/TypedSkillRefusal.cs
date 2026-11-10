@@ -11,7 +11,6 @@ namespace A2A.Server.TypedSkills;
 /// </summary>
 internal static class TypedSkillRefusal
 {
-    private const string BadRequestType = "type.googleapis.com/google.rpc.BadRequest";
     private const int MaxViolations = 20;
     private const int MaxTextLength = 200;
 
@@ -30,7 +29,7 @@ internal static class TypedSkillRefusal
         using (var writer = new Utf8JsonWriter(stream))
         {
             writer.WriteStartObject();
-            writer.WriteString("@type", BadRequestType);
+            writer.WriteString("@type", A2AErrors.BadRequestType);
             writer.WriteStartArray("fieldViolations");
             for (var i = 0; i < violations.Count && i < MaxViolations; i++)
             {

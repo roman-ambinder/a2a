@@ -79,7 +79,58 @@ public static class GrpcErrors
             status.Details.Add(Any.Pack(info));
         }
 
+        if (ex.Details is not null)
+            foreach (var detail in ex.Details)
+                if (ToBadRequest(detail) is { } badRequest)
+                    status.Details.Add(Any.Pack(badRequest));
+
         return status;
+    }
+
+    /// <summary>The <c>google.rpc.BadRequest</c> in a ProtoJSON detail entry, or null when the entry is another type.</summary>
+    private static BadRequest? ToBadRequest(JsonElement detail)
+    {
+        if (!A2AErrors.HasType(detail) || detail.GetProperty("@type").GetString() != A2AErrors.BadRequestType)
+            return null;
+        var badRequest = new BadRequest();
+        if (detail.TryGetProperty("fieldViolations", out var violations) && violations.ValueKind == JsonValueKind.Array)
+            foreach (var v in violations.EnumerateArray())
+            {
+                if (v.ValueKind != JsonValueKind.Object) continue;
+                badRequest.FieldViolations.Add(new BadRequest.Types.FieldViolation
+                {
+                    Field = v.TryGetProperty("field", out var f) && f.ValueKind == JsonValueKind.String
+                        ? f.GetString()
+                        : "",
+                    Description = v.TryGetProperty("description", out var d) && d.ValueKind == JsonValueKind.String
+                        ? d.GetString()
+                        : ""
+                });
+            }
+
+        return badRequest;
+    }
+
+    /// <summary>
+    ///     The details of a received status as the HTTP bindings carry them: the A2A ErrorInfo, then each BadRequest. Null
+    ///     when there is neither.
+    /// </summary>
+    private static List<JsonElement>? DetailsOf(Status? status, ErrorInfo? info)
+    {
+        var details = new List<JsonElement>();
+        if (info is not null) details.Add(ToJson(info));
+        if (status is not null)
+            foreach (var any in status.Details)
+                if (any.TryUnpack<BadRequest>(out var badRequest))
+                    details.Add(ToJson(badRequest));
+        return details.Count > 0 ? details : null;
+    }
+
+    /// <summary>The <c>google.rpc.BadRequest</c> in its ProtoJSON <c>Any</c> form.</summary>
+    private static JsonElement ToJson(BadRequest badRequest)
+    {
+        return A2AErrors.BadRequest(badRequest.FieldViolations.Select(v =>
+            new KeyValuePair<string, string>(v.Field, v.Description)));
     }
 
     /// <summary>
@@ -133,7 +184,7 @@ public static class GrpcErrors
         {
             HttpStatus = httpStatus,
             Metadata = info?.Metadata.Count > 0 ? info.Metadata.ToDictionary(kv => kv.Key, kv => kv.Value) : null,
-            Details = info is null ? null : [ToJson(info)],
+            Details = DetailsOf(status, info),
             RetryAfter = RetryAfterOf(status, info),
             ReasonOverride = reason is A2AErrors.PayloadTooLargeReason or A2AErrors.IdempotencyKeyMismatchReason
                 ? reason
