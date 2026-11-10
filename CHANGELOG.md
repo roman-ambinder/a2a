@@ -4,6 +4,20 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Protocol and bindings
+
+- HTTP and gRPC error statuses now follow the error table in spec §5.4. On HTTP: `TaskNotCancelable` is 409 (was 400),
+  `ContentTypeNotSupported` is 415 (was 400) and `InvalidAgentResponse` is 502 (was 500). On gRPC:
+  `PushNotificationNotSupported`, `UnsupportedOperation` and `VersionNotSupported` are `UNIMPLEMENTED` (was
+  `FAILED_PRECONDITION`). The same table drives the `status` in REST error bodies, the code of a `StreamError`, and the
+  v0.3 HTTP+JSON surface. JSON-RPC codes and the `ErrorInfo` reason are unchanged, and the client reads the reason first,
+  so SDK clients classify these errors as before. A client that matches on the HTTP or gRPC status must be updated.
+
+### Documentation
+
+- Spec decisions: the push delivery defaults said "10 attempts". The default is no limit on the count (`MaxAttempts`
+  null); a delivery still failing 24 hours after it was queued is dead-lettered (`MaxDeliveryAge`).
+
 ### Performance
 
 - Streaming many artifact chunks no longer copies the whole artifact for every chunk. When an agent sends chunks faster

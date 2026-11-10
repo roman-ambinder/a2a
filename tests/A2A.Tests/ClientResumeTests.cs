@@ -224,7 +224,7 @@ public class ClientResumeTests
     {
         string Unsupported() => binding == ProtocolBindings.JsonRpc
             ? """{"jsonrpc":"2.0","id":"x","error":{"code":-32004,"message":"terminal"}}"""
-            : """{"error":{"code":400,"status":"FAILED_PRECONDITION","message":"terminal","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"UNSUPPORTED_OPERATION","domain":"a2a-protocol.org"}]}}""";
+            : """{"error":{"code":400,"status":"UNIMPLEMENTED","message":"terminal","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"UNSUPPORTED_OPERATION","domain":"a2a-protocol.org"}]}}""";
         var handler = new ScriptedHandler(
             _ => new HttpResponseMessage(binding == ProtocolBindings.JsonRpc ? HttpStatusCode.OK : HttpStatusCode.BadRequest) { Content = new StringContent(Unsupported(), Encoding.UTF8, "application/json") },
             _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Payload(binding, TaskFrame("TASK_STATE_COMPLETED")[8..^1]), Encoding.UTF8, "application/json") });
@@ -563,7 +563,7 @@ public class ClientResumeTests
     {
         string Unsupported() => binding == ProtocolBindings.JsonRpc
             ? """{"jsonrpc":"2.0","id":"x","error":{"code":-32004,"message":"nope"}}"""
-            : """{"error":{"code":400,"status":"FAILED_PRECONDITION","message":"nope","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"UNSUPPORTED_OPERATION","domain":"a2a-protocol.org"}]}}""";
+            : """{"error":{"code":400,"status":"UNIMPLEMENTED","message":"nope","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"UNSUPPORTED_OPERATION","domain":"a2a-protocol.org"}]}}""";
         var handler = new ScriptedHandler(
             _ => new HttpResponseMessage(binding == ProtocolBindings.JsonRpc ? HttpStatusCode.OK : HttpStatusCode.BadRequest) { Content = new StringContent(Unsupported(), Encoding.UTF8, "application/json") },
             _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Payload(binding, TaskFrame("TASK_STATE_WORKING")[8..^1]), Encoding.UTF8, "application/json") });

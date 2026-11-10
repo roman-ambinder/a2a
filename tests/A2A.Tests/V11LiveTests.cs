@@ -225,7 +225,7 @@ public sealed class V11LiveTests
         await call.RequestStream.WriteAsync(Grpc(Send("hello?", messageId: "m-busy")));
         Assert.True(await events.MoveNext());
         Assert.Equal("m-busy", events.Current.Error.ReferenceId);
-        Assert.Equal("FAILED_PRECONDITION", events.Current.Error.Code);
+        Assert.Equal("UNIMPLEMENTED", events.Current.Error.Code);
         ScenarioAgent.Gate("gate live-refused").TrySetResult();
         Assert.True(await events.MoveNext());
         Assert.Equal(A2aPb.TaskState.Completed, events.Current.StatusUpdate.Status.State);
