@@ -5,19 +5,6 @@ namespace Snippets.PeerIdentityGuide;
 
 internal static class Snippets
 {
-    public static async Task ReadIdentityAsync(A2ACardResolver resolver)
-    {
-        #region Read
-        var resolved = await resolver.ResolveAsync(new Uri("https://agent.example.com/"));
-        var identity = resolved.Identity;
-
-        Console.WriteLine(identity.Origin);     // https://agent.example.com
-        Console.WriteLine(identity.KeyId);      // the kid of the trusted key that verified the card, or null
-        Console.WriteLine(identity.Assurance);  // OriginOnly (no key) or Verified
-        Console.WriteLine(identity);            // https://agent.example.com#echo-1, or "... (origin only)"
-        #endregion
-    }
-
     #region Resolver
     // Adds a DID after your own check. It may add an ExternalId and nothing else.
     internal sealed class DidResolver : IPeerIdentityResolver

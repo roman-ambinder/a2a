@@ -6,6 +6,8 @@ The client retries a failed unary call on its own. This guide also covers the ci
 
 A unary call is retried up to `MaxRetries` times (default 2) on HTTP 503, 429, errors the peer marked retryable, and some transport errors. Streams are not retried, but `SendStreamingMessageAsync` and `ObserveTaskAsync` reconnect. See <xref:A2A.Client.A2AClientOptions.MaxRetries>.
 
+A runnable version, where the agent answers 503 once and the client retries, is in [samples/ClientFeatures](https://github.com/roman-ambinder/a2a/blob/main/samples/ClientFeatures/README.md).
+
 ## Circuit breaker
 
 Retries help with a short fault. When a peer is down for minutes, every call still waits and fails. A circuit breaker notices this and fails fast, so your threads and your users do not wait on a dead peer. It is off by default.

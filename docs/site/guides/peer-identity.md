@@ -12,7 +12,7 @@ The SDK identifies a peer by where its card came from and which key signed it. T
 
 <xref:A2A.Client.ResolvedAgentCard> has an `Identity` property of type <xref:A2A.Client.Peers.PeerIdentity>.
 
-[!code-csharp[](../../../samples/Snippets/PeerIdentity.cs#Read)]
+[!code-csharp[](../../../samples/ClientFeatures/Program.cs#Read)]
 
 | Property | Meaning |
 |---|---|
@@ -29,6 +29,8 @@ There are two assurance levels:
 - `Verified`: `KeyId` or `ExternalId` is set.
 
 `ToString()` is made for logs and marks the weak case: `https://a (origin only)`, `https://a#k1`, or `https://a#k1 did:web:a`.
+
+A runnable version, which reads the identity of an unsigned card, is in [samples/ClientFeatures](https://github.com/roman-ambinder/a2a/blob/main/samples/ClientFeatures/README.md).
 
 A `PeerIdentity` is a record. `Origin` and `KeyId` have no setter, so a `with` expression can only add `ExternalId`. A hand-built `ResolvedAgentCard` gets its identity from its source and verification result.
 

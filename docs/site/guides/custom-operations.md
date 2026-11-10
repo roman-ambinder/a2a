@@ -76,9 +76,11 @@ Only the unary call is served. The streaming call answers UNIMPLEMENTED.
 
 `A2AClient` and the three built-in transports implement <xref:A2A.Client.IA2AExtensionOperationClient>. The helpers in <xref:A2A.Client.ExtensionOperationClientExtensions> add the extension URI to the call options, once, and refuse a reserved name with an `ArgumentException`:
 
-[!code-csharp[](../../../samples/Snippets/CustomOperations.cs#ClientTyped)]
+[!code-csharp[](../../../samples/ClientFeatures/Program.cs#ClientTyped)]
 
 [!code-csharp[](../../../samples/Snippets/CustomOperations.cs#ClientRaw)]
+
+A runnable version, with the operation on the agent and the typed call from the client, is in [samples/ClientFeatures](https://github.com/roman-ambinder/a2a/blob/main/samples/ClientFeatures/README.md).
 
 Rules for the client:
 

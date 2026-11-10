@@ -4,6 +4,8 @@ An agent card says how callers must authenticate. The client can read that and a
 
 You pass credential providers to <xref:A2A.Client.A2AClientFactory> (or add them to a DI client). The client chooses providers from the card, once, when it creates the client. It then applies them to every request, and only on the origin the card came from.
 
+A runnable version, with OAuth2 client credentials against a demo token endpoint and an API key, is in [samples/ClientFeatures](https://github.com/roman-ambinder/a2a/blob/main/samples/ClientFeatures/README.md).
+
 ## How the client picks providers
 
 A card lists `securitySchemes` and `securityRequirements`:

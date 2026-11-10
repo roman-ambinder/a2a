@@ -68,17 +68,6 @@ internal static class Snippets
         #endregion
     }
 
-    public static async Task CallTyped(IA2AClient client)
-    {
-        #region ClientTyped
-        var result = await client.InvokeExtensionOperationAsync(
-            "reports.create", ReportsUri,
-            new ReportRequest("sales", 2026),
-            ReportJson.Default.ReportRequest, ReportJson.Default.ReportResult);
-        Console.WriteLine(result.Url);
-        #endregion
-    }
-
     public static async Task CallRaw(IA2AClient client)
     {
         #region ClientRaw
