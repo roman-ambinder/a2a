@@ -78,7 +78,8 @@ public sealed class CliTests
         var run = await Run(host, "send", "--json", "work please");
         Assert.Equal(0, run.Code);
         using var doc = JsonDocument.Parse(run.Out);
-        Assert.Equal("TASK_STATE_COMPLETED", doc.RootElement.GetProperty("task").GetProperty("status").GetProperty("state").GetString());
+        Assert.Equal("TASK_STATE_COMPLETED",
+            doc.RootElement.GetProperty("task").GetProperty("status").GetProperty("state").GetString());
     }
 
     [Fact]
@@ -322,11 +323,12 @@ public sealed class CliTests
         Assert.Equal(4, run.Code);
     }
 
-    private static Action<WebApplication> Authenticate(List<(string Path, string? Authorization, string? ApiKey)> seen, string expectedAuthorization, string? expectedApiKey = null) =>
+    private static Action<WebApplication> Authenticate(List<(string Path, string? Authorization, string? ApiKey)> seen,
+        string expectedAuthorization, string? expectedApiKey = null) =>
         app => app.Use((ctx, next) =>
         {
             var auth = ctx.Request.Headers.Authorization.ToString();
-            var key = ctx.Request.Headers["X-Api-Key"].ToString();
+            var key = ctx.Request.Headers[Consts.X_API_KEY].ToString();
             lock (seen) seen.Add((ctx.Request.Path, auth, key));
             if (ctx.Request.Path.StartsWithSegments("/a2a")
                 && (expectedApiKey is null ? auth == expectedAuthorization : key == expectedApiKey))
@@ -338,13 +340,16 @@ public sealed class CliTests
     public async Task Bearer_token_reaches_the_server_and_the_card_fetch_has_none()
     {
         var seen = new List<(string, string?, string?)>();
-        await using var host = await StartAsync(SecuredCard(SecurityScheme.Bearer()), requireAuth: true, pipeline: Authenticate(seen, "Bearer tok-123"));
+        await using var host = await StartAsync(SecuredCard(SecurityScheme.Bearer()), requireAuth: true,
+            pipeline: Authenticate(seen, "Bearer tok-123"));
         var run = await RunAsync(host, ["send", "hello", "--token", "tok-123"]);
         Assert.Equal(0, run.Code);
         lock (seen)
         {
-            Assert.Contains(seen, s => s.Item1.StartsWith("/a2a", StringComparison.Ordinal) && s.Item2 == "Bearer tok-123");
-            Assert.All(seen.Where(s => s.Item1.Contains("agent-card", StringComparison.Ordinal)), s => Assert.Equal("", s.Item2));
+            Assert.Contains(seen,
+                s => s.Item1.StartsWith("/a2a", StringComparison.Ordinal) && s.Item2 == "Bearer tok-123");
+            Assert.All(seen.Where(s => s.Item1.Contains("agent-card", StringComparison.Ordinal)),
+                s => Assert.Equal("", s.Item2));
         }
     }
 
@@ -352,17 +357,20 @@ public sealed class CliTests
     public async Task Api_key_reaches_the_server()
     {
         var seen = new List<(string, string?, string?)>();
-        await using var host = await StartAsync(SecuredCard(SecurityScheme.ApiKey("X-Api-Key")), requireAuth: true, pipeline: Authenticate(seen, "", "key-456"));
+        await using var host = await StartAsync(SecuredCard(SecurityScheme.ApiKey(Consts.X_API_KEY)),
+            requireAuth: true, pipeline: Authenticate(seen, "", "key-456"));
         var run = await RunAsync(host, ["send", "hello", "--api-key", "key-456"]);
         Assert.Equal(0, run.Code);
-        lock (seen) Assert.Contains(seen, s => s.Item1.StartsWith("/a2a", StringComparison.Ordinal) && s.Item3 == "key-456");
+        lock (seen)
+            Assert.Contains(seen, s => s.Item1.StartsWith("/a2a", StringComparison.Ordinal) && s.Item3 == "key-456");
     }
 
     [Fact]
     public async Task Environment_variables_are_used_and_options_beat_them()
     {
         var seen = new List<(string, string?, string?)>();
-        await using var host = await StartAsync(SecuredCard(SecurityScheme.Bearer()), requireAuth: true, pipeline: Authenticate(seen, "Bearer from-option"));
+        await using var host = await StartAsync(SecuredCard(SecurityScheme.Bearer()), requireAuth: true,
+            pipeline: Authenticate(seen, "Bearer from-option"));
         var env = new Dictionary<string, string?> { ["A2A_AGENT_URL"] = Agent, ["A2A_TOKEN"] = "from-env" };
 
         var viaEnv = await RunAsync(host, ["send", "hello"], env, addAgent: false);
@@ -394,7 +402,8 @@ public sealed class CliTests
     {
         const string Secret = "s3cr3t-T0KEN-value";
         var seen = new List<(string, string?, string?)>();
-        await using var host = await StartAsync(SecuredCard(SecurityScheme.Bearer()), requireAuth: true, pipeline: Authenticate(seen, "Bearer " + Secret));
+        await using var host = await StartAsync(SecuredCard(SecurityScheme.Bearer()), requireAuth: true,
+            pipeline: Authenticate(seen, "Bearer " + Secret));
 
         // The agent echoes the message text, which is the secret.
         var echo = await RunAsync(host, ["send", Secret, "--token", Secret]);
@@ -416,7 +425,11 @@ public sealed class CliTests
         Assert.DoesNotContain(Secret, wrong.All);
 
         // The same through environment variables, and for the api key and client secret.
-        var env = new Dictionary<string, string?> { ["A2A_TOKEN"] = Secret, ["A2A_API_KEY"] = "api-" + Secret, ["A2A_CLIENT_ID"] = "client-1", ["A2A_CLIENT_SECRET"] = "cs-" + Secret };
+        var env = new Dictionary<string, string?>
+        {
+            ["A2A_TOKEN"] = Secret, ["A2A_API_KEY"] = "api-" + Secret, ["A2A_CLIENT_ID"] = "client-1",
+            ["A2A_CLIENT_SECRET"] = "cs-" + Secret
+        };
         var viaEnv = await RunAsync(host, ["send", "x " + Secret + " api-" + Secret + " cs-" + Secret], env);
         Assert.Equal(0, viaEnv.Code);
         Assert.DoesNotContain(Secret, viaEnv.All);
@@ -435,7 +448,8 @@ public sealed class CliTests
     [Fact]
     public void Error_text_loses_url_queries_and_user_info()
     {
-        var text = ErrorText.StripUrlSecrets("failed GET https://u:p@store.example/f/a.bin?X-Sig=abc#frag now; see http://x/y?z");
+        var text = ErrorText.StripUrlSecrets(
+            "failed GET https://u:p@store.example/f/a.bin?X-Sig=abc#frag now; see http://x/y?z");
         Assert.Equal("failed GET https://store.example/f/a.bin now; see http://x/y", text);
     }
 
@@ -508,7 +522,8 @@ public sealed class CliTests
 
     private sealed class ThrowingHandler : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
             throw new HttpRequestException("connection refused", null, null);
     }
 

@@ -6,5 +6,6 @@
     <ItemGroup>
         <ProjectReference Include="..\..\..\src\A2A.Client\A2A.Client.csproj"/>
         <ProjectReference Include="..\..\..\src\A2A.Client.DependencyInjection\A2A.Client.DependencyInjection.csproj"/>
+        <ProjectReference Include="..\..\Commons\Commons.csproj" />
     </ItemGroup>
 </Project>

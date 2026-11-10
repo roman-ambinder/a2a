@@ -19,7 +19,8 @@ public sealed class ArtifactDownloaderTests
     {
         public List<HttpRequestMessage> Requests { get; } = [];
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken)
         {
             Requests.Add(request);
             return Task.FromResult(respond(request));
@@ -28,10 +29,11 @@ public sealed class ArtifactDownloaderTests
 
     private sealed class CredentialStub(HttpMessageHandler inner) : DelegatingHandler(inner)
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken)
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "secret");
-            request.Headers.Add("X-Api-Key", "key");
+            request.Headers.Add(Consts.X_API_KEY, "key");
             return base.SendAsync(request, cancellationToken);
         }
     }
@@ -40,7 +42,8 @@ public sealed class ArtifactDownloaderTests
     {
         public long BytesRead;
 
-        protected override Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context) => Task.CompletedTask;
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            Task.CompletedTask;
 
         protected override bool TryComputeLength(out long len)
         {
@@ -48,7 +51,8 @@ public sealed class ArtifactDownloaderTests
             return false;
         }
 
-        protected override Task<Stream> CreateContentReadStreamAsync() => Task.FromResult<Stream>(new Source(this, length, chunk));
+        protected override Task<Stream> CreateContentReadStreamAsync() =>
+            Task.FromResult<Stream>(new Source(this, length, chunk));
 
         private sealed class Source(CountingContent owner, long length, int chunk) : Stream
         {
@@ -57,8 +61,17 @@ public sealed class ArtifactDownloaderTests
             public override bool CanSeek => false;
             public override bool CanWrite => false;
             public override long Length => throw new NotSupportedException();
-            public override long Position { get => position; set => throw new NotSupportedException(); }
-            public override void Flush() { }
+
+            public override long Position
+            {
+                get => position;
+                set => throw new NotSupportedException();
+            }
+
+            public override void Flush()
+            {
+            }
+
             public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
             public override void SetLength(long value) => throw new NotSupportedException();
             public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
@@ -74,11 +87,13 @@ public sealed class ArtifactDownloaderTests
                 return n;
             }
 
-            public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => new(Read(buffer.Span));
+            public override ValueTask<int>
+                ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => new(Read(buffer.Span));
         }
     }
 
-    private static HttpResponseMessage Ok(byte[] body) => new(HttpStatusCode.OK) { Content = new ByteArrayContent(body) };
+    private static HttpResponseMessage Ok(byte[] body) =>
+        new(HttpStatusCode.OK) { Content = new ByteArrayContent(body) };
 
     private static HttpResponseMessage Redirect(HttpStatusCode code, string location)
     {
@@ -87,7 +102,8 @@ public sealed class ArtifactDownloaderTests
         return response;
     }
 
-    private static UrlPart Part(string url = Link, byte[]? content = null, long? size = null, string? sha = null, bool metadata = true)
+    private static UrlPart Part(string url = Link, byte[]? content = null, long? size = null, string? sha = null,
+        bool metadata = true)
     {
         var meta = new Dictionary<string, JsonElement>();
         if (metadata && content is not null)
@@ -95,11 +111,14 @@ public sealed class ArtifactDownloaderTests
             meta["sha256"] = JsonSerializer.SerializeToElement(sha ?? ArtifactHash.Format(SHA256.HashData(content)));
             meta["sizeBytes"] = JsonSerializer.SerializeToElement(size ?? content.Length);
         }
+
         return new UrlPart(new Uri(url)) { Metadata = metadata ? meta : null };
     }
 
     private static A2AArtifactDownloader Downloader(HttpMessageHandler agent, HttpMessageHandler? store = null) =>
-        new(agent, Origin, null, () => new HttpClient(store ?? new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError))));
+        new(agent, Origin, null,
+            () => new HttpClient(store ??
+                                 new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError))));
 
     [Fact]
     public async Task Foreign_origin_throws_and_sends_nothing()
@@ -109,7 +128,8 @@ public sealed class ArtifactDownloaderTests
         var downloader = Downloader(agent, store);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            downloader.DownloadAsync(Part("https://evil.example/artifacts/_/task-1/obj-1"), new MemoryStream(), 100, CancellationToken.None));
+            downloader.DownloadAsync(Part("https://evil.example/artifacts/_/task-1/obj-1"), new MemoryStream(), 100,
+                CancellationToken.None));
 
         Assert.Empty(agent.Requests);
         Assert.Empty(store.Requests);
@@ -121,7 +141,8 @@ public sealed class ArtifactDownloaderTests
         var agent = new FakeHandler(_ => Ok([1, 2]));
         using var destination = new MemoryStream();
 
-        await Downloader(agent).DownloadAsync(Part("https://AGENT.example/artifacts/_/t/o"), destination, 100, CancellationToken.None);
+        await Downloader(agent).DownloadAsync(Part("https://AGENT.example/artifacts/_/t/o"), destination, 100,
+            CancellationToken.None);
 
         Assert.Single(agent.Requests);
     }
@@ -148,17 +169,18 @@ public sealed class ArtifactDownloaderTests
         var agent = new FakeHandler(_ => Redirect(HttpStatusCode.Found, StoreLink));
         var store = new FakeHandler(_ => Ok(content));
         using var destination = new MemoryStream();
-        var downloader = new A2AArtifactDownloader(new CredentialStub(agent), Origin, null, () => new HttpClient(store));
+        var downloader =
+            new A2AArtifactDownloader(new CredentialStub(agent), Origin, null, () => new HttpClient(store));
 
         await downloader.DownloadAsync(Part(content: content), destination, 100, CancellationToken.None);
 
         Assert.Single(agent.Requests);
         Assert.NotNull(agent.Requests[0].Headers.Authorization);
-        Assert.True(agent.Requests[0].Headers.Contains("X-Api-Key"));
+        Assert.True(agent.Requests[0].Headers.Contains(Consts.X_API_KEY));
         var second = Assert.Single(store.Requests);
         Assert.Equal(new Uri(StoreLink), second.RequestUri);
         Assert.Null(second.Headers.Authorization);
-        Assert.False(second.Headers.Contains("X-Api-Key"));
+        Assert.False(second.Headers.Contains(Consts.X_API_KEY));
         Assert.Equal(content, destination.ToArray());
     }
 
@@ -218,7 +240,8 @@ public sealed class ArtifactDownloaderTests
         var agent = new FakeHandler(_ => Ok(content));
 
         await Assert.ThrowsAsync<InvalidDataException>(() =>
-            Downloader(agent).DownloadAsync(Part(content: content, size: 99), new MemoryStream(), 100, CancellationToken.None));
+            Downloader(agent).DownloadAsync(Part(content: content, size: 99), new MemoryStream(), 100,
+                CancellationToken.None));
     }
 
     [Fact]
@@ -229,7 +252,8 @@ public sealed class ArtifactDownloaderTests
         var wrong = ArtifactHash.Format(SHA256.HashData("other"u8));
 
         await Assert.ThrowsAsync<InvalidDataException>(() =>
-            Downloader(agent).DownloadAsync(Part(content: content, sha: wrong), new MemoryStream(), 100, CancellationToken.None));
+            Downloader(agent).DownloadAsync(Part(content: content, sha: wrong), new MemoryStream(), 100,
+                CancellationToken.None));
     }
 
     [Fact]
@@ -263,7 +287,8 @@ public sealed class ArtifactDownloaderTests
         var agent = new FakeHandler(_ => Ok(content));
 
         await Assert.ThrowsAsync<InvalidDataException>(() =>
-            Downloader(agent).DownloadAsync(Part(content: content, sha: "md5:abc"), new MemoryStream(), 100, CancellationToken.None));
+            Downloader(agent).DownloadAsync(Part(content: content, sha: "md5:abc"), new MemoryStream(), 100,
+                CancellationToken.None));
     }
 
     [Fact]
@@ -292,9 +317,16 @@ public sealed class ArtifactDownloaderTests
             while (listener.IsListening)
             {
                 HttpListenerContext ctx;
-                try { ctx = await listener.GetContextAsync(); }
-                catch { return; }
-                seen.Add((ctx.Request.Headers["Authorization"], ctx.Request.Headers["X-Api-Key"]));
+                try
+                {
+                    ctx = await listener.GetContextAsync();
+                }
+                catch
+                {
+                    return;
+                }
+
+                seen.Add((ctx.Request.Headers["Authorization"], ctx.Request.Headers[Consts.X_API_KEY]));
                 if (mode == "redirect")
                 {
                     ctx.Response.StatusCode = 302;
@@ -304,12 +336,14 @@ public sealed class ArtifactDownloaderTests
                 {
                     ctx.Response.OutputStream.Write(content);
                 }
+
                 ctx.Response.Close();
             }
         });
 
         var agent = new CredentialStub(new FakeHandler(_ => Redirect(HttpStatusCode.Found, prefix + "obj")));
-        var downloader = new A2AArtifactDownloader(agent, Origin, new SafeHttpOptions { AllowHttp = true, AllowPrivateNetworks = true });
+        var downloader = new A2AArtifactDownloader(agent, Origin,
+            new SafeHttpOptions { AllowHttp = true, AllowPrivateNetworks = true });
 
         using var destination = new MemoryStream();
         await downloader.DownloadAsync(Part(content: content), destination, 100, CancellationToken.None);

@@ -154,8 +154,5 @@ public abstract class PushOutbox
         Interlocked.CompareExchange(ref _pending, NewSignal(), signal);
     }
 
-    private static TaskCompletionSource NewSignal()
-    {
-        return new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-    }
+    private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 }

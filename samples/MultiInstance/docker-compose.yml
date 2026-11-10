@@ -11,7 +11,7 @@ x-agent: &agent
     postgres: { condition: service_healthy }
     redis: { condition: service_healthy }
   environment: &agent-env
-    ApiKey: demo-key-change-me
+    ApiKey: sample-f47ac10b-58cc-4372-a567-0e02b2c3d47
     ConnectionStrings__a2a: Host=postgres;Database=a2a;Username=a2a;Password=a2a-demo
     ConnectionStrings__redis: redis:6379
 

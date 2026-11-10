@@ -33,7 +33,7 @@ builder.Services.AddA2A(a => a
         .AddAgentCard(card)
         .AddTypedSkills(skills => skills
             .Map("book", BookingJson.Default.BookingRequest, BookingJson.Default.BookingResult,
-                (context, cancellationToken) => Task.FromResult(new BookingResult
+                (context, _) => Task.FromResult(new BookingResult
                 {
                     Reference = $"BK-{context.Input.City.ToUpperInvariant()}-{context.Input.Nights}",
                     Total = 89.5m * context.Input.Nights
@@ -125,9 +125,7 @@ public sealed class BookingResult
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BookingRequest))]
 [JsonSerializable(typeof(BookingResult))]
-internal sealed partial class BookingJson : JsonSerializerContext
-{
-}
+internal sealed partial class BookingJson : JsonSerializerContext;
 
 /// <summary>A plain executor for everything that does not name the typed skill.</summary>
 internal sealed class ChatAgent : IAgentExecutor

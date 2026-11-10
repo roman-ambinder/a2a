@@ -1,6 +1,6 @@
 # Build context: the repository root (see docker-compose.yml).
 FROM mcr.microsoft.com/dotnet/sdk:10.0.100 AS build
-WORKDIR /src
+WORKDIR /workspace
 COPY . .
 RUN dotnet publish samples/MultiInstance/Agent/MultiInstanceAgent.csproj -c Release -o /app
 
