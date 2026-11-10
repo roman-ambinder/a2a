@@ -307,7 +307,7 @@ public class GrpcSecurityTests
         var done = await raw.SendMessageAsync(Send("task", "m-1"), V()).ResponseAsync;
         Assert.Equal(A2aPb.TaskState.Completed, done.Task.Status.State);
         var ex = await Assert.ThrowsAsync<RpcException>(() => raw.SendMessageAsync(Send("more", "m-2", done.Task.Id), V()).ResponseAsync);
-        Assert.Equal(StatusCode.Unimplemented, ex.StatusCode);
+        Assert.Equal(StatusCode.FailedPrecondition, ex.StatusCode);
         Assert.Equal("UNSUPPORTED_OPERATION", Info(ex).Reason);
     }
 

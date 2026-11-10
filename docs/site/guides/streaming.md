@@ -209,7 +209,7 @@ The API is experimental (`A2AEXP005`).
 
 ### Input for a running agent
 
-By default a message to a `WORKING` task is refused with `UnsupportedOperation` (gRPC `UNIMPLEMENTED`), as a follow-up is. An agent that reads
+By default a message to a `WORKING` task is refused (`FAILED_PRECONDITION`), as a follow-up is. An agent that reads
 `AgentRequestContext.LiveInput` takes such messages while it runs instead:
 
 [!code-csharp[](../snippets/Streaming.cs#LiveInput)]

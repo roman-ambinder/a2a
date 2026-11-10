@@ -185,37 +185,27 @@ public static class A2AErrors
     /// <summary>ErrorInfo reason for an idempotency key reused with a different request.</summary>
     public const string IdempotencyKeyMismatchReason = "IDEMPOTENCY_KEY_MISMATCH";
 
-    /// <summary>
-    ///     Returns the HTTP status for an error code (400 unless the code has a specific status). The A2A error rows follow
-    ///     the table in spec §5.4.
-    /// </summary>
+    /// <summary>Returns the HTTP status for an error code (400 unless the code has a specific status).</summary>
     public static int HttpStatus(A2AErrorCode code)
     {
         return code switch
         {
             A2AErrorCode.RateLimited => 429,
             A2AErrorCode.TaskNotFound or A2AErrorCode.MethodNotFound => 404,
-            A2AErrorCode.TaskNotCancelable or A2AErrorCode.TaskGenerationMismatch => 409,
-            A2AErrorCode.ContentTypeNotSupported => 415,
-            A2AErrorCode.InvalidAgentResponse => 502,
-            A2AErrorCode.Internal => 500,
+            A2AErrorCode.TaskGenerationMismatch => 409,
+            A2AErrorCode.InvalidAgentResponse or A2AErrorCode.Internal => 500,
             A2AErrorCode.Unauthenticated => 401,
             A2AErrorCode.PermissionDenied => 403,
             _ => 400
         };
     }
 
-    /// <summary>
-    ///     Returns the gRPC status name for an error code, for example <c>NOT_FOUND</c>. The A2A error rows follow the table
-    ///     in spec §5.4.
-    /// </summary>
+    /// <summary>Returns the gRPC status name for an error code, for example <c>NOT_FOUND</c>.</summary>
     public static string GrpcStatus(A2AErrorCode code)
     {
         return code switch
         {
             A2AErrorCode.TaskNotFound or A2AErrorCode.MethodNotFound => "NOT_FOUND",
-            A2AErrorCode.PushNotificationNotSupported or A2AErrorCode.UnsupportedOperation
-                or A2AErrorCode.VersionNotSupported => "UNIMPLEMENTED",
             A2AErrorCode.ContentTypeNotSupported or A2AErrorCode.InvalidParams or A2AErrorCode.InvalidRequest
                 or A2AErrorCode.JsonParse => "INVALID_ARGUMENT",
             A2AErrorCode.InvalidAgentResponse or A2AErrorCode.Internal => "INTERNAL",
