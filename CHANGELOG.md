@@ -4,6 +4,11 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Documentation
+
+- Spec decisions: the push delivery defaults said "10 attempts". The default is no limit on the count (`MaxAttempts`
+  null); a delivery still failing 24 hours after it was queued is dead-lettered (`MaxDeliveryAge`).
+
 ### Performance
 
 - Streaming many artifact chunks no longer copies the whole artifact for every chunk. When an agent sends chunks faster
