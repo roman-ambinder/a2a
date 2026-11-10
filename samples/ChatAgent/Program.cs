@@ -98,7 +98,6 @@ internal sealed class RuleBasedChatClient : IChatClient
         var question = messages.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? "";
         if (question.Contains("time", StringComparison.OrdinalIgnoreCase))
             return $"It is {DateTimeOffset.UtcNow:HH:mm} UTC.";
-        if (question.Contains("hello", StringComparison.OrdinalIgnoreCase)) return "Hello! Ask me what time it is.";
-        return $"You said: {question}";
+        return question.Contains("hello", StringComparison.OrdinalIgnoreCase) ? "Hello! Ask me what time it is." : $"You said: {question}";
     }
 }

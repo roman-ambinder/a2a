@@ -13,23 +13,23 @@ public class ApiKeyCredentialProviderTests
     public async Task Header_is_placed_under_the_declared_name()
     {
         var p = new ApiKeyCredentialProvider("secret-1");
-        var ctx = Ctx(SecurityScheme.ApiKey("X-Api-Key"));
+        var ctx = Ctx(SecurityScheme.ApiKey(Consts.X_API_KEY));
         Assert.True(p.CanHandle(ctx));
         var r = Req();
-        r.Headers.TryAddWithoutValidation("X-Api-Key", "old");
+        r.Headers.TryAddWithoutValidation(Consts.X_API_KEY, "old");
         await p.ApplyAsync(r, ctx, default);
-        Assert.Equal(["secret-1"], r.Headers.GetValues("X-Api-Key"));
+        Assert.Equal(["secret-1"], r.Headers.GetValues(Consts.X_API_KEY));
     }
 
     [Fact]
     public async Task Header_location_is_case_insensitive()
     {
         var p = new ApiKeyCredentialProvider("k");
-        var ctx = Ctx(SecurityScheme.ApiKey("X-Api-Key", "HEADER"));
+        var ctx = Ctx(SecurityScheme.ApiKey(Consts.X_API_KEY, "HEADER"));
         Assert.True(p.CanHandle(ctx));
         var r = Req();
         await p.ApplyAsync(r, ctx, default);
-        Assert.Equal("k", r.Headers.GetValues("X-Api-Key").Single());
+        Assert.Equal("k", r.Headers.GetValues(Consts.X_API_KEY).Single());
     }
 
     [Fact]
@@ -51,13 +51,13 @@ public class ApiKeyCredentialProviderTests
     {
         var n = 0;
         var p = new ApiKeyCredentialProvider(_ => ValueTask.FromResult($"k{++n}"));
-        var ctx = Ctx(SecurityScheme.ApiKey("X-Api-Key"));
+        var ctx = Ctx(SecurityScheme.ApiKey(Consts.X_API_KEY));
         var r1 = Req();
         var r2 = Req();
         await p.ApplyAsync(r1, ctx, default);
         await p.ApplyAsync(r2, ctx, default);
-        Assert.Equal("k1", r1.Headers.GetValues("X-Api-Key").Single());
-        Assert.Equal("k2", r2.Headers.GetValues("X-Api-Key").Single());
+        Assert.Equal("k1", r1.Headers.GetValues(Consts.X_API_KEY).Single());
+        Assert.Equal("k2", r2.Headers.GetValues(Consts.X_API_KEY).Single());
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public class ApiKeyCredentialProviderTests
     public void Scheme_name_filter_applies()
     {
         var p = new ApiKeyCredentialProvider("k", "wanted");
-        var scheme = SecurityScheme.ApiKey("X-Api-Key");
+        var scheme = SecurityScheme.ApiKey(Consts.X_API_KEY);
         Assert.True(p.CanHandle(Ctx(scheme, "wanted")));
         Assert.False(p.CanHandle(Ctx(scheme, "other")));
     }
@@ -192,6 +192,7 @@ public class ApiKeyCredentialProviderTests
     public void Constructors_validate_arguments()
     {
         Assert.Throws<ArgumentNullException>(() => new ApiKeyCredentialProvider((string)null!));
-        Assert.Throws<ArgumentNullException>(() => new ApiKeyCredentialProvider((Func<CancellationToken, ValueTask<string>>)null!));
+        Assert.Throws<ArgumentNullException>(() =>
+            new ApiKeyCredentialProvider((Func<CancellationToken, ValueTask<string>>)null!));
     }
 }

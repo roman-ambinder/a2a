@@ -361,8 +361,8 @@ public sealed partial class TaskExecutionEngine
 
         lock (_starting)
         {
-            if (_starting.ContainsKey(scope)) return false; // another retry of the same instance took it meanwhile
-            _starting[scope] = 1;
+            if (!_starting.TryAdd(scope, 1))
+                return false; // another retry of the same instance took it meanwhile
         }
 
         ServerLog.FollowUpRestarted(Logger, key.TaskId);

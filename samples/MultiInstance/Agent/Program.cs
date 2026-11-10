@@ -16,7 +16,7 @@ using Microsoft.Extensions.Options;
 var builder = WebApplication.CreateBuilder(args);
 var publicUrl = builder.Configuration["PublicUrl"] ?? "http://localhost:8080";
 var instance = builder.Configuration["Instance"] ?? Environment.MachineName;
-var apiKey = builder.Configuration["ApiKey"];
+var apiKey = builder.Configuration["ApiKey"] ?? Commons.Consts.TestApiKey;
 if (string.IsNullOrEmpty(apiKey))
     throw new InvalidOperationException("Set ApiKey (callers send it in the X-Api-Key header).");
 var postgres = builder.Configuration.GetConnectionString("a2a") ??
@@ -84,7 +84,7 @@ internal sealed class ApiKeyAuthHandler(
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        var supplied = Request.Headers["X-Api-Key"].ToString();
+        var supplied = Request.Headers[Commons.Consts.XApiKey].ToString();
         if (supplied.Length == 0) return Task.FromResult(AuthenticateResult.NoResult());
         var ok = CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied),
             Encoding.UTF8.GetBytes(key.Value));

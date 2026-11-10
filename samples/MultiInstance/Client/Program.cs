@@ -6,7 +6,9 @@ using Microsoft.Extensions.DependencyInjection;
 // Starts a task on A, then reads, follows and cancels it through B.
 var urlA = new Uri(args.Length > 0 ? args[0] : "http://localhost:5101/");
 var urlB = new Uri(args.Length > 1 ? args[1] : "http://localhost:5102/");
-var apiKey = args.Length > 2 ? args[2] : Environment.GetEnvironmentVariable("DEMO_API_KEY") ?? "demo-key-change-me";
+var apiKey = args.Length > 2
+    ? args[2]
+    : Environment.GetEnvironmentVariable("DEMO_API_KEY") ?? Commons.Consts.TestApiKey;
 
 var services = new ServiceCollection();
 services.AddA2AClient("a", o => o.AgentUrl = urlA).AddHttpMessageHandler(() => new ApiKeyHandler(apiKey));
@@ -61,8 +63,8 @@ internal sealed class ApiKeyHandler(string apiKey) : DelegatingHandler
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
-        request.Headers.Remove("X-Api-Key");
-        request.Headers.Add("X-Api-Key", apiKey);
+        request.Headers.Remove(Commons.Consts.XApiKey);
+        request.Headers.Add(Commons.Consts.XApiKey, apiKey);
         return base.SendAsync(request, cancellationToken);
     }
 }
