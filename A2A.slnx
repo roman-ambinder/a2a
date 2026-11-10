@@ -22,6 +22,8 @@
     <Project Path="samples/ObservedAgent/ObservedAgent.csproj" />
     <Project Path="samples/MemoryAgent/MemoryAgent.csproj" />
     <Project Path="samples/ClientFeatures/ClientFeatures.csproj" />
+    <Project Path="samples/ArtifactStorage/ArtifactStorage.csproj" />
+    <Project Path="samples/ClientOutbox/ClientOutbox.csproj" />
     <Project Path="samples/Snippets/Snippets.csproj" />
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
     <Project Path="samples/TypedSkillAgent/TypedSkillAgent.csproj" />

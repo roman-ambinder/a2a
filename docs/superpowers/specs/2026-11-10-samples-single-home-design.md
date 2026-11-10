@@ -147,6 +147,12 @@ sample is written.
    `OpenTelemetry.Exporter.InMemory` 1.20.1 to read its spans and metrics in-process. The observability guide now
    names `BudgetExceeded` as a run span error type, as `TaskExecutionEngine` sets it.*
 7. Docker samples: `ArtifactStorage`, `ClientOutbox`.
+   *Done (2026-11-10). `ArtifactStorage` (agent on port 5380; MinIO on 9000, Azurite on 10000) runs once per provider:
+   `-- s3` and `-- azure`. It checks the downloaded bytes, a 302 to the presigned URL, and one object in the store.
+   `ClientOutbox` (Postgres on 5433, billing agent on 5390) checks that a committed order is invoiced once and harvested,
+   and that a rolled-back order sends nothing. Run-samples names: `storage`, `outbox`, behind `--with-docker` with
+   `multi`. Regions moved: `ArtifactStorage#Map`, `#PrivateStore`, `ClientOutbox#Setup`, `#Enqueue`, `#Harvest`. The
+   coverage allow-list is now empty. The MinIO image is the one `tests/A2A.Stores.Tests` pins, from `cgr.dev`.*
 8. `samples/README.md` index, `README.md` links, CI job for `run-samples.sh`.
 
 Each step is its own commit and leaves the build, tests and docs site green.

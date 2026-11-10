@@ -60,13 +60,15 @@ Startup logs a warning (event 255) when a durable task store is combined with `I
 
 ## Turn it on
 
+A runnable version with S3 (MinIO) and Azure Blob (Azurite) in Docker is in [samples/ArtifactStorage](https://github.com/roman-ambinder/a2a/blob/main/samples/ArtifactStorage/README.md).
+
 [!code-csharp[](../../../samples/Snippets/ArtifactStorage.cs#Register)]
 
 Startup fails with `InvalidOperationException` when a store is registered and neither `PublicBaseUrl` nor `PublicBaseUrlResolver` is set. The link base must be the origin that clients send credentials to. Usually that is the origin of the agent card. A client sends credentials only to the card's origin, so a link on another origin cannot be downloaded.
 
 Map the download route next to `MapA2A`, with the same pattern and the same authorization:
 
-[!code-csharp[](../../../samples/Snippets/ArtifactStorage.cs#Map)]
+[!code-csharp[](../../../samples/ArtifactStorage/Program.cs#Map)]
 
 <xref:A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AArtifacts*> adds `GET {pattern}/artifacts/{tenant}/{taskId}/{objectId}`. Like `MapA2A`, it needs a policy, or the startup authorization check fails the app.
 
@@ -118,7 +120,7 @@ Verify both. The artifact hash tells you the link was not changed. The part hash
 - A URL on any other origin than the agent's throws `InvalidOperationException`, and no request is sent. The class never sends credentials to another origin.
 - On a 302 or 307, it fetches the `Location` once, with a separate client that has no credentials and the `SafeHttp` address guard. A second redirect throws. By default only public HTTPS hosts are allowed. A private store such as MinIO needs an option:
 
-[!code-csharp[](../../../samples/Snippets/ArtifactStorage.cs#PrivateStore)]
+[!code-csharp[](../../../samples/ArtifactStorage/Program.cs#PrivateStore)]
 
 - It checks `sizeBytes` and the part `sha256` when they are in the metadata, and throws `InvalidDataException` on a mismatch or when the body is larger than `maxBytes`. On a failure the destination can hold a partial write, so discard it.
 

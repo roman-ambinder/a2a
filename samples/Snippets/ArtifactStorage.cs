@@ -1,6 +1,5 @@
 using A2A.Client;
 using A2A.Client.Credentials;
-using A2A.Security.Http;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Storage;
@@ -25,14 +24,6 @@ internal static class Samples
 
         // The sweep also removes orphan objects. Needed with any durable store.
         services.AddA2ARetention();
-        #endregion
-    }
-
-    public static void MapRoutes(WebApplication app)
-    {
-        #region Map
-        app.MapA2A("/a2a").RequireAuthorization();
-        app.MapA2AArtifacts("/a2a").RequireAuthorization();
         #endregion
     }
 
@@ -116,15 +107,6 @@ internal static class Samples
             var firstLine = await reader.ReadLineAsync(ct);
             _ = firstLine;
         }
-        #endregion
-    }
-
-    public static A2AArtifactDownloader DownloadFromPrivateStore(HttpMessageHandler handler)
-    {
-        #region PrivateStore
-        // The agent redirects to a presigned URL. By default the downloader only follows it to a public HTTPS host.
-        return new A2AArtifactDownloader(handler, new Uri("https://agent.example.com/"),
-            new SafeHttpOptions { AllowPrivateNetworks = true, AllowHttp = true });
         #endregion
     }
 }

@@ -1,0 +1,25 @@
+# Object stores for the ArtifactStorage sample: MinIO (S3) and Azurite (Azure Blob). Ports are bound to localhost only.
+#   docker compose -f samples/ArtifactStorage/docker-compose.yml up -d --wait
+#   dotnet run --project samples/ArtifactStorage -- s3      # or: -- azure
+#   docker compose -f samples/ArtifactStorage/docker-compose.yml down -v
+# The MinIO user and password are demo values. Azurite uses its well-known development account key.
+services:
+  minio:
+    # Pinned by digest, as in tests/A2A.Stores.Tests. Not minio/minio: that Docker Hub repository no longer serves images.
+    image: cgr.dev/chainguard/minio@sha256:a1ac4589a5f8136b616e667b48a0bea9719bb10bd45799ea946f24bbedfafde4
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: a2a-demo
+      MINIO_ROOT_PASSWORD: a2a-demo-secret
+    ports: ["127.0.0.1:9000:9000"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  azurite:
+    # --skipApiVersionCheck: Azurite lags the newest REST version the Azure SDK sends.
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    command: ["azurite-blob", "--blobHost", "0.0.0.0", "--skipApiVersionCheck"]
+    ports: ["127.0.0.1:10000:10000"]

@@ -16,9 +16,7 @@ public sealed class SamplesCoverageTests
     /// <summary>Packages that have no runnable sample yet, and the sample that will cover each one.</summary>
     private static readonly Dictionary<string, string> NotYetCovered = new(StringComparer.Ordinal)
     {
-        ["A2A.Server.Storage.S3"] = "samples/ArtifactStorage",
-        ["A2A.Server.Storage.AzureBlob"] = "samples/ArtifactStorage",
-        ["A2A.Client.Postgres"] = "samples/ClientOutbox",
+        // Empty: every package has one. A new package that has no sample yet goes here, with the sample planned for it.
     };
 
     private static string RepoRoot()

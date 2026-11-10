@@ -3,9 +3,10 @@
 #
 #   samples/run-samples.sh                  # every sample that needs no Docker
 #   samples/run-samples.sh echo mcp         # only the named ones
-#   samples/run-samples.sh --with-docker    # also MultiInstance (needs Docker)
+#   samples/run-samples.sh --with-docker    # also the Docker samples: multi, storage, outbox
 #
-# Names: chat, elicitation, typed, echo, mcp, testing, grpc, v03, cli, tenant, observed, memory, client, multi.
+# Names: chat, elicitation, typed, echo, mcp, testing, grpc, v03, cli, tenant, observed, memory, client,
+#        multi, storage, outbox.
 # Each sample listens on 127.0.0.1 only. EchoAgent gets a throwaway API key made here.
 set -u
 
@@ -159,6 +160,34 @@ run_multi() {
   docker compose -f "$compose" down -v >/dev/null 2>&1
 }
 
+# Starts a compose file, runs one sample project once per argument set, then removes the containers and volumes.
+# run_compose <name> <compose file> <project> [args for run 1] [args for run 2] ...
+run_compose() {
+  local name="$1" compose="$2" project="$3"
+  shift 3
+  echo "== $name ($project, Docker)"
+  if ! docker info >/dev/null 2>&1; then
+    record "$name" "SKIP: Docker is not running"
+    return
+  fi
+  if ! docker compose -f "$compose" up -d --wait >"$LOGS/$name-up.log" 2>&1; then
+    record "$name" "FAIL: compose up (see $LOGS/$name-up.log)"
+    return
+  fi
+  local runs=("$@") ok=1 run
+  [ ${#runs[@]} -eq 0 ] && runs=("")
+  for run in "${runs[@]}"; do
+    # shellcheck disable=SC2086 # each run's arguments are split on purpose
+    if ! dotnet run --project "$project" -- $run >>"$LOGS/$name.log" 2>&1; then ok=0; fi
+  done
+  if [ $ok = 1 ]; then record "$name" PASS; else record "$name" "FAIL (see $LOGS/$name.log)"; fi
+  grep '^OK:\|^FAIL' "$LOGS/$name.log" | tail -n 4
+  docker compose -f "$compose" down -v >/dev/null 2>&1
+}
+
+run_storage() { run_compose storage samples/ArtifactStorage/docker-compose.yml samples/ArtifactStorage s3 azure; }
+run_outbox() { run_compose outbox samples/ClientOutbox/docker-compose.yml samples/ClientOutbox; }
+
 wanted chat        && run_self_contained chat samples/ChatAgent
 wanted elicitation && run_self_contained elicitation samples/ElicitationAgent
 wanted typed       && run_self_contained typed samples/TypedSkillAgent
@@ -172,9 +201,11 @@ wanted tenant      && run_self_contained tenant samples/TenantAgent
 wanted observed    && run_self_contained observed samples/ObservedAgent
 wanted memory      && run_self_contained memory samples/MemoryAgent
 wanted client      && run_self_contained client samples/ClientFeatures
-if wanted multi; then
-  if $with_docker || [ ${#selected[@]} -gt 0 ]; then run_multi; else record multi "SKIP: pass --with-docker"; fi
-fi
+for name in multi storage outbox; do
+  if wanted "$name"; then
+    if $with_docker || [ ${#selected[@]} -gt 0 ]; then "run_$name"; else record "$name" "SKIP: pass --with-docker"; fi
+  fi
+done
 
 echo
 echo "Results (logs in $LOGS):"
