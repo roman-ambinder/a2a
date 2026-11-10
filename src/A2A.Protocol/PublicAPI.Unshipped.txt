@@ -143,3 +143,19 @@ static A2A.A2AErrors.BadRequest(System.Collections.Generic.IEnumerable<System.Co
 static A2A.A2AErrors.HasType(System.Text.Json.JsonElement detail) -> bool
 static A2A.A2AException.InvalidField(string! field, string! description) -> A2A.A2AException!
 static A2A.A2AProtocol.ToMajorMinor(string? version) -> string?
+A2A.Signing.IJwksLifetimeFetcher
+A2A.Signing.IJwksLifetimeFetcher.FetchWithLifetimeAsync(System.Uri! jku, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Signing.JwksFetchResult!>
+A2A.Signing.JwksFetchResult
+A2A.Signing.JwksFetchResult.JwksFetchResult(A2A.Signing.JwkSet! Keys, System.TimeSpan? MaxAge) -> void
+A2A.Signing.JwksFetchResult.Keys.get -> A2A.Signing.JwkSet!
+A2A.Signing.JwksFetchResult.Keys.init -> void
+A2A.Signing.JwksFetchResult.MaxAge.get -> System.TimeSpan?
+A2A.Signing.JwksFetchResult.MaxAge.init -> void
+A2A.Signing.JwksFetchResult.<Clone>$() -> A2A.Signing.JwksFetchResult!
+A2A.Signing.JwksFetchResult.Deconstruct(out A2A.Signing.JwkSet! Keys, out System.TimeSpan? MaxAge) -> void
+A2A.Signing.JwksFetchResult.Equals(A2A.Signing.JwksFetchResult? other) -> bool
+override A2A.Signing.JwksFetchResult.Equals(object? obj) -> bool
+override A2A.Signing.JwksFetchResult.GetHashCode() -> int
+override A2A.Signing.JwksFetchResult.ToString() -> string!
+static A2A.Signing.JwksFetchResult.operator !=(A2A.Signing.JwksFetchResult? left, A2A.Signing.JwksFetchResult? right) -> bool
+static A2A.Signing.JwksFetchResult.operator ==(A2A.Signing.JwksFetchResult? left, A2A.Signing.JwksFetchResult? right) -> bool

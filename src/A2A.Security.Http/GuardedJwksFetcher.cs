@@ -16,7 +16,7 @@ namespace A2A.Security.Http;
 ///     responsibility.
 ///     Supply one only for tests or a custom egress policy.
 /// </param>
-public sealed class GuardedJwksFetcher(HttpMessageInvoker? invoker = null) : IJwksFetcher
+public sealed class GuardedJwksFetcher(HttpMessageInvoker? invoker = null) : IJwksLifetimeFetcher
 {
     private const int MaxJwksBytes = 256 * 1024;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
@@ -28,6 +28,15 @@ public sealed class GuardedJwksFetcher(HttpMessageInvoker? invoker = null) : IJw
 
     /// <inheritdoc />
     public async ValueTask<JwkSet> FetchAsync(Uri jku, CancellationToken cancellationToken)
+    {
+        return (await FetchWithLifetimeAsync(jku, cancellationToken).ConfigureAwait(false)).Keys;
+    }
+
+    /// <summary>
+    ///     Fetches the key set and reads its cache lifetime from the response: <c>no-store</c> or <c>no-cache</c> is zero,
+    ///     else <c>max-age</c> less <c>Age</c>, else <c>Expires</c> less <c>Date</c> (or now), else none.
+    /// </summary>
+    public async ValueTask<JwksFetchResult> FetchWithLifetimeAsync(Uri jku, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(jku);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -57,7 +66,28 @@ public sealed class GuardedJwksFetcher(HttpMessageInvoker? invoker = null) : IJw
             throw new HttpRequestException("JWKS fetch failed.", ex);
         }
 
-        return JsonSerializer.Deserialize(buffer.ToArray(), A2AJson.GetTypeInfo<JwkSet>()) ?? new JwkSet();
+        var keys = JsonSerializer.Deserialize(buffer.ToArray(), A2AJson.GetTypeInfo<JwkSet>()) ?? new JwkSet();
+        return new JwksFetchResult(keys, MaxAgeOf(response, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>The cache lifetime the response gives (RFC 9111 §4.2.1), or null when it gives none.</summary>
+    internal static TimeSpan? MaxAgeOf(HttpResponseMessage response, DateTimeOffset now)
+    {
+        var cache = response.Headers.CacheControl;
+        if (cache is { NoStore: true } or { NoCache: true }) return TimeSpan.Zero;
+        if (cache?.MaxAge is { } maxAge)
+        {
+            var age = response.Headers.Age ?? TimeSpan.Zero;
+            return maxAge > age ? maxAge - age : TimeSpan.Zero;
+        }
+
+        if (response.Content.Headers.Expires is { } expires)
+        {
+            var date = response.Headers.Date ?? now;
+            return expires > date ? expires - date : TimeSpan.Zero;
+        }
+
+        return null;
     }
 
     private static HttpRequestException TooLarge()
