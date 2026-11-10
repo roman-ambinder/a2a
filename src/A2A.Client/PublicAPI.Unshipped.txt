@@ -171,3 +171,7 @@ static A2A.Client.Sse.SseReader.ReadAsync(System.IO.Stream! stream, int maxEvent
 [A2AEXP005]abstract A2A.Client.A2ALiveConnection.DisposeAsync() -> System.Threading.Tasks.ValueTask
 [A2AEXP005]abstract A2A.Client.A2ALiveConnection.Events.get -> System.Collections.Generic.IAsyncEnumerable<A2A.StreamResponse!>!
 [A2AEXP005]abstract A2A.Client.A2ALiveConnection.SendAsync(A2A.StreamRequest! request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+A2A.Client.Push.PushHandleOutcome.UnexpectedTask = 6 -> A2A.Client.Push.PushHandleOutcome
+A2A.Client.Push.PushNotificationReceiver.ExpectedTask.get -> System.Func<string!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<bool>>?
+A2A.Client.Push.PushNotificationReceiver.ExpectedTask.init -> void
+A2A.Client.Push.PushTaskTracker.IsTrackedAsync(string! taskId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
