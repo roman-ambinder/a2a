@@ -21,6 +21,8 @@ On a client process, listen to `A2A.Client`:
 | `A2A.Server` | <xref:A2A.Diagnostics.A2ATelemetry.ServerMeterName> | server counters |
 | `A2A` | none | card, idempotency, registry and v0.3 compatibility counters (see Metrics) |
 
+A runnable version is in [samples/ObservedAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/ObservedAgent/README.md). It keeps spans and metrics in memory instead of exporting them, and prints one trace from the client to the agent run.
+
 ## Spans
 
 | Source | Span | Kind | When |
@@ -72,7 +74,7 @@ A client reconnect adds an `a2a.retry` span event with `a2a.retry.attempt`. A fa
 
 A failed operation gets status `Error`, the `error.type` tag and, for A2A errors, `a2a.error.code` (the <xref:A2A.A2AErrorCode> name, for example `TaskNotFound`). For an A2A error, `error.type` is the A2A reason (`TASK_NOT_FOUND`). For a non-A2A exception, it is the exception type name.
 
-A run span is an error when the agent throws, when it hits <xref:A2A.Server.A2AServerOptions.MaxTaskDuration> (`error.type` is `TimeLimit`), or when it leaves the task `FAILED` (`error.type` is `TaskFailed`). A cancellation the caller asked for sets `a2a.canceled` to `true` and is not an error.
+A run span is an error when the agent throws, when it hits <xref:A2A.Server.A2AServerOptions.MaxTaskDuration> (`error.type` is `TimeLimit`), when it goes past its usage budget (`error.type` is `BudgetExceeded`; see [Execution limits](execution-limits.md)), or when it leaves the task `FAILED` (`error.type` is `TaskFailed`). A cancellation the caller asked for sets `a2a.canceled` to `true` and is not an error.
 
 ## Health checks
 
