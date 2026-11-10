@@ -8,6 +8,7 @@
     <Project Path="interop/dotnet/InteropAgent/InteropAgent.csproj" />
     <Project Path="interop/dotnet/InteropClient/InteropClient.csproj" />
   </Folder>
+  <Folder Name="/interop/v03/" />
   <Folder Name="/interop/v03/dotnet/">
     <Project Path="interop/v03/dotnet/InteropV03Agent/InteropV03Agent.csproj" />
     <Project Path="interop/v03/dotnet/InteropV03Client/InteropV03Client.csproj" />
@@ -25,6 +26,7 @@
     <Project Path="samples/ArtifactStorage/ArtifactStorage.csproj" />
     <Project Path="samples/ClientOutbox/ClientOutbox.csproj" />
     <Project Path="samples/Snippets/Snippets.csproj" />
+    <Project Path="samples/Commons/Commons.csproj" />
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
     <Project Path="samples/TypedSkillAgent/TypedSkillAgent.csproj" />
     <Project Path="samples/EchoClient/EchoClient.csproj" />

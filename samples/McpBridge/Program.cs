@@ -20,9 +20,9 @@ if (args.Length == 0 || args[0] is not ("expose" or "call"))
     return 1;
 }
 
-const string Url = "http://127.0.0.1:5290"; // loopback only
+const string url = "http://127.0.0.1:5290"; // loopback only
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls(Url);
+builder.WebHost.UseUrls(url);
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
 if (args[0] == "expose")
@@ -49,7 +49,7 @@ if (args[0] == "expose")
     // The bridge. The A2A client has its own credentials (none here). Nothing from the MCP caller is forwarded.
     var options = new A2AClientOptions();
     var http = new HttpClient();
-    var client = new A2AClient(new JsonRpcTransport(http, new Uri($"{Url}/a2a"), options), options, card);
+    var client = new A2AClient(new JsonRpcTransport(http, new Uri($"{url}/a2a"), options), options, card);
     #region Expose
     var tools = client.AsMcpTools(new A2AMcpToolOptions { ToolNamePrefix = "text_" });
 
@@ -102,13 +102,13 @@ await app.StartAsync();
 
 if (args[0] == "call")
 {
-    var transport = new HttpClientTransport(new HttpClientTransportOptions { Endpoint = new Uri($"{Url}/mcp") });
+    var transport = new HttpClientTransport(new HttpClientTransportOptions { Endpoint = new Uri($"{url}/mcp") });
     app.Services.GetRequiredService<McpClientHolder>().Client = await McpClient.CreateAsync(transport);
 }
 
 Console.WriteLine($"Mode:  {args[0]}");
-Console.WriteLine($"MCP:   {Url}/mcp");
-Console.WriteLine($"A2A:   {Url}/a2a");
+Console.WriteLine($"MCP:   {url}/mcp");
+Console.WriteLine($"A2A:   {url}/a2a");
 Console.WriteLine("Press Ctrl+C to stop.");
 await app.WaitForShutdownAsync();
 return 0;

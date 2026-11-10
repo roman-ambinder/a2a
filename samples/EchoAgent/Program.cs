@@ -11,7 +11,7 @@ using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 var baseUrl = builder.Configuration["BaseUrl"] ?? "http://localhost:5100";
-var apiKey = builder.Configuration["EchoAgent:ApiKey"];
+var apiKey = builder.Configuration["EchoAgent:ApiKey"] ?? Commons.Consts.TestApiKey;
 if (string.IsNullOrEmpty(apiKey))
     throw new InvalidOperationException(
         "Set EchoAgent:ApiKey (for example: dotnet run -- --EchoAgent:ApiKey=<secret>). Callers send it in the X-Api-Key header.");
@@ -19,7 +19,8 @@ if (string.IsNullOrEmpty(apiKey))
 // The A2A endpoints need authentication. This sample uses one shared API key; every caller is the same user.
 builder.Services.AddAuthentication(ApiKeyAuthHandler.SchemeName)
     .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthHandler>(ApiKeyAuthHandler.SchemeName, null);
-builder.Services.AddAuthorization(o => o.AddPolicy("ApiKey", p => p.RequireAuthenticatedUser()));
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("ApiKey", p => p.RequireAuthenticatedUser());
 builder.Services.AddSingleton(new ApiKey(apiKey));
 
 var card = new AgentCard
@@ -86,7 +87,7 @@ internal sealed class ApiKeyAuthHandler(
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        var supplied = Request.Headers["X-Api-Key"].ToString();
+        var supplied = Request.Headers[Commons.Consts.XApiKey].ToString();
         if (supplied.Length == 0) return Task.FromResult(AuthenticateResult.NoResult());
         var ok = CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied),
             Encoding.UTF8.GetBytes(key.Value));

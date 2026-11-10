@@ -28,8 +28,12 @@ internal static class Program
 
     // Computed once from the real net10.0 assets of A2A.Protocol and A2A.Client (not the netstandard2.0 build).
     private const string ExpectedTextHash = "sha256:ea8cf0895dcf864071c08c29435f7c11ddcd4126d56f98d8f68edd063ddc2650";
-    private const string ExpectedNumbersHash = "sha256:1d64567aadba6a8cff9c0fbab1368d2d57a6463d82568d9d900377ac46147186";
-    private const string ExpectedRegistryOutcome = "emoji=True,mixed=False,dup=DuplicateName,deseret=True,cut=True,lone=ok";
+
+    private const string ExpectedNumbersHash =
+        "sha256:1d64567aadba6a8cff9c0fbab1368d2d57a6463d82568d9d900377ac46147186";
+
+    private const string ExpectedRegistryOutcome =
+        "emoji=True,mixed=False,dup=DuplicateName,deseret=True,cut=True,lone=ok";
 
     private static async Task<int> Main(string[] args)
     {
@@ -52,17 +56,37 @@ internal static class Program
 
         var steps = new (string Name, Func<CancellationToken, Task> Run)[]
         {
-            ("assemblies are the netstandard2.0 builds", _ => { AssertNetStandardAssemblies(); return Task.FromResult(0); }),
+            ("assemblies are the netstandard2.0 builds", _ =>
+            {
+                AssertNetStandardAssemblies();
+                return Task.FromResult(0);
+            }),
             ("1. resolve the Agent Card", ct => ResolveCard(agentUrl, apiKey, ct)),
             ("2. SendMessage on every served transport", ct => SendMessage(agentUrl, apiKey, ct)),
             ("3a. streaming returns events", ct => Streaming(agentUrl, apiKey, ct)),
             ("3b. cancelling a blocked stream ends it promptly", CancelBlockedStream),
             ("4. sign and verify: ES256, RS256, PS256", SignAndVerify),
             ("5. jku card is Unverified, refused with trust", JkuCard),
-            ("6. agent name with supplementary-plane characters", _ => { RegistryNames(); return Task.FromResult(0); }),
-            ("7. webhook token check and artifact hash", _ => { WebhookAndHash(); return Task.FromResult(0); }),
-            ("8. canonical JSON numbers", _ => { CanonicalNumbers(); return Task.FromResult(0); }),
-            ("assembly guard: the SSRF guard is not present", _ => { AssertNoSecurityHttp(); return Task.FromResult(0); }),
+            ("6. agent name with supplementary-plane characters", _ =>
+            {
+                RegistryNames();
+                return Task.FromResult(0);
+            }),
+            ("7. webhook token check and artifact hash", _ =>
+            {
+                WebhookAndHash();
+                return Task.FromResult(0);
+            }),
+            ("8. canonical JSON numbers", _ =>
+            {
+                CanonicalNumbers();
+                return Task.FromResult(0);
+            }),
+            ("assembly guard: the SSRF guard is not present", _ =>
+            {
+                AssertNoSecurityHttp();
+                return Task.FromResult(0);
+            }),
         };
 
         foreach (var (name, run) in steps)
@@ -73,7 +97,8 @@ internal static class Program
             {
                 var task = run(cts.Token);
                 // Not every step honours the token. This keeps a stuck one from hanging the run.
-                if (await Task.WhenAny(task, Task.Delay(StepTimeout + TimeSpan.FromSeconds(5))).ConfigureAwait(false) != task)
+                if (await Task.WhenAny(task, Task.Delay(StepTimeout + TimeSpan.FromSeconds(5))).ConfigureAwait(false) !=
+                    task)
                     throw new SmokeException("did not finish within " + StepTimeout);
                 await task.ConfigureAwait(false);
             }
@@ -83,6 +108,7 @@ internal static class Program
                 Console.Error.WriteLine(ex is SmokeException ? ex.Message : ex.ToString());
                 return 1;
             }
+
             Console.WriteLine("ok   " + name + " (" + sw.ElapsedMilliseconds + " ms)");
         }
 
@@ -100,8 +126,10 @@ internal static class Program
         foreach (var assembly in new[] { typeof(A2AClient).Assembly, typeof(AgentCard).Assembly })
         {
             var framework = FrameworkOf(assembly);
-            Console.WriteLine("     " + assembly.GetName().Name + " " + assembly.GetName().Version + " built for " + framework + " (" + assembly.Location + ")");
-            Check(framework == ExpectedNetStandard, assembly.GetName().Name + " is built for '" + framework + "', expected '" + ExpectedNetStandard + "'");
+            Console.WriteLine("     " + assembly.GetName().Name + " " + assembly.GetName().Version + " built for " +
+                              framework + " (" + assembly.Location + ")");
+            Check(framework == ExpectedNetStandard,
+                assembly.GetName().Name + " is built for '" + framework + "', expected '" + ExpectedNetStandard + "'");
         }
     }
 
@@ -124,9 +152,11 @@ internal static class Program
     {
         var resolved = await Resolve(agentUrl, apiKey, ct).ConfigureAwait(false);
         Console.WriteLine("     card '" + resolved.Card.Name + "', interfaces: " +
-            string.Join(", ", resolved.Card.SupportedInterfaces.Select(i => i.ProtocolBinding + " " + i.Url)));
+                          string.Join(", ",
+                              resolved.Card.SupportedInterfaces.Select(i => i.ProtocolBinding + " " + i.Url)));
         Check(resolved.Card.Name == "Echo Agent", "unexpected card name '" + resolved.Card.Name + "'");
-        Check(resolved.Verification.Status == AgentCardVerificationStatus.Unsigned, "EchoAgent card should be Unsigned, got " + resolved.Verification.Status);
+        Check(resolved.Verification.Status == AgentCardVerificationStatus.Unsigned,
+            "EchoAgent card should be Unsigned, got " + resolved.Verification.Status);
         Check(resolved.Card.SupportedInterfaces.Count > 0, "card lists no interface");
     }
 
@@ -163,12 +193,18 @@ internal static class Program
             var count = 0;
             var echoed = new StringBuilder();
             var terminal = TaskState.Unspecified;
-            await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("hello from netstandard"), cancellationToken: ct).ConfigureAwait(false))
+            await foreach (var evt in client
+                               .SendStreamingMessageAsync(Message.FromUser("hello from netstandard"),
+                                   cancellationToken: ct).ConfigureAwait(false))
             {
                 count++;
-                if (evt is ArtifactUpdateEvent a) echoed.Append(string.Concat(a.ArtifactUpdate.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)));
-                if (evt is StatusUpdateEvent s && s.StatusUpdate.Status.State.IsTerminal()) terminal = s.StatusUpdate.Status.State;
+                if (evt is ArtifactUpdateEvent a)
+                    echoed.Append(string.Concat(a.ArtifactUpdate.Artifact.Parts.OfType<TextPart>()
+                        .Select(p => p.Text)));
+                if (evt is StatusUpdateEvent s && s.StatusUpdate.Status.State.IsTerminal())
+                    terminal = s.StatusUpdate.Status.State;
             }
+
             Console.WriteLine("     " + binding + ": " + count + " events, echoed '" + echoed + "', final " + terminal);
             Check(count >= 2, binding + ": expected several events, got " + count);
             Check(echoed.ToString() == "hello from netstandard", binding + ": echoed '" + echoed + "'");
@@ -188,15 +224,21 @@ internal static class Program
             card.Capabilities = new AgentCapabilities { Streaming = true };
             card.SupportedInterfaces = new List<AgentInterface>
             {
-                new AgentInterface { Url = server.BaseUrl + (binding == ProtocolBindings.JsonRpc ? "rpc" : "rest"), ProtocolBinding = binding },
+                new AgentInterface
+                {
+                    Url = server.BaseUrl + (binding == ProtocolBindings.JsonRpc ? "rpc" : "rest"),
+                    ProtocolBinding = binding
+                },
             };
             using var http = new HttpClient { Timeout = StepTimeout };
             var client = ClientFor(card, http, binding);
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(outer);
-            var enumerator = client.SendStreamingMessageAsync(Message.FromUser("hold"), cancellationToken: cts.Token).GetAsyncEnumerator(cts.Token);
+            var enumerator = client.SendStreamingMessageAsync(Message.FromUser("hold"), cancellationToken: cts.Token)
+                .GetAsyncEnumerator(cts.Token);
             try
             {
-                var first = await WithLimit(enumerator.MoveNextAsync().AsTask(), TimeSpan.FromSeconds(10), binding + ": first event").ConfigureAwait(false);
+                var first = await WithLimit(enumerator.MoveNextAsync().AsTask(), TimeSpan.FromSeconds(10),
+                    binding + ": first event").ConfigureAwait(false);
                 Check(first, binding + ": the stream ended before the first event");
                 // The server now sends nothing more and keeps the response open: the next read blocks.
                 var blocked = enumerator.MoveNextAsync().AsTask();
@@ -205,11 +247,22 @@ internal static class Program
                 var sw = Stopwatch.StartNew();
                 cts.Cancel();
                 var ended = false;
-                try { await WithLimit(blocked, TimeSpan.FromSeconds(5), binding + ": the cancelled read").ConfigureAwait(false); ended = true; }
-                catch (OperationCanceledException) { /* expected */ }
+                try
+                {
+                    await WithLimit(blocked, TimeSpan.FromSeconds(5), binding + ": the cancelled read")
+                        .ConfigureAwait(false);
+                    ended = true;
+                }
+                catch (OperationCanceledException)
+                {
+                    /* expected */
+                }
+
                 Check(!ended, binding + ": the read returned data after cancel");
-                Console.WriteLine("     " + binding + ": blocked read ended " + sw.ElapsedMilliseconds + " ms after cancel");
-                Check(sw.Elapsed < TimeSpan.FromSeconds(3), binding + ": cancel took " + sw.ElapsedMilliseconds + " ms");
+                Console.WriteLine("     " + binding + ": blocked read ended " + sw.ElapsedMilliseconds +
+                                  " ms after cancel");
+                Check(sw.Elapsed < TimeSpan.FromSeconds(3),
+                    binding + ": cancel took " + sw.ElapsedMilliseconds + " ms");
             }
             finally
             {
@@ -232,11 +285,16 @@ internal static class Program
         Name = name,
         Description = "Smoke test card",
         Version = "1.0.0",
-        SupportedInterfaces = new List<AgentInterface> { new AgentInterface { Url = "https://agent.example/a2a", ProtocolBinding = ProtocolBindings.JsonRpc } },
+        SupportedInterfaces = new List<AgentInterface>
+            { new AgentInterface { Url = "https://agent.example/a2a", ProtocolBinding = ProtocolBindings.JsonRpc } },
         Capabilities = new AgentCapabilities(),
         DefaultInputModes = new List<string> { "text/plain" },
         DefaultOutputModes = new List<string> { "text/plain" },
-        Skills = new List<AgentSkill> { new AgentSkill { Id = "echo", Name = "Echo", Description = "Repeats the input", Tags = new List<string> { "echo" } } },
+        Skills = new List<AgentSkill>
+        {
+            new AgentSkill
+                { Id = "echo", Name = "Echo", Description = "Repeats the input", Tags = new List<string> { "echo" } }
+        },
     };
 
     private static AsymmetricAlgorithm NewKey(string alg)
@@ -265,7 +323,8 @@ internal static class Program
             var signed = AgentCardSigner.Sign(MakeCard("Signed agent"), signingKey);
             var ok = await verifier.VerifyAsync(signed, source, ct).ConfigureAwait(false);
             Console.WriteLine("     " + alg + ": " + ok.Status + (ok.Reason is null ? "" : " (" + ok.Reason + ")"));
-            Check(ok.Status == AgentCardVerificationStatus.Verified, alg + ": expected Verified, got " + ok.Status + " " + ok.Reason);
+            Check(ok.Status == AgentCardVerificationStatus.Verified,
+                alg + ": expected Verified, got " + ok.Status + " " + ok.Reason);
 
             signed.Description = "Tampered";
             var bad = await verifier.VerifyAsync(signed, source, ct).ConfigureAwait(false);
@@ -285,7 +344,8 @@ internal static class Program
         server.Cards["/jku/agent-card.json"] = A2AJson.Serialize(AgentCardSigner.Sign(MakeCard("Jku agent"), jkuKey));
 
         var pinnedKey = new AgentCardSigningKey(es, "pinned-1", "ES256");
-        server.Cards["/pinned/agent-card.json"] = A2AJson.Serialize(AgentCardSigner.Sign(MakeCard("Pinned agent"), pinnedKey));
+        server.Cards["/pinned/agent-card.json"] =
+            A2AJson.Serialize(AgentCardSigner.Sign(MakeCard("Pinned agent"), pinnedKey));
         var tampered = AgentCardSigner.Sign(MakeCard("Pinned agent"), pinnedKey);
         tampered.Description = "Tampered after signing";
         server.Cards["/tampered/agent-card.json"] = A2AJson.Serialize(tampered);
@@ -295,10 +355,12 @@ internal static class Program
         // A jku host is allowed, but there is no fetcher on netstandard2.0: Unverified. It resolves only when a signature is not required.
         var lenient = new CardTrustPolicy { RequireSignature = false };
         lenient.AllowJkuHost(origin, "jwks.example");
-        var resolved = await new A2ACardResolver(http, new A2ACardResolverOptions { Trust = lenient, RequireHttps = false })
-            .ResolveAsync(new Uri(server.BaseUrl + "jku/agent-card.json"), ct).ConfigureAwait(false);
+        var resolved =
+            await new A2ACardResolver(http, new A2ACardResolverOptions { Trust = lenient, RequireHttps = false })
+                .ResolveAsync(new Uri(server.BaseUrl + "jku/agent-card.json"), ct).ConfigureAwait(false);
         Console.WriteLine("     jku card: " + resolved.Verification.Status + " (" + resolved.Verification.Reason + ")");
-        Check(resolved.Verification.Status == AgentCardVerificationStatus.Unverified, "jku card: expected Unverified, got " + resolved.Verification.Status);
+        Check(resolved.Verification.Status == AgentCardVerificationStatus.Unverified,
+            "jku card: expected Unverified, got " + resolved.Verification.Status);
         Check((resolved.Verification.Reason ?? "").IndexOf("no JWKS fetcher configured", StringComparison.Ordinal) >= 0,
             "jku card: reason is '" + resolved.Verification.Reason + "'");
 
@@ -314,7 +376,8 @@ internal static class Program
         catch (AgentCardVerificationException ex)
         {
             Console.WriteLine("     jku card with trust: refused (" + ex.Result.Status + ")");
-            Check(ex.Result.Status == AgentCardVerificationStatus.Unverified, "jku card with trust: status " + ex.Result.Status);
+            Check(ex.Result.Status == AgentCardVerificationStatus.Unverified,
+                "jku card with trust: status " + ex.Result.Status);
         }
 
         // A card signed by a pinned key resolves as Verified; a tampered one is refused as Failed.
@@ -323,7 +386,8 @@ internal static class Program
         var good = await new A2ACardResolver(http, new A2ACardResolverOptions { Trust = pinned, RequireHttps = false })
             .ResolveAsync(new Uri(server.BaseUrl + "pinned/agent-card.json"), ct).ConfigureAwait(false);
         Console.WriteLine("     pinned card: " + good.Verification.Status);
-        Check(good.Verification.Status == AgentCardVerificationStatus.Verified, "pinned card: expected Verified, got " + good.Verification.Status);
+        Check(good.Verification.Status == AgentCardVerificationStatus.Verified,
+            "pinned card: expected Verified, got " + good.Verification.Status);
         try
         {
             await new A2ACardResolver(http, new A2ACardResolverOptions { Trust = pinned, RequireHttps = false })
@@ -342,7 +406,8 @@ internal static class Program
     private static ResolvedAgentCard ResolvedWithName(string name, string host)
     {
         var uri = new Uri("https://" + host + "/.well-known/agent-card.json");
-        var verification = new AgentCardVerificationResult(AgentCardVerificationStatus.Unsigned, null, CardTrustPolicy.OriginOf(uri), "the card has no signatures");
+        var verification = new AgentCardVerificationResult(AgentCardVerificationStatus.Unsigned, null,
+            CardTrustPolicy.OriginOf(uri), "the card has no signatures");
         return new ResolvedAgentCard(MakeCard(name), "{}", uri, verification);
     }
 
@@ -353,13 +418,17 @@ internal static class Program
 
         // Emoji (surrogate pair) in the name.
         var emoji = registry.Register(ResolvedWithName("Agent \U0001F600 Bot", "a.example"));
-        outcome.Append("emoji=").Append(registry.TryGetByName("AGENT \U0001F600   BOT", out _)).Append(",mixed=").Append(emoji.MixedScriptName);
+        outcome.Append("emoji=").Append(registry.TryGetByName("AGENT \U0001F600   BOT", out _)).Append(",mixed=")
+            .Append(emoji.MixedScriptName);
         try
         {
             registry.Register(ResolvedWithName("agent \U0001F600 bot", "b.example"));
             outcome.Append(",dup=none");
         }
-        catch (AgentRegistrationException ex) { outcome.Append(",dup=").Append(ex.Reason); }
+        catch (AgentRegistrationException ex)
+        {
+            outcome.Append(",dup=").Append(ex.Reason);
+        }
 
         // A supplementary-plane letter with case (Deseret capital letter long I, U+10400).
         registry.Register(ResolvedWithName("\U00010400bc", "c.example"));
@@ -374,10 +443,14 @@ internal static class Program
             registry.Register(ResolvedWithName("lone\uD800surrogate", "e.example"));
             outcome.Append(",lone=ok");
         }
-        catch (AgentRegistrationException ex) { outcome.Append(",lone=").Append(ex.Reason); }
+        catch (AgentRegistrationException ex)
+        {
+            outcome.Append(",lone=").Append(ex.Reason);
+        }
 
         Console.WriteLine("     outcome: " + outcome);
-        Check(outcome.ToString() == ExpectedRegistryOutcome, "outcome '" + outcome + "' differs from net10.0 '" + ExpectedRegistryOutcome + "'");
+        Check(outcome.ToString() == ExpectedRegistryOutcome,
+            "outcome '" + outcome + "' differs from net10.0 '" + ExpectedRegistryOutcome + "'");
     }
 
     // ---- webhook token and artifact hash ----
@@ -385,7 +458,8 @@ internal static class Program
     private static void WebhookAndHash()
     {
         var headers = new Dictionary<string, string> { [A2AProtocol.Headers.NotificationToken] = "right-token" };
-        Check(new PushNotificationReceiver().Validate(headers, "right-token") == PushValidationResult.Valid, "the right token was refused");
+        Check(new PushNotificationReceiver().Validate(headers, "right-token") == PushValidationResult.Valid,
+            "the right token was refused");
         var wrong = new PushNotificationReceiver().Validate(headers, "wrong-token");
         Check(wrong == PushValidationResult.InvalidToken, "a wrong token gave " + wrong);
 
@@ -396,11 +470,13 @@ internal static class Program
 
     private static void CanonicalNumbers()
     {
-        const string json = "{\"n\":[0.1234567890123456,1.1000000000000001,0.30000000000000004,5e-324,1.7976931348623157e308,1e21,123456789012345680000]}";
+        const string json =
+            "{\"n\":[0.1234567890123456,1.1000000000000001,0.30000000000000004,5e-324,1.7976931348623157e308,1e21,123456789012345680000]}";
         using var doc = JsonDocument.Parse(json);
         var hash = ArtifactHash.Compute(new Part[] { new DataPart(doc.RootElement.Clone()) });
         Console.WriteLine("     numbers hash " + hash);
-        Check(hash == ExpectedNumbersHash, "numbers hash '" + hash + "' differs from net10.0 '" + ExpectedNumbersHash + "'");
+        Check(hash == ExpectedNumbersHash,
+            "numbers hash '" + hash + "' differs from net10.0 '" + ExpectedNumbersHash + "'");
     }
 
     private static void Check(bool condition, string message)
@@ -411,20 +487,25 @@ internal static class Program
 
 internal sealed class SmokeException : Exception
 {
-    public SmokeException(string message) : base(message) { }
+    public SmokeException(string message) : base(message)
+    {
+    }
 }
 
 /// <summary>Adds the X-Api-Key header the EchoAgent sample asks for.</summary>
 internal sealed class ApiKeyHandler : DelegatingHandler
 {
+    private const string X_API_KEY = "X-Api-Key";
+
     private readonly string _key;
 
     public ApiKeyHandler(string key, HttpMessageHandler inner) : base(inner) => _key = key;
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+        CancellationToken cancellationToken)
     {
-        request.Headers.Remove("X-Api-Key");
-        request.Headers.Add("X-Api-Key", _key);
+        request.Headers.Remove(X_API_KEY);
+        request.Headers.Add(X_API_KEY, _key);
         return base.SendAsync(request, cancellationToken);
     }
 }
@@ -466,8 +547,15 @@ internal sealed class LocalServer : IDisposable
         while (_listener.IsListening)
         {
             HttpListenerContext context;
-            try { context = await _listener.GetContextAsync().ConfigureAwait(false); }
-            catch (Exception) { return; }
+            try
+            {
+                context = await _listener.GetContextAsync().ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
             _ = Task.Run(() => Handle(context));
         }
     }
@@ -490,13 +578,16 @@ internal sealed class LocalServer : IDisposable
             if (context.Request.HttpMethod == "POST")
             {
                 string body;
-                using (var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8)) body = await reader.ReadToEndAsync().ConfigureAwait(false);
+                using (var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8))
+                    body = await reader.ReadToEndAsync().ConfigureAwait(false);
                 var data = Event;
                 if (path == "/rpc")
                 {
                     using var doc = JsonDocument.Parse(body);
-                    data = "{\"jsonrpc\":\"2.0\",\"id\":" + doc.RootElement.GetProperty("id").GetRawText() + ",\"result\":" + Event + "}";
+                    data = "{\"jsonrpc\":\"2.0\",\"id\":" + doc.RootElement.GetProperty("id").GetRawText() +
+                           ",\"result\":" + Event + "}";
                 }
+
                 context.Response.ContentType = "text/event-stream";
                 context.Response.SendChunked = true;
                 var bytes = Encoding.UTF8.GetBytes("data: " + data + "\n\n");
@@ -518,7 +609,15 @@ internal sealed class LocalServer : IDisposable
     public void Dispose()
     {
         _stop.Cancel();
-        try { _listener.Close(); } catch (Exception) { /* closing */ }
+        try
+        {
+            _listener.Close();
+        }
+        catch (Exception)
+        {
+            /* closing */
+        }
+
         _stop.Dispose();
     }
 }

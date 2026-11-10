@@ -6,5 +6,6 @@
         <ProjectReference Include="..\..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj"/>
         <ProjectReference Include="..\..\..\src\A2A.Server.Postgres\A2A.Server.Postgres.csproj"/>
         <ProjectReference Include="..\..\..\src\A2A.Server.Redis\A2A.Server.Redis.csproj"/>
+        <ProjectReference Include="..\..\Commons\Commons.csproj" />
     </ItemGroup>
 </Project>
