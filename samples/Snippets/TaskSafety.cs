@@ -27,32 +27,6 @@ internal sealed class DeleteFilesAgent : IAgentExecutor
     #endregion
 }
 
-internal sealed class BookingAgent : IAgentExecutor
-{
-    #region ElicitServer
-    public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken)
-    {
-        if (context.ElicitationAnswer is { } answer)
-        {
-            // The server checked the answer against the form. The agent decides what each action means.
-            if (answer.Action == ElicitationAction.Accept)
-                await updater.CompleteAsync($"Booked {answer.GetInt64("nights")} nights in {answer.GetString("city")}.", cancellationToken);
-            else
-                await updater.FailAsync("No booking without details.", cancellationToken);
-            return;
-        }
-
-        var form = new ElicitationForm(
-        [
-            ElicitationField.Text("city", "City", required: true, maxLength: 100),
-            ElicitationField.Integer("nights", "Nights", required: true, minimum: 1, maximum: 30),
-        ]);
-        // The text is the question in words. A client that cannot read the form answers it in plain text.
-        await updater.RequireInputAsync(context, form, "Which city, and how many nights?", cancellationToken);
-    }
-    #endregion
-}
-
 internal static class Samples
 {
     public static void ServerLimits()

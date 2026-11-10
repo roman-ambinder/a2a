@@ -96,6 +96,7 @@ await app.StopAsync();
 /// <summary>Asks for a booking form, then books, or stops, depending on the answer.</summary>
 internal sealed class BookingAgent : IAgentExecutor
 {
+    #region ElicitServer
     public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater,
         CancellationToken cancellationToken)
     {
@@ -140,6 +141,7 @@ internal sealed class BookingAgent : IAgentExecutor
         await updater.RequireInputAsync(context, form, "Which city, how many nights, and what room do you want?",
             cancellationToken);
     }
+    #endregion
 }
 
 internal static class SampleExtensions

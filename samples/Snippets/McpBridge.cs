@@ -12,15 +12,6 @@ namespace Snippets.McpBridge;
 
 internal static class Snippets
 {
-    public static void Expose(IServiceCollection services, A2AClient remoteAgent)
-    {
-        #region Expose
-        // The client has its own credentials. It also knows the Agent Card the skills come from.
-        IReadOnlyList<McpServerTool> tools = remoteAgent.AsMcpTools();
-        services.AddMcpServer().WithHttpTransport().WithTools(tools);
-        #endregion
-    }
-
     public static void ExposeOptions(A2AClient remoteAgent, AgentCard card)
     {
         #region ExposeOptions

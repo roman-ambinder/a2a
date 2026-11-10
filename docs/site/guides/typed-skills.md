@@ -13,7 +13,7 @@ dotnet add package RomanAmbinder.A2A.Client               # call them
 
 First, the types and a source-generated JSON context. Every type comes as a `JsonTypeInfo<T>` from the context, so nothing uses reflection and the code is safe for AOT and trimming:
 
-[!code-csharp[](../../../samples/Snippets/TypedSkills.cs#Types)]
+[!code-csharp[](../../../samples/TypedSkillAgent/Program.cs#Types)]
 
 Mark required properties with `required` (or `[JsonRequired]`). The schema lists them, and the server refuses input that misses one.
 

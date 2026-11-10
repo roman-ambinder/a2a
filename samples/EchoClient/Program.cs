@@ -38,6 +38,7 @@ Console.WriteLine($"ping -> {(pong as MessageResponse)?.Message.GetText()}");
 
 // 2. Streaming.
 Console.Write("stream -> ");
+#region Send
 await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser(text)))
 {
     if (evt is ArtifactUpdateEvent { ArtifactUpdate: var a })
@@ -45,9 +46,11 @@ await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser(text
     if (evt is StatusUpdateEvent { StatusUpdate: var s } && s.Status.State.IsTerminal())
         Console.WriteLine($"  [{s.Status.State}]");
 }
+#endregion
 
 // 3. Start a task without waiting, then follow it. ObserveTaskAsync reconnects with Last-Event-ID if the connection
 //    drops, so no event is lost or repeated.
+#region Observe
 var started =
     await client.SendMessageAsync(Message.FromUser(text), new SendMessageConfiguration { ReturnImmediately = true });
 if (started is TaskResponse { Task: var task })
@@ -62,6 +65,7 @@ if (started is TaskResponse { Task: var task })
         if (evt is TaskEvent { Task: var t } && t.Status.State.IsTerminal()) Console.WriteLine($"  [{t.Status.State}]");
     }
 }
+#endregion
 
 // 4. List my tasks.
 var tasks = await client.ListTasksAsync(new ListTasksRequest { PageSize = 5 });

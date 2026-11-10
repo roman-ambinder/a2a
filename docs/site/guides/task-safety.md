@@ -51,7 +51,7 @@ An agent in `INPUT_REQUIRED` can ask for a small typed form instead of free text
 
 On the server, build an <xref:A2A.Elicitations.ElicitationForm> and call `updater.RequireInputAsync(context, form, text)`. The answer arrives as `context.ElicitationAnswer`:
 
-[!code-csharp[](../../../samples/Snippets/TaskSafety.cs#ElicitServer)]
+[!code-csharp[](../../../samples/ElicitationAgent/Program.cs#ElicitServer)]
 
 On the client, activate the extension with `UseElicitation`, read the form with `GetElicitationForm`, and answer with `ElicitationAnswer.Accept`, `Decline` or `Cancel`:
 

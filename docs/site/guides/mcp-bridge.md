@@ -26,7 +26,7 @@ To serve MCP over HTTP you also need a host package, for example `ModelContextPr
 
 <xref:A2A.Mcp.A2AClientMcpExtensions.AsMcpTools*> turns the skills of the agent behind an `A2AClient` into MCP tools. Add them to any MCP server:
 
-[!code-csharp[](../../../samples/Snippets/McpBridge.cs#Expose)]
+[!code-csharp[](../../../samples/McpBridge/Program.cs#Expose)]
 
 The skills come from the client's Agent Card. If the client has none, pass a card as the third argument. With no card at all, `AsMcpTools` throws `InvalidOperationException`. The tools are a snapshot of the card. Skills added later need a new call.
 

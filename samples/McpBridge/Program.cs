@@ -50,10 +50,12 @@ if (args[0] == "expose")
     var options = new A2AClientOptions();
     var http = new HttpClient();
     var client = new A2AClient(new JsonRpcTransport(http, new Uri($"{Url}/a2a"), options), options, card);
+    #region Expose
     var tools = client.AsMcpTools(new A2AMcpToolOptions { ToolNamePrefix = "text_" });
 
     // /mcp is open here. A real MCP server needs authentication before it serves these tools.
     builder.Services.AddMcpServer().WithHttpTransport().WithTools(tools);
+    #endregion
 }
 else
 {

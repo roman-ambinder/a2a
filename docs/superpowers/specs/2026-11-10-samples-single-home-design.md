@@ -105,6 +105,25 @@ sample is written.
    `Snippets.*` namespace does not, so `Snippets.csproj` has `<Using Include="A2A" />`. The rebuilt site matches the
    old one page for page.*
 3. Repoint regions into existing runnable samples where D1 allows.
+   *Done (2026-11-10). Test used: one unbroken block of the sample uses every API the region shows, holds no demo
+   scaffolding, and the guide text around the include stays true. Five regions passed and now live only in the sample:*
+
+   | Region | Now in |
+   |---|---|
+   | `TaskSafety#ElicitServer` | `samples/ElicitationAgent/Program.cs` (`BookingAgent.ExecuteAsync`) |
+   | `Streaming#Send` | `samples/EchoClient/Program.cs` |
+   | `Streaming#Observe` | `samples/EchoClient/Program.cs` |
+   | `TypedSkills#Types` | `samples/TypedSkillAgent/Program.cs` |
+   | `McpBridge#Expose` | `samples/McpBridge/Program.cs` |
+
+   *Close matches that stayed in `samples/Snippets`, and why: `TaskSafety#ElicitClient` (inside a four-run demo loop);
+   `AgentCardSigning#PinnedKey` (same statement as the API-key handler) and `#ServerKey` (split in two places);
+   `TypedSkills#Server` (the sample has no `ReportProgressAsync`, and the region would end mid-statement), `#Validate`,
+   `#Fail`, `#Client`, `#Schema`; `McpBridge#Call` (no `textArgument`); `ExtensionsAI#Host` (split around the card) and
+   `#ToolResult` (no `truncated`); `Streaming#Capability` and `PushNotifications#Capability` (the focused card fragment
+   is clearer than the sample's full card); `Testing#Stream`, `#Clock`, `#Push`, `#Peer` (the snippets show kit APIs
+   the sample tests do not use); `GettingStarted#*` (the guide needs the minimal hello world); `DurableStores#Register`
+   (the sample has no Data Protection lines).*
 4. Add the coverage test (D5) with the allow-list set to today's gaps, so it passes. Each later step removes entries.
 5. Non-Docker package samples: `Grpc`, `V03Compat`, `Cli`.
 6. Feature samples: `TenantAgent`, `ObservedAgent`, `MemoryAgent`, `ClientFeatures`. Move their guide regions into

@@ -8,7 +8,6 @@ using A2A.Skills;
 
 namespace Snippets.TypedSkills;
 
-#region Types
 public sealed class BookingRequest
 {
     // 'required' makes the schema list the property, and a missing one is refused before your handler runs.
@@ -28,7 +27,6 @@ public sealed class BookingResult
 internal sealed partial class BookingJson : JsonSerializerContext
 {
 }
-#endregion
 
 internal sealed class ChatAgent : IAgentExecutor
 {

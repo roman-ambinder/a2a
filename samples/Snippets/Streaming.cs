@@ -18,44 +18,6 @@ internal static class Samples
         #endregion
     }
 
-    public static async Task StreamAMessage(A2AClient client)
-    {
-        #region Send
-        await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("stream this")))
-        {
-            switch (evt)
-            {
-                case ArtifactUpdateEvent { ArtifactUpdate: var update }:
-                    Console.Write(string.Concat(update.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)));
-                    break;
-                case StatusUpdateEvent { StatusUpdate: var status } when status.Status.State.IsTerminal():
-                    Console.WriteLine($"[{status.Status.State}]");
-                    break;
-            }
-        }
-        #endregion
-    }
-
-    public static async Task FollowATask(A2AClient client)
-    {
-        #region Observe
-        var started = await client.SendMessageAsync(
-            Message.FromUser("do the work"),
-            new SendMessageConfiguration { ReturnImmediately = true });
-
-        if (started is TaskResponse { Task: var task })
-        {
-            await foreach (var evt in client.ObserveTaskAsync(task.Id))
-            {
-                if (evt is TaskEvent { Task: var snapshot })
-                    Console.WriteLine($"snapshot: {snapshot.Status.State}");
-                if (evt is StatusUpdateEvent { StatusUpdate: var status })
-                    Console.WriteLine(status.Status.State);
-            }
-        }
-        #endregion
-    }
-
     public static async Task SubscribeOnce(A2AClient client, string taskId)
     {
         #region Subscribe

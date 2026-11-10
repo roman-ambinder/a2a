@@ -12,7 +12,7 @@ The card must declare streaming. Without it, the server refuses streaming calls 
 
 <xref:A2A.Client.A2AClient.SendStreamingMessageAsync*> sends a message and returns the events of the task, in order:
 
-[!code-csharp[](../../../samples/Snippets/Streaming.cs#Send)]
+[!code-csharp[](../../../samples/EchoClient/Program.cs#Send)]
 
 The first event is the task, or a direct message. A direct message is the only event, and the stream ends. Events of other executions of the same task, such as the `CANCELED` event of a `CancelTask`, arrive on the same stream.
 
@@ -20,7 +20,7 @@ The first event is the task, or a direct message. A direct message is the only e
 
 To watch a task you did not start on this connection, use <xref:A2A.Client.A2AClient.ObserveTaskAsync*>. It subscribes, and when the connection drops it reconnects and resumes. This example starts a task without waiting for it, then follows it:
 
-[!code-csharp[](../../../samples/Snippets/Streaming.cs#Observe)]
+[!code-csharp[](../../../samples/EchoClient/Program.cs#Observe)]
 
 `ObserveTaskAsync` works like this:
 
