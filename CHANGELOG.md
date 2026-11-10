@@ -4,6 +4,15 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Protocol and bindings
+
+- Validation errors of request fields carry a `google.rpc.BadRequest` detail with the field and the reason (spec v1.0.1
+  §9.5, §11.6), after the `ErrorInfo`, on all three bindings. The error message is unchanged. New
+  `A2AException.InvalidField(field, description)` builds one; `A2AErrors.BadRequest` and `A2AErrors.BadRequestType`
+  build the detail entry. The gRPC client reads `BadRequest` back into `A2AException.Details`.
+- Each error detail object must carry an `@type` (spec v1.0.1 §3.3.2). An entry of `A2AException.Details` that is not an
+  object with a non-empty `@type` is no longer sent. New `A2AErrors.HasType`.
+
 ### Documentation
 
 - Spec decisions: the push delivery defaults said "10 attempts". The default is no limit on the count (`MaxAttempts`

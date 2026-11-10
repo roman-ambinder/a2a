@@ -139,7 +139,7 @@ var grpcClient = await A2AGrpcClientFactory.CreateAsync(agentUrl, httpClient);  
 The gRPC service runs on the same `IA2ARequestHandler` and call-context plumbing as the HTTP bindings, so ownership, tenants
 (the request's `tenant` field), limits, idempotency and errors behave the same; the parity suite runs every method over all three bindings.
 A binding of your own resolves `IA2ARequestHandler` from DI and gets the same operations.
-Errors are `google.rpc.Status` with an `ErrorInfo` detail (`retryable`/`retryAfter` metadata, plus `RetryInfo` on rate limits).
+Errors are `google.rpc.Status` with an `ErrorInfo` detail (`retryable`/`retryAfter` metadata, plus `RetryInfo` on rate limits, and `BadRequest` when a request field is invalid).
 `A2A-Version`, `A2A-Extensions` and `Idempotency-Key` travel as `a2a-version` / `a2a-extensions` / `idempotency-key` metadata.
 gRPC error responses do not carry the `a2a-extensions` (A2A-Extensions) response header; successful responses do.
 A message larger than `Limits.MaxRequestBodyBytes` is refused by the gRPC layer with `RESOURCE_EXHAUSTED` (the client reports it as `InvalidRequest` / `PAYLOAD_TOO_LARGE`, as over HTTP).

@@ -145,6 +145,20 @@ public class A2AException : Exception
         return new A2AException(A2AErrorCode.InvalidParams, message);
     }
 
+    /// <summary>
+    ///     Creates an InvalidParams error for one request field: the message is <c>"{field} {description}"</c>, and the
+    ///     details carry a <c>google.rpc.BadRequest</c> with that field violation (spec §9.5, §11.6).
+    /// </summary>
+    public static A2AException InvalidField(string field, string description)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        ArgumentNullException.ThrowIfNull(description);
+        return new A2AException(A2AErrorCode.InvalidParams, field + " " + description)
+        {
+            Details = [A2AErrors.BadRequest([new KeyValuePair<string, string>(field, description)])]
+        };
+    }
+
     /// <summary>The request body is larger than <paramref name="limit" /> bytes. HTTP 413.</summary>
     public static A2AException PayloadTooLarge(long limit)
     {
@@ -178,6 +192,45 @@ public static class A2AErrors
 {
     /// <summary>Type URL of the <c>google.rpc.ErrorInfo</c> detail entry.</summary>
     public const string ErrorInfoType = "type.googleapis.com/google.rpc.ErrorInfo";
+
+    /// <summary>Type URL of the <c>google.rpc.BadRequest</c> detail entry (field violations of a validation error).</summary>
+    public const string BadRequestType = "type.googleapis.com/google.rpc.BadRequest";
+
+    /// <summary>
+    ///     A <c>google.rpc.BadRequest</c> detail entry in its ProtoJSON <c>Any</c> form, with one field violation per
+    ///     (field, description) pair.
+    /// </summary>
+    public static JsonElement BadRequest(IEnumerable<KeyValuePair<string, string>> violations)
+    {
+        ArgumentNullException.ThrowIfNull(violations);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("@type", BadRequestType);
+            writer.WriteStartArray("fieldViolations");
+            foreach (var violation in violations)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("field", violation.Key);
+                writer.WriteString("description", violation.Value);
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+
+        using var document = JsonDocument.Parse(stream.ToArray());
+        return document.RootElement.Clone();
+    }
+
+    /// <summary>True when <paramref name="detail" /> is a JSON object with a string <c>@type</c> key.</summary>
+    public static bool HasType(JsonElement detail)
+    {
+        return detail.ValueKind == JsonValueKind.Object && detail.TryGetProperty("@type", out var type) &&
+               type.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(type.GetString());
+    }
 
     /// <summary>ErrorInfo reason for a request body over the size limit.</summary>
     public const string PayloadTooLargeReason = "PAYLOAD_TOO_LARGE";
@@ -295,7 +348,11 @@ public static class A2AErrors
         };
     }
 
-    /// <summary>Builds the details array for an exception, always including a google.rpc.ErrorInfo entry.</summary>
+    /// <summary>
+    ///     Builds the details array for an exception, always including a google.rpc.ErrorInfo entry. Entries of
+    ///     <see cref="A2AException.Details" /> follow, except another ErrorInfo and any entry that is not an object with an
+    ///     <c>@type</c> key (spec §3.3.2: each detail object MUST carry one).
+    /// </summary>
     public static List<JsonElement> BuildDetails(A2AException ex)
     {
         var details = new List<JsonElement>();
@@ -314,8 +371,7 @@ public static class A2AErrors
         details.Add(A2AJson.SerializeToElement(info));
         if (ex.Details is not null)
             details.AddRange(ex.Details.Where(d =>
-                !(d.ValueKind == JsonValueKind.Object && d.TryGetProperty("@type", out var t) &&
-                  t.GetString() == ErrorInfoType)));
+                HasType(d) && d.GetProperty("@type").GetString() != ErrorInfoType));
         return details;
     }
 

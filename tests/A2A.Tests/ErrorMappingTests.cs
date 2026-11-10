@@ -49,4 +49,49 @@ public class ErrorMappingTests
         Assert.Equal(400, error.GetProperty("code").GetInt32());
         Assert.Equal("FAILED_PRECONDITION", error.GetProperty("status").GetString());
     }
+
+    [Fact]
+    public void InvalidField_keeps_the_message_and_adds_a_BadRequest()
+    {
+        var ex = A2AException.InvalidField("message.messageId", "is required");
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        Assert.Equal("message.messageId is required", ex.Message);
+        var violation = AssertBadRequest(A2AErrors.BuildDetails(ex));
+        Assert.Equal("message.messageId", violation.GetProperty("field").GetString());
+        Assert.Equal("is required", violation.GetProperty("description").GetString());
+    }
+
+    [Fact]
+    public void Details_without_a_type_are_not_sent()
+    {
+        using var doc = JsonDocument.Parse("""[{"note":"untyped"},"text",{"@type":""},{"@type":"type.example/Ok","x":1}]""");
+        var ex = new A2AException(A2AErrorCode.Internal, "boom") { Details = doc.RootElement.EnumerateArray().Select(e => e.Clone()).ToList() };
+        var details = A2AErrors.BuildDetails(ex);
+        Assert.All(details, d => Assert.True(A2AErrors.HasType(d)));
+        Assert.Equal([A2AErrors.ErrorInfoType, "type.example/Ok"], details.Select(d => d.GetProperty("@type").GetString()));
+    }
+
+    public static TheoryData<string> Bindings => new() { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson, ProtocolBindings.Grpc };
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task A_validation_error_carries_a_BadRequest_on_every_binding(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync(grpc: true);
+        var client = host.Client(binding);
+        var task = (await client.SendMessageAsync("task")).RequireTask();
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.CreateTaskPushNotificationConfigAsync(
+            new TaskPushNotificationConfig { TaskId = task.Id, Url = "ftp://hooks.test/x" }));
+
+        Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        var violation = AssertBadRequest(ex.Details!);
+        Assert.Equal("config.url", violation.GetProperty("field").GetString());
+        Assert.Equal("must be an absolute http(s) URL", violation.GetProperty("description").GetString());
+    }
+
+    private static JsonElement AssertBadRequest(IEnumerable<JsonElement> details)
+    {
+        var badRequest = Assert.Single(details, d => d.GetProperty("@type").GetString() == A2AErrors.BadRequestType);
+        return Assert.Single(badRequest.GetProperty("fieldViolations").EnumerateArray());
+    }
 }

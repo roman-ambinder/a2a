@@ -138,3 +138,7 @@ static A2A.Json.A2AJson.V10Options.get -> System.Text.Json.JsonSerializerOptions
 *REMOVED*A2A.SendMessageRequest.Message.get -> A2A.Message!
 A2A.SendMessageRequest.Message.get -> A2A.Message?
 const A2A.A2AProtocol.Methods.SendLiveMessage = "SendLiveMessage" -> string!
+const A2A.A2AErrors.BadRequestType = "type.googleapis.com/google.rpc.BadRequest" -> string!
+static A2A.A2AErrors.BadRequest(System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<string!, string!>>! violations) -> System.Text.Json.JsonElement
+static A2A.A2AErrors.HasType(System.Text.Json.JsonElement detail) -> bool
+static A2A.A2AException.InvalidField(string! field, string! description) -> A2A.A2AException!
