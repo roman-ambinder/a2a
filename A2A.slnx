@@ -16,6 +16,8 @@
     <Project Path="samples/ChatAgent/ChatAgent.csproj" />
     <Project Path="samples/ElicitationAgent/ElicitationAgent.csproj" />
     <Project Path="samples/McpBridge/McpBridge.csproj" />
+    <Project Path="samples/Grpc/Grpc.csproj" />
+    <Project Path="samples/V03Compat/V03Compat.csproj" />
     <Project Path="samples/Snippets/Snippets.csproj" />
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
     <Project Path="samples/TypedSkillAgent/TypedSkillAgent.csproj" />

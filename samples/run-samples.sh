@@ -5,7 +5,7 @@
 #   samples/run-samples.sh echo mcp         # only the named ones
 #   samples/run-samples.sh --with-docker    # also MultiInstance (needs Docker)
 #
-# Names: chat, elicitation, typed, echo, mcp, testing, multi.
+# Names: chat, elicitation, typed, echo, mcp, testing, grpc, v03, cli, multi.
 # Each sample listens on 127.0.0.1 only. EchoAgent gets a throwaway API key made here.
 set -u
 
@@ -128,6 +128,16 @@ run_testing() {
   tail -n 4 "$LOGS/testing.log"
 }
 
+run_cli() {
+  echo "== cli (samples/Cli/walkthrough.sh: the a2a tool against EchoAgent)"
+  if samples/Cli/walkthrough.sh >"$LOGS/cli.log" 2>&1 && grep -q '^OK:' "$LOGS/cli.log"; then
+    record cli PASS
+  else
+    record cli "FAIL (see $LOGS/cli.log)"
+  fi
+  tail -n 1 "$LOGS/cli.log"
+}
+
 run_multi() {
   echo "== multi (samples/MultiInstance, Docker)"
   local compose="samples/MultiInstance/docker-compose.yml"
@@ -155,6 +165,9 @@ wanted typed       && run_self_contained typed samples/TypedSkillAgent
 wanted echo        && run_echo
 wanted mcp         && run_mcp
 wanted testing     && run_testing
+wanted grpc        && run_self_contained grpc samples/Grpc
+wanted v03         && run_self_contained v03 samples/V03Compat
+wanted cli         && run_cli
 if wanted multi; then
   if $with_docker || [ ${#selected[@]} -gt 0 ]; then run_multi; else record multi "SKIP: pass --with-docker"; fi
 fi

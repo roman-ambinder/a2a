@@ -29,6 +29,9 @@ var card = new AgentCard
     Version = "1.0.0",
     // No SupportedInterfaces: the served card lists every mapped binding at the public base URL (set below).
     Capabilities = new AgentCapabilities { Streaming = true, PushNotifications = true },
+    // Say how to authenticate, so a client such as the a2a tool knows to send the key, and in which header.
+    SecuritySchemes = new() { ["apiKey"] = SecurityScheme.ApiKey("X-Api-Key") },
+    SecurityRequirements = [new SecurityRequirement { Schemes = { ["apiKey"] = new StringList() } }],
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
     Skills =

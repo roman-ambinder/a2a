@@ -131,6 +131,12 @@ sample is written.
    *Done (2026-11-10). The allow-list holds the ten packages listed in section 2. Checked by hand: removing an entry
    fails the first test; a stale entry, or a sample script with `--project src/A2A.Cli`, fails the second.*
 5. Non-Docker package samples: `Grpc`, `V03Compat`, `Cli`.
+   *Done (2026-11-10). `Grpc` (ports 5310 HTTP/1.1 and 5311 HTTP/2) checks the binding of each client through
+   `AgentRequestContext.Call.Binding`. `V03Compat` (port 5320) checks the server's `a2a.compat.v0_3.requests` counter: a
+   v0.3-only card makes `V03CompatClientFactory` use v0.3, and this SDK's blended card does not. `Cli` is
+   `walkthrough.sh` against EchoAgent (port 5330). EchoAgent's card now declares its `X-Api-Key` scheme, because the
+   tool sends a credential only when the card asks for one. Run-samples names: `grpc`, `v03`, `cli`. Seven entries left
+   the coverage allow-list.*
 6. Feature samples: `TenantAgent`, `ObservedAgent`, `MemoryAgent`, `ClientFeatures`. Move their guide regions into
    them where D1 allows.
 7. Docker samples: `ArtifactStorage`, `ClientOutbox`.

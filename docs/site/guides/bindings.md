@@ -74,6 +74,8 @@ To require gRPC, use <xref:A2A.Client.Grpc.A2AGrpcClientFactory>. It throws `Uns
 
 `A2AGrpcClientFactory.Create(card)` does the same for a card you already have. The `HttpClient` is used only to fetch the card. The gRPC channel has its own options.
 
+A runnable version, with a gRPC port, the card order and all three client choices, is in [samples/Grpc](https://github.com/roman-ambinder/a2a/blob/main/samples/Grpc/README.md).
+
 ## What differs on gRPC
 
 | | JSON-RPC and HTTP+JSON | gRPC |

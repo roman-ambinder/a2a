@@ -16,13 +16,6 @@ public sealed class SamplesCoverageTests
     /// <summary>Packages that have no runnable sample yet, and the sample that will cover each one.</summary>
     private static readonly Dictionary<string, string> NotYetCovered = new(StringComparer.Ordinal)
     {
-        ["A2A.Cli"] = "samples/Cli",
-        ["A2A.Grpc"] = "samples/Grpc",
-        ["A2A.Server.Grpc"] = "samples/Grpc",
-        ["A2A.Client.Grpc"] = "samples/Grpc",
-        ["A2A.V0_3Compat"] = "samples/V03Compat",
-        ["A2A.Server.V0_3Compat"] = "samples/V03Compat",
-        ["A2A.Client.V0_3Compat"] = "samples/V03Compat",
         ["A2A.Server.Storage.S3"] = "samples/ArtifactStorage",
         ["A2A.Server.Storage.AzureBlob"] = "samples/ArtifactStorage",
         ["A2A.Client.Postgres"] = "samples/ClientOutbox",

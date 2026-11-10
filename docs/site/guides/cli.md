@@ -11,6 +11,8 @@ a2a --version
 
 The package ID has the `RomanAmbinder.` prefix like every package of this SDK. The command is `a2a`. The tool needs the .NET 10 runtime. Without the runtime, publish it as a native AOT binary (`dotnet publish src/A2A.Cli -c Release -r <rid> -p:PublishAot=true`).
 
+A script that runs each command against a sample agent and checks its exit code is in [samples/Cli](https://github.com/roman-ambinder/a2a/blob/main/samples/Cli/README.md).
+
 ## Basics
 
 ```bash

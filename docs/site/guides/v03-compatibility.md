@@ -17,6 +17,8 @@ Both packages use internals of the core packages. All `RomanAmbinder.A2A.*` pack
 
 Only JSON-RPC and HTTP+JSON are supported. gRPC is not.
 
+A runnable version of both sides is in [samples/V03Compat](https://github.com/roman-ambinder/a2a/blob/main/samples/V03Compat/README.md).
+
 ## Serve v0.3 clients
 
 Call `EnableV03Compat` inside `MapA2A`:
