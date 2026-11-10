@@ -142,3 +142,4 @@ const A2A.A2AErrors.BadRequestType = "type.googleapis.com/google.rpc.BadRequest"
 static A2A.A2AErrors.BadRequest(System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<string!, string!>>! violations) -> System.Text.Json.JsonElement
 static A2A.A2AErrors.HasType(System.Text.Json.JsonElement detail) -> bool
 static A2A.A2AException.InvalidField(string! field, string! description) -> A2A.A2AException!
+static A2A.A2AProtocol.ToMajorMinor(string? version) -> string?

@@ -145,7 +145,7 @@ internal sealed class AgentCardEndpoint(
     ///     If-None-Match compares weakly (RFC 9110 §13.1.2): <c>W/"x"</c> and <c>"x"</c> both match the tag <c>"x"</c>, as
     ///     does <c>*</c>.
     /// </summary>
-    private static bool Matches(StringValues ifNoneMatch, string tag)
+    internal static bool Matches(StringValues ifNoneMatch, string tag)
     {
         foreach (var header in ifNoneMatch)
         foreach (var raw in (header ?? "").Split(',',

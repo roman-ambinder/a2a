@@ -45,10 +45,11 @@ public static class A2AClientFactory
                        ?? throw NoInterface(card, options);
 
         if (!string.IsNullOrEmpty(selected.Tenant)) options.Tenant = selected.Tenant;
-        options.ProtocolVersion =
+        // Major.Minor only: a card that lists "1.0.2" is called with A2A-Version 1.0 (spec §3.6).
+        options.ProtocolVersion = A2AProtocol.ToMajorMinor(
             selected.ProtocolVersion is { Length: > 0 } v && Major(v) == Major(options.ProtocolVersion)
                 ? v
-                : options.ProtocolVersion;
+                : options.ProtocolVersion)!;
 
         var transport = FactoryFor(options, selected.ProtocolBinding) is { } factory
             ? factory.Create(selected, httpClient, options)

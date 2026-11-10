@@ -175,6 +175,13 @@ public class SkillAuthorizationTests
         Assert.Equal(denied.Message, unknown.Message);
         Assert.Equal(denied.Metadata, unknown.Metadata);
         Assert.Equal(A2AErrorCode.PermissionDenied, unknown.Code);
+        // Which permission is missing (spec §3.3.2), the same for both, and never the skill id the caller sent.
+        var info = denied.Metadata ?? Assert.Single(denied.Details!, d => d.GetProperty("@type").GetString() == A2AErrors.ErrorInfoType)
+            .GetProperty("metadata").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString()!);
+        Assert.Equal("skill", info["permission"]);
+        Assert.Equal("SendMessage", info["operation"]);
+        Assert.DoesNotContain(Hidden, denied.Message);
+        Assert.Equal(denied.Details?.Select(d => d.GetRawText()), unknown.Details?.Select(d => d.GetRawText()));
         await host.WaitIdleAsync();
         Assert.Equal(0, agent.Calls);
     }

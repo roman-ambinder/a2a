@@ -12,6 +12,14 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   build the detail entry. The gRPC client reads `BadRequest` back into `A2AException.Details`.
 - Each error detail object must carry an `@type` (spec v1.0.1 §3.3.2). An entry of `A2AException.Details` that is not an
   object with a non-empty `@type` is no longer sent. New `A2AErrors.HasType`.
+- The extended Agent Card over HTTP+JSON (`GET /extendedAgentCard`) has caching headers (spec §13.3):
+  `Cache-Control: private, no-cache`, `Vary: Authorization, Cookie, A2A-Version` and an `ETag` of the served bytes. A
+  matching `If-None-Match` gets 304, after authorization as before. JSON-RPC and gRPC are unchanged.
+- The client sends `A2A-Version` as Major.Minor only (spec §3.6): a card interface that lists `1.0.2`, or
+  `A2AClientOptions.ProtocolVersion = "1.0.2"`, is sent as `1.0`. New `A2AProtocol.ToMajorMinor`.
+- `PermissionDenied` says which permission is missing (spec §3.3.2): ErrorInfo metadata `permission` (`operation`,
+  `skill` or `policy`) and `operation` (the server's operation name), and a message that names the operation. It never
+  repeats a value the caller chose, and an unknown skill still gets the same error as a denied one.
 
 ### Documentation
 
