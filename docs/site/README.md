@@ -5,7 +5,6 @@ This folder builds the docs site with [DocFX](https://dotnet.github.io/docfx/) 2
 ## Layout
 
 - `guides/` : hand-written guides. `guides/toc.yml` sets the order.
-- `snippets/` : the C# samples, one library project (`A2A.DocSnippets`). It is in `A2A.slnx`, so a normal build compiles it. Warnings are errors.
 - `api/` : generated from `src/**/*.csproj`. Only `api/index.md` is committed.
 - `template/` : site theme on top of the DocFX `modern` template. `public/main.css` holds the style tweaks, `public/main.js` adds the GitHub icon to the top bar.
 - `images/` : the logo and favicon.
@@ -14,11 +13,13 @@ This folder builds the docs site with [DocFX](https://dotnet.github.io/docfx/) 2
 
 ## Rules for guides
 
-- No C# fenced blocks. Put the code in `snippets/` inside `#region Name` ... `#endregion` and include it:
+- No C# fenced blocks. All guide code lives under the repo's `samples/` folder, inside `#region Name` ... `#endregion`, and the guide includes it:
 
   ```text
-  [!code-csharp[](../snippets/GettingStarted.cs#Server)]
+  [!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Server)]
   ```
+
+  Short fragments go in `samples/Snippets` (project `Snippets.csproj`: compile only, in `A2A.slnx`, warnings as errors, one file per guide). When a runnable sample already does exactly what the guide shows, put the region in that sample instead.
 
   The path is relative to the guide file. The include must be alone on its line. Shell, JSON, YAML and HTTP fences are fine.
 - Link types and members with `<xref:A2A.Server.A2AServerOptions>`. A wrong name fails the build.
@@ -30,7 +31,7 @@ From the repo root:
 
 ```shell
 dotnet tool restore
-dotnet build docs/site/snippets/A2A.DocSnippets.csproj
+dotnet build samples/Snippets/Snippets.csproj
 python3 docs/site/check-guides.py
 dotnet docfx docs/site/docfx.json --warningsAsErrors
 ```

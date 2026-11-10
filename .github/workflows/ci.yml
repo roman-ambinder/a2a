@@ -315,8 +315,8 @@ jobs:
       - name: Restore tools
         run: dotnet tool restore
 
-      - name: Build doc snippets (warnings as errors)
-        run: dotnet build docs/site/snippets/A2A.DocSnippets.csproj -c Release
+      - name: Build guide snippets (warnings as errors)
+        run: dotnet build samples/Snippets/Snippets.csproj -c Release
 
       - name: Check guides (no C# fences, repo links and snippet regions exist)
         run: python3 docs/site/check-guides.py
@@ -413,12 +413,38 @@ jobs:
           path: coverage/**/*.cobertura.xml
           if-no-files-found: warn
 
+  samples:
+    name: Samples (run-samples.sh, no Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # Every sample that needs no Docker, each checked by its own OK: line. The Docker ones run nightly
+      # (samples-nightly.yml).
+      - name: Run the samples
+        env:
+          SAMPLES_LOG_DIR: ${{ runner.temp }}/sample-logs
+        run: samples/run-samples.sh
+
+      - name: Upload sample logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sample-logs
+          path: ${{ runner.temp }}/sample-logs
+          if-no-files-found: warn
+
   all-green:
     name: all-green
     # The single check to require in branch protection. `always()` matters: a skipped job counts as passing a required
     # check, so this job must run after a failure or cancel and report it. List every job here.
     if: ${{ always() }}
-    needs: [build-test, stores, interop, conformance, interop-v03, pack, benchmarks, aot-publish, docs]
+    needs: [build-test, stores, interop, conformance, interop-v03, pack, benchmarks, aot-publish, docs, samples]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

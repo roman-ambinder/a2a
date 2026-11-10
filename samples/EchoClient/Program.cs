@@ -36,6 +36,7 @@ Console.WriteLine($"ping -> {(pong as MessageResponse)?.Message.GetText()}");
 
 // 2. Streaming.
 Console.Write("stream -> ");
+#region Send
 await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser(text)))
 {
     switch (evt)
@@ -48,9 +49,11 @@ await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser(text
             break;
     }
 }
+#endregion
 
 // 3. Start a task without waiting, then follow it. ObserveTaskAsync reconnects with Last-Event-ID if the connection
 //    drops, so no event is lost or repeated.
+#region Observe
 var started =
     await client.SendMessageAsync(Message.FromUser(text), new SendMessageConfiguration { ReturnImmediately = true });
 if (started is TaskResponse { Task: var task })
@@ -72,6 +75,7 @@ if (started is TaskResponse { Task: var task })
         }
     }
 }
+#endregion
 
 // 4. List my tasks.
 var tasks = await client.ListTasksAsync(new ListTasksRequest { PageSize = 5 });

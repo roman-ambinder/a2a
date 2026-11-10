@@ -14,13 +14,13 @@ The package uses the M.E.AI abstractions only. It has no model provider and no `
 
 Register an `IChatClient`, then call <xref:A2A.Extensions.AI.A2AChatClientAgentBuilderExtensions.AddChatClientAgent*> on the A2A builder:
 
-[!code-csharp[](../snippets/ExtensionsAI.cs#Host)]
+[!code-csharp[](../../../samples/Snippets/ExtensionsAI.cs#Host)]
 
 The reply streams to the caller as chunks of one artifact. The first chunk carries the artifact name (`response` by default), and the last one has `lastChunk` set. The task ends as `COMPLETED`.
 
 `AddChatClientAgent` registers a scoped executor and replaces any executor registered before. It reads the `IChatClient` from DI. To use a keyed client, pass `serviceKey`:
 
-[!code-csharp[](../snippets/ExtensionsAI.cs#HostKeyed)]
+[!code-csharp[](../../../samples/Snippets/ExtensionsAI.cs#HostKeyed)]
 
 Secure the endpoints as for any agent. See [authentication and ownership](auth-and-ownership.md).
 
@@ -41,7 +41,7 @@ Secure the endpoints as for any agent. See [authentication and ownership](auth-a
 | `ContextMemoryMaxTasks` | 20 | With `UseContextMemory`: how many earlier tasks to read |
 | `ContextMemoryMaxBytes` | 262144 | With `UseContextMemory`: size limit for earlier messages (UTF-8 bytes of their JSON) |
 
-[!code-csharp[](../snippets/ExtensionsAI.cs#HostOptions)]
+[!code-csharp[](../../../samples/Snippets/ExtensionsAI.cs#HostOptions)]
 
 Chunks are sent per `StreamChunkSize`, not per token, because durable stores write on every event.
 
@@ -77,7 +77,7 @@ A message with a URL part is rejected with `URL parts are not accepted by this a
 
 <xref:A2A.Extensions.AI.A2AClientAIExtensions.AsAIFunction*> turns an <xref:A2A.Client.A2AClient> into an M.E.AI tool:
 
-[!code-csharp[](../snippets/ExtensionsAI.cs#Tool)]
+[!code-csharp[](../../../samples/Snippets/ExtensionsAI.cs#Tool)]
 
 `name` and `description` are required. The name must be 1 to 64 characters: letters, digits, `_` or `-`. They are never taken from the Agent Card. The card is text from a remote party, and a tool description goes straight into the model's prompt. A hostile agent could use it to steer your model. You write the description, so you decide what the model reads.
 
@@ -119,7 +119,7 @@ The tool returns a JSON object:
 }
 ```
 
-[!code-csharp[](../snippets/ExtensionsAI.cs#ToolResult)]
+[!code-csharp[](../../../samples/Snippets/ExtensionsAI.cs#ToolResult)]
 
 - `state` is `submitted`, `working`, `completed`, `failed`, `canceled`, `rejected`, `input-required` or `auth-required`. A direct reply from the agent counts as `completed`.
 - `remoteContent` depends on the state. For `input-required` and `auth-required` it is the text of the status message, which is the question the agent asks now, even when artifacts exist. For other states it is the text and JSON of the artifacts, or the status message text when there are none. For a direct reply it is the message text. Non-ASCII text is written as is.
@@ -134,7 +134,7 @@ When you continue a task with `taskId`, only artifacts that are new in this turn
 
 <xref:A2A.Extensions.AI.A2AClientAIExtensions.AsChatClient*> returns an `IChatClient` backed by the remote agent:
 
-[!code-csharp[](../snippets/ExtensionsAI.cs#ChatClient)]
+[!code-csharp[](../../../samples/Snippets/ExtensionsAI.cs#ChatClient)]
 
 A2A keeps the conversation on the server, so the client does not resend history:
 
@@ -147,7 +147,7 @@ A2A keeps the conversation on the server, so the client does not resend history:
 
 The task id and state travel in `AdditionalProperties`, under <xref:A2A.Extensions.AI.A2AChatKeys.TaskId> and <xref:A2A.Extensions.AI.A2AChatKeys.TaskState>. Responses and streaming updates carry both. To answer a task in `input-required`, put the id in `ChatOptions.AdditionalProperties`:
 
-[!code-csharp[](../snippets/ExtensionsAI.cs#ContinueTask)]
+[!code-csharp[](../../../samples/Snippets/ExtensionsAI.cs#ContinueTask)]
 
 When the task id is set, the client first looks the task up. Then, for a unary call and for a stream, it returns only content you have not seen: new artifacts, and a new `input-required` message. An `input-required` message that only repeats the artifact text (what `KeepConversationOpen` produces) is not returned twice.
 
@@ -171,7 +171,7 @@ A task that ends `failed`, `rejected` or `canceled` throws `InvalidOperationExce
 
 <xref:A2A.Extensions.AI.A2AContentExtensions> converts both ways. The executor and the two client wrappers use the same code, with the safer rules in the next table.
 
-[!code-csharp[](../snippets/ExtensionsAI.cs#Conversions)]
+[!code-csharp[](../../../samples/Snippets/ExtensionsAI.cs#Conversions)]
 
 | A2A part | M.E.AI content | Notes |
 |---|---|---|
@@ -215,7 +215,7 @@ What the package does:
 - **Size cap and no bytes.** `MaxResultCharacters` bounds the text. Bytes and URLs are counted and never inlined.
 - **Callers cannot steer the host's model through metadata.** On the server, caller metadata does not reach the model. Reasoning and tool details do not reach the caller. Failures show a fixed text.
 
-[!code-csharp[](../snippets/ExtensionsAI.cs#Notice)]
+[!code-csharp[](../../../samples/Snippets/ExtensionsAI.cs#Notice)]
 
 The notice reduces the risk. It does not remove it. A model can still be fooled. For a sensitive tool, add checks of your own:
 
@@ -223,7 +223,7 @@ The notice reduces the risk. It does not remove it. A model can still be fooled.
 - **Check every artifact.** `OnArtifactReceived` sees each artifact. `OnMessageReceived` does not, and agents mostly answer in artifacts. Throw to abort. Exceptions from both hooks reach your caller. The tool runs the hook only after the task has finished, and the streaming client runs it for each chunk.
 - **Ask a human.** Do not let a tool with side effects (payments, deletes, sending mail) run on the strength of remote text alone. Require approval.
 
-[!code-csharp[](../snippets/ExtensionsAI.cs#Hooks)]
+[!code-csharp[](../../../samples/Snippets/ExtensionsAI.cs#Hooks)]
 
 The same message can be seen more than once, for example when the client polls a task. Make the checks idempotent.
 
@@ -231,7 +231,7 @@ The same message can be seen more than once, for example when the client polls a
 
 `AllowUrlParts` is off by default. A model provider may fetch a URL it finds in the prompt. That lets a caller make your server, or your provider account, request addresses the caller chooses. This is the SSRF risk. With the default, a message with a URL part is rejected, and URL parts in older history are dropped. Turn it on only when you accept that:
 
-[!code-csharp[](../snippets/ExtensionsAI.cs#AllowUrls)]
+[!code-csharp[](../../../samples/Snippets/ExtensionsAI.cs#AllowUrls)]
 
 
 ## What can go wrong

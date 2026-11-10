@@ -17,11 +17,13 @@ Both packages use internals of the core packages. All `RomanAmbinder.A2A.*` pack
 
 Only JSON-RPC and HTTP+JSON are supported. gRPC is not.
 
+A runnable version of both sides is in [samples/V03Compat](https://github.com/roman-ambinder/a2a/blob/main/samples/V03Compat/README.md).
+
 ## Serve v0.3 clients
 
 Call `EnableV03Compat` inside `MapA2A`:
 
-[!code-csharp[](../snippets/V03Compatibility.cs#Server)]
+[!code-csharp[](../../../samples/Snippets/V03Compatibility.cs#Server)]
 
 <xref:A2A.Server.V0_3Compat.A2AV03CompatExtensions.EnableV03Compat*> sets a hook on the <xref:A2A.Server.AspNetCore.A2AEndpointOptions> and returns them. It adds three things.
 
@@ -46,7 +48,7 @@ A tenant named `v1` on a path-tenant host is shadowed by the literal `/v1/...` r
 
 The routes are mapped into the group `MapA2A` returns. So `RequireAuthorization()` on that group, a policy set in the options, rate limiting and CORS cover them. You do nothing extra:
 
-[!code-csharp[](../snippets/V03Compatibility.cs#ServerPolicy)]
+[!code-csharp[](../../../samples/Snippets/V03Compatibility.cs#ServerPolicy)]
 
 The route names start with `A2A `, so the fail-closed startup check from [authentication and ownership](auth-and-ownership.md) sees them. Without authorization the app does not start.
 
@@ -117,15 +119,15 @@ On a status update, `final` is `true` for terminal and interrupted states, becau
 
 Call `V03CompatClientFactory.CreateAsync` instead of `A2AClientFactory.CreateAsync`:
 
-[!code-csharp[](../snippets/V03Compatibility.cs#Client)]
+[!code-csharp[](../../../samples/Snippets/V03Compatibility.cs#Client)]
 
 <xref:A2A.Client.V0_3Compat.V03CompatClientFactory> returns a normal <xref:A2A.Client.A2AClient>. Use it as you use any other client. `CreateAsync` takes the same options as the standard factory, plus your <xref:A2A.Client.A2ACardResolverOptions>. It copies them and does not change your object:
 
-[!code-csharp[](../snippets/V03Compatibility.cs#ClientResolver)]
+[!code-csharp[](../../../samples/Snippets/V03Compatibility.cs#ClientResolver)]
 
 If you already have the card, use `Create`. It needs no network call:
 
-[!code-csharp[](../snippets/V03Compatibility.cs#ClientFromCard)]
+[!code-csharp[](../../../samples/Snippets/V03Compatibility.cs#ClientFromCard)]
 
 ### How it picks an interface
 
@@ -144,7 +146,7 @@ A v0.3-only card is read as unsigned. The `signatures` member is removed before 
 
 So a client that requires card signatures refuses a v0.3-only agent. `RequireSignature` is on by default once you pin keys. See [Agent Card signing](agent-card-signing.md). You can turn it off for one resolver, at the price of trusting an unsigned card:
 
-[!code-csharp[](../snippets/V03Compatibility.cs#ClientUnsigned)]
+[!code-csharp[](../../../samples/Snippets/V03Compatibility.cs#ClientUnsigned)]
 
 ### What the client does not support
 
@@ -200,7 +202,7 @@ Both counters are on the meter named `A2A`.
 
 Watch `requests` to see when v0.3 traffic stops. Then you can remove the opt-in.
 
-[!code-csharp[](../snippets/V03Compatibility.cs#Metrics)]
+[!code-csharp[](../../../samples/Snippets/V03Compatibility.cs#Metrics)]
 
 Each dropped field is also logged once at Debug on the server. Card conversion problems are logged once each at Warning, on first use, not at startup.
 

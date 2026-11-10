@@ -14,9 +14,9 @@ Selection is per message. A follow-up message carries its own `skillId`, or none
 
 Declare the extension on the Agent Card, and read the choice in the executor:
 
-[!code-csharp[](../snippets/SkillSelection.cs#Card)]
+[!code-csharp[](../../../samples/Snippets/SkillSelection.cs#Card)]
 
-[!code-csharp[](../snippets/SkillSelection.cs#Executor)]
+[!code-csharp[](../../../samples/Snippets/SkillSelection.cs#Executor)]
 
 - `SkillSelection.CreateExtension()` makes the card entry. It is never required.
 - `AgentRequestContext.RequestedSkillId` is the chosen id. It is null when the caller did not activate the extension, or sent no usable value. An empty string, a non-string value and text that is not valid UTF-16 all read as null.
@@ -45,7 +45,7 @@ The skills on the public card count. A skill that is only on the extended card c
 
 Call `A2AClient.SelectSkill` and pass both the message and the returned options to the send method:
 
-[!code-csharp[](../snippets/SkillSelection.cs#Client)]
+[!code-csharp[](../../../samples/Snippets/SkillSelection.cs#Client)]
 
 `SelectSkill` sets `metadata["skillId"]` on the message and adds the extension URI to the call's extensions. It changes the options you pass and returns them. With null, it makes new options. It works with any send method that takes a message or a request, streaming included. The `string text` overload builds its own message, so it does not fit.
 

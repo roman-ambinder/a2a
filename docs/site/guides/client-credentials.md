@@ -4,6 +4,8 @@ An agent card says how callers must authenticate. The client can read that and a
 
 You pass credential providers to <xref:A2A.Client.A2AClientFactory> (or add them to a DI client). The client chooses providers from the card, once, when it creates the client. It then applies them to every request, and only on the origin the card came from.
 
+A runnable version, with OAuth2 client credentials against a demo token endpoint and an API key, is in [samples/ClientFeatures](https://github.com/roman-ambinder/a2a/blob/main/samples/ClientFeatures/README.md).
+
 ## How the client picks providers
 
 A card lists `securitySchemes` and `securityRequirements`:
@@ -36,7 +38,7 @@ If no requirement can be met:
 
 Order matters twice: the card's order of requirements, and your order of providers.
 
-[!code-csharp[](../snippets/ClientCredentials.cs#Order)]
+[!code-csharp[](../../../samples/Snippets/ClientCredentials.cs#Order)]
 
 `CreateAsync` with providers throws `ArgumentException` when the list is empty.
 
@@ -56,7 +58,7 @@ Other OAuth2 flows, API keys in the query string and HTTP Basic are not covered 
 
 A provider has two methods. `CanHandle` says whether it can satisfy a scheme. `ApplyAsync` adds the credential to a request. The client calls `ApplyAsync` on every attempt, so retries and stream resumes get a fresh credential. A provider must not change `RequestUri`. If it does, the request fails with `InvalidOperationException`.
 
-[!code-csharp[](../snippets/ClientCredentials.cs#Custom)]
+[!code-csharp[](../../../samples/Snippets/ClientCredentials.cs#Custom)]
 
 ## The origin rule
 
@@ -82,7 +84,7 @@ This is why you cannot pass a plain `HttpClient` together with providers. The re
 
 ## OAuth2 client credentials
 
-[!code-csharp[](../snippets/ClientCredentials.cs#OAuth2)]
+[!code-csharp[](../../../samples/Snippets/ClientCredentials.cs#OAuth2)]
 
 `ClientId` and `ClientSecret` are required.
 
@@ -112,7 +114,7 @@ Token failures are `A2AException` with `Unauthenticated`. The messages never con
 
 ## API keys
 
-[!code-csharp[](../snippets/ClientCredentials.cs#ApiKey)]
+[!code-csharp[](../../../samples/Snippets/ClientCredentials.cs#ApiKey)]
 
 The card declares where the key goes and what it is called. The provider handles `header` and `cookie`. It refuses `query`: keys in URLs end up in logs and proxies, and a changed URI would trip the redirect rules. A card that only offers a query key makes creation fail.
 
@@ -124,7 +126,7 @@ Pass a scheme name as the second argument to limit the provider to one scheme of
 
 ## Mutual TLS
 
-[!code-csharp[](../snippets/ClientCredentials.cs#MutualTls)]
+[!code-csharp[](../../../samples/Snippets/ClientCredentials.cs#MutualTls)]
 
 Use the provider and the handler as a pair. `MutualTlsCredentialProvider` tells the client that the requirement is met. `A2AMutualTls.CreateHandler` builds the connection that proves it.
 
@@ -139,7 +141,7 @@ The client factory does not apply credentials to a gRPC interface. The gRPC tran
 
 Wire it yourself. Create the binding with `forGrpcChannel: true`, and give the channel a handler built from it:
 
-[!code-csharp[](../snippets/ClientCredentials.cs#Grpc)]
+[!code-csharp[](../../../samples/Snippets/ClientCredentials.cs#Grpc)]
 
 The origin and HTTPS checks still apply. The handler under the channel must not follow redirects. See [bindings](bindings.md).
 
@@ -147,9 +149,9 @@ The origin and HTTPS checks still apply. The handler under the channel must not 
 
 `AddA2AClient` returns an `IHttpClientBuilder`. The credential methods are in <xref:A2A.Client.A2AClientCredentialExtensions> and work only on that builder. On any other builder they throw `InvalidOperationException`.
 
-[!code-csharp[](../snippets/ClientCredentials.cs#DiOAuth)]
+[!code-csharp[](../../../samples/Snippets/ClientCredentials.cs#DiOAuth)]
 
-[!code-csharp[](../snippets/ClientCredentials.cs#DiOthers)]
+[!code-csharp[](../../../samples/Snippets/ClientCredentials.cs#DiOthers)]
 
 - The providers are created when the client is first created, through `IA2AClientFactory.GetClientAsync`. The client is cached per name. The same rules apply as above.
 - The factory builds the credentials client over the handler chain of the named client. Handlers you add stay in the chain. If the primary handler follows redirects and credentials are configured, creation fails before any request.

@@ -1,0 +1,79 @@
+#region Usings
+
+using A2A.Client;
+using A2A.Server;
+using A2A.Server.AspNetCore;
+#endregion
+
+namespace Snippets.GettingStarted;
+
+internal static class Samples
+{
+    public static WebApplication BuildServer(string[] args)
+    {
+        #region Server
+        var builder = WebApplication.CreateBuilder(args);
+
+        builder.Services.AddAuthentication(/* your scheme */);
+        builder.Services.AddAuthorization();
+        builder.Services.AddA2A(a => a
+            .AddAgentExecutor<MyAgent>()
+            .AddAgentCard(new AgentCard
+            {
+                Name = "My Agent",
+                Description = "Says hello.",
+                Version = "1.0.0",
+                Capabilities = new AgentCapabilities { Streaming = true },
+            }));
+
+        var app = builder.Build();
+        app.UseAuthentication();
+        app.UseA2A();
+        app.UseAuthorization();
+        app.MapA2A("/a2a").RequireAuthorization();
+        #endregion
+
+        return app;
+    }
+
+    public static async Task CallAgentAsync(HttpClient httpClient)
+    {
+        #region Client
+        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), httpClient);
+        var reply = await client.SendMessageAsync("hello");
+
+        await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("stream this")))
+        {
+            if (evt is StatusUpdateEvent { StatusUpdate: var s })
+                Console.WriteLine(s.Status.State);
+        }
+        #endregion
+
+        _ = reply;
+    }
+
+    public static void ChangeDefaults(IServiceCollection services)
+    {
+        #region Defaults
+        services.AddA2AServer(o => o.Limits.MaxRequestBodyBytes = 1024 * 1024);
+        services.AddA2ARateLimiting(o =>
+        {
+            o.TokenLimit = 10;
+            o.TokensPerPeriod = 30;
+        });
+        services.ConfigureA2AHttp(h => h.PublicBaseUrl = new Uri("https://agent.example.com"));
+        #endregion
+    }
+}
+
+#region Agent
+internal sealed class MyAgent : IAgentExecutor
+{
+    public async Task ExecuteAsync(AgentRequestContext ctx, TaskUpdater updater, CancellationToken ct)
+    {
+        await updater.StartWorkAsync(cancellationToken: ct);
+        await updater.AddArtifactAsync([Part.FromText($"You said: {ctx.UserText}")], name: "answer", cancellationToken: ct);
+        await updater.CompleteAsync(cancellationToken: ct);
+    }
+}
+#endregion

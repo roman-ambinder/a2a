@@ -26,7 +26,7 @@ To serve MCP over HTTP you also need a host package, for example `ModelContextPr
 
 <xref:A2A.Mcp.A2AClientMcpExtensions.AsMcpTools*> turns the skills of the agent behind an `A2AClient` into MCP tools. Add them to any MCP server:
 
-[!code-csharp[](../snippets/McpBridge.cs#Expose)]
+[!code-csharp[](../../../samples/McpBridge/Program.cs#Expose)]
 
 The skills come from the client's Agent Card. If the client has none, pass a card as the third argument. With no card at all, `AsMcpTools` throws `InvalidOperationException`. The tools are a snapshot of the card. Skills added later need a new call.
 
@@ -60,9 +60,9 @@ The tool name is the skill id, with every character outside `A-Z a-z 0-9 _ . -` 
 | `TaskOwner` | see [Security](#security) | Names the owner of a task |
 | `MaxTrackedTasks` | 10000 | Ids remembered for the owner check. At least 1 |
 
-[!code-csharp[](../snippets/McpBridge.cs#ExposeOptions)]
+[!code-csharp[](../../../samples/Snippets/McpBridge.cs#ExposeOptions)]
 
-[!code-csharp[](../snippets/McpBridge.cs#Limits)]
+[!code-csharp[](../../../samples/Snippets/McpBridge.cs#Limits)]
 
 ### The result
 
@@ -104,7 +104,7 @@ Files and links come as extra content blocks after the JSON. See [Content mappin
 
 A call sends the message with `ReturnImmediately`, then polls the task every `PollInterval`. It returns when the task is final or needs input, or when `WaitTimeout` passes. Common MCP clients give up after 60 seconds, so the default is 30.
 
-[!code-csharp[](../snippets/McpBridge.cs#LongRunning)]
+[!code-csharp[](../../../samples/Snippets/McpBridge.cs#LongRunning)]
 
 If the task is still running when the wait ends, the result is a handle: state `working` (or `submitted`) and the `taskId`. The text tells the model to call `get_task`. A timeout never cancels the task.
 
@@ -157,9 +157,9 @@ A part that cannot be converted, a link with another scheme, and a file over the
 
 <xref:A2A.Mcp.A2AMcpAgentBuilderExtensions.AddMcpToolAgent*> registers an executor that runs MCP tools for A2A callers. You create the `McpClient` and register it. The host owns the client and its transport credentials:
 
-[!code-csharp[](../snippets/McpBridge.cs#Client)]
+[!code-csharp[](../../../samples/Snippets/McpBridge.cs#Client)]
 
-[!code-csharp[](../snippets/McpBridge.cs#Call)]
+[!code-csharp[](../../../samples/Snippets/McpBridge.cs#Call)]
 
 `AddMcpToolAgent` registers a scoped executor and replaces any executor registered before. It reads the `McpClient` from DI. Pass `serviceKey` to use a keyed client. If you allow no tool, it throws `ArgumentException`.
 
@@ -184,7 +184,7 @@ Any other message is rejected. This includes file and URL parts: a tool might fe
 
 <xref:A2A.Mcp.McpToolSkills.ToAgentSkills*> describes tools as skills. The id and the name are the tool name. The description is fixed text, because an MCP tool description is remote text. Each skill has the tag `mcp` and the input mode `application/json`. Only the tools you pass are listed, so filter to your allowlist first. You can also write the card by hand.
 
-[!code-csharp[](../snippets/McpBridge.cs#Card)]
+[!code-csharp[](../../../samples/Snippets/McpBridge.cs#Card)]
 
 To use the MCP description on the card, pass `describe: t => t.Description`, and only for a server you trust.
 
@@ -199,7 +199,7 @@ To use the MCP description on the card, pass `describe: t => t.Description`, and
 | `ProgressInterval` | 1 second | At most one status update per interval. At least 100 ms. `Timeout.InfiniteTimeSpan` turns progress off |
 | `IncludeToolErrorText` | `false` | Copy the MCP error text into the failed status |
 
-[!code-csharp[](../snippets/McpBridge.cs#CallOptions)]
+[!code-csharp[](../../../samples/Snippets/McpBridge.cs#CallOptions)]
 
 Progress is throttled because durable stores write on every event. The progress is stopped before the final state, so no update comes after it.
 
@@ -230,7 +230,7 @@ Progress is throttled because durable stores write on every event. The progress 
 
 For your own executors, `A2AMcpContentExtensions` has the same conversions:
 
-[!code-csharp[](../snippets/McpBridge.cs#Conversions)]
+[!code-csharp[](../../../samples/Snippets/McpBridge.cs#Conversions)]
 
 ### Progress
 
@@ -240,7 +240,7 @@ MCP progress notifications from the tool become `working` status updates with th
 
 `McpClientTool` is already an `AIFunction`. So an agent built with `ChatClientAgentExecutor` (see [Microsoft.Extensions.AI](extensions-ai.md)) can use MCP tools through `ChatOptions.Tools`. No bridge code is needed:
 
-[!code-csharp[](../snippets/McpBridge.cs#LlmRoute)]
+[!code-csharp[](../../../samples/Snippets/McpBridge.cs#LlmRoute)]
 
 Give the model the tools it needs and no more. Tool descriptions and tool results come from the MCP server. A model reads both, so both are untrusted. A hostile server can steer the model with either. For a tool with side effects, ask a person to approve the call.
 
@@ -262,7 +262,7 @@ This is on purpose. Forwarding a token to a third party is a [confused deputy](h
 - **Expose.** Set `CreateRequestOptions`. It runs for every tool call and gets the MCP request, including `User`. Return a new `A2ARequestOptions` each time, because skill selection changes it. Exchange the caller's identity for a token the remote agent accepts. Do not copy the incoming header.
 - **Either direction.** Create one client for each user, with that user's credentials, and build the tools or the executor from it.
 
-[!code-csharp[](../snippets/McpBridge.cs#Forward)]
+[!code-csharp[](../../../samples/Snippets/McpBridge.cs#Forward)]
 
 ### Shared identity and task ownership
 
@@ -272,7 +272,7 @@ It remembers which owner it issued each task id and context id to. A call that n
 
 The default owner is, in this order: the `NameIdentifier` claim, the user name, the MCP session id, or the empty string. The empty string is what stdio has, with one client. Set `TaskOwner` to choose your own:
 
-[!code-csharp[](../snippets/McpBridge.cs#Owner)]
+[!code-csharp[](../../../samples/Snippets/McpBridge.cs#Owner)]
 
 Limits of the check:
 

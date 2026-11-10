@@ -1,0 +1,18 @@
+# PostgreSQL for the ClientOutbox sample. The port is bound to localhost only.
+#   docker compose -f samples/ClientOutbox/docker-compose.yml up -d --wait
+#   dotnet run --project samples/ClientOutbox
+#   docker compose -f samples/ClientOutbox/docker-compose.yml down -v
+# The database password is a demo value.
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: shop
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD: shop-demo
+    ports: ["127.0.0.1:5433:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
+      interval: 2s
+      timeout: 3s
+      retries: 20

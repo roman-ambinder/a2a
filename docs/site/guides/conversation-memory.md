@@ -6,7 +6,7 @@ There is no new storage. The messages are already in the task rows. A read finds
 
 ## Turn it on for the chat client executor
 
-[!code-csharp[](../snippets/ConversationMemory.cs#Enable)]
+[!code-csharp[](../../../samples/Snippets/ConversationMemory.cs#Enable)]
 
 With `UseContextMemory`, the prompt is built in this order:
 
@@ -27,9 +27,11 @@ A task keeps status messages only in its history. So with `UseContextMemory`, a 
 
 Every <xref:A2A.Server.AgentRequestContext> has a <xref:A2A.Server.ConversationMemory> in `Conversation`. The server sets it for the caller's tenant and principal, this context and this task. It is null only for a context you built by hand.
 
-[!code-csharp[](../snippets/ConversationMemory.cs#Custom)]
+[!code-csharp[](../../../samples/Snippets/ConversationMemory.cs#Custom)]
 
 `ReadEarlierMessagesAsync` never returns the current task.
+
+A runnable version is in [samples/MemoryAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/MemoryAgent/README.md). Its agent reads the earlier notes of the context, and the client sends only the new message.
 
 ## Limits
 
@@ -66,7 +68,7 @@ A long chat will outgrow the limits. A summary keeps the main facts in a small t
 
 The protocol has no operation to list conversations. Your host calls <xref:A2A.Server.Storage.TaskStore.ListContextsAsync*> from its own endpoint. Use the caller's own tenant and principal, never values from the request body or the query string. Otherwise one caller can list the conversations of another.
 
-[!code-csharp[](../snippets/ConversationMemory.cs#List)]
+[!code-csharp[](../../../samples/Snippets/ConversationMemory.cs#List)]
 
 The list is newest first by creation time of the context, then by context id. It uses keyset paging, so pages have no gaps and no repeats while new contexts arrive. A bad `PageToken` throws an <xref:A2A.A2AException> with `InvalidParams`.
 

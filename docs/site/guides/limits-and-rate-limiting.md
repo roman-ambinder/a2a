@@ -4,7 +4,7 @@ The server refuses oversized requests and too many requests by default. You do n
 
 ## Change the limits
 
-[!code-csharp[](../snippets/LimitsAndRateLimiting.cs#Limits)]
+[!code-csharp[](../../../samples/Snippets/LimitsAndRateLimiting.cs#Limits)]
 
 All size, count and time limits are members of <xref:A2A.Server.A2ALimits>, reached as <xref:A2A.Server.A2AServerOptions.Limits>.
 
@@ -51,7 +51,7 @@ The 429 body has the error `RATE_LIMITED`. `Retry-After` is in whole seconds (at
 
 The server adds a token bucket per caller. Change it with <xref:A2A.Server.AspNetCore.A2ARateLimitingExtensions.AddA2ARateLimiting*>:
 
-[!code-csharp[](../snippets/LimitsAndRateLimiting.cs#RateLimit)]
+[!code-csharp[](../../../samples/Snippets/LimitsAndRateLimiting.cs#RateLimit)]
 
 | Option | Default |
 |---|---|
@@ -73,7 +73,7 @@ Add the middleware with `app.UseA2A()`. It calls `UseRateLimiter()`, so do not c
 
 To turn rate limiting off, set `Enabled = false`. `MapA2A` then adds no policy and `UseA2A()` is not required:
 
-[!code-csharp[](../snippets/LimitsAndRateLimiting.cs#RateLimitOff)]
+[!code-csharp[](../../../samples/Snippets/LimitsAndRateLimiting.cs#RateLimitOff)]
 
 ## Who counts as a caller
 
@@ -88,7 +88,7 @@ To turn rate limiting off, set `Enabled = false`. `MapA2A` then adds no policy a
 
 Behind a reverse proxy or load balancer, every connection comes from the proxy. All anonymous callers then share the proxy's budget. Enable the forwarded headers middleware and list the proxy:
 
-[!code-csharp[](../snippets/LimitsAndRateLimiting.cs#Proxy)]
+[!code-csharp[](../../../samples/Snippets/LimitsAndRateLimiting.cs#Proxy)]
 
 ## Open streams
 

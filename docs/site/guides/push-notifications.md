@@ -8,15 +8,15 @@ The server writes each delivery to an outbox in the same commit as the event. A 
 
 The agent card must declare the capability. Without it, registering a webhook fails with `PushNotificationNotSupported`, and no deliveries are made.
 
-[!code-csharp[](../snippets/PushNotifications.cs#Capability)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#Capability)]
 
 The client then registers a webhook for a task. The secret is a signing secret for [webhook signatures](#webhook-signatures).
 
-[!code-csharp[](../snippets/PushNotifications.cs#Register)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#Register)]
 
 You can also register the webhook in the first message. Leave `TaskId` empty; the server creates the task.
 
-[!code-csharp[](../snippets/PushNotifications.cs#RegisterInline)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#RegisterInline)]
 
 The server returns the config with `Token` and `Credentials` blanked. A task can have at most <xref:A2A.Server.A2ALimits.MaxPushConfigsPerTask> configs (default 10). A new config gets deliveries from the next event on. A pending delivery uses the config as it is when it is sent.
 
@@ -56,7 +56,7 @@ The wait before retry *n* is `InitialBackoff × 2^(n-1)`, with ±20 % jitter, ca
 
 Set these on <xref:A2A.Server.A2AServerOptions.PushDelivery> (<xref:A2A.Server.Push.PushDeliveryOptions>) and <xref:A2A.Server.A2AServerOptions.PushNotifications> (<xref:A2A.Server.Push.PushNotificationOptions>).
 
-[!code-csharp[](../snippets/PushNotifications.cs#DeliveryOptions)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#DeliveryOptions)]
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -130,7 +130,7 @@ Two rules for a receiver:
 
 <xref:A2A.Client.Push.PushNotificationReceiver.HandleAsync*> does the checks and calls your handler. The delivery id counts as done only after the handler succeeds. Keep one receiver instance. Pass the raw body bytes, not re-serialized JSON.
 
-[!code-csharp[](../snippets/PushNotifications.cs#Receiver)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#Receiver)]
 
 You give the token (`expectedToken`), the decoded signing secret (`signingSecret`), or both. The handler gets a <xref:A2A.Client.Push.PushDelivery>: the parsed `StreamResponse`, the delivery id and the sequence. The result says what to answer:
 
@@ -151,19 +151,19 @@ An id claimed by a call that never finished (the process died) is free again aft
 
 The receiver keeps handled ids for at least 10 minutes. By default they are in memory (<xref:A2A.Client.Push.InMemoryPushDeliveryStore>). To keep them across restarts, or share them between instances, implement <xref:A2A.Client.Push.IPushDeliveryStore> and pass it to the receiver.
 
-[!code-csharp[](../snippets/PushNotifications.cs#Stores)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#Stores)]
 
 With the in-memory store, a restart can repeat a delivery that was already handled. This is safe if your handler is idempotent, and it never loses an event.
 
 The low-level calls look like this. Use them only if you can guarantee nothing fails after `Valid`:
 
-[!code-csharp[](../snippets/PushNotifications.cs#ReceiverLowLevel)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#ReceiverLowLevel)]
 
 ## Register a webhook safely
 
 Register first, then read the task once. A task that finished before the webhook existed gets no callback from servers of other SDKs, and nothing tells you. <xref:A2A.Client.A2AClient.RegisterPushAsync*> does both in the right order and returns the config and the task.
 
-[!code-csharp[](../snippets/PushNotifications.cs#RegisterSafely)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#RegisterSafely)]
 
 If `GetTask` fails after the webhook was registered, the exception is thrown and the webhook stays registered.
 
@@ -171,11 +171,11 @@ If `GetTask` fails after the webhook was registered, the exception is thrown and
 
 <xref:A2A.Client.Push.PushTaskTracker> watches tasks. Give it a task id and a deadline. If the deadline passes without a final state, it calls `GetTask` and gives the result to your callback. A gap in `X-A2A-Notification-Sequence` for a task triggers the same check at once (servers of other SDKs may not send the header; then only the deadline works).
 
-[!code-csharp[](../snippets/PushNotifications.cs#Tracker)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#Tracker)]
 
 Report each notification from your handler:
 
-[!code-csharp[](../snippets/PushNotifications.cs#TrackerNotify)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#TrackerNotify)]
 
 - A final state (terminal, or interrupted such as `InputRequired`) removes the task from the tracker. A check that finds a final task removes it too.
 - A check that finds the task still running sets the next deadline to the same timeout from now. A failed `GetTask` is reported with `Error` and tried again after the timeout.
@@ -203,7 +203,7 @@ The default protector, `EphemeralPushSecretProtector`, uses a random key per pro
 
 Use ASP.NET Core Data Protection with a key ring that is saved and shared by every instance:
 
-[!code-csharp[](../snippets/PushNotifications.cs#DataProtection)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#DataProtection)]
 
 <xref:A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2ADataProtectionPushSecrets*> replaces the protector. The Data Protection purpose is `A2A.PushSecrets.v1`. You can also write your own `IPushSecretProtector`.
 
@@ -211,7 +211,7 @@ Use ASP.NET Core Data Protection with a key ring that is saved and shared by eve
 
 A dead letter keeps the payload and the last error (never secrets). <xref:A2A.Server.Push.A2APushAdmin> lists them per tenant and sends one again. It is not exposed over A2A, so protect your own endpoint.
 
-[!code-csharp[](../snippets/PushNotifications.cs#DeadLetters)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#DeadLetters)]
 
 ### Delivery age
 
@@ -221,7 +221,7 @@ A delivery that keeps failing used to end only when it ran out of attempts. Now 
 
 `PushDelivery.OnDeadLetter` is called after a delivery was dead-lettered, for any reason. It gets a <xref:A2A.Server.Push.PushDeadLetterInfo>: the task, config id, sequence and last error. It never gets secrets. Use it to alert or to redrive. If it throws, the exception is logged and nothing else changes. The send slot is held while it runs, so keep it short.
 
-[!code-csharp[](../snippets/PushNotifications.cs#DeadLetterHook)]
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#DeadLetterHook)]
 
 A redriven delivery starts again at attempt 0 with the same delivery id. It is sent after newer events of the same config that were delivered in the meantime, not in its original place. Retention deletes dead letters with their task.
 

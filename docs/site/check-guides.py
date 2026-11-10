@@ -3,7 +3,7 @@
 
 Fails when:
   (a) a fenced block is tagged csharp, cs or c# (C# samples must come from
-      docs/site/snippets through [!code-csharp[](...#region)] includes);
+      samples/ through [!code-csharp[](...#region)] includes);
   (b) a https://github.com/roman-ambinder/a2a/(blob|tree)/main/<path> link
       points to a path that does not exist in the repo;
   (c) a [!code-...[](file#region)] include names a file or region that does not
@@ -48,8 +48,8 @@ def check(path: Path) -> list[str]:
                 if lang in BAD_LANGS:
                     errors.append(
                         f"{rel}:{n}: fenced block tagged '{lang}'. "
-                        "Put the code in docs/site/snippets and include it with "
-                        "[!code-csharp[](../snippets/File.cs#Region)]."
+                        "Put the code in samples/ and include it with "
+                        "[!code-csharp[](../../../samples/Snippets/File.cs#Region)]."
                     )
             elif marker[0] == in_fence and not lang:
                 in_fence = None

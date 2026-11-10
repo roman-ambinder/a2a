@@ -15,15 +15,15 @@ The NuGet IDs have the `RomanAmbinder.` prefix. Assemblies and namespaces are `A
 
 These are the using lines the code needs:
 
-[!code-csharp[](../snippets/GettingStarted.cs#Usings)]
+[!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Usings)]
 
 The server:
 
-[!code-csharp[](../snippets/GettingStarted.cs#Server)]
+[!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Server)]
 
 The agent is a class that implements <xref:A2A.Server.IAgentExecutor>:
 
-[!code-csharp[](../snippets/GettingStarted.cs#Agent)]
+[!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Agent)]
 
 What the code does:
 
@@ -37,7 +37,7 @@ Call <xref:A2A.Server.TaskUpdater.ReplyAsync*> instead for a stateless reply wit
 
 ## A client
 
-[!code-csharp[](../snippets/GettingStarted.cs#Client)]
+[!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Client)]
 
 <xref:A2A.Client.A2AClientFactory.CreateAsync*> fetches the Agent Card and picks the first interface in the card's order that the client supports. `SendMessageAsync` returns a <xref:A2A.SendMessageResponse>: either a direct message or a task.
 
@@ -64,7 +64,7 @@ To use dependency injection, add the `RomanAmbinder.A2A.Client.DependencyInjecti
 
 These are the values of <xref:A2A.Server.A2ALimits> and <xref:A2A.Server.AspNetCore.A2ARateLimitOptions>. Change them like this:
 
-[!code-csharp[](../snippets/GettingStarted.cs#Defaults)]
+[!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Defaults)]
 
 The Agent Card needs a name, a description and a version. If `SupportedInterfaces` is empty, the card is completed once, at first serve, from the bindings you mapped. Each URL is <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl> (or the first listen address) plus the mapped pattern. Set `PublicBaseUrl` behind a proxy or load balancer. Patterns with `{tenant}` are not listed.
 

@@ -10,7 +10,7 @@ The default stores live in memory. That is fine for development and tests. It is
 
 ## Set it up
 
-[!code-csharp[](../snippets/DurableStores.cs#Register)]
+[!code-csharp[](../../../samples/Snippets/DurableStores.cs#Register)]
 
 - <xref:A2A.Server.Postgres.A2APostgresServiceCollectionExtensions.AddPostgresStores*> (package `RomanAmbinder.A2A.Server.Postgres`) replaces the task, event, push config, push outbox and idempotency stores. It also registers the Postgres execution coordinator, unless you registered another one or set `RegisterCoordinator = false`.
 - `AddRedisEventBus` (package `RomanAmbinder.A2A.Server.Redis`) fans live events out to every instance. It also registers the Redis execution coordinator, which replaces the Postgres one.
@@ -43,7 +43,7 @@ Each task change, its event and its push deliveries are written in one transacti
 - **Clocks.** Push outbox due times and leases, idempotency timeouts and event log retention use the database clock, so instances with skewed clocks agree on what has expired. Task timestamps still come from the instance that wrote them. Skew shifts when retention and `InterruptedTimeout` act on a task. Keep instance clocks in sync.
 - **Cleanup scope.** The cleanup deletes event logs and idempotency entries. Expired tasks, orphan contexts, timed-out tasks and dead executions are the job of the [retention sweep](retention.md).
 
-[!code-csharp[](../snippets/DurableStores.cs#PostgresOptions)]
+[!code-csharp[](../../../samples/Snippets/DurableStores.cs#PostgresOptions)]
 
 The overload with an `NpgsqlDataSource` uses a data source you own. The container does not dispose it.
 
@@ -53,7 +53,7 @@ The coordinator knows which executions run, answers "is this task running anywhe
 
 `AddPostgresStores` registers <xref:A2A.Server.Postgres.PostgresExecutionCoordinator> by default. Use `AddPostgresExecutionCoordinator` for the coordinator alone, or to replace another one:
 
-[!code-csharp[](../snippets/DurableStores.cs#PostgresCoordinator)]
+[!code-csharp[](../../../samples/Snippets/DurableStores.cs#PostgresCoordinator)]
 
 - **Tables.** `a2a_execution_leases`, `a2a_sweep_leases` and `a2a_cancel_requests`. Leases are decided on the database clock (`UseDatabaseClock`).
 - **Cancel requests.** The coordinator polls `a2a_cancel_requests` every `CancelPollInterval`. Every instance reads every request and skips its own, so the instance that runs the agent always sees it. A plain poll needs no `LISTEN` connection, so it works through PgBouncer in transaction mode. Rows older than 5 minutes are deleted by the next request, so the table stays small. Delivery is at most once. An instance that was down for a long time misses old requests; its execution still stops when it finds its lease lost or the task ended.
@@ -75,7 +75,7 @@ The bus sends each event on a pub/sub channel `{ChannelPrefix}{tenant}\u001f{tas
 
 The Redis coordinator does the same as the Postgres one, with Redis pub/sub for cancel requests. Use it when you already run Redis for the event bus. `AddRedisEventBus` registers it, or use `AddRedisExecutionCoordinator` for the coordinator alone:
 
-[!code-csharp[](../snippets/DurableStores.cs#CoordinatorOnly)]
+[!code-csharp[](../../../samples/Snippets/DurableStores.cs#CoordinatorOnly)]
 
 Rules:
 
@@ -92,7 +92,7 @@ Rules:
 | `RunningPollInterval` | 1 second | How often a waiting request checks whether an execution on another instance still runs. |
 | `StreamCheckInterval` | 30 seconds | How often an idle SubscribeToTask stream looks in the store for events a lost bus message dropped. Costs one small set of store reads per idle stream per interval. |
 
-[!code-csharp[](../snippets/DurableStores.cs#Coordination)]
+[!code-csharp[](../../../samples/Snippets/DurableStores.cs#Coordination)]
 
 ### Dead executions
 

@@ -10,7 +10,7 @@ from collections import defaultdict
 
 
 def is_product(package: str) -> bool:
-    return package.startswith("A2A.") and not package.endswith(".Tests") and package != "A2A.DocSnippets"
+    return package.startswith("A2A.") and not package.endswith(".Tests")
 
 
 def main(root: str) -> int:

@@ -18,11 +18,11 @@ You can map all three on one host. The Agent Card lists them, and clients choose
 
 <xref:A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2A*> maps both HTTP bindings under one base URL:
 
-[!code-csharp[](../snippets/Bindings.cs#MapBoth)]
+[!code-csharp[](../../../samples/Snippets/Bindings.cs#MapBoth)]
 
 To map them separately, use `MapA2AJsonRpc` and `MapA2AHttpJson`. These two do not map the Agent Card. Call `MapAgentCard()` on the application root yourself:
 
-[!code-csharp[](../snippets/Bindings.cs#MapSeparately)]
+[!code-csharp[](../../../samples/Snippets/Bindings.cs#MapSeparately)]
 
 Routes for `MapA2A("/a2a")`:
 
@@ -46,7 +46,7 @@ In JSON-RPC the operation is the `method` member of the body. The server does no
 
 <xref:A2A.Server.Grpc.A2AGrpcExtensions.AddA2AGrpc*> adds the gRPC services and also calls `AddA2AServerAspNetCore()`. Call it after `AddA2AServer`. <xref:A2A.Server.Grpc.A2AGrpcExtensions.MapA2AGrpc*> maps `lf.a2a.v1.A2AService`. It has no pattern argument.
 
-[!code-csharp[](../snippets/Bindings.cs#GrpcServer)]
+[!code-csharp[](../../../samples/Snippets/Bindings.cs#GrpcServer)]
 
 `MapA2AGrpc` has the same fail-closed authorization check and the same `"a2a"` rate limit as `MapA2A`. A rate limit rejection is `RESOURCE_EXHAUSTED` with `RetryInfo`.
 
@@ -54,7 +54,7 @@ To serve extension operations over gRPC, also call <xref:A2A.Server.Grpc.A2AGrpc
 
 gRPC needs HTTP/2. Over TLS, Kestrel can serve HTTP/1.1 and HTTP/2 on one port. Without TLS, give gRPC a port that allows HTTP/2 only:
 
-[!code-csharp[](../snippets/Bindings.cs#Http2)]
+[!code-csharp[](../../../samples/Snippets/Bindings.cs#Http2)]
 
 In the card, a gRPC interface URL is the server address, with no path. If the card lists no interfaces, the URL is completed from <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl>.
 
@@ -62,17 +62,19 @@ In the card, a gRPC interface URL is the server address, with no path. If the ca
 
 The client reads `SupportedInterfaces` in the card's order. It takes the first entry whose binding it supports and whose protocol major version matches. The card's order wins. So a card that lists gRPC first is a gRPC card for clients that support it:
 
-[!code-csharp[](../snippets/Bindings.cs#CardInterfaces)]
+[!code-csharp[](../../../samples/Snippets/Bindings.cs#CardInterfaces)]
 
 By default, <xref:A2A.Client.A2AClientFactory> chooses between JSON-RPC and HTTP+JSON only. To let gRPC join the choice, call <xref:A2A.Client.Grpc.A2AGrpcClientOptionsExtensions.UseGrpc*> from the `A2A.Client.Grpc` package:
 
-[!code-csharp[](../snippets/Bindings.cs#ClientPicksFromCard)]
+[!code-csharp[](../../../samples/Snippets/Bindings.cs#ClientPicksFromCard)]
 
 To require gRPC, use <xref:A2A.Client.Grpc.A2AGrpcClientFactory>. It throws `UnsupportedOperation` if the card has no usable gRPC interface:
 
-[!code-csharp[](../snippets/Bindings.cs#ClientRequiresGrpc)]
+[!code-csharp[](../../../samples/Snippets/Bindings.cs#ClientRequiresGrpc)]
 
 `A2AGrpcClientFactory.Create(card)` does the same for a card you already have. The `HttpClient` is used only to fetch the card. The gRPC channel has its own options.
+
+A runnable version, with a gRPC port, the card order and all three client choices, is in [samples/Grpc](https://github.com/roman-ambinder/a2a/blob/main/samples/Grpc/README.md).
 
 ## What differs on gRPC
 
@@ -90,7 +92,7 @@ To require gRPC, use <xref:A2A.Client.Grpc.A2AGrpcClientFactory>. It throws `Uns
 
 On gRPC, `A2ARequestOptions.Headers` become metadata. Keys are lowercase on the wire. `Timeout` is the deadline of each unary attempt (default 100 seconds). Streams have no deadline. Retries follow the same rules as the HTTP transports:
 
-[!code-csharp[](../snippets/Bindings.cs#RequestOptions)]
+[!code-csharp[](../../../samples/Snippets/Bindings.cs#RequestOptions)]
 
 ## What can go wrong
 

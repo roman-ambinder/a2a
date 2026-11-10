@@ -8,13 +8,13 @@ A custom operation is called an extension operation in the API (`AddExtensionOpe
 
 Raw, with the params and the result as `JsonElement`:
 
-[!code-csharp[](../snippets/CustomOperations.cs#Raw)]
+[!code-csharp[](../../../samples/Snippets/CustomOperations.cs#Raw)]
 
 Typed, with your own request and result types. Pass `JsonTypeInfo` from a `JsonSerializerContext`, so the call is safe for trimming and native AOT:
 
-[!code-csharp[](../snippets/CustomOperations.cs#Types)]
+[!code-csharp[](../../../samples/Snippets/CustomOperations.cs#Types)]
 
-[!code-csharp[](../snippets/CustomOperations.cs#Typed)]
+[!code-csharp[](../../../samples/Snippets/CustomOperations.cs#Typed)]
 
 With the typed overload, params that do not bind to the request type are `InvalidParams`. So is JSON `null` on HTTP+JSON and gRPC. JSON-RPC treats `"params": null` as no params, which is `{}`.
 
@@ -48,7 +48,7 @@ The tenant comes from the route (`/{tenant}`) or from a string `tenant` member i
 
 A custom operation has no task of its own. A handler that touches tasks keys them with the tenant and the principal of the call:
 
-[!code-csharp[](../snippets/CustomOperations.cs#Owner)]
+[!code-csharp[](../../../samples/Snippets/CustomOperations.cs#Owner)]
 
 ## Names
 
@@ -68,7 +68,7 @@ An empty body or payload means `{}`.
 
 Map the extension service in addition to `MapA2AGrpc`. It is a separate call, so `RequireAuthorization()` applies to it alone. The service is `[Experimental]` (`A2AEXP004`), so add `<NoWarn>A2AEXP004</NoWarn>` to your project. See [Versioning](versioning.md#a2aexp004).
 
-[!code-csharp[](../snippets/CustomOperations.cs#MapGrpc)]
+[!code-csharp[](../../../samples/Snippets/CustomOperations.cs#MapGrpc)]
 
 Only the unary call is served. The streaming call answers UNIMPLEMENTED.
 
@@ -76,9 +76,11 @@ Only the unary call is served. The streaming call answers UNIMPLEMENTED.
 
 `A2AClient` and the three built-in transports implement <xref:A2A.Client.IA2AExtensionOperationClient>. The helpers in <xref:A2A.Client.ExtensionOperationClientExtensions> add the extension URI to the call options, once, and refuse a reserved name with an `ArgumentException`:
 
-[!code-csharp[](../snippets/CustomOperations.cs#ClientTyped)]
+[!code-csharp[](../../../samples/ClientFeatures/Program.cs#ClientTyped)]
 
-[!code-csharp[](../snippets/CustomOperations.cs#ClientRaw)]
+[!code-csharp[](../../../samples/Snippets/CustomOperations.cs#ClientRaw)]
+
+A runnable version, with the operation on the agent and the typed call from the client, is in [samples/ClientFeatures](https://github.com/roman-ambinder/a2a/blob/main/samples/ClientFeatures/README.md).
 
 Rules for the client:
 

@@ -6,7 +6,7 @@ For size limits and the request rate limit, see [limits and rate limiting](limit
 
 ## Limit running agents
 
-[!code-csharp[](../snippets/ExecutionLimits.cs#Concurrency)]
+[!code-csharp[](../../../samples/Snippets/ExecutionLimits.cs#Concurrency)]
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -43,7 +43,7 @@ For a cluster-wide cap, divide your quota by the number of instances, or enforce
 
 An agent reports what it spends. The server adds it up and stops the task when it goes past the budget.
 
-[!code-csharp[](../snippets/ExecutionLimits.cs#Budget)]
+[!code-csharp[](../../../samples/Snippets/ExecutionLimits.cs#Budget)]
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -52,7 +52,7 @@ An agent reports what it spends. The server adds it up and stops the task when i
 
 Report usage after each LLM call with <xref:A2A.Server.TaskUpdater.ReportUsageAsync*>:
 
-[!code-csharp[](../snippets/ExecutionLimits.cs#Report)]
+[!code-csharp[](../../../samples/ObservedAgent/Program.cs#Report)]
 
 A host that wraps agents can report too: any code that has the <xref:A2A.Server.TaskUpdater> can call it. <xref:A2A.Server.TaskUpdater.UsedTokens> and <xref:A2A.Server.TaskUpdater.UsedCostUnits> give the task's total so far, for an agent that wants to wind down early.
 
@@ -60,7 +60,7 @@ A host that wraps agents can report too: any code that has the <xref:A2A.Server.
 
 A budget is passed when the total is greater than the budget. Exactly at the budget is allowed.
 
-The task moves to `FAILED` with the text "Task exceeded its budget". Streams and webhooks get it like any final event. The run's cancellation token fires, and the `ReportUsageAsync` call that went over throws `OperationCanceledException`, so an agent that ignores its token still stops. Let that exception go up.
+The task moves to `FAILED` with the text "Task exceeded its budget". Streams and webhooks get it like any final event. The run's cancellation token fires, and the `ReportUsageAsync` call that went over throws `OperationCanceledException`, so an agent that ignores its token still stops. Let that exception go up. A runnable version is in [samples/ObservedAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/ObservedAgent/README.md): one task stays within its budget and one goes past it.
 
 This works like the time limit, with one difference: the time limit applies to one run, and each follow-up gets the full time again. **A budget applies to the whole task**, over all its runs and on every instance. A `CancelTask` run counts its usage but has no budget, so a cancel can always finish.
 

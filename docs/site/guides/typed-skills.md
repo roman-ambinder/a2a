@@ -13,13 +13,13 @@ dotnet add package RomanAmbinder.A2A.Client               # call them
 
 First, the types and a source-generated JSON context. Every type comes as a `JsonTypeInfo<T>` from the context, so nothing uses reflection and the code is safe for AOT and trimming:
 
-[!code-csharp[](../snippets/TypedSkills.cs#Types)]
+[!code-csharp[](../../../samples/TypedSkillAgent/Program.cs#Types)]
 
 Mark required properties with `required` (or `[JsonRequired]`). The schema lists them, and the server refuses input that misses one.
 
 Then register the skills:
 
-[!code-csharp[](../snippets/TypedSkills.cs#Server)]
+[!code-csharp[](../../../samples/Snippets/TypedSkills.cs#Server)]
 
 - `Map` adds one skill. The id is the `AgentSkill.Id` clients use. A duplicate id throws.
 - The handler gets the checked `Input`, the `Request` (caller, tenant, message), the `Services` of the execution, and `ReportProgressAsync`. It does not get a `TaskUpdater`: the SDK starts the task, stores the result and completes it, so a handler cannot break that order.
@@ -39,7 +39,7 @@ The schemas come from your types, once, when you call `Map`. A schema that is to
 
 A client reads the schemas with `TypedSkillExtension.TryGetSchemas`:
 
-[!code-csharp[](../snippets/TypedSkills.cs#Schema)]
+[!code-csharp[](../../../samples/Snippets/TypedSkills.cs#Schema)]
 
 The schemas are on the public card, so anyone who can read the card sees the field names of your input and output types. Do not put secrets in names or descriptions.
 
@@ -76,7 +76,7 @@ A send that goes to a typed skill is checked before anything is stored and befor
 4. The result is not null.
 5. Your `Validate` delegate, if any, returns no errors.
 
-[!code-csharp[](../snippets/TypedSkills.cs#Validate)]
+[!code-csharp[](../../../samples/Snippets/TypedSkills.cs#Validate)]
 
 A failure is `InvalidParams`. Nothing is stored and the handler does not run. The error metadata names the extension URI. The error carries a `google.rpc.BadRequest` entry in its details:
 
@@ -90,13 +90,13 @@ The check runs again when the handler starts, so a validator runs twice. Keep it
 
 ## Failing from the handler
 
-[!code-csharp[](../snippets/TypedSkills.cs#Fail)]
+[!code-csharp[](../../../samples/Snippets/TypedSkills.cs#Fail)]
 
 `TypedSkillFailedException` fails the task with your text as the status message. The caller may see it, so write it for them. Any other exception follows the normal path: the task fails, and the caller gets generic text.
 
 ## Client side
 
-[!code-csharp[](../snippets/TypedSkills.cs#Client)]
+[!code-csharp[](../../../samples/Snippets/TypedSkills.cs#Client)]
 
 `CallSkillAsync` uses `SelectSkill` and `SendMessageAsync`, and `WaitForTaskAsync` if the task is not finished. It returns the data part of the last artifact that has one. It also reads a direct message reply with a data part, so it works with agents from other SDKs.
 

@@ -16,9 +16,11 @@ When a mode is on, the server reads the key always. It does not need the `A2A-Ex
 
 Write a handler, then pick a mode:
 
-[!code-csharp[](../snippets/SkillAuthorization.cs#Handler)]
+[!code-csharp[](../../../samples/Snippets/SkillAuthorization.cs#Handler)]
 
-[!code-csharp[](../snippets/SkillAuthorization.cs#Register)]
+[!code-csharp[](../../../samples/Snippets/SkillAuthorization.cs#Register)]
+
+A runnable version, with a skill that one caller may use and another may not, is in [samples/TenantAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/TenantAgent/README.md).
 
 `A2AAuthorizationHandler.AuthorizeSkillAsync` is the one place you decide. It is a virtual method on the handler you already use for [authorization](auth-and-ownership.md#extra-rules-a2aauthorizationhandler). The default returns `false`. If you turn a mode on and forget to override it, every skill is denied. That is loud and safe.
 
@@ -40,7 +42,7 @@ The check covers `SendMessage` and `SendStreamingMessage`. It runs in the author
 
 In `WhenNamed`, a message that names no skill reaches your agent. If your agent picks the skill itself, the server cannot know which one. So your agent must ask, with `AgentRequestContext.IsSkillAllowedAsync`, before it uses a skill:
 
-[!code-csharp[](../snippets/SkillAuthorization.cs#Executor)]
+[!code-csharp[](../../../samples/Snippets/SkillAuthorization.cs#Executor)]
 
 `IsSkillAllowedAsync` makes the same decision as the server: the skill must be on the card, and the handler must allow it. It works in any mode. It returns false for an unknown skill, and when the context was built by hand. A null or empty id throws `ArgumentException`.
 

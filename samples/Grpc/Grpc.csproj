@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <RootNamespace>GrpcSample</RootNamespace>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\A2A.Client.Grpc\A2A.Client.Grpc.csproj"/>
+        <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj"/>
+        <ProjectReference Include="..\..\src\A2A.Server.Grpc\A2A.Server.Grpc.csproj"/>
+    </ItemGroup>
+</Project>
