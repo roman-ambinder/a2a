@@ -14,7 +14,8 @@ cd "$(dirname "$0")/.."
 
 ECHO_URL="http://localhost:5100"
 MCP_URL="http://127.0.0.1:5290"
-LOGS="$(mktemp -d)"
+LOGS="${SAMPLES_LOG_DIR:-$(mktemp -d)}" # SAMPLES_LOG_DIR keeps the logs in a known folder (CI uploads it)
+mkdir -p "$LOGS"
 declare -a RESULTS=()
 BACKGROUND_PID=""
 
@@ -23,7 +24,7 @@ selected=()
 for arg in "$@"; do
   case "$arg" in
     --with-docker) with_docker=true ;;
-    -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) selected+=("$arg") ;;
   esac
 done
@@ -139,11 +140,16 @@ run_cli() {
   tail -n 1 "$LOGS/cli.log"
 }
 
+# A2A_REQUIRE_DOCKER=1 (CI) makes a missing Docker a failure instead of a skip.
+docker_missing() {
+  if [ "${A2A_REQUIRE_DOCKER:-}" = 1 ]; then record "$1" "FAIL: Docker is not running"; else record "$1" "SKIP: Docker is not running"; fi
+}
+
 run_multi() {
   echo "== multi (samples/MultiInstance, Docker)"
   local compose="samples/MultiInstance/docker-compose.yml"
   if ! docker info >/dev/null 2>&1; then
-    record multi "SKIP: Docker is not running"
+    docker_missing multi
     return
   fi
   if ! docker compose -f "$compose" up --build -d >"$LOGS/multi-up.log" 2>&1; then
@@ -167,7 +173,7 @@ run_compose() {
   shift 3
   echo "== $name ($project, Docker)"
   if ! docker info >/dev/null 2>&1; then
-    record "$name" "SKIP: Docker is not running"
+    docker_missing "$name"
     return
   fi
   if ! docker compose -f "$compose" up -d --wait >"$LOGS/$name-up.log" 2>&1; then

@@ -40,7 +40,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 
 ## Documentation
 
-Guides and API reference are published at [roman-ambinder.github.io/a2a](https://roman-ambinder.github.io/a2a/). They are built with DocFX from [docs/site](docs/site/README.md) and published from `main` on every green CI run. The guides pull their C# samples from compiled snippets, so read them on the published site to see the code.
+Guides and API reference are published at [roman-ambinder.github.io/a2a](https://roman-ambinder.github.io/a2a/). They are built with DocFX from [docs/site](docs/site/README.md) and published from `main` on every green CI run. The guides pull their C# code from [samples/](samples/README.md) (runnable samples, and compile-only snippets in `samples/Snippets`), so read them on the published site to see the code.
 
 Start with [Getting started](docs/site/guides/getting-started.md). Then: [bindings](docs/site/guides/bindings.md), [authentication and ownership](docs/site/guides/auth-and-ownership.md), [streaming](docs/site/guides/streaming.md), [push notifications](docs/site/guides/push-notifications.md), [proactive continuation](docs/site/guides/proactive-continuation.md), [Agent Card signing](docs/site/guides/agent-card-signing.md), [multi-tenancy](docs/site/guides/multi-tenancy.md), [durable stores](docs/site/guides/durable-stores.md), [retention](docs/site/guides/retention.md), [artifact storage](docs/site/guides/artifact-storage.md), [observability](docs/site/guides/observability.md), [limits](docs/site/guides/limits-and-rate-limiting.md), [task safety](docs/site/guides/task-safety.md), [interop](docs/site/guides/interop-and-conformance.md), [testing](docs/site/guides/testing.md), [spec decisions](docs/site/guides/spec-decisions.md), [client outbox](docs/site/guides/client-outbox.md).
 
@@ -385,15 +385,8 @@ dotnet test --project samples/TestingAgent   # tests of a sample agent, written 
 
 To test your own agent, see [Testing your agent](docs/site/guides/testing.md).
 
-Run the samples:
-
-```bash
-dotnet run --project samples/EchoAgent -- --EchoAgent:ApiKey=secret
-dotnet run --project samples/EchoClient -- http://localhost:5100/ "hello" secret
-# Two instances + Postgres + Redis: see samples/MultiInstance/README.md
-```
-
-Or run them all and check each one (`--with-docker` adds MultiInstance; names such as `echo mcp` pick some):
+Every sample is listed, with what it shows and its guide, in [samples/README.md](samples/README.md). Run them all and
+check each one (`--with-docker` adds the Docker samples; names such as `echo mcp` pick some):
 
 ```bash
 samples/run-samples.sh

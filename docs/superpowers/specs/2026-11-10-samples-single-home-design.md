@@ -1,6 +1,6 @@
 # samples/ is the single home of every usage example
 
-Date: 2026-11-10. Status: approved for implementation.
+Date: 2026-11-10. Status: implemented (steps 1 to 8).
 
 ## 1. Goal
 
@@ -154,6 +154,12 @@ sample is written.
    `multi`. Regions moved: `ArtifactStorage#Map`, `#PrivateStore`, `ClientOutbox#Setup`, `#Enqueue`, `#Harvest`. The
    coverage allow-list is now empty. The MinIO image is the one `tests/A2A.Stores.Tests` pins, from `cgr.dev`.*
 8. `samples/README.md` index, `README.md` links, CI job for `run-samples.sh`.
+   *Done (2026-11-10). `samples/README.md` lists every sample with its run-samples name, packages and guide. The repo
+   README points to it. `ci.yml` has a `samples` job (no Docker, every push and PR, in `all-green`);
+   `samples-nightly.yml` runs `multi storage outbox` at 02:37 UTC and on demand. `run-samples.sh` reads
+   `SAMPLES_LOG_DIR` (CI uploads the logs on failure) and `A2A_REQUIRE_DOCKER=1` (a missing Docker fails instead of
+   skipping). Not run here: the two CI workflows themselves, and `multi`, whose image build cannot restore NuGet
+   packages behind this sandbox's proxy.*
 
 Each step is its own commit and leaves the build, tests and docs site green.
 
