@@ -52,7 +52,7 @@ To allow one caller a skill and deny another, override `AuthorizeSkillAsync` too
 
 - `Kind` is an <xref:A2A.Server.Authorization.A2AOperation>: the 11 built-in operations, or `Extension`. `Name` is the operation name, or the registered name of an extension operation.
 - A denied call whose request names a task (GetTask, CancelTask, SubscribeToTask, push config calls, and SendMessage with a `taskId`) is reported as `TaskNotFound`.
-- Any other denial (ListTasks, GetExtendedAgentCard, SendMessage without a task, extension operations) is `PermissionDenied`.
+- Any other denial (ListTasks, GetExtendedAgentCard, SendMessage without a task, extension operations) is `PermissionDenied`. Its ErrorInfo metadata says what was refused: `permission` is `operation` (your handler said no), `skill` (skill authorization said no, or the skill is unknown; both look the same) or `policy` (the ASP.NET Core policy of an extension operation failed), and `operation` is the operation name. Neither repeats anything the caller sent.
 - The base class allows every built-in operation and denies extension operations. The handler the server registers by default also allows an extension operation registered with `allow: true`, or whose ASP.NET Core policy succeeded. A handler of your own replaces it, so decide extension operations yourself.
 - Open streams call the handler again every <xref:A2A.Server.A2ALimits.StreamReauthInterval> (default 5 minutes). On denial the stream ends. See [limits](limits-and-rate-limiting.md).
 
