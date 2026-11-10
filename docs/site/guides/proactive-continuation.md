@@ -22,6 +22,8 @@ Keep the key in durable storage if the continuation may come after a restart.
 
 Call <xref:A2A.Server.Execution.TaskExecutionEngine.ContinueTaskAsync*>. <xref:A2A.Server.Execution.TaskExecutionEngine> is registered by `AddA2AServer`. Inject it. The method returns a <xref:A2A.Server.TaskContinuationResult> with a `Status`, a `Started` flag and a `Completion` task. `Completion` ends when the agent returned and every event is stored. It never faults. For a refused request it is already complete.
 
+A runnable version is in [samples/MemoryAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/MemoryAgent/README.md). Its host continues a report task and awaits `Completion`.
+
 From a timer:
 
 [!code-csharp[](../../../samples/Snippets/Continuation.cs#Timer)]

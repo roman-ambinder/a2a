@@ -31,6 +31,8 @@ Every <xref:A2A.Server.AgentRequestContext> has a <xref:A2A.Server.ConversationM
 
 `ReadEarlierMessagesAsync` never returns the current task.
 
+A runnable version is in [samples/MemoryAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/MemoryAgent/README.md). Its agent reads the earlier notes of the context, and the client sends only the new message.
+
 ## Limits
 
 Both limits always apply. The first one reached wins. A read is always bounded.
