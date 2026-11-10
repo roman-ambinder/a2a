@@ -5,8 +5,8 @@ internal static class A2AMcpMediaTypes
     internal const string OctetStream = "application/octet-stream";
 
     /// <summary>
-    /// Returns <c>type/subtype</c> (parameters cut) when <paramref name="mediaType"/> looks like a media type, else
-    /// <c>application/octet-stream</c>. A media type from a remote side is not trusted to be well formed.
+    ///     Returns <c>type/subtype</c> (parameters cut) when <paramref name="mediaType" /> looks like a media type, else
+    ///     <c>application/octet-stream</c>. A media type from a remote side is not trusted to be well formed.
     /// </summary>
     internal static string Normalize(string? mediaType)
     {
@@ -20,8 +20,10 @@ internal static class A2AMcpMediaTypes
         foreach (var c in main)
         {
             if (c == '/') continue;
-            if (!(c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '.' or '-' or '+' or '_' or '!' or '#' or '$' or '&' or '^')) return OctetStream;
+            if (!(c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '.' or '-' or '+' or '_' or '!'
+                    or '#' or '$' or '&' or '^')) return OctetStream;
         }
+
         if (main[(slash + 1)..].Contains('/')) return OctetStream;
         return main.ToString();
     }

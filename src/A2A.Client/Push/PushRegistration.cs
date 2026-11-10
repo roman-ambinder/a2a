@@ -1,7 +1,8 @@
 namespace A2A.Client.Push;
 
 /// <summary>
-/// The result of <see cref="A2AClient.RegisterPushAsync"/>: the stored webhook config, and the task as it was read right after registering.
+///     The result of <see cref="A2AClient.RegisterPushAsync" />: the stored webhook config, and the task as it was read
+///     right after registering.
 /// </summary>
 public sealed class PushRegistration
 {
@@ -19,8 +20,10 @@ public sealed class PushRegistration
     public AgentTask Task { get; }
 
     /// <summary>
-    /// True when the task is terminal or interrupted (see <see cref="A2AClient.WaitForTaskAsync"/>): no further notification is
-    /// expected, so do not wait for a callback. Servers of other SDKs send no catch-up delivery for a task that already finished.
+    ///     True when the task is terminal or interrupted (see <see cref="A2AClient.WaitForTaskAsync" />): no further
+    ///     notification is
+    ///     expected, so do not wait for a callback. Servers of other SDKs send no catch-up delivery for a task that already
+    ///     finished.
     /// </summary>
     public bool IsFinal => Task.Status.State.IsTerminal() || Task.Status.State.IsInterrupted();
 }

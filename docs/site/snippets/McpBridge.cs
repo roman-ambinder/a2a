@@ -1,10 +1,8 @@
 using A2A.Client;
 using A2A.Extensions.AI;
 using A2A.Mcp;
-using A2A.Server;
 using A2A.Server.AspNetCore;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;

@@ -14,37 +14,49 @@ using A2A.Validation;
 namespace A2A.Server.Streaming;
 
 /// <summary>
-/// Accepts a streamed message and starts its execution: the request handler's accept step, which it shares with SendMessage.
-/// It abandons <paramref name="claim"/> when the message is refused or the agent cannot start.
+///     Accepts a streamed message and starts its execution: the request handler's accept step, which it shares with
+///     SendMessage.
+///     It abandons <paramref name="claim" /> when the message is refused or the agent cannot start.
 /// </summary>
 /// <returns>
-/// The execution, the task's last sequence before it (0 for a new task), and for a follow-up the timestamp of the task's
-/// status when the message was accepted (see <see cref="TaskExecutionEngine.StatusChangedSince"/>). The execution is null for
-/// a duplicate follow-up: nothing was started. The execution takes the lease of <paramref name="agent"/>.
+///     The execution, the task's last sequence before it (0 for a new task), and for a follow-up the timestamp of the
+///     task's
+///     status when the message was accepted (see <see cref="TaskExecutionEngine.StatusChangedSince" />). The execution is
+///     null for
+///     a duplicate follow-up: nothing was started. The execution takes the lease of <paramref name="agent" />.
 /// </returns>
-internal delegate Task<(Execution.Execution? Execution, long AfterSequence, DateTimeOffset? AcceptedStatusTimestamp)> AcceptMessage(
-    SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string taskId, RentedAgent agent, CancellationToken ct);
+internal delegate Task<(Execution.Execution? Execution, long AfterSequence, DateTimeOffset? AcceptedStatusTimestamp)>
+    AcceptMessage(
+        SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string taskId, RentedAgent agent,
+        CancellationToken ct);
 
 /// <summary>
-/// Follows a task's events: the SendStreamingMessage stream of a new execution, SubscribeToTask (fresh or resumed), and the
-/// wait of a blocking SendMessage. Every stream sends the task's events in sequence order without repeats, fills gaps from
-/// the event store (a snapshot when the store no longer has them), and is limited by <see cref="A2ALimits"/> (concurrent
-/// streams, re-authorization, duration).
-/// Internal: <see cref="A2ARequestHandler"/> creates its own from the services it is given; protocol bindings call the handler.
+///     Follows a task's events: the SendStreamingMessage stream of a new execution, SubscribeToTask (fresh or resumed),
+///     and the
+///     wait of a blocking SendMessage. Every stream sends the task's events in sequence order without repeats, fills gaps
+///     from
+///     the event store (a snapshot when the store no longer has them), and is limited by <see cref="A2ALimits" />
+///     (concurrent
+///     streams, re-authorization, duration).
+///     Internal: <see cref="A2ARequestHandler" /> creates its own from the services it is given; protocol bindings call
+///     the handler.
 /// </summary>
 internal sealed class TaskStreamer
 {
-    private readonly TaskStore _tasks;
-    private readonly EventStore _events;
-    private readonly TaskEventBus _bus;
-    private readonly TaskExecutionEngine _engine;
-    private readonly IdempotencyCoordinator _idempotency;
-    private readonly A2AAuthorizationHandler _authorization;
-    private readonly A2AServerOptions _options;
-    private readonly RequestCards _cards;
-    private readonly SkillAuthorizer _skills;
+    /// <summary>Most a long-poll waits, whatever <see cref="A2AServerOptions.LongPollTimeout" /> says.</summary>
+    internal static readonly TimeSpan MaxLongPoll = TimeSpan.FromMinutes(5);
+
     private readonly StreamAdmission _admission;
     private readonly A2AAuditor _audit;
+    private readonly A2AAuthorizationHandler _authorization;
+    private readonly TaskEventBus _bus;
+    private readonly RequestCards _cards;
+    private readonly TaskExecutionEngine _engine;
+    private readonly EventStore _events;
+    private readonly IdempotencyCoordinator _idempotency;
+    private readonly A2AServerOptions _options;
+    private readonly SkillAuthorizer _skills;
+    private readonly TaskStore _tasks;
 
     /// <summary>Creates the streamer from the request handler's services.</summary>
     internal TaskStreamer(
@@ -74,19 +86,20 @@ internal sealed class TaskStreamer
     /// <summary>Open streams counted against the stream limits. For tests.</summary>
     internal int OpenStreams => _admission.OpenStreams;
 
-    /// <summary>Most a long-poll waits, whatever <see cref="A2AServerOptions.LongPollTimeout"/> says.</summary>
-    internal static readonly TimeSpan MaxLongPoll = TimeSpan.FromMinutes(5);
-
     /// <summary>
-    /// A2A 1.1 long-poll (§3.2.7): the task once its generation is above <paramref name="after"/>, or as it is when it is
-    /// terminal (nothing changes it any more), when <see cref="A2AServerOptions.LongPollTimeout"/> passes, or when the wait is
-    /// cancelled by the server. The generation equals the last event sequence, so any event published for the task can end
-    /// the wait; the task is read again after subscribing, so no change between the first read and the subscription is missed.
-    /// The wait holds a stream slot. Throws TaskNotFound like GetTask.
+    ///     A2A 1.1 long-poll (§3.2.7): the task once its generation is above <paramref name="after" />, or as it is when it is
+    ///     terminal (nothing changes it any more), when <see cref="A2AServerOptions.LongPollTimeout" /> passes, or when the
+    ///     wait is
+    ///     cancelled by the server. The generation equals the last event sequence, so any event published for the task can end
+    ///     the wait; the task is read again after subscribing, so no change between the first read and the subscription is
+    ///     missed.
+    ///     The wait holds a stream slot. Throws TaskNotFound like GetTask.
     /// </summary>
-    internal async Task<TaskRecord> WaitPastGenerationAsync(TaskKey key, ServerCallContext call, long after, CancellationToken ct)
+    internal async Task<TaskRecord> WaitPastGenerationAsync(TaskKey key, ServerCallContext call, long after,
+        CancellationToken ct)
     {
-        var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
+        var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ??
+                     throw A2AException.TaskNotFound(key.TaskId);
         var timeout = _options.LongPollTimeout > MaxLongPoll ? MaxLongPoll : _options.LongPollTimeout;
         if (await IsPastAsync(key, record, after, ct).ConfigureAwait(false) || timeout <= TimeSpan.Zero) return record;
 
@@ -98,41 +111,55 @@ internal sealed class TaskStreamer
         {
             while (true)
             {
-                record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
+                record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ??
+                         throw A2AException.TaskNotFound(key.TaskId);
                 if (await IsPastAsync(key, record, after, ct).ConfigureAwait(false)) return record;
-                if (!await sub.Reader.WaitToReadAsync(wait.Token).ConfigureAwait(false)) break; // the topic ended: terminal
-                while (sub.Reader.TryRead(out _)) { } // read the task again, whatever the events were
+                if (!await sub.Reader.WaitToReadAsync(wait.Token).ConfigureAwait(false))
+                    break; // the topic ended: terminal
+                while (sub.Reader.TryRead(out _))
+                {
+                } // read the task again, whatever the events were
             }
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             // The time limit: answer with the task as it is (the spec allows an earlier answer).
         }
+
         return await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(key.TaskId);
     }
 
-    private async ValueTask<bool> IsPastAsync(TaskKey key, TaskRecord record, long after, CancellationToken ct) =>
-        record.Task.Status.State.IsTerminal()
-        || (record.Task.Generation ?? await _events.LastSequenceAsync(key, ct).ConfigureAwait(false)) > after;
+    private async ValueTask<bool> IsPastAsync(TaskKey key, TaskRecord record, long after, CancellationToken ct)
+    {
+        return record.Task.Status.State.IsTerminal()
+               || (record.Task.Generation ?? await _events.LastSequenceAsync(key, ct).ConfigureAwait(false)) > after;
+    }
 
     /// <summary>
-    /// SendStreamingMessage: handles an idempotent retry, takes a stream slot, accepts the message with
-    /// <paramref name="accept"/>, then streams the task's events (see <see cref="A2ARequestHandler.SendStreamingMessageAsync"/>).
-    /// Everything runs when the stream is enumerated, inside the stream limits. The caller has bound the tenant and authorized
-    /// the call (the operation pipeline); the stream limits authorize it again as <paramref name="operation"/>.
+    ///     SendStreamingMessage: handles an idempotent retry, takes a stream slot, accepts the message with
+    ///     <paramref name="accept" />, then streams the task's events (see
+    ///     <see cref="A2ARequestHandler.SendStreamingMessageAsync" />).
+    ///     Everything runs when the stream is enumerated, inside the stream limits. The caller has bound the tenant and
+    ///     authorized
+    ///     the call (the operation pipeline); the stream limits authorize it again as <paramref name="operation" />.
     /// </summary>
-    internal IAsyncEnumerable<SequencedEvent> StreamExecutionAsync(SendMessageRequest request, ServerCallContext call, AcceptMessage accept,
-        A2AOperationDescriptor operation, CancellationToken cancellationToken) =>
+    internal IAsyncEnumerable<SequencedEvent> StreamExecutionAsync(SendMessageRequest request, ServerCallContext call,
+        AcceptMessage accept,
+        A2AOperationDescriptor operation, CancellationToken cancellationToken)
+    {
         // CancellationToken.None: LimitStreamAsync owns the token ([EnumeratorCancellation]) and passes its linked token to the core.
-        LimitStreamAsync(ShapeHistoryAsync(SendStreamingCoreAsync(request, call, accept, CancellationToken.None), request.Configuration?.HistoryLength,
-            request.Configuration?.TimelineLength, CancellationToken.None),
+        return LimitStreamAsync(ShapeHistoryAsync(SendStreamingCoreAsync(request, call, accept, CancellationToken.None),
+                request.Configuration?.HistoryLength,
+                request.Configuration?.TimelineLength, CancellationToken.None),
             call, operation, request, cancellationToken);
+    }
 
     /// <summary>
-    /// Applies <c>historyLength</c> and the history cap to every task event of SendStreamingMessage (the first event, gap
-    /// snapshots and replays), like every other path that returns a task. Stored events are not changed.
+    ///     Applies <c>historyLength</c> and the history cap to every task event of SendStreamingMessage (the first event, gap
+    ///     snapshots and replays), like every other path that returns a task. Stored events are not changed.
     /// </summary>
-    private async IAsyncEnumerable<SequencedEvent> ShapeHistoryAsync(IAsyncEnumerable<SequencedEvent> source, int? historyLength,
+    private async IAsyncEnumerable<SequencedEvent> ShapeHistoryAsync(IAsyncEnumerable<SequencedEvent> source,
+        int? historyLength,
         int? timelineLength, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await foreach (var evt in source.WithCancellation(cancellationToken).ConfigureAwait(false))
@@ -140,25 +167,36 @@ internal sealed class TaskStreamer
     }
 
     /// <summary>
-    /// SubscribeToTask, fresh or resumed (see <see cref="A2ARequestHandler.SubscribeToTaskAsync"/>),
-    /// inside the stream limits. <paramref name="onCaughtUp"/> is described on <see cref="SubscribeCoreAsync"/>. The caller has
-    /// bound the tenant and authorized the call (the operation pipeline); the stream limits authorize it again as <paramref name="operation"/>.
+    ///     SubscribeToTask, fresh or resumed (see <see cref="A2ARequestHandler.SubscribeToTaskAsync" />),
+    ///     inside the stream limits. <paramref name="onCaughtUp" /> is described on <see cref="SubscribeCoreAsync" />. The
+    ///     caller has
+    ///     bound the tenant and authorized the call (the operation pipeline); the stream limits authorize it again as
+    ///     <paramref name="operation" />.
     /// </summary>
-    internal IAsyncEnumerable<SequencedEvent> SubscribeAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
-        Action? onCaughtUp, A2AOperationDescriptor operation, CancellationToken cancellationToken) =>
+    internal IAsyncEnumerable<SequencedEvent> SubscribeAsync(SubscribeToTaskRequest request, ServerCallContext call,
+        long? resumeAfter,
+        Action? onCaughtUp, A2AOperationDescriptor operation, CancellationToken cancellationToken)
+    {
         // CancellationToken.None: LimitStreamAsync owns the token ([EnumeratorCancellation]) and passes its linked token to the core.
-        LimitStreamAsync(SubscribeCoreAsync(request, call, resumeAfter, onCaughtUp, CancellationToken.None), call, operation, request, cancellationToken);
+        return LimitStreamAsync(SubscribeCoreAsync(request, call, resumeAfter, onCaughtUp, CancellationToken.None),
+            call, operation, request, cancellationToken);
+    }
 
     /// <summary>
-    /// The blocking SendMessage, the counterpart of the send stream with the same end rule: follows <paramref name="exec"/> and,
-    /// on <paramref name="sub"/>, the task's other executions (for example CancelTask) until the task is terminal or interrupted,
-    /// or until this execution ended and no other execution of the task is running. With <paramref name="returnImmediately"/>
-    /// it stops after the execution's first event. Detaches <paramref name="exec"/> when done.
-    /// <paramref name="acceptedStatusTimestamp"/> is, for a follow-up, the timestamp of the task's status when the message was
-    /// accepted (see <see cref="SettledInStoreAsync"/>).
+    ///     The blocking SendMessage, the counterpart of the send stream with the same end rule: follows
+    ///     <paramref name="exec" /> and,
+    ///     on <paramref name="sub" />, the task's other executions (for example CancelTask) until the task is terminal or
+    ///     interrupted,
+    ///     or until this execution ended and no other execution of the task is running. With
+    ///     <paramref name="returnImmediately" />
+    ///     it stops after the execution's first event. Detaches <paramref name="exec" /> when done.
+    ///     <paramref name="acceptedStatusTimestamp" /> is, for a follow-up, the timestamp of the task's status when the
+    ///     message was
+    ///     accepted (see <see cref="SettledInStoreAsync" />).
     /// </summary>
     /// <returns>The agent's direct reply, or null when the response is the task (read it from the store).</returns>
-    internal async Task<Message?> WaitForOutcomeAsync(Execution.Execution exec, TaskKey key, TaskEventBus.Subscription sub, long afterSequence,
+    internal async Task<Message?> WaitForOutcomeAsync(Execution.Execution exec, TaskKey key,
+        TaskEventBus.Subscription sub, long afterSequence,
         DateTimeOffset? acceptedStatusTimestamp, bool returnImmediately, CancellationToken cancellationToken)
     {
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -173,7 +211,8 @@ internal sealed class TaskStreamer
             var busLast = afterSequence;
             while (true)
             {
-                if (exec.Failed) throw new A2AException(A2AErrorCode.Internal); // storage failed: an error, not the FAILED task
+                if (exec.Failed)
+                    throw new A2AException(A2AErrorCode.Internal); // storage failed: an error, not the FAILED task
 
                 // Other executions (CancelTask, a later follow-up) settle the task too; so does this one, seen on the bus when
                 // its own channel dropped the event.
@@ -185,8 +224,11 @@ internal sealed class TaskStreamer
                     busLast = Math.Max(busLast, other.Sequence);
                     if (other.Sequence > afterSequence && Settles(other.Event)) settledElsewhere = true;
                 }
+
                 if (!settledElsewhere && missedAfter is { } after)
-                    settledElsewhere = await SettledInStoreAsync(key, after, busLast, acceptedStatusTimestamp, stop.Token).ConfigureAwait(false);
+                    settledElsewhere =
+                        await SettledInStoreAsync(key, after, busLast, acceptedStatusTimestamp, stop.Token)
+                            .ConfigureAwait(false);
                 if (settledElsewhere) break;
 
                 if (!ownDone && own.TryRead(out var sequenced))
@@ -202,7 +244,8 @@ internal sealed class TaskStreamer
                 if (ownDone)
                 {
                     // This execution ended. Nothing more will change the task once no execution of it runs, on any instance.
-                    if (!started || await _engine.RunningWaitsAsync(key, stop.Token).ConfigureAwait(false) is not { } running) break;
+                    if (!started || await _engine.RunningWaitsAsync(key, stop.Token).ConfigureAwait(false) is not
+                            { } running) break;
                     busWait ??= sub.Reader.WaitToReadAsync(stop.Token).AsTask();
                     await Task.WhenAny(running.Append(busWait)).ConfigureAwait(false);
                 }
@@ -218,6 +261,7 @@ internal sealed class TaskStreamer
                     ownDone = !await ownWait.ConfigureAwait(false); // a storage failure surfaces here as an error
                     ownWait = null;
                 }
+
                 if (busWait is { IsCompleted: true })
                 {
                     if (!await busWait.ConfigureAwait(false)) break; // the bus ended the topic: the task is terminal
@@ -230,21 +274,29 @@ internal sealed class TaskStreamer
             stop.Cancel();
             exec.Detach();
         }
+
         return null;
     }
 
     /// <summary>True for a status update to a terminal or interrupted state: the outcome a blocking SendMessage waits for.</summary>
-    private static bool Settles(StreamResponse evt) =>
-        evt is StatusUpdateEvent { StatusUpdate.Status.State: var state } && (state.IsTerminal() || state.IsInterrupted());
+    private static bool Settles(StreamResponse evt)
+    {
+        return evt is StatusUpdateEvent { StatusUpdate.Status.State: var state } &&
+               (state.IsTerminal() || state.IsInterrupted());
+    }
 
     /// <summary>
-    /// True when the event store holds an event after <paramref name="after"/> and up to <paramref name="upTo"/> that
-    /// <see cref="Settles"/> the task: the bus dropped events in that range. Every event is stored before it is published.
-    /// When the store no longer has all of them (trimmed), the task itself decides: settled when it is terminal, or interrupted
-    /// with a status set after the follow-up was accepted (its timestamp differs from <paramref name="acceptedStatusTimestamp"/>;
-    /// a follow-up does not change the status itself, so an interrupted state from before it is not its outcome).
+    ///     True when the event store holds an event after <paramref name="after" /> and up to <paramref name="upTo" /> that
+    ///     <see cref="Settles" /> the task: the bus dropped events in that range. Every event is stored before it is
+    ///     published.
+    ///     When the store no longer has all of them (trimmed), the task itself decides: settled when it is terminal, or
+    ///     interrupted
+    ///     with a status set after the follow-up was accepted (its timestamp differs from
+    ///     <paramref name="acceptedStatusTimestamp" />;
+    ///     a follow-up does not change the status itself, so an interrupted state from before it is not its outcome).
     /// </summary>
-    private async Task<bool> SettledInStoreAsync(TaskKey key, long after, long upTo, DateTimeOffset? acceptedStatusTimestamp, CancellationToken ct)
+    private async Task<bool> SettledInStoreAsync(TaskKey key, long after, long upTo,
+        DateTimeOffset? acceptedStatusTimestamp, CancellationToken ct)
     {
         var expected = after + 1;
         await foreach (var stored in _events.ReadAfterAsync(key, after, ct).ConfigureAwait(false))
@@ -253,14 +305,17 @@ internal sealed class TaskStreamer
             if (Settles(stored.Event)) return true;
             expected++;
         }
+
         if (expected > upTo) return false; // every event of the range was there, none settles the task
 
         var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false);
         return record is null || record.Task.Status.State.IsTerminal()
-            || (record.Task.Status.State.IsInterrupted() && TaskExecutionEngine.StatusChangedSince(record.Task.Status, acceptedStatusTimestamp));
+                              || (record.Task.Status.State.IsInterrupted() &&
+                                  TaskExecutionEngine.StatusChangedSince(record.Task.Status, acceptedStatusTimestamp));
     }
 
-    private async IAsyncEnumerable<SequencedEvent> SendStreamingCoreAsync(SendMessageRequest request, ServerCallContext call, AcceptMessage accept,
+    private async IAsyncEnumerable<SequencedEvent> SendStreamingCoreAsync(SendMessageRequest request,
+        ServerCallContext call, AcceptMessage accept,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         RequestCards.RequireStreaming(await _cards.RequireAgentAsync(call, cancellationToken).ConfigureAwait(false));
@@ -274,13 +329,16 @@ internal sealed class TaskStreamer
             yield return new SequencedEvent(0, StreamResponse.Of(direct.Message.DeepCopy()));
             yield break;
         }
+
         if (replay is IdempotencyOutcome.TaskCreated created)
         {
             // The same path as a resume from cursor 0: the retained events from the start, then live events.
             // The resume is a SubscribeToTask of the created task: authorized as one, as a reconnect would be.
             var resume = new SubscribeToTaskRequest { Id = created.TaskId, Tenant = request.Tenant };
-            await AuthorizeAsync(call, A2AOperationDescriptor.For(A2AOperation.SubscribeToTask), resume, created.TaskId, cancellationToken).ConfigureAwait(false);
-            await foreach (var replayed in SubscribeCoreAsync(resume, call, resumeAfter: 0, onCaughtUp: null, cancellationToken).ConfigureAwait(false))
+            await AuthorizeAsync(call, A2AOperationDescriptor.For(A2AOperation.SubscribeToTask), resume, created.TaskId,
+                cancellationToken).ConfigureAwait(false);
+            await foreach (var replayed in SubscribeCoreAsync(resume, call, 0, null, cancellationToken)
+                               .ConfigureAwait(false))
                 yield return replayed;
             yield break;
         }
@@ -298,11 +356,13 @@ internal sealed class TaskStreamer
             await _idempotency.AbandonAsync(claim).ConfigureAwait(false);
             throw;
         }
+
         using var admitted = slot;
         var scope = ScopeKey(call.Tenant, taskId);
         // Subscribe before the agent starts, so no event of another execution is missed.
         using var sub = _bus.Subscribe(scope);
-        var (accepted, _, _) = await accept(request, call, claim, taskId, agent, cancellationToken).ConfigureAwait(false);
+        var (accepted, _, _) =
+            await accept(request, call, claim, taskId, agent, cancellationToken).ConfigureAwait(false);
         if (accepted is not { } exec)
         {
             await agent.DisposeAsync().ConfigureAwait(false); // nothing runs
@@ -313,11 +373,14 @@ internal sealed class TaskStreamer
             // A duplicate follow-up: nothing started. The same path as a retried request: the retained events from the start,
             // then live events. The resume is a SubscribeToTask of the task: authorized as one, like every resume.
             var resume = new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant };
-            await AuthorizeAsync(call, A2AOperationDescriptor.For(A2AOperation.SubscribeToTask), resume, taskId, cancellationToken).ConfigureAwait(false);
-            await foreach (var replayed in SubscribeCoreAsync(resume, call, resumeAfter: 0, onCaughtUp: null, cancellationToken).ConfigureAwait(false))
+            await AuthorizeAsync(call, A2AOperationDescriptor.For(A2AOperation.SubscribeToTask), resume, taskId,
+                cancellationToken).ConfigureAwait(false);
+            await foreach (var replayed in SubscribeCoreAsync(resume, call, 0, null, cancellationToken)
+                               .ConfigureAwait(false))
                 yield return replayed;
             yield break;
         }
+
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
@@ -327,7 +390,9 @@ internal sealed class TaskStreamer
             var any = false;
             while (!any && await own.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
                 any = own.TryRead(out first);
-            if (!any) throw new A2AException(A2AErrorCode.InvalidAgentResponse, "The agent finished without replying or creating a task.");
+            if (!any)
+                throw new A2AException(A2AErrorCode.InvalidAgentResponse,
+                    "The agent finished without replying or creating a task.");
             yield return first;
             if (first.Event is MessageEvent || IsFinal(first.Event)) yield break;
 
@@ -347,30 +412,58 @@ internal sealed class TaskStreamer
                     // error.
                     while (own.TryRead(out var queued))
                     {
-                        if (TryInOrder(queued, position, out var isNextQueued)) { if (isNextQueued) yield return queued; }
-                        else await foreach (var e in InOrderAsync(key, queued, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                        if (TryInOrder(queued, position, out var isNextQueued))
+                        {
+                            if (isNextQueued) yield return queued;
+                        }
+                        else
+                        {
+                            await foreach (var e in InOrderAsync(key, queued, position, cancellationToken)
+                                               .ConfigureAwait(false)) yield return e;
+                        }
+
                         if (position.Final) yield break;
                     }
-                    await foreach (var stored in ReadContiguousAsync(key, position.Last, exec.LastSequence + 1, cancellationToken).ConfigureAwait(false))
+
+                    await foreach (var stored in ReadContiguousAsync(key, position.Last, exec.LastSequence + 1,
+                                       cancellationToken).ConfigureAwait(false))
                     {
                         yield return stored;
                         position.Last = stored.Sequence;
                         if (IsFinal(stored.Event)) yield break;
                     }
+
                     throw new A2AException(A2AErrorCode.Internal);
                 }
 
                 // The bus first: another execution's event may come before this execution's next one.
                 while (sub.Reader.TryRead(out var other))
                 {
-                    if (TryInOrder(other, position, out var isNextOther)) { if (isNextOther) yield return other; }
-                    else await foreach (var e in InOrderAsync(key, other, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                    if (TryInOrder(other, position, out var isNextOther))
+                    {
+                        if (isNextOther) yield return other;
+                    }
+                    else
+                    {
+                        await foreach (var e in InOrderAsync(key, other, position, cancellationToken)
+                                           .ConfigureAwait(false)) yield return e;
+                    }
+
                     if (position.Final) yield break;
                 }
+
                 if (!ownDone && own.TryRead(out var mine))
                 {
-                    if (TryInOrder(mine, position, out var isNextMine)) { if (isNextMine) yield return mine; }
-                    else await foreach (var e in InOrderAsync(key, mine, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                    if (TryInOrder(mine, position, out var isNextMine))
+                    {
+                        if (isNextMine) yield return mine;
+                    }
+                    else
+                    {
+                        await foreach (var e in InOrderAsync(key, mine, position, cancellationToken)
+                                           .ConfigureAwait(false)) yield return e;
+                    }
+
                     if (position.Final) yield break;
                     continue;
                 }
@@ -378,7 +471,8 @@ internal sealed class TaskStreamer
                 if (ownDone)
                 {
                     // Nothing will change the task any more once no execution of it runs, on any instance.
-                    if (await _engine.RunningWaitsAsync(key, stop.Token).ConfigureAwait(false) is not { } running) break;
+                    if (await _engine.RunningWaitsAsync(key, stop.Token).ConfigureAwait(false) is not
+                        { } running) break;
                     busWait ??= sub.Reader.WaitToReadAsync(stop.Token).AsTask();
                     await Task.WhenAny(running.Append(busWait)).ConfigureAwait(false);
                 }
@@ -394,6 +488,7 @@ internal sealed class TaskStreamer
                     ownDone = !await ownWait.ConfigureAwait(false); // a storage failure surfaces here as an error
                     ownWait = null;
                 }
+
                 if (busWait is { IsCompleted: true })
                 {
                     if (!await busWait.ConfigureAwait(false))
@@ -401,17 +496,20 @@ internal sealed class TaskStreamer
                         topicEnded = true; // the task went terminal
                         break;
                     }
+
                     busWait = null;
                 }
             }
 
             // Finish from the store: every event is stored before it is published, and a lossy bus may have dropped some.
-            await foreach (var stored in ReadContiguousAsync(key, position.Last, long.MaxValue, cancellationToken).ConfigureAwait(false))
+            await foreach (var stored in ReadContiguousAsync(key, position.Last, long.MaxValue, cancellationToken)
+                               .ConfigureAwait(false))
             {
                 yield return stored;
                 position.Last = stored.Sequence;
                 if (IsFinal(stored.Event)) yield break;
             }
+
             if (topicEnded)
             {
                 // The store no longer has the final event (trimmed): end with a snapshot, never without a final event.
@@ -426,8 +524,10 @@ internal sealed class TaskStreamer
                 sub.Dispose();
                 admitted.Dispose();
                 var follow = new SubscribeToTaskRequest { Id = taskId, Tenant = request.Tenant };
-                await AuthorizeAsync(call, A2AOperationDescriptor.For(A2AOperation.SubscribeToTask), follow, taskId, cancellationToken).ConfigureAwait(false);
-                await foreach (var e in SubscribeCoreAsync(follow, call, resumeAfter: position.Last, onCaughtUp: null, cancellationToken).ConfigureAwait(false))
+                await AuthorizeAsync(call, A2AOperationDescriptor.For(A2AOperation.SubscribeToTask), follow, taskId,
+                    cancellationToken).ConfigureAwait(false);
+                await foreach (var e in SubscribeCoreAsync(follow, call, position.Last, null, cancellationToken)
+                                   .ConfigureAwait(false))
                     yield return e;
             }
         }
@@ -438,18 +538,12 @@ internal sealed class TaskStreamer
         }
     }
 
-    /// <summary>The last sequence a stream sent, and whether it sent the task's final event.</summary>
-    private sealed class StreamPosition(long last)
-    {
-        public long Last { get; set; } = last;
-
-        public bool Final { get; set; }
-    }
-
     /// <summary>
-    /// The common cases of <see cref="InOrderAsync"/> without an async iterator: true when <paramref name="live"/> was handled,
-    /// as a repeat (dropped, <paramref name="next"/> false) or as the next event (<paramref name="position"/> updated; the caller
-    /// sends it). False when there is a gap before it: the caller uses <see cref="InOrderAsync"/>.
+    ///     The common cases of <see cref="InOrderAsync" /> without an async iterator: true when <paramref name="live" /> was
+    ///     handled,
+    ///     as a repeat (dropped, <paramref name="next" /> false) or as the next event (<paramref name="position" /> updated;
+    ///     the caller
+    ///     sends it). False when there is a gap before it: the caller uses <see cref="InOrderAsync" />.
     /// </summary>
     private static bool TryInOrder(SequencedEvent live, StreamPosition position, out bool next)
     {
@@ -463,26 +557,33 @@ internal sealed class TaskStreamer
     }
 
     /// <summary>
-    /// Yields <paramref name="live"/> if the stream has not sent it yet, first filling a gap before it from the store, or with
-    /// a snapshot when the store no longer has the missing events. Updates <paramref name="position"/>; stops after a final event.
+    ///     Yields <paramref name="live" /> if the stream has not sent it yet, first filling a gap before it from the store, or
+    ///     with
+    ///     a snapshot when the store no longer has the missing events. Updates <paramref name="position" />; stops after a
+    ///     final event.
     /// </summary>
-    private async IAsyncEnumerable<SequencedEvent> InOrderAsync(TaskKey key, SequencedEvent live, StreamPosition position,
+    private async IAsyncEnumerable<SequencedEvent> InOrderAsync(TaskKey key, SequencedEvent live,
+        StreamPosition position,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         if (live.Sequence <= position.Last) yield break;
         if (live.Sequence > position.Last + 1)
         {
-            await foreach (var filled in FillGapAsync(key, live.Sequence, position, ct).ConfigureAwait(false)) yield return filled;
+            await foreach (var filled in FillGapAsync(key, live.Sequence, position, ct).ConfigureAwait(false))
+                yield return filled;
             if (position.Final || live.Sequence <= position.Last) yield break;
         }
+
         position.Last = live.Sequence;
         position.Final = IsFinal(live.Event);
         yield return live;
     }
 
     /// <summary>
-    /// Yields the stored events after <paramref name="position"/> and before <paramref name="before"/>, in order, and then a
-    /// snapshot when the store no longer has the ones still missing. Updates <paramref name="position"/>; stops after a final event.
+    ///     Yields the stored events after <paramref name="position" /> and before <paramref name="before" />, in order, and
+    ///     then a
+    ///     snapshot when the store no longer has the ones still missing. Updates <paramref name="position" />; stops after a
+    ///     final event.
     /// </summary>
     private async IAsyncEnumerable<SequencedEvent> FillGapAsync(TaskKey key, long before, StreamPosition position,
         [EnumeratorCancellation] CancellationToken ct = default)
@@ -494,6 +595,7 @@ internal sealed class TaskStreamer
             yield return stored;
             if (position.Final) yield break;
         }
+
         if (before > position.Last + 1)
         {
             var snapshot = await ReadSnapshotAsync(key, ct).ConfigureAwait(false);
@@ -504,19 +606,24 @@ internal sealed class TaskStreamer
     }
 
     /// <summary>
-    /// The subscribe and resume logic. <paramref name="onCaughtUp"/> runs once when a resume was accepted but has nothing to
-    /// send yet (the client already has every event): the HTTP layer then starts the response at once instead of holding
-    /// the headers until the next live event.
+    ///     The subscribe and resume logic. <paramref name="onCaughtUp" /> runs once when a resume was accepted but has nothing
+    ///     to
+    ///     send yet (the client already has every event): the HTTP layer then starts the response at once instead of holding
+    ///     the headers until the next live event.
     /// </summary>
-    private async IAsyncEnumerable<SequencedEvent> SubscribeCoreAsync(SubscribeToTaskRequest request, ServerCallContext call, long? resumeAfter,
+    private async IAsyncEnumerable<SequencedEvent> SubscribeCoreAsync(SubscribeToTaskRequest request,
+        ServerCallContext call, long? resumeAfter,
         Action? onCaughtUp, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        RequestCards.RequireStreaming(await _cards.RequireAgentForTaskAsync(call, request.Id, cancellationToken).ConfigureAwait(false));
+        RequestCards.RequireStreaming(await _cards.RequireAgentForTaskAsync(call, request.Id, cancellationToken)
+            .ConfigureAwait(false));
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.Id);
-        var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(request.Id);
+        var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ??
+                     throw A2AException.TaskNotFound(request.Id);
         if (resumeAfter is null && record.Task.Status.State.IsTerminal())
-            throw new A2AException(A2AErrorCode.UnsupportedOperation, "Cannot subscribe to a task in a terminal state.") { Metadata = new() { ["taskId"] = request.Id } };
+            throw new A2AException(A2AErrorCode.UnsupportedOperation, "Cannot subscribe to a task in a terminal state.")
+                { Metadata = new Dictionary<string, string> { ["taskId"] = request.Id } };
 
         using var slot = _admission.Enter(key, call.LimitPartition);
         ServerTelemetry.StreamsOpened.Add(1);
@@ -530,13 +637,15 @@ internal sealed class TaskStreamer
         if (resumeAfter is { } cursor && CanReplay(cursor, start, terminal))
         {
             lastYielded = cursor;
-            await foreach (var stored in ReadContiguousAsync(key, cursor, long.MaxValue, cancellationToken).ConfigureAwait(false))
+            await foreach (var stored in ReadContiguousAsync(key, cursor, long.MaxValue, cancellationToken)
+                               .ConfigureAwait(false))
             {
                 sentAny = true;
                 yield return stored;
                 lastYielded = stored.Sequence;
                 if (IsFinal(stored.Event)) yield break;
             }
+
             if (lastYielded < start.Last)
             {
                 // Events were trimmed while we read them. Never skip: send a snapshot instead.
@@ -546,7 +655,10 @@ internal sealed class TaskStreamer
                 lastYielded = snapshot.Sequence;
                 if (IsFinal(snapshot.Event)) yield break;
             }
-            else if (terminal) yield break;
+            else if (terminal)
+            {
+                yield break;
+            }
         }
         else
         {
@@ -555,6 +667,7 @@ internal sealed class TaskStreamer
             if (terminal) yield break;
             lastYielded = start.Last;
         }
+
         if (!sentAny) onCaughtUp?.Invoke();
 
         // Live events arrive in sequence order (they are published under the task lock). Drop what was already sent; fill
@@ -575,8 +688,16 @@ internal sealed class TaskStreamer
                 while (sub.Reader.TryRead(out var live))
                 {
                     sawLive = true;
-                    if (TryInOrder(live, position, out var isNextLive)) { if (isNextLive) yield return live; }
-                    else await foreach (var e in InOrderAsync(key, live, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                    if (TryInOrder(live, position, out var isNextLive))
+                    {
+                        if (isNextLive) yield return live;
+                    }
+                    else
+                    {
+                        await foreach (var e in InOrderAsync(key, live, position, cancellationToken)
+                                           .ConfigureAwait(false)) yield return e;
+                    }
+
                     if (position.Final) yield break;
                 }
 
@@ -604,10 +725,12 @@ internal sealed class TaskStreamer
                 var filled = false;
                 if (check.LastSequence > position.Last)
                 {
-                    await foreach (var e in FillGapAsync(key, check.LastSequence + 1, position, cancellationToken).ConfigureAwait(false)) yield return e;
+                    await foreach (var e in FillGapAsync(key, check.LastSequence + 1, position, cancellationToken)
+                                       .ConfigureAwait(false)) yield return e;
                     if (position.Final) yield break;
                     filled = true;
                 }
+
                 if (check.Gone) yield break;
                 if (check.Terminal) break; // finish from the store, below
                 if (check.Stranded && !filled)
@@ -629,29 +752,26 @@ internal sealed class TaskStreamer
 
         // The bus ended the subscription (the task went terminal) without delivering a final event: a lossy bus can drop
         // the terminal event itself. Every event is in the store before it is published, so finish from there.
-        await foreach (var stored in ReadContiguousAsync(key, position.Last, long.MaxValue, cancellationToken).ConfigureAwait(false))
+        await foreach (var stored in ReadContiguousAsync(key, position.Last, long.MaxValue, cancellationToken)
+                           .ConfigureAwait(false))
         {
             yield return stored;
             position.Last = stored.Sequence;
             if (IsFinal(stored.Event)) yield break;
         }
+
         // The store no longer has the missing events (trimmed): end with a snapshot, as the live loop does, never without a final event.
         var last = await ReadSnapshotAsync(key, cancellationToken).ConfigureAwait(false);
         if (last.Sequence > position.Last) yield return last;
     }
 
     /// <summary>
-    /// What an idle stream finds in the store: the last event sequence; <c>Gone</c> when the task no longer exists;
-    /// <c>Terminal</c> when it is in a terminal state; <c>Stranded</c> when it is neither terminal nor interrupted and no
-    /// execution of it runs on any instance. An interrupted task (input or auth required) has no execution and is never stranded.
-    /// </summary>
-    private readonly record struct LiveCheck(long LastSequence, bool Gone, bool Terminal, bool Stranded);
-
-    /// <summary>
-    /// Looks at the store for an idle stream: the last sequence, then the task, then, for a task that is neither terminal nor
-    /// interrupted, whether an execution runs. A failing store or coordinator must not end a healthy stream: any failure is
-    /// logged and answered with "nothing to do". A coordinator that fails counts as running (it is not asked through
-    /// <see cref="TaskExecutionEngine.IsRunningAnywhereAsync"/>, which counts a failure as not running).
+    ///     Looks at the store for an idle stream: the last sequence, then the task, then, for a task that is neither terminal
+    ///     nor
+    ///     interrupted, whether an execution runs. A failing store or coordinator must not end a healthy stream: any failure
+    ///     is
+    ///     logged and answered with "nothing to do". A coordinator that fails counts as running (it is not asked through
+    ///     <see cref="TaskExecutionEngine.IsRunningAnywhereAsync" />, which counts a failure as not running).
     /// </summary>
     private async Task<LiveCheck> CheckLiveAsync(TaskKey key, CancellationToken ct)
     {
@@ -659,29 +779,27 @@ internal sealed class TaskStreamer
         {
             var last = await _events.LastSequenceAsync(key, ct).ConfigureAwait(false);
             var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false);
-            if (record is null) return new LiveCheck(last, Gone: true, Terminal: false, Stranded: false);
+            if (record is null) return new LiveCheck(last, true, false, false);
             var state = record.Task.Status.State;
-            if (state.IsTerminal()) return new LiveCheck(last, Gone: false, Terminal: true, Stranded: false);
-            if (state.IsInterrupted()) return new LiveCheck(last, Gone: false, Terminal: false, Stranded: false);
+            if (state.IsTerminal()) return new LiveCheck(last, false, true, false);
+            if (state.IsInterrupted()) return new LiveCheck(last, false, false, false);
             // The wait it returns for a running task is not used: end it, so its timer does not linger.
             using var done = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var running = await _engine.RunningWaitsAsync(key, done.Token).ConfigureAwait(false);
             done.Cancel();
-            return new LiveCheck(last, Gone: false, Terminal: false, Stranded: running is null);
+            return new LiveCheck(last, false, false, running is null);
         }
         catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
         {
             ServerLog.StreamCheckFailed(_engine.Logger, ex, key.TaskId);
-            return new LiveCheck(0, Gone: false, Terminal: false, Stranded: false);
+            return new LiveCheck(0, false, false, false);
         }
     }
 
-    /// <summary>A task with its last and oldest retained event sequences, read together.</summary>
-    private readonly record struct StreamStart(AgentTask Task, long Last, long? Oldest);
-
     /// <summary>
-    /// Reads the task and its sequences under the task lock, so the snapshot and the sequences belong together on this
-    /// instance. Another instance can still commit meanwhile: the sequence is read as <see cref="TaskExecutionEngine.ReadTaskAtSequenceAsync"/> does.
+    ///     Reads the task and its sequences under the task lock, so the snapshot and the sequences belong together on this
+    ///     instance. Another instance can still commit meanwhile: the sequence is read as
+    ///     <see cref="TaskExecutionEngine.ReadTaskAtSequenceAsync" /> does.
     /// </summary>
     private async Task<StreamStart> ReadStartAsync(TaskKey key, CancellationToken ct)
     {
@@ -702,13 +820,21 @@ internal sealed class TaskStreamer
     }
 
     /// <summary>
-    /// True when the events after <paramref name="cursor"/> are still retained, so replay is gap-free. A terminal task whose
-    /// last event the client already has gets a snapshot instead (there is nothing to replay and no live event will follow).
+    ///     True when the events after <paramref name="cursor" /> are still retained, so replay is gap-free. A terminal task
+    ///     whose
+    ///     last event the client already has gets a snapshot instead (there is nothing to replay and no live event will
+    ///     follow).
     /// </summary>
-    private static bool CanReplay(long cursor, StreamStart start, bool terminal) =>
-        start.Oldest is { } oldest && cursor >= oldest - 1 && (cursor < start.Last || (cursor == start.Last && !terminal));
+    private static bool CanReplay(long cursor, StreamStart start, bool terminal)
+    {
+        return start.Oldest is { } oldest && cursor >= oldest - 1 &&
+               (cursor < start.Last || (cursor == start.Last && !terminal));
+    }
 
-    /// <summary>Stored events after <paramref name="after"/> and before <paramref name="before"/>, in order, stopping at the first gap.</summary>
+    /// <summary>
+    ///     Stored events after <paramref name="after" /> and before <paramref name="before" />, in order, stopping at the
+    ///     first gap.
+    /// </summary>
     private async IAsyncEnumerable<SequencedEvent> ReadContiguousAsync(TaskKey key, long after, long before,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
@@ -722,27 +848,40 @@ internal sealed class TaskStreamer
     }
 
     /// <summary>True for the last event of a task's stream: a terminal status update or a snapshot of a terminal task.</summary>
-    private static bool IsFinal(StreamResponse evt) => evt switch
+    private static bool IsFinal(StreamResponse evt)
     {
-        StatusUpdateEvent { StatusUpdate.Status.State: var state } => state.IsTerminal(),
-        TaskEvent { Task.Status.State: var state } => state.IsTerminal(),
-        _ => false,
-    };
+        return evt switch
+        {
+            StatusUpdateEvent { StatusUpdate.Status.State: var state } => state.IsTerminal(),
+            TaskEvent { Task.Status.State: var state } => state.IsTerminal(),
+            _ => false
+        };
+    }
 
     /// <summary>
-    /// Applies the per-stream limits (spec design §7.2, §7.7). Every <see cref="A2ALimits.StreamReauthInterval"/> the caller is
-    /// authorized again, as <paramref name="operation"/> with <paramref name="request"/> (what the stream was opened with); on
-    /// denial nothing more is sent and the stream ends. At <see cref="A2ALimits.MaxStreamDuration"/> the
-    /// stream ends normally, without an error; clients resume with <c>Last-Event-ID</c>. Stopping the stream never stops the task.
+    ///     Applies the per-stream limits (spec design §7.2, §7.7). Every <see cref="A2ALimits.StreamReauthInterval" /> the
+    ///     caller is
+    ///     authorized again, as <paramref name="operation" /> with <paramref name="request" /> (what the stream was opened
+    ///     with); on
+    ///     denial nothing more is sent and the stream ends. At <see cref="A2ALimits.MaxStreamDuration" /> the
+    ///     stream ends normally, without an error; clients resume with <c>Last-Event-ID</c>. Stopping the stream never stops
+    ///     the task.
     /// </summary>
-    private async IAsyncEnumerable<SequencedEvent> LimitStreamAsync(IAsyncEnumerable<SequencedEvent> source, ServerCallContext call,
-        A2AOperationDescriptor operation, object request, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    private async IAsyncEnumerable<SequencedEvent> LimitStreamAsync(IAsyncEnumerable<SequencedEvent> source,
+        ServerCallContext call,
+        A2AOperationDescriptor operation, object request,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var limits = _options.Limits;
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (TimeLimits.IsTimeLimit(limits.MaxStreamDuration)) stop.CancelAfter(limits.MaxStreamDuration);
-        TimeSpan? reauthEvery = TimeLimits.IsTimeLimit(limits.StreamReauthInterval) ? limits.StreamReauthInterval : null;
-        static long Ticks(TimeSpan t) => (long)(t.TotalSeconds * Stopwatch.Frequency);
+        TimeSpan? reauthEvery =
+            TimeLimits.IsTimeLimit(limits.StreamReauthInterval) ? limits.StreamReauthInterval : null;
+
+        static long Ticks(TimeSpan t)
+        {
+            return (long)(t.TotalSeconds * Stopwatch.Frequency);
+        }
 
         var events = source.GetAsyncEnumerator(stop.Token);
         Task<bool>? move = null;
@@ -756,7 +895,10 @@ internal sealed class TaskStreamer
                 try
                 {
                     var next = events.MoveNextAsync();
-                    if (reauthEvery is null || next.IsCompleted) more = await next.ConfigureAwait(false); // no timer, no Task
+                    if (reauthEvery is null || next.IsCompleted)
+                    {
+                        more = await next.ConfigureAwait(false); // no timer, no Task
+                    }
                     else
                     {
                         // Idle stream: wake up at the re-check deadline while waiting for the next event.
@@ -767,24 +909,32 @@ internal sealed class TaskStreamer
                             if (wait > TimeSpan.Zero)
                             {
                                 deadline ??= Task.Delay(wait, stop.Token);
-                                if (await Task.WhenAny(move, deadline).ConfigureAwait(false) == move || stop.IsCancellationRequested) break;
+                                if (await Task.WhenAny(move, deadline).ConfigureAwait(false) == move ||
+                                    stop.IsCancellationRequested) break;
                                 deadline = null;
-                                if (Stopwatch.GetTimestamp() < reauthAt) continue; // moved by a check between events: wait again
+                                if (Stopwatch.GetTimestamp() < reauthAt)
+                                    continue; // moved by a check between events: wait again
                             }
-                            if (!await StillAuthorizedAsync().ConfigureAwait(false)) yield break; // the finally stops the source
+
+                            if (!await StillAuthorizedAsync().ConfigureAwait(false))
+                                yield break; // the finally stops the source
                         }
+
                         more = await move.ConfigureAwait(false);
                         move = null;
                     }
                 }
-                catch (OperationCanceledException) when (stop.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException) when (stop.IsCancellationRequested &&
+                                                         !cancellationToken.IsCancellationRequested)
                 {
                     yield break; // MaxStreamDuration reached
                 }
+
                 if (!more) yield break;
 
                 // Busy stream: the next event may always be ready, so check the deadline before every event too.
-                if (Stopwatch.GetTimestamp() >= reauthAt && !await StillAuthorizedAsync().ConfigureAwait(false)) yield break;
+                if (Stopwatch.GetTimestamp() >= reauthAt && !await StillAuthorizedAsync().ConfigureAwait(false))
+                    yield break;
                 yield return events.Current;
             }
         }
@@ -792,36 +942,77 @@ internal sealed class TaskStreamer
         {
             stop.Cancel();
             if (move is { IsCompleted: false })
-            {
                 // An async iterator cannot be disposed while it runs; wait for the cancellation to reach it.
-                try { await move.ConfigureAwait(false); }
-                catch (Exception) { /* the stream is stopping anyway */ }
-            }
+                try
+                {
+                    await move.ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    /* the stream is stopping anyway */
+                }
+
             await events.DisposeAsync().ConfigureAwait(false);
         }
 
         // Asks the authorization handler again and moves the deadline.
         async ValueTask<bool> StillAuthorizedAsync()
         {
-            var allowed = await _authorization.AuthorizeAsync(call, operation, request, cancellationToken).ConfigureAwait(false)
-                && await _skills.StillAllowedAsync(operation, call, cancellationToken).ConfigureAwait(false);
+            var allowed = await _authorization.AuthorizeAsync(call, operation, request, cancellationToken)
+                              .ConfigureAwait(false)
+                          && await _skills.StillAllowedAsync(operation, call, cancellationToken).ConfigureAwait(false);
             // The stream just ends (the caller sees no error), so the audit trail is where the revoked access shows.
             if (!allowed)
             {
-                SecurityEventLog.Record(_options, A2ATelemetry.SecurityEventNames.PermissionDenied, operation.Name, call, AuthorizationFilter.TaskIdOf(request));
-                await OperationAuthorization.DeniedAsync(_audit, call, operation, AuthorizationFilter.TaskIdOf(request), "PermissionDenied").ConfigureAwait(false);
+                SecurityEventLog.Record(_options, A2ATelemetry.SecurityEventNames.PermissionDenied, operation.Name,
+                    call, AuthorizationFilter.TaskIdOf(request));
+                await OperationAuthorization
+                    .DeniedAsync(_audit, call, operation, AuthorizationFilter.TaskIdOf(request), "PermissionDenied")
+                    .ConfigureAwait(false);
             }
+
             reauthAt = Stopwatch.GetTimestamp() + Ticks(reauthEvery!.Value);
             return allowed;
         }
     }
 
-    private static TaskKey Key(ServerCallContext call, string taskId) => new(call.Tenant, call.Principal, taskId);
+    private static TaskKey Key(ServerCallContext call, string taskId)
+    {
+        return new TaskKey(call.Tenant, call.Principal, taskId);
+    }
 
-    private static string ScopeKey(string tenant, string taskId) => TaskExecutionEngine.ScopeKey(tenant, taskId);
+    private static string ScopeKey(string tenant, string taskId)
+    {
+        return TaskExecutionEngine.ScopeKey(tenant, taskId);
+    }
 
-    private AgentTask Shape(AgentTask task) => TaskShaper.Shape(task, null, _options.Limits);
+    private AgentTask Shape(AgentTask task)
+    {
+        return TaskShaper.Shape(task, null, _options.Limits);
+    }
 
-    private Task AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, string? taskId, CancellationToken ct) =>
-        _authorization.RequireAsync(_options, call, operation, request, taskId, _audit, ct);
+    private Task AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request,
+        string? taskId, CancellationToken ct)
+    {
+        return _authorization.RequireAsync(_options, call, operation, request, taskId, _audit, ct);
+    }
+
+    /// <summary>The last sequence a stream sent, and whether it sent the task's final event.</summary>
+    private sealed class StreamPosition(long last)
+    {
+        public long Last { get; set; } = last;
+
+        public bool Final { get; set; }
+    }
+
+    /// <summary>
+    ///     What an idle stream finds in the store: the last event sequence; <c>Gone</c> when the task no longer exists;
+    ///     <c>Terminal</c> when it is in a terminal state; <c>Stranded</c> when it is neither terminal nor interrupted and no
+    ///     execution of it runs on any instance. An interrupted task (input or auth required) has no execution and is never
+    ///     stranded.
+    /// </summary>
+    private readonly record struct LiveCheck(long LastSequence, bool Gone, bool Terminal, bool Stranded);
+
+    /// <summary>A task with its last and oldest retained event sequences, read together.</summary>
+    private readonly record struct StreamStart(AgentTask Task, long Last, long? Oldest);
 }

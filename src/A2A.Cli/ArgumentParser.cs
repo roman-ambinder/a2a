@@ -2,31 +2,46 @@ using System.Globalization;
 
 namespace A2A.Cli;
 
-/// <summary>One option of a command. A null <paramref name="Metavar"/> means a flag without a value.</summary>
+/// <summary>One option of a command. A null <paramref name="Metavar" /> means a flag without a value.</summary>
 internal sealed record OptionSpec(string Name, char? Short, string? Metavar, string Help, bool Repeatable = false)
 {
     public bool TakesValue => Metavar is not null;
 }
 
 /// <summary>The options and arguments one command accepts.</summary>
-internal sealed record CommandSpec(string Name, string Summary, string Usage, int MinPositionals, int MaxPositionals,
-    IReadOnlyList<OptionSpec> Options, Func<CommandContext, CancellationToken, Task<int>> Run, bool NeedsInterface = true);
+internal sealed record CommandSpec(
+    string Name,
+    string Summary,
+    string Usage,
+    int MinPositionals,
+    int MaxPositionals,
+    IReadOnlyList<OptionSpec> Options,
+    Func<CommandContext, CancellationToken, Task<int>> Run,
+    bool NeedsInterface = true);
 
 /// <summary>The result of parsing the arguments after the command name.</summary>
 internal sealed class ParsedArgs
 {
-    private readonly Dictionary<string, List<string>> _values = new(StringComparer.Ordinal);
     private readonly HashSet<string> _flags = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<string>> _values = new(StringComparer.Ordinal);
 
     public List<string> Positionals { get; } = [];
 
-    public bool Has(string name) => _flags.Contains(name) || _values.ContainsKey(name);
+    public bool Has(string name)
+    {
+        return _flags.Contains(name) || _values.ContainsKey(name);
+    }
 
     /// <summary>The value of an option, or null. A value that is empty counts as not given.</summary>
-    public string? Value(string name) =>
-        _values.TryGetValue(name, out var list) && list[^1].Length > 0 ? list[^1] : null;
+    public string? Value(string name)
+    {
+        return _values.TryGetValue(name, out var list) && list[^1].Length > 0 ? list[^1] : null;
+    }
 
-    public IReadOnlyList<string> Values(string name) => _values.TryGetValue(name, out var list) ? list : [];
+    public IReadOnlyList<string> Values(string name)
+    {
+        return _values.TryGetValue(name, out var list) ? list : [];
+    }
 
     public int? Int(string name, int min)
     {
@@ -47,12 +62,16 @@ internal sealed class ParsedArgs
     public double? Seconds(string name)
     {
         if (Value(name) is not { } text) return null;
-        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) || !(n > 0) || n > int.MaxValue)
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) || !(n > 0) ||
+            n > int.MaxValue)
             throw CliException.Usage($"Option '--{name}' needs a number of seconds above 0.");
         return n;
     }
 
-    internal void AddFlag(string name) => _flags.Add(name);
+    internal void AddFlag(string name)
+    {
+        _flags.Add(name);
+    }
 
     internal void AddValue(string name, string value)
     {
@@ -62,8 +81,8 @@ internal sealed class ParsedArgs
 }
 
 /// <summary>
-/// A small parser for <c>--name value</c>, <c>--name=value</c>, short options (<c>-a value</c>) and <c>--</c>.
-/// Options may appear anywhere. A lone <c>-</c> is a positional argument.
+///     A small parser for <c>--name value</c>, <c>--name=value</c>, short options (<c>-a value</c>) and <c>--</c>.
+///     Options may appear anywhere. A lone <c>-</c> is a positional argument.
 /// </summary>
 internal static class ArgumentParser
 {
@@ -74,6 +93,7 @@ internal static class ArgumentParser
             if (a == "--") return false;
             if (a is "--help" or "-h") return true;
         }
+
         return false;
     }
 
@@ -98,7 +118,7 @@ internal static class ArgumentParser
                 var name = eq < 0 ? arg[2..] : arg[2..eq];
                 if (eq >= 0) inline = arg[(eq + 1)..];
                 option = options.FirstOrDefault(o => o.Name == name)
-                    ?? throw CliException.Usage($"Unknown option '--{name}'.");
+                         ?? throw CliException.Usage($"Unknown option '--{name}'.");
             }
             else if (arg.Length > 1 && arg[0] == '-')
             {

@@ -1,6 +1,9 @@
+using A2A.Server.Agents;
+using A2A.Server.Authorization;
 using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
 using A2A.Server.Push;
+using A2A.Server.Retention;
 using A2A.Server.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -9,12 +12,16 @@ using Microsoft.Extensions.Logging;
 namespace A2A.Server;
 
 /// <summary>
-/// Logs, once at startup, the mixes of durable and process-local parts that work on one instance but break across restarts or
-/// several instances, a shared event bus over in-memory stores, a durable task store without the (opt-in) retention sweep,
-/// and per-tenant agents behind the default allow-all authorization handler. Never throws: a host that does not use the
-/// feature in question must still start.
+///     Logs, once at startup, the mixes of durable and process-local parts that work on one instance but break across
+///     restarts or
+///     several instances, a shared event bus over in-memory stores, a durable task store without the (opt-in) retention
+///     sweep,
+///     and per-tenant agents behind the default allow-all authorization handler. Never throws: a host that does not use
+///     the
+///     feature in question must still start.
 /// </summary>
-internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A2AStartupDiagnostics> logger) : IHostedService
+internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A2AStartupDiagnostics> logger)
+    : IHostedService
 {
     internal const string EphemeralProtectorMessage =
         "Push secrets are protected with a per-process key (EphemeralPushSecretProtector), but the push outbox is durable ({Outbox}). " +
@@ -69,6 +76,12 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
             // The registrations themselves are broken; the request handler reports that when it is first used.
             ServerLog.StartupDiagnosticsSkipped(logger, ex);
         }
+
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
         return Task.CompletedTask;
     }
 
@@ -77,13 +90,15 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
         if (services.GetService<ArtifactObjectStore>() is null) return;
         var storage = services.GetService<A2AServerOptions>()?.ArtifactStorage;
         if (storage is { PublicBaseUrl: null, PublicBaseUrlResolver: null })
-            throw new InvalidOperationException("An ArtifactObjectStore is registered, but A2AServerOptions.ArtifactStorage.PublicBaseUrl (or PublicBaseUrlResolver) is not set. Artifact links need a base URL.");
+            throw new InvalidOperationException(
+                "An ArtifactObjectStore is registered, but A2AServerOptions.ArtifactStorage.PublicBaseUrl (or PublicBaseUrlResolver) is not set. Artifact links need a base URL.");
     }
 
     private void Check()
     {
         var outbox = services.GetService<PushOutbox>();
-        if (outbox is not null and not InMemoryPushOutbox && services.GetService<IPushSecretProtector>() is EphemeralPushSecretProtector)
+        if (outbox is not null and not InMemoryPushOutbox &&
+            services.GetService<IPushSecretProtector>() is EphemeralPushSecretProtector)
             ServerLog.EphemeralProtectorWithDurableOutbox(logger, outbox.GetType().Name);
 
         var tasks = services.GetService<TaskStore>();
@@ -95,27 +110,32 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
             var inMemory = new List<string>();
             if (tasks is InMemoryTaskStore) inMemory.Add(nameof(InMemoryTaskStore));
             if (services.GetService<EventStore>() is InMemoryEventStore) inMemory.Add(nameof(InMemoryEventStore));
-            if (services.GetService<IdempotencyStore>() is InMemoryIdempotencyStore) inMemory.Add(nameof(InMemoryIdempotencyStore));
-            if (inMemory.Count > 0) ServerLog.SharedBusWithInMemoryStores(logger, bus.GetType().Name, string.Join(", ", inMemory));
+            if (services.GetService<IdempotencyStore>() is InMemoryIdempotencyStore)
+                inMemory.Add(nameof(InMemoryIdempotencyStore));
+            if (inMemory.Count > 0)
+                ServerLog.SharedBusWithInMemoryStores(logger, bus.GetType().Name, string.Join(", ", inMemory));
         }
-        if (tasks is not null and not InMemoryTaskStore && services.GetService<ExecutionCoordinator>() is InMemoryExecutionCoordinator)
+
+        if (tasks is not null and not InMemoryTaskStore &&
+            services.GetService<ExecutionCoordinator>() is InMemoryExecutionCoordinator)
             ServerLog.LocalCoordinatorWithDurableStore(logger, tasks.GetType().Name);
 
-        if (tasks is not null and not InMemoryTaskStore && services.GetService<Retention.A2ARetentionService>() is null)
+        if (tasks is not null and not InMemoryTaskStore && services.GetService<A2ARetentionService>() is null)
             ServerLog.RetentionOffWithDurableStore(logger, tasks.GetType().Name);
 
-        if (services.GetService<A2AServerOptions>()?.ArtifactStorage.Uploads.Enabled == true && services.GetService<Retention.A2ARetentionService>() is null)
+        if (services.GetService<A2AServerOptions>()?.ArtifactStorage.Uploads.Enabled == true &&
+            services.GetService<A2ARetentionService>() is null)
             ServerLog.UploadsWithoutRetention(logger);
 
-        if (tasks is not null and not InMemoryTaskStore && services.GetService<ArtifactObjectStore>() is InMemoryArtifactObjectStore)
+        if (tasks is not null and not InMemoryTaskStore &&
+            services.GetService<ArtifactObjectStore>() is InMemoryArtifactObjectStore)
             ServerLog.InMemoryObjectsWithDurableStore(logger, tasks.GetType().Name);
 
         // Not RequestCards.IsPerTenant: a card provider that does not build on AgentCardProvider is not seen there.
         // No resolver is registered by default, so any resolver is the host's.
-        if (services.GetService<Authorization.A2AAuthorizationHandler>() is Authorization.AllowAllAuthorizationHandler
-            && (services.GetService<Agents.TenantCardProvider>() is not null || services.GetService<Agents.AgentExecutorResolver>() is not null))
+        if (services.GetService<A2AAuthorizationHandler>() is AllowAllAuthorizationHandler
+            && (services.GetService<TenantCardProvider>() is not null ||
+                services.GetService<AgentExecutorResolver>() is not null))
             ServerLog.TenantsWithoutAuthorization(logger);
     }
-
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

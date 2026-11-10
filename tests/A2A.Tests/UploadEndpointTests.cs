@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
-using A2A.Client;
 using A2A.Integrity;
 using A2A.Json;
 using A2A.Server;

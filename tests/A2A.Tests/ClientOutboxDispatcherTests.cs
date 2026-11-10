@@ -1,4 +1,3 @@
-using System.Net.Http;
 using A2A.Client;
 using A2A.Client.Outbox;
 using A2A.Client.Push;

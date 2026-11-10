@@ -7,7 +7,9 @@ internal static class CardCommand
     {
         var card = c.Connection.Card;
         if (c.Out.Json) c.Out.Line(Render.CardJson(card));
-        else foreach (var line in Render.CardText(card, c.Out)) c.Out.Line(line);
+        else
+            foreach (var line in Render.CardText(card, c.Out))
+                c.Out.Line(line);
         return Task.FromResult(ExitCodes.Success);
     }
 }

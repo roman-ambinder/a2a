@@ -23,7 +23,10 @@ var card = new AgentCard
     Capabilities = new AgentCapabilities { Extensions = [Elicitation.CreateExtension()] },
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
-    Skills = [new AgentSkill { Id = "book", Name = "Book a room", Description = "Books a hotel room", Tags = ["booking"] }],
+    Skills =
+    [
+        new AgentSkill { Id = "book", Name = "Book a room", Description = "Books a hotel room", Tags = ["booking"] }
+    ]
 };
 
 // AllowAnonymous is fine for a sample that only listens on loopback. A real agent needs authentication
@@ -49,7 +52,9 @@ foreach (var reply in new[] { "accept", "decline", "cancel", "text" })
     Console.WriteLine($"--- run: {reply}");
 
     // The client opts in with UseElicitation. Without it the agent sends only the text.
-    var started = (await client.SendMessageAsync(Message.FromUser("Book me a room"), options: new A2ARequestOptions().UseElicitation())).AsTask();
+    var started =
+        (await client.SendMessageAsync(Message.FromUser("Book me a room"),
+            options: new A2ARequestOptions().UseElicitation())).AsTask();
     Console.WriteLine($"agent asks: {started.Status.Message!.GetText()}");
 
     var form = started.GetElicitationForm();
@@ -58,13 +63,15 @@ foreach (var reply in new[] { "accept", "decline", "cancel", "text" })
     // A real app must show this form to a person, say which agent is asking (by its card origin, not only its name),
     // and let the person fill it in. Never let a model fill it in alone: a hostile agent could ask for data from its context.
     foreach (var field in form.Fields)
-        Console.WriteLine($"  field {field.Name} ({field.Type}{(field.Required ? ", required" : "")}){(field.Options is { } o ? $": {string.Join("/", o)}" : "")}");
+        Console.WriteLine(
+            $"  field {field.Name} ({field.Type}{(field.Required ? ", required" : "")}){(field.Options is { } o ? $": {string.Join("/", o)}" : "")}");
 
     AgentTask done;
     switch (reply)
     {
         case "accept":
-            var answer = ElicitationAnswer.Accept(form, new ElicitationValues { { "city", "Oslo" }, { "nights", 2 }, { "room", "double" }, { "late", true } });
+            var answer = ElicitationAnswer.Accept(form,
+                new ElicitationValues { { "city", "Oslo" }, { "nights", 2 }, { "room", "double" }, { "late", true } });
             done = (await client.AnswerElicitationAsync(started, answer)).AsTask();
             break;
         case "decline":
@@ -75,9 +82,11 @@ foreach (var reply in new[] { "accept", "decline", "cancel", "text" })
             break;
         default:
             // A client can always answer in words, with the same task id.
-            done = (await client.SendMessageAsync(Message.FromUser("Bergen, 3 nights", started.ContextId, started.Id))).AsTask();
+            done = (await client.SendMessageAsync(Message.FromUser("Bergen, 3 nights", started.ContextId, started.Id)))
+                .AsTask();
             break;
     }
+
     Console.WriteLine($"state: {done.Status.State}");
     Console.WriteLine($"agent says: {done.Status.Message!.GetText()}");
 }
@@ -87,7 +96,8 @@ await app.StopAsync();
 /// <summary>Asks for a booking form, then books, or stops, depending on the answer.</summary>
 internal sealed class BookingAgent : IAgentExecutor
 {
-    public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken)
+    public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater,
+        CancellationToken cancellationToken)
     {
         // The form is peer input in the other direction too: a client may send anything. The server already checked the
         // answer against the form, so the types and limits hold. The values are still what the user typed.
@@ -103,10 +113,12 @@ internal sealed class BookingAgent : IAgentExecutor
                 case ElicitationAction.Decline:
                     await updater.FailAsync("No booking: the user declined to give details.", cancellationToken);
                     break;
-                default: // Cancel: the user dismissed the form without a decision. The server moves no state: the agent decides.
+                default
+                    : // Cancel: the user dismissed the form without a decision. The server moves no state: the agent decides.
                     await updater.CancelAsync("Booking dismissed.", cancellationToken);
                     break;
             }
+
             return;
         }
 
@@ -123,15 +135,20 @@ internal sealed class BookingAgent : IAgentExecutor
             ElicitationField.Text("city", "City", required: true, maxLength: 100),
             ElicitationField.Integer("nights", "Nights", required: true, minimum: 1, maximum: 30),
             ElicitationField.Choice("room", ["single", "double"], "Room type"),
-            ElicitationField.Boolean("late", "Late check-in"),
+            ElicitationField.Boolean("late", "Late check-in")
         ]);
-        await updater.RequireInputAsync(context, form, "Which city, how many nights, and what room do you want?", cancellationToken);
+        await updater.RequireInputAsync(context, form, "Which city, how many nights, and what room do you want?",
+            cancellationToken);
     }
 }
 
 internal static class SampleExtensions
 {
     /// <summary>The task of a response. A task that waits for input always comes back as a task, not a plain message.</summary>
-    public static AgentTask AsTask(this SendMessageResponse response) =>
-        response is TaskResponse { Task: var task } ? task : throw new InvalidOperationException("The agent answered with a message, not a task.");
+    public static AgentTask AsTask(this SendMessageResponse response)
+    {
+        return response is TaskResponse { Task: var task }
+            ? task
+            : throw new InvalidOperationException("The agent answered with a message, not a task.");
+    }
 }

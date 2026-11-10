@@ -1,5 +1,4 @@
 using A2A.Diagnostics;
-using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 

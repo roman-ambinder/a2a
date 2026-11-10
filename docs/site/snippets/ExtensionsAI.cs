@@ -1,9 +1,7 @@
 using A2A.Client;
 using A2A.Extensions.AI;
-using A2A.Server;
 using A2A.Server.AspNetCore;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.ExtensionsAI;
 

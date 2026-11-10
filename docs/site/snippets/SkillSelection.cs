@@ -2,7 +2,6 @@ using A2A.Client;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using Selection = A2A.Skills.SkillSelection;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.SkillSelection;
 

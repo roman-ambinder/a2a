@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using A2A.Client.Sse;
 using A2A.Json;
 using A2A.JsonRpc;
 using A2A.Server.Push;

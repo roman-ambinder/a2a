@@ -5,7 +5,6 @@ using A2A.Client;
 using A2A.Server;
 using A2A.Server.Agents;
 using A2A.Server.Authorization;
-using A2A.Server.Pipeline;
 using A2A.Skills;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;

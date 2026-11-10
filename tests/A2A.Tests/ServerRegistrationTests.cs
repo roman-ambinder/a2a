@@ -1,7 +1,6 @@
 using A2A.Server;
 using A2A.Server.Push;
 using A2A.Server.Storage;
-using A2A.Server.Streaming;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 

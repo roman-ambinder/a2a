@@ -8,18 +8,22 @@ app.MapA2A("/", o => o.EnableV03Compat()).RequireAuthorization();
 
 What it adds, all inside the group `MapA2A` returns (so authorization, rate limiting and CORS on that group cover it):
 
-- v0.3 JSON-RPC methods on the same URL: `message/send`, `message/stream`, `tasks/get`, `tasks/cancel`, `tasks/resubscribe`,
+- v0.3 JSON-RPC methods on the same URL: `message/send`, `message/stream`, `tasks/get`, `tasks/cancel`,
+  `tasks/resubscribe`,
   `agent/getAuthenticatedExtendedCard`. v1.0 methods are untouched.
 - v0.3 HTTP+JSON routes under `{pattern}/v1/...` (and `{pattern}/{tenant}/v1/...`). A tenant named `v1` on a path-tenant
   host is shadowed by these routes.
-- One blended Agent Card at `/.well-known/agent-card.json`: the v1.0 card plus the v0.3 members. v1.0 clients and the card
+- One blended Agent Card at `/.well-known/agent-card.json`: the v1.0 card plus the v0.3 members. v1.0 clients and the
+  card
   signature are not affected. The added v0.3 members are not covered by the signature.
 
-Not supported (answered with `-32003`): v0.3 push notification configs, and a `pushNotificationConfig` in a send. `tasks/list`
+Not supported (answered with `-32003`): v0.3 push notification configs, and a `pushNotificationConfig` in a send.
+`tasks/list`
 does not exist in v0.3. gRPC is not served. A v0.3 call that sends `A2A-Version` 1.0 or later is refused with
 `VersionNotSupported`; a v1.0 method without the header is still refused as before.
 
-`capabilities.pushNotifications` is shared by both versions. The blended card keeps the v1.0 value; the extended card for v0.3
+`capabilities.pushNotifications` is shared by both versions. The blended card keeps the v1.0 value; the extended card
+for v0.3
 says `false`.
 
 Fields v0.3 cannot carry are counted by the meter `A2A`, counter `a2a.compat.v0_3.dropped`. v0.3 traffic is counted by

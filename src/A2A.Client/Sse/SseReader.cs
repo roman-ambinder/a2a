@@ -13,16 +13,23 @@ public sealed record SseEvent(string Data, string? EventType, string? Id)
     /// <summary>The id field of this event only. Null when this event carried no <c>id:</c> line. Not part of equality.</summary>
     public string? FrameId { get; init; }
 
-    /// <inheritdoc/>
-    public bool Equals(SseEvent? other) => other is not null && Data == other.Data && EventType == other.EventType && Id == other.Id;
+    /// <inheritdoc />
+    public bool Equals(SseEvent? other)
+    {
+        return other is not null && Data == other.Data && EventType == other.EventType && Id == other.Id;
+    }
 
-    /// <inheritdoc/>
-    public override int GetHashCode() => HashCode.Combine(Data, EventType, Id);
+    /// <inheritdoc />
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(Data, EventType, Id);
+    }
 }
 
 /// <summary>
-/// A dispatched event whose data is still UTF-8 bytes in the reader's buffer (<see cref="SseReader.ReadFramesAsync"/>). One
-/// instance per stream, reused: use it before the next read.
+///     A dispatched event whose data is still UTF-8 bytes in the reader's buffer (<see cref="SseReader.ReadFramesAsync" />
+///     ). One
+///     instance per stream, reused: use it before the next read.
 /// </summary>
 internal sealed class SseFrame
 {
@@ -38,68 +45,96 @@ internal sealed class SseFrame
     /// <summary>The id field of this event only, or null.</summary>
     public string? FrameId { get; set; }
 
-    /// <summary>The data decoded as text, as <see cref="SseEvent.Data"/> has it.</summary>
+    /// <summary>The data decoded as text, as <see cref="SseEvent.Data" /> has it.</summary>
     public string DataText => Encoding.UTF8.GetString(Data.Span);
 
     /// <summary>A copy that does not depend on the reader's buffer.</summary>
-    public SseEvent ToEvent() => new(DataText, EventType, Id) { FrameId = FrameId };
+    public SseEvent ToEvent()
+    {
+        return new SseEvent(DataText, EventType, Id) { FrameId = FrameId };
+    }
 }
 
-/// <summary>Server-Sent Events parser (WHATWG HTML §9.2.6). Handles CRLF/LF/CR, multi-line data, comments, and a UTF-8 BOM.</summary>
+/// <summary>
+///     Server-Sent Events parser (WHATWG HTML §9.2.6). Handles CRLF/LF/CR, multi-line data, comments, and a UTF-8
+///     BOM.
+/// </summary>
 /// <remarks>
-/// Lines are found and their field names compared as UTF-8 bytes in a pooled buffer; text is decoded once per value, and the
-/// <see cref="SseEvent.Data"/> of an event is decoded once when the event is dispatched. One event may hold at most
-/// <see cref="DefaultMaxEventBytes"/> bytes of data by default (a longer line, or more lines without a blank line, is refused
-/// with <see cref="A2AErrorCode.InvalidAgentResponse"/>), so a hostile agent cannot exhaust memory. The stream is disposed when reading ends.
+///     Lines are found and their field names compared as UTF-8 bytes in a pooled buffer; text is decoded once per value,
+///     and the
+///     <see cref="SseEvent.Data" /> of an event is decoded once when the event is dispatched. One event may hold at most
+///     <see cref="DefaultMaxEventBytes" /> bytes of data by default (a longer line, or more lines without a blank line, is
+///     refused
+///     with <see cref="A2AErrorCode.InvalidAgentResponse" />), so a hostile agent cannot exhaust memory. The stream is
+///     disposed when reading ends.
 /// </remarks>
 public static class SseReader
 {
-    /// <summary>The most data bytes one event may hold unless a caller says otherwise: 16 MiB, the size limit of an agent response.</summary>
+    /// <summary>
+    ///     The most data bytes one event may hold unless a caller says otherwise: 16 MiB, the size limit of an agent
+    ///     response.
+    /// </summary>
     public const int DefaultMaxEventBytes = 16 * 1024 * 1024;
 
     private const int InitialBufferSize = 4096;
     private const int FieldPrefix = 6; // "data: ": a line of exactly the limit in data is this much longer
     private static ReadOnlySpan<byte> Bom => [0xEF, 0xBB, 0xBF];
 
-    /// <summary>Reads events from <paramref name="stream"/> until it ends. An event may hold at most <see cref="DefaultMaxEventBytes"/> bytes of data.</summary>
-    /// <exception cref="A2AException"><see cref="A2AErrorCode.InvalidAgentResponse"/> when an event is larger than the limit.</exception>
+    /// <summary>
+    ///     Reads events from <paramref name="stream" /> until it ends. An event may hold at most
+    ///     <see cref="DefaultMaxEventBytes" /> bytes of data.
+    /// </summary>
+    /// <exception cref="A2AException"><see cref="A2AErrorCode.InvalidAgentResponse" /> when an event is larger than the limit.</exception>
 #pragma warning disable RS0027 // shipped with an optional token; the overload below must not take one (RS0026 would follow)
     public static IAsyncEnumerable<SseEvent> ReadAsync(Stream stream, CancellationToken cancellationToken = default) =>
         ReadCoreAsync(stream, DefaultMaxEventBytes, cancellationToken);
 #pragma warning restore RS0027
 
     /// <summary>
-    /// Reads events from <paramref name="stream"/> until it ends. An event may hold at most <paramref name="maxEventBytes"/> bytes
-    /// of data (the lines joined with <c>\n</c>). A longer line, or more lines without a blank line, ends the read with
-    /// <see cref="A2AErrorCode.InvalidAgentResponse"/>, before the memory for it is taken.
+    ///     Reads events from <paramref name="stream" /> until it ends. An event may hold at most
+    ///     <paramref name="maxEventBytes" /> bytes
+    ///     of data (the lines joined with <c>\n</c>). A longer line, or more lines without a blank line, ends the read with
+    ///     <see cref="A2AErrorCode.InvalidAgentResponse" />, before the memory for it is taken.
     /// </summary>
     /// <param name="stream">The stream to read. It is disposed when reading ends.</param>
     /// <param name="maxEventBytes">The most data bytes one event may hold. At least 1.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxEventBytes"/> is below 1. Thrown by this call, not by the first read.</exception>
-    /// <exception cref="A2AException"><see cref="A2AErrorCode.InvalidAgentResponse"/> when an event is larger than the limit.</exception>
-    public static IAsyncEnumerable<SseEvent> ReadAsync(Stream stream, int maxEventBytes, CancellationToken cancellationToken)
+    /// <exception cref="ArgumentOutOfRangeException">
+    ///     <paramref name="maxEventBytes" /> is below 1. Thrown by this call, not by
+    ///     the first read.
+    /// </exception>
+    /// <exception cref="A2AException"><see cref="A2AErrorCode.InvalidAgentResponse" /> when an event is larger than the limit.</exception>
+    public static IAsyncEnumerable<SseEvent> ReadAsync(Stream stream, int maxEventBytes,
+        CancellationToken cancellationToken)
     {
-        if (maxEventBytes < 1) throw new ArgumentOutOfRangeException(nameof(maxEventBytes), maxEventBytes, "The event size limit must be at least 1.");
+        if (maxEventBytes < 1)
+            throw new ArgumentOutOfRangeException(nameof(maxEventBytes), maxEventBytes,
+                "The event size limit must be at least 1.");
         return ReadCoreAsync(stream, maxEventBytes, cancellationToken);
     }
 
-    private static A2AException TooLarge(int maxEventBytes) =>
-        new(A2AErrorCode.InvalidAgentResponse, $"The agent sent a server-sent event larger than the limit of {maxEventBytes} bytes.");
+    private static A2AException TooLarge(int maxEventBytes)
+    {
+        return new A2AException(A2AErrorCode.InvalidAgentResponse,
+            $"The agent sent a server-sent event larger than the limit of {maxEventBytes} bytes.");
+    }
 
-    private static async IAsyncEnumerable<SseEvent> ReadCoreAsync(Stream stream, int maxEventBytes, [EnumeratorCancellation] CancellationToken cancellationToken)
+    private static async IAsyncEnumerable<SseEvent> ReadCoreAsync(Stream stream, int maxEventBytes,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await foreach (var frame in ReadFramesAsync(stream, maxEventBytes, cancellationToken).ConfigureAwait(false))
             yield return frame.ToEvent();
     }
 
     /// <summary>
-    /// Reads the events of <paramref name="stream"/> as <see cref="SseFrame"/>s: the data stays UTF-8 bytes in the reader's
-    /// buffer. The same frame instance is returned every time and its data is valid only until the next read, so a caller
-    /// uses it at once. The transports parse JSON straight from it; <see cref="ReadAsync(Stream, CancellationToken)"/>
-    /// decodes it to a <see cref="SseEvent"/>.
+    ///     Reads the events of <paramref name="stream" /> as <see cref="SseFrame" />s: the data stays UTF-8 bytes in the
+    ///     reader's
+    ///     buffer. The same frame instance is returned every time and its data is valid only until the next read, so a caller
+    ///     uses it at once. The transports parse JSON straight from it; <see cref="ReadAsync(Stream, CancellationToken)" />
+    ///     decodes it to a <see cref="SseEvent" />.
     /// </summary>
-    internal static async IAsyncEnumerable<SseFrame> ReadFramesAsync(Stream stream, int maxEventBytes, [EnumeratorCancellation] CancellationToken cancellationToken)
+    internal static async IAsyncEnumerable<SseFrame> ReadFramesAsync(Stream stream, int maxEventBytes,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
         var parser = new LineParser(maxEventBytes);
@@ -108,8 +143,8 @@ public static class SseReader
         {
             int start = 0, end = 0;
             var eof = false;
-            var atStart = true;     // a BOM is only skipped at the very start of the stream
-            var skipLf = false;     // the last line ended with CR: a LF right after it belongs to the same line break
+            var atStart = true; // a BOM is only skipped at the very start of the stream
+            var skipLf = false; // the last line ended with CR: a LF right after it belongs to the same line break
             while (true)
             {
                 if (atStart && !eof && end - start < Bom.Length && Bom.StartsWith(buffer.AsSpan(start, end - start)))
@@ -123,11 +158,13 @@ public static class SseReader
                         if (buffer.AsSpan(start, end - start).StartsWith(Bom)) start += Bom.Length;
                         atStart = false;
                     }
+
                     if (skipLf && start < end)
                     {
                         if (buffer[start] == (byte)'\n') start++;
                         skipLf = false;
                     }
+
                     var newline = buffer.AsSpan(start, end - start).IndexOfAny((byte)'\r', (byte)'\n');
                     if (newline >= 0)
                     {
@@ -139,10 +176,11 @@ public static class SseReader
                         if (parser.Process(buffer.AsSpan(lineStart, newline))) yield return parser.Frame;
                         continue;
                     }
+
                     // End of stream: per spec, an incomplete line or event is discarded.
                     if (eof) yield break;
                     // A line that is still open and already longer than any allowed line: refuse it before the buffer grows.
-                    if ((long)(end - start) > (long)maxEventBytes + FieldPrefix) throw TooLarge(maxEventBytes);
+                    if (end - start > (long)maxEventBytes + FieldPrefix) throw TooLarge(maxEventBytes);
                 }
 
                 // Need more bytes: make room (move the partial line to the front, or grow), then read.
@@ -161,6 +199,7 @@ public static class SseReader
                     buffer = bigger;
                     used = end;
                 }
+
                 cancellationToken.ThrowIfCancellationRequested();
                 var read = await stream.ReadAsync(buffer.AsMemory(end), cancellationToken).ConfigureAwait(false);
                 if (read == 0) eof = true;
@@ -182,17 +221,27 @@ public static class SseReader
     {
         private byte[] _data = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
         private int _dataLength;
-        private int _dataUsed;      // high-water mark, cleared before the buffer goes back to the pool
-        private bool _hasData;
+        private int _dataUsed; // high-water mark, cleared before the buffer goes back to the pool
         private string? _eventType;
+        private string? _frameId;
+        private bool _hasData;
         private string? _lastEventType;
         private string? _lastId;
-        private string? _frameId;
 
-        /// <summary>The event the last <see cref="Process"/> call dispatched. Reused; its data is valid until the next call.</summary>
+        /// <summary>The event the last <see cref="Process" /> call dispatched. Reused; its data is valid until the next call.</summary>
         public SseFrame Frame { get; } = new();
 
-        /// <summary>Applies one line (without its terminator). True when a blank line dispatched an event into <see cref="Frame"/>.</summary>
+        public void Dispose()
+        {
+            _data.AsSpan(0, Math.Max(_dataUsed, _dataLength)).Clear();
+            ArrayPool<byte>.Shared.Return(_data);
+            _data = [];
+        }
+
+        /// <summary>
+        ///     Applies one line (without its terminator). True when a blank line dispatched an event into
+        ///     <see cref="Frame" />.
+        /// </summary>
         public bool Process(ReadOnlySpan<byte> line)
         {
             if (line.IsEmpty)
@@ -207,6 +256,7 @@ public static class SseReader
                     Frame.Id = _lastId;
                     Frame.FrameId = _frameId;
                 }
+
                 _dataLength = 0;
                 _hasData = false;
                 _eventType = null;
@@ -246,16 +296,21 @@ public static class SseReader
             {
                 if (value.IndexOf((byte)0) < 0) _lastId = _frameId = Encoding.UTF8.GetString(value);
             }
+
             // "retry" and unknown fields are ignored.
             return false;
         }
 
-        /// <summary>True when <paramref name="value"/> is the UTF-8 of <paramref name="text"/> (ASCII compare; anything else is decoded).</summary>
+        /// <summary>
+        ///     True when <paramref name="value" /> is the UTF-8 of <paramref name="text" /> (ASCII compare; anything else is
+        ///     decoded).
+        /// </summary>
         private static bool Matches(ReadOnlySpan<byte> value, string text)
         {
             if (value.Length != text.Length) return false;
             for (var i = 0; i < value.Length; i++)
-                if (value[i] != text[i] || value[i] > 0x7F) return false;
+                if (value[i] != text[i] || value[i] > 0x7F)
+                    return false;
             return true;
         }
 
@@ -283,13 +338,6 @@ public static class SseReader
             ArrayPool<byte>.Shared.Return(_data);
             _data = bigger;
             _dataUsed = _dataLength;
-        }
-
-        public void Dispose()
-        {
-            _data.AsSpan(0, Math.Max(_dataUsed, _dataLength)).Clear();
-            ArrayPool<byte>.Shared.Return(_data);
-            _data = [];
         }
     }
 }

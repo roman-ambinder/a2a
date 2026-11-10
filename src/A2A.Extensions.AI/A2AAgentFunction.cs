@@ -8,14 +8,16 @@ using Microsoft.Extensions.AI;
 namespace A2A.Extensions.AI;
 
 /// <summary>
-/// An AI tool that sends a message to a remote A2A agent and returns what it answered. Create it with
-/// <see cref="A2AClientAIExtensions.AsAIFunction"/>.
+///     An AI tool that sends a message to a remote A2A agent and returns what it answered. Create it with
+///     <see cref="A2AClientAIExtensions.AsAIFunction" />.
 /// </summary>
 /// <remarks>
-/// The result is a JSON object with <c>state</c>, <c>taskId</c>, <c>contextId</c>, <c>remoteContent</c>, <c>truncated</c>,
-/// <c>nonTextParts</c> and <c>notice</c>. Non-text parts are counted, never inlined. Failed, rejected, canceled, input-required
-/// and auth-required tasks are results with their state, not exceptions. Remote content is untrusted: see
-/// <see cref="A2AAgentFunctionOptions.UntrustedContentNotice"/>.
+///     The result is a JSON object with <c>state</c>, <c>taskId</c>, <c>contextId</c>, <c>remoteContent</c>,
+///     <c>truncated</c>,
+///     <c>nonTextParts</c> and <c>notice</c>. Non-text parts are counted, never inlined. Failed, rejected, canceled,
+///     input-required
+///     and auth-required tasks are results with their state, not exceptions. Remote content is untrusted: see
+///     <see cref="A2AAgentFunctionOptions.UntrustedContentNotice" />.
 /// </remarks>
 public sealed class A2AAgentFunction : AIFunction
 {
@@ -43,11 +45,13 @@ public sealed class A2AAgentFunction : AIFunction
     public override JsonElement JsonSchema => Schema;
 
     /// <inheritdoc />
-    protected override async ValueTask<object?> InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken)
+    protected override async ValueTask<object?> InvokeCoreAsync(AIFunctionArguments arguments,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         var text = GetString(arguments, "message");
-        if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("The 'message' argument is required.", nameof(arguments));
+        if (string.IsNullOrWhiteSpace(text))
+            throw new ArgumentException("The 'message' argument is required.", nameof(arguments));
         var contextId = GetString(arguments, "contextId");
         var taskId = GetString(arguments, "taskId");
 
@@ -56,20 +60,26 @@ public sealed class A2AAgentFunction : AIFunction
         string? remoteTaskId = null;
         try
         {
-            var known = await RemoteAgentSupport.LookupKnownAsync(_client, string.IsNullOrEmpty(taskId) ? null : taskId, _options.RequestOptions, cts.Token, cancellationToken).ConfigureAwait(false);
-            var message = Message.FromUser(text, string.IsNullOrEmpty(contextId) ? null : contextId, string.IsNullOrEmpty(taskId) ? null : taskId);
-            var response = await _client.SendMessageAsync(message, null, _options.RequestOptions, cts.Token).ConfigureAwait(false);
+            var known = await RemoteAgentSupport.LookupKnownAsync(_client, string.IsNullOrEmpty(taskId) ? null : taskId,
+                _options.RequestOptions, cts.Token, cancellationToken).ConfigureAwait(false);
+            var message = Message.FromUser(text, string.IsNullOrEmpty(contextId) ? null : contextId,
+                string.IsNullOrEmpty(taskId) ? null : taskId);
+            var response = await _client.SendMessageAsync(message, null, _options.RequestOptions, cts.Token)
+                .ConfigureAwait(false);
             switch (response)
             {
                 case MessageResponse reply:
-                    return BuildResult(TaskState.Completed, reply.Message.TaskId, reply.Message.ContextId, DescribeMessage(reply.Message));
+                    return BuildResult(TaskState.Completed, reply.Message.TaskId, reply.Message.ContextId,
+                        DescribeMessage(reply.Message));
                 case TaskResponse { Task: var task }:
                     remoteTaskId = task.Id;
                     if (RemoteAgentSupport.NeedsWait(task.Status.State))
-                        task = await _client.WaitForTaskAsync(task.Id, null, _options.RequestOptions, cts.Token).ConfigureAwait(false);
+                        task = await _client.WaitForTaskAsync(task.Id, null, _options.RequestOptions, cts.Token)
+                            .ConfigureAwait(false);
                     var fresh = task.Artifacts?.Where(a => !known.ArtifactIds.Contains(a.ArtifactId)).ToList();
                     if (fresh is not null && _options.OnArtifactReceived is { } hook)
-                        foreach (var artifact in fresh) await hook(artifact, cts.Token).ConfigureAwait(false);
+                        foreach (var artifact in fresh)
+                            await hook(artifact, cts.Token).ConfigureAwait(false);
                     return BuildResult(task, fresh);
                 default:
                     throw new InvalidOperationException("The remote agent sent an unknown response.");
@@ -97,27 +107,34 @@ public sealed class A2AAgentFunction : AIFunction
         }
     }
 
-    private static string? GetString(AIFunctionArguments arguments, string key) =>
-        arguments.TryGetValue(key, out var value)
+    private static string? GetString(AIFunctionArguments arguments, string key)
+    {
+        return arguments.TryGetValue(key, out var value)
             ? value switch
             {
                 string s => s,
                 JsonElement { ValueKind: JsonValueKind.String } e => e.GetString(),
-                _ => null,
+                _ => null
             }
             : null;
+    }
 
     private JsonElement BuildResult(AgentTask task, List<Artifact>? artifacts)
     {
         var content = new RemoteContent();
         // An interrupted task asks something: the question is the content. Otherwise the artifacts, else the status message.
-        if (task.Status.State.IsInterrupted() && task.Status.Message is { } question) content.AddBlock(question.Parts);
+        if (task.Status.State.IsInterrupted() && task.Status.Message is { } question)
+        {
+            content.AddBlock(question.Parts);
+        }
         else
         {
             if (artifacts is not null)
-                foreach (var artifact in artifacts) content.AddBlock(artifact.Parts);
+                foreach (var artifact in artifacts)
+                    content.AddBlock(artifact.Parts);
             if (content.IsEmpty && task.Status.Message is { } status) content.AddBlock(status.Parts);
         }
+
         return BuildResult(task.Status.State, task.Id, task.ContextId, content);
     }
 
@@ -141,7 +158,8 @@ public sealed class A2AAgentFunction : AIFunction
         }
 
         var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+        using (var writer = new Utf8JsonWriter(buffer,
+                   new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
         {
             writer.WriteStartObject();
             writer.WriteString("state", RemoteAgentSupport.StateName(state));
@@ -153,6 +171,7 @@ public sealed class A2AAgentFunction : AIFunction
             writer.WriteString("notice", _options.UntrustedContentNotice);
             writer.WriteEndObject();
         }
+
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
         return document.RootElement.Clone();
     }
@@ -166,8 +185,10 @@ public sealed class A2AAgentFunction : AIFunction
             writer.WriteString("type", "object");
             writer.WriteStartObject("properties");
             WriteStringProperty(writer, "message", "The message to send to the remote agent.");
-            WriteStringProperty(writer, "contextId", "Optional. The conversation id from an earlier result, to continue that conversation.");
-            WriteStringProperty(writer, "taskId", "Optional. The task id from an earlier result, to answer a task that needs more input.");
+            WriteStringProperty(writer, "contextId",
+                "Optional. The conversation id from an earlier result, to continue that conversation.");
+            WriteStringProperty(writer, "taskId",
+                "Optional. The task id from an earlier result, to answer a task that needs more input.");
             writer.WriteEndObject();
             writer.WriteStartArray("required");
             writer.WriteStringValue("message");
@@ -175,6 +196,7 @@ public sealed class A2AAgentFunction : AIFunction
             writer.WriteBoolean("additionalProperties", false);
             writer.WriteEndObject();
         }
+
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
         return document.RootElement.Clone();
 
@@ -202,14 +224,12 @@ public sealed class A2AAgentFunction : AIFunction
             _blockHasContent = false;
             _previousWasData = false;
             foreach (var part in parts)
-            {
                 switch (part)
                 {
-                    case TextPart text: Append(text.Text, isData: false); break;
-                    case DataPart data: Append(data.Data.GetRawText(), isData: true); break;
+                    case TextPart text: Append(text.Text, false); break;
+                    case DataPart data: Append(data.Data.GetRawText(), true); break;
                     default: NonTextParts++; break;
                 }
-            }
         }
 
         private void Append(string value, bool isData)
@@ -219,11 +239,15 @@ public sealed class A2AAgentFunction : AIFunction
                 if (!_blockHasContent) _text.Append("\n\n");
                 else if (isData || _previousWasData) _text.Append('\n');
             }
+
             _text.Append(value);
             _blockHasContent = true;
             _previousWasData = isData;
         }
 
-        public override string ToString() => _text.ToString();
+        public override string ToString()
+        {
+            return _text.ToString();
+        }
     }
 }

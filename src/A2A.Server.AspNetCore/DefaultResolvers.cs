@@ -7,5 +7,8 @@ namespace A2A.Server.AspNetCore;
 public sealed class RouteTenantResolver : ITenantResolver
 {
     /// <inheritdoc />
-    public string Resolve(HttpContext http) => http.GetRouteValue("tenant") as string ?? "";
+    public string Resolve(HttpContext http)
+    {
+        return http.GetRouteValue("tenant") as string ?? "";
+    }
 }

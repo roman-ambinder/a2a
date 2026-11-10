@@ -1,6 +1,6 @@
 namespace A2A.Client.Push;
 
-/// <summary>What <see cref="PushNotificationReceiver.HandleAsync"/> did with a delivery.</summary>
+/// <summary>What <see cref="PushNotificationReceiver.HandleAsync" /> did with a delivery.</summary>
 public enum PushHandleOutcome
 {
     /// <summary>The handler ran and succeeded. Answer 200.</summary>
@@ -18,11 +18,17 @@ public enum PushHandleOutcome
     /// <summary>The token or signature is wrong, missing, or stale. The handler did not run. Answer 401.</summary>
     Unauthorized,
 
-    /// <summary>The credentials are right, but the body is not a valid <c>StreamResponse</c>. The handler did not run. Answer 400.</summary>
-    BadRequest,
+    /// <summary>
+    ///     The credentials are right, but the body is not a valid <c>StreamResponse</c>. The handler did not run. Answer
+    ///     400.
+    /// </summary>
+    BadRequest
 }
 
-/// <summary>A delivery that passed validation, as given to the handler of <see cref="PushNotificationReceiver.HandleAsync"/>.</summary>
+/// <summary>
+///     A delivery that passed validation, as given to the handler of
+///     <see cref="PushNotificationReceiver.HandleAsync" />.
+/// </summary>
 public sealed class PushDelivery
 {
     /// <summary>Creates a delivery.</summary>
@@ -43,11 +49,15 @@ public sealed class PushDelivery
     public long? Sequence { get; }
 }
 
-/// <summary>The result of <see cref="PushNotificationReceiver.HandleAsync"/>: what happened and the HTTP status to answer with.</summary>
+/// <summary>
+///     The result of <see cref="PushNotificationReceiver.HandleAsync" />: what happened and the HTTP status to answer
+///     with.
+/// </summary>
 public sealed class PushHandleResult
 {
     /// <summary>Creates a result.</summary>
-    public PushHandleResult(PushHandleOutcome outcome, int statusCode, string? deliveryId = null, Exception? error = null)
+    public PushHandleResult(PushHandleOutcome outcome, int statusCode, string? deliveryId = null,
+        Exception? error = null)
     {
         Outcome = outcome;
         StatusCode = statusCode;
@@ -64,6 +74,6 @@ public sealed class PushHandleResult
     /// <summary>The delivery id, when there was one.</summary>
     public string? DeliveryId { get; }
 
-    /// <summary>The exception the handler threw, for <see cref="PushHandleOutcome.HandlerFailed"/>.</summary>
+    /// <summary>The exception the handler threw, for <see cref="PushHandleOutcome.HandlerFailed" />.</summary>
     public Exception? Error { get; }
 }

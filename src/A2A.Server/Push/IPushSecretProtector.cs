@@ -4,7 +4,10 @@ using A2A.Signing;
 
 namespace A2A.Server.Push;
 
-/// <summary>Protects push config secrets (token, credentials) before they reach the store. Unprotect runs only at delivery time.</summary>
+/// <summary>
+///     Protects push config secrets (token, credentials) before they reach the store. Unprotect runs only at delivery
+///     time.
+/// </summary>
 public interface IPushSecretProtector
 {
     /// <summary>Encrypts a secret for storage and returns the protected text.</summary>
@@ -15,10 +18,10 @@ public interface IPushSecretProtector
 }
 
 /// <summary>
-/// Default protector: AES-256-GCM with a random key generated per process. Values do not survive a restart,
-/// so use a durable store only together with a protector whose keys are persisted (for example
-/// <c>AddA2ADataProtectionPushSecrets</c> in A2A.Server.AspNetCore).
-/// Format: <c>e1:</c> + base64url(nonce(12) || ciphertext || tag(16)).
+///     Default protector: AES-256-GCM with a random key generated per process. Values do not survive a restart,
+///     so use a durable store only together with a protector whose keys are persisted (for example
+///     <c>AddA2ADataProtectionPushSecrets</c> in A2A.Server.AspNetCore).
+///     Format: <c>e1:</c> + base64url(nonce(12) || ciphertext || tag(16)).
 /// </summary>
 public sealed class EphemeralPushSecretProtector : IPushSecretProtector
 {
@@ -37,22 +40,32 @@ public sealed class EphemeralPushSecretProtector : IPushSecretProtector
         var nonce = buffer.AsSpan(0, NonceSize);
         RandomNumberGenerator.Fill(nonce);
         using var aes = new AesGcm(_key, TagSize);
-        aes.Encrypt(nonce, data, buffer.AsSpan(NonceSize, data.Length), buffer.AsSpan(NonceSize + data.Length, TagSize));
+        aes.Encrypt(nonce, data, buffer.AsSpan(NonceSize, data.Length),
+            buffer.AsSpan(NonceSize + data.Length, TagSize));
         return Prefix + Base64Url.Encode(buffer);
     }
 
     /// <inheritdoc />
     public string Unprotect(string protectedValue)
     {
-        if (!protectedValue.StartsWith(Prefix, StringComparison.Ordinal)) throw new CryptographicException("Unrecognized protected value.");
+        if (!protectedValue.StartsWith(Prefix, StringComparison.Ordinal))
+            throw new CryptographicException("Unrecognized protected value.");
         byte[] buffer;
-        try { buffer = Base64Url.Decode(protectedValue[Prefix.Length..]); }
-        catch (FormatException ex) { throw new CryptographicException("Malformed protected value.", ex); }
+        try
+        {
+            buffer = Base64Url.Decode(protectedValue[Prefix.Length..]);
+        }
+        catch (FormatException ex)
+        {
+            throw new CryptographicException("Malformed protected value.", ex);
+        }
+
         if (buffer.Length < NonceSize + TagSize) throw new CryptographicException("Malformed protected value.");
         var length = buffer.Length - NonceSize - TagSize;
         var plain = new byte[length];
         using var aes = new AesGcm(_key, TagSize);
-        aes.Decrypt(buffer.AsSpan(0, NonceSize), buffer.AsSpan(NonceSize, length), buffer.AsSpan(NonceSize + length, TagSize), plain);
+        aes.Decrypt(buffer.AsSpan(0, NonceSize), buffer.AsSpan(NonceSize, length),
+            buffer.AsSpan(NonceSize + length, TagSize), plain);
         return Encoding.UTF8.GetString(plain);
     }
 }

@@ -1,12 +1,9 @@
 using System.Text.Json;
 using A2A.Client;
-using A2A.Mcp;
 using A2A.Server;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol;
-using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
-using ModelContextProtocol.Server;
 
 namespace A2A.Mcp.Tests;
 

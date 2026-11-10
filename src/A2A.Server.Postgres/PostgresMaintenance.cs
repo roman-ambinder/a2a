@@ -7,36 +7,43 @@ using static A2A.Server.Postgres.Sql;
 namespace A2A.Server.Postgres;
 
 /// <summary>
-/// Deletes rows that reads already ignore: event logs of terminal tasks past their retention (with their events) and
-/// finished idempotency entries past theirs. Safe to run from every instance at once. Tasks, contexts, push configs and
-/// push deliveries are not touched here: the retention sweep (<c>AddA2ARetention</c>) deletes them through the stores.
+///     Deletes rows that reads already ignore: event logs of terminal tasks past their retention (with their events) and
+///     finished idempotency entries past theirs. Safe to run from every instance at once. Tasks, contexts, push configs
+///     and
+///     push deliveries are not touched here: the retention sweep (<c>AddA2ARetention</c>) deletes them through the stores.
 /// </summary>
 /// <param name="dataSource">The database.</param>
 /// <param name="options">The schema; default <c>public</c>.</param>
-/// <param name="time">The clock that decides what has expired when <see cref="PostgresStoreOptions.UseDatabaseClock"/> is off.
-/// Default <see cref="TimeProvider.System"/>.</param>
-public sealed class PostgresMaintenance(NpgsqlDataSource dataSource, PostgresStoreOptions? options = null, TimeProvider? time = null)
+/// <param name="time">
+///     The clock that decides what has expired when <see cref="PostgresStoreOptions.UseDatabaseClock" /> is off.
+///     Default <see cref="TimeProvider.System" />.
+/// </param>
+public sealed class PostgresMaintenance(
+    NpgsqlDataSource dataSource,
+    PostgresStoreOptions? options = null,
+    TimeProvider? time = null)
 {
-    private readonly string _schema = PostgresSchema.Quote((options ?? new()).Schema);
     private readonly DbClock _clock = new(time, options);
+    private readonly string _schema = PostgresSchema.Quote((options ?? new PostgresStoreOptions()).Schema);
 
     /// <summary>Deletes expired rows. Returns how many event logs and idempotency entries were removed.</summary>
     /// <param name="cancellationToken">Cancellation.</param>
-    public async Task<(int EventLogs, int IdempotencyEntries)> PurgeExpiredAsync(CancellationToken cancellationToken = default)
+    public async Task<(int EventLogs, int IdempotencyEntries)> PurgeExpiredAsync(
+        CancellationToken cancellationToken = default)
     {
         var now = _clock.NowTicks;
         await using var batch = dataSource.CreateBatch();
         var logs = new NpgsqlBatchCommand(
             $"""
-            WITH gone AS (
-                DELETE FROM {_schema}.a2a_event_logs WHERE purge_ticks IS NOT NULL AND purge_ticks <= {DbClock.Now(1)}
-                RETURNING tenant, owner, task_id
-            ), events AS (
-                DELETE FROM {_schema}.a2a_events e USING gone g
-                 WHERE e.tenant = g.tenant AND e.owner = g.owner AND e.task_id = g.task_id
-            )
-            SELECT count(*) FROM gone
-            """);
+             WITH gone AS (
+                 DELETE FROM {_schema}.a2a_event_logs WHERE purge_ticks IS NOT NULL AND purge_ticks <= {DbClock.Now(1)}
+                 RETURNING tenant, owner, task_id
+             ), events AS (
+                 DELETE FROM {_schema}.a2a_events e USING gone g
+                  WHERE e.tenant = g.tenant AND e.owner = g.owner AND e.task_id = g.task_id
+             )
+             SELECT count(*) FROM gone
+             """);
         logs.Parameters.Add(NullableLong(now));
         var idem = new NpgsqlBatchCommand(
             $"WITH gone AS (DELETE FROM {_schema}.a2a_idempotency WHERE expires_ticks IS NOT NULL AND expires_ticks <= {DbClock.Now(1)} RETURNING 1) SELECT count(*) FROM gone");
@@ -53,7 +60,7 @@ public sealed class PostgresMaintenance(NpgsqlDataSource dataSource, PostgresSto
     }
 }
 
-/// <summary>Creates the schema at startup (when enabled), then runs <see cref="PostgresMaintenance"/> on an interval.</summary>
+/// <summary>Creates the schema at startup (when enabled), then runs <see cref="PostgresMaintenance" /> on an interval.</summary>
 internal sealed class PostgresStoreHostedService(
     NpgsqlDataSource dataSource,
     PostgresStoreOptions options,
@@ -67,7 +74,8 @@ internal sealed class PostgresStoreHostedService(
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         // Before the app takes requests, so the first request finds the tables.
-        await PostgresSchema.PrepareForStartupAsync(dataSource, options, _logger, cancellationToken).ConfigureAwait(false);
+        await PostgresSchema.PrepareForStartupAsync(dataSource, options, _logger, cancellationToken)
+            .ConfigureAwait(false);
         await base.StartAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -79,7 +87,6 @@ internal sealed class PostgresStoreHostedService(
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
-            {
                 try
                 {
                     var (logs, keys) = await maintenance.PurgeExpiredAsync(stoppingToken).ConfigureAwait(false);
@@ -89,7 +96,6 @@ internal sealed class PostgresStoreHostedService(
                 {
                     PostgresLog.CleanupFailed(_logger, ex);
                 }
-            }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -100,15 +106,19 @@ internal sealed class PostgresStoreHostedService(
 /// <summary>Source-generated log messages of A2A.Server.Postgres (event ids 1000-1099).</summary>
 internal static partial class PostgresLog
 {
-    [LoggerMessage(EventId = 1000, Level = LogLevel.Debug, Message = "A2A Postgres cleanup removed {EventLogs} event logs and {Keys} idempotency entries")]
+    [LoggerMessage(EventId = 1000, Level = LogLevel.Debug,
+        Message = "A2A Postgres cleanup removed {EventLogs} event logs and {Keys} idempotency entries")]
     public static partial void CleanupRemoved(ILogger logger, int eventLogs, int keys);
 
     [LoggerMessage(EventId = 1001, Level = LogLevel.Warning, Message = "A2A Postgres cleanup failed; will retry")]
     public static partial void CleanupFailed(ILogger logger, Exception exception);
 
-    [LoggerMessage(EventId = 1010, Level = LogLevel.Warning, Message = "A2A Postgres coordinator could not read cancel requests; will retry")]
+    [LoggerMessage(EventId = 1010, Level = LogLevel.Warning,
+        Message = "A2A Postgres coordinator could not read cancel requests; will retry")]
     public static partial void CancelPollFailed(ILogger logger, Exception exception);
 
-    [LoggerMessage(EventId = 1011, Level = LogLevel.Warning, Message = "A2A Postgres coordinator dropped a cancel request for task {TaskId}: a reader is {Capacity} requests behind")]
+    [LoggerMessage(EventId = 1011, Level = LogLevel.Warning,
+        Message =
+            "A2A Postgres coordinator dropped a cancel request for task {TaskId}: a reader is {Capacity} requests behind")]
     public static partial void CancelRequestDropped(ILogger logger, string taskId, int capacity);
 }

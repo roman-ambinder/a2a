@@ -2,7 +2,6 @@ using System.Text.Json;
 using A2A.Client;
 using A2A.Client.Transports;
 using A2A.Json;
-using Xunit;
 
 namespace A2A.Tests;
 

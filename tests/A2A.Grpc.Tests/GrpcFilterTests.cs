@@ -1,6 +1,4 @@
 using System.Collections.Concurrent;
-using A2A.Client;
-using A2A.Server;
 using A2A.Server.Authorization;
 using A2A.Server.Pipeline;
 using Microsoft.Extensions.DependencyInjection;

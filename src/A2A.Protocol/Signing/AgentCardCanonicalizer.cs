@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Json;
@@ -5,40 +6,38 @@ using A2A.Json;
 namespace A2A.Signing;
 
 /// <summary>
-/// Produces the canonical signing payload of an Agent Card: the same bytes a2a-python 1.2.1 and a2a-js 1.3.0 sign and verify.
+///     Produces the canonical signing payload of an Agent Card: the same bytes a2a-python 1.2.1 and a2a-js 1.3.0 sign and
+///     verify.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Those SDKs parse the card into the A2A v1.0 protobuf schema, write it back as proto JSON, drop <c>signatures</c>,
-/// remove empty values recursively and apply RFC 8785. This class reproduces that on the JSON tree:
-/// </para>
-/// <list type="bullet">
-/// <item>Top-level <c>signatures</c> is removed.</item>
-/// <item>Members not in the v1.0 Agent Card schema are removed (the SDKs parse with unknown fields ignored).
-/// This also removes the v0.3 compatibility fields a2a-python adds when it serves a card.</item>
-/// <item><c>false</c> is removed from the two booleans without proto field presence: <c>AgentExtension.required</c>
-/// and <c>AuthorizationCodeOAuthFlow.pkceRequired</c>. Booleans with presence (<c>streaming</c>, <c>pushNotifications</c>,
-/// <c>extendedAgentCard</c>) keep an explicit <c>false</c>.</item>
-/// <item><c>null</c>, <c>""</c>, <c>[]</c> and <c>{}</c> are removed recursively, including array elements and values inside
-/// free-form <c>params</c>; a container left empty by this is removed too. REQUIRED fields get no exception.</item>
-/// </list>
-/// <para>Inside <c>params</c> (a <c>google.protobuf.Struct</c>) every key is kept and <c>false</c>/<c>0</c> are data.</para>
-/// <para>See <c>tests/A2A.Tests/Vectors/README.md</c> for the source this rule was taken from.</para>
+///     <para>
+///         Those SDKs parse the card into the A2A v1.0 protobuf schema, write it back as proto JSON, drop
+///         <c>signatures</c>,
+///         remove empty values recursively and apply RFC 8785. This class reproduces that on the JSON tree:
+///     </para>
+///     <list type="bullet">
+///         <item>Top-level <c>signatures</c> is removed.</item>
+///         <item>
+///             Members not in the v1.0 Agent Card schema are removed (the SDKs parse with unknown fields ignored).
+///             This also removes the v0.3 compatibility fields a2a-python adds when it serves a card.
+///         </item>
+///         <item>
+///             <c>false</c> is removed from the two booleans without proto field presence: <c>AgentExtension.required</c>
+///             and <c>AuthorizationCodeOAuthFlow.pkceRequired</c>. Booleans with presence (<c>streaming</c>,
+///             <c>pushNotifications</c>,
+///             <c>extendedAgentCard</c>) keep an explicit <c>false</c>.
+///         </item>
+///         <item>
+///             <c>null</c>, <c>""</c>, <c>[]</c> and <c>{}</c> are removed recursively, including array elements and
+///             values inside
+///             free-form <c>params</c>; a container left empty by this is removed too. REQUIRED fields get no exception.
+///         </item>
+///     </list>
+///     <para>Inside <c>params</c> (a <c>google.protobuf.Struct</c>) every key is kept and <c>false</c>/<c>0</c> are data.</para>
+///     <para>See <c>tests/A2A.Tests/Vectors/README.md</c> for the source this rule was taken from.</para>
 /// </remarks>
 public static class AgentCardCanonicalizer
 {
-    private enum Shape { Scalar, ImplicitBool, Struct, Message }
-
-    private enum Cardinality { Single, Repeated, Map }
-
-    private sealed record Field(Shape Shape, Cardinality Cardinality = Cardinality.Single, IReadOnlyDictionary<string, Field>? Fields = null)
-    {
-        private Field? _single;
-
-        /// <summary>This field with single cardinality (the shape of one element or map value), built once.</summary>
-        public Field Single => Cardinality == Cardinality.Single ? this : _single ??= this with { Cardinality = Cardinality.Single, _single = null };
-    }
-
     private static readonly Field Scalar = new(Shape.Scalar);
     private static readonly Field RepeatedScalar = new(Shape.Scalar, Cardinality.Repeated);
     private static readonly Field ScalarMap = new(Shape.Scalar, Cardinality.Map);
@@ -49,25 +48,32 @@ public static class AgentCardCanonicalizer
     private static readonly IReadOnlyDictionary<string, Field> AgentCardFields = BuildAgentCardSchema();
 
     /// <summary>
-    /// Returns the RFC 8785 bytes that Agent Card signatures cover. Works on raw JSON so that a card is canonicalized
-    /// exactly as received; <paramref name="card"/> is not modified.
+    ///     Returns the RFC 8785 bytes that Agent Card signatures cover. Works on raw JSON so that a card is canonicalized
+    ///     exactly as received; <paramref name="card" /> is not modified.
     /// </summary>
     /// <remarks>
-    /// <b>Security:</b> members outside the A2A v1.0 Agent Card schema are removed before signing, as a2a-python and
-    /// a2a-js do. They are not covered by the signature and must not be trusted from a signed card. The same holds for
-    /// every value <see cref="PrunedPaths"/> reports, e.g. a security requirement with no scopes.
+    ///     <b>Security:</b> members outside the A2A v1.0 Agent Card schema are removed before signing, as a2a-python and
+    ///     a2a-js do. They are not covered by the signature and must not be trusted from a signed card. The same holds for
+    ///     every value <see cref="PrunedPaths" /> reports, e.g. a security requirement with no scopes.
     /// </remarks>
-    public static byte[] Canonicalize(JsonObject card) => JsonCanonicalizer.Canonicalize(SignedContent(card));
+    public static byte[] Canonicalize(JsonObject card)
+    {
+        return JsonCanonicalizer.Canonicalize(SignedContent(card));
+    }
 
     /// <summary>
-    /// Returns the tree that <see cref="Canonicalize"/> serializes: a pruned copy of <paramref name="card"/> holding only
-    /// v1.0 schema members, without <c>signatures</c>. Build trusted models from this tree, not from the raw card.
+    ///     Returns the tree that <see cref="Canonicalize" /> serializes: a pruned copy of <paramref name="card" /> holding
+    ///     only
+    ///     v1.0 schema members, without <c>signatures</c>. Build trusted models from this tree, not from the raw card.
     /// </summary>
-    public static JsonObject SignedContent(JsonObject card) => Prune(card, new PruneLog());
+    public static JsonObject SignedContent(JsonObject card)
+    {
+        return Prune(card, new PruneLog());
+    }
 
     /// <summary>
-    /// Returns the JSON paths (e.g. <c>$.skills[0].description</c>) of the values <see cref="Canonicalize"/> removes.
-    /// Those values are not covered by a signature. Containers emptied only by removing their children are not listed.
+    ///     Returns the JSON paths (e.g. <c>$.skills[0].description</c>) of the values <see cref="Canonicalize" /> removes.
+    ///     Those values are not covered by a signature. Containers emptied only by removing their children are not listed.
     /// </summary>
     public static IReadOnlyList<string> PrunedPaths(JsonObject card)
     {
@@ -77,13 +83,13 @@ public static class AgentCardCanonicalizer
     }
 
     /// <summary>
-    /// Returns the JSON paths of members whose name matches a v1.0 schema member only when case is ignored
-    /// (e.g. <c>$.IconUrl</c>, or <c>$.Name</c> next to <c>$.name</c>).
+    ///     Returns the JSON paths of members whose name matches a v1.0 schema member only when case is ignored
+    ///     (e.g. <c>$.IconUrl</c>, or <c>$.Name</c> next to <c>$.name</c>).
     /// </summary>
     /// <remarks>
-    /// Such members are outside the signed content, but a case-insensitive JSON reader (such as the SDK's own
-    /// <c>A2AJson</c> options) binds them to model properties. A signed card that contains one must be rejected.
-    /// a2a-python and a2a-js never emit them.
+    ///     Such members are outside the signed content, but a case-insensitive JSON reader (such as the SDK's own
+    ///     <c>A2AJson</c> options) binds them to model properties. A signed card that contains one must be rejected.
+    ///     a2a-python and a2a-js never emit them.
     /// </remarks>
     public static IReadOnlyList<string> CaseVariantMembers(JsonObject card)
     {
@@ -93,8 +99,9 @@ public static class AgentCardCanonicalizer
     }
 
     /// <summary>
-    /// <see cref="Canonicalize"/> and <see cref="CaseVariantMembers"/> from one copy and one prune of <paramref name="card"/>,
-    /// for the verifier, which needs both.
+    ///     <see cref="Canonicalize" /> and <see cref="CaseVariantMembers" /> from one copy and one prune of
+    ///     <paramref name="card" />,
+    ///     for the verifier, which needs both.
     /// </summary>
     internal static byte[] CanonicalizeChecked(JsonObject card, out IReadOnlyList<string> caseVariants)
     {
@@ -102,12 +109,6 @@ public static class AgentCardCanonicalizer
         var bytes = JsonCanonicalizer.Canonicalize(Prune(card, log));
         caseVariants = log.CaseVariants;
         return bytes;
-    }
-
-    private sealed class PruneLog
-    {
-        public List<string> Removed { get; } = new();
-        public List<string> CaseVariants { get; } = new();
     }
 
     private static JsonObject Prune(JsonObject card, PruneLog log)
@@ -119,29 +120,45 @@ public static class AgentCardCanonicalizer
     }
 
     /// <summary>Serializes a card model to a JSON tree with the SDK's wire options.</summary>
-    public static JsonObject ToNode(AgentCard card) =>
-        JsonNode.Parse(A2AJson.Serialize(card))!.AsObject();
+    public static JsonObject ToNode(AgentCard card)
+    {
+        return JsonNode.Parse(A2AJson.Serialize(card))!.AsObject();
+    }
 
     private static IReadOnlyDictionary<string, Field> BuildAgentCardSchema()
     {
-        static Field Message(Cardinality cardinality, params (string Name, Field Field)[] fields) =>
-            new(Shape.Message, cardinality, fields.ToDictionary(f => f.Name, f => f.Field, StringComparer.Ordinal));
+        static Field Message(Cardinality cardinality, params (string Name, Field Field)[] fields)
+        {
+            return new Field(Shape.Message, cardinality,
+                fields.ToDictionary(f => f.Name, f => f.Field, StringComparer.Ordinal));
+        }
 
         var stringList = Message(Cardinality.Single, ("list", RepeatedScalar));
-        var securityRequirements = Message(Cardinality.Repeated, ("schemes", stringList with { Cardinality = Cardinality.Map }));
+        var securityRequirements = Message(Cardinality.Repeated,
+            ("schemes", stringList with { Cardinality = Cardinality.Map }));
         var flows = Message(Cardinality.Single,
             ("authorizationCode", Message(Cardinality.Single,
-                ("authorizationUrl", Scalar), ("tokenUrl", Scalar), ("refreshUrl", Scalar), ("scopes", ScalarMap), ("pkceRequired", ImplicitBool))),
-            ("clientCredentials", Message(Cardinality.Single, ("tokenUrl", Scalar), ("refreshUrl", Scalar), ("scopes", ScalarMap))),
-            ("implicit", Message(Cardinality.Single, ("authorizationUrl", Scalar), ("refreshUrl", Scalar), ("scopes", ScalarMap))),
-            ("password", Message(Cardinality.Single, ("tokenUrl", Scalar), ("refreshUrl", Scalar), ("scopes", ScalarMap))),
+                ("authorizationUrl", Scalar), ("tokenUrl", Scalar), ("refreshUrl", Scalar), ("scopes", ScalarMap),
+                ("pkceRequired", ImplicitBool))),
+            ("clientCredentials",
+                Message(Cardinality.Single, ("tokenUrl", Scalar), ("refreshUrl", Scalar), ("scopes", ScalarMap))),
+            ("implicit",
+                Message(Cardinality.Single, ("authorizationUrl", Scalar), ("refreshUrl", Scalar),
+                    ("scopes", ScalarMap))),
+            ("password",
+                Message(Cardinality.Single, ("tokenUrl", Scalar), ("refreshUrl", Scalar), ("scopes", ScalarMap))),
             ("deviceCode", Message(Cardinality.Single,
-                ("deviceAuthorizationUrl", Scalar), ("tokenUrl", Scalar), ("refreshUrl", Scalar), ("scopes", ScalarMap))));
+                ("deviceAuthorizationUrl", Scalar), ("tokenUrl", Scalar), ("refreshUrl", Scalar),
+                ("scopes", ScalarMap))));
         var securityScheme = Message(Cardinality.Map,
-            ("apiKeySecurityScheme", Message(Cardinality.Single, ("description", Scalar), ("location", Scalar), ("name", Scalar))),
-            ("httpAuthSecurityScheme", Message(Cardinality.Single, ("description", Scalar), ("scheme", Scalar), ("bearerFormat", Scalar))),
-            ("oauth2SecurityScheme", Message(Cardinality.Single, ("description", Scalar), ("flows", flows), ("oauth2MetadataUrl", Scalar))),
-            ("openIdConnectSecurityScheme", Message(Cardinality.Single, ("description", Scalar), ("openIdConnectUrl", Scalar))),
+            ("apiKeySecurityScheme",
+                Message(Cardinality.Single, ("description", Scalar), ("location", Scalar), ("name", Scalar))),
+            ("httpAuthSecurityScheme",
+                Message(Cardinality.Single, ("description", Scalar), ("scheme", Scalar), ("bearerFormat", Scalar))),
+            ("oauth2SecurityScheme",
+                Message(Cardinality.Single, ("description", Scalar), ("flows", flows), ("oauth2MetadataUrl", Scalar))),
+            ("openIdConnectSecurityScheme",
+                Message(Cardinality.Single, ("description", Scalar), ("openIdConnectUrl", Scalar))),
             ("mtlsSecurityScheme", Message(Cardinality.Single, ("description", Scalar))));
 
         return Message(Cardinality.Single,
@@ -161,21 +178,26 @@ public static class AgentCardCanonicalizer
             ("defaultInputModes", RepeatedScalar),
             ("defaultOutputModes", RepeatedScalar),
             ("skills", Message(Cardinality.Repeated,
-                ("id", Scalar), ("name", Scalar), ("description", Scalar), ("tags", RepeatedScalar), ("examples", RepeatedScalar),
-                ("inputModes", RepeatedScalar), ("outputModes", RepeatedScalar), ("securityRequirements", securityRequirements))),
-            ("signatures", Message(Cardinality.Repeated, ("protected", Scalar), ("signature", Scalar), ("header", Struct))),
+                ("id", Scalar), ("name", Scalar), ("description", Scalar), ("tags", RepeatedScalar),
+                ("examples", RepeatedScalar),
+                ("inputModes", RepeatedScalar), ("outputModes", RepeatedScalar),
+                ("securityRequirements", securityRequirements))),
+            ("signatures",
+                Message(Cardinality.Repeated, ("protected", Scalar), ("signature", Scalar), ("header", Struct))),
             ("iconUrl", Scalar)).Fields!;
     }
 
     // The pruning rule. Returns true when the value must be removed from its parent.
     // Removals of values that were themselves prunable are recorded; containers emptied by their children are not.
-    private static bool PruneField(JsonNode? node, Field field, JsonPath path, PruneLog log) =>
-        (field.Cardinality, node) switch
+    private static bool PruneField(JsonNode? node, Field field, JsonPath path, PruneLog log)
+    {
+        return (field.Cardinality, node) switch
         {
             (Cardinality.Repeated, JsonArray array) => PruneElements(array, field.Single, path, log),
             (Cardinality.Map, JsonObject map) => PruneMap(map, field.Single, path, log),
-            _ => PruneValue(node, field, path, log),
+            _ => PruneValue(node, field, path, log)
         };
+    }
 
     private static bool PruneValue(JsonNode? node, Field field, JsonPath path, PruneLog log)
     {
@@ -196,15 +218,19 @@ public static class AgentCardCanonicalizer
         }
     }
 
-    private static bool IsEmptyScalar(JsonValue value, Shape shape) => value.GetValueKind() switch
+    private static bool IsEmptyScalar(JsonValue value, Shape shape)
     {
-        JsonValueKind.Null => true,
-        JsonValueKind.String => value.GetValue<string>().Length == 0,
-        JsonValueKind.False => shape == Shape.ImplicitBool,
-        _ => false,
-    };
+        return value.GetValueKind() switch
+        {
+            JsonValueKind.Null => true,
+            JsonValueKind.String => value.GetValue<string>().Length == 0,
+            JsonValueKind.False => shape == Shape.ImplicitBool,
+            _ => false
+        };
+    }
 
-    private static bool PruneMembers(JsonObject obj, IReadOnlyDictionary<string, Field> fields, JsonPath path, PruneLog log)
+    private static bool PruneMembers(JsonObject obj, IReadOnlyDictionary<string, Field> fields, JsonPath path,
+        PruneLog log)
     {
         var wasEmpty = obj.Count == 0;
         foreach (var (key, value) in obj.ToList())
@@ -214,7 +240,8 @@ public static class AgentCardCanonicalizer
             {
                 var text = memberPath.ToString();
                 log.Removed.Add(text);
-                if (fields.Keys.Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase))) log.CaseVariants.Add(text);
+                if (fields.Keys.Any(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase)))
+                    log.CaseVariants.Add(text);
                 obj.Remove(key);
             }
             else if (PruneField(value, field, memberPath, log))
@@ -222,6 +249,7 @@ public static class AgentCardCanonicalizer
                 obj.Remove(key);
             }
         }
+
         return Emptied(obj.Count, wasEmpty, path, log);
     }
 
@@ -229,9 +257,8 @@ public static class AgentCardCanonicalizer
     {
         var wasEmpty = map.Count == 0;
         foreach (var (key, value) in map.ToList())
-        {
-            if (PruneField(value, valueField, new JsonPath(path, key), log)) map.Remove(key);
-        }
+            if (PruneField(value, valueField, new JsonPath(path, key), log))
+                map.Remove(key);
         return Emptied(map.Count, wasEmpty, path, log);
     }
 
@@ -240,9 +267,8 @@ public static class AgentCardCanonicalizer
         var wasEmpty = array.Count == 0;
         var drop = new List<int>();
         for (var i = 0; i < array.Count; i++)
-        {
-            if (PruneField(array[i], elementField, new JsonPath(path, i), log)) drop.Add(i);
-        }
+            if (PruneField(array[i], elementField, new JsonPath(path, i), log))
+                drop.Add(i);
         for (var i = drop.Count - 1; i >= 0; i--) array.RemoveAt(drop[i]);
         return Emptied(array.Count, wasEmpty, path, log);
     }
@@ -254,20 +280,58 @@ public static class AgentCardCanonicalizer
         return true;
     }
 
-    private static string MemberPath(string parent, string key) =>
-        key.Length > 0 && (char.IsAsciiLetter(key[0]) || key[0] == '_') && key.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')
+    private static string MemberPath(string parent, string key)
+    {
+        return key.Length > 0 && (char.IsAsciiLetter(key[0]) || key[0] == '_') &&
+               key.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')
             ? $"{parent}.{key}"
             : $"{parent}[{JsonValue.Create(key)!.ToJsonString()}]";
+    }
+
+    private enum Shape
+    {
+        Scalar,
+        ImplicitBool,
+        Struct,
+        Message
+    }
+
+    private enum Cardinality
+    {
+        Single,
+        Repeated,
+        Map
+    }
+
+    private sealed record Field(
+        Shape Shape,
+        Cardinality Cardinality = Cardinality.Single,
+        IReadOnlyDictionary<string, Field>? Fields = null)
+    {
+        private Field? _single;
+
+        /// <summary>This field with single cardinality (the shape of one element or map value), built once.</summary>
+        public Field Single => Cardinality == Cardinality.Single
+            ? this
+            : _single ??= this with { Cardinality = Cardinality.Single, _single = null };
+    }
+
+    private sealed class PruneLog
+    {
+        public List<string> Removed { get; } = new();
+        public List<string> CaseVariants { get; } = new();
+    }
 
     /// <summary>
-    /// The path of a node, as text only when asked (<see cref="ToString"/>): most nodes are kept, so their path is never needed.
+    ///     The path of a node, as text only when asked (<see cref="ToString" />): most nodes are kept, so their path is never
+    ///     needed.
     /// </summary>
     private sealed class JsonPath
     {
         public static readonly JsonPath Root = new(null, null, -1);
-        private readonly JsonPath? _parent;
-        private readonly string? _key;
         private readonly int _index;
+        private readonly string? _key;
+        private readonly JsonPath? _parent;
 
         private JsonPath(JsonPath? parent, string? key, int index)
         {
@@ -276,13 +340,19 @@ public static class AgentCardCanonicalizer
             _index = index;
         }
 
-        public JsonPath(JsonPath parent, string key) : this(parent, key, -1) { }
+        public JsonPath(JsonPath parent, string key) : this(parent, key, -1)
+        {
+        }
 
-        public JsonPath(JsonPath parent, int index) : this(parent, null, index) { }
+        public JsonPath(JsonPath parent, int index) : this(parent, null, index)
+        {
+        }
 
-        public override string ToString() =>
-            _parent is null ? "$"
-            : _key is not null ? MemberPath(_parent.ToString(), _key)
-            : $"{_parent}[{_index.ToString(System.Globalization.CultureInfo.InvariantCulture)}]";
+        public override string ToString()
+        {
+            return _parent is null ? "$"
+                : _key is not null ? MemberPath(_parent.ToString(), _key)
+                : $"{_parent}[{_index.ToString(CultureInfo.InvariantCulture)}]";
+        }
     }
 }

@@ -4,8 +4,9 @@ using System.Security.Cryptography;
 namespace A2A.Server.Storage;
 
 /// <summary>
-/// The key layout of artifact objects: <c>{tenant}/{taskId}/{objectId}</c>. Tenant and task id are percent-encoded (and every
-/// <c>.</c> too), so no id can add a segment or become <c>.</c> or <c>..</c>. An empty tenant is written <c>_</c>.
+///     The key layout of artifact objects: <c>{tenant}/{taskId}/{objectId}</c>. Tenant and task id are percent-encoded
+///     (and every
+///     <c>.</c> too), so no id can add a segment or become <c>.</c> or <c>..</c>. An empty tenant is written <c>_</c>.
 /// </summary>
 internal static class ArtifactObjectKey
 {
@@ -34,7 +35,8 @@ internal static class ArtifactObjectKey
     public static string TenantSegment(string tenant)
     {
         ArgumentNullException.ThrowIfNull(tenant);
-        if (tenant == EmptyTenant) throw new ArgumentException("The tenant '_' is reserved for the default tenant.", nameof(tenant));
+        if (tenant == EmptyTenant)
+            throw new ArgumentException("The tenant '_' is reserved for the default tenant.", nameof(tenant));
         return tenant.Length == 0 ? EmptyTenant : Encode(tenant);
     }
 
@@ -45,7 +47,10 @@ internal static class ArtifactObjectKey
         return Encode(taskId);
     }
 
-    /// <summary>Reads a <see cref="TenantSegment"/>. Returns false when the segment would decode to the reserved tenant <c>_</c>.</summary>
+    /// <summary>
+    ///     Reads a <see cref="TenantSegment" />. Returns false when the segment would decode to the reserved tenant
+    ///     <c>_</c>.
+    /// </summary>
     public static bool TryReadTenantSegment(string segment, [NotNullWhen(true)] out string? tenant)
     {
         tenant = segment == EmptyTenant ? string.Empty : Uri.UnescapeDataString(segment);
@@ -54,14 +59,19 @@ internal static class ArtifactObjectKey
             tenant = null;
             return false;
         }
+
         return true;
     }
 
-    /// <summary>Reads a <see cref="TaskSegment"/>.</summary>
-    public static string ReadTaskSegment(string segment) => Uri.UnescapeDataString(segment);
+    /// <summary>Reads a <see cref="TaskSegment" />.</summary>
+    public static string ReadTaskSegment(string segment)
+    {
+        return Uri.UnescapeDataString(segment);
+    }
 
-    /// <summary>Splits a key made by <see cref="Create"/>. Returns false for any other string.</summary>
-    public static bool TryParse(string key, [NotNullWhen(true)] out string? tenant, [NotNullWhen(true)] out string? taskId, [NotNullWhen(true)] out string? objectId)
+    /// <summary>Splits a key made by <see cref="Create" />. Returns false for any other string.</summary>
+    public static bool TryParse(string key, [NotNullWhen(true)] out string? tenant,
+        [NotNullWhen(true)] out string? taskId, [NotNullWhen(true)] out string? objectId)
     {
         tenant = taskId = objectId = null;
         var parts = key.Split('/');
@@ -75,16 +85,23 @@ internal static class ArtifactObjectKey
     }
 
     /// <summary>A new random object id: 32 lowercase hex digits (128 bits).</summary>
-    public static string NewObjectId() => Convert.ToHexString(RandomNumberGenerator.GetBytes(ObjectIdLength / 2)).ToLowerInvariant();
+    public static string NewObjectId()
+    {
+        return Convert.ToHexString(RandomNumberGenerator.GetBytes(ObjectIdLength / 2)).ToLowerInvariant();
+    }
 
     /// <summary>True for exactly 32 lowercase hex digits.</summary>
     public static bool IsValidObjectId(string objectId)
     {
         if (objectId is null || objectId.Length != ObjectIdLength) return false;
         foreach (var c in objectId)
-            if (!(c is >= '0' and <= '9' || c is >= 'a' and <= 'f')) return false;
+            if (!(c is >= '0' and <= '9' || c is >= 'a' and <= 'f'))
+                return false;
         return true;
     }
 
-    private static string Encode(string s) => Uri.EscapeDataString(s).Replace(".", "%2E", StringComparison.Ordinal);
+    private static string Encode(string s)
+    {
+        return Uri.EscapeDataString(s).Replace(".", "%2E", StringComparison.Ordinal);
+    }
 }

@@ -7,7 +7,8 @@ Typed skills for an A2A (Agent2Agent) server. You declare a skill with .NET inpu
 - runs your handler with the checked input, and sends its result as a data artifact,
 - gives clients a typed call: `A2AClient.CallSkillAsync` (in `RomanAmbinder.A2A.Client`).
 
-It is AOT safe: every type comes as a `JsonTypeInfo<T>` from a `System.Text.Json` source-generated context. A plain `IAgentExecutor` can run next to it as the fallback.
+It is AOT safe: every type comes as a `JsonTypeInfo<T>` from a `System.Text.Json` source-generated context. A plain
+`IAgentExecutor` can run next to it as the fallback.
 
 ```csharp
 builder.Services.AddA2A(a => a
@@ -19,4 +20,6 @@ builder.Services.AddA2A(a => a
         .UseFallback<ChatAgent>()));
 ```
 
-The API is `[Experimental]` (`A2AEXP001`), like skill selection. See the [guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/typed-skills.md) for the rules, the routing table and the errors.
+The API is `[Experimental]` (`A2AEXP001`), like skill selection. See
+the [guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/typed-skills.md) for the rules, the routing
+table and the errors.

@@ -4,14 +4,15 @@ using A2A.Integrity;
 namespace A2A.Server.Storage;
 
 /// <summary>
-/// Read-only wrapper for providers to upload from: counts the bytes, hashes them (SHA-256) and throws
-/// <see cref="ArtifactObjectTooLargeException"/> as soon as more than <c>maxBytes</c> have been read. Does not dispose the inner stream.
+///     Read-only wrapper for providers to upload from: counts the bytes, hashes them (SHA-256) and throws
+///     <see cref="ArtifactObjectTooLargeException" /> as soon as more than <c>maxBytes</c> have been read. Does not
+///     dispose the inner stream.
 /// </summary>
 internal sealed class MeteredReadStream : Stream
 {
+    private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
     private readonly Stream _inner;
     private readonly long _maxBytes;
-    private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
     private string? _sha256;
 
     public MeteredReadStream(Stream inner, long maxBytes)
@@ -24,18 +25,38 @@ internal sealed class MeteredReadStream : Stream
     /// <summary>Bytes read so far.</summary>
     public long BytesRead { get; private set; }
 
-    /// <summary>SHA-256 of the bytes read, as <see cref="ArtifactHash.Format"/> writes it. Call once, after the last read.</summary>
+    /// <summary>SHA-256 of the bytes read, as <see cref="ArtifactHash.Format" /> writes it. Call once, after the last read.</summary>
     public string Sha256 => _sha256 ??= ArtifactHash.Format(_hash.GetHashAndReset());
 
     public override bool CanRead => true;
     public override bool CanSeek => false;
     public override bool CanWrite => false;
     public override long Length => throw new NotSupportedException();
-    public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-    public override void Flush() { }
-    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-    public override void SetLength(long value) => throw new NotSupportedException();
-    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+    public override long Position
+    {
+        get => throw new NotSupportedException();
+        set => throw new NotSupportedException();
+    }
+
+    public override void Flush()
+    {
+    }
+
+    public override long Seek(long offset, SeekOrigin origin)
+    {
+        throw new NotSupportedException();
+    }
+
+    public override void SetLength(long value)
+    {
+        throw new NotSupportedException();
+    }
+
+    public override void Write(byte[] buffer, int offset, int count)
+    {
+        throw new NotSupportedException();
+    }
 
     public override int Read(byte[] buffer, int offset, int count)
     {

@@ -3,9 +3,7 @@ using A2A.Client.Transports;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace A2A.Benchmarks;

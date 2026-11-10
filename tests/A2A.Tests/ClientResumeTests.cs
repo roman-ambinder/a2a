@@ -4,7 +4,6 @@ using System.Text;
 using A2A.Client;
 using A2A.Client.Streaming;
 using A2A.Client.Transports;
-using Xunit;
 
 namespace A2A.Tests;
 

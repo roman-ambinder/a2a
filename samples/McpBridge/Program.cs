@@ -38,8 +38,8 @@ if (args[0] == "expose")
         Skills =
         [
             new AgentSkill { Id = "shout", Name = "Shout", Description = "Makes the text upper case", Tags = ["text"] },
-            new AgentSkill { Id = "reverse", Name = "Reverse", Description = "Reverses the text", Tags = ["text"] },
-        ],
+            new AgentSkill { Id = "reverse", Name = "Reverse", Description = "Reverses the text", Tags = ["text"] }
+        ]
     };
 
     // The A2A agent. AllowAnonymous is fine for a sample that only listens on loopback.
@@ -50,7 +50,7 @@ if (args[0] == "expose")
     var options = new A2AClientOptions();
     var http = new HttpClient();
     var client = new A2AClient(new JsonRpcTransport(http, new Uri($"{Url}/a2a"), options), options, card);
-    IReadOnlyList<McpServerTool> tools = client.AsMcpTools(new A2AMcpToolOptions { ToolNamePrefix = "text_" });
+    var tools = client.AsMcpTools(new A2AMcpToolOptions { ToolNamePrefix = "text_" });
 
     // /mcp is open here. A real MCP server needs authentication before it serves these tools.
     builder.Services.AddMcpServer().WithHttpTransport().WithTools(tools);
@@ -72,13 +72,18 @@ else
         DefaultOutputModes = ["text/plain"],
         Skills =
         [
-            new AgentSkill { Id = "add", Name = "add", Description = "Adds two numbers", Tags = ["mcp"], InputModes = ["application/json"] },
-        ],
+            new AgentSkill
+            {
+                Id = "add", Name = "add", Description = "Adds two numbers", Tags = ["mcp"],
+                InputModes = ["application/json"]
+            }
+        ]
     };
 
     // The host owns the MCP client and its credentials (none here). It connects once the server is up.
     var holder = new McpClientHolder();
-    builder.Services.AddSingleton<McpClient>(_ => holder.Client ?? throw new InvalidOperationException("The MCP client is not ready."));
+    builder.Services.AddSingleton<McpClient>(_ =>
+        holder.Client ?? throw new InvalidOperationException("The MCP client is not ready."));
     builder.Services.AddA2A(a => a
             .AddAgentCard(card)
             .AddMcpToolAgent(o => o.AllowTool("add")))
@@ -116,7 +121,7 @@ internal sealed class TextAgent : IAgentExecutor
         {
             "shout" => text.ToUpperInvariant(),
             "reverse" => new string(text.Reverse().ToArray()),
-            _ => "Pick a skill: shout or reverse.",
+            _ => "Pick a skill: shout or reverse."
         };
         return updater.CompleteAsync(answer, cancellationToken).AsTask();
     }
@@ -126,8 +131,12 @@ internal sealed class TextAgent : IAgentExecutor
 [McpServerToolType]
 internal sealed class MathTools
 {
-    [McpServerTool(Name = "add"), Description("Adds two numbers.")]
-    public static double Add(double a, double b) => a + b;
+    [McpServerTool(Name = "add")]
+    [Description("Adds two numbers.")]
+    public static double Add(double a, double b)
+    {
+        return a + b;
+    }
 }
 
 /// <summary>Holds the MCP client, which can only be created after the server listens.</summary>

@@ -7,12 +7,15 @@ namespace A2A.Server.Storage.S3;
 public static class A2AS3ServiceCollectionExtensions
 {
     /// <summary>
-    /// Uses <see cref="S3ArtifactObjectStore"/> as the <see cref="ArtifactObjectStore"/>. Works before or after <c>AddA2AServer</c>.
-    /// The container disposes the store, and the client the store made; a client passed in the options is yours to dispose.
+    ///     Uses <see cref="S3ArtifactObjectStore" /> as the <see cref="ArtifactObjectStore" />. Works before or after
+    ///     <c>AddA2AServer</c>.
+    ///     The container disposes the store, and the client the store made; a client passed in the options is yours to
+    ///     dispose.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configure">Sets the bucket and, for an S3-compatible service, its endpoint.</param>
-    public static IServiceCollection AddA2AS3ArtifactStore(this IServiceCollection services, Action<S3ArtifactStoreOptions> configure)
+    public static IServiceCollection AddA2AS3ArtifactStore(this IServiceCollection services,
+        Action<S3ArtifactStoreOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);

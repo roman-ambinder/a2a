@@ -1,12 +1,14 @@
 using System.Globalization;
+using System.Numerics;
 using System.Text;
 using A2A.Text;
 
 namespace A2A.Client.Peers;
 
 /// <summary>
-/// Compares agent names for the registry. Names are untrusted, so every input is sanitized and capped first. The confusable table
-/// is curated (Cyrillic, Greek and Latin lookalikes), not all of UTS #39.
+///     Compares agent names for the registry. Names are untrusted, so every input is sanitized and capped first. The
+///     confusable table
+///     is curated (Cyrillic, Greek and Latin lookalikes), not all of UTS #39.
 /// </summary>
 internal static class AgentNameNormalizer
 {
@@ -16,10 +18,7 @@ internal static class AgentNameNormalizer
     /// <summary>Key for duplicate checks: NFKC, invariant lower case, whitespace collapsed. Empty when nothing remains.</summary>
     public static string NameKey(string? name, int maxLength)
     {
-        if (!TryNormalize(Prepare(name, maxLength), NormalizationForm.FormKC, out var normalized))
-        {
-            return "";
-        }
+        if (!TryNormalize(Prepare(name, maxLength), NormalizationForm.FormKC, out var normalized)) return "";
 
         var sb = new StringBuilder(normalized.Length);
         var pendingSpace = false;
@@ -42,10 +41,7 @@ internal static class AgentNameNormalizer
 
         // NFKC can expand text (the ellipsis becomes three dots), so cap again.
         var keep = Math.Min(sb.Length, maxLength);
-        if (keep > 0 && keep < sb.Length && char.IsHighSurrogate(sb[keep - 1]))
-        {
-            keep--;
-        }
+        if (keep > 0 && keep < sb.Length && char.IsHighSurrogate(sb[keep - 1])) keep--;
 
         return sb.ToString(0, keep);
     }
@@ -53,26 +49,17 @@ internal static class AgentNameNormalizer
     /// <summary>Key for lookalike checks. Empty when no letters or digits remain.</summary>
     public static string Skeleton(string? name, int maxLength)
     {
-        if (!TryNormalize(Prepare(name, maxLength), NormalizationForm.FormKD, out var decomposed))
-        {
-            return "";
-        }
+        if (!TryNormalize(Prepare(name, maxLength), NormalizationForm.FormKD, out var decomposed)) return "";
 
         var sb = new StringBuilder(decomposed.Length);
         foreach (var rune in decomposed.EnumerateRunes())
         {
             var category = Rune.GetUnicodeCategory(rune);
-            if (category is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark)
-            {
-                continue;
-            }
+            if (category is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark) continue;
 
             var mapped = Confusables.TryGetValue(rune.Value, out var latin) ? new Rune(latin) : rune;
             mapped = Rune.ToLowerInvariant(mapped);
-            if (Rune.IsLetterOrDigit(mapped))
-            {
-                sb.Append(mapped.ToString());
-            }
+            if (Rune.IsLetterOrDigit(mapped)) sb.Append(mapped.ToString());
         }
 
         return sb.ToString().Replace("rn", "m", StringComparison.Ordinal).Replace("vv", "w", StringComparison.Ordinal);
@@ -87,9 +74,7 @@ internal static class AgentNameNormalizer
             // A mark must not end a token, or one placed at each script boundary would hide the mix.
             if (Rune.GetUnicodeCategory(rune) is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark
                 or UnicodeCategory.SpacingCombiningMark)
-            {
                 continue;
-            }
 
             if (!Rune.IsLetterOrDigit(rune))
             {
@@ -98,10 +83,7 @@ internal static class AgentNameNormalizer
             }
 
             scripts |= ScriptOf(rune.Value);
-            if (System.Numerics.BitOperations.PopCount((uint)scripts) > 1)
-            {
-                return true;
-            }
+            if (BitOperations.PopCount((uint)scripts) > 1) return true;
         }
 
         return false;
@@ -136,10 +118,7 @@ internal static class AgentNameNormalizer
                 continue;
             }
 
-            if (IsInvisible(rune))
-            {
-                continue;
-            }
+            if (IsInvisible(rune)) continue;
 
             sb.Append(value is >= 0xFF01 and <= 0xFF5E ? new Rune(value - 0xFEE0).ToString() : rune.ToString());
         }
@@ -148,37 +127,32 @@ internal static class AgentNameNormalizer
     }
 
     // Characters the sanitizer keeps that render as nothing, so they must not make two names differ.
-    private static bool IsInvisible(Rune rune) =>
-        Rune.GetUnicodeCategory(rune) == UnicodeCategory.Format || rune.Value is
-            0x034F or 0x115F or 0x1160 or 0x17B4 or 0x17B5 or (>= 0x180B and <= 0x180F) or 0x2800 or 0x3164
-            or (>= 0xFE00 and <= 0xFE0F) or 0xFFA0 or (>= 0xE0100 and <= 0xE01EF);
-
-    [Flags]
-    private enum Script
+    private static bool IsInvisible(Rune rune)
     {
-        None = 0,
-        Latin = 1,
-        Greek = 2,
-        Cyrillic = 4,
+        return Rune.GetUnicodeCategory(rune) == UnicodeCategory.Format || rune.Value is
+            0x034F or 0x115F or 0x1160 or 0x17B4 or 0x17B5 or >= 0x180B and <= 0x180F or 0x2800 or 0x3164
+            or >= 0xFE00 and <= 0xFE0F or 0xFFA0 or >= 0xE0100 and <= 0xE01EF;
     }
 
-    private static Script ScriptOf(int cp) => cp switch
+    private static Script ScriptOf(int cp)
     {
-        (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= 0xC0 and <= 0x24F) or (>= 0x1E00 and <= 0x1EFF) => Script.Latin,
-        (>= 0x370 and <= 0x3FF) or (>= 0x1F00 and <= 0x1FFF) => Script.Greek,
-        (>= 0x400 and <= 0x52F) or (>= 0x1C80 and <= 0x1C8F) or (>= 0x2DE0 and <= 0x2DFF) or (>= 0xA640 and <= 0xA69F) => Script.Cyrillic,
-        _ => Script.None,
-    };
+        return cp switch
+        {
+            >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= 0xC0 and <= 0x24F or >= 0x1E00 and <= 0x1EFF => Script.Latin,
+            >= 0x370 and <= 0x3FF or >= 0x1F00 and <= 0x1FFF => Script.Greek,
+            >= 0x400 and <= 0x52F or >= 0x1C80 and <= 0x1C8F or >= 0x2DE0 and <= 0x2DFF or >= 0xA640 and <= 0xA69F =>
+                Script.Cyrillic,
+            _ => Script.None
+        };
+    }
 
     private static Dictionary<int, char> BuildConfusables()
     {
         var map = new Dictionary<int, char>();
+
         void Add(char to, params int[] from)
         {
-            foreach (var cp in from)
-            {
-                map[cp] = to;
-            }
+            foreach (var cp in from) map[cp] = to;
         }
 
         // Cyrillic
@@ -240,5 +214,14 @@ internal static class AgentNameNormalizer
         Add('d', 0x0111, 0x0110); // đ Đ
         Add('o', 0x00F8, 0x00D8); // ø Ø
         return map;
+    }
+
+    [Flags]
+    private enum Script
+    {
+        None = 0,
+        Latin = 1,
+        Greek = 2,
+        Cyrillic = 4
     }
 }

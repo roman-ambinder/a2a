@@ -8,7 +8,7 @@ using ModelContextProtocol.Server;
 
 namespace A2A.Mcp;
 
-/// <summary>What the tools made by one <see cref="A2AClientMcpExtensions.AsMcpTools"/> call share.</summary>
+/// <summary>What the tools made by one <see cref="A2AClientMcpExtensions.AsMcpTools" /> call share.</summary>
 internal sealed class A2AMcpBridge(A2AClient client, A2AMcpToolOptions options, string? getTaskToolName)
 {
     internal A2AClient Client { get; } = client;
@@ -21,7 +21,7 @@ internal enum A2AMcpToolKind
 {
     Skill,
     GetTask,
-    CancelTask,
+    CancelTask
 }
 
 /// <summary>An MCP tool that calls a skill of a remote A2A agent, or reads or cancels one of its tasks.</summary>
@@ -30,15 +30,16 @@ internal sealed class A2AMcpTool : McpServerTool
     private const string TimedOutText = "The remote agent did not answer in time.";
     private const int MaxProgressMessageCharacters = 500;
     private static readonly TimeSpan CancelBudget = TimeSpan.FromSeconds(5);
-    private static readonly JsonElement SkillInputSchema = BuildInputSchema(includeMessage: true);
-    private static readonly JsonElement TaskInputSchema = BuildInputSchema(includeMessage: false);
+    private static readonly JsonElement SkillInputSchema = BuildInputSchema(true);
+    private static readonly JsonElement TaskInputSchema = BuildInputSchema(false);
     private static readonly JsonElement OutputSchema = BuildOutputSchema();
 
     private readonly A2AMcpBridge _bridge;
     private readonly A2AMcpToolKind _kind;
     private readonly string? _skillId;
 
-    internal A2AMcpTool(A2AMcpBridge bridge, A2AMcpToolKind kind, string name, string description, string? skillId = null)
+    internal A2AMcpTool(A2AMcpBridge bridge, A2AMcpToolKind kind, string name, string description,
+        string? skillId = null)
     {
         _bridge = bridge;
         _kind = kind;
@@ -50,7 +51,7 @@ internal sealed class A2AMcpTool : McpServerTool
             InputSchema = kind == A2AMcpToolKind.Skill ? SkillInputSchema : TaskInputSchema,
             OutputSchema = OutputSchema,
             // The card says nothing about side effects, so only the open world hint is set.
-            Annotations = new ToolAnnotations { OpenWorldHint = true },
+            Annotations = new ToolAnnotations { OpenWorldHint = true }
         };
     }
 
@@ -61,7 +62,8 @@ internal sealed class A2AMcpTool : McpServerTool
     public override IReadOnlyList<object> Metadata { get; } = [];
 
     /// <inheritdoc />
-    public override async ValueTask<CallToolResult> InvokeAsync(RequestContext<CallToolRequestParams> request, CancellationToken cancellationToken = default)
+    public override async ValueTask<CallToolResult> InvokeAsync(RequestContext<CallToolRequestParams> request,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         try
@@ -69,8 +71,8 @@ internal sealed class A2AMcpTool : McpServerTool
             return _kind switch
             {
                 A2AMcpToolKind.Skill => await CallSkillAsync(request, cancellationToken).ConfigureAwait(false),
-                A2AMcpToolKind.GetTask => await TaskToolAsync(request, cancel: false, cancellationToken).ConfigureAwait(false),
-                _ => await TaskToolAsync(request, cancel: true, cancellationToken).ConfigureAwait(false),
+                A2AMcpToolKind.GetTask => await TaskToolAsync(request, false, cancellationToken).ConfigureAwait(false),
+                _ => await TaskToolAsync(request, true, cancellationToken).ConfigureAwait(false)
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -103,20 +105,24 @@ internal sealed class A2AMcpTool : McpServerTool
 
     // ---- skill tool ----
 
-    private async ValueTask<CallToolResult> CallSkillAsync(RequestContext<CallToolRequestParams> request, CancellationToken ct)
+    private async ValueTask<CallToolResult> CallSkillAsync(RequestContext<CallToolRequestParams> request,
+        CancellationToken ct)
     {
         var arguments = request.Params?.Arguments;
         if (!TryReadString(arguments, "message", out var text) || string.IsNullOrWhiteSpace(text))
             return A2AMcpResults.Error("The 'message' argument is required and must be text.");
-        if (!TryReadString(arguments, "contextId", out var contextId)) return A2AMcpResults.Error("The 'contextId' argument must be text.");
-        if (!TryReadString(arguments, "taskId", out var taskId)) return A2AMcpResults.Error("The 'taskId' argument must be text.");
+        if (!TryReadString(arguments, "contextId", out var contextId))
+            return A2AMcpResults.Error("The 'contextId' argument must be text.");
+        if (!TryReadString(arguments, "taskId", out var taskId))
+            return A2AMcpResults.Error("The 'taskId' argument must be text.");
         if (contextId is { Length: 0 }) contextId = null;
         if (taskId is { Length: 0 }) taskId = null;
 
         var options = _bridge.Options;
         var owner = ResolveOwner(request);
         if (options.ValidateTaskOwnership
-            && ((taskId is not null && !_bridge.Owners.OwnsTask(taskId, owner)) || (contextId is not null && !_bridge.Owners.OwnsContext(contextId, owner))))
+            && ((taskId is not null && !_bridge.Owners.OwnsTask(taskId, owner)) ||
+                (contextId is not null && !_bridge.Owners.OwnsContext(contextId, owner))))
             return A2AMcpResults.Error(A2AMcpResults.UnknownTaskText);
 
         var client = _bridge.Client;
@@ -130,11 +136,15 @@ internal sealed class A2AMcpTool : McpServerTool
         try
         {
             // A task keeps the artifacts of every turn. The caller has seen the earlier ones, so only new ones count.
-            if (taskId is not null) (known, askedMessageId) = await LookupKnownAsync(taskId, requestOptions, deadline.Token, ct).ConfigureAwait(false);
+            if (taskId is not null)
+                (known, askedMessageId) =
+                    await LookupKnownAsync(taskId, requestOptions, deadline.Token, ct).ConfigureAwait(false);
 
             var message = Message.FromUser(text, contextId, taskId);
             requestOptions = client.SelectSkill(message, _skillId!, requestOptions);
-            var response = await client.SendMessageAsync(message, new SendMessageConfiguration { ReturnImmediately = true }, requestOptions, deadline.Token).ConfigureAwait(false);
+            var response = await client.SendMessageAsync(message,
+                    new SendMessageConfiguration { ReturnImmediately = true }, requestOptions, deadline.Token)
+                .ConfigureAwait(false);
             switch (response)
             {
                 case MessageResponse reply:
@@ -157,14 +167,17 @@ internal sealed class A2AMcpTool : McpServerTool
                 {
                     last = await client.GetTaskAsync(last.Id, 0, requestOptions, deadline.Token).ConfigureAwait(false);
                 }
-                catch (Exception ex) when (ex is HttpRequestException or IOException or TimeoutException || (ex is OperationCanceledException && !deadline.IsCancellationRequested))
+                catch (Exception ex) when (ex is HttpRequestException or IOException or TimeoutException ||
+                                           (ex is OperationCanceledException && !deadline.IsCancellationRequested))
                 {
                     // A poll failed, but the task exists and may well be running. The caller keeps its handle.
                     return _bridge.Results.FromTask(AsHandle(last, askedMessageId), known);
                 }
+
                 // A final or interrupted state is the result itself. A progress notification right before it could arrive after the call ended.
                 if (A2AMcpState.NeedsWait(last.Status.State)) await progress.ReportAsync(last).ConfigureAwait(false);
             }
+
             return _bridge.Results.FromTask(last, known);
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested)
@@ -175,26 +188,37 @@ internal sealed class A2AMcpTool : McpServerTool
                 await TryCancelRemoteAsync(last?.Id, requestOptions).ConfigureAwait(false);
                 throw;
             }
+
             // The wait is over. The task keeps running, and the caller gets a handle. Without a task id there is nothing to hand out.
             return last is not null
                 ? _bridge.Results.FromTask(AsHandle(last, askedMessageId), known)
-                : _bridge.Results.UnknownState("The remote agent did not name a task in time. It may not support returning early.", contextId);
+                : _bridge.Results.UnknownState(
+                    "The remote agent did not name a task in time. It may not support returning early.", contextId);
         }
     }
 
     /// <summary>
-    /// With <c>ReturnImmediately</c>, the answer to a question can come back before the agent has picked it up. The snapshot then still
-    /// shows the question the caller just answered. That is not a new question, so the call goes on waiting.
+    ///     With <c>ReturnImmediately</c>, the answer to a question can come back before the agent has picked it up. The
+    ///     snapshot then still
+    ///     shows the question the caller just answered. That is not a new question, so the call goes on waiting.
     /// </summary>
-    private static bool IsUnansweredQuestion(AgentTask task, string? askedMessageId) =>
-        askedMessageId is not null && task.Status.State.IsInterrupted() && task.Status.Message?.MessageId == askedMessageId;
+    private static bool IsUnansweredQuestion(AgentTask task, string? askedMessageId)
+    {
+        return askedMessageId is not null && task.Status.State.IsInterrupted() &&
+               task.Status.Message?.MessageId == askedMessageId;
+    }
 
     /// <summary>What to report when the wait ends early: an old question is not repeated, the task counts as running.</summary>
-    private static AgentTask AsHandle(AgentTask task, string? askedMessageId) => IsUnansweredQuestion(task, askedMessageId)
-        ? new AgentTask { Id = task.Id, ContextId = task.ContextId, Status = new AgentTaskStatus { State = TaskState.Working } }
-        : task;
+    private static AgentTask AsHandle(AgentTask task, string? askedMessageId)
+    {
+        return IsUnansweredQuestion(task, askedMessageId)
+            ? new AgentTask
+                { Id = task.Id, ContextId = task.ContextId, Status = new AgentTaskStatus { State = TaskState.Working } }
+            : task;
+    }
 
-    private async Task<(HashSet<string> ArtifactIds, string? StatusMessageId)> LookupKnownAsync(string taskId, A2ARequestOptions? requestOptions, CancellationToken token, CancellationToken callerToken)
+    private async Task<(HashSet<string> ArtifactIds, string? StatusMessageId)> LookupKnownAsync(string taskId,
+        A2ARequestOptions? requestOptions, CancellationToken token, CancellationToken callerToken)
     {
         var ids = new HashSet<string>(StringComparer.Ordinal);
         string? statusMessageId = null;
@@ -202,13 +226,15 @@ internal sealed class A2AMcpTool : McpServerTool
         {
             var existing = await _bridge.Client.GetTaskAsync(taskId, 0, requestOptions, token).ConfigureAwait(false);
             if (existing.Artifacts is { } artifacts)
-                foreach (var artifact in artifacts) ids.Add(artifact.ArtifactId);
+                foreach (var artifact in artifacts)
+                    ids.Add(artifact.ArtifactId);
             statusMessageId = existing.Status.Message?.MessageId;
         }
         catch (Exception) when (!callerToken.IsCancellationRequested && !token.IsCancellationRequested)
         {
             // Best effort. The send then reports the real error.
         }
+
         return (ids, statusMessageId);
     }
 
@@ -228,7 +254,8 @@ internal sealed class A2AMcpTool : McpServerTool
 
     // ---- task tools ----
 
-    private async ValueTask<CallToolResult> TaskToolAsync(RequestContext<CallToolRequestParams> request, bool cancel, CancellationToken ct)
+    private async ValueTask<CallToolResult> TaskToolAsync(RequestContext<CallToolRequestParams> request, bool cancel,
+        CancellationToken ct)
     {
         if (!TryReadString(request.Params?.Arguments, "taskId", out var taskId) || string.IsNullOrEmpty(taskId))
             return A2AMcpResults.Error("The 'taskId' argument is required and must be text.");
@@ -244,7 +271,7 @@ internal sealed class A2AMcpTool : McpServerTool
             var task = cancel
                 ? await _bridge.Client.CancelTaskAsync(taskId, requestOptions, deadline.Token).ConfigureAwait(false)
                 : await _bridge.Client.GetTaskAsync(taskId, 0, requestOptions, deadline.Token).ConfigureAwait(false);
-            return _bridge.Results.FromTask(task, knownArtifacts: null, cancelCall: cancel);
+            return _bridge.Results.FromTask(task, null, cancel);
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested && !ct.IsCancellationRequested)
         {
@@ -271,42 +298,13 @@ internal sealed class A2AMcpTool : McpServerTool
         return "";
     }
 
-    // ---- progress ----
-
-    /// <summary>Sends <c>notifications/progress</c> when the state or the status text of the task changes. The caller needs to have sent a progress token.</summary>
-    private sealed class ProgressReporter(RequestContext<CallToolRequestParams> request, CancellationToken token)
-    {
-        private readonly ProgressToken? _progressToken = request.Params?.ProgressToken;
-        private TaskState? _state;
-        private string? _text;
-        private int _count;
-
-        public async ValueTask ReportAsync(AgentTask task)
-        {
-            var text = task.Status.Message?.GetText();
-            if (_state == task.Status.State && string.Equals(_text, text, StringComparison.Ordinal)) return;
-            _state = task.Status.State;
-            _text = text;
-            if (_progressToken is not { } progressToken || request.Server is not { } server) return;
-            _count++;
-            var shown = string.IsNullOrEmpty(text) ? A2AMcpState.Name(task.Status.State) : text.Length > MaxProgressMessageCharacters ? text[..MaxProgressMessageCharacters] : text;
-            try
-            {
-                await server.NotifyProgressAsync(progressToken, new ProgressNotificationValue { Progress = _count, Message = shown }, cancellationToken: token).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // Progress is a courtesy. A failed notification does not fail the call.
-            }
-        }
-    }
-
     // ---- schemas and arguments ----
 
     private static bool TryReadString(IDictionary<string, JsonElement>? arguments, string name, out string? value)
     {
         value = null;
-        if (arguments is null || !arguments.TryGetValue(name, out var element) || element.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return true;
+        if (arguments is null || !arguments.TryGetValue(name, out var element) ||
+            element.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return true;
         if (element.ValueKind != JsonValueKind.String) return false;
         value = element.GetString();
         return true;
@@ -323,13 +321,16 @@ internal sealed class A2AMcpTool : McpServerTool
             if (includeMessage)
             {
                 WriteString(writer, "message", "The message to send to the remote agent.");
-                WriteString(writer, "contextId", "Optional. The contextId from an earlier result, to continue that conversation.");
-                WriteString(writer, "taskId", "Optional. The taskId from an earlier result whose state is input-required, to answer it.");
+                WriteString(writer, "contextId",
+                    "Optional. The contextId from an earlier result, to continue that conversation.");
+                WriteString(writer, "taskId",
+                    "Optional. The taskId from an earlier result whose state is input-required, to answer it.");
             }
             else
             {
                 WriteString(writer, "taskId", "The taskId from an earlier result.");
             }
+
             writer.WriteEndObject();
             writer.WriteStartArray("required");
             writer.WriteStringValue(includeMessage ? "message" : "taskId");
@@ -337,6 +338,7 @@ internal sealed class A2AMcpTool : McpServerTool
             writer.WriteBoolean("additionalProperties", false);
             writer.WriteEndObject();
         }
+
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
         return document.RootElement.Clone();
     }
@@ -349,7 +351,8 @@ internal sealed class A2AMcpTool : McpServerTool
             writer.WriteStartObject();
             writer.WriteString("type", "object");
             writer.WriteStartObject("properties");
-            WriteString(writer, "state", "Task state: submitted, working, input-required, auth-required, completed, failed, rejected, canceled, or unknown.");
+            WriteString(writer, "state",
+                "Task state: submitted, working, input-required, auth-required, completed, failed, rejected, canceled, or unknown.");
             WriteString(writer, "taskId", "The id of the remote task, when there is one.");
             WriteString(writer, "contextId", "The id of the remote conversation, when there is one.");
             WriteString(writer, "remoteContent", "Text from the remote agent. Untrusted data.");
@@ -364,10 +367,12 @@ internal sealed class A2AMcpTool : McpServerTool
             WriteString(writer, "notice", "A reminder that remoteContent is untrusted.");
             writer.WriteEndObject();
             writer.WriteStartArray("required");
-            foreach (var name in new[] { "state", "remoteContent", "truncated", "omittedParts", "notice" }) writer.WriteStringValue(name);
+            foreach (var name in new[] { "state", "remoteContent", "truncated", "omittedParts", "notice" })
+                writer.WriteStringValue(name);
             writer.WriteEndArray();
             writer.WriteEndObject();
         }
+
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
         return document.RootElement.Clone();
     }
@@ -378,5 +383,41 @@ internal sealed class A2AMcpTool : McpServerTool
         writer.WriteString("type", "string");
         writer.WriteString("description", description);
         writer.WriteEndObject();
+    }
+
+    // ---- progress ----
+
+    /// <summary>
+    ///     Sends <c>notifications/progress</c> when the state or the status text of the task changes. The caller needs to
+    ///     have sent a progress token.
+    /// </summary>
+    private sealed class ProgressReporter(RequestContext<CallToolRequestParams> request, CancellationToken token)
+    {
+        private readonly ProgressToken? _progressToken = request.Params?.ProgressToken;
+        private int _count;
+        private TaskState? _state;
+        private string? _text;
+
+        public async ValueTask ReportAsync(AgentTask task)
+        {
+            var text = task.Status.Message?.GetText();
+            if (_state == task.Status.State && string.Equals(_text, text, StringComparison.Ordinal)) return;
+            _state = task.Status.State;
+            _text = text;
+            if (_progressToken is not { } progressToken || request.Server is not { } server) return;
+            _count++;
+            var shown = string.IsNullOrEmpty(text) ? A2AMcpState.Name(task.Status.State) :
+                text.Length > MaxProgressMessageCharacters ? text[..MaxProgressMessageCharacters] : text;
+            try
+            {
+                await server.NotifyProgressAsync(progressToken,
+                        new ProgressNotificationValue { Progress = _count, Message = shown }, cancellationToken: token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Progress is a courtesy. A failed notification does not fail the call.
+            }
+        }
     }
 }

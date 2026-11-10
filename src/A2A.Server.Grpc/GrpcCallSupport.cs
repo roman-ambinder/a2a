@@ -10,23 +10,30 @@ using GrpcContext = Grpc.Core.ServerCallContext;
 namespace A2A.Server.Grpc;
 
 /// <summary>
-/// The error translation and the extensions echo shared by the A2A gRPC services, so every service answers a failure the same way.
+///     The error translation and the extensions echo shared by the A2A gRPC services, so every service answers a failure
+///     the same way.
 /// </summary>
 internal sealed class GrpcCallSupport(ILogger logger, bool includeDetails)
 {
     /// <summary>As the HTTP bindings decide it: the option, else true only in Development.</summary>
-    public static bool ShouldIncludeDetails(IOptions<A2AServerOptions> options, IHostEnvironment environment) =>
-        options.Value.IncludeExceptionDetails ?? environment.IsDevelopment();
+    public static bool ShouldIncludeDetails(IOptions<A2AServerOptions> options, IHostEnvironment environment)
+    {
+        return options.Value.IncludeExceptionDetails ?? environment.IsDevelopment();
+    }
 
     /// <summary>Sends the activated extensions as initial metadata. Does nothing when none are active.</summary>
-    public static Task WriteExtensionsHeaderAsync(GrpcContext context, ServerCallContext call) =>
-        call.ActivatedExtensions.Count == 0
+    public static Task WriteExtensionsHeaderAsync(GrpcContext context, ServerCallContext call)
+    {
+        return call.ActivatedExtensions.Count == 0
             ? Task.CompletedTask
-            : context.WriteResponseHeadersAsync(new Metadata { { GrpcErrors.ExtensionsKey, string.Join(",", call.ActivatedExtensions) } });
+            : context.WriteResponseHeadersAsync(new Metadata
+                { { GrpcErrors.ExtensionsKey, string.Join(",", call.ActivatedExtensions) } });
+    }
 
     /// <summary>
-    /// The exception to throw for a failed call. The activated extensions are echoed in the trailers, as the HTTP bindings echo
-    /// them in the error response, unless the initial metadata already carried them (<paramref name="headersSent"/>).
+    ///     The exception to throw for a failed call. The activated extensions are echoed in the trailers, as the HTTP bindings
+    ///     echo
+    ///     them in the error response, unless the initial metadata already carried them (<paramref name="headersSent" />).
     /// </summary>
     public RpcException Fail(Exception ex, GrpcContext context, ServerCallContext? call, bool headersSent)
     {
@@ -36,13 +43,14 @@ internal sealed class GrpcCallSupport(ILogger logger, bool includeDetails)
     }
 
     /// <summary>
-    /// The gRPC status for a failure: A2A errors through the shared table; unexpected errors are logged and sent as a generic
-    /// INTERNAL (with the exception text only when <see cref="A2AServerOptions.IncludeExceptionDetails"/> allows it).
+    ///     The gRPC status for a failure: A2A errors through the shared table; unexpected errors are logged and sent as a
+    ///     generic
+    ///     INTERNAL (with the exception text only when <see cref="A2AServerOptions.IncludeExceptionDetails" /> allows it).
     /// </summary>
     private RpcException Translate(Exception ex, GrpcContext context)
     {
         if (ex is OperationCanceledException && context.CancellationToken.IsCancellationRequested)
-            return new RpcException(new global::Grpc.Core.Status(StatusCode.Cancelled, "Call canceled by the client"));
+            return new RpcException(new Status(StatusCode.Cancelled, "Call canceled by the client"));
         // The same normalization as the HTTP bindings: the request's own errors keep their code, anything else is a generic
         // INTERNAL (with the exception text only when IncludeExceptionDetails allows it).
         var a2a = ex switch
@@ -50,15 +58,17 @@ internal sealed class GrpcCallSupport(ILogger logger, bool includeDetails)
             A2AException e => e,
             JsonException json => A2AException.InvalidParams($"Invalid request body: {json.Message}"),
             BadHttpRequestException bad => new A2AException(A2AErrorCode.InvalidRequest, bad.Message),
-            _ => null,
+            _ => null
         };
         if (a2a is null)
         {
             GrpcServerLog.UnhandledError(logger, ex, context.Method);
             a2a = includeDetails
-                ? new A2AException(A2AErrorCode.Internal, $"{A2AErrors.DefaultMessage(A2AErrorCode.Internal)}: {ex.GetType().Name}: {ex.Message}")
+                ? new A2AException(A2AErrorCode.Internal,
+                    $"{A2AErrors.DefaultMessage(A2AErrorCode.Internal)}: {ex.GetType().Name}: {ex.Message}")
                 : new A2AException(A2AErrorCode.Internal);
         }
+
         return GrpcErrors.ToRpcException(a2a);
     }
 }

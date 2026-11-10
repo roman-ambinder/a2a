@@ -4,7 +4,6 @@ using System.Text.Json.Serialization;
 using A2A.Client;
 using A2A.Server;
 using A2A.Server.Pipeline;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.Tests.Operations;
 

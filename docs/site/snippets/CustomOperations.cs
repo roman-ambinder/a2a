@@ -6,7 +6,6 @@ using A2A.Server.AspNetCore;
 using A2A.Server.Grpc;
 using A2A.Server.Pipeline;
 using A2A.Server.Storage;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.CustomOperations;
 

@@ -1,15 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>A2A.Client.V0_3Compat</RootNamespace>
-    <!-- CA1707: the assembly name A2A.Client.V0_3Compat is fixed by the package plan. -->
-    <NoWarn>$(NoWarn);CA1707</NoWarn>
-    <Description>Talk to A2A protocol v0.3 agents from the A2A .NET client: v0.3 JSON-RPC and HTTP+JSON transports and a client factory.</Description>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\A2A.V0_3Compat\A2A.V0_3Compat.csproj" />
-    <ProjectReference Include="..\A2A.Client\A2A.Client.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <InternalsVisibleTo Include="A2A.V0_3Compat.Tests" />
-  </ItemGroup>
+    <PropertyGroup>
+        <RootNamespace>A2A.Client.V0_3Compat</RootNamespace>
+        <!-- CA1707: the assembly name A2A.Client.V0_3Compat is fixed by the package plan. -->
+        <NoWarn>$(NoWarn);CA1707</NoWarn>
+        <Description>Talk to A2A protocol v0.3 agents from the A2A .NET client: v0.3 JSON-RPC and HTTP+JSON transports and a client factory.</Description>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.V0_3Compat\A2A.V0_3Compat.csproj"/>
+        <ProjectReference Include="..\A2A.Client\A2A.Client.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="A2A.V0_3Compat.Tests"/>
+    </ItemGroup>
 </Project>

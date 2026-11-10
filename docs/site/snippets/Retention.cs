@@ -1,9 +1,6 @@
 using A2A.Server;
 using A2A.Server.Retention;
 using A2A.Server.Storage;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.Retention;
 

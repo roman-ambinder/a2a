@@ -3,15 +3,27 @@ using Microsoft.Extensions.Logging;
 namespace A2A.Server.AspNetCore;
 
 /// <summary>
-/// Source-generated log messages of A2A.Server.AspNetCore. Event ids are unique across the SDK; each class has its own range:
-/// <list type="bullet">
-/// <item><description>500-599: <c>HttpPlumbing</c>.</description></item>
-/// <item><description>600-699: <c>JsonRpcEndpoint</c>.</description></item>
-/// <item><description>700-799: <c>A2AStartupValidator</c>.</description></item>
-/// <item><description>800-899: <c>AgentCardEndpoint</c>.</description></item>
-/// <item><description>1200-1299: health checks.</description></item>
-/// </list>
-/// The other assemblies use 100-199 (A2A.Client), 200-499 (A2A.Server), 900-999 (A2A.Server.Grpc) and 1000-1199 (the Postgres, Redis and compat packages).
+///     Source-generated log messages of A2A.Server.AspNetCore. Event ids are unique across the SDK; each class has its own
+///     range:
+///     <list type="bullet">
+///         <item>
+///             <description>500-599: <c>HttpPlumbing</c>.</description>
+///         </item>
+///         <item>
+///             <description>600-699: <c>JsonRpcEndpoint</c>.</description>
+///         </item>
+///         <item>
+///             <description>700-799: <c>A2AStartupValidator</c>.</description>
+///         </item>
+///         <item>
+///             <description>800-899: <c>AgentCardEndpoint</c>.</description>
+///         </item>
+///         <item>
+///             <description>1200-1299: health checks.</description>
+///         </item>
+///     </list>
+///     The other assemblies use 100-199 (A2A.Client), 200-499 (A2A.Server), 900-999 (A2A.Server.Grpc) and 1000-1199 (the
+///     Postgres, Redis and compat packages).
 /// </summary>
 internal static partial class AspNetCoreLog
 {
@@ -34,7 +46,9 @@ internal static partial class AspNetCoreLog
     public static partial void StoppingApplication(ILogger logger, Exception exception, string message);
 
     // AgentCardEndpoint: 800-899
-    [LoggerMessage(EventId = 800, Level = LogLevel.Warning, Message = "Agent Card signature does not cover these empty values, which a2a-python/a2a-js canonicalization removes: {PrunedPaths}")]
+    [LoggerMessage(EventId = 800, Level = LogLevel.Warning,
+        Message =
+            "Agent Card signature does not cover these empty values, which a2a-python/a2a-js canonicalization removes: {PrunedPaths}")]
     public static partial void CardSignatureSkipsPrunedValues(ILogger logger, string prunedPaths);
 
     // Health checks: 1200-1299

@@ -1,7 +1,6 @@
 using A2A.Client;
 using A2A.Server;
 using A2A.Server.Authorization;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.SkillAuthorization;
 

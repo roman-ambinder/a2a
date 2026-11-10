@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Http;
 using A2A.Client.Outbox;
 
 namespace A2A.Tests;

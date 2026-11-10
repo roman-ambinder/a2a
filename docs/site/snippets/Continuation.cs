@@ -1,13 +1,8 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using A2A.Server;
-using A2A.Server.AspNetCore;
 using A2A.Server.Execution;
 using A2A.Server.Storage;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 
 namespace A2A.DocSnippets.Continuation;
 

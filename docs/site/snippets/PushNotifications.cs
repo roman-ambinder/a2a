@@ -5,10 +5,7 @@ using A2A.Push;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Push;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.PushNotifications;
 

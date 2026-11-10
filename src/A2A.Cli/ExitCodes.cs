@@ -39,30 +39,33 @@ internal static class ExitCodes
     /// <summary>The user cancelled with Ctrl+C.</summary>
     public const int Cancelled = 130;
 
-    /// <summary>The exit code for a task state seen at the end of send, stream or subscribe.</summary>
-    public static int ForTaskState(TaskState? state) => state switch
-    {
-        TaskState.Failed or TaskState.Rejected or TaskState.Canceled => TaskFailed,
-        TaskState.InputRequired or TaskState.AuthRequired => TaskInterrupted,
-        _ => Success,
-    };
-
     /// <summary>The table shown by <c>--help</c>.</summary>
     public const string HelpText = """
-        Exit codes:
-          0    success
-          1    unexpected or local error (for example a file already exists)
-          2    usage error
-          3    network, connection or timeout error
-          4    authentication or authorization error
-          5    not found (task, or no matching artifact)
-          6    other A2A or protocol error from the agent
-          7    Agent Card verification or pin failure
-          8    artifact integrity, size or origin failure
-          9    task ended failed, rejected or canceled (send, stream, subscribe)
-          10   task is waiting for input or authorization (send, stream, subscribe)
-          130  cancelled with Ctrl+C
-        """;
+                                   Exit codes:
+                                     0    success
+                                     1    unexpected or local error (for example a file already exists)
+                                     2    usage error
+                                     3    network, connection or timeout error
+                                     4    authentication or authorization error
+                                     5    not found (task, or no matching artifact)
+                                     6    other A2A or protocol error from the agent
+                                     7    Agent Card verification or pin failure
+                                     8    artifact integrity, size or origin failure
+                                     9    task ended failed, rejected or canceled (send, stream, subscribe)
+                                     10   task is waiting for input or authorization (send, stream, subscribe)
+                                     130  cancelled with Ctrl+C
+                                   """;
+
+    /// <summary>The exit code for a task state seen at the end of send, stream or subscribe.</summary>
+    public static int ForTaskState(TaskState? state)
+    {
+        return state switch
+        {
+            TaskState.Failed or TaskState.Rejected or TaskState.Canceled => TaskFailed,
+            TaskState.InputRequired or TaskState.AuthRequired => TaskInterrupted,
+            _ => Success
+        };
+    }
 }
 
 /// <summary>An error with a chosen exit code and a message that is safe to show.</summary>
@@ -72,5 +75,8 @@ internal sealed class CliException(int exitCode, string message) : Exception(mes
     public int ExitCode { get; } = exitCode;
 
     /// <summary>A usage error (exit code 2).</summary>
-    public static CliException Usage(string message) => new(ExitCodes.Usage, message);
+    public static CliException Usage(string message)
+    {
+        return new CliException(ExitCodes.Usage, message);
+    }
 }

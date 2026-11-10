@@ -18,7 +18,8 @@ public sealed class ResearchAgentTests
         var client = host.CreateClient();
 
         // CollectAsync reads the stream to its end, and never hangs.
-        var events = await client.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("tides") }).CollectAsync();
+        var events = await client
+            .SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("tides") }).CollectAsync();
 
         // EventOrder checks the exact events. The failure message prints the expected and the actual ones.
         A2AAssert.EventOrder(events,
@@ -39,7 +40,8 @@ public sealed class ResearchAgentTests
             .Otherwise(reply => reply.Fail("The peer is down")));
         await using var host = await A2ATestHost.StartAsync(new ResearchAgent(peer.CreateClient()));
 
-        var response = await host.CreateClient().SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("anything") });
+        var response = await host.CreateClient()
+            .SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("anything") });
 
         // HasState checks the response is a task in that state, and returns the task.
         var task = A2AAssert.HasState(response, TaskState.Failed);
@@ -59,13 +61,17 @@ public sealed class ResearchAgentTests
             Configuration = new SendMessageConfiguration
             {
                 ReturnImmediately = true,
-                TaskPushNotificationConfig = new TaskPushNotificationConfig { Url = TestPushReceiver.DefaultUrl, Token = "t-1" },
-            },
+                TaskPushNotificationConfig = new TaskPushNotificationConfig
+                    { Url = TestPushReceiver.DefaultUrl, Token = "t-1" }
+            }
         });
         var task = A2AAssert.IsTask(response);
 
         // WaitForAsync does not poll. It returns the first delivery that matches, past or future.
-        var done = await host.Push.WaitForAsync(d => d.Event is StatusUpdateEvent { StatusUpdate.Status.State: TaskState.Completed });
+        var done = await host.Push.WaitForAsync(d => d.Event is StatusUpdateEvent
+        {
+            StatusUpdate.Status.State: TaskState.Completed
+        });
         Assert.Equal("t-1", done.Token);
         Assert.Equal(task.Id, ((StatusUpdateEvent)done.Event).StatusUpdate.TaskId);
     }
@@ -77,7 +83,8 @@ public sealed class ResearchAgentTests
         var clock = new TestClock();
         var limit = TimeSpan.FromMinutes(5);
         await using var peer = await FakePeerAgent.StartAsync(script => script
-            .Otherwise(reply => reply.WaitFor(new TaskCompletionSource().Task).Reply("never"))); // the peer never answers
+            .Otherwise(reply =>
+                reply.WaitFor(new TaskCompletionSource().Task).Reply("never"))); // the peer never answers
         await using var host = await A2ATestHost.StartAsync(new ResearchAgent(peer.CreateClient()), options =>
         {
             options.TimeProvider = clock;
@@ -87,7 +94,7 @@ public sealed class ResearchAgentTests
         var response = await client.SendMessageAsync(new SendMessageRequest
         {
             Message = Message.FromUser("slow topic"),
-            Configuration = new SendMessageConfiguration { ReturnImmediately = true },
+            Configuration = new SendMessageConfiguration { ReturnImmediately = true }
         });
         var task = A2AAssert.IsTask(response);
         await peer.WaitForCallAsync(); // the agent is now waiting for the peer

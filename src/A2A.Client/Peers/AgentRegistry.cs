@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace A2A.Client.Peers;
 
-/// <summary>Limits of an <see cref="AgentRegistry"/>.</summary>
+/// <summary>Limits of an <see cref="AgentRegistry" />.</summary>
 public sealed class AgentRegistryOptions
 {
     /// <summary>Most agents the registry holds. Default 10,000. Must be at least 1.</summary>
@@ -30,61 +30,66 @@ public sealed record AgentRegistration(PeerIdentity Identity, UntrustedText Name
     public bool MixedScriptName { get; init; }
 
     /// <summary>
-    /// The identity this entry replaced at the same card URL (key rotation or upgrade). Set only on the <see cref="AgentRegistry.Register"/>
-    /// call that changed the identity; <see langword="null"/> otherwise.
+    ///     The identity this entry replaced at the same card URL (key rotation or upgrade). Set only on the
+    ///     <see cref="AgentRegistry.Register" />
+    ///     call that changed the identity; <see langword="null" /> otherwise.
     /// </summary>
     public PeerIdentity? PreviousIdentity { get; init; }
 }
 
 /// <summary>
-/// In-memory, thread-safe registry of peers keyed by <see cref="PeerIdentity"/>. It rejects a second agent with the same name
-/// (first registered wins) and warns about lookalike names; see <see cref="AgentRegistration.LookalikeOf"/>. A new key at the
-/// same card URL replaces the old entry, so key rotation does not break hosts. A signed agent served unsigned is refused.
+///     In-memory, thread-safe registry of peers keyed by <see cref="PeerIdentity" />. It rejects a second agent with the
+///     same name
+///     (first registered wins) and warns about lookalike names; see <see cref="AgentRegistration.LookalikeOf" />. A new
+///     key at the
+///     same card URL replaces the old entry, so key rotation does not break hosts. A signed agent served unsigned is
+///     refused.
 /// </summary>
 /// <remarks>
-/// <para>
-/// Two agents on one origin that share a key (or have none) have the same identity. The registry cannot tell them apart and
-/// refuses the second one with <see cref="AgentRegistrationRejection.IdentityInUse"/>. Give each tenant its own signing key.
-/// </para>
-/// <para>
-/// Name comparison uses <c>string.Normalize</c>. With <c>InvariantGlobalization</c> it does nothing, so compatibility forms
-/// other than fullwidth ASCII are not folded.
-/// </para>
-/// <para>
-/// <see cref="TryGetByName"/> is safe only because names are unique here. Check <see cref="AgentRegistration.Identity"/> before
-/// sending credentials.
-/// </para>
+///     <para>
+///         Two agents on one origin that share a key (or have none) have the same identity. The registry cannot tell them
+///         apart and
+///         refuses the second one with <see cref="AgentRegistrationRejection.IdentityInUse" />. Give each tenant its own
+///         signing key.
+///     </para>
+///     <para>
+///         Name comparison uses <c>string.Normalize</c>. With <c>InvariantGlobalization</c> it does nothing, so
+///         compatibility forms
+///         other than fullwidth ASCII are not folded.
+///     </para>
+///     <para>
+///         <see cref="TryGetByName" /> is safe only because names are unique here. Check
+///         <see cref="AgentRegistration.Identity" /> before
+///         sending credentials.
+///     </para>
 /// </remarks>
 public sealed class AgentRegistry
 {
     private const int MaxLookalikes = 16;
 
     private static readonly Meter Meter = new("A2A");
+
     private static readonly Counter<long> LookalikeCounter =
-        Meter.CreateCounter<long>("a2a.registry.name_lookalike", description: "Agent names that look like the name of another registered agent.");
+        Meter.CreateCounter<long>("a2a.registry.name_lookalike",
+            description: "Agent names that look like the name of another registered agent.");
 
-    private sealed class Entry(AgentRegistration registration, string nameKey, string skeleton)
-    {
-        public AgentRegistration Registration { get; } = registration;
-        public string NameKey { get; } = nameKey;
-        public string Skeleton { get; } = skeleton;
-        public PeerIdentity Identity => Registration.Identity;
-        public Uri Source => Registration.Resolved.Source;
-    }
-
-    private readonly object _gate = new();
     private readonly Dictionary<PeerIdentity, Entry> _byIdentity = [];
-    private readonly Dictionary<Uri, Entry> _bySource = [];
     private readonly Dictionary<string, Entry> _byName = [];
     private readonly Dictionary<string, List<Entry>> _bySkeleton = [];
+    private readonly Dictionary<Uri, Entry> _bySource = [];
+
+    private readonly object _gate = new();
+    private readonly ILogger _logger;
     private readonly int _maxAgents;
     private readonly int _maxNameLength;
-    private readonly ILogger _logger;
 
     /// <summary>Creates a registry.</summary>
-    /// <param name="options">Limits; defaults are used when <see langword="null"/>.</param>
+    /// <param name="options">Limits; defaults are used when <see langword="null" />.</param>
     /// <param name="logger">Receives warnings about lookalike names and identity changes.</param>
-    /// <exception cref="ArgumentOutOfRangeException"><see cref="AgentRegistryOptions.MaxAgents"/> or <see cref="AgentRegistryOptions.MaxNameLength"/> is below 1.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    ///     <see cref="AgentRegistryOptions.MaxAgents" /> or
+    ///     <see cref="AgentRegistryOptions.MaxNameLength" /> is below 1.
+    /// </exception>
     public AgentRegistry(AgentRegistryOptions? options = null, ILogger? logger = null)
     {
         options ??= new AgentRegistryOptions();
@@ -100,7 +105,10 @@ public sealed class AgentRegistry
     {
         get
         {
-            lock (_gate) return _byIdentity.Count;
+            lock (_gate)
+            {
+                return _byIdentity.Count;
+            }
         }
     }
 
@@ -109,16 +117,20 @@ public sealed class AgentRegistry
     {
         get
         {
-            lock (_gate) return _byIdentity.Values.Select(e => e.Registration).ToList();
+            lock (_gate)
+            {
+                return _byIdentity.Values.Select(e => e.Registration).ToList();
+            }
         }
     }
 
     /// <summary>
-    /// Adds or updates the agent behind <paramref name="resolved"/>, keyed by <see cref="ResolvedAgentCard.Identity"/>. A refused
-    /// call leaves the registry unchanged.
+    ///     Adds or updates the agent behind <paramref name="resolved" />, keyed by <see cref="ResolvedAgentCard.Identity" />.
+    ///     A refused
+    ///     call leaves the registry unchanged.
     /// </summary>
     /// <returns>The stored registration.</returns>
-    /// <exception cref="AgentRegistrationException">The card is refused; see <see cref="AgentRegistrationException.Reason"/>.</exception>
+    /// <exception cref="AgentRegistrationException">The card is refused; see <see cref="AgentRegistrationException.Reason" />.</exception>
     public AgentRegistration Register(ResolvedAgentCard resolved)
     {
         ArgumentNullException.ThrowIfNull(resolved);
@@ -128,10 +140,8 @@ public sealed class AgentRegistry
         var shownName = TextSanitizer.ForMessage(rawName);
         var nameKey = AgentNameNormalizer.NameKey(rawName, _maxNameLength);
         if (nameKey.Length == 0)
-        {
             throw new AgentRegistrationException(AgentRegistrationRejection.InvalidName, identity, null,
                 $"Agent name from {identity} is empty.");
-        }
 
         var skeleton = AgentNameNormalizer.Skeleton(rawName, _maxNameLength);
         var mixedScript = AgentNameNormalizer.IsMixedScript(rawName, _maxNameLength);
@@ -145,37 +155,34 @@ public sealed class AgentRegistry
             _bySource.TryGetValue(source, out replaced);
 
             if (sameIdentity is not null && sameIdentity.Source != source)
-            {
-                throw new AgentRegistrationException(AgentRegistrationRejection.IdentityInUse, identity, sameIdentity.Identity,
+                throw new AgentRegistrationException(AgentRegistrationRejection.IdentityInUse, identity,
+                    sameIdentity.Identity,
                     $"Identity {identity} is already registered for another card URL. Use a separate signing key per agent.");
-            }
 
-            if (replaced is not null && replaced.Identity != identity && identity.Assurance < replaced.Identity.Assurance)
-            {
-                throw new AgentRegistrationException(AgentRegistrationRejection.IdentityDowngrade, identity, replaced.Identity,
+            if (replaced is not null && replaced.Identity != identity &&
+                identity.Assurance < replaced.Identity.Assurance)
+                throw new AgentRegistrationException(AgentRegistrationRejection.IdentityDowngrade, identity,
+                    replaced.Identity,
                     $"Agent at {TextSanitizer.ForMessage(source.AbsoluteUri)} was registered as {replaced.Identity} and is now {identity}.");
-            }
 
             if (_byName.TryGetValue(nameKey, out var holder) && !ReferenceEquals(holder, replaced))
-            {
-                throw new AgentRegistrationException(AgentRegistrationRejection.DuplicateName, identity, holder.Identity,
+                throw new AgentRegistrationException(AgentRegistrationRejection.DuplicateName, identity,
+                    holder.Identity,
                     $"Agent name '{shownName}' from {identity} is already used by {holder.Identity}.");
-            }
 
             if (replaced is null && _byIdentity.Count >= _maxAgents)
-            {
                 throw new AgentRegistrationException(AgentRegistrationRejection.RegistryFull, identity, null,
                     $"The registry holds {_maxAgents} agents; {identity} was not added.");
-            }
 
             var lookalikes = skeleton.Length == 0 || !_bySkeleton.TryGetValue(skeleton, out var sameSkeleton)
                 ? []
-                : sameSkeleton.Where(e => !ReferenceEquals(e, replaced)).Take(MaxLookalikes).Select(e => e.Identity).ToArray();
+                : sameSkeleton.Where(e => !ReferenceEquals(e, replaced)).Take(MaxLookalikes).Select(e => e.Identity)
+                    .ToArray();
             registration = new AgentRegistration(identity, name, resolved)
             {
                 LookalikeOf = lookalikes,
                 MixedScriptName = mixedScript,
-                PreviousIdentity = replaced is not null && replaced.Identity != identity ? replaced.Identity : null,
+                PreviousIdentity = replaced is not null && replaced.Identity != identity ? replaced.Identity : null
             };
 
             if (replaced is not null) Unindex(replaced);
@@ -199,16 +206,13 @@ public sealed class AgentRegistry
                 LookalikeCounter.Add(1, new KeyValuePair<string, object?>("origin", identity.Origin));
             }
 
-            if (mixedScript)
-            {
-                ClientLog.AgentMixedScriptName(_logger, shownName, identityText);
-            }
+            if (mixedScript) ClientLog.AgentMixedScriptName(_logger, shownName, identityText);
         }
 
         return registration;
     }
 
-    /// <summary>Finds the agent registered under <paramref name="identity"/>.</summary>
+    /// <summary>Finds the agent registered under <paramref name="identity" />.</summary>
     public bool TryGet(PeerIdentity identity, [NotNullWhen(true)] out AgentRegistration? registration)
     {
         ArgumentNullException.ThrowIfNull(identity);
@@ -220,7 +224,7 @@ public sealed class AgentRegistry
         }
     }
 
-    /// <summary>Finds the agent whose name matches <paramref name="name"/> by name key (case, width and spacing are ignored).</summary>
+    /// <summary>Finds the agent whose name matches <paramref name="name" /> by name key (case, width and spacing are ignored).</summary>
     public bool TryGetByName(string name, [NotNullWhen(true)] out AgentRegistration? registration)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -234,7 +238,10 @@ public sealed class AgentRegistry
         }
     }
 
-    /// <summary>Removes the agent registered under <paramref name="identity"/>. Returns <see langword="false"/> when there is none.</summary>
+    /// <summary>
+    ///     Removes the agent registered under <paramref name="identity" />. Returns <see langword="false" /> when there
+    ///     is none.
+    /// </summary>
     public bool Remove(PeerIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
@@ -264,5 +271,14 @@ public sealed class AgentRegistry
         if (entry.Skeleton.Length == 0 || !_bySkeleton.TryGetValue(entry.Skeleton, out var list)) return;
         list.Remove(entry);
         if (list.Count == 0) _bySkeleton.Remove(entry.Skeleton);
+    }
+
+    private sealed class Entry(AgentRegistration registration, string nameKey, string skeleton)
+    {
+        public AgentRegistration Registration { get; } = registration;
+        public string NameKey { get; } = nameKey;
+        public string Skeleton { get; } = skeleton;
+        public PeerIdentity Identity => Registration.Identity;
+        public Uri Source => Registration.Resolved.Source;
     }
 }

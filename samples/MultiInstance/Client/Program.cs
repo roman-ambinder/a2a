@@ -17,7 +17,8 @@ var a = await factory.GetClientAsync("a");
 var b = await factory.GetClientAsync("b");
 
 // 1. Start a task on instance A and return at once.
-var started = await a.SendMessageAsync(Message.FromUser("count for me"), new SendMessageConfiguration { ReturnImmediately = true });
+var started = await a.SendMessageAsync(Message.FromUser("count for me"),
+    new SendMessageConfiguration { ReturnImmediately = true });
 var task = (started as TaskResponse)?.Task ?? throw new InvalidOperationException("Expected a task.");
 Console.WriteLine($"A: started task {task.Id} ({task.Status.State})");
 
@@ -32,8 +33,10 @@ await foreach (var evt in b.SubscribeToTaskAsync(task.Id))
     if (evt is ArtifactUpdateEvent { ArtifactUpdate: var u })
     {
         steps++;
-        Console.WriteLine($"B: event -> {string.Concat(u.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)).Trim()}");
+        Console.WriteLine(
+            $"B: event -> {string.Concat(u.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)).Trim()}");
     }
+
     if (steps >= 3) break;
 }
 
@@ -44,13 +47,19 @@ Console.WriteLine($"B: CancelTask -> {canceled.Status.State}");
 // 5. Read the result through A.
 var final = await a.WaitForTaskAsync(task.Id);
 Console.WriteLine($"A: GetTask -> {final.Status.State}");
-if (final.Status.State != TaskState.Canceled) { Console.Error.WriteLine("Expected CANCELED."); return 1; }
+if (final.Status.State != TaskState.Canceled)
+{
+    Console.Error.WriteLine("Expected CANCELED.");
+    return 1;
+}
+
 Console.WriteLine("OK: a task started on A was read, followed and cancelled through B.");
 return 0;
 
 internal sealed class ApiKeyHandler(string apiKey) : DelegatingHandler
 {
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+        CancellationToken cancellationToken)
     {
         request.Headers.Remove("X-Api-Key");
         request.Headers.Add("X-Api-Key", apiKey);

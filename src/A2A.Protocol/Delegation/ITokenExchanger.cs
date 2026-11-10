@@ -1,12 +1,12 @@
 namespace A2A.Delegation;
 
 /// <summary>
-/// Swaps one token for another, as in OAuth 2.0 Token Exchange (RFC 8693). A server uses it to get a narrower token
-/// for a downstream agent without handing over the caller's own token.
+///     Swaps one token for another, as in OAuth 2.0 Token Exchange (RFC 8693). A server uses it to get a narrower token
+///     for a downstream agent without handing over the caller's own token.
 /// </summary>
 public interface ITokenExchanger
 {
-    /// <summary>Exchanges the subject token in <paramref name="request"/> for a new token.</summary>
+    /// <summary>Exchanges the subject token in <paramref name="request" /> for a new token.</summary>
     /// <exception cref="TokenExchangeException">The exchange was refused.</exception>
     /// <exception cref="HttpRequestException">A network failure (an implementation that uses HTTP may throw it).</exception>
     /// <exception cref="OperationCanceledException">The call was cancelled or timed out.</exception>
@@ -23,13 +23,13 @@ public static class TokenTypes
     public const string Jwt = "urn:ietf:params:oauth:token-type:jwt";
 }
 
-/// <summary>A token exchange request (RFC 8693 section 2.1). <see cref="ToString"/> never shows a token.</summary>
+/// <summary>A token exchange request (RFC 8693 section 2.1). <see cref="ToString" /> never shows a token.</summary>
 public sealed class TokenExchangeRequest
 {
     /// <summary>The token to exchange.</summary>
     public required string SubjectToken { get; init; }
 
-    /// <summary>Type of <see cref="SubjectToken"/>. Default: <see cref="TokenTypes.AccessToken"/>.</summary>
+    /// <summary>Type of <see cref="SubjectToken" />. Default: <see cref="TokenTypes.AccessToken" />.</summary>
     public string SubjectTokenType { get; init; } = TokenTypes.AccessToken;
 
     /// <summary>Logical name of the target service. Not sent when null.</summary>
@@ -47,14 +47,17 @@ public sealed class TokenExchangeRequest
     /// <summary>Token that identifies the acting party. Not sent when null.</summary>
     public string? ActorToken { get; init; }
 
-    /// <summary>Type of <see cref="ActorToken"/>. Not sent when null.</summary>
+    /// <summary>Type of <see cref="ActorToken" />. Not sent when null.</summary>
     public string? ActorTokenType { get; init; }
 
     /// <summary>Returns the type name only.</summary>
-    public override string ToString() => nameof(TokenExchangeRequest);
+    public override string ToString()
+    {
+        return nameof(TokenExchangeRequest);
+    }
 }
 
-/// <summary>A token exchange response (RFC 8693 section 2.2). <see cref="ToString"/> never shows the token.</summary>
+/// <summary>A token exchange response (RFC 8693 section 2.2). <see cref="ToString" /> never shows the token.</summary>
 public sealed class TokenExchangeResult
 {
     /// <summary>The issued token.</summary>
@@ -73,10 +76,13 @@ public sealed class TokenExchangeResult
     public string? Scope { get; init; }
 
     /// <summary>Returns the type name only.</summary>
-    public override string ToString() => nameof(TokenExchangeResult);
+    public override string ToString()
+    {
+        return nameof(TokenExchangeResult);
+    }
 }
 
-/// <summary>A token exchange failed. The message and <see cref="Error"/> never contain a token.</summary>
+/// <summary>A token exchange failed. The message and <see cref="Error" /> never contain a token.</summary>
 public sealed class TokenExchangeException : Exception
 {
     /// <summary>Creates the exception.</summary>
@@ -89,6 +95,9 @@ public sealed class TokenExchangeException : Exception
         Error = error;
     }
 
-    /// <summary>The RFC 6749 <c>error</c> code from the server (for example <c>invalid_target</c>). Null when absent or not valid.</summary>
+    /// <summary>
+    ///     The RFC 6749 <c>error</c> code from the server (for example <c>invalid_target</c>). Null when absent or not
+    ///     valid.
+    /// </summary>
     public string? Error { get; }
 }

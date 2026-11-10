@@ -7,7 +7,6 @@ using A2A.Server.Authorization;
 using A2A.Server.Pipeline;
 using Google.Protobuf;
 using Grpc.Core;
-using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.Grpc.Tests;

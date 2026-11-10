@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
@@ -5,25 +6,27 @@ using System.Text.Json.Serialization.Metadata;
 namespace A2A.Json;
 
 /// <summary>
-/// Accept-side ProtoJSON field names. ProtoJSON parsers must accept the original proto field name (<c>history_length</c>)
-/// as well as the JSON name (<c>historyLength</c>). The SDK models bind only JSON names, so this rewrites proto names first.
+///     Accept-side ProtoJSON field names. ProtoJSON parsers must accept the original proto field name (
+///     <c>history_length</c>)
+///     as well as the JSON name (<c>historyLength</c>). The SDK models bind only JSON names, so this rewrites proto names
+///     first.
 /// </summary>
 /// <remarks>
-/// Keys inside free-form values are user data and are never renamed: <c>metadata</c>, a part's <c>data</c>, an
-/// extension's <c>params</c>, OAuth <c>scopes</c>, and the scheme-name maps <c>securitySchemes</c> and <c>schemes</c>.
-/// An object that has both spellings of one field (for example <c>historyLength</c> and <c>history_length</c>) is
-/// rejected, so two parsers can never read different values from the same message.
+///     Keys inside free-form values are user data and are never renamed: <c>metadata</c>, a part's <c>data</c>, an
+///     extension's <c>params</c>, OAuth <c>scopes</c>, and the scheme-name maps <c>securitySchemes</c> and <c>schemes</c>.
+///     An object that has both spellings of one field (for example <c>historyLength</c> and <c>history_length</c>) is
+///     rejected, so two parsers can never read different values from the same message.
 /// </remarks>
 public static class ProtoJsonFieldNames
 {
     private static readonly HashSet<string> FreeForm = new(StringComparer.Ordinal)
     {
-        "metadata", "data", "params", "scopes", "securitySchemes", "schemes",
+        "metadata", "data", "params", "scopes", "securitySchemes", "schemes"
     };
 
     /// <summary>
-    /// Returns <paramref name="element"/> with proto field names rewritten to JSON names. Returns the same element,
-    /// without copying, when no field name contains <c>'_'</c>.
+    ///     Returns <paramref name="element" /> with proto field names rewritten to JSON names. Returns the same element,
+    ///     without copying, when no field name contains <c>'_'</c>.
     /// </summary>
     /// <exception cref="JsonException">An object has both the proto name and the JSON name of one field.</exception>
     public static JsonElement Normalize(JsonElement element)
@@ -31,16 +34,22 @@ public static class ProtoJsonFieldNames
         if (!HasProtoNames(element)) return element;
         var node = JsonNode.Parse(element.GetRawText(), documentOptions: new JsonDocumentOptions { MaxDepth = 1024 });
         Rewrite(node);
-        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer)) node!.WriteTo(writer);
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            node!.WriteTo(writer);
+        }
+
         using var doc = JsonDocument.Parse(buffer.WrittenMemory, new JsonDocumentOptions { MaxDepth = 1024 });
         return doc.RootElement.Clone();
     }
 
     /// <summary>
-    /// Deserializes a JSON value as <typeparamref name="T"/>, accepting proto field names (see <see cref="Normalize(JsonElement)"/>).
-    /// A value without any property name that contains <c>'_'</c> (the usual case) binds straight from <paramref name="utf8Json"/>
-    /// with no intermediate document; only a value with such a name is normalized first.
+    ///     Deserializes a JSON value as <typeparamref name="T" />, accepting proto field names (see
+    ///     <see cref="Normalize(JsonElement)" />).
+    ///     A value without any property name that contains <c>'_'</c> (the usual case) binds straight from
+    ///     <paramref name="utf8Json" />
+    ///     with no intermediate document; only a value with such a name is normalized first.
     /// </summary>
     /// <exception cref="JsonException">Malformed JSON, a value that does not bind, or both spellings of one field.</exception>
     public static T? Deserialize<T>(ReadOnlySpan<byte> utf8Json, JsonTypeInfo<T> typeInfo)
@@ -48,13 +57,20 @@ public static class ProtoJsonFieldNames
         ArgumentNullException.ThrowIfNull(typeInfo);
         if (!MayHaveProtoNames(utf8Json)) return JsonSerializer.Deserialize(utf8Json, typeInfo);
         var reader = new Utf8JsonReader(utf8Json, new JsonReaderOptions { MaxDepth = 1024 });
-        try { return Normalize(JsonElement.ParseValue(ref reader)).Deserialize(typeInfo); }
-        catch (InvalidOperationException e) { throw new JsonException("A property name is not valid text.", e); } // a lone surrogate escape
+        try
+        {
+            return Normalize(JsonElement.ParseValue(ref reader)).Deserialize(typeInfo);
+        }
+        catch (InvalidOperationException e)
+        {
+            throw new JsonException("A property name is not valid text.", e);
+        } // a lone surrogate escape
     }
 
     /// <summary>
-    /// False when no property name in <paramref name="utf8Json"/> contains <c>'_'</c>, so the value needs no normalization. True
-    /// otherwise (also for names inside free-form values, which <see cref="Normalize(JsonElement)"/> then leaves alone).
+    ///     False when no property name in <paramref name="utf8Json" /> contains <c>'_'</c>, so the value needs no
+    ///     normalization. True
+    ///     otherwise (also for names inside free-form values, which <see cref="Normalize(JsonElement)" /> then leaves alone).
     /// </summary>
     private static bool MayHaveProtoNames(ReadOnlySpan<byte> utf8Json)
     {
@@ -66,9 +82,12 @@ public static class ProtoJsonFieldNames
             while (reader.Read())
             {
                 if (reader.TokenType != JsonTokenType.PropertyName) continue;
-                if (reader.ValueIsEscaped ? reader.GetString()!.Contains('_', StringComparison.Ordinal) : reader.ValueSpan.IndexOf((byte)'_') >= 0)
+                if (reader.ValueIsEscaped
+                        ? reader.GetString()!.Contains('_', StringComparison.Ordinal)
+                        : reader.ValueSpan.IndexOf((byte)'_') >= 0)
                     return true;
             }
+
             return false;
         }
         catch (Exception e) when (e is JsonException or InvalidOperationException)
@@ -85,10 +104,16 @@ public static class ProtoJsonFieldNames
         var upper = false;
         foreach (var c in protoName)
         {
-            if (c == '_') { upper = n > 0; continue; }
+            if (c == '_')
+            {
+                upper = n > 0;
+                continue;
+            }
+
             chars[n++] = upper ? char.ToUpperInvariant(c) : c;
             upper = false;
         }
+
         return new string(chars, 0, n);
     }
 
@@ -102,10 +127,12 @@ public static class ProtoJsonFieldNames
                     if (p.Name.Contains('_')) return true;
                     if (!FreeForm.Contains(p.Name) && HasProtoNames(p.Value)) return true;
                 }
+
                 return false;
             case JsonValueKind.Array:
                 foreach (var item in e.EnumerateArray())
-                    if (HasProtoNames(item)) return true;
+                    if (HasProtoNames(item))
+                        return true;
                 return false;
             default:
                 return false;
@@ -127,8 +154,10 @@ public static class ProtoJsonFieldNames
                         obj.Remove(name);
                         obj[jsonName] = value;
                     }
+
                     if (!FreeForm.Contains(jsonName)) Rewrite(value);
                 }
+
                 break;
             case JsonArray arr:
                 foreach (var item in arr) Rewrite(item);

@@ -2,8 +2,6 @@ using System.Collections.Concurrent;
 using A2A.Server;
 using A2A.Server.Agents;
 using A2A.Server.AspNetCore;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.MultiTenancy;
 

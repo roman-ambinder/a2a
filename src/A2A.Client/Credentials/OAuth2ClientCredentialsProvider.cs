@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
@@ -15,10 +16,10 @@ public enum OAuth2ClientAuthentication
     ClientSecretBasic,
 
     /// <summary>The client id and secret in the form body.</summary>
-    ClientSecretPost,
+    ClientSecretPost
 }
 
-/// <summary>Settings for <see cref="OAuth2ClientCredentialsProvider"/>. The provider copies them at construction.</summary>
+/// <summary>Settings for <see cref="OAuth2ClientCredentialsProvider" />. The provider copies them at construction.</summary>
 public sealed class OAuth2ClientCredentialsOptions
 {
     /// <summary>The OAuth2 client id. Required.</summary>
@@ -28,16 +29,18 @@ public sealed class OAuth2ClientCredentialsOptions
     public string ClientSecret { get; set; } = "";
 
     /// <summary>
-    /// The token endpoint. When null, the provider uses the <c>tokenUrl</c> of the card's client credentials flow, but only
-    /// when it is on the card's origin. In that case the provider binds to the origin of the first card it accepts and refuses
-    /// every other card origin, so one client secret is never sent to the token endpoints of different agents. Create one
-    /// provider per agent origin, or set this property. It has no effect when this property is set.
+    ///     The token endpoint. When null, the provider uses the <c>tokenUrl</c> of the card's client credentials flow, but
+    ///     only
+    ///     when it is on the card's origin. In that case the provider binds to the origin of the first card it accepts and
+    ///     refuses
+    ///     every other card origin, so one client secret is never sent to the token endpoints of different agents. Create one
+    ///     provider per agent origin, or set this property. It has no effect when this property is set.
     /// </summary>
     public Uri? TokenEndpoint { get; set; }
 
     /// <summary>
-    /// Scopes to request. When null or empty, the card chooses the scopes: those of its security requirement are used. Set
-    /// <c>Scopes</c> when one client id serves several APIs, so that a card cannot ask for more than you intend.
+    ///     Scopes to request. When null or empty, the card chooses the scopes: those of its security requirement are used. Set
+    ///     <c>Scopes</c> when one client id serves several APIs, so that a card cannot ask for more than you intend.
     /// </summary>
     public IList<string>? Scopes { get; set; }
 
@@ -45,7 +48,8 @@ public sealed class OAuth2ClientCredentialsOptions
     public OAuth2ClientAuthentication ClientAuthentication { get; set; } = OAuth2ClientAuthentication.ClientSecretBasic;
 
     /// <summary>Extra form parameters for the token request, for example <c>audience</c> or <c>resource</c>.</summary>
-    public IDictionary<string, string> AdditionalParameters { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+    public IDictionary<string, string> AdditionalParameters { get; } =
+        new Dictionary<string, string>(StringComparer.Ordinal);
 
     /// <summary>When set, the provider only handles the card scheme with this name.</summary>
     public string? SchemeName { get; set; }
@@ -63,47 +67,53 @@ public sealed class OAuth2ClientCredentialsOptions
     public bool RequireHttps { get; set; } = true;
 
     /// <summary>
-    /// The handler for token requests. Defaults to a non-redirecting <see cref="SocketsHttpHandler"/> that the provider owns.
-    /// A handler you pass stays yours: the provider does not dispose it.
+    ///     The handler for token requests. Defaults to a non-redirecting <see cref="SocketsHttpHandler" /> that the provider
+    ///     owns.
+    ///     A handler you pass stays yours: the provider does not dispose it.
     /// </summary>
     public HttpMessageHandler? TokenHandler { get; set; }
 
-    /// <summary>The clock, for tests. Defaults to <see cref="TimeProvider.System"/>.</summary>
+    /// <summary>The clock, for tests. Defaults to <see cref="TimeProvider.System" />.</summary>
     public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
 }
 
 /// <summary>
-/// Gets OAuth2 client credentials access tokens and adds them as <c>Authorization: Bearer</c>. Tokens are cached per token
-/// endpoint, card origin and scope set. Concurrent callers share one token request. When
-/// <see cref="OAuth2ClientCredentialsOptions.TokenEndpoint"/> is not set, the provider binds to the first card origin it
-/// accepts and handles no other origin.
+///     Gets OAuth2 client credentials access tokens and adds them as <c>Authorization: Bearer</c>. Tokens are cached per
+///     token
+///     endpoint, card origin and scope set. Concurrent callers share one token request. When
+///     <see cref="OAuth2ClientCredentialsOptions.TokenEndpoint" /> is not set, the provider binds to the first card origin
+///     it
+///     accepts and handles no other origin.
 /// </summary>
 public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, IDisposable
 {
     private const int MaxSlots = 256;
     private static readonly string[] ReservedParameters = ["grant_type", "scope", "client_id", "client_secret"];
+    private readonly KeyValuePair<string, string>[] _additional;
+    private readonly OAuth2ClientAuthentication _clientAuthentication;
 
     private readonly string _clientId;
     private readonly string _clientSecret;
-    private readonly Uri? _tokenEndpoint;
-    private readonly string[]? _scopes;
-    private readonly string? _fixedScope;
     private readonly ConditionalWeakTable<A2ACredentialContext, string> _contextScopes = new();
-    private Uri? _boundOrigin;
-    private readonly OAuth2ClientAuthentication _clientAuthentication;
-    private readonly KeyValuePair<string, string>[] _additional;
-    private readonly string? _schemeName;
-    private readonly TimeSpan _refreshBeforeExpiry;
     private readonly TimeSpan _defaultLifetime;
-    private readonly TimeSpan _requestTimeout;
-    private readonly bool _requireHttps;
-    private readonly TimeProvider _time;
+    private readonly string? _fixedScope;
     private readonly HttpClient _http;
     private readonly HttpMessageHandler? _ownedHandler;
+    private readonly TimeSpan _refreshBeforeExpiry;
+    private readonly TimeSpan _requestTimeout;
+    private readonly bool _requireHttps;
+    private readonly string? _schemeName;
+    private readonly string[]? _scopes;
     private readonly ConcurrentDictionary<(string Endpoint, string Origin, string Scope), Slot> _slots = new();
+    private readonly TimeProvider _time;
+    private readonly Uri? _tokenEndpoint;
+    private Uri? _boundOrigin;
 
     /// <summary>Creates the provider.</summary>
-    /// <exception cref="ArgumentException">An option is invalid, or <see cref="OAuth2ClientCredentialsOptions.TokenHandler"/> follows redirects.</exception>
+    /// <exception cref="ArgumentException">
+    ///     An option is invalid, or <see cref="OAuth2ClientCredentialsOptions.TokenHandler" />
+    ///     follows redirects.
+    /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">A time span option is out of range.</exception>
     public OAuth2ClientCredentialsProvider(OAuth2ClientCredentialsOptions options)
     {
@@ -117,12 +127,16 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
             var problem = CheckEndpoint(options.TokenEndpoint, options.RequireHttps);
             if (problem is not null) throw new ArgumentException($"TokenEndpoint {problem}", nameof(options));
         }
+
         foreach (var key in options.AdditionalParameters.Keys)
             if (Array.IndexOf(ReservedParameters, key) >= 0)
                 throw new ArgumentException($"AdditionalParameters cannot contain '{key}'.", nameof(options));
-        ArgumentOutOfRangeException.ThrowIfLessThan(options.RefreshBeforeExpiry, TimeSpan.Zero, nameof(options.RefreshBeforeExpiry));
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.DefaultTokenLifetime, TimeSpan.Zero, nameof(options.DefaultTokenLifetime));
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.TokenRequestTimeout, TimeSpan.Zero, nameof(options.TokenRequestTimeout));
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.RefreshBeforeExpiry, TimeSpan.Zero,
+            nameof(options.RefreshBeforeExpiry));
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.DefaultTokenLifetime, TimeSpan.Zero,
+            nameof(options.DefaultTokenLifetime));
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.TokenRequestTimeout, TimeSpan.Zero,
+            nameof(options.TokenRequestTimeout));
         ArgumentNullException.ThrowIfNull(options.TimeProvider);
 
         HttpMessageHandler handler;
@@ -133,7 +147,7 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         }
         else
         {
-            #if NETSTANDARD2_0
+#if NETSTANDARD2_0
             // No SocketsHttpHandler on netstandard2.0.
             handler = _ownedHandler = new HttpClientHandler { AllowAutoRedirect = false };
 #else
@@ -154,41 +168,38 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         _requestTimeout = options.TokenRequestTimeout;
         _requireHttps = options.RequireHttps;
         _time = options.TimeProvider;
-        _http = new HttpClient(handler, disposeHandler: false)
+        _http = new HttpClient(handler, false)
         {
             MaxResponseContentBufferSize = 64 * 1024,
-            Timeout = Timeout.InfiniteTimeSpan,
+            Timeout = Timeout.InfiniteTimeSpan
         };
     }
 
     private DateTimeOffset Now => _time.GetUtcNow();
 
+    internal int SlotCount => _slots.Count;
+
     /// <inheritdoc />
     public bool CanHandle(A2ACredentialContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (_schemeName is not null && !string.Equals(context.SchemeName, _schemeName, StringComparison.Ordinal)) return false;
+        if (_schemeName is not null &&
+            !string.Equals(context.SchemeName, _schemeName, StringComparison.Ordinal)) return false;
         var handles = context.Scheme switch
         {
             OAuth2Scheme { Value.Flows.ClientCredentials: { } flow } =>
                 _tokenEndpoint is not null || CardEndpoint(flow.TokenUrl, context.CardOrigin) is not null,
             HttpAuthScheme h => _tokenEndpoint is not null
-                && string.Equals(h.Value.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase),
+                                && string.Equals(h.Value.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase),
             OpenIdConnectScheme => _tokenEndpoint is not null,
-            _ => false,
+            _ => false
         };
         return handles && (_tokenEndpoint is not null || TryBindOrigin(context.CardOrigin));
     }
 
-    /// <summary>Binds the provider to the first origin it sees. True when <paramref name="origin"/> is the bound origin.</summary>
-    private bool TryBindOrigin(Uri origin)
-    {
-        var bound = Interlocked.CompareExchange(ref _boundOrigin, origin, null) ?? origin;
-        return A2ACredentialBinding.IsSameOrigin(bound, origin);
-    }
-
     /// <inheritdoc />
-    public async ValueTask ApplyAsync(HttpRequestMessage request, A2ACredentialContext context, CancellationToken cancellationToken)
+    public async ValueTask ApplyAsync(HttpRequestMessage request, A2ACredentialContext context,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(context);
@@ -208,22 +219,36 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
-    /// <summary>Releases the HTTP client and the default handler. A handler passed in <see cref="OAuth2ClientCredentialsOptions.TokenHandler"/> is left alone.</summary>
+    /// <summary>
+    ///     Releases the HTTP client and the default handler. A handler passed in
+    ///     <see cref="OAuth2ClientCredentialsOptions.TokenHandler" /> is left alone.
+    /// </summary>
     public void Dispose()
     {
         _http.Dispose();
         _ownedHandler?.Dispose();
     }
 
-    private static string ScopeString(IEnumerable<string> scopes) =>
-        string.Join(' ', scopes.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+    /// <summary>Binds the provider to the first origin it sees. True when <paramref name="origin" /> is the bound origin.</summary>
+    private bool TryBindOrigin(Uri origin)
+    {
+        var bound = Interlocked.CompareExchange(ref _boundOrigin, origin, null) ?? origin;
+        return A2ACredentialBinding.IsSameOrigin(bound, origin);
+    }
 
-    private Uri? CardEndpoint(string tokenUrl, Uri cardOrigin) =>
-        Uri.TryCreate(tokenUrl, UriKind.Absolute, out var uri)
-        && A2ACredentialBinding.IsSameOrigin(uri, cardOrigin)
-        && CheckEndpoint(uri, _requireHttps) is null
+    private static string ScopeString(IEnumerable<string> scopes)
+    {
+        return string.Join(' ', scopes.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+    }
+
+    private Uri? CardEndpoint(string tokenUrl, Uri cardOrigin)
+    {
+        return Uri.TryCreate(tokenUrl, UriKind.Absolute, out var uri)
+               && A2ACredentialBinding.IsSameOrigin(uri, cardOrigin)
+               && CheckEndpoint(uri, _requireHttps) is null
             ? uri
             : null;
+    }
 
     private static string? CheckEndpoint(Uri uri, bool requireHttps)
     {
@@ -235,24 +260,6 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         return null;
     }
 
-    internal sealed class Slot
-    {
-        public readonly object Gate = new();
-        public bool Evicted;
-        public CachedToken? Token;
-        public Task<CachedToken>? InFlight;
-    }
-
-    // A class, not a record: a record's ToString would print the token.
-    internal sealed class CachedToken(string value, DateTimeOffset refreshAt, DateTimeOffset expiresAt)
-    {
-        public string Value { get; } = value;
-        public DateTimeOffset RefreshAt { get; } = refreshAt;
-        public DateTimeOffset ExpiresAt { get; } = expiresAt;
-    }
-
-    internal int SlotCount => _slots.Count;
-
     internal Slot GetSlot((string Endpoint, string Origin, string Scope) key)
     {
         if (_slots.TryGetValue(key, out var existing)) return existing;
@@ -263,14 +270,12 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
     internal void EvictIdleSlots()
     {
         foreach (var (k, s) in _slots)
-        {
             lock (s.Gate)
             {
                 if (s.InFlight is not null) continue;
                 s.Evicted = true;
                 _slots.TryRemove(new KeyValuePair<(string, string, string), Slot>(k, s));
             }
-        }
     }
 
     private async ValueTask<string> GetTokenAsync((string Endpoint, string Origin, string Scope) key, Uri endpoint,
@@ -291,6 +296,7 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
                 break;
             }
         }
+
         try
         {
             return (await fetch.WaitAsync(cancellationToken).ConfigureAwait(false)).Value;
@@ -305,7 +311,7 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
     {
         try
         {
-            #if NETSTANDARD2_0
+#if NETSTANDARD2_0
             // No CancellationTokenSource(TimeSpan, TimeProvider) constructor on netstandard2.0.
             using var cts = _time.CreateCancellationTokenSource(_requestTimeout);
 #else
@@ -317,13 +323,19 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
                 slot.Token = token;
                 slot.InFlight = null;
             }
+
             return token;
         }
         catch (Exception ex)
         {
-            lock (slot.Gate) slot.InFlight = null;
+            lock (slot.Gate)
+            {
+                slot.InFlight = null;
+            }
+
             if (ex is A2AException) throw;
-            var where = endpoint.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped);
+            var where = endpoint.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path,
+                UriFormat.UriEscaped);
             var reason = ex is OperationCanceledException
                 ? $"timed out after {_requestTimeout.TotalSeconds:0.##} seconds"
                 : $"failed ({ex.GetType().Name})";
@@ -335,66 +347,84 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
     {
         var issuedAt = Now;
         var form = new List<KeyValuePair<string, string>> { new("grant_type", "client_credentials") };
-        if (scope.Length > 0) form.Add(new("scope", scope));
+        if (scope.Length > 0) form.Add(new KeyValuePair<string, string>("scope", scope));
         form.AddRange(_additional);
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         if (_clientAuthentication == OAuth2ClientAuthentication.ClientSecretBasic)
         {
             var raw = WebUtility.UrlEncode(_clientId) + ":" + WebUtility.UrlEncode(_clientSecret);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(raw)));
+            request.Headers.Authorization =
+                new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(raw)));
         }
         else
         {
-            form.Add(new("client_id", _clientId));
-            form.Add(new("client_secret", _clientSecret));
+            form.Add(new KeyValuePair<string, string>("client_id", _clientId));
+            form.Add(new KeyValuePair<string, string>("client_secret", _clientSecret));
         }
+
         request.Content = new FormUrlEncodedContent(form);
 
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct)
+            .ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
-            throw new A2AException(A2AErrorCode.Unauthenticated, ErrorMessage(endpoint, (int)response.StatusCode, body));
+            throw new A2AException(A2AErrorCode.Unauthenticated,
+                ErrorMessage(endpoint, (int)response.StatusCode, body));
 
         return Parse(body, issuedAt);
     }
 
     private string ErrorMessage(Uri endpoint, int status, string body)
     {
-        var sb = new StringBuilder($"The token endpoint {endpoint.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped)} answered HTTP {status}.");
+        var sb = new StringBuilder(
+            $"The token endpoint {endpoint.GetComponents(UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.UriEscaped)} answered HTTP {status}.");
         try
         {
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.ValueKind == JsonValueKind.Object)
-            {
                 foreach (var name in new[] { "error", "error_description" })
-                    if (doc.RootElement.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String && p.GetString() is { Length: > 0 } text)
+                    if (doc.RootElement.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String &&
+                        p.GetString() is { Length: > 0 } text)
                         sb.Append(' ').Append(name).Append(": ").Append(Clean(text));
-            }
         }
-        catch (JsonException) { }
+        catch (JsonException)
+        {
+        }
+
         return sb.ToString();
     }
 
-    private string Clean(string text) =>
-        TextSanitizer.Sanitize(text.Replace(_clientSecret, "[redacted]", StringComparison.Ordinal), TextSanitizer.MaxHeaderValueLength);
+    private string Clean(string text)
+    {
+        return TextSanitizer.Sanitize(text.Replace(_clientSecret, "[redacted]", StringComparison.Ordinal),
+            TextSanitizer.MaxHeaderValueLength);
+    }
 
     private CachedToken Parse(string body, DateTimeOffset issuedAt)
     {
         JsonDocument doc;
-        try { doc = JsonDocument.Parse(body); }
-        catch (JsonException ex) { throw Bad("the response is not valid JSON", ex); }
+        try
+        {
+            doc = JsonDocument.Parse(body);
+        }
+        catch (JsonException ex)
+        {
+            throw Bad("the response is not valid JSON", ex);
+        }
+
         using (doc)
         {
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object) throw Bad("the response is not a JSON object");
             if (!root.TryGetProperty("access_token", out var at) || at.ValueKind != JsonValueKind.String
-                || at.GetString() is not { Length: > 0 } token)
+                                                                 || at.GetString() is not { Length: > 0 } token)
                 throw Bad("the response has no access_token");
             if (token.Any(c => char.IsControl(c) || char.IsWhiteSpace(c)))
                 throw Bad("the access_token contains control or white space characters");
             if (root.TryGetProperty("token_type", out var tt)
-                && (tt.ValueKind != JsonValueKind.String || !string.Equals(tt.GetString(), "Bearer", StringComparison.OrdinalIgnoreCase)))
+                && (tt.ValueKind != JsonValueKind.String ||
+                    !string.Equals(tt.GetString(), "Bearer", StringComparison.OrdinalIgnoreCase)))
                 throw Bad("the token_type is not Bearer");
 
             var lifetime = _defaultLifetime;
@@ -403,7 +433,8 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
                 double seconds;
                 if (ei.ValueKind == JsonValueKind.Number) seconds = ei.GetDouble();
                 else if (ei.ValueKind == JsonValueKind.String
-                    && double.TryParse(ei.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                         && double.TryParse(ei.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture,
+                             out var parsed))
                     seconds = parsed;
                 else throw Bad("expires_in is not a number");
                 if (double.IsNaN(seconds) || seconds < 0) throw Bad("expires_in is negative");
@@ -415,7 +446,26 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
             return new CachedToken(token, expiresAt - skew, expiresAt);
         }
 
-        static A2AException Bad(string why, Exception? inner = null) =>
-            new(A2AErrorCode.Unauthenticated, $"The token endpoint response was rejected: {why}.", inner);
+        static A2AException Bad(string why, Exception? inner = null)
+        {
+            return new A2AException(A2AErrorCode.Unauthenticated, $"The token endpoint response was rejected: {why}.",
+                inner);
+        }
+    }
+
+    internal sealed class Slot
+    {
+        public readonly object Gate = new();
+        public bool Evicted;
+        public Task<CachedToken>? InFlight;
+        public CachedToken? Token;
+    }
+
+    // A class, not a record: a record's ToString would print the token.
+    internal sealed class CachedToken(string value, DateTimeOffset refreshAt, DateTimeOffset expiresAt)
+    {
+        public string Value { get; } = value;
+        public DateTimeOffset RefreshAt { get; } = refreshAt;
+        public DateTimeOffset ExpiresAt { get; } = expiresAt;
     }
 }

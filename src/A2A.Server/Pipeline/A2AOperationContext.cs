@@ -1,11 +1,10 @@
 namespace A2A.Server.Pipeline;
 
-/// <summary>One call passing through the <see cref="IA2AOperationFilter"/> pipeline.</summary>
+/// <summary>One call passing through the <see cref="IA2AOperationFilter" /> pipeline.</summary>
 public sealed class A2AOperationContext
 {
-    private Dictionary<string, object?>? _items;
-    private readonly object? _operationDelegate;
     private readonly Func<A2AOperationContext, object, CancellationToken, ValueTask<object?>>? _invoke;
+    private Dictionary<string, object?>? _items;
 
     /// <summary>Creates a context with no operation behind it, for example to test a filter on its own.</summary>
     /// <param name="operation">The operation.</param>
@@ -18,13 +17,13 @@ public sealed class A2AOperationContext
         Call = call;
     }
 
-    /// <summary>A context whose innermost step runs <paramref name="operationDelegate"/> through <paramref name="invoke"/>.</summary>
+    /// <summary>A context whose innermost step runs <paramref name="operationDelegate" /> through <paramref name="invoke" />.</summary>
     internal A2AOperationContext(A2AOperationDescriptor operation, ServerCallContext call, object operationDelegate,
         Func<A2AOperationContext, object, CancellationToken, ValueTask<object?>> invoke)
     {
         Operation = operation;
         Call = call;
-        _operationDelegate = operationDelegate;
+        OperationDelegate = operationDelegate;
         _invoke = invoke;
     }
 
@@ -37,12 +36,14 @@ public sealed class A2AOperationContext
     /// <summary>Data shared by the filters of this call. A new, empty dictionary per call (created when first read).</summary>
     public IDictionary<string, object?> Items => _items ??= new Dictionary<string, object?>(StringComparer.Ordinal);
 
-    /// <summary>The operation delegate this context runs; read by <see cref="OperationInvoker{TRequest, TResponse}"/>.</summary>
-    internal object? OperationDelegate => _operationDelegate;
+    /// <summary>The operation delegate this context runs; read by <see cref="OperationInvoker{TRequest, TResponse}" />.</summary>
+    internal object? OperationDelegate { get; }
 
-    /// <summary>The innermost step: runs the operation with <paramref name="request"/>.</summary>
-    internal ValueTask<object?> InvokeOperationAsync(object request, CancellationToken cancellationToken) =>
-        _invoke is null
+    /// <summary>The innermost step: runs the operation with <paramref name="request" />.</summary>
+    internal ValueTask<object?> InvokeOperationAsync(object request, CancellationToken cancellationToken)
+    {
+        return _invoke is null
             ? throw new InvalidOperationException("This context has no operation behind it.")
             : _invoke(this, request, cancellationToken);
+    }
 }

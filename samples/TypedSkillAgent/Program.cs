@@ -24,7 +24,7 @@ var card = new AgentCard
     Description = "Books a hotel room. Also chats, as a plain agent.",
     Version = "1.0.0",
     DefaultInputModes = ["text/plain"],
-    DefaultOutputModes = ["text/plain"],
+    DefaultOutputModes = ["text/plain"]
 };
 
 // AllowAnonymous is fine for a sample that only listens on loopback. A real agent needs authentication
@@ -36,7 +36,7 @@ builder.Services.AddA2A(a => a
                 (context, cancellationToken) => Task.FromResult(new BookingResult
                 {
                     Reference = $"BK-{context.Input.City.ToUpperInvariant()}-{context.Input.Nights}",
-                    Total = 89.5m * context.Input.Nights,
+                    Total = 89.5m * context.Input.Nights
                 }),
                 o =>
                 {
@@ -67,8 +67,11 @@ var cardJson = await http.GetStringAsync($"{address}/.well-known/agent-card.json
 var served = A2AJson.Deserialize<AgentCard>(cardJson);
 if (TypedSkillExtension.TryGetSchemas(served, "book", out var inputSchema, out _))
 {
-    var required = inputSchema.TryGetProperty("required", out var r) ? string.Join(", ", r.EnumerateArray().Select(e => e.GetString())) : "none";
-    Console.WriteLine($"card: skill 'book' takes {string.Join(", ", inputSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name))}; required: {required}");
+    var required = inputSchema.TryGetProperty("required", out var r)
+        ? string.Join(", ", r.EnumerateArray().Select(e => e.GetString()))
+        : "none";
+    Console.WriteLine(
+        $"card: skill 'book' takes {string.Join(", ", inputSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name))}; required: {required}");
 }
 
 var client = new A2AClient(new JsonRpcTransport(http, new Uri($"{address}/a2a"), options), options, served);
@@ -93,13 +96,15 @@ catch (A2AException ex)
     foreach (var detail in ex.Details ?? [])
         if (detail.TryGetProperty("fieldViolations", out var violations))
             foreach (var violation in violations.EnumerateArray())
-                Console.WriteLine($"  {violation.GetProperty("field").GetString()}: {violation.GetProperty("description").GetString()}");
+                Console.WriteLine(
+                    $"  {violation.GetProperty("field").GetString()}: {violation.GetProperty("description").GetString()}");
 }
 
 Console.WriteLine();
 Console.WriteLine("--- plain message (goes to the fallback)");
 var reply = await client.SendMessageAsync("Hello there");
-Console.WriteLine($"fallback says: {reply switch { TaskResponse t => t.Task.Status.Message!.GetText(), MessageResponse m => m.Message.GetText(), _ => "?" }}");
+Console.WriteLine(
+    $"fallback says: {reply switch { TaskResponse t => t.Task.Status.Message!.GetText(), MessageResponse m => m.Message.GetText(), _ => "?" }}");
 
 await app.StopAsync();
 
@@ -127,6 +132,8 @@ internal sealed partial class BookingJson : JsonSerializerContext
 /// <summary>A plain executor for everything that does not name the typed skill.</summary>
 internal sealed class ChatAgent : IAgentExecutor
 {
-    public Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken) =>
-        updater.CompleteAsync($"You said: {context.UserText}", cancellationToken).AsTask();
+    public Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken)
+    {
+        return updater.CompleteAsync($"You said: {context.UserText}", cancellationToken).AsTask();
+    }
 }

@@ -3,9 +3,11 @@ using A2A.Server;
 namespace A2A.TestKit;
 
 /// <summary>
-/// The rules of a <see cref="FakePeerAgent"/>. A call is answered by the first match in this order: queued answers
-/// (<see cref="Enqueue"/>, one use each, first in first out), then rules in the order you added them, then <see cref="Otherwise"/>.
-/// With no match the peer fails the task and records an unmatched call. Thread-safe: you can add rules while the peer runs.
+///     The rules of a <see cref="FakePeerAgent" />. A call is answered by the first match in this order: queued answers
+///     (<see cref="Enqueue" />, one use each, first in first out), then rules in the order you added them, then
+///     <see cref="Otherwise" />.
+///     With no match the peer fails the task and records an unmatched call. Thread-safe: you can add rules while the peer
+///     runs.
 /// </summary>
 public sealed class FakePeerScript
 {
@@ -14,21 +16,27 @@ public sealed class FakePeerScript
     private readonly List<(Func<AgentRequestContext, bool> Predicate, Action<PeerResponse> Respond)> _rules = [];
     private Action<PeerResponse>? _otherwise;
 
-    internal FakePeerScript() { }
+    internal FakePeerScript()
+    {
+    }
 
-    /// <summary>Answers a call whose text contains <paramref name="contains"/> (ordinal, case-sensitive).</summary>
+    /// <summary>Answers a call whose text contains <paramref name="contains" /> (ordinal, case-sensitive).</summary>
     public FakePeerScript WhenText(string contains, Action<PeerResponse> respond)
     {
         ArgumentNullException.ThrowIfNull(contains);
         return When(c => c.UserText.Contains(contains, StringComparison.Ordinal), respond);
     }
 
-    /// <summary>Answers a call that <paramref name="predicate"/> accepts.</summary>
+    /// <summary>Answers a call that <paramref name="predicate" /> accepts.</summary>
     public FakePeerScript When(Func<AgentRequestContext, bool> predicate, Action<PeerResponse> respond)
     {
         ArgumentNullException.ThrowIfNull(predicate);
         ArgumentNullException.ThrowIfNull(respond);
-        lock (_gate) _rules.Add((predicate, respond));
+        lock (_gate)
+        {
+            _rules.Add((predicate, respond));
+        }
+
         return this;
     }
 
@@ -36,7 +44,11 @@ public sealed class FakePeerScript
     public FakePeerScript Enqueue(Action<PeerResponse> respond)
     {
         ArgumentNullException.ThrowIfNull(respond);
-        lock (_gate) _queue.Enqueue(respond);
+        lock (_gate)
+        {
+            _queue.Enqueue(respond);
+        }
+
         return this;
     }
 
@@ -44,7 +56,11 @@ public sealed class FakePeerScript
     public FakePeerScript Otherwise(Action<PeerResponse> respond)
     {
         ArgumentNullException.ThrowIfNull(respond);
-        lock (_gate) _otherwise = respond;
+        lock (_gate)
+        {
+            _otherwise = respond;
+        }
+
         return this;
     }
 
@@ -59,15 +75,15 @@ public sealed class FakePeerScript
             rules = [.. _rules];
             otherwise = _otherwise;
         }
+
         if (chosen is null)
-        {
             foreach (var (predicate, respond) in rules)
             {
                 if (!predicate(context)) continue;
                 chosen = respond;
                 break;
             }
-        }
+
         chosen ??= otherwise;
         if (chosen is null) return null;
         var response = new PeerResponse();

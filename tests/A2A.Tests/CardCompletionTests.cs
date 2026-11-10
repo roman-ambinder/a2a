@@ -1,11 +1,9 @@
 using System.Security.Cryptography;
-using System.Text.Json;
 using A2A.Json;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Signing;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;

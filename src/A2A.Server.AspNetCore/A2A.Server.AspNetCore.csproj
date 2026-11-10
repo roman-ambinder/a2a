@@ -1,17 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>A2A.Server.AspNetCore</RootNamespace>
-    <Description>ASP.NET Core hosting for A2A (Agent2Agent) agents: JSON-RPC and HTTP+JSON endpoints, SSE streaming, Agent Card discovery.</Description>
-  </PropertyGroup>
-  <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\A2A.Server\A2A.Server.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <InternalsVisibleTo Include="A2A.Tests" />
-    <InternalsVisibleTo Include="A2A.Server.V0_3Compat" />
-    <InternalsVisibleTo Include="A2A.V0_3Compat.Tests" />
-  </ItemGroup>
+    <PropertyGroup>
+        <RootNamespace>A2A.Server.AspNetCore</RootNamespace>
+        <Description>ASP.NET Core hosting for A2A (Agent2Agent) agents: JSON-RPC and HTTP+JSON endpoints, SSE streaming, Agent Card discovery.</Description>
+    </PropertyGroup>
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.Server\A2A.Server.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="A2A.Tests"/>
+        <InternalsVisibleTo Include="A2A.Server.V0_3Compat"/>
+        <InternalsVisibleTo Include="A2A.V0_3Compat.Tests"/>
+    </ItemGroup>
 </Project>

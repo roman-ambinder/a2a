@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using A2A.Json;
 
 namespace A2A.Signing;
@@ -8,20 +7,28 @@ namespace A2A.Signing;
 /// <summary>A private key used to sign Agent Cards.</summary>
 public sealed class AgentCardSigningKey
 {
-    /// <summary>Creates a signing key. <paramref name="algorithm"/> must be one of <see cref="JwsAlgorithms.All"/> and <paramref name="keyId"/> must not be blank. <paramref name="jwksUrl"/> is optional.</summary>
+    /// <summary>
+    ///     Creates a signing key. <paramref name="algorithm" /> must be one of <see cref="JwsAlgorithms.All" /> and
+    ///     <paramref name="keyId" /> must not be blank. <paramref name="jwksUrl" /> is optional.
+    /// </summary>
     public AgentCardSigningKey(AsymmetricAlgorithm key, string keyId, string algorithm, string? jwksUrl = null)
     {
-        if (!JwsAlgorithms.IsSupported(algorithm)) throw new ArgumentException($"Unsupported JWS algorithm '{algorithm}'.", nameof(algorithm));
+        if (!JwsAlgorithms.IsSupported(algorithm))
+            throw new ArgumentException($"Unsupported JWS algorithm '{algorithm}'.", nameof(algorithm));
         Key = key;
-        KeyId = string.IsNullOrWhiteSpace(keyId) ? throw new ArgumentException("Key id is required.", nameof(keyId)) : keyId;
+        KeyId = string.IsNullOrWhiteSpace(keyId)
+            ? throw new ArgumentException("Key id is required.", nameof(keyId))
+            : keyId;
         Algorithm = algorithm;
         JwksUrl = jwksUrl;
     }
 
     /// <summary>The private key.</summary>
     public AsymmetricAlgorithm Key { get; }
+
     /// <summary>Id of the key (the JWS <c>kid</c> header).</summary>
     public string KeyId { get; }
+
     /// <summary>JWS algorithm, for example <c>ES256</c>.</summary>
     public string Algorithm { get; }
 
@@ -29,13 +36,16 @@ public sealed class AgentCardSigningKey
     public string? JwksUrl { get; }
 
     /// <summary>Returns the public half of the key as a JWK, ready to publish in a key set.</summary>
-    public Jwk ToPublicJwk() => Jwk.FromPublicKey(Key, KeyId, Algorithm);
+    public Jwk ToPublicJwk()
+    {
+        return Jwk.FromPublicKey(Key, KeyId, Algorithm);
+    }
 }
 
 /// <summary>Signs Agent Cards with JWS (spec §8.4.2).</summary>
 public static class AgentCardSigner
 {
-    /// <summary>Returns a copy of <paramref name="card"/> with a new signature appended.</summary>
+    /// <summary>Returns a copy of <paramref name="card" /> with a new signature appended.</summary>
     public static AgentCard Sign(AgentCard card, AgentCardSigningKey key)
     {
         var signed = A2AJson.Clone(card);
@@ -44,10 +54,13 @@ public static class AgentCardSigner
         return signed;
     }
 
-    /// <summary>Creates a detached JWS signature over <see cref="AgentCardCanonicalizer.Canonicalize"/> of <paramref name="card"/>.</summary>
+    /// <summary>
+    ///     Creates a detached JWS signature over <see cref="AgentCardCanonicalizer.Canonicalize" /> of
+    ///     <paramref name="card" />.
+    /// </summary>
     /// <remarks>
-    /// Values the canonicalization prunes (see <see cref="AgentCardCanonicalizer.PrunedPaths"/>) are signed around, not
-    /// refused: they stay in the served card but the signature does not cover them.
+    ///     Values the canonicalization prunes (see <see cref="AgentCardCanonicalizer.PrunedPaths" />) are signed around, not
+    ///     refused: they stay in the served card but the signature does not cover them.
     /// </remarks>
     public static AgentCardSignature CreateSignature(AgentCard card, AgentCardSigningKey key)
     {
@@ -66,7 +79,7 @@ public static class JwsAlgorithms
 {
     internal static readonly HashSet<string> Supported = new(StringComparer.Ordinal)
     {
-        "ES256", "ES384", "ES512", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512",
+        "ES256", "ES384", "ES512", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512"
     };
 
 #if !NETSTANDARD2_0
@@ -74,17 +87,23 @@ public static class JwsAlgorithms
     public static readonly IReadOnlySet<string> All = Supported;
 #endif
 
-    /// <summary>Returns true if <paramref name="alg"/> is a supported algorithm.</summary>
-    public static bool IsSupported(string? alg) => alg is not null && Supported.Contains(alg);
+    /// <summary>Returns true if <paramref name="alg" /> is a supported algorithm.</summary>
+    public static bool IsSupported(string? alg)
+    {
+        return alg is not null && Supported.Contains(alg);
+    }
 
     /// <summary>Returns the hash algorithm of a JWS algorithm name, for example SHA-256 for <c>ES256</c>.</summary>
-    public static HashAlgorithmName Hash(string alg) => alg[2..] switch
+    public static HashAlgorithmName Hash(string alg)
     {
-        "256" => HashAlgorithmName.SHA256,
-        "384" => HashAlgorithmName.SHA384,
-        "512" => HashAlgorithmName.SHA512,
-        _ => throw new NotSupportedException(alg),
-    };
+        return alg[2..] switch
+        {
+            "256" => HashAlgorithmName.SHA256,
+            "384" => HashAlgorithmName.SHA384,
+            "512" => HashAlgorithmName.SHA512,
+            _ => throw new NotSupportedException(alg)
+        };
+    }
 
     // JWS needs IEEE P1363 (r || s). On netstandard2.0 that is the only format ECDsa offers, so the overload without a format is the same call.
     private static byte[] EcSign(ECDsa ec, byte[] data, string alg) =>
@@ -101,16 +120,19 @@ public static class JwsAlgorithms
         ec.VerifyData(data, signature, Hash(alg), DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
 #endif
 
-    /// <summary>Signs <paramref name="data"/>. Throws when the key type does not match the algorithm.</summary>
-    public static byte[] Sign(string alg, AsymmetricAlgorithm key, byte[] data) => (alg[0], key) switch
+    /// <summary>Signs <paramref name="data" />. Throws when the key type does not match the algorithm.</summary>
+    public static byte[] Sign(string alg, AsymmetricAlgorithm key, byte[] data)
     {
-        ('E', ECDsa ec) => EcSign(ec, data, alg),
-        ('R', RSA rsa) => rsa.SignData(data, Hash(alg), RSASignaturePadding.Pkcs1),
-        ('P', RSA rsa) => rsa.SignData(data, Hash(alg), RSASignaturePadding.Pss),
-        _ => throw new CryptographicException($"Key type {key.GetType().Name} does not match algorithm {alg}."),
-    };
+        return (alg[0], key) switch
+        {
+            ('E', ECDsa ec) => EcSign(ec, data, alg),
+            ('R', RSA rsa) => rsa.SignData(data, Hash(alg), RSASignaturePadding.Pkcs1),
+            ('P', RSA rsa) => rsa.SignData(data, Hash(alg), RSASignaturePadding.Pss),
+            _ => throw new CryptographicException($"Key type {key.GetType().Name} does not match algorithm {alg}.")
+        };
+    }
 
-    /// <summary>Verifies a signature over <paramref name="data"/>. Returns false on any mismatch or failure.</summary>
+    /// <summary>Verifies a signature over <paramref name="data" />. Returns false on any mismatch or failure.</summary>
     public static bool Verify(string alg, AsymmetricAlgorithm key, byte[] data, byte[] signature)
     {
         try
@@ -120,7 +142,7 @@ public static class JwsAlgorithms
                 ('E', ECDsa ec) => EcVerify(ec, data, signature, alg),
                 ('R', RSA rsa) => rsa.VerifyData(data, signature, Hash(alg), RSASignaturePadding.Pkcs1),
                 ('P', RSA rsa) => rsa.VerifyData(data, signature, Hash(alg), RSASignaturePadding.Pss),
-                _ => false,
+                _ => false
             };
         }
         catch (CryptographicException)
@@ -130,10 +152,13 @@ public static class JwsAlgorithms
     }
 
     /// <summary>Checks that the key matches the algorithm family and curve.</summary>
-    public static bool KeyMatches(string alg, Jwk jwk) => alg[0] switch
+    public static bool KeyMatches(string alg, Jwk jwk)
     {
-        'E' => jwk.Kty == "EC" && jwk.Crv == alg switch { "ES256" => "P-256", "ES384" => "P-384", _ => "P-521" },
-        'R' or 'P' => jwk.Kty == "RSA",
-        _ => false,
-    };
+        return alg[0] switch
+        {
+            'E' => jwk.Kty == "EC" && jwk.Crv == alg switch { "ES256" => "P-256", "ES384" => "P-384", _ => "P-521" },
+            'R' or 'P' => jwk.Kty == "RSA",
+            _ => false
+        };
+    }
 }

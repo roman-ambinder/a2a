@@ -4,7 +4,6 @@ using A2A.Integrity;
 using A2A.Server;
 using A2A.Server.Storage;
 using A2A.Server.Uploads;
-using A2A.Server.Streaming;
 
 namespace A2A.Stores.Tests;
 

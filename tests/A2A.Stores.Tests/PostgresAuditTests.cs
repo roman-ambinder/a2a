@@ -1,7 +1,6 @@
 using A2A.Server;
 using A2A.Server.Audit;
 using A2A.Server.Postgres;
-using A2A.Tests;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Npgsql;

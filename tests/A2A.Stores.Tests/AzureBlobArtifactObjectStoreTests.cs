@@ -3,7 +3,6 @@ using A2A.Integrity;
 using A2A.Server.Storage;
 using A2A.Server.Storage.AzureBlob;
 using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.Stores.Tests;

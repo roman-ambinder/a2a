@@ -1,11 +1,9 @@
 using System.Security.Cryptography;
-using System.Text.Json;
 using System.Threading.Channels;
 using A2A.Client;
 using A2A.Integrity;
 using A2A.Server;
 using A2A.Server.Storage;
-using A2A.Server.Streaming;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

@@ -2,7 +2,6 @@ using A2A.Client;
 using A2A.Elicitations;
 using A2A.Security.Http;
 using A2A.Server;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.TaskSafety;
 

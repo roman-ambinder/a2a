@@ -1,97 +1,97 @@
 <Project>
-  <PropertyGroup>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <IsPackable>false</IsPackable>
-    <!-- The Web SDK warns when a solution pack reaches a non-packable web project (samples, interop agent). -->
-    <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
+    <PropertyGroup>
+        <LangVersion>latest</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+        <IsPackable>false</IsPackable>
+        <!-- The Web SDK warns when a solution pack reaches a non-packable web project (samples, interop agent). -->
+        <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
 
-    <!-- Default version for local builds. Release builds pass -p:Version=<tag> (see .github/workflows/release.yml). -->
-    <VersionPrefix>0.1.0</VersionPrefix>
-    <Deterministic>true</Deterministic>
+        <!-- Default version for local builds. Release builds pass -p:Version=<tag> (see .github/workflows/release.yml). -->
+        <VersionPrefix>0.1.0</VersionPrefix>
+        <Deterministic>true</Deterministic>
 
-    <!-- [Experimental] APIs (see docs/site/guides/versioning.md). The repo's own code, tests, samples and snippets opt in here. -->
-    <NoWarn>$(NoWarn);A2AEXP001;A2AEXP002;A2AEXP003;A2AEXP004;A2AEXP005</NoWarn>
-  </PropertyGroup>
+        <!-- [Experimental] APIs (see docs/site/guides/versioning.md). The repo's own code, tests, samples and snippets opt in here. -->
+        <NoWarn>$(NoWarn);A2AEXP001;A2AEXP002;A2AEXP003;A2AEXP004;A2AEXP005</NoWarn>
+    </PropertyGroup>
 
-  <!-- Reproducible builds on CI (normalized paths for SourceLink and PDBs). -->
-  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
-    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
-  </PropertyGroup>
+    <!-- Reproducible builds on CI (normalized paths for SourceLink and PDBs). -->
+    <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+        <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    </PropertyGroup>
 
-  <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\'))">
-    <TargetFrameworks>net10.0</TargetFrameworks>
-    <IsPackable>true</IsPackable>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);RS0026;CA1000;CA1711;CA1716;CA1720</NoWarn>
-    <!-- CA1000: ProtoEnumConverter<T> exposes static members; changing that alters public API. Revisit with the modular moves. -->
-    <!-- CA1711, CA1716: public names (IdempotencyResult.New, AuthorizeAsync parameter names) would have to be renamed; that is a breaking API change. -->
-    <!-- CA1720: AgentCardVerificationStatus.Unsigned is a public enum member name; renaming breaks API. -->
-    <AnalysisLevel>latest-recommended</AnalysisLevel>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\'))">
+        <TargetFrameworks>net10.0</TargetFrameworks>
+        <IsPackable>true</IsPackable>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);RS0026;CA1000;CA1711;CA1716;CA1720</NoWarn>
+        <!-- CA1000: ProtoEnumConverter<T> exposes static members; changing that alters public API. Revisit with the modular moves. -->
+        <!-- CA1711, CA1716: public names (IdempotencyResult.New, AuthorizeAsync parameter names) would have to be renamed; that is a breaking API change. -->
+        <!-- CA1720: AgentCardVerificationStatus.Unsigned is a public enum member name; renaming breaks API. -->
+        <AnalysisLevel>latest-recommended</AnalysisLevel>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 
-    <!-- PolySharp 1.17+ emits IsClosedTypeAttribute as a public type on netstandard2.0 only, which fails package validation
-         (CP0001). Closed hierarchies are not used. -->
-    <PolySharpExcludeGeneratedTypes>System.Runtime.CompilerServices.IsClosedTypeAttribute</PolySharpExcludeGeneratedTypes>
+        <!-- PolySharp 1.17+ emits IsClosedTypeAttribute as a public type on netstandard2.0 only, which fails package validation
+             (CP0001). Closed hierarchies are not used. -->
+        <PolySharpExcludeGeneratedTypes>System.Runtime.CompilerServices.IsClosedTypeAttribute</PolySharpExcludeGeneratedTypes>
 
-    <!-- NuGet identity: assembly names and namespaces stay A2A.*; package IDs are owner-prefixed so they never clash
-         with the official "A2A" packages. -->
-    <PackageId>RomanAmbinder.$(MSBuildProjectName)</PackageId>
-    <Authors>Roman Ambinder</Authors>
-    <Copyright>Copyright (c) Roman Ambinder</Copyright>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-    <PackageTags>a2a;agent2agent;agents;ai;protocol;json-rpc;grpc</PackageTags>
-    <PackageProjectUrl>https://roman-ambinder.github.io/a2a/</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/roman-ambinder/a2a</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
+        <!-- NuGet identity: assembly names and namespaces stay A2A.*; package IDs are owner-prefixed so they never clash
+             with the official "A2A" packages. -->
+        <PackageId>RomanAmbinder.$(MSBuildProjectName)</PackageId>
+        <Authors>Roman Ambinder</Authors>
+        <Copyright>Copyright (c) Roman Ambinder</Copyright>
+        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+        <PackageTags>a2a;agent2agent;agents;ai;protocol;json-rpc;grpc</PackageTags>
+        <PackageProjectUrl>https://roman-ambinder.github.io/a2a/</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/roman-ambinder/a2a</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
 
-    <!-- SourceLink (built into the .NET SDK) + symbol packages. -->
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <EmbedUntrackedSources>true</EmbedUntrackedSources>
-    <IncludeSymbols>true</IncludeSymbols>
-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+        <!-- SourceLink (built into the .NET SDK) + symbol packages. -->
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
 
-    <!-- Catch accidental API differences between target frameworks inside a package. -->
-    <EnablePackageValidation>true</EnablePackageValidation>
+        <!-- Catch accidental API differences between target frameworks inside a package. -->
+        <EnablePackageValidation>true</EnablePackageValidation>
 
-    <IsAotCompatible Condition="'$(TargetFramework)' != 'netstandard2.0'">true</IsAotCompatible>
-  </PropertyGroup>
+        <IsAotCompatible Condition="'$(TargetFramework)' != 'netstandard2.0'">true</IsAotCompatible>
+    </PropertyGroup>
 
-  <ItemGroup Condition="$(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\'))">
-    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
-  </ItemGroup>
+    <ItemGroup Condition="$(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\'))">
+        <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all"/>
+    </ItemGroup>
 
-  <!-- Skipped for DocFX metadata (docs/site/docfx.json sets DocfxMetadata=true): DocFX lists these files twice and warns. -->
-  <ItemGroup Condition="($(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\'))) And '$(DocfxMetadata)' != 'true'">
-    <AdditionalFiles Include="PublicAPI.Shipped.txt" />
-    <AdditionalFiles Include="PublicAPI.Unshipped.txt" />
-  </ItemGroup>
+    <!-- Skipped for DocFX metadata (docs/site/docfx.json sets DocfxMetadata=true): DocFX lists these files twice and warns. -->
+    <ItemGroup Condition="($(MSBuildProjectDirectory.Contains('/src/')) Or $(MSBuildProjectDirectory.Contains('\src\'))) And '$(DocfxMetadata)' != 'true'">
+        <AdditionalFiles Include="PublicAPI.Shipped.txt"/>
+        <AdditionalFiles Include="PublicAPI.Unshipped.txt"/>
+    </ItemGroup>
 
-  <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/tests/')) Or $(MSBuildProjectDirectory.Contains('\tests\'))">
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <!-- xUnit1051 (xunit v3): pass TestContext.Current.CancellationToken to async calls. Advisory; not adopted yet. -->
-    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
-  </PropertyGroup>
+    <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/tests/')) Or $(MSBuildProjectDirectory.Contains('\tests\'))">
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <!-- xUnit1051 (xunit v3): pass TestContext.Current.CancellationToken to async calls. Advisory; not adopted yet. -->
+        <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+    </PropertyGroup>
 
-  <!-- Code coverage for the CI coverage job only (build property A2ACoverage=true). Normal runs do not load it. -->
-  <ItemGroup Condition="'$(A2ACoverage)' == 'true' And '$(IsTestProject)' == 'true'">
-    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
-  </ItemGroup>
+    <!-- Code coverage for the CI coverage job only (build property A2ACoverage=true). Normal runs do not load it. -->
+    <ItemGroup Condition="'$(A2ACoverage)' == 'true' And '$(IsTestProject)' == 'true'">
+        <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage"/>
+    </ItemGroup>
 
-  <ItemGroup Condition="'$(IsPackable)' == 'true'">
-    <None Include="$(MSBuildProjectDirectory)/README.md" Pack="true" PackagePath="/" Condition="Exists('$(MSBuildProjectDirectory)/README.md')" />
-  </ItemGroup>
+    <ItemGroup Condition="'$(IsPackable)' == 'true'">
+        <None Include="$(MSBuildProjectDirectory)/README.md" Pack="true" PackagePath="/" Condition="Exists('$(MSBuildProjectDirectory)/README.md')"/>
+    </ItemGroup>
 
-  <!-- Apple Silicon Macs: Grpc.Tools ships only Intel (x64) protoc/grpc_csharp_plugin, which need Rosetta.
-       If Homebrew's native tools exist (brew install protobuf grpc), use them instead.
-       PROTOBUF_PROTOC / GRPC_PROTOC_PLUGIN environment variables still win. -->
-  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">
-    <_A2AHomebrewBin Condition="'$(HOMEBREW_PREFIX)' != ''">$(HOMEBREW_PREFIX)/bin</_A2AHomebrewBin>
-    <_A2AHomebrewBin Condition="'$(_A2AHomebrewBin)' == ''">/opt/homebrew/bin</_A2AHomebrewBin>
-    <Protobuf_ProtocFullPath Condition="'$(Protobuf_ProtocFullPath)' == '' And '$(PROTOBUF_PROTOC)' == '' And Exists('$(_A2AHomebrewBin)/protoc')">$(_A2AHomebrewBin)/protoc</Protobuf_ProtocFullPath>
-    <gRPC_PluginFullPath Condition="'$(gRPC_PluginFullPath)' == '' And '$(GRPC_PROTOC_PLUGIN)' == '' And Exists('$(_A2AHomebrewBin)/grpc_csharp_plugin')">$(_A2AHomebrewBin)/grpc_csharp_plugin</gRPC_PluginFullPath>
-  </PropertyGroup>
+    <!-- Apple Silicon Macs: Grpc.Tools ships only Intel (x64) protoc/grpc_csharp_plugin, which need Rosetta.
+         If Homebrew's native tools exist (brew install protobuf grpc), use them instead.
+         PROTOBUF_PROTOC / GRPC_PROTOC_PLUGIN environment variables still win. -->
+    <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">
+        <_A2AHomebrewBin Condition="'$(HOMEBREW_PREFIX)' != ''">$(HOMEBREW_PREFIX)/bin</_A2AHomebrewBin>
+        <_A2AHomebrewBin Condition="'$(_A2AHomebrewBin)' == ''">/opt/homebrew/bin</_A2AHomebrewBin>
+        <Protobuf_ProtocFullPath Condition="'$(Protobuf_ProtocFullPath)' == '' And '$(PROTOBUF_PROTOC)' == '' And Exists('$(_A2AHomebrewBin)/protoc')">$(_A2AHomebrewBin)/protoc</Protobuf_ProtocFullPath>
+        <gRPC_PluginFullPath Condition="'$(gRPC_PluginFullPath)' == '' And '$(GRPC_PROTOC_PLUGIN)' == '' And Exists('$(_A2AHomebrewBin)/grpc_csharp_plugin')">$(_A2AHomebrewBin)/grpc_csharp_plugin</gRPC_PluginFullPath>
+    </PropertyGroup>
 </Project>

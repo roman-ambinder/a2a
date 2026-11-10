@@ -1,13 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>A2A.Server.Storage.AzureBlob</RootNamespace>
-    <Description>Azure Blob Storage artifact object store for the A2A (Agent2Agent) server: large artifact bytes live in a container, with SAS download links.</Description>
-    <PackageTags>$(PackageTags);azure;blob;object-storage</PackageTags>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\A2A.Server\A2A.Server.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Azure.Storage.Blobs" />
-  </ItemGroup>
+    <PropertyGroup>
+        <RootNamespace>A2A.Server.Storage.AzureBlob</RootNamespace>
+        <Description>Azure Blob Storage artifact object store for the A2A (Agent2Agent) server: large artifact bytes live in a container, with SAS download links.</Description>
+        <PackageTags>$(PackageTags);azure;blob;object-storage</PackageTags>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.Server\A2A.Server.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Azure.Storage.Blobs"/>
+    </ItemGroup>
 </Project>

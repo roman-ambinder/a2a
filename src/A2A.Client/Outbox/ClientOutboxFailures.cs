@@ -12,15 +12,15 @@ internal enum ClientOutboxFailureKind
     RetryInDoubt,
 
     /// <summary>The peer refused the message for good. The entry fails.</summary>
-    Fail,
+    Fail
 }
 
 /// <summary>Sorts the exception of a send into what happens next. A pure function, so its table can be tested alone.</summary>
 internal static class ClientOutboxFailures
 {
     /// <summary>
-    /// Sorts <paramref name="error"/>. <paramref name="retryAfter"/> is the peer's <c>Retry-After</c>, when it gave one.
-    /// A cancelled dispatcher is not an error: callers check that before they call this.
+    ///     Sorts <paramref name="error" />. <paramref name="retryAfter" /> is the peer's <c>Retry-After</c>, when it gave one.
+    ///     A cancelled dispatcher is not an error: callers check that before they call this.
     /// </summary>
     public static ClientOutboxFailureKind Classify(Exception error, out TimeSpan? retryAfter)
     {

@@ -9,7 +9,10 @@ namespace A2A.Signing;
 public static class JsonCanonicalizer
 {
     /// <summary>Canonicalizes a JSON node and returns the UTF-8 bytes.</summary>
-    public static byte[] Canonicalize(JsonNode? node) => Encoding.UTF8.GetBytes(CanonicalizeToString(node));
+    public static byte[] Canonicalize(JsonNode? node)
+    {
+        return Encoding.UTF8.GetBytes(CanonicalizeToString(node));
+    }
 
     /// <summary>Canonicalizes a JSON node and returns the string.</summary>
     public static string CanonicalizeToString(JsonNode? node)
@@ -19,8 +22,11 @@ public static class JsonCanonicalizer
         return sb.ToString();
     }
 
-    /// <summary>Parses <paramref name="json"/>, canonicalizes it and returns the string.</summary>
-    public static string CanonicalizeToString(string json) => CanonicalizeToString(JsonNode.Parse(json));
+    /// <summary>Parses <paramref name="json" />, canonicalizes it and returns the string.</summary>
+    public static string CanonicalizeToString(string json)
+    {
+        return CanonicalizeToString(JsonNode.Parse(json));
+    }
 
     private static void Write(StringBuilder sb, JsonNode? node)
     {
@@ -45,6 +51,7 @@ public static class JsonCanonicalizer
                     sb.Append(':');
                     Write(sb, kv.Value);
                 }
+
                 sb.Append('}');
                 break;
             case JsonArray arr:
@@ -54,6 +61,7 @@ public static class JsonCanonicalizer
                     if (i > 0) sb.Append(',');
                     Write(sb, arr[i]);
                 }
+
                 sb.Append(']');
                 break;
             case JsonValue val:
@@ -81,7 +89,6 @@ public static class JsonCanonicalizer
     {
         sb.Append('"');
         foreach (var c in s)
-        {
             switch (c)
             {
                 case '"': sb.Append("\\\""); break;
@@ -96,22 +103,23 @@ public static class JsonCanonicalizer
                     else sb.Append(c);
                     break;
             }
-        }
+
         sb.Append('"');
     }
 
     /// <summary>ECMAScript Number.prototype.toString (RFC 8785 §3.2.2.3).</summary>
     internal static string FormatNumber(double d)
     {
-        if (double.IsNaN(d) || double.IsInfinity(d)) throw new InvalidOperationException("NaN/Infinity are not valid JSON.");
+        if (double.IsNaN(d) || double.IsInfinity(d))
+            throw new InvalidOperationException("NaN/Infinity are not valid JSON.");
         if (d == 0) return "0";
 
         // Shortest round-trip digits and exponent.
         var shortest = ShortestRoundTrip(Math.Abs(d));
         ParseDigits(shortest, out var digits, out var exp10);
 
-        var k = digits.Length;      // number of significant digits
-        var n = exp10 + 1;          // position of decimal point relative to the digits
+        var k = digits.Length; // number of significant digits
+        var n = exp10 + 1; // position of decimal point relative to the digits
         var sb = new StringBuilder();
         if (d < 0) sb.Append('-');
 
@@ -134,6 +142,7 @@ public static class JsonCanonicalizer
             var e = n - 1;
             sb.Append('e').Append(e >= 0 ? "+" : "-").Append(Math.Abs(e).ToString(CultureInfo.InvariantCulture));
         }
+
         return sb.ToString();
     }
 
@@ -143,7 +152,8 @@ public static class JsonCanonicalizer
         // On .NET Framework "R" is not the shortest form (it tries 15 digits, then 17). Try each precision, shortest first.
         for (var precision = 1; precision <= 17; precision++)
         {
-            var candidate = abs.ToString("G" + precision.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+            var candidate =
+ abs.ToString("G" + precision.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
             // TryParse: on .NET Framework a candidate rounded past double.MaxValue (2E+308) overflows, and Parse would throw.
             if (double.TryParse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) && parsed == abs) return candidate;
         }
@@ -161,6 +171,7 @@ public static class JsonCanonicalizer
             exp = int.Parse(s.AsSpan(ePos + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
             s = s[..ePos];
         }
+
         var dot = s.IndexOf('.');
         var intPart = dot >= 0 ? s[..dot] : s;
         var fracPart = dot >= 0 ? s[(dot + 1)..] : string.Empty;

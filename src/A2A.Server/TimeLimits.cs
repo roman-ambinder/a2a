@@ -4,8 +4,11 @@ namespace A2A.Server;
 internal static class TimeLimits
 {
     /// <summary>
-    /// True for a usable timer value. Zero, negative (including <see cref="Timeout.InfiniteTimeSpan"/>) and huge values
-    /// (<see cref="int.MaxValue"/> milliseconds, about 24.8 days, or more) turn the limit off.
+    ///     True for a usable timer value. Zero, negative (including <see cref="Timeout.InfiniteTimeSpan" />) and huge values
+    ///     (<see cref="int.MaxValue" /> milliseconds, about 24.8 days, or more) turn the limit off.
     /// </summary>
-    public static bool IsTimeLimit(TimeSpan value) => value > TimeSpan.Zero && value.TotalMilliseconds < int.MaxValue;
+    public static bool IsTimeLimit(TimeSpan value)
+    {
+        return value > TimeSpan.Zero && value.TotalMilliseconds < int.MaxValue;
+    }
 }

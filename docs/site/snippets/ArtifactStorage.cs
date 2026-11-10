@@ -4,8 +4,6 @@ using A2A.Security.Http;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Storage;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.DocSnippets.ArtifactStorage;
 

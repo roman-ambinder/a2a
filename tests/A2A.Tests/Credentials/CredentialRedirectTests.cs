@@ -2,7 +2,6 @@ using A2A.Client;
 using A2A.Client.Credentials;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Xunit;
 
 namespace A2A.Tests.Credentials;
 

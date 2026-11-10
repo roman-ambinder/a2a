@@ -7,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace A2A.Server.V0_3Compat;
 
-/// <summary>Plugs the v0.3 surface into <c>MapA2A</c> (see <see cref="IA2AProtocolAdapter"/>).</summary>
+/// <summary>Plugs the v0.3 surface into <c>MapA2A</c> (see <see cref="IA2AProtocolAdapter" />).</summary>
 internal sealed class V03ProtocolAdapter : IA2AProtocolAdapter
 {
     private V03Surface? _surface;
@@ -20,32 +20,36 @@ internal sealed class V03ProtocolAdapter : IA2AProtocolAdapter
         return Surface(services).WrapJsonRpc(core);
     }
 
+    public void MapRoutes(IServiceProvider services, RouteGroupBuilder group, bool tenantInPattern)
+    {
+        Surface(services).MapRest(group, tenantInPattern);
+    }
+
     /// <summary>
-    /// The wrapper takes every v0.3 method name before the core sees it, so an extension operation with such a name would
-    /// never run. Fail at startup instead. Names are compared ignoring case, like the table's own check for built-in names.
+    ///     The wrapper takes every v0.3 method name before the core sees it, so an extension operation with such a name would
+    ///     never run. Fail at startup instead. Names are compared ignoring case, like the table's own check for built-in
+    ///     names.
     /// </summary>
     private static void RejectExtensionNameCollisions(IServiceProvider services)
     {
         var table = services.GetService<A2AOperationTable>();
         if (table is null) return;
         foreach (var extension in table.Extensions)
-        {
             if (V03Surface.IsV03Method(extension.Method))
                 throw new InvalidOperationException(
                     $"The extension operation '{extension.Method}' has the name of a v0.3 method. With EnableV03Compat it would never run. Rename it, or do not enable v0.3 compat.");
-        }
     }
 
-    public void MapRoutes(IServiceProvider services, RouteGroupBuilder group, bool tenantInPattern) =>
-        Surface(services).MapRest(group, tenantInPattern);
-
-    private V03Surface Surface(IServiceProvider services) => _surface ??= ActivatorUtilities.CreateInstance<V03Surface>(services);
+    private V03Surface Surface(IServiceProvider services)
+    {
+        return _surface ??= ActivatorUtilities.CreateInstance<V03Surface>(services);
+    }
 }
 
 /// <summary>The blended Agent Card body.</summary>
 internal static class V03CardBody
 {
-    /// <summary>The v1.0 card body plus the v0.3 members (see <see cref="V03CardCodec.Blend"/>).</summary>
+    /// <summary>The v1.0 card body plus the v0.3 members (see <see cref="V03CardCodec.Blend" />).</summary>
     public static byte[] Blend(ReadOnlyMemory<byte> v1Card)
     {
         var node = V03Json.Parse(v1Card.Span);

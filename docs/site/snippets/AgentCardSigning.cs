@@ -3,12 +3,9 @@ using A2A.Client;
 using A2A.Client.Cards;
 using A2A.Client.Peers;
 using A2A.Json;
-using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Agents;
 using A2A.Signing;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace A2A.DocSnippets.AgentCardSigning;
 

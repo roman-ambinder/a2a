@@ -1,4 +1,4 @@
-using System.Reflection;
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
@@ -22,7 +22,7 @@ internal static class PostgresMigrations
 
     private static readonly Lazy<IReadOnlyList<PostgresMigration>> s_all = new(Load);
 
-    /// <summary>All migrations, in order. Throws <see cref="InvalidOperationException"/> if the files are not valid.</summary>
+    /// <summary>All migrations, in order. Throws <see cref="InvalidOperationException" /> if the files are not valid.</summary>
     public static IReadOnlyList<PostgresMigration> All => s_all.Value;
 
     private static IReadOnlyList<PostgresMigration> Load()
@@ -36,6 +36,7 @@ internal static class PostgresMigrations
             using var reader = new StreamReader(stream);
             files.Add((resource[ResourcePrefix.Length..], reader.ReadToEnd()));
         }
+
         return Parse(files);
     }
 
@@ -52,8 +53,10 @@ internal static class PostgresMigrations
                     $"Two migrations have the number {version}: '{existing.FileName}' and '{fileName}'. Renumber the later one to the next free number.");
             byVersion.Add(version, (fileName, new PostgresMigration(version, name, sql)));
         }
+
         if (byVersion.Count == 0)
-            throw new InvalidOperationException("No migrations found. Expected embedded files named Migrations/NNNN_name.sql.");
+            throw new InvalidOperationException(
+                "No migrations found. Expected embedded files named Migrations/NNNN_name.sql.");
         var expected = FirstVersion;
         foreach (var (version, entry) in byVersion)
         {
@@ -63,42 +66,54 @@ internal static class PostgresMigrations
                     : $"Migration numbers must be contiguous: expected {expected:D4} but found '{entry.FileName}'.");
             expected++;
         }
+
         return byVersion.Values.Select(v => v.Migration).ToList();
     }
 
     private static (int Version, string Name) ParseName(string fileName)
     {
         const string Extension = ".sql";
-        var bad = new InvalidOperationException($"Migration file name '{fileName}' is not valid. Use NNNN_short_name.sql: four digits, an underscore, a lower-case snake_case name.");
+        var bad = new InvalidOperationException(
+            $"Migration file name '{fileName}' is not valid. Use NNNN_short_name.sql: four digits, an underscore, a lower-case snake_case name.");
         if (fileName is null || !fileName.EndsWith(Extension, StringComparison.Ordinal)) throw bad;
         var stem = fileName[..^Extension.Length];
         if (stem.Length < 6 || stem[4] != '_') throw bad;
         for (var i = 0; i < 4; i++)
-            if (stem[i] is < '0' or > '9') throw bad;
+            if (stem[i] is < '0' or > '9')
+                throw bad;
         var name = stem[5..];
         foreach (var c in name)
-            if (c is not ((>= 'a' and <= 'z') or (>= '0' and <= '9') or '_')) throw bad;
-        return (int.Parse(stem.AsSpan(0, 4), System.Globalization.CultureInfo.InvariantCulture), name);
+            if (c is not (>= 'a' and <= 'z' or >= '0' and <= '9' or '_'))
+                throw bad;
+        return (int.Parse(stem.AsSpan(0, 4), CultureInfo.InvariantCulture), name);
     }
 
     /// <summary>Creates the schema and the version table. The same text is the start of the exported script.</summary>
-    internal static string Preamble(string quotedSchema) =>
-        $"""
-        CREATE SCHEMA IF NOT EXISTS {quotedSchema};
+    internal static string Preamble(string quotedSchema)
+    {
+        return $"""
+                CREATE SCHEMA IF NOT EXISTS {quotedSchema};
 
-        CREATE TABLE IF NOT EXISTS {quotedSchema}.a2a_schema_version (
-            version int NOT NULL PRIMARY KEY
-        );
-        """;
+                CREATE TABLE IF NOT EXISTS {quotedSchema}.a2a_schema_version (
+                    version int NOT NULL PRIMARY KEY
+                );
+                """;
+    }
 
-    internal static string Body(PostgresMigration migration, string quotedSchema) =>
-        migration.Sql.Replace("{s}", quotedSchema, StringComparison.Ordinal);
+    internal static string Body(PostgresMigration migration, string quotedSchema)
+    {
+        return migration.Sql.Replace("{s}", quotedSchema, StringComparison.Ordinal);
+    }
 
-    internal static string Stamp(PostgresMigration migration, string quotedSchema) =>
-        $"INSERT INTO {quotedSchema}.a2a_schema_version (version) VALUES ({migration.Version}) ON CONFLICT DO NOTHING;";
+    internal static string Stamp(PostgresMigration migration, string quotedSchema)
+    {
+        return
+            $"INSERT INTO {quotedSchema}.a2a_schema_version (version) VALUES ({migration.Version}) ON CONFLICT DO NOTHING;";
+    }
 
     /// <summary>The version stored in the database: 0 when the table is missing or has no rows.</summary>
-    internal static async Task<int> ReadVersionAsync(NpgsqlConnection conn, NpgsqlTransaction? tx, string schema, CancellationToken cancellationToken)
+    internal static async Task<int> ReadVersionAsync(NpgsqlConnection conn, NpgsqlTransaction? tx, string schema,
+        CancellationToken cancellationToken)
     {
         var table = PostgresSchema.Quote(schema) + ".a2a_schema_version";
         await using (var exists = new NpgsqlCommand("SELECT to_regclass(@t) IS NOT NULL", conn, tx))
@@ -106,14 +121,18 @@ internal static class PostgresMigrations
             exists.Parameters.AddWithValue("t", table);
             if (!(bool)(await exists.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!) return 0;
         }
+
         await using var cmd = new NpgsqlCommand($"SELECT coalesce(max(version), 0) FROM {table}", conn, tx);
-        return Convert.ToInt32(await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+            CultureInfo.InvariantCulture);
     }
 }
 
 /// <summary>Source-generated log messages of the schema startup step (event ids 1020-1029).</summary>
 internal static partial class PostgresLog
 {
-    [LoggerMessage(EventId = 1020, Level = LogLevel.Warning, Message = "A2A Postgres schema \"{Schema}\" is at version {Found}, newer than this package knows ({Known}). Nothing was changed and the app continues. Upgrade the package.")]
+    [LoggerMessage(EventId = 1020, Level = LogLevel.Warning,
+        Message =
+            "A2A Postgres schema \"{Schema}\" is at version {Found}, newer than this package knows ({Known}). Nothing was changed and the app continues. Upgrade the package.")]
     public static partial void SchemaNewer(ILogger logger, string schema, int found, int known);
 }

@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
 using A2A.Client;
 using A2A.Security.Http;
@@ -10,7 +12,11 @@ internal static class CliApp
     public static async Task<int> RunAsync(string[] args, CliEnvironment env, CancellationToken cancellationToken)
     {
         var output = new Output(env, args.TakeWhile(a => a != "--").Contains("--json"));
-        foreach (var variable in new[] { ConnectionSettings.TokenVariable, ConnectionSettings.ApiKeyVariable, ConnectionSettings.ClientSecretVariable })
+        foreach (var variable in new[]
+                 {
+                     ConnectionSettings.TokenVariable, ConnectionSettings.ApiKeyVariable,
+                     ConnectionSettings.ClientSecretVariable
+                 })
             output.AddSecret(env.GetEnvironmentVariable(variable));
         try
         {
@@ -24,7 +30,8 @@ internal static class CliApp
         }
     }
 
-    private static async Task<int> DispatchAsync(string[] args, CliEnvironment env, Output output, CancellationToken cancellationToken)
+    private static async Task<int> DispatchAsync(string[] args, CliEnvironment env, Output output,
+        CancellationToken cancellationToken)
     {
         if (args.Length == 0) throw CliException.Usage("No command given. Run 'a2a --help'.");
         var first = args[0];
@@ -34,13 +41,16 @@ internal static class CliApp
             output.Line(topic is null ? CommandTable.GeneralHelp() : CommandTable.CommandHelp(topic));
             return ExitCodes.Success;
         }
+
         if (first == "--version")
         {
             output.Line(CommandTable.Version);
             return ExitCodes.Success;
         }
 
-        var spec = CommandTable.Find(first) ?? throw CliException.Usage($"Unknown command '{(first.StartsWith('-') ? first.Split('=')[0] : first)}'. Run 'a2a --help'.");
+        var spec = CommandTable.Find(first) ??
+                   throw CliException.Usage(
+                       $"Unknown command '{(first.StartsWith('-') ? first.Split('=')[0] : first)}'. Run 'a2a --help'.");
         var rest = args[1..];
         if (ArgumentParser.HasHelp(rest))
         {
@@ -53,8 +63,10 @@ internal static class CliApp
         output.Json = settings.Json;
         foreach (var secret in settings.Secrets) output.AddSecret(secret);
 
-        using var connection = await AgentConnection.OpenAsync(settings, env, output, cardOnly: !spec.NeedsInterface, cancellationToken).ConfigureAwait(false);
-        return await spec.Run(new CommandContext(parsed, settings, env, output, connection), cancellationToken).ConfigureAwait(false);
+        using var connection = await AgentConnection
+            .OpenAsync(settings, env, output, !spec.NeedsInterface, cancellationToken).ConfigureAwait(false);
+        return await spec.Run(new CommandContext(parsed, settings, env, output, connection), cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static int Fail(Exception ex, Output output, CancellationToken cancellationToken)
@@ -62,26 +74,24 @@ internal static class CliApp
         var (exitCode, a2aCode, message) = Classify(ex, cancellationToken);
         var clean = output.One(ErrorText.StripUrlSecrets(message), 500);
         if (output.Json)
-        {
             output.ErrorLine(Render.Json(w =>
             {
                 w.WriteStartObject();
                 w.WriteStartObject("error");
                 w.WriteNumber("exitCode", exitCode);
-                if (a2aCode is null) w.WriteNull("code"); else w.WriteString("code", a2aCode);
+                if (a2aCode is null) w.WriteNull("code");
+                else w.WriteString("code", a2aCode);
                 w.WriteString("message", clean);
                 w.WriteEndObject();
                 w.WriteEndObject();
             }));
-        }
         else
-        {
             output.ErrorLine($"Error: {clean}");
-        }
         return exitCode;
     }
 
-    internal static (int ExitCode, string? A2ACode, string Message) Classify(Exception ex, CancellationToken cancellationToken)
+    internal static (int ExitCode, string? A2ACode, string Message) Classify(Exception ex,
+        CancellationToken cancellationToken)
     {
         switch (ex)
         {
@@ -103,16 +113,17 @@ internal static class CliApp
                 return (ExitCodes.Protocol, code, a2a.Message);
             case InvalidDataException or BlockedAddressException:
                 return (ExitCodes.Integrity, null, ex.Message);
-            case HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden }:
+            case HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden }:
                 return (ExitCodes.Auth, null, ex.Message);
-            case HttpRequestException { StatusCode: System.Net.HttpStatusCode.NotFound }:
+            case HttpRequestException { StatusCode: HttpStatusCode.NotFound }:
                 return (ExitCodes.NotFound, null, ex.Message);
-            case HttpRequestException or TimeoutException or System.Net.Sockets.SocketException:
+            case HttpRequestException or TimeoutException or SocketException:
                 return (ExitCodes.Network, null, ex.Message);
             case JsonException:
                 return (ExitCodes.Protocol, null, "The agent sent a response that could not be read.");
             default:
-                return (ExitCodes.Error, null, ex is IOException or UnauthorizedAccessException ? ex.Message : "An unexpected error occurred.");
+                return (ExitCodes.Error, null,
+                    ex is IOException or UnauthorizedAccessException ? ex.Message : "An unexpected error occurred.");
         }
     }
 }
