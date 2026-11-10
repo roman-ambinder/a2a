@@ -17,4 +17,16 @@ internal static class Samples
         });
         #endregion
     }
+
+    public static void Budget()
+    {
+        var services = new ServiceCollection();
+        #region Budget
+        services.AddA2AServer(o =>
+        {
+            o.Limits.MaxTaskTokens = 200_000;
+            o.Limits.MaxTaskCostUnits = 5.00m;
+        });
+        #endregion
+    }
 }

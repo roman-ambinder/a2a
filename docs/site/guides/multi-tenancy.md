@@ -33,11 +33,11 @@ By default one card (`A2AServerOptions.AgentCard`) and one executor serve every 
 
 The card provider returns a card per tenant, or null when no agent serves the tenant:
 
-[!code-csharp[](../../../samples/TenantAgent/Program.cs#Cards)]
+[!code-csharp[](../../../samples/Snippets/MultiTenancy.cs#Cards)]
 
 The resolver returns the executor for a tenant:
 
-[!code-csharp[](../../../samples/TenantAgent/Program.cs#Agents)]
+[!code-csharp[](../../../samples/Snippets/MultiTenancy.cs#Agents)]
 
 Both register as singletons. Register them with <xref:A2A.Server.A2AServerBuilder.AddTenantCardProvider*> and <xref:A2A.Server.A2AServerBuilder.AddAgentExecutorResolver*>. A later call replaces an earlier one.
 

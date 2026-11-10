@@ -43,20 +43,16 @@ var card = new AgentCard
     Skills = [new AgentSkill { Id = "answer", Name = "Answer", Description = "Answers a question", Tags = ["demo"] }]
 };
 
+// The budget per task: past it, the task fails. A real agent sets limits that fit its model and prices.
 // AllowAnonymous is fine for a sample that only listens on loopback. A real agent needs authentication
 // (see samples/EchoAgent) and MapA2A(...).RequireAuthorization().
-builder.Services.Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
-
-#region Budget
-builder.Services.AddA2AServer(o =>
+builder.Services.AddA2A(a => a.AddAgentExecutor<ModelAgent>().AddAgentCard(card))
+    .Configure<A2AServerOptions>(o =>
     {
         o.Limits.MaxTaskTokens = 2_000;
         o.Limits.MaxTaskCostUnits = 0.50m;
-    })
-    .AddAgentExecutor<ModelAgent>()
-    .AddAgentCard(card);
-#endregion
-builder.Services.AddA2AServerAspNetCore();
+        o.AllowAnonymous = true;
+    });
 
 var app = builder.Build();
 app.UseA2A();

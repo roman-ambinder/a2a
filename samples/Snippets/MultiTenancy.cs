@@ -22,8 +22,7 @@ public sealed class SupportAgent : IAgentExecutor
         updater.ReplyAsync("Support here.", cancellationToken).AsTask();
 }
 
-// MyCards and MyAgents are registered in the Register region. The guide shows the provider and the resolver from
-// samples/TenantAgent.
+#region Cards
 public sealed class MyCards : TenantCardProvider
 {
     private readonly ConcurrentDictionary<string, AgentCard> _cards = new(StringComparer.Ordinal);
@@ -50,7 +49,9 @@ public sealed class MyCards : TenantCardProvider
         Skills = [new AgentSkill { Id = tenant, Name = tenant, Description = $"Answers {tenant} questions", Tags = [tenant] }],
     };
 }
+#endregion
 
+#region Agents
 public sealed class MyAgents : AgentExecutorResolver
 {
     public override IAgentExecutor? Resolve(string tenant, IServiceProvider services) => tenant switch
@@ -60,6 +61,7 @@ public sealed class MyAgents : AgentExecutorResolver
         _ => null,   // no agent: the message is refused before anything is stored
     };
 }
+#endregion
 
 public static class Samples
 {

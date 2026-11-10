@@ -5,7 +5,7 @@
 #   samples/run-samples.sh echo mcp         # only the named ones
 #   samples/run-samples.sh --with-docker    # also MultiInstance (needs Docker)
 #
-# Names: chat, elicitation, typed, echo, mcp, testing, grpc, v03, cli, multi.
+# Names: chat, elicitation, typed, echo, mcp, testing, grpc, v03, cli, tenant, observed, memory, client, multi.
 # Each sample listens on 127.0.0.1 only. EchoAgent gets a throwaway API key made here.
 set -u
 
@@ -168,6 +168,10 @@ wanted testing     && run_testing
 wanted grpc        && run_self_contained grpc samples/Grpc
 wanted v03         && run_self_contained v03 samples/V03Compat
 wanted cli         && run_cli
+wanted tenant      && run_self_contained tenant samples/TenantAgent
+wanted observed    && run_self_contained observed samples/ObservedAgent
+wanted memory      && run_self_contained memory samples/MemoryAgent
+wanted client      && run_self_contained client samples/ClientFeatures
 if wanted multi; then
   if $with_docker || [ ${#selected[@]} -gt 0 ]; then run_multi; else record multi "SKIP: pass --with-docker"; fi
 fi

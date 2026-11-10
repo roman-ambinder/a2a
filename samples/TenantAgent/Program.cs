@@ -214,7 +214,6 @@ internal sealed class TenantRules : A2AAuthorizationHandler
     }
 }
 
-#region Cards
 public sealed class TenantCards : TenantCardProvider
 {
     private readonly ConcurrentDictionary<string, AgentCard> _cards = new(StringComparer.Ordinal);
@@ -246,9 +245,7 @@ public sealed class TenantCards : TenantCardProvider
         ],
     };
 }
-#endregion
 
-#region Agents
 public sealed class TenantAgents : AgentExecutorResolver
 {
     public override IAgentExecutor? Resolve(string tenant, IServiceProvider services) => tenant switch
@@ -258,7 +255,6 @@ public sealed class TenantAgents : AgentExecutorResolver
         _ => null,   // no agent: the message is refused before anything is stored
     };
 }
-#endregion
 
 /// <summary>The sales tenant's agent. It runs only after the server allowed the skill the message named.</summary>
 public sealed class SalesAgent : IAgentExecutor

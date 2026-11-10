@@ -18,6 +18,10 @@
     <Project Path="samples/McpBridge/McpBridge.csproj" />
     <Project Path="samples/Grpc/Grpc.csproj" />
     <Project Path="samples/V03Compat/V03Compat.csproj" />
+    <Project Path="samples/TenantAgent/TenantAgent.csproj" />
+    <Project Path="samples/ObservedAgent/ObservedAgent.csproj" />
+    <Project Path="samples/MemoryAgent/MemoryAgent.csproj" />
+    <Project Path="samples/ClientFeatures/ClientFeatures.csproj" />
     <Project Path="samples/Snippets/Snippets.csproj" />
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
     <Project Path="samples/TypedSkillAgent/TypedSkillAgent.csproj" />

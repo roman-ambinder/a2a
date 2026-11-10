@@ -139,6 +139,13 @@ sample is written.
    the coverage allow-list.*
 6. Feature samples: `TenantAgent`, `ObservedAgent`, `MemoryAgent`, `ClientFeatures`. Move their guide regions into
    them where D1 allows.
+   *Done (2026-11-10). Run-samples names: `tenant` (port 5340), `observed`, `memory` (free ports), `client` (port 5347).
+   Regions moved: `MultiTenancy#Map`, `ExecutionLimits#Report`, `PeerIdentity#Read`, `CustomOperations#ClientTyped`.
+   Kept in Snippets after review: `MultiTenancy#Cards` and `#Agents` (the sample's class names would not match the
+   `Register` example next to them, and its loopback URL would show in the guide); `ExecutionLimits#Budget` (the sample
+   would have needed a registration form the guides do not use). `ObservedAgent` adds the package
+   `OpenTelemetry.Exporter.InMemory` 1.20.1 to read its spans and metrics in-process. The observability guide now
+   names `BudgetExceeded` as a run span error type, as `TaskExecutionEngine` sets it.*
 7. Docker samples: `ArtifactStorage`, `ClientOutbox`.
 8. `samples/README.md` index, `README.md` links, CI job for `run-samples.sh`.
 

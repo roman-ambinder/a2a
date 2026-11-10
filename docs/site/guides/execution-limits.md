@@ -43,7 +43,7 @@ For a cluster-wide cap, divide your quota by the number of instances, or enforce
 
 An agent reports what it spends. The server adds it up and stops the task when it goes past the budget.
 
-[!code-csharp[](../../../samples/ObservedAgent/Program.cs#Budget)]
+[!code-csharp[](../../../samples/Snippets/ExecutionLimits.cs#Budget)]
 
 | Option | Default | Meaning |
 |---|---|---|
