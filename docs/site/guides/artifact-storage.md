@@ -60,23 +60,23 @@ Startup logs a warning (event 255) when a durable task store is combined with `I
 
 ## Turn it on
 
-[!code-csharp[](../snippets/ArtifactStorage.cs#Register)]
+[!code-csharp[](../../../samples/Snippets/ArtifactStorage.cs#Register)]
 
 Startup fails with `InvalidOperationException` when a store is registered and neither `PublicBaseUrl` nor `PublicBaseUrlResolver` is set. The link base must be the origin that clients send credentials to. Usually that is the origin of the agent card. A client sends credentials only to the card's origin, so a link on another origin cannot be downloaded.
 
 Map the download route next to `MapA2A`, with the same pattern and the same authorization:
 
-[!code-csharp[](../snippets/ArtifactStorage.cs#Map)]
+[!code-csharp[](../../../samples/Snippets/ArtifactStorage.cs#Map)]
 
 <xref:A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AArtifacts*> adds `GET {pattern}/artifacts/{tenant}/{taskId}/{objectId}`. Like `MapA2A`, it needs a policy, or the startup authorization check fails the app.
 
 When tenants are served from different origins, give the base per tenant:
 
-[!code-csharp[](../snippets/ArtifactStorage.cs#Resolver)]
+[!code-csharp[](../../../samples/Snippets/ArtifactStorage.cs#Resolver)]
 
 ## Produce a file
 
-[!code-csharp[](../snippets/ArtifactStorage.cs#Produce)]
+[!code-csharp[](../../../samples/Snippets/ArtifactStorage.cs#Produce)]
 
 <xref:A2A.Server.TaskUpdater.AddArtifactFromStreamAsync*> is the way to produce a large file. It uploads the stream directly, and hashes while it uploads. The bytes never pass through an event, so `MaxEventBytes` does not apply. It emits one sealed artifact with one `url` part and returns the artifact id. It throws `InvalidOperationException` when no store is registered.
 
@@ -110,7 +110,7 @@ Verify both. The artifact hash tells you the link was not changed. The part hash
 
 ## Download a file
 
-[!code-csharp[](../snippets/ArtifactStorage.cs#Download)]
+[!code-csharp[](../../../samples/Snippets/ArtifactStorage.cs#Download)]
 
 <xref:A2A.Client.A2AArtifactDownloader> is for .NET 10 (not netstandard2.0). `IA2AClient` does not change.
 
@@ -118,7 +118,7 @@ Verify both. The artifact hash tells you the link was not changed. The part hash
 - A URL on any other origin than the agent's throws `InvalidOperationException`, and no request is sent. The class never sends credentials to another origin.
 - On a 302 or 307, it fetches the `Location` once, with a separate client that has no credentials and the `SafeHttp` address guard. A second redirect throws. By default only public HTTPS hosts are allowed. A private store such as MinIO needs an option:
 
-[!code-csharp[](../snippets/ArtifactStorage.cs#PrivateStore)]
+[!code-csharp[](../../../samples/Snippets/ArtifactStorage.cs#PrivateStore)]
 
 - It checks `sizeBytes` and the part `sha256` when they are in the metadata, and throws `InvalidDataException` on a mismatch or when the body is larger than `maxBytes`. On a failure the destination can hold a partial write, so discard it.
 
@@ -169,7 +169,7 @@ The store holds agent output. A file that a client sends stays inline in the mes
 
 ### Turn it on
 
-[!code-csharp[](../snippets/ArtifactStorage.cs#EnableUploads)]
+[!code-csharp[](../../../samples/Snippets/ArtifactStorage.cs#EnableUploads)]
 
 Uploads are off by default. `MapA2AUploads` throws `InvalidOperationException` when `Uploads.Enabled` is false, when no store is registered, or when an option is out of range. It maps `POST {pattern}/uploads/{tenant}` and `GET {pattern}/uploads/{tenant}/{objectId}`, where `{tenant}` is `_` for the default tenant. Like `MapA2A`, it needs a policy, or the startup authorization check fails the app. It uses the `"a2a"` rate limit policy.
 
@@ -198,7 +198,7 @@ The link is `{base}/uploads/{tenant}/{objectId}`. It holds no secret and no owne
 
 ### Client helper
 
-[!code-csharp[](../snippets/ArtifactStorage.cs#UploadFile)]
+[!code-csharp[](../../../samples/Snippets/ArtifactStorage.cs#UploadFile)]
 
 <xref:A2A.Client.A2AFileUploader> is for .NET 10, like the downloader.
 
@@ -210,7 +210,7 @@ The link is `{base}/uploads/{tenant}/{objectId}`. It holds no secret and no owne
 
 ### Read the file in the agent
 
-[!code-csharp[](../snippets/ArtifactStorage.cs#ReadUpload)]
+[!code-csharp[](../../../samples/Snippets/ArtifactStorage.cs#ReadUpload)]
 
 <xref:A2A.Server.AgentRequestContext.OpenUploadAsync*> returns null when the part is not the link of one of the caller's own uploads. That covers an ordinary URL, a file of another owner or tenant, and a missing file. It also returns null when uploads are not enabled. It throws `A2AException` with `Unauthenticated` for an anonymous caller. The bytes stream from the store. Dispose the result.
 

@@ -8,11 +8,11 @@ Spans and counters cost almost nothing while nobody listens: no activity and no 
 
 On the server, listen to the `A2A.Server` source and to the two meters:
 
-[!code-csharp[](../snippets/Observability.cs#ServerOpenTelemetry)]
+[!code-csharp[](../../../samples/Snippets/Observability.cs#ServerOpenTelemetry)]
 
 On a client process, listen to `A2A.Client`:
 
-[!code-csharp[](../snippets/Observability.cs#ClientOpenTelemetry)]
+[!code-csharp[](../../../samples/Snippets/Observability.cs#ClientOpenTelemetry)]
 
 | Name | Constant | Used for |
 |---|---|---|

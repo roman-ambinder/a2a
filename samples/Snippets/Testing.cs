@@ -2,7 +2,7 @@ using A2A.Client;
 using A2A.Server;
 using A2A.TestKit;
 
-namespace A2A.DocSnippets.Testing;
+namespace Snippets.Testing;
 
 internal sealed class GreeterAgent : IAgentExecutor
 {

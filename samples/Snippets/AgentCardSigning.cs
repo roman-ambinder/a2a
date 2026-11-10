@@ -7,7 +7,7 @@ using A2A.Server.AspNetCore;
 using A2A.Server.Agents;
 using A2A.Signing;
 
-namespace A2A.DocSnippets.AgentCardSigning;
+namespace Snippets.AgentCardSigning;
 
 internal static class Snippets
 {

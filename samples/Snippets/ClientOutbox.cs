@@ -4,7 +4,7 @@ using A2A.Client.Postgres;
 using A2A.Client.Push;
 using Npgsql;
 
-namespace A2A.DocSnippets.ClientOutbox;
+namespace Snippets.ClientOutbox;
 
 public static class Samples
 {

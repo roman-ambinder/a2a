@@ -5,7 +5,7 @@ using A2A.Client.Credentials;
 using A2A.Client.Grpc;
 using Grpc.Net.Client;
 
-namespace A2A.DocSnippets.ClientCredentials;
+namespace Snippets.ClientCredentials;
 
 internal static class Snippets
 {

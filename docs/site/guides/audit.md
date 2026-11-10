@@ -47,11 +47,11 @@ The default sink is `LoggerAuditSink`. Its category is `A2A.Server.Audit.LoggerA
 
 To store events in PostgreSQL, add the Postgres sink. It appends to the table `a2a_audit_log`.
 
-[!code-csharp[](../snippets/Audit.cs#PostgresSink)]
+[!code-csharp[](../../../samples/Snippets/Audit.cs#PostgresSink)]
 
 To write your own, derive from `A2AAuditSink`. It is an abstract class with one method, like the stores. One instance serves every call, so it must be safe for many threads. Honor the token.
 
-[!code-csharp[](../snippets/Audit.cs#CustomSink)]
+[!code-csharp[](../../../samples/Snippets/Audit.cs#CustomSink)]
 
 ## Fail open and fail closed
 
@@ -59,7 +59,7 @@ The default is fail open. The server waits for each write, at most `Audit.WriteT
 
 With `Audit.FailClosed = true` the promise is: no change without a record. The server writes an `Attempted` row before the change. If that write fails, the request is refused with `Internal` and nothing changed. After the change it writes the final outcome. A failure of the final row is only logged, because the change cannot be undone, and an error would make the client retry something that worked.
 
-[!code-csharp[](../snippets/Audit.cs#FailClosed)]
+[!code-csharp[](../../../samples/Snippets/Audit.cs#FailClosed)]
 
 Denials are always only logged when the write fails. The caller keeps the original refusal, never a 500.
 
@@ -67,7 +67,7 @@ Denials are always only logged when the write fails. The caller keeps the origin
 
 The admin classes have no caller, so say who acts. The old overloads record the actor `operator`.
 
-[!code-csharp[](../snippets/Audit.cs#AdminActor)]
+[!code-csharp[](../../../samples/Snippets/Audit.cs#AdminActor)]
 
 `A2ATaskAdmin.DeleteTaskAsync` is audited. The retention sweep deletes tasks through a different path and is not.
 

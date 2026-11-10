@@ -3,7 +3,7 @@ using A2A.Extensions.AI;
 using A2A.Server.AspNetCore;
 using Microsoft.Extensions.AI;
 
-namespace A2A.DocSnippets.ExtensionsAI;
+namespace Snippets.ExtensionsAI;
 
 internal static class Snippets
 {

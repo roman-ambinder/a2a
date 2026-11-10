@@ -12,7 +12,7 @@ The SDK identifies a peer by where its card came from and which key signed it. T
 
 <xref:A2A.Client.ResolvedAgentCard> has an `Identity` property of type <xref:A2A.Client.Peers.PeerIdentity>.
 
-[!code-csharp[](../snippets/PeerIdentity.cs#Read)]
+[!code-csharp[](../../../samples/Snippets/PeerIdentity.cs#Read)]
 
 | Property | Meaning |
 |---|---|
@@ -36,9 +36,9 @@ A `PeerIdentity` is a record. `Origin` and `KeyId` have no setter, so a `with` e
 
 Set <xref:A2A.Client.Peers.IPeerIdentityResolver> in `A2ACardResolverOptions.IdentityResolver` to add a DID or SPIFFE id. The default resolver returns the baseline (origin and key) unchanged.
 
-[!code-csharp[](../snippets/PeerIdentity.cs#Resolver)]
+[!code-csharp[](../../../samples/Snippets/PeerIdentity.cs#Resolver)]
 
-[!code-csharp[](../snippets/PeerIdentity.cs#UseResolver)]
+[!code-csharp[](../../../samples/Snippets/PeerIdentity.cs#UseResolver)]
 
 A resolver may add. It may not change.
 
@@ -52,7 +52,7 @@ A resolver may add. It may not change.
 
 <xref:A2A.Client.Peers.AgentRegistry> is an in-memory, thread-safe list of peers, keyed by `PeerIdentity`. It does not fetch anything. You resolve a card, then register it. You can use it without DI.
 
-[!code-csharp[](../snippets/AgentCardSigning.cs#Registry)]
+[!code-csharp[](../../../samples/Snippets/AgentCardSigning.cs#Registry)]
 
 `Register` returns an `AgentRegistration`:
 
@@ -66,7 +66,7 @@ The registry also has `TryGet(identity)`, `TryGetByName(name)`, `Remove(identity
 
 `TryGetByName` is safe only because names are unique in the registry. Check the identity before you send credentials:
 
-[!code-csharp[](../snippets/PeerIdentity.cs#ByName)]
+[!code-csharp[](../../../samples/Snippets/PeerIdentity.cs#ByName)]
 
 ### What Register decides
 
@@ -83,7 +83,7 @@ The registry also has `TryGet(identity)`, `TryGetByName(name)`, `Remove(identity
 
 A refused card throws <xref:A2A.Client.Peers.AgentRegistrationException> and leaves the registry unchanged. The exception has `Reason`, `Identity` (the refused card) and `ConflictingIdentity` (the registered peer behind the refusal, if any). It is an `A2AException` with `InvalidAgentResponse`. Its message holds only cleaned text from the peer.
 
-[!code-csharp[](../snippets/PeerIdentity.cs#Rejections)]
+[!code-csharp[](../../../samples/Snippets/PeerIdentity.cs#Rejections)]
 
 **Rotation.** A new signing key is a new identity, because the identity includes the key. If the registry treated that as a new agent, it would refuse the name at every rotation. So a new identity at the same card URL replaces the old entry, as long as its assurance is not lower. The new key already passed your trust policy.
 

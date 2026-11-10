@@ -6,7 +6,7 @@ For size limits and the request rate limit, see [limits and rate limiting](limit
 
 ## Limit running agents
 
-[!code-csharp[](../snippets/ExecutionLimits.cs#Concurrency)]
+[!code-csharp[](../../../samples/Snippets/ExecutionLimits.cs#Concurrency)]
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -43,7 +43,7 @@ For a cluster-wide cap, divide your quota by the number of instances, or enforce
 
 An agent reports what it spends. The server adds it up and stops the task when it goes past the budget.
 
-[!code-csharp[](../snippets/ExecutionLimits.cs#Budget)]
+[!code-csharp[](../../../samples/Snippets/ExecutionLimits.cs#Budget)]
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -52,7 +52,7 @@ An agent reports what it spends. The server adds it up and stops the task when i
 
 Report usage after each LLM call with <xref:A2A.Server.TaskUpdater.ReportUsageAsync*>:
 
-[!code-csharp[](../snippets/ExecutionLimits.cs#Report)]
+[!code-csharp[](../../../samples/Snippets/ExecutionLimits.cs#Report)]
 
 A host that wraps agents can report too: any code that has the <xref:A2A.Server.TaskUpdater> can call it. <xref:A2A.Server.TaskUpdater.UsedTokens> and <xref:A2A.Server.TaskUpdater.UsedCostUnits> give the task's total so far, for an agent that wants to wind down early.
 

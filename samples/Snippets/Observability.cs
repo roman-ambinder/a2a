@@ -2,7 +2,7 @@ using A2A.Diagnostics;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
-namespace A2A.DocSnippets.Observability;
+namespace Snippets.Observability;
 
 public static class ServerSetup
 {

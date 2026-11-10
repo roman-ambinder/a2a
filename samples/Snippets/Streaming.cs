@@ -1,7 +1,7 @@
 using A2A.Client;
 using A2A.Server;
 
-namespace A2A.DocSnippets.Streaming;
+namespace Snippets.Streaming;
 
 internal static class Samples
 {

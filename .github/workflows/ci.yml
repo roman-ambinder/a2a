@@ -310,8 +310,8 @@ jobs:
       - name: Restore tools
         run: dotnet tool restore
 
-      - name: Build doc snippets (warnings as errors)
-        run: dotnet build docs/site/snippets/A2A.DocSnippets.csproj -c Release
+      - name: Build guide snippets (warnings as errors)
+        run: dotnet build samples/Snippets/Snippets.csproj -c Release
 
       - name: Check guides (no C# fences, repo links and snippet regions exist)
         run: python3 docs/site/check-guides.py

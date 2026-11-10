@@ -3,9 +3,6 @@
   <Folder Name="/conformance/dotnet/">
     <Project Path="conformance/dotnet/ConformanceAgent/ConformanceAgent.csproj" />
   </Folder>
-  <Folder Name="/docs/">
-    <Project Path="docs/site/snippets/A2A.DocSnippets.csproj" />
-  </Folder>
   <Folder Name="/interop/" />
   <Folder Name="/interop/dotnet/">
     <Project Path="interop/dotnet/InteropAgent/InteropAgent.csproj" />
@@ -19,6 +16,7 @@
     <Project Path="samples/ChatAgent/ChatAgent.csproj" />
     <Project Path="samples/ElicitationAgent/ElicitationAgent.csproj" />
     <Project Path="samples/McpBridge/McpBridge.csproj" />
+    <Project Path="samples/Snippets/Snippets.csproj" />
     <Project Path="samples/EchoAgent/EchoAgent.csproj" />
     <Project Path="samples/TypedSkillAgent/TypedSkillAgent.csproj" />
     <Project Path="samples/EchoClient/EchoClient.csproj" />

@@ -2,7 +2,7 @@ using A2A.Client;
 using A2A.Server;
 using A2A.Server.Authorization;
 
-namespace A2A.DocSnippets.SkillAuthorization;
+namespace Snippets.SkillAuthorization;
 
 #region Handler
 // Callers with the "premium" role may use "translate". Everyone may use "summarize".

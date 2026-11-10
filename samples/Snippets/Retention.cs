@@ -2,7 +2,7 @@ using A2A.Server;
 using A2A.Server.Retention;
 using A2A.Server.Storage;
 
-namespace A2A.DocSnippets.Retention;
+namespace Snippets.Retention;
 
 public static class Samples
 {

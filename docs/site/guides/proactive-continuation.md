@@ -8,7 +8,7 @@ The events of a continuation take the normal path. They go to the event store an
 
 <xref:A2A.Server.IContinuableAgentExecutor> extends `IAgentExecutor` with one method, `ContinueAsync`. It gets a <xref:A2A.Server.TaskContinuationContext> and a `TaskUpdater`. Report progress through the updater, as in `ExecuteAsync`.
 
-[!code-csharp[](../snippets/Continuation.cs#Agent)]
+[!code-csharp[](../../../samples/Snippets/Continuation.cs#Agent)]
 
 The context holds `Key`, a copy of the stored `Task`, and the `Metadata` the caller passed. Changing the copy does not change the stored task.
 
@@ -24,11 +24,11 @@ Call <xref:A2A.Server.Execution.TaskExecutionEngine.ContinueTaskAsync*>. <xref:A
 
 From a timer:
 
-[!code-csharp[](../snippets/Continuation.cs#Timer)]
+[!code-csharp[](../../../samples/Snippets/Continuation.cs#Timer)]
 
 From a callback:
 
-[!code-csharp[](../snippets/Continuation.cs#Callback)]
+[!code-csharp[](../../../samples/Snippets/Continuation.cs#Callback)]
 
 The `cancellationToken` only cancels the attempt to start. A started run does not stop with it.
 

@@ -6,13 +6,13 @@ A streaming call sends the events of a task as they happen: status changes, arti
 
 The card must declare streaming. Without it, the server refuses streaming calls with `UnsupportedOperation`, and the client fails fast before it sends anything.
 
-[!code-csharp[](../snippets/Streaming.cs#Capability)]
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#Capability)]
 
 ## Send and stream
 
 <xref:A2A.Client.A2AClient.SendStreamingMessageAsync*> sends a message and returns the events of the task, in order:
 
-[!code-csharp[](../snippets/Streaming.cs#Send)]
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#Send)]
 
 The first event is the task, or a direct message. A direct message is the only event, and the stream ends. Events of other executions of the same task, such as the `CANCELED` event of a `CancelTask`, arrive on the same stream.
 
@@ -20,7 +20,7 @@ The first event is the task, or a direct message. A direct message is the only e
 
 To watch a task you did not start on this connection, use <xref:A2A.Client.A2AClient.ObserveTaskAsync*>. It subscribes, and when the connection drops it reconnects and resumes. This example starts a task without waiting for it, then follows it:
 
-[!code-csharp[](../snippets/Streaming.cs#Observe)]
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#Observe)]
 
 `ObserveTaskAsync` works like this:
 
@@ -33,7 +33,7 @@ To watch a task you did not start on this connection, use <xref:A2A.Client.A2ACl
 
 <xref:A2A.Client.A2AClient.SubscribeToTaskAsync*> is the plain call. It subscribes once and does not reconnect:
 
-[!code-csharp[](../snippets/Streaming.cs#Subscribe)]
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#Subscribe)]
 
 ## Event ids and resume on the server
 
@@ -76,7 +76,7 @@ The event store keeps the last events of each task so that a client can resume. 
 | `KeepAliveInterval` | 15 seconds | Interval of SSE comments (`: ka`) on an idle stream. Zero turns them off. |
 | `ChannelCapacity` | 256 | Size of each per-task event queue. Values below 1 count as 1. |
 
-[!code-csharp[](../snippets/Streaming.cs#Options)]
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#Options)]
 
 When a queue is full, the agent's next `TaskUpdater` write waits until the server catches up. A stream that falls behind drops its queued events and fills the gap from the event store, in order. A snapshot replaces events the store no longer has. Push delivery keeps every event.
 
@@ -88,7 +88,7 @@ If a client resumes after the events were trimmed or purged, the server sends a 
 
 An agent can send an artifact in chunks. Each chunk is an artifact update event with an `artifactId`. The flag `append` says if the parts go to an artifact that exists. The flag `lastChunk` says it is the final chunk.
 
-[!code-csharp[](../snippets/Streaming.cs#Chunks)]
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#Chunks)]
 
 ### The lifecycle
 
@@ -151,7 +151,7 @@ A number outside the range of a double cannot be put in canonical JSON form. The
 
 Use `TaskUpdater.AddHashedArtifactAsync` for every chunk. It takes the same arguments as `AddArtifactAsync`, sets `sha256` for you, and overwrites any `sha256` in your metadata. It does not keep the content: the hash continues from chunk to chunk. For an append to an artifact that an earlier run stored, it first hashes the stored parts. The hash API (`AddHashedArtifactAsync`, `ArtifactVerifier`, `ArtifactHash`) is marked `[Experimental]` (`A2AEXP003`). To use it, add `<NoWarn>A2AEXP003</NoWarn>` to your project. See [Versioning](versioning.md#a2aexp003).
 
-[!code-csharp[](../snippets/Streaming.cs#HashedChunks)]
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#HashedChunks)]
 
 Do not mix plain and hashed chunks for one artifact. A plain `AddArtifactAsync` with `append: true` on an artifact that is being hashed throws, because the hash would be wrong. A hashed append to an artifact that this run sent without the hash helper throws too.
 
@@ -159,11 +159,11 @@ Do not mix plain and hashed chunks for one artifact. A plain `AddArtifactAsync` 
 
 Give `ArtifactVerifier` each event of one task, in order. For an artifact update, it returns one result for the chunk. For a task snapshot, it starts over and returns one result per artifact.
 
-[!code-csharp[](../snippets/Streaming.cs#VerifyStream)]
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#VerifyStream)]
 
 For a task from `GetTask`, check each artifact with `ArtifactVerifier.Verify`:
 
-[!code-csharp[](../snippets/Streaming.cs#VerifyTask)]
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#VerifyTask)]
 
 Each result has one of these statuses:
 
@@ -196,7 +196,7 @@ A live exchange is one stream that carries input both ways while the task runs (
 `A2AServerOptions.EnableProtocolV11()` and the `streaming` capability, and the caller must send `A2A-Version: 1.1`.
 The API is experimental (`A2AEXP005`).
 
-[!code-csharp[](../snippets/Streaming.cs#LiveExchange)]
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#LiveExchange)]
 
 - The first request binds the exchange to one task: a message (new task or follow-up) or a `subscribe` to an existing task
   (`OpenLiveAsync(StreamRequest)`). Later requests send messages or client artifacts to that task.
@@ -212,7 +212,7 @@ The API is experimental (`A2AEXP005`).
 By default a message to a `WORKING` task is refused (`FAILED_PRECONDITION`), as a follow-up is. An agent that reads
 `AgentRequestContext.LiveInput` takes such messages while it runs instead:
 
-[!code-csharp[](../snippets/Streaming.cs#LiveInput)]
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#LiveInput)]
 
 - From the first read on, a message for the task (from a live exchange or any SendMessage) goes to that execution, in any
   non-terminal state. No second execution starts.

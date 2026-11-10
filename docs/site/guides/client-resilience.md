@@ -12,7 +12,7 @@ Retries help with a short fault. When a peer is down for minutes, every call sti
 
 Turn it on with <xref:A2A.Client.A2AClientOptions.CircuitBreaker>:
 
-[!code-csharp[](../snippets/ClientResilience.cs#TurnOn)]
+[!code-csharp[](../../../samples/Snippets/ClientResilience.cs#TurnOn)]
 
 ### States
 
@@ -50,7 +50,7 @@ The breaker works with every binding, gRPC included. A bare gRPC `UNAVAILABLE` c
 
 ### Handle the exception
 
-[!code-csharp[](../snippets/ClientResilience.cs#HandleOpen)]
+[!code-csharp[](../../../samples/Snippets/ClientResilience.cs#HandleOpen)]
 
 `CircuitOpenException` is an `A2AException` with code `Internal`. Its `RetryAfter` is the time until the next test call.
 

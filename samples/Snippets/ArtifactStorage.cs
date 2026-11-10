@@ -5,7 +5,7 @@ using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Storage;
 
-namespace A2A.DocSnippets.ArtifactStorage;
+namespace Snippets.ArtifactStorage;
 
 internal static class Samples
 {

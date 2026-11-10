@@ -3,7 +3,7 @@ using A2A.Server;
 using A2A.Server.AspNetCore;
 using Selection = A2A.Skills.SkillSelection;
 
-namespace A2A.DocSnippets.SkillSelection;
+namespace Snippets.SkillSelection;
 
 #region Executor
 // Branch on the skill the client chose. Null means no usable selection.

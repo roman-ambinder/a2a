@@ -23,19 +23,19 @@ Final means the same as in <xref:A2A.Client.Push.PushTaskTracker>: a terminal or
 
 <xref:A2A.Client.Outbox.ClientOutboxDispatcher> sends and tracks. A <xref:A2A.Client.Outbox.ClientOutboxStore> keeps the rows. <xref:A2A.Client.Outbox.InMemoryClientOutboxStore> loses everything on restart, so use it for tests. For real use, install `RomanAmbinder.A2A.Client.Postgres` and use <xref:A2A.Client.Postgres.PostgresClientOutboxStore>.
 
-[!code-csharp[](../snippets/ClientOutbox.cs#Setup)]
+[!code-csharp[](../../../samples/Snippets/ClientOutbox.cs#Setup)]
 
 The dispatcher runs its own timer, so keep one per process. Several instances of your app can share one table. Each entry is leased to one dispatcher at a time.
 
 For tests, build the dispatcher with `SweepInterval = Timeout.InfiniteTimeSpan` and a `FakeTimeProvider`, and call `RunOnceAsync` yourself.
 
-[!code-csharp[](../snippets/ClientOutbox.cs#InMemory)]
+[!code-csharp[](../../../samples/Snippets/ClientOutbox.cs#InMemory)]
 
 ## Enqueue in your own transaction
 
 With Postgres you can write the message in the same database transaction as your own state. If the transaction rolls back, nothing is sent.
 
-[!code-csharp[](../snippets/ClientOutbox.cs#Enqueue)]
+[!code-csharp[](../../../samples/Snippets/ClientOutbox.cs#Enqueue)]
 
 <xref:A2A.Client.Outbox.ClientOutboxMessage.Create*> copies your request, adds a message id if it has none, and sets `ReturnImmediately`, so a send does not wait for the whole task. The entry id is the message id unless you pass one. Enqueueing an id that exists returns false and keeps the old entry. The id stays known until the collected entry is purged (`CollectedRetention`).
 
@@ -43,7 +43,7 @@ With Postgres you can write the message in the same database transaction as your
 
 Results are not pushed to you. Lease them, handle them, then acknowledge. A result you do not acknowledge comes back after its lease runs out, so harvest is at least once. When you acknowledge in the same transaction as your own change, your data sees each result exactly once.
 
-[!code-csharp[](../snippets/ClientOutbox.cs#Harvest)]
+[!code-csharp[](../../../samples/Snippets/ClientOutbox.cs#Harvest)]
 
 Rows that are never harvested are never purged, so an app must harvest. Pass a correlation to `LeaseResultsAsync` to get only the entries you labelled. `Failed` entries are harvested too. Read `LastError`.
 
@@ -51,7 +51,7 @@ Rows that are never harvested are never purged, so an app must harvest. Pass a c
 
 If you register a push webhook, hand each delivery to `NotifyAsync`. A final state makes the entry due now, so it is polled sooner. The dispatcher still calls `GetTask` and trusts only that answer. A lost webhook does not matter, because the dispatcher polls anyway. See [Push notifications](push-notifications.md).
 
-[!code-csharp[](../snippets/ClientOutbox.cs#Webhook)]
+[!code-csharp[](../../../samples/Snippets/ClientOutbox.cs#Webhook)]
 
 ## What is guaranteed
 

@@ -8,7 +8,7 @@ using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Selection = A2A.Skills.SkillSelection;
 
-namespace A2A.DocSnippets.McpBridge;
+namespace Snippets.McpBridge;
 
 internal static class Snippets
 {

@@ -96,8 +96,14 @@ sample is written.
    that `[!code-csharp[](../../../samples/...#Region)]` renders, with `--warningsAsErrors`. If it does not, the
    fallback is a build step that copies `samples/**/*.cs` into the DocFX tree before the build. Nothing else starts
    until this is settled.
+   *Result (2026-11-10): works. A guide include of `../../../samples/...#Region` renders with DocFX 2.81.0 and
+   `--warningsAsErrors`, the page is byte-identical to the old include, and DocFX reads the file under `samples/` (a
+   changed line showed up on the page). `check-guides.py` already resolves such paths. No copy step is needed.*
 2. Move `docs/site/snippets` to `samples/Snippets`, fix every include, update `check-guides.py`, `docs/site/README.md`
    and `ci.yml`. The site must build with no change in its output.
+   *Done (2026-11-10). The old namespace `A2A.DocSnippets.*` made the `A2A` namespace visible; the new
+   `Snippets.*` namespace does not, so `Snippets.csproj` has `<Using Include="A2A" />`. The rebuilt site matches the
+   old one page for page.*
 3. Repoint regions into existing runnable samples where D1 allows.
 4. Add the coverage test (D5) with the allow-list set to today's gaps, so it passes. Each later step removes entries.
 5. Non-Docker package samples: `Grpc`, `V03Compat`, `Cli`.
@@ -110,7 +116,7 @@ Each step is its own commit and leaves the build, tests and docs site green.
 
 ## 8. Risks
 
-- **R1. DocFX paths** (step 1). Unknown until tried.
+- **R1. DocFX paths** (step 1). Closed: see the step 1 result.
 - **R2. Guide churn.** About 180 includes change paths. The include check in `check-guides.py` catches a broken one.
 - **R3. CI time.** Running every sample adds build and start-up time. Measured once step 8 lands.
 - **R4. Demo code copied into production.** The token endpoint in `ClientFeatures` and the fixed keys are demo values;

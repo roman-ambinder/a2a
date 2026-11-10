@@ -7,7 +7,7 @@ using A2A.Server.AspNetCore;
 using A2A.Server.Authorization;
 using A2A.Server.Pipeline;
 
-namespace A2A.DocSnippets.AuthAndOwnership;
+namespace Snippets.AuthAndOwnership;
 
 internal sealed class MyAgent : IAgentExecutor
 {

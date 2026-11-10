@@ -7,7 +7,7 @@ using A2A.Server.AspNetCore;
 using A2A.Server.Push;
 using Microsoft.AspNetCore.DataProtection;
 
-namespace A2A.DocSnippets.PushNotifications;
+namespace Snippets.PushNotifications;
 
 internal static class Snippets
 {

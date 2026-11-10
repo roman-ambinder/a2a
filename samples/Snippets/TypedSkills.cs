@@ -6,7 +6,7 @@ using A2A.Server.AspNetCore;
 using A2A.Server.TypedSkills;
 using A2A.Skills;
 
-namespace A2A.DocSnippets.TypedSkills;
+namespace Snippets.TypedSkills;
 
 #region Types
 public sealed class BookingRequest

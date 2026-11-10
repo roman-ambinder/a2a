@@ -3,7 +3,7 @@ using A2A.Elicitations;
 using A2A.Security.Http;
 using A2A.Server;
 
-namespace A2A.DocSnippets.TaskSafety;
+namespace Snippets.TaskSafety;
 
 internal sealed class DeleteFilesAgent : IAgentExecutor
 {

@@ -4,7 +4,7 @@ using A2A.Server;
 using A2A.Server.Execution;
 using A2A.Server.Storage;
 
-namespace A2A.DocSnippets.Continuation;
+namespace Snippets.Continuation;
 
 /// <summary>Where the host keeps the keys of tasks it will continue. Use a database in production.</summary>
 internal sealed class PendingKeys

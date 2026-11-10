@@ -5,7 +5,7 @@ using A2A.Server;
 using A2A.Server.AspNetCore;
 #endregion
 
-namespace A2A.DocSnippets.GettingStarted;
+namespace Snippets.GettingStarted;
 
 internal static class Samples
 {

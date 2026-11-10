@@ -1,7 +1,7 @@
 using A2A.Client;
 using A2A.Client.Peers;
 
-namespace A2A.DocSnippets.PeerIdentityGuide;
+namespace Snippets.PeerIdentityGuide;
 
 internal static class Snippets
 {

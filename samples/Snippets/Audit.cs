@@ -5,7 +5,7 @@ using A2A.Server.Push;
 using A2A.Server.Retention;
 using A2A.Server.Storage;
 
-namespace A2A.DocSnippets.Audit;
+namespace Snippets.Audit;
 
 public sealed class MyAgent : IAgentExecutor
 {

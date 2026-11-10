@@ -4,7 +4,7 @@ Retention is a background sweep. It deletes old tasks, removes unused contexts, 
 
 ## Turn it on
 
-[!code-csharp[](../snippets/Retention.cs#Register)]
+[!code-csharp[](../../../samples/Snippets/Retention.cs#Register)]
 
 <xref:A2A.Server.A2AServerServiceCollectionExtensions.AddA2ARetention*> adds the sweep as a hosted service. Call it on every instance; only one instance sweeps per interval. The options are checked when the service starts, and an invalid value throws `InvalidOperationException`. A second call only applies its `configure` as well.
 
@@ -60,7 +60,7 @@ Before each sweep the service takes a named lease, `a2a:retention`, from the <xr
 
 <xref:A2A.Server.Retention.A2ATaskAdmin> deletes a task with all its data on demand. `AddA2AServer` registers it. It is not exposed over A2A.
 
-[!code-csharp[](../snippets/Retention.cs#Admin)]
+[!code-csharp[](../../../samples/Snippets/Retention.cs#Admin)]
 
 `DeleteTaskAsync(TaskKey)` first cancels the task's executions on every instance, without waiting for them to stop. Then it deletes pending deliveries, dead letters, push configs and the event log, and the task row last, so a crash part way leaves a task that the next call or sweep finishes. The context stays until the sweep removes it as an orphan. With an artifact object store, the task's objects are deleted after the row; a failed object delete is logged (event 236) and left to the sweep. It returns false when the task does not exist for that tenant and owner.
 

@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Snippets</RootNamespace>
+    <!-- Guide snippets compile only; they are not shipped and have no XML docs. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The snippets used to sit in namespace A2A.DocSnippets.*, which made the A2A namespace visible. -->
+    <Using Include="A2A" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\A2A.Mcp\A2A.Mcp.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.Grpc\A2A.Server.Grpc.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.Postgres\A2A.Server.Postgres.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.Redis\A2A.Server.Redis.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.TypedSkills\A2A.Server.TypedSkills.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client.DependencyInjection\A2A.Client.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client.Grpc\A2A.Client.Grpc.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client.Postgres\A2A.Client.Postgres.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Security.Http\A2A.Security.Http.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Extensions.AI\A2A.Extensions.AI.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.V0_3Compat\A2A.Server.V0_3Compat.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client.V0_3Compat\A2A.Client.V0_3Compat.csproj" />
+    <ProjectReference Include="..\..\src\A2A.TestKit\A2A.TestKit.csproj" />
+  </ItemGroup>
+</Project>

@@ -4,7 +4,7 @@ using A2A.Server.AspNetCore;
 using A2A.Server.Storage;
 using Microsoft.Extensions.AI;
 
-namespace A2A.DocSnippets.ConversationMemory;
+namespace Snippets.ConversationMemory;
 
 public static class Samples
 {

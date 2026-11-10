@@ -7,7 +7,7 @@ using A2A.Server.Grpc;
 using A2A.Server.Pipeline;
 using A2A.Server.Storage;
 
-namespace A2A.DocSnippets.CustomOperations;
+namespace Snippets.CustomOperations;
 
 #region Types
 internal sealed record ReportRequest(string Name, int Year);

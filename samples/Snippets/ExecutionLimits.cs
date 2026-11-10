@@ -1,6 +1,6 @@
 using A2A.Server;
 
-namespace A2A.DocSnippets.ExecutionLimits;
+namespace Snippets.ExecutionLimits;
 
 internal static class Samples
 {

@@ -6,7 +6,7 @@ using A2A.Server.AspNetCore;
 using A2A.Server.V0_3Compat;
 using OpenTelemetry.Metrics;
 
-namespace A2A.DocSnippets.V03Compatibility;
+namespace Snippets.V03Compatibility;
 
 internal static class Snippets
 {

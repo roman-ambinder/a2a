@@ -2,7 +2,7 @@ using A2A.Server;
 using A2A.Server.AspNetCore;
 using Microsoft.AspNetCore.HttpOverrides;
 
-namespace A2A.DocSnippets.LimitsAndRateLimiting;
+namespace Snippets.LimitsAndRateLimiting;
 
 internal static class Samples
 {

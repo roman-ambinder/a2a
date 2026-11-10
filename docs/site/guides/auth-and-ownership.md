@@ -4,7 +4,7 @@ The A2A server does not log callers in. Your ASP.NET Core app does that. The ser
 
 ## Protect the endpoints
 
-[!code-csharp[](../snippets/AuthAndOwnership.cs#Protect)]
+[!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#Protect)]
 
 `MapA2A` returns a route group. Call `.RequireAuthorization()` on it, or set <xref:A2A.Server.AspNetCore.A2AEndpointOptions.AuthorizationPolicy> as above. The Agent Card endpoints are mapped outside the group and stay anonymous.
 
@@ -17,7 +17,7 @@ If A2A endpoints have no authorization, the app does not start. The check is fai
 
 ## Allow anonymous callers
 
-[!code-csharp[](../snippets/AuthAndOwnership.cs#Anonymous)]
+[!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#Anonymous)]
 
 Set <xref:A2A.Server.A2AServerOptions.AllowAnonymous> to skip the check. A warning is logged once at startup. All anonymous callers share one owner, `anonymous`, so they can read each other's tasks. Do not use this in production.
 
@@ -32,7 +32,7 @@ A task is stored under three values: the tenant, the owner and the task id.
 
 The tenant never comes from a claim. To use another claim as the owner id, register your own resolver:
 
-[!code-csharp[](../snippets/AuthAndOwnership.cs#Resolver)]
+[!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#Resolver)]
 
 Contexts, idempotency keys and push configs are scoped by the same tenant and owner.
 
@@ -44,9 +44,9 @@ A caller can only reach its own tasks. For any other task id, the server answers
 
 <xref:A2A.Server.Authorization.A2AAuthorizationHandler> runs in every operation, on every binding, after the tenant is known. Filters at the default stage run after it. Only `A2AFilterStage.BeforeAuthorization` filters run before it. It gets the call (user, owner, tenant), an <xref:A2A.Server.Pipeline.A2AOperationDescriptor> and the request object. Return `false` to deny.
 
-[!code-csharp[](../snippets/AuthAndOwnership.cs#Handler)]
+[!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#Handler)]
 
-[!code-csharp[](../snippets/AuthAndOwnership.cs#Register)]
+[!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#Register)]
 
 To allow one caller a skill and deny another, override `AuthorizeSkillAsync` too. See [Skill authorization](skill-authorization.md).
 
@@ -91,7 +91,7 @@ When you use `RequireAuthorization()`, ASP.NET Core's own middleware answers fir
 
 With DI, <xref:A2A.Client.A2AClientServiceCollectionExtensions.AddA2AClient*> returns an `IHttpClientBuilder`. Add a handler for credentials:
 
-[!code-csharp[](../snippets/AuthAndOwnership.cs#Client)]
+[!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#Client)]
 
 <xref:A2A.Client.A2AClientServiceCollectionExtensions.AddBearerToken*> sets `Authorization: Bearer` on every request. The token provider runs per request, so cache inside it. On an `AddA2AClient` builder it refuses to send the token to an origin other than the `AgentUrl` origin.
 
@@ -99,7 +99,7 @@ To let the client fetch tokens and attach API keys or client certificates from t
 
 A2A clients do not follow redirects. `AddA2AClient` turns off redirects and cookies. A client that follows a redirect can send your credential headers to another host. If a response arrives through a redirect, the client refuses it with `InvalidAgentResponse`. That check runs after the response, so it cannot undo what a redirecting handler already sent. If you pass your own `HttpClient`, turn redirects off:
 
-[!code-csharp[](../snippets/AuthAndOwnership.cs#NoRedirects)]
+[!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#NoRedirects)]
 
 ## Delegation
 
@@ -142,7 +142,7 @@ Agent code never gets the caller's token. `ServerCallContext.InboundBearerToken`
 
 ### Register an exchanger
 
-[!code-csharp[](../snippets/AuthAndOwnership.cs#Exchanger)]
+[!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#Exchanger)]
 
 <xref:A2A.Client.Delegation.OAuthTokenExchanger> never follows redirects. A redirect (a 307 or 308 re-posts the form) would send the client secret and the subject token to another host. The constructor with only options uses a built-in handler that does not follow redirects. To use your own handler (a proxy, or `IHttpMessageHandlerFactory.CreateHandler`), pass it to `new OAuthTokenExchanger(handler, options)`. The constructor throws when a `SocketsHttpHandler` or `HttpClientHandler` in the chain has `AllowAutoRedirect = true`. It cannot check a custom terminal handler, so that one must not follow redirects. A 3xx response is refused.
 
@@ -152,7 +152,7 @@ Warning: the server sends the caller's `Authorization: Bearer` value to the exch
 
 ### Call the next agent
 
-[!code-csharp[](../snippets/AuthAndOwnership.cs#Delegate)]
+[!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#Delegate)]
 
 `UseBearerToken(token, workerUrl)` needs the URL of the agent the token was issued for. It throws `A2AException` before sending if the call goes to another origin. It throws `InvalidOperationException` if the token type is not `Bearer`. It cannot stop a redirect, so the client must not follow redirects: `A2AClientFactory.CreateAsync` with credential providers and `AddA2AClient` already guarantee that. If you build the `HttpClient` yourself, use `AllowAutoRedirect = false`.
 

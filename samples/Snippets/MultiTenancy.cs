@@ -3,7 +3,7 @@ using A2A.Server;
 using A2A.Server.Agents;
 using A2A.Server.AspNetCore;
 
-namespace A2A.DocSnippets.MultiTenancy;
+namespace Snippets.MultiTenancy;
 
 public sealed class SalesAgent : IAgentExecutor
 {

@@ -6,13 +6,13 @@ A tenant is a name in the URL, such as `/sales/a2a`. Each tenant can have its ow
 
 Put a `{tenant}` segment in the route pattern. The route value becomes the tenant of the request.
 
-[!code-csharp[](../snippets/MultiTenancy.cs#Map)]
+[!code-csharp[](../../../samples/Snippets/MultiTenancy.cs#Map)]
 
 - The default <xref:A2A.Server.AspNetCore.ITenantResolver> (<xref:A2A.Server.AspNetCore.RouteTenantResolver>) reads the `tenant` route value. With no such value the tenant is `""`, the default tenant. Tenants compare ordinally, so `Sales` and `sales` differ.
 - With a pattern that has no `{tenant}`, JSON-RPC and HTTP+JSON still get a variant with the tenant after the pattern: `POST /a2a/{tenant}` and `/a2a/{tenant}/message:send`.
 - Code reads the tenant from <xref:A2A.Server.ServerCallContext.Tenant>. An executor gets it through `context.Call`:
 
-[!code-csharp[](../snippets/MultiTenancy.cs#ReadTenant)]
+[!code-csharp[](../../../samples/Snippets/MultiTenancy.cs#ReadTenant)]
 
 - A request body can carry a `tenant` field. With no tenant from the route, the server adopts it. With a tenant from the route, a different body tenant is refused with `InvalidParams`.
 - To find the tenant some other way (a header, a host name), register your own `ITenantResolver` before `AddA2AServerAspNetCore`.
@@ -27,15 +27,15 @@ A tenant in the URL is routing, not authorization. Your authorization handler re
 
 By default one card (`A2AServerOptions.AgentCard`) and one executor serve every tenant. For one agent per tenant, register a <xref:A2A.Server.Agents.TenantCardProvider> and an <xref:A2A.Server.Agents.AgentExecutorResolver>.
 
-[!code-csharp[](../snippets/MultiTenancy.cs#Register)]
+[!code-csharp[](../../../samples/Snippets/MultiTenancy.cs#Register)]
 
 The card provider returns a card per tenant, or null when no agent serves the tenant:
 
-[!code-csharp[](../snippets/MultiTenancy.cs#Cards)]
+[!code-csharp[](../../../samples/Snippets/MultiTenancy.cs#Cards)]
 
 The resolver returns the executor for a tenant:
 
-[!code-csharp[](../snippets/MultiTenancy.cs#Agents)]
+[!code-csharp[](../../../samples/Snippets/MultiTenancy.cs#Agents)]
 
 Both register as singletons. Register them with <xref:A2A.Server.A2AServerBuilder.AddTenantCardProvider*> and <xref:A2A.Server.A2AServerBuilder.AddAgentExecutorResolver*>. A later call replaces an earlier one.
 

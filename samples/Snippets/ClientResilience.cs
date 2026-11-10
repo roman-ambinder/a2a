@@ -1,7 +1,7 @@
 using A2A.Client;
 using A2A.Client.Resilience;
 
-namespace A2A.DocSnippets.ClientResilience;
+namespace Snippets.ClientResilience;
 
 internal static class Samples
 {

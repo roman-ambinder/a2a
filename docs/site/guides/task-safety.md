@@ -4,7 +4,7 @@ An agent runs code on behalf of a peer you do not control. This guide covers the
 
 ## Time, turn and cancel limits
 
-[!code-csharp[](../snippets/TaskSafety.cs#ServerLimits)]
+[!code-csharp[](../../../samples/Snippets/TaskSafety.cs#ServerLimits)]
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -27,7 +27,7 @@ An agent runs code on behalf of a peer you do not control. This guide covers the
 
 An executor that needs the user to confirm an action calls <xref:A2A.Server.TaskUpdater.RequireApprovalAsync*> with a <xref:A2A.Server.PendingApproval>:
 
-[!code-csharp[](../snippets/TaskSafety.cs#Approval)]
+[!code-csharp[](../../../samples/Snippets/TaskSafety.cs#Approval)]
 
 What happens:
 
@@ -35,7 +35,7 @@ What happens:
 2. The client shows the user the exact action. To approve, it sends a follow-up whose metadata has the same key and the same hash.
 3. The executor sees `context.Approval` as <xref:A2A.Server.ApprovalState> `Approved`.
 
-[!code-csharp[](../snippets/TaskSafety.cs#Approve)]
+[!code-csharp[](../../../samples/Snippets/TaskSafety.cs#Approve)]
 
 | `Approval` value | Meaning |
 |---|---|
@@ -51,11 +51,11 @@ An agent in `INPUT_REQUIRED` can ask for a small typed form instead of free text
 
 On the server, build an <xref:A2A.Elicitations.ElicitationForm> and call `updater.RequireInputAsync(context, form, text)`. The answer arrives as `context.ElicitationAnswer`:
 
-[!code-csharp[](../snippets/TaskSafety.cs#ElicitServer)]
+[!code-csharp[](../../../samples/Snippets/TaskSafety.cs#ElicitServer)]
 
 On the client, activate the extension with `UseElicitation`, read the form with `GetElicitationForm`, and answer with `ElicitationAnswer.Accept`, `Decline` or `Cancel`:
 
-[!code-csharp[](../snippets/TaskSafety.cs#ElicitClient)]
+[!code-csharp[](../../../samples/Snippets/TaskSafety.cs#ElicitClient)]
 
 A runnable version is in `samples/ElicitationAgent`.
 
@@ -91,7 +91,7 @@ If the executor throws, the task becomes `FAILED` with the fixed text "The agent
 
 Client side, <xref:A2A.Client.A2AClientOptions.OnMessageReceived> runs for every agent message the client receives: direct replies, status update messages, and the latest status message of a task snapshot. It works for unary and streamed calls, on every binding.
 
-[!code-csharp[](../snippets/TaskSafety.cs#Hook)]
+[!code-csharp[](../../../samples/Snippets/TaskSafety.cs#Hook)]
 
 Throw to abort. The exception reaches your code, and a stream stops. Use it to check each turn against what the user asked for, and to ask a human before a sensitive action. The same snapshot message can arrive more than once, for example when you poll with GetTask or a stream reconnects, so keep the check idempotent.
 
@@ -99,13 +99,13 @@ Throw to abort. The exception reaches your code, and a stream stops. Use it to c
 
 Agent Card text is written by the peer. `A2ACardResolver.ResolveAsync` returns a <xref:A2A.Client.ResolvedAgentCard> whose description and skill text are <xref:A2A.Client.Cards.UntrustedText>:
 
-[!code-csharp[](../snippets/TaskSafety.cs#Untrusted)]
+[!code-csharp[](../../../samples/Snippets/TaskSafety.cs#Untrusted)]
 
 `ToString()` removes control and bidi characters, zero-width and tag characters, and cuts the text to 2000 characters (`MaxCardTextLength` on the resolver options). `Raw` gives the text as received. Use `Raw` only on purpose. Identity is the origin and key id, not the card `name`.
 
 A `UrlPart` in a message points to a URL the peer chose. Do not fetch it with a plain `HttpClient`. <xref:A2A.Security.Http.SafeHttp> blocks private, loopback, link-local and similar ranges by the resolved address at connect time, allows HTTPS only, does not follow redirects, and caps the size:
 
-[!code-csharp[](../snippets/TaskSafety.cs#SafeHttp)]
+[!code-csharp[](../../../samples/Snippets/TaskSafety.cs#SafeHttp)]
 
 <xref:A2A.Security.Http.SafeHttpOptions> can allow plain HTTP, private networks or specific networks. Leave them off in production.
 

@@ -3,7 +3,7 @@ using A2A.Server.AspNetCore;
 using A2A.Server.Postgres;
 using A2A.Server.Redis;
 
-namespace A2A.DocSnippets.DurableStores;
+namespace Snippets.DurableStores;
 
 public sealed class MyAgent : IAgentExecutor
 {

@@ -5,7 +5,7 @@ using A2A.Server.AspNetCore;
 using A2A.Server.Grpc;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 
-namespace A2A.DocSnippets.Bindings;
+namespace Snippets.Bindings;
 
 internal static class Samples
 {

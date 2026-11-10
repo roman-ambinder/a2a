@@ -22,7 +22,7 @@ openssl ecparam -name prime256v1 -genkey -noout -out card-signing-key.pem
 
 Create an <xref:A2A.Signing.AgentCardSigningKey> and set it on <xref:A2A.Server.AspNetCore.A2AHttpOptions.SigningKey>.
 
-[!code-csharp[](../snippets/AgentCardSigning.cs#ServerKey)]
+[!code-csharp[](../../../samples/Snippets/AgentCardSigning.cs#ServerKey)]
 
 The arguments are the key, a key id (`kid`), the algorithm, and an optional `jku` URL. The `jku` goes into the signature header. Clients use it only if they allow its host (see below).
 
@@ -39,7 +39,7 @@ The signature header has `alg`, `typ` (`JOSE`), `kid`, and `jku` if set. Support
 
 With [multi-tenancy](multi-tenancy.md), a <xref:A2A.Server.Agents.TenantCardProvider> can return a key for a tenant with `GetSigningKeyAsync`. Returning null uses the host key, or leaves the card unsigned if there is none. The tenant's key set is served at `/{tenant}/.well-known/jwks.json`.
 
-[!code-csharp[](../snippets/AgentCardSigning.cs#TenantKey)]
+[!code-csharp[](../../../samples/Snippets/AgentCardSigning.cs#TenantKey)]
 
 ## Verify on the client
 
@@ -47,11 +47,11 @@ A client trusts a key only if you tell it to. A key that the card points to by i
 
 Pin the public key for the agent's origin (`https://host[:port]`). Keys are matched by `kid`.
 
-[!code-csharp[](../snippets/AgentCardSigning.cs#PinnedKey)]
+[!code-csharp[](../../../samples/Snippets/AgentCardSigning.cs#PinnedKey)]
 
 Or allow a `jku` host for one origin. The key set is then fetched from that host, over HTTPS, and cached for 10 minutes (a failed fetch for 60 seconds).
 
-[!code-csharp[](../snippets/AgentCardSigning.cs#JkuHost)]
+[!code-csharp[](../../../samples/Snippets/AgentCardSigning.cs#JkuHost)]
 
 `AllowedJkuHosts` is empty by default, which means `jku` is ignored, even on the card's own host. A host allowed for one origin does not verify cards from another. `jku` fetches go through the same SSRF guard as push webhooks (HTTPS only, no private addresses, no redirects, 10 second timeout, 256 KiB limit), and one verification fetches at most 5 key sets.
 
@@ -77,7 +77,7 @@ What the resolver does:
 
 ## Resolve a card
 
-[!code-csharp[](../snippets/AgentCardSigning.cs#Resolve)]
+[!code-csharp[](../../../samples/Snippets/AgentCardSigning.cs#Resolve)]
 
 <xref:A2A.Client.ResolvedAgentCard> holds the card, the raw JSON, the source, the verification result, and `Identity`. `Identity` is a <xref:A2A.Client.Peers.PeerIdentity>: the origin and the signing kid, with `Assurance` marking how strong it is. `AgentRegistry` in `A2A.Client.Peers` is keyed by it. Use it as the peer identity, not the card's `name`.
 
@@ -117,7 +117,7 @@ Keys are matched by `kid`, and a `TrustedKeys` set can hold several keys. To rot
 2. Switch the server to the new key with a new `kid`.
 3. Remove the old key from the clients later.
 
-[!code-csharp[](../snippets/AgentCardSigning.cs#Rotation)]
+[!code-csharp[](../../../samples/Snippets/AgentCardSigning.cs#Rotation)]
 
 The server's key set shows only the current key, so clients that use `jku` pick up the new key after their cache expires (10 minutes). A key change with the same card content is not a card change. The pin keeps the hash and records the new `kid`.
 
