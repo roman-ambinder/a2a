@@ -20,6 +20,8 @@ Write a handler, then pick a mode:
 
 [!code-csharp[](../../../samples/Snippets/SkillAuthorization.cs#Register)]
 
+A runnable version, with a skill that one caller may use and another may not, is in [samples/TenantAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/TenantAgent/README.md).
+
 `A2AAuthorizationHandler.AuthorizeSkillAsync` is the one place you decide. It is a virtual method on the handler you already use for [authorization](auth-and-ownership.md#extra-rules-a2aauthorizationhandler). The default returns `false`. If you turn a mode on and forget to override it, every skill is denied. That is loud and safe.
 
 The handler only gets ids that are on the agent's card. It never sees text the caller invented.

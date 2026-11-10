@@ -53,6 +53,8 @@ To write your own, derive from `A2AAuditSink`. It is an abstract class with one 
 
 [!code-csharp[](../../../samples/Snippets/Audit.cs#CustomSink)]
 
+A runnable version, with a sink in memory that the app reads back, is in [samples/TenantAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/TenantAgent/README.md).
+
 ## Fail open and fail closed
 
 The default is fail open. The server waits for each write, at most `Audit.WriteTimeout` (2 seconds). If the sink throws or times out, the server logs an Error and the request goes on. A sink that ignores its token still cannot hang a request.
