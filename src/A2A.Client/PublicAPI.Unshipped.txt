@@ -125,8 +125,6 @@ A2A.Client.Resilience.CircuitOpenException
 A2A.Client.Transports.HttpJsonTransport.InvokeExtensionOperationAsync(string! method, System.Text.Json.JsonElement parameters, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Text.Json.JsonElement>!
 A2A.Client.Transports.JsonRpcTransport.InvokeExtensionOperationAsync(string! method, System.Text.Json.JsonElement parameters, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Text.Json.JsonElement>!
 [A2AEXP001]A2A.Client.TypedSkillCallException
-[A2AEXP001]A2A.Client.TypedSkillCallException.State.get -> A2A.TaskState
-[A2AEXP001]A2A.Client.TypedSkillCallException.Task.get -> A2A.AgentTask!
 [A2AEXP001]A2A.Client.TypedSkillCallException.TypedSkillCallException(A2A.AgentTask! task) -> void
 abstract A2A.Client.Outbox.ClientOutboxStore.AcknowledgeAsync(A2A.Client.Outbox.ClientOutboxEntry! leased, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
 abstract A2A.Client.Outbox.ClientOutboxStore.EnqueueAsync(A2A.Client.Outbox.ClientOutboxMessage! message, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
@@ -188,8 +186,6 @@ A2A.Client.Credentials.OAuth2CertificateThumbprint
 A2A.Client.Credentials.OAuth2CertificateThumbprint.Sha1 = 1 -> A2A.Client.Credentials.OAuth2CertificateThumbprint
 A2A.Client.Credentials.OAuth2CertificateThumbprint.Sha256 = 0 -> A2A.Client.Credentials.OAuth2CertificateThumbprint
 static A2A.Client.Credentials.OAuth2ClientAssertions.CertificateJwt(System.Security.Cryptography.X509Certificates.X509Certificate2! certificate, string! algorithm = "PS256", A2A.Client.Credentials.OAuth2CertificateThumbprint thumbprint = A2A.Client.Credentials.OAuth2CertificateThumbprint.Sha256, System.TimeSpan? lifetime = null, System.TimeProvider? timeProvider = null) -> System.Func<A2A.Client.Credentials.OAuth2ClientAssertionContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>!
-A2A.Client.A2AClient.AskAsync(string! text, string? contextId = null, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<string!>!
-A2A.Client.A2AClient.StreamTextAsync(string! text, string? contextId = null, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<string!>!
 A2A.Client.TaskNotCompletedException
 A2A.Client.TaskNotCompletedException.State.get -> A2A.TaskState
 A2A.Client.TaskNotCompletedException.Task.get -> A2A.AgentTask!
@@ -214,3 +210,7 @@ A2A.Client.Credentials.OAuth2ClientCredentialsOptions.RequireScopes.get -> bool
 A2A.Client.Credentials.OAuth2ClientCredentialsOptions.RequireScopes.set -> void
 A2A.Client.Cards.UntrustedText.ToHtml() -> string!
 A2A.Client.Cards.UntrustedText.ToMarkdown() -> string!
+A2A.Client.A2AClientTextExtensions
+static A2A.Client.A2AClientTextExtensions.AskAsync(this A2A.Client.IA2AClient! client, string! text, string? contextId = null, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<string!>!
+static A2A.Client.A2AClientTextExtensions.StreamTextAsync(this A2A.Client.IA2AClient! client, string! text, string? contextId = null, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<string!>!
+A2A.Client.TaskNotCompletedException.TaskNotCompletedException(A2A.AgentTask! task, string! what) -> void

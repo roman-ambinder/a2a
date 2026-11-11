@@ -100,7 +100,7 @@ The check runs again when the handler starts, so a validator runs twice. Keep it
 
 `CallSkillAsync` uses `SelectSkill` and `SendMessageAsync`, and `WaitForTaskAsync` if the task is not finished. It returns the data part of the last artifact that has one. It also reads a direct message reply with a data part, so it works with agents from other SDKs.
 
-- A task that ends in any state but `completed` throws `TypedSkillCallException`, with the `Task` and its `State`.
+- A task that ends in any state but `completed` throws `TypedSkillCallException`, with the `Task` and its `State`. It is a `TaskNotCompletedException`, so the `catch` that handles `AskAsync` handles it too.
 - A result that does not parse, or is missing, throws `A2AException` with `InvalidAgentResponse`.
 - A refused input throws `A2AException` with `InvalidParams`. Read `Details` for the fields.
 - When `ValidateCapabilities` is on and the client knows the card, a skill that is not on the card fails before anything is sent. The same rule as `SelectSkill`.

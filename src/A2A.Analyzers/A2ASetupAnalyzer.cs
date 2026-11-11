@@ -12,7 +12,7 @@ namespace A2A.Analyzers;
 ///     of the middleware pipeline (A2A0003).
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
-public sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
+internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
 {
     /// <summary>A2A0001: endpoints are mapped, but <c>UseA2A()</c> is never called.</summary>
     public static readonly DiagnosticDescriptor MissingUseA2A = new(

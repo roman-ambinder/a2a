@@ -53,18 +53,10 @@ public sealed class A2AApiKeyOptions
     /// <summary>The ASP.NET Core authentication scheme name.</summary>
     public const string SchemeName = "A2AApiKey";
 
-    /// <summary>
-    ///     An authorization policy that requires an API key, for endpoints that take only API keys. Endpoints without
-    ///     authorization get <see cref="A2ACardAuthenticationExtensions.DefaultPolicyName" /> instead, which also accepts
-    ///     the other declared schemes.
-    /// </summary>
-    public const string PolicyName = "A2AApiKey";
 
     /// <summary>The prefix of the task owner id of an API-key caller.</summary>
     public const string OwnerPrefix = "apikey:";
 
-    /// <summary>The claim that holds the caller id (without the prefix).</summary>
-    public const string CallerClaim = "a2a:apikey:caller";
 
     /// <summary>The header the key travels in. Default <c>X-Api-Key</c>. The Agent Card declares it.</summary>
     public string HeaderName { get; set; } = "X-Api-Key";
@@ -130,8 +122,6 @@ public static class A2AApiKeyAuthenticationExtensions
         services.TryAddSingleton<IApiKeyStore, OptionsApiKeyStore>();
         services.AddAuthentication()
             .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(A2AApiKeyOptions.SchemeName, null);
-        services.AddAuthorization(o => o.AddPolicy(A2AApiKeyOptions.PolicyName,
-            p => p.AddAuthenticationSchemes(A2AApiKeyOptions.SchemeName).RequireAuthenticatedUser()));
         services.AddSingleton<IPostConfigureOptions<A2AServerOptions>, CardDeclaration>();
         // Also a way into A2ACardSchemes, the default policy, next to schemes declared with AddCardAuthentication.
         A2ACardAuthenticationExtensions.AddDefaultScheme(services, A2AApiKeyOptions.SchemeName);
@@ -258,7 +248,7 @@ public static class A2AApiKeyAuthenticationExtensions
             [
                 new(ClaimTypes.NameIdentifier, A2AApiKeyOptions.OwnerPrefix + caller.CallerId),
                 new(ClaimTypes.Name, caller.CallerId),
-                new(A2AApiKeyOptions.CallerClaim, caller.CallerId)
+                new(A2AClaimTypes.ApiKeyCaller, caller.CallerId)
             ];
             foreach (var tenant in caller.Tenants ?? []) claims.Add(new Claim(A2AClaimTypes.Tenant, tenant));
             var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name));
