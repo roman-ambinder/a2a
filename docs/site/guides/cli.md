@@ -113,6 +113,18 @@ How it saves files:
 - If no part can be downloaded, the exit code is 5.
 - The part URL is never printed. Presigned storage URLs are secrets.
 
+### keys
+
+Makes API keys for an agent that uses `AddApiKeyAuthentication`. It works offline and takes no `--agent`.
+
+```bash
+a2a keys new             # prints a key (a2a_...) and its hash (sha256:...)
+a2a keys new --json      # {"key": "...", "hash": "..."}
+a2a keys hash < key.txt  # the hash of a key you already have, read from standard input
+```
+
+Give the key to the caller: it is shown once. Store only the hash on the agent, in code or in `A2A:ApiKeys:Keys`. See [API keys](auth-and-ownership.md#api-keys). `keys hash` reads the key from standard input, never from an option, so it stays out of process lists and shell history.
+
 ## Options for every command
 
 | Option | Meaning |

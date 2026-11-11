@@ -16,6 +16,7 @@ The NuGet IDs have the `RomanAmbinder.` prefix. Assemblies and namespaces are `A
 ```bash
 dotnet new install RomanAmbinder.A2A.Templates
 dotnet new a2a-agent -n MyAgent        # an agent; the card and limits are in appsettings.json
+dotnet new a2a-agent -n MyAgent --auth apikey   # the same, with API keys (hashes in appsettings.json)
 dotnet new a2a-client -n MyClient      # a console app that calls an agent
 dotnet new a2a-chat-agent -n MyChat    # an agent that hosts an IChatClient
 ```
@@ -122,19 +123,25 @@ The Agent Card needs a name, a description and a version. `AgentCard.Create(name
 
 ## Run the samples
 
-The repository has two samples. Start the agent. It needs an API key:
+The repository has two samples. The agent needs an API key. Make one and its hash with the `a2a` tool, which works offline:
 
 ```bash
-dotnet run --project samples/EchoAgent -- --EchoAgent:ApiKey=my-secret
+dotnet run --project src/A2A.Cli -- keys new
+```
+
+Start the agent with the hash. It stores only the hash:
+
+```bash
+dotnet run --project samples/EchoAgent -- --EchoAgent:ApiKeyHash=sha256:...
 ```
 
 It listens on `http://localhost:5100`. Change that with `--BaseUrl=...`. In another terminal, run the client with the agent URL, a text and the key:
 
 ```bash
-dotnet run --project samples/EchoClient -- http://localhost:5100/ "hello from the SDK" my-secret
+dotnet run --project samples/EchoClient -- http://localhost:5100/ "hello from the SDK" a2a_...
 ```
 
-The client sends a `ping`, streams a reply, follows a task with `ObserveTaskAsync`, and lists its tasks. The sources are [EchoAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/EchoAgent/Program.cs) and [EchoClient](https://github.com/roman-ambinder/a2a/blob/main/samples/EchoClient/Program.cs). The agent sample also shows API-key authentication and optional card signing.
+The client sends a `ping`, streams a reply, follows a task with `ObserveTaskAsync`, and lists its tasks. The sources are [EchoAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/EchoAgent/Program.cs) and [EchoClient](https://github.com/roman-ambinder/a2a/blob/main/samples/EchoClient/Program.cs). The agent sample also shows API-key authentication (`AddApiKeyAuthentication`, see [Authentication and ownership](auth-and-ownership.md#api-keys)) and optional card signing.
 
 ## What can go wrong
 

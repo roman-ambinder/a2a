@@ -26,7 +26,7 @@ public sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
     /// <summary>A2A0002: the mapped endpoints have no authorization.</summary>
     public static readonly DiagnosticDescriptor NoAuthorization = new(
         "A2A0002", "A2A endpoints need authorization",
-        "'{0}' maps A2A endpoints without authorization; the app refuses to start. Add .RequireAuthorization(), set o.AuthorizationPolicy, or allow anonymous callers on purpose (A2AServerOptions.AllowAnonymous or UseDevelopmentDefaults()).",
+        "'{0}' maps A2A endpoints without authorization; the app refuses to start. Add .RequireAuthorization(), set o.AuthorizationPolicy, call AddApiKeyAuthentication() on the A2A builder, or allow anonymous callers on purpose (A2AServerOptions.AllowAnonymous or UseDevelopmentDefaults()).",
         "A2A.Hosting", DiagnosticSeverity.Warning, true,
         "A2A endpoints refuse anonymous access unless the host opts in.",
         "https://roman-ambinder.github.io/a2a/guides/auth-and-ownership.html",
@@ -96,6 +96,9 @@ public sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
                         break;
                     case "UseDevelopmentDefaults" when ns == "A2A.Server.AspNetCore":
                         state.AnonymousOptIn = true;
+                        break;
+                    case "AddApiKeyAuthentication" when ns == "A2A.Server.AspNetCore":
+                        state.AuthorizedByDefault = true; // its policy goes on every A2A endpoint without authorization
                         break;
                     case "UseAuthentication" when ns == "Microsoft.AspNetCore.Builder":
                         useAuthentication ??= invocation;
@@ -189,7 +192,7 @@ public sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
         if (!state.UsesA2A && !state.RateLimitOptOut)
             foreach (var location in state.Maps)
                 context.ReportDiagnostic(Diagnostic.Create(MissingUseA2A, location, Name(location)));
-        if (state.AnonymousOptIn) return;
+        if (state.AnonymousOptIn || state.AuthorizedByDefault) return;
         foreach (var (location, method) in state.Unauthorized)
             context.ReportDiagnostic(Diagnostic.Create(NoAuthorization, location, method));
     }
@@ -207,6 +210,7 @@ public sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
         public readonly ConcurrentBag<Location> Maps = new();
         public readonly ConcurrentBag<(Location Location, string Method)> Unauthorized = new();
         public volatile bool AnonymousOptIn;
+        public volatile bool AuthorizedByDefault;
         public volatile bool RateLimitOptOut;
         public volatile bool UsesA2A;
     }

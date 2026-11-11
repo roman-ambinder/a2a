@@ -1,14 +1,18 @@
 using A2A.Client;
+using A2A.Client.Credentials;
 
 // Usage: dotnet run -- <agent URL> [text]. The default is an agent made with "dotnet new a2a-agent", run locally.
 var agentUrl = new Uri(args.Length > 0 ? args[0] : "http://localhost:5000/");
 var text = args.Length > 1 ? args[1] : "hello";
 
-// Fetches the Agent Card at /.well-known/agent-card.json and picks the binding the card lists first.
-// For an agent that needs credentials, pass credential providers instead of an HttpClient, for example
-// [new ApiKeyCredentialProvider(key)] (namespace A2A.Client.Credentials).
+// Fetches the Agent Card at /.well-known/agent-card.json and picks the binding the card lists first. An API key in the
+// environment variable A2A_API_KEY is sent where the card asks for one, only to the agent's origin, and only over HTTPS
+// or to loopback. Other schemes: pass another credential provider, for example OAuth2ClientCredentialsProvider.
+var apiKey = Environment.GetEnvironmentVariable("A2A_API_KEY");
 using var http = new HttpClient();
-var client = await A2AClientFactory.CreateAsync(agentUrl, http);
+var client = string.IsNullOrEmpty(apiKey)
+    ? await A2AClientFactory.CreateAsync(agentUrl, http)
+    : await A2AClientFactory.CreateAsync(agentUrl, [new ApiKeyCredentialProvider(apiKey)]);
 Console.WriteLine($"Connected to '{client.AgentCard!.Name}': {client.AgentCard.Description}");
 
 try

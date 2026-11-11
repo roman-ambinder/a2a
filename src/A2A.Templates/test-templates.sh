@@ -34,6 +34,10 @@ for t in a2a-agent a2a-client a2a-chat-agent; do
   dotnet new "$t" -n "My${t//-/}" -o "$WORK/$t" --debug:custom-hive "$HIVE" >/dev/null
   dotnet build "$WORK/$t" -c Release --configfile "$WORK/nuget.config" -v quiet -nologo
 done
+for t in a2a-agent a2a-chat-agent; do
+  dotnet new "$t" -n "MyKeyed${t//-/}" -o "$WORK/$t-apikey" --auth apikey --debug:custom-hive "$HIVE" >/dev/null
+  dotnet build "$WORK/$t-apikey" -c Release --configfile "$WORK/nuget.config" -v quiet -nologo
+done
 
 # The analyzers ship in A2A.Server.AspNetCore: a host without UseA2A() gets A2A0001 at build time.
 cp -r "$WORK/a2a-agent" "$WORK/broken-agent"
@@ -62,6 +66,26 @@ check_agent() { # $1: template folder, $2: text the answer must contain
 check_agent a2a-agent "You said: hello"
 check_agent a2a-chat-agent "You said: hello"
 
+# --auth apikey: the agent gets a key's hash (here through environment variables), the client sends the key.
+KEY="a2a_$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')"
+export A2A__ApiKeys__Keys__0__CallerId=template-test
+export A2A__ApiKeys__Keys__0__Hash="sha256:$(printf '%s' "$KEY" | sha256sum | cut -d' ' -f1)"
+for t in a2a-agent-apikey a2a-chat-agent-apikey; do
+  ASPNETCORE_ENVIRONMENT=Development dotnet run --project "$WORK/$t" -c Release --no-build --no-launch-profile \
+    --urls http://127.0.0.1:5199 >"$WORK/$t.log" 2>&1 &
+  PID=$!
+  for _ in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:5199/.well-known/agent-card.json && break; sleep 1; done
+  if A2A_API_KEY="" dotnet run --project "$WORK/a2a-client" -c Release --no-build -- http://127.0.0.1:5199/ hello \
+    >"$WORK/$t-nokey.log" 2>&1; then
+    stop; cat "$WORK/$t-nokey.log"; echo "FAIL: $t answered a client without a key"; exit 1
+  fi
+  out="$(A2A_API_KEY="$KEY" dotnet run --project "$WORK/a2a-client" -c Release --no-build -- http://127.0.0.1:5199/ hello)"
+  echo "$out"
+  stop
+  grep -q "answer: You said: hello" <<<"$out" || { cat "$WORK/$t.log"; echo "FAIL: $t"; exit 1; }
+done
+unset A2A__ApiKeys__Keys__0__CallerId A2A__ApiKeys__Keys__0__Hash
+
 # Outside Development the agent refuses to start with UseDevelopmentDefaults (it is only called in Development) and
 # requires authorization instead: the template starts, and an anonymous call is refused.
 ASPNETCORE_ENVIRONMENT=Production dotnet run --project "$WORK/a2a-agent" -c Release --no-build --no-launch-profile \
@@ -72,4 +96,4 @@ code="$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5199/a2a
   -H 'A2A-Version: 1.0' -d '{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"m","role":"ROLE_USER","parts":[{"text":"hi"}]}}}')"
 stop
 [ "$code" != "200" ] || { echo "FAIL: production agent answered an anonymous call"; exit 1; }
-echo "OK: templates build, the analyzers report a missing UseA2A(), both agents answer the client in Development, and Production refuses anonymous calls ($code)."
+echo "OK: templates build (also --auth apikey), API-key agents refuse a client without the key and answer one with it, the analyzers report a missing UseA2A(), both agents answer the client in Development, and Production refuses anonymous calls ($code)."

@@ -44,6 +44,16 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   `app.UseA2A()` before `UseAuthorization()` and `.RequireAuthorization()` to the mapping. They are warnings, and the
   startup checks are unchanged.
 - README: a "Which packages do I need?" table.
+- Server API-key authentication: `AddApiKeyAuthentication(o => o.Add("billing", hash))` on the A2A builder. It registers
+  an authentication scheme for `X-Api-Key`, gives each key a caller id (task owner `apikey:<id>`, so callers never share
+  tasks, also not with users of another scheme), declares the scheme on the Agent Card, can limit a key to tenants (on
+  every binding), and puts the `A2AApiKey` policy on every A2A endpoint without authorization of its own (endpoints with
+  their own policy keep it). Keys are registered by their SHA-256 hash only. New `A2AApiKey` makes keys (`a2a_` and 32
+  random bytes; other forms are refused) and hashes them. Keys come from code, the `A2A:ApiKeys` configuration section
+  (reloaded without a restart; a broken reload keeps the previous keys; a plain `Key` entry is refused) or a custom
+  `IApiKeyStore`. New CLI command `a2a keys new` / `a2a keys hash` (offline). `samples/EchoAgent` uses it instead of a
+  hand-written handler and takes `--EchoAgent:ApiKeyHash`. The agent templates take `--auth apikey`; the client template
+  sends `A2A_API_KEY`. Analyzer A2A0002 knows that `AddApiKeyAuthentication` protects the endpoints.
 - `samples/EchoClient` sends its API key with `AddApiKey` instead of a hand-written handler, and uses the new helpers.
 
 ### Identity providers

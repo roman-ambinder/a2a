@@ -14,16 +14,25 @@
         <NoWarn>$(NoWarn);NU5128</NoWarn>
         <!-- NU5128: a template pack has no lib folder on purpose. -->
         <EnableDefaultItems>false</EnableDefaultItems>
-        <TemplateStage>$(IntermediateOutputPath)templates/</TemplateStage>
     </PropertyGroup>
     <ItemGroup>
         <TemplateSource Include="content/**/*" Exclude="content/**/bin/**;content/**/obj/**"/>
     </ItemGroup>
 
-    <!-- Copies the templates with the package version stamped in, and packs that copy. -->
+    <!-- Copies the templates under obj/ and packs that copy. Files are copied byte for byte; only the project files get the
+         package version stamped in (MSBuild's WriteLinesToFile would rewrite backslashes in other files). -->
     <Target Name="StageTemplates" BeforeTargets="_GetPackageFiles">
-        <WriteLinesToFile File="$(TemplateStage)%(TemplateSource.RecursiveDir)%(TemplateSource.Filename)%(TemplateSource.Extension)"
-                          Lines="$([MSBuild]::Escape($([System.IO.File]::ReadAllText('%(TemplateSource.FullPath)').Replace('A2A_PACKAGE_VERSION', '$(PackageVersion)').TrimEnd())))"
+        <PropertyGroup>
+            <TemplateStage>$(IntermediateOutputPath)templates/</TemplateStage>
+        </PropertyGroup>
+        <ItemGroup>
+            <_TemplateProject Include="@(TemplateSource)" Condition="'%(Extension)' == '.csproj'"/>
+            <_TemplateFile Include="@(TemplateSource)" Condition="'%(Extension)' != '.csproj'"/>
+        </ItemGroup>
+        <Copy SourceFiles="@(_TemplateFile)" DestinationFiles="@(_TemplateFile->'$(TemplateStage)%(RecursiveDir)%(Filename)%(Extension)')"
+              SkipUnchangedFiles="true"/>
+        <WriteLinesToFile File="$(TemplateStage)%(_TemplateProject.RecursiveDir)%(_TemplateProject.Filename)%(_TemplateProject.Extension)"
+                          Lines="$([MSBuild]::Escape($([System.IO.File]::ReadAllText('%(_TemplateProject.FullPath)').Replace('A2A_PACKAGE_VERSION', '$(PackageVersion)'))))"
                           Overwrite="true" WriteOnlyWhenDifferent="true"/>
         <ItemGroup>
             <None Include="$(TemplateStage)**/*" Pack="true" PackagePath="content/%(RecursiveDir)"/>

@@ -15,6 +15,67 @@ If A2A endpoints have no authorization, the app does not start. The check is fai
 - If no endpoint exists yet when the host starts, the check runs again on `ApplicationStarted` and stops the app on failure.
 - <xref:A2A.Server.A2ARequestHandler> also refuses unauthenticated callers on its own, as a backstop.
 
+## API keys
+
+<xref:A2A.Server.AspNetCore.A2AApiKeyAuthenticationExtensions.AddApiKeyAuthentication*> lets callers in with an API key, in one call:
+
+[!code-csharp[](../../../samples/Snippets/ApiKeys.cs#Server)]
+
+What it does:
+
+- **Authentication.** An ASP.NET Core scheme (`A2AApiKey`) reads the key from the `X-Api-Key` header (<xref:A2A.Server.AspNetCore.A2AApiKeyOptions.HeaderName>). Keys in the query string are never read. A missing, malformed or unknown key is unauthenticated (401).
+- **One owner per caller.** Each key is registered under a caller id. The task owner is `apikey:` and the id, so callers never see each other's tasks, and an API-key caller never shares tasks with a JWT user whose `sub` happens to be the same. Several keys may share a caller id, for rotation.
+- **The card.** The scheme is added to the card's `securitySchemes` and `securityRequirements`, so `AddApiKey` on the client and the `a2a` tool know to send the key, and in which header.
+- **Tenants.** A key registered with tenants may only call those tenants, on every binding. Other calls get `PermissionDenied`.
+- **Protection by default.** Every A2A endpoint that has no authorization of its own gets the policy `A2AApiKey`, so `MapA2A` needs no `RequireAuthorization()`. An endpoint with its own authorization (`RequireAuthorization(...)`, `AuthorizationPolicy`, also on an outer group) keeps it unchanged.
+
+### Keys are stored as hashes
+
+The agent stores only the hash of each key. A leaked configuration file or environment variable then holds no usable key. A key is `a2a_` and 43 base64url characters (32 random bytes). A key in any other form is refused, so a short, guessable key can never be registered by mistake. SHA-256 without a salt is enough, because there is nothing to guess in 256 random bits. Make a key and its hash with the `a2a` tool (`a2a keys new`, offline) or in code:
+
+[!code-csharp[](../../../samples/Snippets/ApiKeys.cs#Create)]
+
+Give the key to the caller once. Store the hash in code, as above, or in configuration with `AddA2A(builder.Configuration.GetSection("A2A"), ...)`:
+
+```json
+{
+  "A2A": {
+    "ApiKeys": {
+      "Keys": [
+        { "CallerId": "billing", "Hash": "sha256:..." },
+        { "CallerId": "reports", "Hash": "sha256:...", "Tenants": [ "acme" ] }
+      ]
+    }
+  }
+}
+```
+
+The app refuses to start when an entry has no valid hash, holds a key where the hash belongs, or repeats a hash. A `Key` entry in configuration is refused: store the `Hash`.
+
+### Rotate and revoke keys
+
+Keys from configuration are reloaded when the configuration changes, without a restart. To rotate, add the new key's hash under the same caller id, move the caller to the new key, then remove the old hash. To revoke a key, remove its hash. A reload with an error is logged and the keys from before stay in use, so a broken edit does not lock every caller out.
+
+### Keys in a secret store or a database
+
+The hashes are not secrets, so the agent needs no secret store for them. A secret store with a configuration provider still works as the source, for example Azure Key Vault (`builder.Configuration.AddAzureKeyVault(...)`, package `Azure.Extensions.AspNetCore.Configuration.Secrets`) or AWS Systems Manager (`builder.Configuration.AddSystemsManager(...)`, package `Amazon.Extensions.Configuration.SystemsManager`): its entries arrive as `A2A:ApiKeys:...` keys.
+
+To keep keys somewhere without a configuration provider, register an <xref:A2A.Server.AspNetCore.IApiKeyStore>. It looks a key up by its hash and returns the caller, or null for an unknown or revoked key. It is called on every request that carries a well-formed key, so cache: a cache of hashes is safe to keep.
+
+[!code-csharp[](../../../samples/Snippets/ApiKeys.cs#Store)]
+
+[!code-csharp[](../../../samples/Snippets/ApiKeys.cs#StoreImpl)]
+
+On the client, the key is a real secret. `AddApiKey` takes a function that fetches it when a request needs it, so it can come from a secret store:
+
+[!code-csharp[](../../../samples/Snippets/ApiKeys.cs#ClientSecret)]
+
+### API keys next to another scheme
+
+When the endpoints have a policy of their own, the API-key policy is not added: list the API-key scheme in your policy, so either scheme lets a caller in. The card lists the API key as one more way in. Declare your other scheme on the card yourself.
+
+[!code-csharp[](../../../samples/Snippets/ApiKeys.cs#Mixed)]
+
 ### Use the schemes the card declares
 
 The spec says an agent must authenticate requests with one of the schemes in its card's `securitySchemes` and `securityRequirements` (7.4, 13.3). Your ASP.NET Core schemes have their own names, so map each card scheme to one: `app.MapA2A("/a2a").RequireAuthorization().RequireAgentCardSchemes(new Dictionary<string, string> { ["bearer"] = "Bearer" })` (<xref:A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.RequireAgentCardSchemes*>). It works on `MapA2AGrpc` too.

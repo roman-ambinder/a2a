@@ -27,9 +27,12 @@ echo "Building EchoAgent and the a2a tool..."
 dotnet build samples/EchoAgent -c Release >"$LOGS/build-agent.log" 2>&1 || { cat "$LOGS/build-agent.log"; exit 1; }
 dotnet build src/A2A.Cli -c Release >"$LOGS/build-cli.log" 2>&1 || { cat "$LOGS/build-cli.log"; exit 1; }
 
-# The key is made here and passed in environment variables: options show in process lists and shell history.
-export A2A_API_KEY="walkthrough-$RANDOM$RANDOM"
-dotnet samples/EchoAgent/bin/Release/net10.0/EchoAgent.dll "--BaseUrl=$URL" "--EchoAgent:ApiKey=$A2A_API_KEY" \
+# A throwaway key from the tool itself ('a2a keys new' works offline). The agent gets only the hash; the key goes to the
+# commands in an environment variable, because options show in process lists and shell history.
+KEYS="$(dotnet src/A2A.Cli/bin/Release/net10.0/A2A.Cli.dll keys new)"
+export A2A_API_KEY="$(awk '$1 == "key:" { print $2 }' <<<"$KEYS")"
+KEY_HASH="$(awk '$1 == "hash:" { print $2 }' <<<"$KEYS")"
+dotnet samples/EchoAgent/bin/Release/net10.0/EchoAgent.dll "--BaseUrl=$URL" "--EchoAgent:ApiKeyHash=$KEY_HASH" \
   >"$LOGS/agent.log" 2>&1 &
 AGENT_PID=$!
 for _ in $(seq 1 60); do
