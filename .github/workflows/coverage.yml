@@ -3,18 +3,26 @@ name: Coverage
 # Line coverage per package, checked against .github/coverage-baseline.json (a ratchet: coverage may rise, not fall).
 # Its own workflow, not a job in ci.yml: release.yml needs ci.yml to succeed for the commit, and a coverage drop should
 # turn this check red without blocking a release. Instrumentation slows tests and can add timing flakes, so it runs
-# after merges and on demand (workflow_dispatch, on any branch), never on every pull request.
+# after merges, on demand (workflow_dispatch), and on pull requests that change the coverage setup itself (so a new
+# baseline is checked before it lands), never on every pull request.
 
 on:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - .github/workflows/coverage.yml
+      - .github/scripts/coverage_summary.py
+      - .github/coverage-baseline.json
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: coverage-${{ github.sha }}
+  # Pull request runs replace older runs of the same pull request; runs on main each get their own group.
+  group: coverage-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   DOTNET_NOLOGO: true

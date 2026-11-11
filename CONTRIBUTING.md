@@ -46,8 +46,9 @@ The check is not part of `all-green` and does not block a release, but a red run
   file in the same pull request and say why.
 - Coverage went up? The run's `coverage` artifact has `baseline-candidate.json`. Copy it over the baseline file to raise
   the floor. The run summary says which packages can be raised.
-- To check a branch before merging, start the workflow by hand (Actions, Coverage, Run workflow). To see the numbers
-  locally:
+- A pull request that changes the baseline file, the workflow or `coverage_summary.py` runs the check itself. To check
+  any other branch before merging, start the workflow by hand (Actions, Coverage, Run workflow, pick the branch). To
+  see the numbers locally:
 
 ```bash
 dotnet test --project tests/A2A.Tests/A2A.Tests.csproj -c Release -p:A2ACoverage=true --coverage --coverage-output-format cobertura --results-directory coverage
