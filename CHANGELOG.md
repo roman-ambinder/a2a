@@ -105,6 +105,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   addresses and their near misses, `InNetwork` prefixes inside a byte, ambiguous numeric hosts, the resolve-time and
   connect-time checks and their messages) and `AwsSigV4Handler` (both constructors check the options). Mutation score of
   `PrivateAddressGuard.cs`: 65% to 92%.
+- New tests for `AgentCardSigner` and `JwsAlgorithms` (key and algorithm checks, the protected header, every supported
+  algorithm signing and verifying, EC signature sizes, PKCS#1 vs PSS, wrong keys, `KeyMatches`) and `GuardedJwksFetcher`
+  (status codes, the 256 KiB cap with and without `Content-Length`, read errors, `Cache-Control`/`Age`/`Expires`
+  lifetimes, the timeout). Mutation scores: `AgentCardSigner.cs` 84% to 90%, `GuardedJwksFetcher.cs` 70% to 93%.
 
 ### Fixes
 
