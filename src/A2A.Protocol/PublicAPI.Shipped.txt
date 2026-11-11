@@ -1413,3 +1413,5 @@ static A2A.Validation.A2AValidator.ValidateResponse(A2A.SendMessageResponse! res
 static A2A.Validation.A2AValidator.ValidateResponse(A2A.StreamResponse! response) -> void
 static A2A.Signing.AgentCardSigner.CreateSignature(A2A.AgentCard! card, A2A.Signing.AgentCardSigningKey! key, bool refusePrunedValues) -> A2A.AgentCardSignature!
 static A2A.Signing.AgentCardSigner.Sign(A2A.AgentCard! card, A2A.Signing.AgentCardSigningKey! key, bool refusePrunedValues) -> A2A.AgentCard!
+static A2A.Diagnostics.A2ATelemetry.InjectTraceContext(A2A.Message! message, System.Diagnostics.Activity? activity) -> bool
+static A2A.Diagnostics.A2ATelemetry.TryExtractTraceContext(A2A.Message? message, out System.Diagnostics.ActivityContext context) -> bool

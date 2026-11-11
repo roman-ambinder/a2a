@@ -1461,3 +1461,31 @@ const A2A.Server.A2AClaimTypes.Tenant = "a2a:tenant" -> string!
 A2A.Server.A2ALimits.StreamIdleTimeout.get -> System.TimeSpan
 A2A.Server.A2ALimits.StreamIdleTimeout.set -> void
 const A2A.Server.A2AClaimTypes.ApiKeyCaller = "a2a:apikey:caller" -> string!
+A2A.Server.Push.PushDeliveryOptions.RetryPolicy.get -> System.Func<A2A.Server.Push.PushRetryContext!, System.TimeSpan?>?
+A2A.Server.Push.PushDeliveryOptions.RetryPolicy.set -> void
+A2A.Server.Push.PushRetryContext
+A2A.Server.Push.PushRetryContext.Attempt.get -> int
+A2A.Server.Push.PushRetryContext.Attempt.init -> void
+A2A.Server.Push.PushRetryContext.ConfigId.get -> string!
+A2A.Server.Push.PushRetryContext.ConfigId.init -> void
+A2A.Server.Push.PushRetryContext.DefaultDelay.get -> System.TimeSpan
+A2A.Server.Push.PushRetryContext.DefaultDelay.init -> void
+A2A.Server.Push.PushRetryContext.Error.get -> string!
+A2A.Server.Push.PushRetryContext.Error.init -> void
+A2A.Server.Push.PushRetryContext.PushRetryContext(A2A.Server.Storage.TaskKey Task, string! ConfigId, long Sequence, int Attempt, string! Error, int? StatusCode, System.TimeSpan? RetryAfter, System.TimeSpan DefaultDelay) -> void
+A2A.Server.Push.PushRetryContext.RetryAfter.get -> System.TimeSpan?
+A2A.Server.Push.PushRetryContext.RetryAfter.init -> void
+A2A.Server.Push.PushRetryContext.Sequence.get -> long
+A2A.Server.Push.PushRetryContext.Sequence.init -> void
+A2A.Server.Push.PushRetryContext.StatusCode.get -> int?
+A2A.Server.Push.PushRetryContext.StatusCode.init -> void
+A2A.Server.Push.PushRetryContext.Task.get -> A2A.Server.Storage.TaskKey
+A2A.Server.Push.PushRetryContext.Task.init -> void
+A2A.Server.Push.PushRetryContext.Deconstruct(out A2A.Server.Storage.TaskKey Task, out string! ConfigId, out long Sequence, out int Attempt, out string! Error, out int? StatusCode, out System.TimeSpan? RetryAfter, out System.TimeSpan DefaultDelay) -> void
+A2A.Server.Push.PushRetryContext.Equals(A2A.Server.Push.PushRetryContext? other) -> bool
+override A2A.Server.Push.PushRetryContext.Equals(object? obj) -> bool
+override A2A.Server.Push.PushRetryContext.GetHashCode() -> int
+override A2A.Server.Push.PushRetryContext.ToString() -> string!
+static A2A.Server.Push.PushRetryContext.operator !=(A2A.Server.Push.PushRetryContext? left, A2A.Server.Push.PushRetryContext? right) -> bool
+static A2A.Server.Push.PushRetryContext.operator ==(A2A.Server.Push.PushRetryContext? left, A2A.Server.Push.PushRetryContext? right) -> bool
+A2A.Server.Push.PushRetryContext.<Clone>$() -> A2A.Server.Push.PushRetryContext!

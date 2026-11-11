@@ -786,3 +786,5 @@ static A2A.Client.A2AClientTextExtensions.StreamTextAsync(this A2A.Client.IA2ACl
 A2A.Client.TaskNotCompletedException.TaskNotCompletedException(A2A.AgentTask! task, string! what) -> void
 A2A.Client.A2AClientOptions.WaitForTaskCompletion.get -> bool
 A2A.Client.A2AClientOptions.WaitForTaskCompletion.set -> void
+A2A.Client.A2AClientOptions.PropagateTraceInMetadata.get -> bool
+A2A.Client.A2AClientOptions.PropagateTraceInMetadata.set -> void
