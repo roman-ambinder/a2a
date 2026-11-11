@@ -3,10 +3,12 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using A2A.Client;
 using A2A.Client.Credentials;
+using A2A.Client.Identity.Aws;
 using A2A.Client.Identity.Azure;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Signing;
+using Amazon.Runtime;
 using Azure.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 
@@ -127,6 +129,55 @@ internal static class Samples
         });
 
         var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [oauth]);
+        #endregion
+        _ = client;
+    }
+
+    public static async Task AwsSigV4Async()
+    {
+        #region AwsSigV4
+        // Install RomanAmbinder.A2A.Client.Identity.Aws. An agent behind API Gateway with IAM authorization.
+        var agentUrl = new Uri("https://abc123.execute-api.us-east-1.amazonaws.com/prod/");
+        var sigV4 = new AwsSigV4Handler(new AwsSigV4Options
+        {
+            Region = "us-east-1",
+            Service = "execute-api",   // "lambda" for a Lambda function URL
+            AgentOrigin = agentUrl,    // only requests to this origin are signed
+            // Credentials = ...       // null: the AWS SDK's default credential search
+        }, new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+
+        // The card fetch and every call go through the handler, so both are signed.
+        var client = await A2AClientFactory.CreateAsync(agentUrl, new HttpClient(sigV4));
+        #endregion
+        _ = client;
+    }
+
+    public static void AwsSigV4Di(IServiceCollection services)
+    {
+        #region AwsSigV4Di
+        var agentUrl = new Uri("https://abc123.execute-api.us-east-1.amazonaws.com/prod/");
+        services.AddA2AClient("orders", o => o.AgentUrl = agentUrl)
+            .AddHttpMessageHandler(() => new AwsSigV4Handler(new AwsSigV4Options
+            {
+                Region = "us-east-1", Service = "execute-api", AgentOrigin = agentUrl,
+            }));
+        #endregion
+    }
+
+    public static async Task AwsSigV4SchemeAsync()
+    {
+        #region AwsSigV4Scheme
+        // A card that declares a scheme for SigV4 under a name you agreed on with the agent, for example
+        // "aws": { "httpAuthSecurityScheme": { "scheme": "AWS4-HMAC-SHA256" } }.
+        var aws = new AwsSigV4CredentialProvider(new AwsSigV4Options
+        {
+            Region = "eu-west-1",
+            Service = "lambda",
+            SchemeName = "aws",
+            Credentials = new BasicAWSCredentials("AKIDEXAMPLE", Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY")),
+        });
+
+        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [aws]);
         #endregion
         _ = client;
     }

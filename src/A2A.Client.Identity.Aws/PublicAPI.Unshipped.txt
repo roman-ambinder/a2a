@@ -1,0 +1,28 @@
+#nullable enable
+A2A.Client.Identity.Aws.AwsSigV4CredentialProvider
+A2A.Client.Identity.Aws.AwsSigV4CredentialProvider.ApplyAsync(System.Net.Http.HttpRequestMessage! request, A2A.Client.Credentials.A2ACredentialContext! context, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Client.Identity.Aws.AwsSigV4CredentialProvider.AwsSigV4CredentialProvider(A2A.Client.Identity.Aws.AwsSigV4Options! options) -> void
+A2A.Client.Identity.Aws.AwsSigV4CredentialProvider.CanHandle(A2A.Client.Credentials.A2ACredentialContext! context) -> bool
+A2A.Client.Identity.Aws.AwsSigV4Handler
+A2A.Client.Identity.Aws.AwsSigV4Handler.AwsSigV4Handler(A2A.Client.Identity.Aws.AwsSigV4Options! options) -> void
+A2A.Client.Identity.Aws.AwsSigV4Handler.AwsSigV4Handler(A2A.Client.Identity.Aws.AwsSigV4Options! options, System.Net.Http.HttpMessageHandler! innerHandler) -> void
+A2A.Client.Identity.Aws.AwsSigV4Options
+A2A.Client.Identity.Aws.AwsSigV4Options.AgentOrigin.get -> System.Uri?
+A2A.Client.Identity.Aws.AwsSigV4Options.AgentOrigin.set -> void
+A2A.Client.Identity.Aws.AwsSigV4Options.AwsSigV4Options() -> void
+A2A.Client.Identity.Aws.AwsSigV4Options.Credentials.get -> Amazon.Runtime.AWSCredentials?
+A2A.Client.Identity.Aws.AwsSigV4Options.Credentials.set -> void
+A2A.Client.Identity.Aws.AwsSigV4Options.MaxSignedBodyBytes.get -> long
+A2A.Client.Identity.Aws.AwsSigV4Options.MaxSignedBodyBytes.set -> void
+A2A.Client.Identity.Aws.AwsSigV4Options.Region.get -> string!
+A2A.Client.Identity.Aws.AwsSigV4Options.Region.set -> void
+A2A.Client.Identity.Aws.AwsSigV4Options.RequireHttps.get -> bool
+A2A.Client.Identity.Aws.AwsSigV4Options.RequireHttps.set -> void
+A2A.Client.Identity.Aws.AwsSigV4Options.SchemeName.get -> string?
+A2A.Client.Identity.Aws.AwsSigV4Options.SchemeName.set -> void
+A2A.Client.Identity.Aws.AwsSigV4Options.Service.get -> string!
+A2A.Client.Identity.Aws.AwsSigV4Options.Service.set -> void
+A2A.Client.Identity.Aws.AwsSigV4Options.TimeProvider.get -> System.TimeProvider!
+A2A.Client.Identity.Aws.AwsSigV4Options.TimeProvider.set -> void
+A2A.Client.Identity.Aws.AwsSigV4Options.UnsignedPayload.get -> bool
+A2A.Client.Identity.Aws.AwsSigV4Options.UnsignedPayload.set -> void

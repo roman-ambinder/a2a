@@ -17,7 +17,7 @@ The server side needs no code. The SDK does not log callers in (auth guide: "You
 | B | Client assertions (RFC 7523) in the OAuth2 provider: `private_key_jwt` and federated tokens | `A2A.Client` |
 | C | `AzureTokenCredentialProvider` over Azure.Core `TokenCredential` | New package `A2A.Client.Identity.Azure` |
 | E | Server recipe for Entra: JWT bearer, owner id from `tid` and `oid` | Docs and snippet |
-| D | AWS SigV4 signing | Deferred. Section 7 |
+| D | AWS SigV4 signing | Deferred, then built: `2026-11-11-aws-sigv4-design.md` |
 
 ## 3. B: client assertions
 
@@ -106,7 +106,7 @@ C: a fake `TokenCredential` records requests: configured scopes and tenant are s
 
 ## 7. Deferred: D, AWS SigV4
 
-Not built now. Open questions for its own design:
+Built later: see `2026-11-11-aws-sigv4-design.md`, which decides the questions below. They were:
 
 1. When to sign. No A2A security scheme describes SigV4, so card matching cannot pick it. Either the host opts in per agent, or a custom scheme name is agreed.
 2. The body. SigV4 hashes the body. Streaming requests and retries need a body that can be read twice, or `UNSIGNED-PAYLOAD` where the service allows it.

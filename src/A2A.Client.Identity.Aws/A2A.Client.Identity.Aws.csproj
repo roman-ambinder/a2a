@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <RootNamespace>A2A.Client.Identity.Aws</RootNamespace>
+        <Description>AWS identity for the A2A (Agent2Agent) client: sign requests with AWS Signature Version 4 to call agents behind AWS IAM (API Gateway, Lambda function URLs).</Description>
+        <PackageTags>$(PackageTags);aws;iam;sigv4</PackageTags>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.Client\A2A.Client.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="AWSSDK.Core"/>
+    </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="A2A.Tests"/>
+    </ItemGroup>
+</Project>

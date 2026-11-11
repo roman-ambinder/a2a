@@ -51,6 +51,7 @@ Order matters twice: the card's order of requirements, and your order of provide
 | `apiKeySecurityScheme` in a header or cookie | <xref:A2A.Client.Credentials.ApiKeyCredentialProvider> | Sends the key under the name the card declares. |
 | `mtlsSecurityScheme` | <xref:A2A.Client.Credentials.MutualTlsCredentialProvider> with <xref:A2A.Client.Credentials.A2AMutualTls> | Adds nothing per request. The certificate is in the connection. |
 | `oauth2SecurityScheme`, `openIdConnectSecurityScheme`, or `httpAuthSecurityScheme` with scheme `Bearer` | <xref:A2A.Client.Identity.Azure.AzureTokenCredentialProvider> (package `RomanAmbinder.A2A.Client.Identity.Azure`) | Gets a token from an Azure credential and sends `Authorization: Bearer`. See [Identity providers](identity-providers.md). |
+| A scheme you name for AWS SigV4 (`SchemeName`) | <xref:A2A.Client.Identity.Aws.AwsSigV4CredentialProvider> (package `RomanAmbinder.A2A.Client.Identity.Aws`) | Signs the request with AWS Signature Version 4. For a card with no scheme, use `AwsSigV4Handler`. See [Identity providers](identity-providers.md#aws-iam-sigv4). |
 | Anything else | Your own <xref:A2A.Client.Credentials.IA2ACredentialProvider> | You decide. |
 
 Other OAuth2 flows, API keys in the query string and HTTP Basic are not covered by the built-in providers.

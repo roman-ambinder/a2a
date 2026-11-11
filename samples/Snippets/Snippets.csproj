@@ -31,6 +31,7 @@
     <ProjectReference Include="..\..\src\A2A.Server.TypedSkills\A2A.Server.TypedSkills.csproj" />
     <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj" />
     <ProjectReference Include="..\..\src\A2A.Client.DependencyInjection\A2A.Client.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client.Identity.Aws\A2A.Client.Identity.Aws.csproj" />
     <ProjectReference Include="..\..\src\A2A.Client.Identity.Azure\A2A.Client.Identity.Azure.csproj" />
     <ProjectReference Include="..\..\src\A2A.Client.Grpc\A2A.Client.Grpc.csproj" />
     <ProjectReference Include="..\..\src\A2A.Client.Postgres\A2A.Client.Postgres.csproj" />
