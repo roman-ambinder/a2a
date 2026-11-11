@@ -1,6 +1,6 @@
 # Identity providers
 
-This guide is for agents that run in a cloud or behind a company identity provider: Microsoft Entra ID, Okta, Auth0, Keycloak, Kubernetes, AWS. It shows which piece of the SDK to use on each side, and what is not built in.
+This guide is for agents that run in a cloud or behind a company identity provider: Microsoft Entra ID, Okta, Auth0, Keycloak, Kubernetes, AWS. It shows which piece of the SDK to use on each side.
 
 The short version:
 
@@ -11,7 +11,8 @@ The short version:
 | Call an agent with no secret, from Kubernetes or Azure workload identity | `OAuth2ClientCredentialsProvider` with `OAuth2ClientAssertions.FromFile` |
 | Call an agent with your own key instead of a secret (`private_key_jwt`) | `OAuth2ClientCredentialsProvider` with `OAuth2ClientAssertions.PrivateKeyJwt` |
 | Call an agent with an Azure managed identity or any Azure.Identity credential | `AzureTokenCredentialProvider` from `RomanAmbinder.A2A.Client.Identity.Azure` |
-| Anything else (AWS IAM, a token service of your own) | Your own `IA2ACredentialProvider` |
+| Call an agent behind AWS IAM (API Gateway, Lambda function URLs) | `AwsSigV4Handler` from `RomanAmbinder.A2A.Client.Identity.Aws` |
+| Anything else (a token service of your own) | Your own `IA2ACredentialProvider` |
 
 ## The server: accept Entra tokens
 
@@ -86,13 +87,29 @@ For anything else, write a provider. Keep a token for the agent it was issued fo
 
 [!code-csharp[](../../../samples/Snippets/IdentityProviders.cs#CustomIdp)]
 
-### AWS IAM
+### AWS IAM (SigV4)
 
-There is no built-in AWS provider yet. An agent behind an AWS service that checks IAM signatures (SigV4) needs every request signed with AWS credentials. You can do this with your own `IA2ACredentialProvider` and the AWS SDK's signer. Know these limits first:
+An agent behind an AWS service that checks IAM, such as Amazon API Gateway with IAM authorization or a Lambda function URL with `AWS_IAM` auth, accepts only requests signed with AWS Signature Version 4. `RomanAmbinder.A2A.Client.Identity.Aws` signs them.
 
-- No A2A security scheme describes SigV4, so a card cannot ask for it. Your provider decides in `CanHandle`, for example by scheme name or by origin. Bind it to one agent origin.
-- SigV4 hashes the body. Streaming requests and retries send the body again, so the provider must hash it without consuming it.
-- A provider adds headers. It must not change `RequestUri`.
+The agent itself never sees the signature: the AWS front door checks it. So its card usually declares no security scheme, and the card cannot say "sign this". You decide, per agent, with `AwsSigV4Handler`:
+
+[!code-csharp[](../../../samples/Snippets/IdentityProviders.cs#AwsSigV4)]
+
+With dependency injection:
+
+[!code-csharp[](../../../samples/Snippets/IdentityProviders.cs#AwsSigV4Di)]
+
+- **Region and Service** are required. `Service` is the signing name of the AWS service in front of the agent: `execute-api` for API Gateway, `lambda` for a Lambda function URL.
+- **Only the agent is signed.** The handler signs requests to `AgentOrigin`, the card fetch included, and lets every other request through unsigned. A signature names its host, so it is no use to another host. `AgentOrigin` is required and must be HTTPS (loopback is exempt, `RequireHttps` turns this off).
+- **Credentials.** Leave `Credentials` null to use the AWS SDK's default credential search (`DefaultAWSCredentialsIdentityResolver`), which the SDK describes as environment variables, the "default" profile and EC2 instance metadata. It is resolved on the first request. Or pass any `AWSCredentials`. Credentials are read for every request; the AWS SDK caches and refreshes them.
+- **The body is hashed.** The A2A client's request bodies are in memory, so a retry or a resume is hashed again with no copy. A body that is a stream (a file upload) is buffered first, up to `MaxSignedBodyBytes` (10 MiB). A larger one fails before it is sent. `UnsignedPayload = true` skips the hash, for services that accept that.
+- **Headers only.** Signing adds `Authorization`, `x-amz-date`, `x-amz-content-sha256` and, for temporary credentials, `x-amz-security-token`. A retry replaces them. The URI is not changed.
+- **No redirects.** The inner handler must not follow redirects; the constructor checks a `SocketsHttpHandler` or `HttpClientHandler`. `AddA2AClient`'s primary handler does not follow them.
+- **Failures.** Credentials that cannot be loaded fail the call with `Unauthenticated`. The message names the exception type only: AWS SDK messages can name profiles and files.
+
+If the card does declare a scheme for SigV4, under a name you agreed on with the agent, use `AwsSigV4CredentialProvider` instead. It works like the other providers and binds to one agent:
+
+[!code-csharp[](../../../samples/Snippets/IdentityProviders.cs#AwsSigV4Scheme)]
 
 ## What can go wrong
 
@@ -101,7 +118,9 @@ There is no built-in AWS provider yet. An agent behind an AWS service that check
 - **`ArgumentException`: "Set ClientSecret or ClientAssertion, not both".** Remove one.
 - **`Unauthenticated` from the token endpoint with `invalid_client`.** The identity provider does not trust the assertion: wrong issuer or subject in the federated credential, wrong public key, or the clock is off.
 - **`ArgumentException`: "Scopes is required".** The Azure provider needs a scope, for example `api://my-agent/.default`.
-- **"This provider is bound to another agent".** You used one Azure provider for two agents. Make one per agent.
+- **"This provider is bound to another agent".** You used one Azure or AWS provider for two agents. Make one per agent.
+- **403 from API Gateway or a function URL saying the signature does not match.** `Region` or `Service` is wrong, or something changed a signed header after the handler ran. Put `AwsSigV4Handler` last, right above the primary handler.
+- **"The request body is larger than MaxSignedBodyBytes".** A streamed body over the limit. Raise `MaxSignedBodyBytes`, or set `UnsignedPayload` if the service accepts it.
 
 ## See also
 

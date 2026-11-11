@@ -14,9 +14,14 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - New package `RomanAmbinder.A2A.Client.Identity.Azure`: `AzureTokenCredentialProvider` gets tokens from any Azure.Core
   `TokenCredential` (managed identity, workload identity, `DefaultAzureCredential`, ...). Scopes are required and set by the
   host, never taken from the card. One provider binds to one agent origin. Tokens are cached and refreshed before expiry.
+- New package `RomanAmbinder.A2A.Client.Identity.Aws`: call agents behind AWS IAM (API Gateway with IAM authorization,
+  Lambda function URLs) with AWS Signature Version 4. `AwsSigV4Handler` signs every request to one agent origin, the card
+  fetch included, for agents whose card declares no scheme. `AwsSigV4CredentialProvider` signs when the card asks for a
+  scheme you name. Credentials come from any `AWSCredentials`, or the AWS SDK's default search. Bodies are hashed (streams
+  are buffered up to `MaxSignedBodyBytes`), or sent as `UNSIGNED-PAYLOAD` when asked. Signatures are checked against
+  botocore in the tests.
 - New guide: [Identity providers](docs/site/guides/identity-providers.md). Entra ID on the server (JWT bearer and an owner
-  id from `tid` and `oid`), and which client option fits which platform. AWS IAM (SigV4) is not built in; the guide says
-  what a custom provider must handle.
+  id from `tid` and `oid`), which client option fits which platform, and AWS SigV4.
 
 ### Protocol and bindings
 

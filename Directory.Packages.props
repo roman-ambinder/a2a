@@ -29,6 +29,8 @@
     <PackageVersion Include="Testcontainers.Redis" Version="4.16.0" />
     <PackageVersion Include="Testcontainers.Minio" Version="4.15.0" />
     <PackageVersion Include="AWSSDK.S3" Version="4.0.104.11" />
+    <!-- The version AWSSDK.S3 4.0.104.11 brings, so the repo has one AWSSDK.Core. -->
+    <PackageVersion Include="AWSSDK.Core" Version="4.0.102.19" />
     <PackageVersion Include="Testcontainers.Azurite" Version="4.16.0" />
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.30.1" />
     <!-- The version Azure.Storage.Blobs 12.30.1 brings, so the repo has one Azure.Core. -->

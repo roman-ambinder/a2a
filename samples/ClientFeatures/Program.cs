@@ -9,17 +9,19 @@ using System.Text.Json.Serialization;
 using A2A;
 using A2A.Client;
 using A2A.Client.Credentials;
+using A2A.Client.Identity.Aws;
 using A2A.Client.Identity.Azure;
 using A2A.Client.Peers;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Signing;
+using Amazon.Runtime;
 using Azure.Core;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 
-// The client side of A2A: OAuth2 client credentials (with a secret, and with private_key_jwt), an Azure credential, an
-// API key, retries, peer identity and a custom operation.
+// The client side of A2A: OAuth2 client credentials (with a secret, and with private_key_jwt), an Azure credential, AWS
+// SigV4 signing, an API key, retries, peer identity and a custom operation.
 // One process hosts a small agent and a DEMO token endpoint on 127.0.0.1, and the clients call them.
 // No real secrets, no external calls. The client id, client secret, key and API key below are demo values.
 
@@ -29,6 +31,8 @@ const string DemoClientSecret = "demo-secret"; // demo value: a real secret come
 const string DemoApiKey = "demo-api-key";      // demo value
 const string ReportsUri = "https://example.com/extensions/reports/v1"; // an extension id; nothing is fetched from it
 const string DemoAzureScope = "api://client-features-agent/.default"; // demo value: the agent's application id URI
+const string DemoAwsAccessKey = "AKIDEXAMPLE";                            // demo value
+const string DemoAwsSecretKey = "demo-aws-secret";                        // demo value: real keys come from the AWS chain
 var agentUrl = new Uri($"http://127.0.0.1:{port}/");
 var tokenUrl = $"http://127.0.0.1:{port}/demo/token";
 
@@ -76,6 +80,7 @@ var tokens = new DemoTokenIssuer(DemoClientId, DemoClientSecret, clientKey, toke
 var faults = new FaultInjector();
 builder.Services.AddSingleton(tokens);
 builder.Services.AddSingleton(new DemoApiKeyValue(DemoApiKey));
+builder.Services.AddSingleton(new DemoAwsAccessKey(DemoAwsAccessKey));
 builder.Services.AddAuthentication(DemoAuthHandler.SchemeName)
     .AddScheme<AuthenticationSchemeOptions, DemoAuthHandler>(DemoAuthHandler.SchemeName, null);
 builder.Services.AddAuthorization(o => o.AddPolicy("caller", p => p.RequireAuthenticatedUser()));
@@ -200,7 +205,23 @@ await Step("Azure credential", async () =>
     Expect("scope asked for", tokens.LastAzureScope, DemoAzureScope);
 });
 
-// 4. API key: the card's first requirement (OAuth2) has no provider here, so the client takes the second one.
+// 4. AWS SigV4: for an agent behind AWS IAM (API Gateway, Lambda function URLs). The card does not ask for it; the
+// handler signs every request to the agent's origin, the card fetch included.
+await Step("AWS SigV4", async () =>
+{
+    var sigV4 = new AwsSigV4Handler(new AwsSigV4Options
+    {
+        Region = "us-east-1",
+        Service = "execute-api",
+        AgentOrigin = agentUrl,
+        Credentials = new BasicAWSCredentials(DemoAwsAccessKey, DemoAwsSecretKey) // in production: leave null
+    }, new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false });
+    using var http = new HttpClient(sigV4);
+    var awsClient = await A2AClientFactory.CreateAsync(agentUrl, http);
+    Expect("reply", await AskAsync(awsClient), "aws-sigv4-caller via aws-sigv4");
+});
+
+// 5. API key: the card's first requirement (OAuth2) has no provider here, so the client takes the second one.
 A2AClient? client = null;
 await Step("API key", async () =>
 {
@@ -208,7 +229,7 @@ await Step("API key", async () =>
     Expect("reply", await AskAsync(client), "api-key-user via api-key");
 });
 
-// 5. Retries: the agent answers 503 once. The client retries (MaxRetries is 2 by default) and the call succeeds.
+// 6. Retries: the agent answers 503 once. The client retries (MaxRetries is 2 by default) and the call succeeds.
 await Step("Retry after a 503", async () =>
 {
     client ??= await clients.GetClientAsync("api-key");
@@ -217,7 +238,7 @@ await Step("Retry after a 503", async () =>
     Expect("attempts", faults.Attempts, 2);
 });
 
-// 6. Peer identity: who the agent is, as the SDK sees it. The card name is display text, not identity.
+// 7. Peer identity: who the agent is, as the SDK sees it. The card name is display text, not identity.
 await Step("Peer identity", async () =>
 {
     using var http = new HttpClient();
@@ -237,7 +258,7 @@ await Step("Peer identity", async () =>
     Expect("assurance", identity.Assurance, PeerIdentityAssurance.OriginOnly, print: false);
 });
 
-// 7. A custom operation: a method of an extension, next to the A2A operations. The helper activates the extension.
+// 8. A custom operation: a method of an extension, next to the A2A operations. The helper activates the extension.
 await Step("Custom operation", async () =>
 {
     client ??= await clients.GetClientAsync("api-key");
@@ -261,7 +282,7 @@ if (failures.Count > 0)
 
 Console.WriteLine();
 Console.WriteLine(
-    "OK: OAuth2 (secret and private_key_jwt), Azure credential and API key calls succeeded, a 503 was retried, the peer identity matched and a custom operation round-tripped.");
+    "OK: OAuth2 (secret and private_key_jwt), Azure credential, AWS SigV4 and API key calls succeeded, a 503 was retried, the peer identity matched and a custom operation round-tripped.");
 return 0;
 
 static async Task<string?> AskAsync(A2AClient client)
@@ -428,16 +449,44 @@ internal sealed class DemoAuthHandler(
     ILoggerFactory logger,
     UrlEncoder encoder,
     DemoTokenIssuer tokens,
-    DemoApiKeyValue apiKey)
+    DemoApiKeyValue apiKey,
+    DemoAwsAccessKey awsAccessKey)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "Demo";
     public const string MethodClaim = "auth_method";
     public const string TokenClaim = "token_number";
 
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         var authorization = Request.Headers.Authorization.ToString();
+        if (authorization.StartsWith("AWS4-HMAC-SHA256 ", StringComparison.Ordinal))
+            return await SigV4LooksRightAsync(authorization)
+                ? Success("aws-sigv4-caller", new Claim(MethodClaim, "aws-sigv4"))
+                : AuthenticateResult.Fail("Bad SigV4 request");
+        return await NonAwsAsync(authorization);
+    }
+
+    // DEMO ONLY, NOT a SigV4 check. API Gateway (or a Lambda function URL) recomputes the signature with the caller's
+    // secret key. This demo checks only the parts it can see: the access key and scope, the signed headers, and that
+    // x-amz-content-sha256 is the hash of the body that arrived.
+    private async Task<bool> SigV4LooksRightAsync(string authorization)
+    {
+        var date = Request.Headers["X-Amz-Date"].ToString();
+        if (date.Length != 16) return false;
+        var scope = $"Credential={awsAccessKey.Value}/{date[..8]}/us-east-1/execute-api/aws4_request,";
+        if (!authorization.Contains(scope, StringComparison.Ordinal)) return false;
+        if (!authorization.Contains("SignedHeaders=", StringComparison.Ordinal)
+            || !authorization.Contains("host", StringComparison.Ordinal)
+            || !authorization.Contains("x-amz-content-sha256", StringComparison.Ordinal)) return false;
+        Request.EnableBuffering();
+        var hash = Convert.ToHexStringLower(await SHA256.HashDataAsync(Request.Body, Context.RequestAborted));
+        Request.Body.Position = 0;
+        return hash == Request.Headers["X-Amz-Content-SHA256"].ToString();
+    }
+
+    private Task<AuthenticateResult> NonAwsAsync(string authorization)
+    {
         if (authorization.StartsWith("Bearer ", StringComparison.Ordinal))
         {
             return Task.FromResult(tokens.Lookup(authorization["Bearer ".Length..]) is { } issued
@@ -477,3 +526,5 @@ internal sealed class DemoAzureCredential(DemoTokenIssuer issuer, string expecte
     public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext,
         CancellationToken cancellationToken) => ValueTask.FromResult(GetToken(requestContext, cancellationToken));
 }
+
+internal sealed record DemoAwsAccessKey(string Value);

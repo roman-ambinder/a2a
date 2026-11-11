@@ -20,6 +20,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | `A2A.Client` | `A2AClient`, JSON-RPC + REST transports, SSE reader, card resolver with caching and signature policy |
 | `A2A.Cli` | The `a2a` dotnet tool: show and verify Agent Cards, send and stream messages, manage tasks, download artifacts. See [Command line tool](docs/site/guides/cli.md) |
 | `A2A.Client.DependencyInjection` | `AddA2AClient`, `IA2AClientFactory`, `AddBearerToken`, `AddOAuth2ClientCredentials`, `AddApiKey`, `AddMutualTls` (adds DI, Options, `IHttpClientFactory`) |
+| `A2A.Client.Identity.Aws` | `AwsSigV4Handler` and `AwsSigV4CredentialProvider`: sign requests with AWS Signature Version 4 to call agents behind AWS IAM (API Gateway, Lambda function URLs) |
 | `A2A.Client.Identity.Azure` | `AzureTokenCredentialProvider`: call agents with a managed identity, workload identity or any Azure.Core `TokenCredential`, instead of a client secret |
 | `A2A.Server` | Transport-agnostic server core: executor model, task lifecycle, stores, event bus, durable push delivery (outbox), execution coordination, retention, tracing and metrics |
 | `A2A.Server.AspNetCore` | Endpoints: JSON-RPC, REST, SSE, `/.well-known/agent-card.json`, JWKS |
