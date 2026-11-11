@@ -58,6 +58,7 @@ internal sealed class AgentCardEndpoint(
         var key = await SigningKeyAsync(tenant, http.RequestAborted).ConfigureAwait(false);
         var encoded = Encode(card, key);
         http.Response.Headers.ETag = encoded.ETag;
+        http.Response.GetTypedHeaders().LastModified = encoded.LastModified;
         http.Response.Headers.Vary = "Accept"; // the media type follows the Accept header
         http.Response.Headers.CacheControl = $"public, max-age={(int)httpOptions.Value.AgentCardMaxAge.TotalSeconds}";
         if (Matches(http.Request.Headers.IfNoneMatch, encoded.Tag))
@@ -105,7 +106,11 @@ internal sealed class AgentCardEndpoint(
         var body = key is null ? unsigned : A2AJson.SerializeToUtf8Bytes(Sign(card, key));
         if (key is not null && transform is not null) body = transform(body);
         // A signed card is equivalent, not byte-identical, across signings: a weak validator.
-        var encoded = new Encoded(key, body, tag, key is null ? tag : "W/" + tag);
+        // Last-Modified (spec 8.6.1, MAY): when this process first served this content, to the second. Each instance has its
+        // own, so If-Modified-Since is not used for 304: the entity tag decides, and a stale card is never confirmed.
+        var now = DateTimeOffset.UtcNow;
+        var lastModified = new DateTimeOffset(now.Ticks - now.Ticks % TimeSpan.TicksPerSecond, TimeSpan.Zero);
+        var encoded = new Encoded(key, body, tag, key is null ? tag : "W/" + tag, lastModified);
         _encoded.AddOrUpdate(card, encoded);
         return encoded;
     }
@@ -215,5 +220,5 @@ internal sealed class AgentCardEndpoint(
     }
 
     /// <summary>The served bytes of one card with one key, and their entity tag.</summary>
-    private sealed record Encoded(AgentCardSigningKey? Key, byte[] Body, string Tag, string ETag);
+    private sealed record Encoded(AgentCardSigningKey? Key, byte[] Body, string Tag, string ETag, DateTimeOffset LastModified);
 }

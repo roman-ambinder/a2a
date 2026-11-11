@@ -39,7 +39,7 @@ Counts come from `check.py`: one per requirement (TCK) or test (ACTS), per bindi
 | TCK | JSON-RPC | 72 | 3 | 6 | 2 |
 | TCK | HTTP+JSON | 70 | 4 | 4 | 3 |
 | TCK | gRPC | 55 | 3 | 2 | 2 |
-| TCK | Agent card | 7 | 0 | 2 | 0 |
+| TCK | Agent card | 8 | 0 | 1 | 0 |
 
 Every TCK failure is explained below. None is an open SDK bug.
 

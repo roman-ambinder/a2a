@@ -76,6 +76,12 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   `PushNotificationReceiver.MaxDeliveriesPerMinute`: over the cap, `HandleAsync` answers the new
   `PushHandleOutcome.RateLimited` (429) with `PushHandleResult.RetryAfter`; only authenticated deliveries count.
 
+- Agent Card caching (spec §8.6): the public card sends `Last-Modified` (the time this process first served that content;
+  `If-Modified-Since` does not give 304, the entity tag decides). The client card cache follows RFC 9111 as a private
+  cache: `no-store` is no longer kept (it was stored and revalidated), `Vary: *` and `Pragma: no-cache` revalidate,
+  freshness counts `Expires` minus `Date` and subtracts the response's age (`Age` or the time since `Date`), and
+  `Last-Modified` is sent back as `If-Modified-Since` when there is no entity tag. TCK `CARD-CACHE-003` now passes.
+
 ### Tests and CI
 
 - Coverage is now a ratchet. The new `coverage.yml` workflow (after each merge to `main`, by hand, and on pull requests
