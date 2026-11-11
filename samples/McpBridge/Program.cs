@@ -109,6 +109,7 @@ if (args[0] == "call")
 Console.WriteLine($"Mode:  {args[0]}");
 Console.WriteLine($"MCP:   {url}/mcp");
 Console.WriteLine($"A2A:   {url}/a2a");
+// Printed once the MCP client of call mode is connected: samples/run-samples.sh waits for this line.
 Console.WriteLine("Press Ctrl+C to stop.");
 await app.WaitForShutdownAsync();
 return 0;
