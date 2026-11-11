@@ -14,7 +14,13 @@ The card must declare streaming. Without it, the server refuses streaming calls 
 
 [!code-csharp[](../../../samples/EchoClient/Program.cs#Send)]
 
-The first event is the task, or a direct message. A direct message is the only event, and the stream ends. Events of other executions of the same task, such as the `CANCELED` event of a `CancelTask`, arrive on the same stream.
+`evt.GetText()` is the text an artifact chunk or a message carries, and `evt.State` is the task state of a status update or a task snapshot, so one check covers both.
+
+The first event is the task, or a direct message. A direct message is the only event, and the stream ends.
+
+When you only need the text, <xref:A2A.Client.A2AClient.StreamTextAsync*> yields it chunk by chunk. It stops when the task ends or needs input or authorization, and throws <xref:A2A.Client.TaskNotCompletedException> if the task did not complete:
+
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#StreamText)] Events of other executions of the same task, such as the `CANCELED` event of a `CancelTask`, arrive on the same stream.
 
 ## Follow a task
 

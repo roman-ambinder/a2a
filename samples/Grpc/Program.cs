@@ -85,7 +85,7 @@ TaskState? last = null;
 await foreach (var evt in grpcOnly.SendStreamingMessageAsync(Message.FromUser("stream")))
 {
     if (evt is ArtifactUpdateEvent { ArtifactUpdate: var a })
-        Console.WriteLine($"  chunk: {string.Concat(a.Artifact.Parts.OfType<TextPart>().Select(p => p.Text))}");
+        Console.WriteLine($"  chunk: {a.Artifact.GetText()}");
     if (evt is StatusUpdateEvent { StatusUpdate: var s }) last = s.Status.State;
 }
 

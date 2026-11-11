@@ -35,8 +35,7 @@ await foreach (var evt in b.SubscribeToTaskAsync(task.Id))
     if (evt is ArtifactUpdateEvent { ArtifactUpdate: var u })
     {
         steps++;
-        Console.WriteLine(
-            $"B: event -> {string.Concat(u.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)).Trim()}");
+        Console.WriteLine($"B: event -> {u.Artifact.GetText().Trim()}");
     }
 
     if (steps >= 3) break;

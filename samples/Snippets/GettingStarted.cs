@@ -40,16 +40,13 @@ internal static class Samples
     {
         #region Client
         var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), httpClient);
-        var reply = await client.SendMessageAsync("hello");
+        string answer = await client.AskAsync("hello"); // the reply's text; throws if the task does not complete
 
-        await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("stream this")))
-        {
-            if (evt is StatusUpdateEvent { StatusUpdate: var s })
-                Console.WriteLine(s.Status.State);
-        }
+        await foreach (var chunk in client.StreamTextAsync("stream this"))
+            Console.Write(chunk);
         #endregion
 
-        _ = reply;
+        _ = answer;
     }
 
     public static void ChangeDefaults(IServiceCollection services)

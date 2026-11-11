@@ -18,6 +18,22 @@ internal static class Samples
         #endregion
     }
 
+    public static async Task StreamText(A2AClient client)
+    {
+        #region StreamText
+        try
+        {
+            await foreach (var chunk in client.StreamTextAsync("write a poem"))
+                Console.Write(chunk);
+        }
+        catch (TaskNotCompletedException e) when (e.State == TaskState.InputRequired)
+        {
+            // Answer with the same context and task: client.SendMessageAsync(answer, e.Task.ContextId, e.Task.Id).
+            Console.WriteLine($"The agent asks: {e.Task.Status.Message?.GetText()}");
+        }
+        #endregion
+    }
+
     public static async Task SubscribeOnce(A2AClient client, string taskId)
     {
         #region Subscribe

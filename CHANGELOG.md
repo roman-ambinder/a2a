@@ -4,6 +4,19 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Ease of use
+
+- New `A2AClient.AskAsync(text)`: sends a message and returns the answer as text, the text of a direct reply or of the
+  task's artifacts once the task completed (a task still running is polled). New `A2AClient.StreamTextAsync(text)`
+  yields the text as it streams; a task snapshot does not repeat text already yielded. It stops when the task ends or
+  needs input or authorization, even when the server keeps the stream open. Both throw the new
+  `TaskNotCompletedException` (with the task and its state) when the task fails, is rejected or canceled, or needs input
+  or authorization.
+- New text and state helpers on the model: `Artifact.GetText()`, `AgentTask.GetText()` (text of all artifacts),
+  `SendMessageResponse.GetText()`, `StreamResponse.GetText()` (the text an artifact chunk or a message carries) and
+  `StreamResponse.State` (the state of a status update or a task snapshot, so one check sees the end of a task).
+- `samples/EchoClient` sends its API key with `AddApiKey` instead of a hand-written handler, and uses the new helpers.
+
 ### Identity providers
 
 - `OAuth2ClientCredentialsProvider` can log in without a secret. New `OAuth2ClientCredentialsOptions.ClientAssertion` sends a

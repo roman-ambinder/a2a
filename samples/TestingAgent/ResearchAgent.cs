@@ -22,8 +22,7 @@ public sealed class ResearchAgent(IA2AClient peer) : IAgentExecutor
         var text = answer switch
         {
             MessageResponse m => m.Message.GetText(),
-            TaskResponse { Task.Status.State: TaskState.Completed } t => string.Concat(
-                t.Task.Artifacts?.SelectMany(a => a.Parts).OfType<TextPart>().Select(p => p.Text) ?? []),
+            TaskResponse { Task.Status.State: TaskState.Completed } t => t.Task.GetText(),
             _ => null
         };
         if (string.IsNullOrEmpty(text))

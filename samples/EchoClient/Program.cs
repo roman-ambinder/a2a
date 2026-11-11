@@ -31,24 +31,16 @@ Console.WriteLine(jwksFile is null
     ? "Card signature: not checked (no JWKS pinned)"
     : "Card signature: verified against the pinned JWKS");
 
-// 1. Simple request/response.
-var pong = await client.SendMessageAsync("ping");
-Console.WriteLine($"ping -> {(pong as MessageResponse)?.Message.GetText()}");
+// 1. Simple request/response: AskAsync returns the answer's text (and throws if the task does not complete).
+Console.WriteLine($"ping -> {await client.AskAsync("ping")}");
 
 // 2. Streaming.
 Console.Write("stream -> ");
 #region Send
 await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser(text)))
 {
-    switch (evt)
-    {
-        case ArtifactUpdateEvent { ArtifactUpdate: var a }:
-            Console.Write(string.Concat(a.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)));
-            break;
-        case StatusUpdateEvent { StatusUpdate: var s } when s.Status.State.IsTerminal():
-            Console.WriteLine($"  [{s.Status.State}]");
-            break;
-    }
+    Console.Write(evt.GetText()); // the text of an artifact chunk or a message; empty for other events
+    if (evt.State?.IsTerminal() == true) Console.WriteLine($"  [{evt.State}]");
 }
 #endregion
 
@@ -62,18 +54,9 @@ if (started is TaskResponse { Task: var task })
     Console.Write($"observe {task.Id} -> ");
     await foreach (var evt in client.ObserveTaskAsync(task.Id))
     {
-        switch (evt)
-        {
-            case ArtifactUpdateEvent { ArtifactUpdate: var a }:
-                Console.Write(string.Concat(a.Artifact.Parts.OfType<TextPart>().Select(p => p.Text)));
-                break;
-            case StatusUpdateEvent { StatusUpdate: var s } when s.Status.State.IsTerminal():
-                Console.WriteLine($"  [{s.Status.State}]");
-                break;
-            case TaskEvent { Task: var t } when t.Status.State.IsTerminal():
-                Console.WriteLine($"  [{t.Status.State}]");
-                break;
-        }
+        Console.Write(evt.GetText());
+        // State is set by status updates and by task snapshots (sent when the task had already finished).
+        if (evt.State?.IsTerminal() == true) Console.WriteLine($"  [{evt.State}]");
     }
 }
 #endregion
