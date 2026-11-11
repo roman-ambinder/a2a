@@ -314,8 +314,10 @@ public static partial class A2AEndpointRouteBuilderExtensions
 
     private static void Record(IEndpointRouteBuilder endpoints, string binding, string pattern)
     {
-        if (endpoints is RouteGroupBuilder || pattern.Contains('{', StringComparison.Ordinal)) return;
-        endpoints.ServiceProvider.GetRequiredService<A2AEndpointRegistry>().AddBinding(binding, pattern);
+        if (endpoints is RouteGroupBuilder) return;
+        var registry = endpoints.ServiceProvider.GetRequiredService<A2AEndpointRegistry>();
+        if (pattern.Contains('{', StringComparison.Ordinal)) registry.AddTemplateBinding(binding, pattern);
+        else registry.AddBinding(binding, pattern);
     }
 
     private static bool HasTenantSegment(string pattern)

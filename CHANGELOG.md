@@ -48,6 +48,14 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Client: the JSON-RPC and HTTP+JSON clients fill `A2AException.Metadata` from the received `ErrorInfo`, as the gRPC
   client already did. New `A2AErrors.GetErrorInfoMetadata`.
 
+- Server: a startup check of the Agent Card's interfaces (spec §5.2, §8.3.1, §13.4). After the app has started it
+  warns, and never stops the app, when a mapped binding is not on the host card, when a binding is mapped at a tenant
+  pattern (never listed automatically), and, outside Development, when an interface is on a local address
+  (`http://localhost` when `PublicBaseUrl` is not set), on plain HTTP, or when the server has no HTTPS address and
+  `PublicBaseUrl` is not https. Log events 702-706.
+- Tests: `ProtoModelDriftTests` compares the hand-written JSON model with the types generated from `docs/a2a.proto`
+  (spec §1.4): messages, fields, every case of the union messages (round-tripped through the model) and enum values.
+
 ### Documentation
 
 - Spec decisions: the push delivery defaults said "10 attempts". The default is no limit on the count (`MaxAttempts`
