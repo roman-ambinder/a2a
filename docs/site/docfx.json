@@ -5,7 +5,7 @@
         {
           "src": "../../src",
           "files": ["**/*.csproj"],
-          "exclude": ["A2A.Cli/**"]
+          "exclude": ["A2A.Cli/**", "A2A.Templates/**", "A2A.Analyzers/**", "A2A.Analyzers.CodeFixes/**"]
         }
       ],
       "dest": "api",

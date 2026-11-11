@@ -18,13 +18,8 @@ internal static class Samples
         builder.Services.AddAuthorization();
         builder.Services.AddA2A(a => a
             .AddAgentExecutor<MyAgent>()
-            .AddAgentCard(new AgentCard
-            {
-                Name = "My Agent",
-                Description = "Says hello.",
-                Version = "1.0.0",
-                Capabilities = new AgentCapabilities { Streaming = true },
-            }));
+            .AddAgentCard(AgentCard.Create("My Agent", "Says hello.")
+                .AddSkill("hello", "Hello", "Says hello back", tags: ["greeting"])));
 
         var app = builder.Build();
         app.UseAuthentication();

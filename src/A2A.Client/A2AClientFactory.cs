@@ -51,7 +51,13 @@ public static class A2AClientFactory
                 ? v
                 : options.ProtocolVersion)!;
 
-        var transport = FactoryFor(options, selected.ProtocolBinding) is { } factory
+        return new A2AClient(CreateTransport(selected, httpClient, options), options, card);
+    }
+
+    private static IA2AClient CreateTransport(AgentInterface selected, HttpClient httpClient,
+        A2AClientOptions options)
+    {
+        return FactoryFor(options, selected.ProtocolBinding) is { } factory
             ? factory.Create(selected, httpClient, options)
             : selected.ProtocolBinding switch
             {
@@ -62,7 +68,46 @@ public static class A2AClientFactory
                 _ => throw new A2AException(A2AErrorCode.UnsupportedOperation,
                     $"Binding '{selected.ProtocolBinding}' is not implemented.")
             };
-        return new A2AClient(transport, options, card);
+    }
+
+    /// <summary>
+    ///     Creates a client for an endpoint you already know, without fetching the Agent Card: for example an agent in the
+    ///     same process, or one whose address comes from your own configuration.
+    /// </summary>
+    /// <param name="endpoint">
+    ///     The A2A endpoint itself, not the card's URL: for example <c>https://agent.example.com/a2a</c> for an agent mapped
+    ///     with <c>MapA2A("/a2a")</c>. An absolute <c>http</c> or <c>https</c> URL.
+    /// </param>
+    /// <param name="httpClient">The HTTP client. It carries any credentials the agent needs.</param>
+    /// <param name="protocolBinding">
+    ///     The binding the endpoint speaks: <see cref="ProtocolBindings.JsonRpc" /> (default) or
+    ///     <see cref="ProtocolBindings.HttpJson" />, or another binding with a factory in
+    ///     <see cref="A2AClientOptions.TransportFactories" /> (such as gRPC after <c>UseGrpc()</c>).
+    /// </param>
+    /// <param name="options">Client options. Copied.</param>
+    /// <remarks>
+    ///     The client has no <see cref="A2AClient.AgentCard" />, so it does not check the agent's capabilities before a call
+    ///     (the agent still refuses what it does not support), and no card signature is verified. Use
+    ///     <see cref="CreateAsync(Uri, HttpClient, A2AClientOptions?, A2ACardResolverOptions?, CancellationToken)" /> for an
+    ///     agent you discover by URL. The endpoint is your choice, so <see cref="A2AClientOptions.EndpointPolicy" />, which
+    ///     judges the endpoints a card names, does not apply to it.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="endpoint" /> is not an absolute http or https URL.</exception>
+    /// <exception cref="A2AException">UnsupportedOperation: no transport for <paramref name="protocolBinding" />.</exception>
+    public static A2AClient CreateForEndpoint(Uri endpoint, HttpClient httpClient,
+        string protocolBinding = ProtocolBindings.JsonRpc, A2AClientOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentException.ThrowIfNullOrEmpty(protocolBinding);
+        if (!endpoint.IsAbsoluteUri || (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps))
+            throw new ArgumentException("The endpoint must be an absolute http or https URL.", nameof(endpoint));
+        options = (options ?? new A2AClientOptions()).Clone();
+        var selected = new AgentInterface
+        {
+            Url = endpoint.AbsoluteUri, ProtocolBinding = protocolBinding, ProtocolVersion = options.ProtocolVersion
+        };
+        return new A2AClient(CreateTransport(selected, httpClient, options), options);
     }
 
 #if !NETSTANDARD2_0

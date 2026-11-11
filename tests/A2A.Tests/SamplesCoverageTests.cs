@@ -30,6 +30,13 @@ public sealed class SamplesCoverageTests
         path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) is var parts
         && (parts.Contains("bin") || parts.Contains("obj"));
 
+    /// <summary>
+    ///     A template pack (and the template projects inside it) has no API a sample could reference. Its check is
+    ///     <c>src/A2A.Templates/test-templates.sh</c>, which builds and runs every template against the packed SDK.
+    /// </summary>
+    private static bool IsTemplatePack(string project) =>
+        project.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Contains("A2A.Templates");
+
     private static IEnumerable<string> ProjectReferences(string project)
     {
         var dir = Path.GetDirectoryName(project)!;
@@ -66,7 +73,7 @@ public sealed class SamplesCoverageTests
 
     private static List<string> SourcePackages(string root) =>
         Directory.EnumerateFiles(Path.Combine(root, "src"), "*.csproj", SearchOption.AllDirectories)
-            .Where(p => !IsBuildOutput(p))
+            .Where(p => !IsBuildOutput(p) && !IsTemplatePack(p))
             .Select(p => Path.GetFileNameWithoutExtension(p))
             .Order(StringComparer.Ordinal)
             .ToList();

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- A dotnet new template pack (dotnet new install RomanAmbinder.A2A.Templates). It has no code of its own: the templates
+         are under content/, and the pack stamps this package's version into them (A2A_PACKAGE_VERSION), so a project made
+         from the pack references the SDK release it came with. -->
+    <PropertyGroup>
+        <PackageType>Template</PackageType>
+        <Description>dotnet new templates for the A2A (Agent2Agent) .NET SDK: an agent (a2a-agent), a client (a2a-client) and an agent that hosts an IChatClient (a2a-chat-agent).</Description>
+        <PackageTags>$(PackageTags);dotnet-new;templates</PackageTags>
+        <IncludeBuildOutput>false</IncludeBuildOutput>
+        <IncludeSymbols>false</IncludeSymbols>
+        <EnablePackageValidation>false</EnablePackageValidation>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <IsAotCompatible>false</IsAotCompatible>
+        <NoWarn>$(NoWarn);NU5128</NoWarn>
+        <!-- NU5128: a template pack has no lib folder on purpose. -->
+        <EnableDefaultItems>false</EnableDefaultItems>
+        <TemplateStage>$(IntermediateOutputPath)templates/</TemplateStage>
+    </PropertyGroup>
+    <ItemGroup>
+        <TemplateSource Include="content/**/*" Exclude="content/**/bin/**;content/**/obj/**"/>
+    </ItemGroup>
+
+    <!-- Copies the templates with the package version stamped in, and packs that copy. -->
+    <Target Name="StageTemplates" BeforeTargets="_GetPackageFiles">
+        <WriteLinesToFile File="$(TemplateStage)%(TemplateSource.RecursiveDir)%(TemplateSource.Filename)%(TemplateSource.Extension)"
+                          Lines="$([MSBuild]::Escape($([System.IO.File]::ReadAllText('%(TemplateSource.FullPath)').Replace('A2A_PACKAGE_VERSION', '$(PackageVersion)').TrimEnd())))"
+                          Overwrite="true" WriteOnlyWhenDifferent="true"/>
+        <ItemGroup>
+            <None Include="$(TemplateStage)**/*" Pack="true" PackagePath="content/%(RecursiveDir)"/>
+        </ItemGroup>
+    </Target>
+</Project>

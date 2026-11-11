@@ -27,6 +27,23 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - New `A2AServerBuilder.UseDevelopmentDefaults()`: for local work, lets anonymous callers in, accepts calls without the
   `A2A-Version` header and puts exception text in errors. Rate limiting and the limits stay on. The app refuses to start
   in any environment other than Development.
+- The served Agent Card turns an unset `Capabilities.Streaming` into `true`: every executor can stream, so forgetting
+  the flag no longer makes streaming calls fail with `UnsupportedOperation`. An explicit `false` still refuses them. The
+  host's card instance is not changed.
+- New `A2AClientFactory.CreateForEndpoint(endpoint, httpClient, binding)`: a client for an endpoint you already know (an
+  agent in the same process, an address from your configuration), without fetching the card. It checks no capabilities
+  and verifies no card signature. The in-process samples use it instead of building a transport by hand.
+- New `AgentCard.Create(name, description, version = "1.0.0")` and chainable `AgentCard.AddSkill(...)` (refuses a duplicate
+  skill id).
+- New template pack `RomanAmbinder.A2A.Templates`: `dotnet new a2a-agent`, `a2a-client` and `a2a-chat-agent`. The agents
+  read their card from `appsettings.json`, use `UseDevelopmentDefaults()` in Development and require authorization
+  elsewhere. The pack stamps its own version into the package references. `src/A2A.Templates/test-templates.sh` (run in
+  CI after packing) builds each template against the packed SDK and runs the client against both agents.
+- Analyzers in `RomanAmbinder.A2A.Server.AspNetCore` report hosting mistakes at build time: A2A0001 (`UseA2A()` never
+  called), A2A0002 (endpoints mapped without authorization), A2A0003 (`UseA2A()` in the wrong place). Code fixes add
+  `app.UseA2A()` before `UseAuthorization()` and `.RequireAuthorization()` to the mapping. They are warnings, and the
+  startup checks are unchanged.
+- README: a "Which packages do I need?" table.
 - `samples/EchoClient` sends its API key with `AddApiKey` instead of a hand-written handler, and uses the new helpers.
 
 ### Identity providers

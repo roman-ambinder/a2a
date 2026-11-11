@@ -216,6 +216,9 @@ jobs:
             dotnet pack "$p" -c Release -o artifacts
           done
 
+      - name: Test the dotnet new templates against the packed SDK (and the packed analyzers)
+        run: src/A2A.Templates/test-templates.sh artifacts
+
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:

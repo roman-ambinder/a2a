@@ -4,7 +4,7 @@ A streaming call sends the events of a task as they happen: status changes, arti
 
 ## Turn it on
 
-The card must declare streaming. Without it, the server refuses streaming calls with `UnsupportedOperation`, and the client fails fast before it sends anything.
+Streaming is on by default. The served card turns an unset `Capabilities.Streaming` into `true`, because every executor can stream: the engine turns its updates into events. Set it to `false` to refuse streaming calls. The server then answers them with `UnsupportedOperation`, and a client that read the card fails fast before it sends anything. The client also refuses to stream to another SDK's agent whose card leaves the flag unset.
 
 [!code-csharp[](../../../samples/Snippets/Streaming.cs#Capability)]
 

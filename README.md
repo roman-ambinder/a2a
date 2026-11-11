@@ -13,6 +13,25 @@ dotnet tool install -g RomanAmbinder.A2A.Cli             # the `a2a` command lin
 
 NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the official `A2A` packages. Assemblies and namespaces are `A2A.*`. The core packages depend only on `Microsoft.Extensions.*`; the gRPC packages add `Google.Protobuf` and `Grpc.*`.
 
+### Which packages do I need?
+
+| I want to… | Install (`RomanAmbinder.` + name) |
+|---|---|
+| Host an agent in ASP.NET Core | `A2A.Server.AspNetCore` |
+| Call an agent | `A2A.Client` (add `A2A.Client.DependencyInjection` for `AddA2AClient` and named clients) |
+| Call an agent with Azure managed identity or AWS IAM | `A2A.Client.Identity.Azure` or `A2A.Client.Identity.Aws` |
+| Use gRPC | `A2A.Server.Grpc` (host) or `A2A.Client.Grpc` (call) |
+| Host an `IChatClient` as an agent, or use an agent as an AI tool | `A2A.Extensions.AI` |
+| Bridge to MCP | `A2A.Mcp` |
+| Keep tasks across restarts | `A2A.Server.Postgres` |
+| Run several server instances | `A2A.Server.Redis` (plus `A2A.Server.Postgres`) |
+| Keep large artifacts in object storage | `A2A.Server.Storage.S3` or `A2A.Server.Storage.AzureBlob` |
+| Talk to v0.3 agents or clients | `A2A.Client.V0_3Compat` or `A2A.Server.V0_3Compat` |
+| Test an agent | `A2A.TestKit` |
+| Try an agent from the command line | `A2A.Cli` (`dotnet tool install -g`) |
+
+The other packages (`A2A.Protocol`, `A2A.Security.Http`, `A2A.Grpc`, `A2A.V0_3Compat`, `A2A.Server`) come in as dependencies.
+
 | Package (NuGet ID: `RomanAmbinder.` + name) | What it is |
 |---|---|
 | `A2A.Protocol` | Data model (from `a2a.proto`), ProtoJSON serialization, errors, JCS (RFC 8785), JWS card signing/verification |
@@ -53,7 +72,7 @@ builder.Services.AddAuthentication(/* your scheme */);
 builder.Services.AddAuthorization();
 builder.Services.AddA2A(a => a
     .AddAgentExecutor<MyAgent>()
-    .AddAgentCard(new AgentCard { Name = "My Agent", Description = "Says hello.", Version = "1.0.0" }));
+    .AddAgentCard(AgentCard.Create("My Agent", "Says hello.")));
 
 var app = builder.Build();
 app.UseAuthentication();
@@ -77,7 +96,7 @@ What this gives you, with nothing else to configure:
 - `AddA2A` is `AddA2AServer()` + `AddA2AServerAspNetCore()` + your builder calls. Use the two-step form when you need `A2AServerOptions` at registration.
 - `MapA2A` also maps the public Agent Card (`GET /.well-known/agent-card.json`, anonymous, cacheable; and the JWKS when a signing key is set). On a route group (`app.MapGroup("/api")`) it does not: call `app.MapAgentCard()` on the application root. Turn it off with `o.MapAgentCard = false`.
 - Authorization: `MapA2A("/a2a", o => o.AuthorizationPolicy = "MyPolicy")` or `.RequireAuthorization()`. Without either, the app refuses to start, unless you set `A2AServerOptions.AllowAnonymous = true`.
-- The card needs only `Name`, `Description` and `Version`. Empty `SupportedInterfaces` are completed once, at first serve, from the mapped bindings (`MapA2A`, `MapA2AJsonRpc`, `MapA2AHttpJson`, `MapA2AGrpc`) at `A2AHttpOptions.PublicBaseUrl` (else the first listen address) + the mapped pattern. Set `PublicBaseUrl` behind a proxy or load balancer (`services.ConfigureA2AHttp(h => h.PublicBaseUrl = new Uri("https://agent.example.com"))`). Patterns with `{tenant}` are not listed, and a card that ends up with no interface fails at first serve with an `InvalidOperationException`.
+- The card needs only `Name`, `Description` and `Version` (`AgentCard.Create(name, description, version = "1.0.0")`; chain `.AddSkill(id, name, description)` for skills). Streaming is on unless the card says `Streaming = false`. Empty `SupportedInterfaces` are completed once, at first serve, from the mapped bindings (`MapA2A`, `MapA2AJsonRpc`, `MapA2AHttpJson`, `MapA2AGrpc`) at `A2AHttpOptions.PublicBaseUrl` (else the first listen address) + the mapped pattern. Set `PublicBaseUrl` behind a proxy or load balancer (`services.ConfigureA2AHttp(h => h.PublicBaseUrl = new Uri("https://agent.example.com"))`). Patterns with `{tenant}` are not listed, and a card that ends up with no interface fails at first serve with an `InvalidOperationException`.
 - Limits (`o.Limits`): body 10 MB, 100 parts per message, JSON depth 32, history 100, page size 100, 64 MiB and 1024 artifacts per stored task. Rate limit per tenant and principal (anonymous: per remote IP): 20 burst, 60 per minute (`services.AddA2ARateLimiting(o => ...)` to change; `o.Enabled = false` turns it off and lifts the `UseA2A()` requirement). Both answer 429/413 with the right headers.
 - Tenants: `MapA2A("/{tenant}/a2a")` or the default `/a2a/{tenant}` variants set `ServerCallContext.Tenant`.
 - A full sample with API-key auth, card signing and streaming is in [samples/EchoAgent](samples/EchoAgent/Program.cs).

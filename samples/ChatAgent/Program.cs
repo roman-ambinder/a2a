@@ -2,7 +2,6 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using A2A;
 using A2A.Client;
-using A2A.Client.Transports;
 using A2A.Extensions.AI;
 using A2A.Server;
 using A2A.Server.AspNetCore;
@@ -50,9 +49,9 @@ var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAdd
 Console.WriteLine($"Agent listening on {address}/a2a");
 
 // Client side: wrap the remote agent as an AI function. A chat client with function invocation could now call it as a tool.
-var options = new A2AClientOptions();
+// The endpoint is known (this process hosts it), so there is no card to fetch.
 using var http = new HttpClient();
-var client = new A2AClient(new JsonRpcTransport(http, new Uri($"{address}/a2a"), options), options);
+var client = A2AClientFactory.CreateForEndpoint(new Uri($"{address}/a2a"), http);
 var tool = client.AsAIFunction("ask_chat_agent", "Asks the chat agent a question and returns its answer.");
 
 var result = await tool.InvokeAsync(new AIFunctionArguments { ["message"] = "What time is it?" });

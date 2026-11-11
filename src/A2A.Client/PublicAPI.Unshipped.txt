@@ -194,3 +194,4 @@ A2A.Client.TaskNotCompletedException
 A2A.Client.TaskNotCompletedException.State.get -> A2A.TaskState
 A2A.Client.TaskNotCompletedException.Task.get -> A2A.AgentTask!
 A2A.Client.TaskNotCompletedException.TaskNotCompletedException(A2A.AgentTask! task) -> void
+static A2A.Client.A2AClientFactory.CreateForEndpoint(System.Uri! endpoint, System.Net.Http.HttpClient! httpClient, string! protocolBinding = "JSONRPC", A2A.Client.A2AClientOptions? options = null) -> A2A.Client.A2AClient!
