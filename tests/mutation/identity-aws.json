@@ -22,6 +22,6 @@
       "low": 60,
       "break": 0
     },
-    "test-case-filter": "FullyQualifiedName~A2A.Tests.Credentials.AwsSigV4Tests.|FullyQualifiedName~A2A.Tests.Credentials.IdentityDiTests.|FullyQualifiedName~A2A.Tests.Credentials.AwsSigV4HandlerTests."
+    "test-case-filter": "FullyQualifiedName~A2A.Tests.Credentials.AwsSigV4Tests.|FullyQualifiedName~A2A.Tests.Credentials.IdentityDiTests.|FullyQualifiedName~A2A.Tests.Credentials.AwsSigV4HandlerTests.|FullyQualifiedName~A2A.Tests.Credentials.AwsSigV4CredentialProviderTests.|FullyQualifiedName~A2A.Tests.Credentials.AwsSigV4RequestSignerTests."
   }
 }

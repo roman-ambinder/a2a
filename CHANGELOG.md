@@ -170,6 +170,11 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   algorithm signing and verifying, EC signature sizes, PKCS#1 vs PSS, wrong keys, `KeyMatches`) and `GuardedJwksFetcher`
   (status codes, the 256 KiB cap with and without `Content-Length`, read errors, `Cache-Control`/`Age`/`Expires`
   lifetimes, the timeout). Mutation scores: `AgentCardSigner.cs` 84% to 90%, `GuardedJwksFetcher.cs` 70% to 93%.
+- New tests for `AwsSigV4RequestSigner` (option checks and messages, agent origin matching, body hashing and
+  `UNSIGNED-PAYLOAD`, the signed-body limit, non-seekable bodies, replaced signing headers, credential errors) and
+  `AwsSigV4CredentialProvider` (argument checks, one agent origin per provider). Mutation score of
+  `AwsSigV4CredentialProvider.cs`: 59% to 94%. The Stryker score of `AwsSigV4RequestSigner.cs` is not reliable (see
+  [CONTRIBUTING](CONTRIBUTING.md#mutation-testing)); its earlier survivors were checked by hand instead.
 
 ### Fixes
 
