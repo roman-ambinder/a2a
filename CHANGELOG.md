@@ -25,6 +25,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   are one of them, so with `AddApiKeyAuthentication` and `AddBearerAuthentication` either a key or a token gets in.
   (`AddApiKeyAuthentication` used to apply an `A2AApiKey` policy, which is gone: for endpoints that take only API keys,
   write a policy with `AddAuthenticationSchemes(A2AApiKeyOptions.SchemeName)`.)
+- New `A2ACardSecurity` service (registered by `AddApiKeyAuthentication`, `AddBearerAuthentication` and
+  `AddCardAuthentication`): its `Apply(card)` puts every declared scheme on a card you build. A `TenantCardProvider`
+  injects it and applies it to each tenant's card, so tenant cards list the same schemes as the host's card (which gets
+  them already). The `TenantAgent` sample uses it instead of declaring the API key by hand.
 - Analyzer A2A0002 knows that `AddBearerAuthentication` and `AddCardAuthentication` protect the endpoints.
 - The `a2a-agent` and `a2a-chat-agent` templates (without `--auth apikey`) call `AddBearerAuthentication()` outside
   Development: the card asks for a bearer token, and the app refuses to start until a scheme such as `AddJwtBearer()`

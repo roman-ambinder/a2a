@@ -105,7 +105,8 @@ public static class A2AApiKeyAuthenticationExtensions
     ///         Endpoints that already carry authorization (<c>RequireAuthorization(...)</c>, <c>AuthorizationPolicy</c>,
     ///         <c>AllowAnonymous</c>) keep it and do not get the default policy: add the scheme to your policy yourself, for example
     ///         <c>p.AddAuthenticationSchemes(A2AApiKeyOptions.SchemeName, "Bearer")</c>. The card lists the API key as one
-    ///         more way in. Cards from a <see cref="Agents.TenantCardProvider" /> are not changed: declare the scheme there.
+    ///         more way in. Cards from a <see cref="Agents.TenantCardProvider" /> are not changed: call
+    ///         <see cref="A2ACardSecurity.Apply" /> on them.
     ///     </para>
     /// </remarks>
     public static A2AServerBuilder AddApiKeyAuthentication(this A2AServerBuilder builder,
@@ -122,7 +123,7 @@ public static class A2AApiKeyAuthenticationExtensions
         services.TryAddSingleton<IApiKeyStore, OptionsApiKeyStore>();
         services.AddAuthentication()
             .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(A2AApiKeyOptions.SchemeName, null);
-        services.AddSingleton<IPostConfigureOptions<A2AServerOptions>, CardDeclaration>();
+        services.AddSingleton<ICardSchemeDeclaration, ApiKeyCardScheme>();
         // Also a way into A2ACardSchemes, the default policy, next to schemes declared with AddCardAuthentication.
         A2ACardAuthenticationExtensions.AddDefaultScheme(services, A2AApiKeyOptions.SchemeName);
         return builder;
@@ -257,18 +258,11 @@ public static class A2AApiKeyAuthenticationExtensions
     }
 
     /// <summary>Declares the API-key scheme on the host's Agent Card, unless the card already has a scheme of that name.</summary>
-    private sealed class CardDeclaration(IOptions<A2AApiKeyOptions> keys) : IPostConfigureOptions<A2AServerOptions>
+    /// <summary>The API-key scheme, as the options name it.</summary>
+    private sealed class ApiKeyCardScheme(IOptions<A2AApiKeyOptions> keys) : ICardSchemeDeclaration
     {
-        public void PostConfigure(string? name, A2AServerOptions options)
-        {
-            var card = options.AgentCard;
-            var scheme = keys.Value.CardSchemeName;
-            card.SecuritySchemes ??= new Dictionary<string, SecurityScheme>(StringComparer.Ordinal);
-            if (!card.SecuritySchemes.ContainsKey(scheme))
-                card.SecuritySchemes[scheme] = SecurityScheme.ApiKey(keys.Value.HeaderName);
-            card.SecurityRequirements ??= [];
-            if (!card.SecurityRequirements.Any(r => r.Schemes.Count == 1 && r.Schemes.ContainsKey(scheme)))
-                card.SecurityRequirements.Add(new SecurityRequirement { Schemes = { [scheme] = new StringList() } });
-        }
+        public string CardName => keys.Value.CardSchemeName;
+        public SecurityScheme Scheme => SecurityScheme.ApiKey(keys.Value.HeaderName);
+        public IReadOnlyList<string> Scopes => [];
     }
 }

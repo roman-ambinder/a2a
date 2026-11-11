@@ -47,7 +47,7 @@ public static class A2ACardAuthenticationExtensions
     ///         <c>AllowAnonymous</c>) keep it; the card still lists the scheme. The app refuses to start when
     ///         <paramref name="authenticationScheme" /> is not registered. A scheme the card already has under
     ///         <paramref name="cardSchemeName" /> is kept. Cards from a <see cref="TenantCardProvider" /> are not changed:
-    ///         declare the scheme there.
+    ///         call <see cref="A2ACardSecurity.Apply" /> on them.
     ///     </para>
     /// </remarks>
     /// <exception cref="ArgumentException">A name is blank, or <paramref name="cardSchemeName" /> is already declared.</exception>
@@ -61,8 +61,7 @@ public static class A2ACardAuthenticationExtensions
         var services = builder.Services;
         if (services.Any(d => d.ImplementationInstance is CardSchemeDeclaration c && c.CardName == cardSchemeName))
             throw new ArgumentException($"The card scheme '{cardSchemeName}' is already declared.", nameof(cardSchemeName));
-        services.AddSingleton(new CardSchemeDeclaration(cardSchemeName, scheme, [.. scopes ?? []]));
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<A2AServerOptions>, CardSchemeDeclarations>());
+        services.AddSingleton<ICardSchemeDeclaration>(new CardSchemeDeclaration(cardSchemeName, scheme, [.. scopes ?? []]));
         AddDefaultScheme(services, authenticationScheme);
         return builder;
     }
@@ -98,6 +97,8 @@ public static class A2ACardAuthenticationExtensions
         services.AddAuthorization();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<AuthorizationOptions>, DefaultPolicy>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DefaultSchemeCheck>());
+        services.TryAddSingleton(sp => new A2ACardSecurity(sp.GetServices<ICardSchemeDeclaration>()));
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<A2AServerOptions>, HostCardSecurity>());
     }
 
     /// <summary>
@@ -117,7 +118,8 @@ public static class A2ACardAuthenticationExtensions
 
     internal sealed record DefaultScheme(string Name);
 
-    private sealed record CardSchemeDeclaration(string CardName, SecurityScheme Scheme, List<string> Scopes);
+    private sealed record CardSchemeDeclaration(string CardName, SecurityScheme Scheme, IReadOnlyList<string> Scopes)
+        : ICardSchemeDeclaration;
 
     private sealed class DefaultPolicy(IEnumerable<DefaultScheme> schemes) : IConfigureOptions<AuthorizationOptions>
     {
@@ -129,25 +131,12 @@ public static class A2ACardAuthenticationExtensions
         }
     }
 
-    /// <summary>Declares each <see cref="CardSchemeDeclaration" /> on the host's Agent Card.</summary>
-    private sealed class CardSchemeDeclarations(IEnumerable<CardSchemeDeclaration> declarations)
-        : IPostConfigureOptions<A2AServerOptions>
+    /// <summary>Declares every scheme on the host's Agent Card.</summary>
+    private sealed class HostCardSecurity(A2ACardSecurity security) : IPostConfigureOptions<A2AServerOptions>
     {
         public void PostConfigure(string? name, A2AServerOptions options)
         {
-            var card = options.AgentCard;
-            foreach (var d in declarations)
-            {
-                card.SecuritySchemes ??= new Dictionary<string, SecurityScheme>(StringComparer.Ordinal);
-                card.SecuritySchemes.TryAdd(d.CardName, d.Scheme);
-                card.SecurityRequirements ??= [];
-                if (!card.SecurityRequirements.Any(r => r.Schemes.Count == 1 && r.Schemes.ContainsKey(d.CardName)))
-                {
-                    var scopes = new StringList();
-                    scopes.List.AddRange(d.Scopes);
-                    card.SecurityRequirements.Add(new SecurityRequirement { Schemes = { [d.CardName] = scopes } });
-                }
-            }
+            security.Apply(options.AgentCard);
         }
     }
 
