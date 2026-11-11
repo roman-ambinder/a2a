@@ -13,7 +13,7 @@ samples/Cli/walkthrough.sh
 | `a2a card` | the Agent Card and its signature status. The fetch carries no credentials |
 | `a2a send ping` | a direct reply (`pong`), no task |
 | `a2a stream ...`, `a2a stream --json ...` | the events of a task as they arrive; NDJSON with `--json` |
-| `a2a send --no-wait --json ...`, then `get`, `list`, `cancel` | a long task: start it, look at it, cancel it |
+| `a2a send --no-wait --json ...`, then `cancel`, `get`, `list` | a long task: start it, cancel it, see that it is canceled |
 | `a2a get no-such-task` | exit code 5 (not found) |
 | `a2a send ping` with no key | exit code 4: the card asks for an API key and none was given |
 

@@ -70,16 +70,19 @@ check 0 "stream" stream "hello from the a2a tool"
 check 0 "stream as NDJSON" stream --json "one two three"
 [ "$(wc -l <"$LOGS/out")" -ge 4 ] || { echo "  -> FAIL: expected several JSON lines"; failures=$((failures + 1)); }
 
-# Start a long task without waiting (150 ms per word), then look at it and cancel it.
-check 0 "send --no-wait" send --no-wait --json "$(printf 'word %.0s' $(seq 1 60))"
+# Start a long task without waiting (200 words at 150 ms each: 30 seconds), cancel it, then look at it.
+# Cancel comes right after the start: a task that already completed cannot be canceled (exit 6), and each command here
+# starts a new process, which takes seconds on a busy machine.
+check 0 "send --no-wait" send --no-wait --json "$(printf 'word %.0s' $(seq 1 200))"
 task_id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["task"]["id"])' <"$LOGS/out" 2>/dev/null)"
 if [ -z "$task_id" ]; then
   echo "  -> FAIL: no task id in the answer"
   failures=$((failures + 1))
 else
-  check 0 "get" get "$task_id"
-  check 0 "list" list --page-size 5
   check 0 "cancel" cancel "$task_id"
+  check 0 "get" get "$task_id"
+  grep -q "^State: *Canceled" "$LOGS/out" || { echo "  -> FAIL: the task is not canceled"; failures=$((failures + 1)); }
+  check 0 "list" list --page-size 5
 fi
 
 # Errors have their own exit codes, so a script can tell them apart.
