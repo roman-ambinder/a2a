@@ -1,1 +1,2 @@
 #nullable enable
+static A2A.Client.A2AClientServiceCollectionExtensions.GetA2AClientName(this Microsoft.Extensions.DependencyInjection.IHttpClientBuilder! builder) -> string?

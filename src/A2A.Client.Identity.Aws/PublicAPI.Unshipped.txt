@@ -26,3 +26,6 @@ A2A.Client.Identity.Aws.AwsSigV4Options.TimeProvider.get -> System.TimeProvider!
 A2A.Client.Identity.Aws.AwsSigV4Options.TimeProvider.set -> void
 A2A.Client.Identity.Aws.AwsSigV4Options.UnsignedPayload.get -> bool
 A2A.Client.Identity.Aws.AwsSigV4Options.UnsignedPayload.set -> void
+A2A.Client.Identity.Aws.AwsSigV4ClientBuilderExtensions
+static A2A.Client.Identity.Aws.AwsSigV4ClientBuilderExtensions.AddAwsSigV4(this Microsoft.Extensions.DependencyInjection.IHttpClientBuilder! builder, System.Action<A2A.Client.Identity.Aws.AwsSigV4Options!>! configure) -> Microsoft.Extensions.DependencyInjection.IHttpClientBuilder!
+static A2A.Client.Identity.Aws.AwsSigV4ClientBuilderExtensions.AddAwsSigV4(this Microsoft.Extensions.DependencyInjection.IHttpClientBuilder! builder, System.Action<System.IServiceProvider!, A2A.Client.Identity.Aws.AwsSigV4Options!>! configure) -> Microsoft.Extensions.DependencyInjection.IHttpClientBuilder!

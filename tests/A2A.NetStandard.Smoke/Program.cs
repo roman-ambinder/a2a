@@ -7,7 +7,9 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Security.Cryptography.X509Certificates;
 using A2A.Client;
+using A2A.Client.Credentials;
 using A2A.Client.Peers;
 using A2A.Client.Push;
 using A2A.Integrity;
@@ -82,6 +84,7 @@ internal static class Program
                 CanonicalNumbers();
                 return Task.FromResult(0);
             }),
+            ("9. client assertions: FromFile and CertificateJwt", ClientAssertions),
             ("assembly guard: the SSRF guard is not present", _ =>
             {
                 AssertNoSecurityHttp();
@@ -477,6 +480,70 @@ internal static class Program
         Console.WriteLine("     numbers hash " + hash);
         Check(hash == ExpectedNumbersHash,
             "numbers hash '" + hash + "' differs from net10.0 '" + ExpectedNumbersHash + "'");
+    }
+
+    // The netstandard2.0 branches of OAuth2ClientAssertions: FromFile reads with ReadAsync(byte[], int, int) and
+    // CertificateJwt hashes with SHA256.ComputeHash.
+    private static async Task ClientAssertions(CancellationToken ct)
+    {
+        var context = new OAuth2ClientAssertionContext("smoke-client", new Uri("https://idp.example/oauth2/token"));
+        var path = Path.Combine(Path.GetTempPath(), "a2a-smoke-assertion-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            File.WriteAllText(path, "  first.token.value\n");
+            var read = OAuth2ClientAssertions.FromFile(path);
+            Check(await read(context, ct).ConfigureAwait(false) == "first.token.value", "FromFile: not trimmed");
+            File.WriteAllText(path, "second.token.value");
+            Check(await read(context, ct).ConfigureAwait(false) == "second.token.value", "FromFile: not read again");
+            File.WriteAllText(path, new string('a', 64 * 1024 + 1));
+            try
+            {
+                await read(context, ct).ConfigureAwait(false);
+                throw new SmokeException("FromFile: a file over 64 KiB was accepted");
+            }
+            catch (InvalidDataException)
+            {
+            }
+
+            Console.WriteLine("     FromFile: trimmed, read again after rotation, 64 KiB cap");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+
+        foreach (var (alg, thumbprint) in new[]
+                 {
+                     ("PS256", OAuth2CertificateThumbprint.Sha256), ("RS256", OAuth2CertificateThumbprint.Sha1),
+                     ("ES256", OAuth2CertificateThumbprint.Sha256)
+                 })
+        {
+            using var key = NewKey(alg);
+            var request = key is ECDsa ec
+                ? new CertificateRequest("CN=a2a-smoke", ec, HashAlgorithmName.SHA256)
+                : new CertificateRequest("CN=a2a-smoke", (RSA)key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+
+            var jwt = await OAuth2ClientAssertions.CertificateJwt(certificate, alg, thumbprint)(context, ct).ConfigureAwait(false);
+            var parts = jwt.Split('.');
+            Check(parts.Length == 3, alg + ": not a compact JWS");
+            var signed = JwsAlgorithms.Verify(alg, key, Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]), Base64Url.Decode(parts[2]));
+            Check(signed, alg + ": the signature does not verify");
+
+            using var header = JsonDocument.Parse(Base64Url.Decode(parts[0]));
+            string expected;
+            using (var sha = SHA256.Create())
+                expected = thumbprint == OAuth2CertificateThumbprint.Sha256
+                    ? Base64Url.Encode(sha.ComputeHash(certificate.RawData))
+                    : Base64Url.Encode(certificate.GetCertHash());
+            var name = thumbprint == OAuth2CertificateThumbprint.Sha256 ? "x5t#S256" : "x5t";
+            Check(header.RootElement.TryGetProperty(name, out var value) && value.GetString() == expected,
+                alg + ": the " + name + " header is not the certificate thumbprint");
+            using var claims = JsonDocument.Parse(Base64Url.Decode(parts[1]));
+            Check(claims.RootElement.GetProperty("aud").GetString() == "https://idp.example/oauth2/token",
+                alg + ": aud is not the token endpoint");
+            Console.WriteLine("     CertificateJwt " + alg + " with " + name + ": verified");
+        }
     }
 
     private static void Check(bool condition, string message)

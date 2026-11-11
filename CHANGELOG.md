@@ -23,6 +23,11 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   scheme you name. Credentials come from any `AWSCredentials`, or the AWS SDK's default search. Bodies are hashed (streams
   are buffered up to `MaxSignedBodyBytes`), or sent as `UNSIGNED-PAYLOAD` when asked. Signatures are checked against
   botocore in the tests.
+- DI helpers: `AddAzureTokenCredential` and `AddAwsSigV4` on the `AddA2AClient` builder. `AgentOrigin` defaults to the
+  client's `AgentUrl`. Both identity packages now depend on `A2A.Client.DependencyInjection`. New public
+  `IHttpClientBuilder.GetA2AClientName()` gives other packages the A2A name of a client builder.
+- The netstandard2.0 smoke test (`tests/A2A.NetStandard.Smoke`, run in CI) now checks `OAuth2ClientAssertions.FromFile`
+  and `CertificateJwt` on the netstandard2.0 build.
 - New guide: [Identity providers](docs/site/guides/identity-providers.md). Entra ID on the server (JWT bearer and an owner
   id from `tid` and `oid`), which client option fits which platform, and AWS SigV4.
 
