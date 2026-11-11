@@ -6,6 +6,11 @@
       "version": "2.81.0",
       "commands": ["docfx"],
       "rollForward": false
+    },
+    "dotnet-stryker": {
+      "version": "5.1.0",
+      "commands": ["dotnet-stryker"],
+      "rollForward": false
     }
   }
 }

@@ -69,6 +69,16 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Tests: `ProtoModelDriftTests` compares the hand-written JSON model with the types generated from `docs/a2a.proto`
   (spec §1.4): messages, fields, every case of the union messages (round-tripped through the model) and enum values.
 
+### Tests and CI
+
+- Coverage is now a ratchet. The new `coverage.yml` workflow (after each merge to `main`, or by hand) checks line coverage
+  per package against `.github/coverage-baseline.json` and fails when a package drops more than 0.5 points or reports no
+  data. It replaces the report-only `coverage` job in `ci.yml` and does not block a release.
+- The store tests (`tests/A2A.Stores.Tests`: Postgres, Redis, S3 on MinIO, Azure Blob on Azurite) now count toward
+  coverage, so the store packages have a baseline too.
+- New weekly `mutation.yml` workflow: Stryker.NET mutation testing of the SSRF guard, Agent Card signing and
+  canonicalization, webhook signatures and AWS SigV4 signing. Report only. See [CONTRIBUTING](CONTRIBUTING.md#mutation-testing).
+
 ### Documentation
 
 - Spec decisions: the push delivery defaults said "10 attempts". The default is no limit on the count (`MaxAttempts`

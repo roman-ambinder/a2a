@@ -1,0 +1,27 @@
+{
+  "stryker-config": {
+    "project": "A2A.Client.Identity.Aws.csproj",
+    "mutate": [
+      "**/SigV4.cs",
+      "**/AwsSigV4RequestSigner.cs",
+      "**/AwsSigV4Handler.cs",
+      "**/AwsSigV4CredentialProvider.cs"
+    ],
+    "test-runner": "mtp",
+    "target-framework": "net10.0",
+    "configuration": "Release",
+    "coverage-analysis": "off",
+    "reporters": [
+      "html",
+      "json",
+      "markdown",
+      "cleartext"
+    ],
+    "thresholds": {
+      "high": 80,
+      "low": 60,
+      "break": 0
+    },
+    "test-case-filter": "FullyQualifiedName~A2A.Tests.Credentials.AwsSigV4Tests.|FullyQualifiedName~A2A.Tests.Credentials.IdentityDiTests."
+  }
+}
