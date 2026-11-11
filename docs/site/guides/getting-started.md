@@ -21,7 +21,7 @@ dotnet new a2a-client -n MyClient      # a console app that calls an agent
 dotnet new a2a-chat-agent -n MyChat    # an agent that hosts an IChatClient
 ```
 
-`dotnet run` in the agent folder starts it in Development on `http://localhost:5000`, with `UseDevelopmentDefaults()`, so `dotnet run` in the client folder can call it right away. Outside Development the agent requires authorization: add your authentication scheme in `Program.cs` before you deploy.
+`dotnet run` in the agent folder starts it in Development on `http://localhost:5000`, with `UseDevelopmentDefaults()`, so `dotnet run` in the client folder can call it right away. Outside Development the agent asks for a bearer token (`AddBearerAuthentication()`) and refuses to start until you register the scheme, for example `AddJwtBearer()`; the comment in `Program.cs` shows how. With `--auth apikey` it takes API keys instead, in every environment.
 
 ## A server in about 20 lines
 

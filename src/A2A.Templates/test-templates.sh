@@ -86,14 +86,11 @@ for t in a2a-agent-apikey a2a-chat-agent-apikey; do
 done
 unset A2A__ApiKeys__Keys__0__CallerId A2A__ApiKeys__Keys__0__Hash
 
-# Outside Development the agent refuses to start with UseDevelopmentDefaults (it is only called in Development) and
-# requires authorization instead: the template starts, and an anonymous call is refused.
-ASPNETCORE_ENVIRONMENT=Production dotnet run --project "$WORK/a2a-agent" -c Release --no-build --no-launch-profile \
-  --urls http://127.0.0.1:5199 >"$WORK/prod.log" 2>&1 &
-PID=$!
-for _ in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:5199/.well-known/agent-card.json && break; sleep 1; done
-code="$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5199/a2a -H 'Content-Type: application/json' \
-  -H 'A2A-Version: 1.0' -d '{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"m","role":"ROLE_USER","parts":[{"text":"hi"}]}}}')"
-stop
-[ "$code" != "200" ] || { echo "FAIL: production agent answered an anonymous call"; exit 1; }
-echo "OK: templates build (also --auth apikey), API-key agents refuse a client without the key and answer one with it, the analyzers report a missing UseA2A(), both agents answer the client in Development, and Production refuses anonymous calls ($code)."
+# Outside Development, an agent made without --auth apikey asks for bearer tokens (AddBearerAuthentication). With no
+# AddJwtBearer() registered yet, it refuses to start and says what to add, instead of answering every call with a 500.
+if ASPNETCORE_ENVIRONMENT=Production timeout 60 dotnet run --project "$WORK/a2a-agent" -c Release --no-build \
+  --no-launch-profile --urls http://127.0.0.1:5199 >"$WORK/prod.log" 2>&1; then
+  cat "$WORK/prod.log"; echo "FAIL: the production agent started without an authentication scheme"; exit 1
+fi
+grep -q "AddJwtBearer" "$WORK/prod.log" || { cat "$WORK/prod.log"; echo "FAIL: the production agent did not say what to add"; exit 1; }
+echo "OK: templates build (also --auth apikey), API-key agents refuse a client without the key and answer one with it, the analyzers report a missing UseA2A(), both agents answer the client in Development, and in Production an agent without a scheme refuses to start."
