@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace A2A.Server.AspNetCore;
 
@@ -16,7 +17,10 @@ namespace A2A.Server.AspNetCore;
 ///         property), <c>Streaming</c> (every <see cref="StreamingOptions" /> property), <c>RateLimit</c>
 ///         (<c>TokenLimit</c>, <c>TokensPerPeriod</c>, <c>ReplenishmentPeriod</c>), and the server settings
 ///         <c>LongPollTimeout</c>, <c>CancelGracePeriod</c>, <c>IdempotentCancel</c>, <c>ShutdownDrainTimeout</c>,
-///         <c>MaxTaskDuration</c>, <c>InterruptedTimeout</c>, <c>MaxTurnsPerTask</c> and <c>FollowUpPolicy</c>. Durations
+///         <c>MaxTaskDuration</c>, <c>InterruptedTimeout</c>, <c>MaxTurnsPerTask</c> and <c>FollowUpPolicy</c>, and
+///         <c>ApiKeys</c> (<c>HeaderName</c>, <c>CardSchemeName</c>, <c>Keys</c>: a list of <c>CallerId</c>, <c>Hash</c>,
+///         <c>Tenants</c>; read by <see cref="A2AApiKeyAuthenticationExtensions.AddApiKeyAuthentication" /> and reloaded
+///         when the configuration changes). Durations
 ///         use the <see cref="TimeSpan" /> format (<c>"00:00:30"</c>); an empty value sets an optional one to null.
 ///     </para>
 ///     <para>
@@ -97,8 +101,25 @@ public static class A2AConfigurationExtensions
         // Read by the HTTP and rate limit options below; listed so they are not reported as unknown.
         [nameof(A2AHttpOptions.PublicBaseUrl)] = (_, _) => { },
         [nameof(A2AHttpOptions.AgentCardMaxAge)] = (_, _) => { },
-        ["RateLimit"] = (_, _) => { }
+        ["RateLimit"] = (_, _) => { },
+        ["ApiKeys"] = (_, _) => { }
     };
+
+    private static readonly Dictionary<string, Action<A2AApiKeyOptions, IConfigurationSection>> ApiKeyKeys =
+        new(Keys)
+        {
+            [nameof(A2AApiKeyOptions.HeaderName)] = (o, s) => o.HeaderName = s.Value ?? string.Empty,
+            [nameof(A2AApiKeyOptions.CardSchemeName)] = (o, s) => o.CardSchemeName = s.Value ?? string.Empty,
+            [nameof(A2AApiKeyOptions.Keys)] = (o, s) => o.Keys.AddRange(s.GetChildren().Select(ApiKeyEntry))
+        };
+
+    private static readonly Dictionary<string, Action<A2AApiKeyEntry, IConfigurationSection>> ApiKeyEntryKeys =
+        new(Keys)
+        {
+            [nameof(A2AApiKeyEntry.CallerId)] = (e, s) => e.CallerId = s.Value ?? string.Empty,
+            [nameof(A2AApiKeyEntry.Hash)] = (e, s) => e.Hash = s.Value ?? string.Empty,
+            [nameof(A2AApiKeyEntry.Tenants)] = (e, s) => e.Tenants = Strings(s)
+        };
 
     private static readonly Dictionary<string, Action<A2ARateLimitOptions, IConfigurationSection>> RateLimitKeys =
         new(Keys)
@@ -181,6 +202,14 @@ public static class A2AConfigurationExtensions
             if (configuration.GetSection(nameof(A2AHttpOptions.AgentCardMaxAge)) is { Value: not null } age)
                 o.AgentCardMaxAge = Duration(age);
         });
+        services.Configure<A2AApiKeyOptions>(o =>
+        {
+            var section = configuration.GetSection("ApiKeys");
+            if (section.Exists()) Apply(section, o, ApiKeyKeys);
+        });
+        // Keys are rotated and revoked without a restart: a configuration reload rebuilds the key options.
+        services.AddSingleton<IOptionsChangeTokenSource<A2AApiKeyOptions>>(
+            new ConfigurationChangeTokenSource<A2AApiKeyOptions>(Options.DefaultName, configuration));
         services.Configure<A2ARateLimitOptions>(o =>
         {
             var section = configuration.GetSection("RateLimit");
@@ -213,6 +242,16 @@ public static class A2AConfigurationExtensions
     private static void ApplyCard(AgentCard card, IConfigurationSection section)
     {
         Apply(section, card, CardKeys);
+    }
+
+    private static A2AApiKeyEntry ApiKeyEntry(IConfigurationSection section)
+    {
+        if (section.GetSection("Key").Exists())
+            throw new InvalidOperationException(
+                $"Configuration key '{section.Path}:Key' holds an API key. Store only its hash, as '{section.Path}:Hash': 'a2a keys new' prints both, and the key goes to the caller.");
+        var entry = new A2AApiKeyEntry();
+        Apply(section, entry, ApiKeyEntryKeys);
+        return entry;
     }
 
     private static AgentSkill Skill(IConfigurationSection section)
