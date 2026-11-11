@@ -273,7 +273,7 @@ public class ApiKeyAuthenticationTests
     public async Task Endpoints_without_authorization_get_the_api_key_policy()
     {
         await using var app = await StartAsync();
-        Assert.Equal([A2AApiKeyOptions.PolicyName], A2APolicies(app));
+        Assert.Equal([A2ACardAuthenticationExtensions.DefaultPolicyName], A2APolicies(app));
     }
 
     [Fact]
@@ -288,7 +288,7 @@ public class ApiKeyAuthenticationTests
             .Where(e => e.RoutePattern.RawText?.Contains("artifacts", StringComparison.Ordinal) == true).ToList();
         Assert.NotEmpty(artifactRoutes);
         Assert.All(artifactRoutes, e => Assert.Contains(e.Metadata.GetOrderedMetadata<IAuthorizeData>(),
-            a => a.Policy == A2AApiKeyOptions.PolicyName));
+            a => a.Policy == A2ACardAuthenticationExtensions.DefaultPolicyName));
     }
 
     [Fact]

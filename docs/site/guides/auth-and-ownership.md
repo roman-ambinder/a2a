@@ -78,6 +78,18 @@ When the endpoints have a policy of their own, the API-key policy is not added: 
 
 ### Use the schemes the card declares
 
+<xref:A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.AddBearerAuthentication*> keeps the card and your authentication in step for bearer tokens (JWT, Entra ID, any OAuth 2.0 issuer):
+
+[!code-csharp[](../../../samples/Snippets/BearerAuthentication.cs#Bearer)]
+
+- **The card.** An HTTP `bearer` scheme goes in `securitySchemes` under `bearer`, and one more requirement in `securityRequirements`, so clients such as the SDK's credential providers and the `a2a` tool know to send a token.
+- **The check.** It is proved by the ASP.NET Core authentication scheme you name (default `Bearer`, the name `AddJwtBearer()` uses). The app refuses to start when that scheme is not registered.
+- **Protection by default.** Every A2A endpoint without authorization of its own gets the policy `A2ACardSchemes`: the caller is authenticated by any one of the declared schemes. With `AddApiKeyAuthentication` as well, an API key or a token both get in, and the card lists both as alternatives. An endpoint with its own policy keeps it.
+- **Other schemes.** <xref:A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.AddCardAuthentication*> takes any card scheme (OAuth 2.0, OpenID Connect, mutual TLS) and the ASP.NET Core scheme that proves it. Scopes go on OAuth 2.0 and OpenID Connect schemes only, and are not checked: check them in your policies.
+- Cards from a `TenantCardProvider` are not changed: declare the scheme there.
+
+To check which scheme proved the caller against the card's requirements, map them as well:
+
 The spec says an agent must authenticate requests with one of the schemes in its card's `securitySchemes` and `securityRequirements` (7.4, 13.3). Your ASP.NET Core schemes have their own names, so map each card scheme to one: `app.MapA2A("/a2a").RequireAuthorization().RequireAgentCardSchemes(new Dictionary<string, string> { ["bearer"] = "Bearer" })` (<xref:A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.RequireAgentCardSchemes*>). It works on `MapA2AGrpc` too.
 
 - A request passes when every scheme of one of the card's requirements authenticated it. It uses the card of the request's tenant.
