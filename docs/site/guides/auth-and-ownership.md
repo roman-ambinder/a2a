@@ -86,7 +86,7 @@ When the endpoints have a policy of their own, the API-key policy is not added: 
 - **The check.** It is proved by the ASP.NET Core authentication scheme you name (default `Bearer`, the name `AddJwtBearer()` uses). The app refuses to start when that scheme is not registered.
 - **Protection by default.** Every A2A endpoint without authorization of its own gets the policy `A2ACardSchemes`: the caller is authenticated by any one of the declared schemes. With `AddApiKeyAuthentication` as well, an API key or a token both get in, and the card lists both as alternatives. An endpoint with its own policy keeps it.
 - **Other schemes.** <xref:A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.AddCardAuthentication*> takes any card scheme (OAuth 2.0, OpenID Connect, mutual TLS) and the ASP.NET Core scheme that proves it. Scopes go on OAuth 2.0 and OpenID Connect schemes only, and are not checked: check them in your policies.
-- Cards from a `TenantCardProvider` are not changed: declare the scheme there.
+- **Tenant cards.** Cards from a `TenantCardProvider` are not changed for you. Inject <xref:A2A.Server.AspNetCore.A2ACardSecurity> into the provider and call `Apply(card)` on each card it builds: every declared scheme (API keys included) goes on it the same way. Calling it again on the same card changes nothing.
 
 To check which scheme proved the caller against the card's requirements, map them as well:
 
