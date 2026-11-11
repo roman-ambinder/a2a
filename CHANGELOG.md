@@ -206,6 +206,11 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- Server: a stream whose re-authorization (`StreamReauthInterval`) is denied now ends with the error a new request would
+  get, `TaskNotFound` for a task-scoped stream (it does not confirm the task exists) or `PermissionDenied`, instead of
+  ending quietly. The denial is logged and audited as before.
+- Server: new `A2ALimits.StreamIdleTimeout` (default off). A stream that sent no event for that long ends normally, as at
+  `MaxStreamDuration`, and clients resume with `Last-Event-ID`. Configuration key `A2A:Limits:StreamIdleTimeout`.
 - gRPC: a request holding a `google.protobuf.Value` with no kind set is `INVALID_ARGUMENT`, not `INTERNAL`.
 - gRPC client: a response the model cannot hold is `InvalidAgentResponse`, as over HTTP, not `InvalidParams`, and a
   malformed `Value` in a response no longer escapes as a raw `InvalidOperationException`.

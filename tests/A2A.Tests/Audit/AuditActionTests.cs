@@ -450,8 +450,11 @@ public class AuditActionTests
         var taskId = Assert.IsType<TaskEvent>(stream.Current.Event).Task.Id;
 
         auth.Allow = false;
-        // "slow" never finishes, so the stream ends only because the re-check refused it.
-        while (await stream.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30))) { }
+        // "slow" never finishes, so the stream ends only because the re-check refused it, with the denial.
+        await Assert.ThrowsAsync<A2AException>(async () =>
+        {
+            while (await stream.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30))) { }
+        });
 
         var denied = Assert.Single(sink.Of(A2AAuditAction.AccessDenied));
         Assert.Equal(A2AAuditOutcome.Denied, denied.Outcome);

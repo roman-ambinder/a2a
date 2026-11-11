@@ -73,7 +73,7 @@ A follow-up is checked like any other message. In `Required` mode, it must name 
 
 ## Open streams
 
-A `SendStreamingMessage` stream that was authorized for a skill asks the handler again every `StreamReauthInterval` (see [limits](limits-and-rate-limiting.md)). If the answer is no, the stream ends, like any failed re-authorization. The task keeps running.
+A `SendStreamingMessage` stream that was authorized for a skill asks the handler again every `StreamReauthInterval` (see [limits](limits-and-rate-limiting.md)). If the answer is no, the stream ends with the error a new request would get, like any failed re-authorization. The task keeps running.
 
 ## The extended card
 

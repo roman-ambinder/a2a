@@ -64,6 +64,7 @@ public static class A2AConfigurationExtensions
         [nameof(A2ALimits.MaxEventBytes)] = (o, s) => o.MaxEventBytes = Int(s),
         [nameof(A2ALimits.MaxStreamDuration)] = (o, s) => o.MaxStreamDuration = Duration(s),
         [nameof(A2ALimits.StreamReauthInterval)] = (o, s) => o.StreamReauthInterval = Duration(s),
+        [nameof(A2ALimits.StreamIdleTimeout)] = (o, s) => o.StreamIdleTimeout = Duration(s),
         [nameof(A2ALimits.MaxPushConfigsPerTask)] = (o, s) => o.MaxPushConfigsPerTask = Int(s),
         [nameof(A2ALimits.MaxTaskBytes)] = (o, s) => o.MaxTaskBytes = Long(s),
         [nameof(A2ALimits.MaxArtifactsPerTask)] = (o, s) => o.MaxArtifactsPerTask = Int(s),

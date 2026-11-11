@@ -24,7 +24,8 @@ All size, count and time limits are members of <xref:A2A.Server.A2ALimits>, reac
 | <xref:A2A.Server.A2ALimits.MaxTaskBytes> | 64 MiB | An agent event past it fails the task and stops the agent. A follow-up past it is refused with `UnsupportedOperation`. |
 | <xref:A2A.Server.A2ALimits.MaxArtifactsPerTask> | 1024 | The task fails and the agent is stopped. |
 | <xref:A2A.Server.A2ALimits.MaxStreamDuration> | 1 hour | The stream ends normally. Clients resume with `Last-Event-ID`. |
-| <xref:A2A.Server.A2ALimits.StreamReauthInterval> | 5 minutes | The authorization handler is asked again. On denial the stream ends. |
+| <xref:A2A.Server.A2ALimits.StreamReauthInterval> | 5 minutes | The authorization handler is asked again. On denial the stream ends with `TaskNotFound` (task-scoped streams) or `PermissionDenied`, as a new request would. |
+| <xref:A2A.Server.A2ALimits.StreamIdleTimeout> | off | A stream that sent no event for this long ends normally. Clients resume with `Last-Event-ID`. Keep-alive comments are not events. |
 | <xref:A2A.Server.A2ALimits.MaxPushConfigsPerTask> | 10 | `InvalidRequest` |
 | <xref:A2A.Server.A2ALimits.MaxActorChainHops> | 8 | `InvalidRequest`. See [delegation](auth-and-ownership.md#delegation). |
 
@@ -34,7 +35,7 @@ Notes:
 - `MaxJsonDepth` applies to request bodies only. Values above 64 have no effect.
 - `MaxEventBytes` is measured on the serialized JSON. A direct reply that is too large is not sent. The request gets a `FAILED` task instead.
 - `MaxTaskBytes` counts the content of the parts in the history and in the artifacts: text as UTF-8 bytes, `raw` as base64 length, a URL as its length and data as its JSON text length. Metadata (key names and JSON values), artifact names and descriptions, and file names are counted too. Ids and media types are not. The few markers the server sets itself are not counted where it sets them. The final `FAILED` event is always stored, so a task at the cap can still end.
-- Zero or `Timeout.InfiniteTimeSpan` turns off `MaxStreamDuration` and `StreamReauthInterval`.
+- Zero or `Timeout.InfiniteTimeSpan` turns off `MaxStreamDuration`, `StreamReauthInterval` and `StreamIdleTimeout`.
 - The history cap also applies when the caller asks for more, or sends no `historyLength`.
 
 ## What the caller sees

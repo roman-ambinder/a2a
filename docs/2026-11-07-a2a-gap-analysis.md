@@ -51,7 +51,7 @@ Status: S7, S8, S9 and S10 are done (`PushNotifications.cs`, `PushConfigService`
 | S19 | Circular delegation deadlock; interrupted states can hang forever. | Med | A2ABreak 10-11 | Configurable TTL for `INPUT_REQUIRED`/`AUTH_REQUIRED` → auto `CANCELED`/`FAILED` with reason; actorChain hop limit (S17). |
 | S20 | Rate limiting MAY only; no size limits. | Med | a2a-serve #180 | Defaults: max body, max part, max parts/message, max history returned, max ListTasks page, max concurrent streams/task, per-principal rate limit (ASP.NET Core rate limiter integration). |
 
-Status: S17 is done (actorChain model and echo, `ITokenExchanger`, `OAuthTokenExchanger`, no forwarding of the inbound token; design: `docs/superpowers/specs/2026-11-08-delegation-identity-design.md`). The actorChain hop limit part of S19 is done (`A2ALimits.MaxActorChainHops`); the interrupted-state timeout part was already done. S12, S14, S18 and S20 are done (`TaskKey`, `ITenantResolver`, `PendingApproval`, `A2ALimits` and `A2ARateLimiting`). S13 is covered by `A2AServerOptions.ContextAccess`, which decides whether another principal may use a context. Still partial: S15 (a revoked stream ends with no explicit event), S16 (after `MaxConflictRetries` the `ConcurrencyException` surfaces as a generic Internal error, not `InvalidRequest` with a retry hint).
+Status: S17 is done (actorChain model and echo, `ITokenExchanger`, `OAuthTokenExchanger`, no forwarding of the inbound token; design: `docs/superpowers/specs/2026-11-08-delegation-identity-design.md`). The actorChain hop limit part of S19 is done (`A2ALimits.MaxActorChainHops`); the interrupted-state timeout part was already done. S12, S14, S18 and S20 are done (`TaskKey`, `ITenantResolver`, `PendingApproval`, `A2ALimits` and `A2ARateLimiting`). S13 is covered by `A2AServerOptions.ContextAccess`, which decides whether another principal may use a context. S15 is done: a stream whose re-authorization is denied ends with the error a new request would get (`TaskNotFound` for a task-scoped stream, else `PermissionDenied`). S16 is covered: after `MaxConflictRetries` the conflict surfaces as Internal, which carries `retryable=true` by default, so clients retry (`TaskLifecycleTests.Follow_up_message_gives_up_after_too_many_conflicts_with_generic_error`); it is not `InvalidRequest`.
 
 ### 1.4 Messaging and task semantics
 
@@ -110,7 +110,7 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 | D10 | Client has no timeout/retry/backoff. | Med | source | Built on `Microsoft.Extensions.Http.Resilience`; retry only when `ErrorInfo.metadata.retryable` or transport failure; idempotency key on every `SendMessage` (S21). |
 | D11 | Auto-delete push configs after terminal delivery broke conformance tests. | Low | #592 open | Retention policy opt-in, default off; purge via sweeper (S32). |
 
-Status: D4, D6, D7, D9, D10 and D11 are done (`TaskStateMachine` and version checks, shared `TaskStreamer` with `Parity/RegressionTests`, `PushOutbox` and `PushDeliveryService`, `RetryPolicy` instead of `Http.Resilience`, opt-in `AddA2ARetention`). Still partial: D1 (Postgres and Redis ship, Cosmos does not), D2 (no mutation id per write), D3 (no Azure Service Bus provider), D5 (heartbeat, ids and resume are done; `StreamingOptions.KeepAliveInterval` and `A2ALimits.MaxStreamDuration` exist, but there is no idle timeout).
+Status: D4, D6, D7, D9, D10 and D11 are done (`TaskStateMachine` and version checks, shared `TaskStreamer` with `Parity/RegressionTests`, `PushOutbox` and `PushDeliveryService`, `RetryPolicy` instead of `Http.Resilience`, opt-in `AddA2ARetention`). D5 is done (heartbeat, ids and resume; `StreamingOptions.KeepAliveInterval`, `A2ALimits.MaxStreamDuration`, and `A2ALimits.StreamIdleTimeout`, off by default). Still partial: D1 (Postgres and Redis ship, Cosmos does not), D2 (no mutation id per write), D3 (no Azure Service Bus provider).
 
 ### 2.2 Security
 
@@ -229,13 +229,10 @@ Checked against the code on 2026-11-11. Everything else in Parts 1 to 3 is done,
 | S2 | The card signer signs around pruned (empty) values instead of refusing them. |
 | S6 | No optional escaping of card text (`UntrustedText` sanitizes and caps only). |
 | S11 | Push retry is options only; no pluggable retry policy. |
-| S15 | A stream whose access is revoked ends with no explicit event. |
-| S16 | An exhausted version-conflict retry surfaces as Internal, not `InvalidRequest` with a retry hint. |
 | S24 | `SendMessageAsync` has no automatic fallback to streaming or polling (`AskAsync` polls). |
 | S34 | No `traceparent` in message metadata (headers only). |
 | S39 | No written metadata conventions for progress, cost, priority or batch. |
 | D1 | No Cosmos store. |
 | D2 | No mutation id per store write. |
 | D3 | No Azure Service Bus event bus. |
-| D5 | No stream idle timeout. |
 | D33 | No context lifecycle policy hook. |
