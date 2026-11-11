@@ -107,6 +107,14 @@ public sealed class A2AClientOptions
     public bool ValidateCapabilities { get; set; } = true;
 
     /// <summary>
+    ///     Reject an agent response that lacks a REQUIRED field (spec 5.7) with InvalidAgentResponse: a task without an id
+    ///     or a status state, a stream event without its task or context id, a message without an id, a role or parts, and
+    ///     an artifact without an id or parts. Applies to SendMessage, GetTask, ListTasks, CancelTask and every stream
+    ///     event. Default true; set false to accept such responses from a peer that leaves fields out.
+    /// </summary>
+    public bool ValidateResponses { get; set; } = true;
+
+    /// <summary>
     ///     Automatic retries after the first attempt of a unary call. Default 2 (3 attempts in all); 0 disables retries.
     ///     <see cref="A2ARequestOptions.MaxRetries" /> overrides it per call. See <see cref="A2ARequestOptions.MaxRetries" />
     ///     for what is retried.
@@ -196,6 +204,7 @@ public sealed class A2AClientOptions
             TransportFactories = new List<IA2ATransportFactory>(TransportFactories),
             RestSubscribeMethod = RestSubscribeMethod,
             ValidateCapabilities = ValidateCapabilities,
+            ValidateResponses = ValidateResponses,
             MaxRetries = MaxRetries,
             TimeProvider = TimeProvider,
             CircuitBreaker = CircuitBreaker,

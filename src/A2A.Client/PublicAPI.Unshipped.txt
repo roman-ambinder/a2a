@@ -206,6 +206,8 @@ A2A.Client.Push.PushHandleResult.RetryAfter.get -> System.TimeSpan?
 A2A.Client.Push.PushHandleResult.RetryAfter.init -> void
 A2A.Client.Push.PushNotificationReceiver.MaxDeliveriesPerMinute.get -> int?
 A2A.Client.Push.PushNotificationReceiver.MaxDeliveriesPerMinute.init -> void
+A2A.Client.A2AClientOptions.ValidateResponses.get -> bool
+A2A.Client.A2AClientOptions.ValidateResponses.set -> void
 A2A.Client.Credentials.OAuth2ClientCredentialsOptions.Logger.get -> Microsoft.Extensions.Logging.ILogger?
 A2A.Client.Credentials.OAuth2ClientCredentialsOptions.Logger.set -> void
 A2A.Client.Credentials.OAuth2ClientCredentialsOptions.RequireScopes.get -> bool
