@@ -328,28 +328,31 @@ public class CardTrustTests
     [Fact]
     public async Task Card_change_raises_event_and_strict_throws()
     {
+        // Its own origin: the a2a.card.changed counter is process-wide, and other tests change cards of Origin in parallel.
+        const string origin = "https://card-change.agent.example";
+        var agentUrl = new Uri(origin + "/");
         var server = new CardServer(Unsigned(c => c.Description = "v1"));
         var logger = new ListLogger();
         var store = new InMemoryCardPinStore();
         var changes = new List<CardChangedEventArgs>();
         var measured = new List<long>();
-        using var listener = CounterListener("a2a.card.changed", Origin, measured);
+        using var listener = CounterListener("a2a.card.changed", origin, measured);
         var notify = Resolver(server, o => o.PinStore = store, logger: logger);
         notify.CardChanged += (_, e) => changes.Add(e);
 
-        await notify.ResolveAsync(AgentUrl);
-        var v1 = (await store.GetAsync(Origin))!.Hash;
+        await notify.ResolveAsync(agentUrl);
+        var v1 = (await store.GetAsync(origin))!.Hash;
         Assert.Empty(changes);
 
         server.Json = Unsigned(c => c.Description = "v2");
-        await notify.ResolveAsync(AgentUrl);
+        await notify.ResolveAsync(agentUrl);
 
         var change = Assert.Single(changes);
-        Assert.Equal(Origin, change.Origin);
+        Assert.Equal(origin, change.Origin);
         Assert.Equal(v1, change.OldHash);
         Assert.NotEqual(v1, change.NewHash);
-        Assert.Equal(change.NewHash, (await store.GetAsync(Origin))!.Hash);
-        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains(Origin));
+        Assert.Equal(change.NewHash, (await store.GetAsync(origin))!.Hash);
+        Assert.Contains(logger.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains(origin));
         Assert.Equal([1L], measured);
 
         var strict = Resolver(server, o =>
@@ -358,11 +361,11 @@ public class CardTrustTests
             o.PinPolicy = PinPolicy.Strict;
         });
         server.Json = Unsigned(c => c.Description = "v3");
-        var ex = await Assert.ThrowsAsync<AgentCardPinException>(() => strict.ResolveAsync(AgentUrl));
-        Assert.Equal(Origin, ex.Origin);
+        var ex = await Assert.ThrowsAsync<AgentCardPinException>(() => strict.ResolveAsync(agentUrl));
+        Assert.Equal(origin, ex.Origin);
         Assert.Equal(change.NewHash, ex.OldHash);
         // Strict does not move the pin, so the changed card keeps failing.
-        await Assert.ThrowsAsync<AgentCardPinException>(() => strict.ResolveAsync(AgentUrl));
+        await Assert.ThrowsAsync<AgentCardPinException>(() => strict.ResolveAsync(agentUrl));
 
         var off = Resolver(server, o =>
         {
@@ -370,7 +373,7 @@ public class CardTrustTests
             o.PinPolicy = PinPolicy.Off;
         });
         off.CardChanged += (_, e) => changes.Add(e);
-        await off.ResolveAsync(AgentUrl);
+        await off.ResolveAsync(agentUrl);
         Assert.Single(changes);
     }
 
@@ -797,6 +800,56 @@ public class CardTrustTests
             if (CacheControl is not null) response.Headers.TryAddWithoutValidation("Cache-Control", CacheControl);
             return Task.FromResult(response);
         }
+    }
+
+    // ---- warning for a card accepted without verification (spec 8.4.3) ----
+
+    [Fact]
+    public async Task An_unsigned_card_accepted_without_trust_is_logged_once_per_origin()
+    {
+        var log = new ListLogger();
+        var resolver = Resolver(new CardServer(A2AJson.Serialize(SigningTests.SampleCard())), logger: log);
+
+        await resolver.ResolveAsync(AgentUrl);
+        await resolver.ResolveAsync(AgentUrl); // fetched again (no cache), not logged again
+
+        var warning = Assert.Single(log.Entries, e => e.Message.Contains("8.4.3", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Contains(Origin, warning.Message, StringComparison.Ordinal);
+        Assert.Contains("Unsigned", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("no trusted keys", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_unverified_card_accepted_with_RequireSignature_false_names_that_setting()
+    {
+        var log = new ListLogger();
+        var resolver = Resolver(new CardServer(Signed(NewKey("other"))), o =>
+        {
+            o.Trust.TrustedKeys[Origin] = Set(NewKey("k1"));
+            o.Trust.RequireSignature = false;
+        }, logger: log);
+
+        await resolver.ResolveAsync(AgentUrl);
+
+        var warning = Assert.Single(log.Entries, e => e.Message.Contains("8.4.3", StringComparison.Ordinal));
+        Assert.Contains("Unverified", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("RequireSignature is false", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_verified_card_and_a_rejected_card_are_not_logged_as_unverified()
+    {
+        var key = NewKey("k1");
+        var log = new ListLogger();
+        var verified = Resolver(new CardServer(Signed(key)), o => o.Trust.TrustedKeys[Origin] = Set(key), logger: log);
+        var required = Resolver(new CardServer(A2AJson.Serialize(SigningTests.SampleCard())),
+            o => o.Trust.TrustedKeys[Origin] = Set(key), logger: log);
+
+        await verified.ResolveAsync(AgentUrl);
+        await Assert.ThrowsAsync<AgentCardVerificationException>(() => required.ResolveAsync(AgentUrl));
+
+        Assert.DoesNotContain(log.Entries, e => e.Message.Contains("8.4.3", StringComparison.Ordinal));
     }
 
     internal sealed class ListLogger : ILogger
