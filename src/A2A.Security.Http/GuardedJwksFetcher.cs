@@ -21,8 +21,10 @@ public sealed class GuardedJwksFetcher(HttpMessageInvoker? invoker = null) : IJw
     private const int MaxJwksBytes = 256 * 1024;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
+    // Stryker disable all : runs once per test process, so Stryker cannot test a mutant here (CONTRIBUTING.md, Mutation testing)
     private static readonly Lazy<HttpMessageInvoker> Default = new(() =>
         new HttpMessageInvoker(PrivateAddressGuard.CreateHandler(false, "JWKS")));
+    // Stryker restore all
 
     private readonly HttpMessageInvoker _invoker = invoker ?? Default.Value;
 

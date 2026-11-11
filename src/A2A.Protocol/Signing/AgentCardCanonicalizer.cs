@@ -38,6 +38,7 @@ namespace A2A.Signing;
 /// </remarks>
 public static class AgentCardCanonicalizer
 {
+    // Stryker disable all : runs once per test process, so Stryker cannot test a mutant here (CONTRIBUTING.md, Mutation testing)
     private static readonly Field Scalar = new(Shape.Scalar);
     private static readonly Field RepeatedScalar = new(Shape.Scalar, Cardinality.Repeated);
     private static readonly Field ScalarMap = new(Shape.Scalar, Cardinality.Map);
@@ -46,6 +47,7 @@ public static class AgentCardCanonicalizer
 
     // The A2A v1.0 AgentCard message tree (lf.a2a.v1 in a2a.proto), keyed by proto JSON name.
     private static readonly IReadOnlyDictionary<string, Field> AgentCardFields = BuildAgentCardSchema();
+    // Stryker restore all
 
     /// <summary>
     ///     Returns the RFC 8785 bytes that Agent Card signatures cover. Works on raw JSON so that a card is canonicalized
@@ -125,6 +127,7 @@ public static class AgentCardCanonicalizer
         return JsonNode.Parse(A2AJson.Serialize(card))!.AsObject();
     }
 
+    // Stryker disable all : runs once per test process, so Stryker cannot test a mutant here (CONTRIBUTING.md, Mutation testing)
     private static IReadOnlyDictionary<string, Field> BuildAgentCardSchema()
     {
         static Field Message(Cardinality cardinality, params (string Name, Field Field)[] fields)
@@ -186,6 +189,7 @@ public static class AgentCardCanonicalizer
                 Message(Cardinality.Repeated, ("protected", Scalar), ("signature", Scalar), ("header", Struct))),
             ("iconUrl", Scalar)).Fields!;
     }
+    // Stryker restore all
 
     // The pruning rule. Returns true when the value must be removed from its parent.
     // Removals of values that were themselves prunable are recorded; containers emptied by their children are not.
@@ -328,7 +332,9 @@ public static class AgentCardCanonicalizer
     /// </summary>
     private sealed class JsonPath
     {
+        // Stryker disable all : runs once per test process, so Stryker cannot test a mutant here (CONTRIBUTING.md, Mutation testing)
         public static readonly JsonPath Root = new(null, null, -1);
+        // Stryker restore all
         private readonly int _index;
         private readonly string? _key;
         private readonly JsonPath? _parent;

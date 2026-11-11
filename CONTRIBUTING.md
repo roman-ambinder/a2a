@@ -70,16 +70,20 @@ Each config runs only the test classes named in its `test-case-filter`, which ke
 Tests outside the filter do not count, so the score is a lower bound. When you add a test class for one of these
 targets, add it to the filter too.
 
-Do not trust the score of a file whose mutants change `static readonly` data. With per-test coverage off, Stryker runs
-every mutant in one test process, so such a field is built once, with whichever mutant is active at that moment, and
-keeps that value for the rest of the run. It goes wrong both ways:
+Code that runs once per test process is excluded from mutation with `// Stryker disable all : reason` and
+`// Stryker restore all` comments: static field initializers, the methods they call, and lazily built statics
+(`AgentCardCanonicalizer`'s schema, `JwsAlgorithms.Supported`, `AwsSigV4RequestSigner`'s header names, `SigV4`'s empty
+hash, `GuardedJwksFetcher`'s default client). Stryker reuses test processes, so such code runs once, under whichever
+mutant is active at that moment. Its own mutants are then never tested (reported as surviving although a test catches
+them), and a mutant that breaks it makes every later mutant look killed: before these comments, `AwsSigV4RequestSigner`
+scored 100% although a hand-made change passed every test. No `coverage-analysis` setting fixes this (`perTest` and
+`all` were tried).
 
-- Mutants inside the field are reported as surviving even when a test catches them (`AgentCardCanonicalizer`'s schema,
-  `JwsAlgorithms.Supported`).
-- If the field is first built under a mutant that breaks it, every later mutant looks killed. `AwsSigV4RequestSigner`'s
-  list of header names does this: a run reports 100% although a hand-made change can pass every test.
-
-Check such a file by making the change by hand and running the tests.
+The configs use `coverage-analysis: perTest`: each mutant runs only the tests that reach it (a mutant no test reaches
+is `NoCoverage`), which keeps the `security-http` run to minutes despite a test that waits 10 seconds.
+`additional-timeout` gives that test room, so an equivalent mutant is not counted as a timeout. When you add static
+data to a target, put it inside such comments, and check its mutants by making the change by hand and running the
+tests.
 
 To run one target locally (Stryker is in the tool manifest; run it from the test project's folder, not the root):
 

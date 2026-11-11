@@ -91,7 +91,8 @@ public sealed class BatchCommitTests
         var exec = await rig.Engine.StartForTestAsync(context);
         await ready.Task.WaitAsync(Wait);
         // Wait until the artifact is stored, so the chunks below are appends to it.
-        while ((await rig.Tasks.GetAsync(rig.Key(context.TaskId)))?.Task.Artifacts is not { Count: 1 }) await Task.Delay(5);
+        using (var timeout = new CancellationTokenSource(Wait)) // a bug fails the test instead of hanging it
+            while ((await rig.Tasks.GetAsync(rig.Key(context.TaskId)))?.Task.Artifacts is not { Count: 1 }) await Task.Delay(5, timeout.Token);
         using (await rig.Engine.LockAsync(rig.Key(context.TaskId), CancellationToken.None))
         {
             go.TrySetResult();

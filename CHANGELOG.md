@@ -219,6 +219,16 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   `AwsSigV4CredentialProvider` (argument checks, one agent origin per provider). Mutation score of
   `AwsSigV4CredentialProvider.cs`: 59% to 94%. The Stryker score of `AwsSigV4RequestSigner.cs` is not reliable (see
   [CONTRIBUTING](CONTRIBUTING.md#mutation-testing)); its earlier survivors were checked by hand instead.
+- Mutation scores are now trustworthy for code that builds static data: that code is excluded with `// Stryker
+  disable all` comments (it runs once per test process, so Stryker could not test its mutants, and a mutant breaking it
+  made every later mutant look killed), and the configs use `coverage-analysis: perTest`. Scores with the fix:
+  `AgentCardCanonicalizer.cs` 94%, `AgentCardSigner.cs` 100%, `AwsSigV4RequestSigner.cs` 86%.
+- Faster CI: test hosts in `A2A.Tests` and `A2A.V0_3Compat.Tests` no longer wait for a 20 s shutdown drain
+  (`A2A.Tests` 4m50s to 45 s, `A2A.V0_3Compat.Tests` 43 s to 3 s); `pack`, `benchmarks` and `aot-publish` run alongside
+  `build-test`; `build-test` caches NuGet packages.
+- Fewer fixed waits in tests: five tests now wait for the condition they check (a marker connection, an open stream,
+  stored events, the clock, the health check) instead of sleeping, and an unbounded poll has a deadline. The 17
+  remaining "nothing happens in N ms" checks need a production hook each; CONTRIBUTING does not list them yet.
 
 ### Fixes
 

@@ -94,9 +94,15 @@ public sealed class HealthCheckStoreTests(PostgresFixture db, RedisFixture redis
         Assert.Equal(HealthStatus.Healthy, (await CheckAsync(sp)).Entries[A2AHealthChecks.PushOutboxName].Status);
 
         Assert.True(await outbox.EnqueueAsync(new PushDelivery(Alice, "c1", 1, "id-1"), new byte[] { 1 }));
-        await Task.Delay(200);
 
+        // Wait until the delivery is older than the 10 ms threshold rather than for a fixed time.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         var entry = (await CheckAsync(sp)).Entries[A2AHealthChecks.PushOutboxName];
+        while (entry.Status != HealthStatus.Degraded && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+            entry = (await CheckAsync(sp)).Entries[A2AHealthChecks.PushOutboxName];
+        }
         Assert.Equal(HealthStatus.Degraded, entry.Status);
         Assert.True((double)entry.Data["oldest_due_age_seconds"] >= 0.01);
     }

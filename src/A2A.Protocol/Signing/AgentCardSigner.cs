@@ -77,10 +77,12 @@ public static class AgentCardSigner
 /// <summary>Supported JWS algorithms. Symmetric (HS*) and "none" are deliberately excluded.</summary>
 public static class JwsAlgorithms
 {
+    // Stryker disable all : runs once per test process, so Stryker cannot test a mutant here (CONTRIBUTING.md, Mutation testing)
     internal static readonly HashSet<string> Supported = new(StringComparer.Ordinal)
     {
         "ES256", "ES384", "ES512", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512"
     };
+    // Stryker restore all
 
 #if !NETSTANDARD2_0
     /// <summary>The algorithm names that are supported.</summary>
