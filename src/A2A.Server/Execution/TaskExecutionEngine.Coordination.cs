@@ -317,6 +317,16 @@ public sealed partial class TaskExecutionEngine
         }
     }
 
+    /// <summary>Whether a follow-up's start is pending here (<see cref="BeginStart" /> without its <see cref="EndStart" />).</summary>
+    internal bool IsStartPending(TaskKey key)
+    {
+        var scope = ScopeKey(key.Tenant, key.TaskId);
+        lock (_starting)
+        {
+            return _starting.ContainsKey(scope);
+        }
+    }
+
     /// <summary>Ends a <see cref="BeginStart" />.</summary>
     internal void EndStart(TaskKey key)
     {

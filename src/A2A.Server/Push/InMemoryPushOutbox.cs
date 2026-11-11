@@ -98,9 +98,12 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox, 
         lock (_gate)
         {
             var now = _time.GetUtcNow();
+            // One entry of a task and config in flight at a time: the oldest, and only while none of the group is leased (a
+            // redriven dead letter sorts before an entry that may be out already).
             var candidates = _pending.Values
-                .Select(g => g.Values.First()) // only the oldest entry of a task and config may be in flight
-                .Where(e => e.DueAt <= now && (e.LeasedUntil is not { } until || until <= now))
+                .Where(g => !g.Values.Any(e => IsLeased(e, now)))
+                .Select(g => g.Values.First())
+                .Where(e => e.DueAt <= now)
                 .OrderBy(e => e.DueAt).ThenBy(e => e.Delivery.Sequence);
             var leased = new List<Entry>();
             if (maxInFlightPerCaller is not { } cap)
@@ -112,11 +115,9 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox, 
                 // The tenant is not part of the count: the cap is per caller.
                 var inFlight = new Dictionary<string, int>(StringComparer.Ordinal);
                 foreach (var g in _pending.Values)
-                {
-                    var e = g.Values.First();
-                    if (e.LeasedUntil is { } until && until > now)
+                foreach (var e in g.Values)
+                    if (IsLeased(e, now))
                         inFlight[e.Delivery.Task.Owner] = inFlight.GetValueOrDefault(e.Delivery.Task.Owner) + 1;
-                }
 
                 foreach (var e in candidates)
                 {
@@ -227,6 +228,11 @@ public sealed class InMemoryPushOutbox(TimeProvider? time = null) : PushOutbox, 
         }
 
         return ValueTask.CompletedTask;
+    }
+
+    private static bool IsLeased(Entry e, DateTimeOffset now)
+    {
+        return e.LeasedUntil is { } until && until > now;
     }
 
     private SortedDictionary<long, Entry>? Group(PushDelivery d, bool create)

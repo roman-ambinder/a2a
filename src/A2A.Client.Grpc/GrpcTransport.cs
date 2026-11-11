@@ -354,7 +354,23 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
                 throw Translate(ex, timeout, ct);
             }
 
+            return FromAgent(map, response);
+        }
+    }
+
+    /// <summary>
+    ///     Maps what the agent sent. A message the model cannot hold is the agent's error (InvalidAgentResponse), as the HTTP
+    ///     transports report it, not the caller's (InvalidParams, which <see cref="ProtoMapper" /> uses for requests).
+    /// </summary>
+    private static TModel FromAgent<TProto, TModel>(Func<TProto, TModel> map, TProto response)
+    {
+        try
+        {
             return map(response);
+        }
+        catch (A2AException ex) when (ex.Code == A2AErrorCode.InvalidParams)
+        {
+            throw new A2AException(A2AErrorCode.InvalidAgentResponse, $"The agent's response is invalid: {ex.Message}");
         }
     }
 
@@ -427,7 +443,7 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
             if (!moved) yield break;
             // A2A #2269: an event of a type this SDK does not know (a newer protocol version) is skipped, not fatal.
             if (stream.Current.PayloadCase == A2aPb.StreamResponse.PayloadOneofCase.None) continue;
-            yield return ProtoMapper.ToModel<StreamResponse>(stream.Current);
+            yield return FromAgent(ProtoMapper.ToModel<StreamResponse>, stream.Current);
         }
     }
 
@@ -461,7 +477,7 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
                 if (!moved) yield break;
                 // A2A #2269 and 1.1 §3.2.3: an event of a kind this SDK does not know is skipped.
                 if (stream.Current.PayloadCase == A2aPb.StreamResponse.PayloadOneofCase.None) continue;
-                yield return ProtoMapper.ToModel<StreamResponse>(stream.Current);
+                yield return FromAgent(ProtoMapper.ToModel<StreamResponse>, stream.Current);
             }
         }
 

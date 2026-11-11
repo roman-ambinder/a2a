@@ -339,7 +339,9 @@ internal sealed partial class V03Surface
     private static void Map(RouteGroupBuilder group, string methods, string route, RequestDelegate handler)
     {
         // The display name starts with "A2A " so the startup check finds the endpoint and demands authorization for it.
-        group.MapMethods(route, methods.Split('|'), handler).WithDisplayName($"A2A HTTP+JSON v0.3 {methods} {route}");
+        // The rejection writer answers the rate limit (which runs before the endpoint) in the v0.3 error format.
+        group.MapMethods(route, methods.Split('|'), handler).WithDisplayName($"A2A HTTP+JSON v0.3 {methods} {route}")
+            .WithMetadata(V03RejectionWriter.Instance);
     }
 
     private Task SendMessage(HttpContext http)

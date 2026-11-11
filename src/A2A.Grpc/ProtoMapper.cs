@@ -95,7 +95,9 @@ public static class ProtoMapper
             return JsonSerializer.Deserialize(ref reader, A2AJson.GetTypeInfo<T>()) ??
                    throw new JsonException($"Null {typeof(T).Name} payload.");
         }
-        catch (JsonException ex)
+        // InvalidOperationException: the formatter refuses a message with no ProtoJSON form, such as a
+        // google.protobuf.Value with no kind set.
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
             throw A2AException.InvalidParams($"Cannot map {proto.Descriptor.Name}: {ex.Message}");
         }

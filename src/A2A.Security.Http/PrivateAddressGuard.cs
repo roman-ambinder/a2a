@@ -157,6 +157,8 @@ public static class PrivateAddressGuard
             }
 
             if (b[0] == 0x20 && b[1] == 0x02) return IsPrivate(new IPAddress(b[2..6])); // 2002::/16 6to4
+            if (b[..8].All(x => x == 0) && b[8] == 0xFF && b[9] == 0xFF && b[10] == 0 && b[11] == 0)
+                return IsPrivate(new IPAddress(b[12..16])); // ::ffff:0:a.b.c.d IPv4-translated (RFC 2765, SIIT)
             if (b[..12].All(x => x == 0)) return IsPrivate(new IPAddress(b[12..16])); // ::a.b.c.d IPv4-compatible
             return false;
         }

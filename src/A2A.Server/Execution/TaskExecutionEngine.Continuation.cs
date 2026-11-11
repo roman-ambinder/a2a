@@ -70,7 +70,8 @@ public sealed partial class TaskExecutionEngine
 
         if (ContinuationRefusal(await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false)) is
             { } early) return Refused(key, early);
-        if (RunningCompletions(key).Count > 0) return Refused(key, TaskContinuationStatus.AlreadyRunning);
+        if (RunningCompletions(key).Count > 0 || IsStartPending(key))
+            return Refused(key, TaskContinuationStatus.AlreadyRunning);
 
         await using var agent = await RentAgentAsync(key.Tenant, null, cancellationToken).ConfigureAwait(false);
         agent.Error?.Throw(); // a failing factory reaches the caller; the task is untouched
@@ -95,6 +96,9 @@ public sealed partial class TaskExecutionEngine
         {
             if (!await _coordinator.TryRegisterExclusiveAsync(key, claim, cancellationToken).ConfigureAwait(false))
                 return Refused(key, TaskContinuationStatus.AlreadyRunning);
+            // A follow-up committed here but not registered yet (waiting for admission) is not in the coordinator: its
+            // pending start is the only sign of it. Checked again after the claim, as the admission wait may be long.
+            if (IsStartPending(key)) return Refused(key, TaskContinuationStatus.AlreadyRunning);
             // Read after the claim: the sweep and the other instances now see this task as running.
             var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false);
             if (ContinuationRefusal(record) is { } late) return Refused(key, late);

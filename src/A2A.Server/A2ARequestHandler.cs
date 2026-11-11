@@ -1608,6 +1608,14 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
         var versioned = config.DeepCopy(); // the caller's config is never changed
         versioned.ProtocolVersion = PushVersion(config.ProtocolVersion, call, "config");
         var created = await _pushConfigs.CreateAsync(key, versioned, cancellationToken).ConfigureAwait(false);
+        // The task may have been purged between the check above and the save: the purge deleted its configs before this one
+        // existed. Look again, so a config never outlives its task (the purge also deletes configs again after the task).
+        if (await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) is null)
+        {
+            await _pushConfigs.TryDeleteAsync(key, created.Id!).ConfigureAwait(false);
+            throw A2AException.TaskNotFound(config.TaskId!);
+        }
+
         await _engine.CatchUpAsync(key, created.Id!, cancellationToken).ConfigureAwait(false);
         return created;
     }

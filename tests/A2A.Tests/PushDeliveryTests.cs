@@ -199,11 +199,12 @@ public class PushDeliveryTests
     [InlineData("64:ff9b::7f00:1")] [InlineData("64:ff9b::a9fe:a9fe")] [InlineData("64:ff9b:1::1")] [InlineData("::7f00:1")] [InlineData("::a00:1")]
     [InlineData("2002:7f00:1::")] [InlineData("2002:a9fe:a9fe::1")]
     [InlineData("::ffff:10.0.0.1")] [InlineData("::ffff:127.0.0.1")] [InlineData("::ffff:169.254.169.254")] [InlineData("::ffff:100.64.0.1")]
+    [InlineData("::ffff:0:7f00:1")] [InlineData("::ffff:0:a9fe:a9fe")] [InlineData("::ffff:0:a00:1")] // ::ffff:0:0/96 IPv4-translated (RFC 2765)
     public void Private_ranges_blocked(string ip) => Assert.True(PushUrlValidator.IsPrivate(IPAddress.Parse(ip)));
 
     [Theory]
     [InlineData("8.8.8.8")] [InlineData("172.32.0.1")] [InlineData("100.128.0.1")] [InlineData("2001:4860:4860::8888")] [InlineData("::ffff:8.8.8.8")]
-    [InlineData("64:ff9b::808:808")] [InlineData("2002:808:808::")]
+    [InlineData("64:ff9b::808:808")] [InlineData("2002:808:808::")] [InlineData("::ffff:0:808:808")]
     public void Public_addresses_allowed(string ip) => Assert.False(PushUrlValidator.IsPrivate(IPAddress.Parse(ip)));
 
     private static async Task WithResolver(Func<string, IPAddress[]> resolve, Func<Task> body)
