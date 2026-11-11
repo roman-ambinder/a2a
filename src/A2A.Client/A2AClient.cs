@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using A2A.Client.Push;
+using A2A.Diagnostics;
 using A2A.Client.Resilience;
 using A2A.Client.Streaming;
 using A2A.Skills;
@@ -80,6 +82,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         var sent = ClientTelemetry.TraceAsync(A2AProtocol.Methods.SendMessage, this, request.Tenant,
             request.Message?.TaskId, () =>
             {
+                InjectTrace(request);
                 var call = Checked(Guard(() => _transport.SendMessageAsync(request, options, cancellationToken)), A2AValidator.ValidateResponse);
                 return _options.OnMessageReceived is null ? call : InspectAsync(call, cancellationToken);
             }, cancellationToken, request.Message);
@@ -117,9 +120,13 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         return ClientTelemetry.TraceStream(A2AProtocol.Methods.SendStreamingMessage, this, request.Tenant,
             request.Message?.TaskId, Inspect(Checked(Guard(ResumableStream.RunAsync(
                 null,
-                ct => _transport is IResumableTransport rt
-                    ? rt.SendStreamingFramesAsync(request, options, ct)
-                    : Frames(_transport.SendStreamingMessageAsync(request, options, ct), ct),
+                ct =>
+                {
+                    InjectTrace(request);
+                    return _transport is IResumableTransport rt
+                        ? rt.SendStreamingFramesAsync(request, options, ct)
+                        : Frames(_transport.SendStreamingMessageAsync(request, options, ct), ct);
+                },
                 (taskId, cursor, ct) => Resubscribe(request.Tenant, taskId, cursor, options, ct),
                 (taskId, ct) => GetTaskForResume(request.Tenant, taskId, options, ct),
                 _options.TimeProvider, cancellationToken)))), request.Message);
@@ -784,6 +791,16 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
     private IAsyncEnumerable<StreamResponse> Guard(IAsyncEnumerable<StreamResponse> source)
     {
         return _breaker is null ? source : _breaker.RunStreamAsync(source);
+    }
+
+    /// <summary>
+    ///     <see cref="A2AClientOptions.PropagateTraceInMetadata" />: writes the current span (the send's span, when one is
+    ///     sampled) into the message metadata.
+    /// </summary>
+    private void InjectTrace(SendMessageRequest request)
+    {
+        if (_options.PropagateTraceInMetadata && request.Message is { } message)
+            A2ATelemetry.InjectTraceContext(message, Activity.Current);
     }
 
     private static void EnsureMessageId(SendMessageRequest request)

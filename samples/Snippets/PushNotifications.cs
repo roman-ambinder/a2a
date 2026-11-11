@@ -93,6 +93,21 @@ internal static class Snippets
         #endregion
     }
 
+    public static void RetryPolicy(IServiceCollection services)
+    {
+        #region RetryPolicy
+        services.Configure<A2AServerOptions>(o =>
+        {
+            o.PushDelivery.RetryPolicy = ctx => ctx switch
+            {
+                { StatusCode: 429, RetryAfter: { } wait } => wait, // the receiver said when
+                { Attempt: >= 10 } => null, // give up: dead-letter now
+                _ => ctx.DefaultDelay
+            };
+        });
+        #endregion
+    }
+
     public static void Secrets(IServiceCollection services)
     {
         #region DataProtection

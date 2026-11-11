@@ -114,12 +114,17 @@ internal static class ServerTelemetry
     ///     example
     ///     ASP.NET Core's request activity), or the caller's trace context from <see cref="ServerCallContext.TraceParent" />
     ///     when no
-    ///     activity of that trace is current; it is a server span unless it nests under a local one.
+    ///     activity of that trace is current; it is a server span unless it nests under a local one. When the request
+    ///     carried no trace context, the one in the message metadata (<paramref name="message" />, written by a client with
+    ///     <c>PropagateTraceInMetadata</c>) is used instead.
     /// </summary>
-    public static Activity? StartOperation(string spanName, string operation, ServerCallContext call, string? taskId)
+    public static Activity? StartOperation(string spanName, string operation, ServerCallContext call, string? taskId,
+        Message? message = null)
     {
         var current = Activity.Current;
         var remote = call.TraceParent;
+        if (remote.TraceId == default && A2ATelemetry.TryExtractTraceContext(message, out var carried))
+            remote = carried;
         var activity = remote.TraceId != default && (current is null || current.TraceId != remote.TraceId)
             ? Source.StartActivity(spanName, ActivityKind.Server, remote)
             : Source.StartActivity(spanName, current is null ? ActivityKind.Server : ActivityKind.Internal);

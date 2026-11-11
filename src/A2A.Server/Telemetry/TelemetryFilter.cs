@@ -190,9 +190,10 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
 
     private static Activity? StartWithMessage(A2AOperationDescriptor operation, ServerCallContext call, object request)
     {
+        var message = (request as SendMessageRequest)?.Message;
         var activity = ServerTelemetry.StartOperation(operation.Name, operation.Name, call,
-            AuthorizationFilter.TaskIdOf(request));
-        A2ATelemetry.SetMessage(activity, (request as SendMessageRequest)?.Message);
+            AuthorizationFilter.TaskIdOf(request), message);
+        A2ATelemetry.SetMessage(activity, message);
         return activity;
     }
 

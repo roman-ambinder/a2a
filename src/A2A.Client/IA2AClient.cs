@@ -156,6 +156,19 @@ public sealed class A2AClientOptions
     public bool WaitForTaskCompletion { get; set; }
 
     /// <summary>
+    ///     Also writes the W3C trace context of the send into the message metadata (<c>traceparent</c> and
+    ///     <c>tracestate</c>), not only into the request headers, so the agent can join the caller's trace when a proxy or
+    ///     gateway on the way drops the headers. A message that already carries a <c>traceparent</c> is left as it is.
+    ///     Applies to SendMessage and SendStreamingMessage. Default false.
+    /// </summary>
+    /// <remarks>
+    ///     The metadata is part of the message, so the agent stores it in the task history, where everyone who can read the
+    ///     task sees the trace and span ids. A server of this SDK uses it only when the request carries no
+    ///     <c>traceparent</c> header, and leaves it out of the idempotency fingerprint.
+    /// </remarks>
+    public bool PropagateTraceInMetadata { get; set; }
+
+    /// <summary>
     ///     Called by <see cref="A2AClient" /> for every agent message it receives, before the caller sees it: a direct reply,
     ///     the
     ///     message of a status update, and the latest status message of a task snapshot (SendMessage, SendStreamingMessage,
@@ -218,6 +231,7 @@ public sealed class A2AClientOptions
             TimeProvider = TimeProvider,
             CircuitBreaker = CircuitBreaker,
             WaitForTaskCompletion = WaitForTaskCompletion,
+            PropagateTraceInMetadata = PropagateTraceInMetadata,
             OnMessageReceived = OnMessageReceived,
             EndpointPolicy = EndpointPolicy
         };

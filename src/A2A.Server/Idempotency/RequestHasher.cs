@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using A2A.Diagnostics;
 using A2A.Json;
 using A2A.Signing;
 
@@ -14,17 +15,22 @@ public static class RequestHasher
     ///     the
     ///     message and the configuration count: the tenant, the request metadata and the transport envelope (for example the
     ///     JSON-RPC id, which a client changes on every attempt) are not part of the hash. A missing configuration is left
-    ///     out.
+    ///     out. The W3C trace context in the message metadata (<c>traceparent</c> and <c>tracestate</c>) is left out too:
+    ///     each attempt of a retry runs in its own span, so it differs between attempts of the same request.
     /// </summary>
     public static byte[] Hash(SendMessageRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var root = new JsonObject
+        var message = request.Message is null
+            ? null
+            : JsonSerializer.SerializeToNode(request.Message, A2AJson.GetTypeInfo<Message>());
+        if (message?["metadata"] is JsonObject metadata)
         {
-            ["message"] = request.Message is null
-                ? null
-                : JsonSerializer.SerializeToNode(request.Message, A2AJson.GetTypeInfo<Message>())
-        };
+            var removed = metadata.Remove(A2ATelemetry.TraceParentHeader) | metadata.Remove(A2ATelemetry.TraceStateHeader);
+            if (removed && metadata.Count == 0) ((JsonObject)message).Remove("metadata");
+        }
+
+        var root = new JsonObject { ["message"] = message };
         // A2A 1.1: the client's artifact updates are part of what the request does.
         if (request.ArtifactUpdates is { Count: > 0 } updates)
             root["artifactUpdates"] =
