@@ -264,15 +264,17 @@ jobs:
     # build-test is a matrix, so `needs` waits for every OS. Still run when only one OS failed.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    # Microsoft's .NET SDK image with the native AOT prerequisites (clang, zlib) already installed, so the job does not
+    # apt-get them at run time: Ubuntu's package mirrors were unreachable from the runners for over half an hour on
+    # 2026-11-11 and failed every run. The image brings the .NET 10 SDK too, so there is no setup-dotnet step.
+    container:
+      image: mcr.microsoft.com/dotnet/sdk:10.0-noble-aot
+    # In a container job, run steps default to `sh -e` (dash), which has no `set -o pipefail`.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Install native AOT prerequisites
-        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
 
       # pipefail: without it the step's status is tee's, so a failed publish passed. A2APublishAot (Directory.Build.props)
       # sets PublishAot only outside netstandard2.0; a global -p:PublishAot=true fails there with NETSDK1207.
