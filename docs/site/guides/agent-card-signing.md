@@ -30,7 +30,7 @@ What happens:
 
 - `GET /.well-known/agent-card.json` returns the card with one signature added. A signature already on the card is kept.
 - The public key is served as a key set at <xref:A2A.Server.AspNetCore.A2AHttpOptions.JwksPath> (default `/.well-known/jwks.json`). The set holds only the current key. Without a key, this path is 404.
-- Both responses have `Cache-Control: max-age` of <xref:A2A.Server.AspNetCore.A2AHttpOptions.AgentCardMaxAge> (default 5 minutes). The card has an `ETag`. A signed card gets a weak one.
+- Both responses have `Cache-Control: max-age` of <xref:A2A.Server.AspNetCore.A2AHttpOptions.AgentCardMaxAge> (default 5 minutes). The card has an `ETag` (a signed card gets a weak one) and a `Last-Modified`.
 - The signature is cached per card content and key, so a stable card is signed once.
 
 The signature header has `alg`, `typ` (`JOSE`), `kid`, and `jku` if set. Supported algorithms: `ES256`, `ES384`, `ES512`, `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`. `none` and `HS*` are not supported.
