@@ -73,6 +73,12 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   called), A2A0002 (endpoints mapped without authorization), A2A0003 (`UseA2A()` in the wrong place). Code fixes add
   `app.UseA2A()` before `UseAuthorization()` and `.RequireAuthorization()` to the mapping. They are warnings, and the
   startup checks are unchanged.
+- A2A0001 and A2A0002 show in the editor as you type when one method holds the whole setup (the usual `Program.cs`):
+  it creates the app, maps the endpoints, hands the app, its builder or its services to none of your own methods, and
+  no other code names anything that could lift the warning. Otherwise they are still reported when you build. IDs and
+  severities are unchanged.
+- A2A0001 and A2A0002 read constant values: `AllowAnonymous = false` no longer silences A2A0002, and rate limiting
+  `Enabled = true` no longer silences A2A0001. A value that is not a constant still counts, as before.
 - README: a "Which packages do I need?" table.
 - Server API-key authentication: `AddApiKeyAuthentication(o => o.Add("billing", hash))` on the A2A builder. It registers
   an authentication scheme for `X-Api-Key`, gives each key a caller id (task owner `apikey:<id>`, so callers never share

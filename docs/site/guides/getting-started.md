@@ -145,7 +145,7 @@ The client sends a `ping`, streams a reply, follows a task with `ObserveTaskAsyn
 
 ## What can go wrong
 
-`RomanAmbinder.A2A.Server.AspNetCore` brings analyzers that report the first two mistakes below at build time, each with a code fix, and a third one: A2A0001 (endpoints mapped, `UseA2A()` never called), A2A0002 (endpoints mapped without authorization and no anonymous opt-in) and A2A0003 (`UseA2A()` before `UseAuthentication()` or after `UseAuthorization()`). They only report what they can see in your code; the startup checks stay the final word.
+`RomanAmbinder.A2A.Server.AspNetCore` brings analyzers that report the first two mistakes below at build time, each with a code fix, and a third one: A2A0001 (endpoints mapped, `UseA2A()` never called), A2A0002 (endpoints mapped without authorization and no anonymous opt-in) and A2A0003 (`UseA2A()` before `UseAuthentication()` or after `UseAuthorization()`). They only report what they can see in your code; the startup checks stay the final word. When one method holds the whole setup, as a usual `Program.cs` does, A2A0001 and A2A0002 show in the editor as you type. When the setup is spread over several methods or files (the app passed to your own `Configure(app)`, options set in another class), they appear when you build.
 
 - The app does not start and the message mentions `UseA2A()`: add `app.UseA2A()` after `UseAuthentication()` and before `UseAuthorization()`.
 - The app does not start and the message mentions an authorization policy: call `RequireAuthorization()` on the result of `MapA2A`.
