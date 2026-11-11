@@ -20,6 +20,7 @@
     <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj" />
     <ProjectReference Include="..\..\src\A2A.Cli\A2A.Cli.csproj" />
     <ProjectReference Include="..\..\src\A2A.Client.DependencyInjection\A2A.Client.DependencyInjection.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client.Identity.Azure\A2A.Client.Identity.Azure.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server\A2A.Server.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server.TypedSkills\A2A.Server.TypedSkills.csproj" />

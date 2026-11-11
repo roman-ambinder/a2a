@@ -14,7 +14,10 @@ see [Security](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/
 
 Credentials: pass providers (`OAuth2ClientCredentialsProvider`, `ApiKeyCredentialProvider`,
 `MutualTlsCredentialProvider`) instead of an `HttpClient`. They are chosen by the card's required schemes and sent only
-to the card's origin, never across a redirect.
+to the card's origin, never across a redirect. To log in without a secret, set
+`OAuth2ClientCredentialsOptions.ClientAssertion` (`OAuth2ClientAssertions.FromFile` for a Kubernetes or workload identity
+token file, `OAuth2ClientAssertions.PrivateKeyJwt` for your own key). Azure credentials:
+`RomanAmbinder.A2A.Client.Identity.Azure`.
 
 ```csharp
 var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"),

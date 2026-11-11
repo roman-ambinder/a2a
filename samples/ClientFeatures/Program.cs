@@ -8,21 +8,27 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using A2A;
 using A2A.Client;
+using A2A.Client.Credentials;
+using A2A.Client.Identity.Azure;
 using A2A.Client.Peers;
 using A2A.Server;
 using A2A.Server.AspNetCore;
+using A2A.Signing;
+using Azure.Core;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 
-// The client side of A2A: OAuth2 client credentials, an API key, retries, peer identity and a custom operation.
+// The client side of A2A: OAuth2 client credentials (with a secret, and with private_key_jwt), an Azure credential, an
+// API key, retries, peer identity and a custom operation.
 // One process hosts a small agent and a DEMO token endpoint on 127.0.0.1, and the clients call them.
-// No real secrets, no external calls. The client id, client secret and API key below are demo values.
+// No real secrets, no external calls. The client id, client secret, key and API key below are demo values.
 
 const int port = 5347;
 const string DemoClientId = "demo-client";     // demo value
 const string DemoClientSecret = "demo-secret"; // demo value: a real secret comes from a vault or the environment
 const string DemoApiKey = "demo-api-key";      // demo value
 const string ReportsUri = "https://example.com/extensions/reports/v1"; // an extension id; nothing is fetched from it
+const string DemoAzureScope = "api://client-features-agent/.default"; // demo value: the agent's application id URI
 var agentUrl = new Uri($"http://127.0.0.1:{port}/");
 var tokenUrl = $"http://127.0.0.1:{port}/demo/token";
 
@@ -63,7 +69,10 @@ var card = new AgentCard
     Skills = [new AgentSkill { Id = "whoami", Name = "Who am I", Description = "Names the caller", Tags = ["demo"] }]
 };
 
-var tokens = new DemoTokenIssuer(DemoClientId, DemoClientSecret);
+// The client's private_key_jwt key. A real one is kept in a vault; the identity provider holds only the public half.
+using var clientKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+var signingKey = new AgentCardSigningKey(clientKey, keyId: "demo-client-key", algorithm: "ES256");
+var tokens = new DemoTokenIssuer(DemoClientId, DemoClientSecret, clientKey, tokenUrl);
 var faults = new FaultInjector();
 builder.Services.AddSingleton(tokens);
 builder.Services.AddSingleton(new DemoApiKeyValue(DemoApiKey));
@@ -143,6 +152,23 @@ services.AddA2AClient("oauth", o => o.AgentUrl = agentUrl)
         // A real identity provider is usually on another origin; then set TokenEndpoint.
         o.Scopes = ["agent.invoke"];
     });
+// No secret: the client signs a short JWT with its own key for each token request (private_key_jwt, RFC 7523).
+services.AddA2AClient("oauth-jwt", o => o.AgentUrl = agentUrl)
+    .AddOAuth2ClientCredentials(o =>
+    {
+        o.ClientId = DemoClientId;
+        o.ClientAssertion = OAuth2ClientAssertions.PrivateKeyJwt(signingKey);
+        o.Scopes = ["agent.invoke"];
+    });
+// An Azure.Core TokenCredential. In production: ManagedIdentityCredential, WorkloadIdentityCredential, ... from
+// Azure.Identity. Here a demo credential stands in for Entra, so the sample runs without Azure.
+services.AddA2AClient("azure", o => o.AgentUrl = agentUrl)
+    .AddCredentialProvider(_ =>
+    {
+        var options = new AzureTokenCredentialOptions();
+        options.Scopes.Add(DemoAzureScope); // you choose the audience; the card's scopes are not sent
+        return new AzureTokenCredentialProvider(new DemoAzureCredential(tokens, DemoAzureScope), options);
+    });
 services.AddA2AClient("api-key", o => o.AgentUrl = agentUrl).AddApiKey(DemoApiKey); // header name comes from the card
 // The client has its own container, apart from the agent's host, as it would in a separate app.
 #pragma warning disable ASP0000 // not the web host's container, so no singleton is copied
@@ -158,7 +184,23 @@ await Step("OAuth2 client credentials", async () =>
     Expect("tokens issued", tokens.Issued, 1);
 });
 
-// 2. API key: the card's first requirement (OAuth2) has no provider here, so the client takes the second one.
+// 2. private_key_jwt: the same OAuth2 scheme, but the client proves itself with a signed JWT instead of a secret.
+await Step("OAuth2 with private_key_jwt", async () =>
+{
+    var jwtClient = await clients.GetClientAsync("oauth-jwt");
+    Expect("reply", await AskAsync(jwtClient), "demo-client via private_key_jwt, bearer token #2 from the demo token endpoint");
+    Expect("tokens issued", tokens.Issued, 2);
+});
+
+// 3. Azure credential: the card's OAuth2 scheme, satisfied with a token from a TokenCredential.
+await Step("Azure credential", async () =>
+{
+    var azureClient = await clients.GetClientAsync("azure");
+    Expect("reply", await AskAsync(azureClient), "demo-client via azure-credential, bearer token #3 from the demo token endpoint");
+    Expect("scope asked for", tokens.LastAzureScope, DemoAzureScope);
+});
+
+// 4. API key: the card's first requirement (OAuth2) has no provider here, so the client takes the second one.
 A2AClient? client = null;
 await Step("API key", async () =>
 {
@@ -166,7 +208,7 @@ await Step("API key", async () =>
     Expect("reply", await AskAsync(client), "api-key-user via api-key");
 });
 
-// 3. Retries: the agent answers 503 once. The client retries (MaxRetries is 2 by default) and the call succeeds.
+// 5. Retries: the agent answers 503 once. The client retries (MaxRetries is 2 by default) and the call succeeds.
 await Step("Retry after a 503", async () =>
 {
     client ??= await clients.GetClientAsync("api-key");
@@ -175,7 +217,7 @@ await Step("Retry after a 503", async () =>
     Expect("attempts", faults.Attempts, 2);
 });
 
-// 4. Peer identity: who the agent is, as the SDK sees it. The card name is display text, not identity.
+// 6. Peer identity: who the agent is, as the SDK sees it. The card name is display text, not identity.
 await Step("Peer identity", async () =>
 {
     using var http = new HttpClient();
@@ -195,7 +237,7 @@ await Step("Peer identity", async () =>
     Expect("assurance", identity.Assurance, PeerIdentityAssurance.OriginOnly, print: false);
 });
 
-// 5. A custom operation: a method of an extension, next to the A2A operations. The helper activates the extension.
+// 7. A custom operation: a method of an extension, next to the A2A operations. The helper activates the extension.
 await Step("Custom operation", async () =>
 {
     client ??= await clients.GetClientAsync("api-key");
@@ -219,7 +261,7 @@ if (failures.Count > 0)
 
 Console.WriteLine();
 Console.WriteLine(
-    "OK: OAuth2 and API key calls succeeded, a 503 was retried, the peer identity matched and a custom operation round-tripped.");
+    "OK: OAuth2 (secret and private_key_jwt), Azure credential and API key calls succeeded, a 503 was retried, the peer identity matched and a custom operation round-tripped.");
 return 0;
 
 static async Task<string?> AskAsync(A2AClient client)
@@ -269,18 +311,36 @@ internal sealed class FaultInjector
 internal sealed record DemoApiKeyValue(string Value);
 
 /// <summary>
-///     DEMO token endpoint, NOT an OAuth server. It knows one client id and secret, issues random opaque tokens for the
-///     client credentials grant, and keeps them in memory. Use a real identity provider in production.
+///     DEMO token endpoint, NOT an OAuth server. It knows one client id with a secret and a public key, issues random
+///     opaque tokens for the client credentials grant, and keeps them in memory. Use a real identity provider in
+///     production.
 /// </summary>
-internal sealed class DemoTokenIssuer(string clientId, string clientSecret)
+internal sealed class DemoTokenIssuer(string clientId, string clientSecret, ECDsa clientPublicKey, string tokenUrl)
 {
-    private readonly ConcurrentDictionary<string, int> _issued = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, (int Number, string Method)> _issued = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte> _seenJti = new(StringComparer.Ordinal);
     private int _count;
 
     public int Issued => Volatile.Read(ref _count);
 
-    /// <summary>The number of an issued token, or null when this endpoint did not issue it.</summary>
-    public int? Lookup(string token) => _issued.TryGetValue(token, out var n) ? n : null;
+    public string? LastAzureScope { get; private set; }
+
+    /// <summary>The number of an issued token and how the client logged in, or null when this endpoint did not issue it.</summary>
+    public (int Number, string Method)? Lookup(string token) => _issued.TryGetValue(token, out var t) ? t : null;
+
+    /// <summary>What the demo Azure credential calls instead of Entra.</summary>
+    public (string Token, DateTimeOffset ExpiresOn) IssueForAzure(string scope)
+    {
+        LastAzureScope = scope;
+        return (Issue("azure-credential"), DateTimeOffset.UtcNow.AddMinutes(60));
+    }
+
+    private string Issue(string method)
+    {
+        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        _issued[token] = (Interlocked.Increment(ref _count), method);
+        return token;
+    }
 
     // A RequestDelegate: it writes the response itself.
     public async Task HandleAsync(HttpContext context) => await (await Answer(context)).ExecuteAsync(context);
@@ -290,17 +350,52 @@ internal sealed class DemoTokenIssuer(string clientId, string clientSecret)
         var form = await context.Request.ReadFormAsync(context.RequestAborted);
         if (form["grant_type"] != "client_credentials")
             return Results.Json(new Dictionary<string, string> { ["error"] = "unsupported_grant_type" }, statusCode: 400);
-        if (!BasicCredentialsMatch(context.Request.Headers.Authorization.ToString()))
+        string method;
+        if (form["client_assertion_type"] == "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
+        {
+            if (form["client_id"] != clientId || !AssertionIsValid(form["client_assertion"].ToString()))
+                return Results.Json(new Dictionary<string, string> { ["error"] = "invalid_client" }, statusCode: 401);
+            method = "private_key_jwt";
+        }
+        else if (BasicCredentialsMatch(context.Request.Headers.Authorization.ToString()))
+            method = "oauth2";
+        else
             return Results.Json(new Dictionary<string, string> { ["error"] = "invalid_client" }, statusCode: 401);
         if (form["scope"] != "agent.invoke")
             return Results.Json(new Dictionary<string, string> { ["error"] = "invalid_scope" }, statusCode: 400);
 
-        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
-        _issued[token] = Interlocked.Increment(ref _count);
         return Results.Json(new Dictionary<string, object>
         {
-            ["access_token"] = token, ["token_type"] = "Bearer", ["expires_in"] = 300
+            ["access_token"] = Issue(method), ["token_type"] = "Bearer", ["expires_in"] = 300
         });
+    }
+
+    // RFC 7523 section 3: signed by the client's registered key, iss and sub are the client id, aud is this endpoint,
+    // not expired, and a jti that was not seen before.
+    private bool AssertionIsValid(string jwt)
+    {
+        var parts = jwt.Split('.');
+        if (parts.Length != 3) return false;
+        try
+        {
+            using var header = JsonDocument.Parse(Base64Url.Decode(parts[0]));
+            if (header.RootElement.GetProperty("alg").GetString() != "ES256") return false;
+            if (!JwsAlgorithms.Verify("ES256", clientPublicKey, Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]),
+                    Base64Url.Decode(parts[2]))) return false;
+            using var payload = JsonDocument.Parse(Base64Url.Decode(parts[1]));
+            var claims = payload.RootElement;
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            return claims.GetProperty("iss").GetString() == clientId
+                   && claims.GetProperty("sub").GetString() == clientId
+                   && claims.GetProperty("aud").GetString() == tokenUrl
+                   && claims.GetProperty("exp").GetInt64() > now
+                   && claims.GetProperty("jti").GetString() is { Length: > 0 } jti
+                   && _seenJti.TryAdd(jti, 0);
+        }
+        catch (Exception ex) when (ex is FormatException or JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     // RFC 6749 section 2.3.1: Basic with the URL-encoded id and secret, which is the provider's default.
@@ -345,9 +440,9 @@ internal sealed class DemoAuthHandler(
         var authorization = Request.Headers.Authorization.ToString();
         if (authorization.StartsWith("Bearer ", StringComparison.Ordinal))
         {
-            return Task.FromResult(tokens.Lookup(authorization["Bearer ".Length..]) is { } number
-                ? Success("demo-client", new Claim(MethodClaim, "oauth2"),
-                    new Claim(TokenClaim, number.ToString(System.Globalization.CultureInfo.InvariantCulture)))
+            return Task.FromResult(tokens.Lookup(authorization["Bearer ".Length..]) is { } issued
+                ? Success("demo-client", new Claim(MethodClaim, issued.Method),
+                    new Claim(TokenClaim, issued.Number.ToString(System.Globalization.CultureInfo.InvariantCulture)))
                 : AuthenticateResult.Fail("Unknown bearer token"));
         }
 
@@ -363,4 +458,22 @@ internal sealed class DemoAuthHandler(
         var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, principal), .. claims], SchemeName);
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName));
     }
+}
+
+/// <summary>
+///     DEMO stand-in for an Azure.Identity credential such as <c>ManagedIdentityCredential</c>. It asks the demo issuer
+///     instead of Entra, so the sample runs without Azure.
+/// </summary>
+internal sealed class DemoAzureCredential(DemoTokenIssuer issuer, string expectedScope) : TokenCredential
+{
+    public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
+    {
+        if (requestContext.Scopes is not [var scope] || scope != expectedScope)
+            throw new InvalidOperationException("The demo credential knows one scope only.");
+        var (token, expiresOn) = issuer.IssueForAzure(scope);
+        return new AccessToken(token, expiresOn);
+    }
+
+    public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext,
+        CancellationToken cancellationToken) => ValueTask.FromResult(GetToken(requestContext, cancellationToken));
 }
