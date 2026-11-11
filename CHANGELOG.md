@@ -79,6 +79,8 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   coverage, so the store packages have a baseline too.
 - New weekly `mutation.yml` workflow: Stryker.NET mutation testing of the SSRF guard, Agent Card signing and
   canonicalization, webhook signatures and AWS SigV4 signing. Report only. See [CONTRIBUTING](CONTRIBUTING.md#mutation-testing).
+- The AOT publish job runs in the `mcr.microsoft.com/dotnet/sdk:10.0-noble-aot` image, which has clang and zlib, instead
+  of installing them with `apt-get` on every run. An outage of Ubuntu's package mirrors no longer fails CI.
 
 ### Documentation
 
