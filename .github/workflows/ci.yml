@@ -269,6 +269,10 @@ jobs:
     # 2026-11-11 and failed every run. The image brings the .NET 10 SDK too, so there is no setup-dotnet step.
     container:
       image: mcr.microsoft.com/dotnet/sdk:10.0-noble-aot
+    # In a container job, run steps default to `sh -e` (dash), which has no `set -o pipefail`.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
 
