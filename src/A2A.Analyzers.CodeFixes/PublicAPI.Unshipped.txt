@@ -1,6 +1,1 @@
 #nullable enable
-A2A.Analyzers.CodeFixes.A2ASetupCodeFixProvider
-A2A.Analyzers.CodeFixes.A2ASetupCodeFixProvider.A2ASetupCodeFixProvider() -> void
-override A2A.Analyzers.CodeFixes.A2ASetupCodeFixProvider.FixableDiagnosticIds.get -> System.Collections.Immutable.ImmutableArray<string!>
-override A2A.Analyzers.CodeFixes.A2ASetupCodeFixProvider.GetFixAllProvider() -> Microsoft.CodeAnalysis.CodeFixes.FixAllProvider!
-override A2A.Analyzers.CodeFixes.A2ASetupCodeFixProvider.RegisterCodeFixesAsync(Microsoft.CodeAnalysis.CodeFixes.CodeFixContext context) -> System.Threading.Tasks.Task!

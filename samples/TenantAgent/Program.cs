@@ -171,7 +171,7 @@ internal sealed class TenantRules : A2AAuthorizationHandler
         var allowed = skillId switch
         {
             "summarize" => true,
-            "translate" => call.User?.FindFirst(A2AApiKeyOptions.CallerClaim)?.Value is { } caller
+            "translate" => call.User?.FindFirst(A2AClaimTypes.ApiKeyCaller)?.Value is { } caller
                            && DemoUsers.Premium.Contains(caller),
             _ => false // deny what you do not know
         };

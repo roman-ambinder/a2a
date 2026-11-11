@@ -1,8 +1,1 @@
 #nullable enable
-A2A.Analyzers.A2ASetupAnalyzer
-A2A.Analyzers.A2ASetupAnalyzer.A2ASetupAnalyzer() -> void
-override A2A.Analyzers.A2ASetupAnalyzer.Initialize(Microsoft.CodeAnalysis.Diagnostics.AnalysisContext! context) -> void
-override A2A.Analyzers.A2ASetupAnalyzer.SupportedDiagnostics.get -> System.Collections.Immutable.ImmutableArray<Microsoft.CodeAnalysis.DiagnosticDescriptor!>
-static readonly A2A.Analyzers.A2ASetupAnalyzer.MissingUseA2A -> Microsoft.CodeAnalysis.DiagnosticDescriptor!
-static readonly A2A.Analyzers.A2ASetupAnalyzer.NoAuthorization -> Microsoft.CodeAnalysis.DiagnosticDescriptor!
-static readonly A2A.Analyzers.A2ASetupAnalyzer.UseA2AOrder -> Microsoft.CodeAnalysis.DiagnosticDescriptor!
