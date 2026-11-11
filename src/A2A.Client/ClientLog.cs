@@ -32,6 +32,10 @@ internal static partial class ClientLog
         Message = "Agent Card from {Origin} was accepted with status {Status}, because {Reason} (spec 8.4.3: clients should verify signed cards). Its content is not authenticated. Configure CardTrustPolicy.TrustedKeys or AllowedJkuHosts to require a verified signature. Logged once per origin.")]
     public static partial void CardNotVerified(ILogger logger, string origin, A2A.Signing.AgentCardVerificationStatus status, string reason);
 
+    [LoggerMessage(EventId = 103, Level = LogLevel.Warning,
+        Message = "Agent Card from {Origin} lacks REQUIRED fields: {Fields} (spec 5.7). The card is still used. Logged once per origin.")]
+    public static partial void CardMissingRequiredFields(ILogger logger, string origin, string fields);
+
     // AgentRegistry: 150-199
     [LoggerMessage(EventId = 150, Level = LogLevel.Warning,
         Message = "Agent name '{Name}' from {Identity} looks like the names of {OtherCount} other registered agents")]

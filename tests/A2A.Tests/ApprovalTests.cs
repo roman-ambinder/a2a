@@ -122,7 +122,8 @@ public class ApprovalTests
     {
         var agent = new ApprovalAgent();
         await using var host = await StartAsync(agent);
-        var client = host.Client(ProtocolBindings.JsonRpc, options: new A2AClientOptions { MaxRetries = 0 });
+        // The stored task is corrupted below, so its history has a message without an id: accept it to test the server.
+        var client = host.Client(ProtocolBindings.JsonRpc, options: new A2AClientOptions { MaxRetries = 0, ValidateResponses = false });
         var asked = (await client.SendMessageAsync("approve")).RequireTask();
         await host.WaitIdleAsync();
         var store = host.App.Services.GetRequiredService<A2A.Server.Storage.TaskStore>();

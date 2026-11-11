@@ -156,6 +156,13 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Unverified Agent Cards (spec §8.4.3): `A2ACardResolver` logs a warning (event 102) once per origin when it accepts an
   `Unsigned` or `Unverified` card, because no trusted keys or `jku` hosts are configured or `RequireSignature` is false.
   The default is unchanged: such cards are still accepted when no trust is configured.
+- Required fields in agent responses (spec §5.7): the client now rejects a response that lacks a REQUIRED field with
+  `InvalidAgentResponse`: a task without `id` or status `state`, a stream update without `taskId` or `contextId`, a message
+  without `messageId`, `role` or parts, an artifact without `artifactId` or parts (append chunks and stored artifacts may
+  be empty). Applies to SendMessage, GetTask, ListTasks, CancelTask and every stream event. New
+  `A2AClientOptions.ValidateResponses` (default true) turns it off; new `A2AValidator.ValidateResponse` overloads do the
+  checks. A fetched Agent Card that lacks REQUIRED fields is still used, and the resolver logs them once per origin
+  (event 103).
 
 ### Tests and CI
 

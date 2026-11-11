@@ -80,7 +80,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.SendMessage, this, request.Tenant,
             request.Message?.TaskId, () =>
             {
-                var call = Guard(() => _transport.SendMessageAsync(request, options, cancellationToken));
+                var call = Checked(Guard(() => _transport.SendMessageAsync(request, options, cancellationToken)), A2AValidator.ValidateResponse);
                 return _options.OnMessageReceived is null ? call : InspectAsync(call, cancellationToken);
             }, cancellationToken, request.Message);
     }
@@ -95,14 +95,14 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation,
             "Agent does not declare streaming support.");
         return ClientTelemetry.TraceStream(A2AProtocol.Methods.SendStreamingMessage, this, request.Tenant,
-            request.Message?.TaskId, Inspect(Guard(ResumableStream.RunAsync(
+            request.Message?.TaskId, Inspect(Checked(Guard(ResumableStream.RunAsync(
                 null,
                 ct => _transport is IResumableTransport rt
                     ? rt.SendStreamingFramesAsync(request, options, ct)
                     : Frames(_transport.SendStreamingMessageAsync(request, options, ct), ct),
                 (taskId, cursor, ct) => Resubscribe(request.Tenant, taskId, cursor, options, ct),
                 (taskId, ct) => GetTaskForResume(request.Tenant, taskId, options, ct),
-                _options.TimeProvider, cancellationToken))), request.Message);
+                _options.TimeProvider, cancellationToken)))), request.Message);
     }
 
     /// <inheritdoc />
@@ -113,7 +113,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.GetTask, this, request.Tenant, request.Id, () =>
         {
-            var call = Guard(() => _transport.GetTaskAsync(request, options, cancellationToken));
+            var call = Checked(Guard(() => _transport.GetTaskAsync(request, options, cancellationToken)), A2AValidator.ValidateResponse);
             return _options.OnMessageReceived is null ? call : InspectAsync(call, cancellationToken);
         }, cancellationToken);
     }
@@ -125,7 +125,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         ArgumentNullException.ThrowIfNull(request);
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.ListTasks, this, request.Tenant, null,
-            () => Guard(() => _transport.ListTasksAsync(request, options, cancellationToken)), cancellationToken);
+            () => Checked(Guard(() => _transport.ListTasksAsync(request, options, cancellationToken)), ValidateTasks), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -136,7 +136,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         request.Tenant ??= _options.Tenant;
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.CancelTask, this, request.Tenant, request.Id, () =>
         {
-            var call = Guard(() => CancelOrCanceledAsync(request, options, cancellationToken));
+            var call = Checked(Guard(() => CancelOrCanceledAsync(request, options, cancellationToken)), A2AValidator.ValidateResponse);
             return _options.OnMessageReceived is null ? call : InspectAsync(call, cancellationToken);
         }, cancellationToken);
     }
@@ -150,7 +150,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation,
             "Agent does not declare streaming support.");
         return ClientTelemetry.TraceStream(A2AProtocol.Methods.SubscribeToTask, this, request.Tenant, request.Id,
-            Inspect(Guard(_transport.SubscribeToTaskAsync(request, options, cancellationToken))));
+            Inspect(Checked(Guard(_transport.SubscribeToTaskAsync(request, options, cancellationToken)))));
     }
 
     /// <inheritdoc />
@@ -732,13 +732,13 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation,
             "Agent does not declare streaming support.");
         var tenant = _options.Tenant;
-        return ClientTelemetry.TraceStream(A2AProtocol.Methods.SubscribeToTask, this, tenant, taskId, Inspect(Guard(
+        return ClientTelemetry.TraceStream(A2AProtocol.Methods.SubscribeToTask, this, tenant, taskId, Inspect(Checked(Guard(
             ResumableStream.RunAsync(
                 taskId,
                 ct => Resubscribe(tenant, taskId, null, options, ct),
                 (id, cursor, ct) => Resubscribe(tenant, id, cursor, options, ct),
                 (id, ct) => GetTaskForResume(tenant, id, options, ct),
-                _options.TimeProvider, cancellationToken))));
+                _options.TimeProvider, cancellationToken)))));
     }
 
     private IAsyncEnumerable<StreamFrame> Resubscribe(string? tenant, string taskId, string? lastEventId,
@@ -811,6 +811,44 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
                 await call().ConfigureAwait(false);
                 return null;
             });
+    }
+
+    /// <summary>
+    ///     With <see cref="A2AClientOptions.ValidateResponses" />, checks the result with <paramref name="check" />
+    ///     (spec 5.7): an agent response that lacks a REQUIRED field fails with InvalidAgentResponse.
+    /// </summary>
+    private Task<T> Checked<T>(Task<T> call, Action<T> check)
+    {
+        return _options.ValidateResponses ? CheckedAsync(call, check) : call;
+    }
+
+    private static async Task<T> CheckedAsync<T>(Task<T> call, Action<T> check)
+    {
+        var result = await call.ConfigureAwait(false);
+        check(result);
+        return result;
+    }
+
+    /// <summary>Checks each stream event as it arrives, with <see cref="A2AClientOptions.ValidateResponses" />.</summary>
+    private IAsyncEnumerable<StreamResponse> Checked(IAsyncEnumerable<StreamResponse> source)
+    {
+        return _options.ValidateResponses ? CheckedStreamAsync(source) : source;
+    }
+
+    private static async IAsyncEnumerable<StreamResponse> CheckedStreamAsync(IAsyncEnumerable<StreamResponse> source,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await foreach (var evt in source.WithCancellation(ct).ConfigureAwait(false))
+        {
+            A2AValidator.ValidateResponse(evt);
+            yield return evt;
+        }
+    }
+
+    private static void ValidateTasks(ListTasksResponse response)
+    {
+        if (response.Tasks is not { } tasks) return;
+        foreach (var task in tasks) A2AValidator.ValidateResponse(task);
     }
 
     private IAsyncEnumerable<StreamResponse> Guard(IAsyncEnumerable<StreamResponse> source)

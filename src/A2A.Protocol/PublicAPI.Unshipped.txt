@@ -178,3 +178,6 @@ static A2A.A2AApiKey.ComputeHash(string! key) -> string!
 static A2A.A2AApiKey.Create() -> A2A.A2AApiKey!
 static A2A.A2AApiKey.IsWellFormed(string? key) -> bool
 static A2A.A2AApiKey.IsWellFormedHash(string? hash) -> bool
+static A2A.Validation.A2AValidator.ValidateResponse(A2A.AgentTask! task) -> void
+static A2A.Validation.A2AValidator.ValidateResponse(A2A.SendMessageResponse! response) -> void
+static A2A.Validation.A2AValidator.ValidateResponse(A2A.StreamResponse! response) -> void
