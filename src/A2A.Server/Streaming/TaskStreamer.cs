@@ -862,10 +862,11 @@ internal sealed class TaskStreamer
     ///     Applies the per-stream limits (spec design §7.2, §7.7). Every <see cref="A2ALimits.StreamReauthInterval" /> the
     ///     caller is
     ///     authorized again, as <paramref name="operation" /> with <paramref name="request" /> (what the stream was opened
-    ///     with); on
-    ///     denial nothing more is sent and the stream ends. At <see cref="A2ALimits.MaxStreamDuration" /> the
-    ///     stream ends normally, without an error; clients resume with <c>Last-Event-ID</c>. Stopping the stream never stops
-    ///     the task.
+    ///     with); on denial nothing more is sent and the stream ends with the error a new request would get (TaskNotFound for
+    ///     a task-scoped stream, else PermissionDenied), so the client knows why. At
+    ///     <see cref="A2ALimits.MaxStreamDuration" />, and after <see cref="A2ALimits.StreamIdleTimeout" /> without an event,
+    ///     the stream ends normally, without an error; clients resume with <c>Last-Event-ID</c>. Stopping the stream never
+    ///     stops the task.
     /// </summary>
     private async IAsyncEnumerable<SequencedEvent> LimitStreamAsync(IAsyncEnumerable<SequencedEvent> source,
         ServerCallContext call,
@@ -877,6 +878,7 @@ internal sealed class TaskStreamer
         if (TimeLimits.IsTimeLimit(limits.MaxStreamDuration)) stop.CancelAfter(limits.MaxStreamDuration);
         TimeSpan? reauthEvery =
             TimeLimits.IsTimeLimit(limits.StreamReauthInterval) ? limits.StreamReauthInterval : null;
+        TimeSpan? idleAfter = TimeLimits.IsTimeLimit(limits.StreamIdleTimeout) ? limits.StreamIdleTimeout : null;
 
         static long Ticks(TimeSpan t)
         {
@@ -887,6 +889,7 @@ internal sealed class TaskStreamer
         Task<bool>? move = null;
         Task? deadline = null; // one timer for the re-check, kept across events until it fires
         var reauthAt = reauthEvery is { } first ? Stopwatch.GetTimestamp() + Ticks(first) : long.MaxValue;
+        var idleAt = idleAfter is { } idle ? Stopwatch.GetTimestamp() + Ticks(idle) : long.MaxValue;
         try
         {
             while (true)
@@ -895,29 +898,32 @@ internal sealed class TaskStreamer
                 try
                 {
                     var next = events.MoveNextAsync();
-                    if (reauthEvery is null || next.IsCompleted)
+                    if ((reauthEvery is null && idleAfter is null) || next.IsCompleted)
                     {
                         more = await next.ConfigureAwait(false); // no timer, no Task
                     }
                     else
                     {
-                        // Idle stream: wake up at the re-check deadline while waiting for the next event.
+                        // Idle stream: wake up at the re-check or idle deadline while waiting for the next event.
                         move = next.AsTask();
                         while (!move.IsCompleted)
                         {
-                            var wait = Stopwatch.GetElapsedTime(Stopwatch.GetTimestamp(), reauthAt);
+                            var wakeAt = Math.Min(reauthAt, idleAt);
+                            var wait = Stopwatch.GetElapsedTime(Stopwatch.GetTimestamp(), wakeAt);
                             if (wait > TimeSpan.Zero)
                             {
                                 deadline ??= Task.Delay(wait, stop.Token);
                                 if (await Task.WhenAny(move, deadline).ConfigureAwait(false) == move ||
                                     stop.IsCancellationRequested) break;
                                 deadline = null;
-                                if (Stopwatch.GetTimestamp() < reauthAt)
-                                    continue; // moved by a check between events: wait again
+                                if (Stopwatch.GetTimestamp() < wakeAt)
+                                    continue; // a deadline moved between events: wait again
                             }
 
-                            if (!await StillAuthorizedAsync().ConfigureAwait(false))
-                                yield break; // the finally stops the source
+                            var now = Stopwatch.GetTimestamp();
+                            if (now >= idleAt) yield break; // StreamIdleTimeout: a clean end; the finally stops the source
+                            if (now >= reauthAt && !await StillAuthorizedAsync().ConfigureAwait(false))
+                                throw Revoked(); // the finally stops the source
                         }
 
                         more = await move.ConfigureAwait(false);
@@ -934,7 +940,8 @@ internal sealed class TaskStreamer
 
                 // Busy stream: the next event may always be ready, so check the deadline before every event too.
                 if (Stopwatch.GetTimestamp() >= reauthAt && !await StillAuthorizedAsync().ConfigureAwait(false))
-                    yield break;
+                    throw Revoked();
+                if (idleAfter is { } quiet) idleAt = Stopwatch.GetTimestamp() + Ticks(quiet);
                 yield return events.Current;
             }
         }
@@ -961,7 +968,7 @@ internal sealed class TaskStreamer
             var allowed = await _authorization.AuthorizeAsync(call, operation, request, cancellationToken)
                               .ConfigureAwait(false)
                           && await _skills.StillAllowedAsync(operation, call, cancellationToken).ConfigureAwait(false);
-            // The stream just ends (the caller sees no error), so the audit trail is where the revoked access shows.
+            // The denial is logged and audited here; the caller gets it as the stream's error (see Revoked).
             if (!allowed)
             {
                 SecurityEventLog.Record(_options, A2ATelemetry.SecurityEventNames.PermissionDenied, operation.Name,
@@ -973,6 +980,15 @@ internal sealed class TaskStreamer
 
             reauthAt = Stopwatch.GetTimestamp() + Ticks(reauthEvery!.Value);
             return allowed;
+        }
+
+        // The error a new request would get for the same denial: a task-scoped stream does not confirm the task exists.
+        A2AException Revoked()
+        {
+            var taskId = AuthorizationFilter.TaskIdOf(request);
+            return string.IsNullOrEmpty(taskId)
+                ? OperationAuthorization.Denied(operation, OperationAuthorization.PermissionOperation)
+                : A2AException.TaskNotFound(taskId);
         }
     }
 

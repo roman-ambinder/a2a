@@ -69,7 +69,7 @@ On `SendStreamingMessage`, a valid cursor makes the call a reconnect. The server
 
 A task in `INPUT_REQUIRED` or `AUTH_REQUIRED` keeps a send stream open while the executor is still running. Stopping a stream never stops the task.
 
-When a stream ends before a terminal event, for example at `MaxStreamDuration`, the client treats it like a dropped connection and resumes it after the backoff. It does not resume after a terminal event or a direct message.
+When a stream ends before a terminal event, for example at `MaxStreamDuration` or `StreamIdleTimeout`, the client treats it like a dropped connection and resumes it after the backoff. It does not resume after a terminal event or a direct message.
 
 ## The replay buffer
 
@@ -197,7 +197,8 @@ These are on <xref:A2A.Server.A2ALimits>. See also [Limits and rate limiting](li
 | `MaxConcurrentStreamsPerTask` | 10 | The new stream is refused with `RATE_LIMITED`. Counted per task and caller. |
 | `MaxConcurrentStreamsPerPrincipal` | 50 | The new stream is refused with `RATE_LIMITED`. Anonymous callers count per remote IP. |
 | `MaxStreamDuration` | 1 hour | The stream ends normally. Clients resume. Zero or `Timeout.InfiniteTimeSpan` turns it off. |
-| `StreamReauthInterval` | 5 minutes | The caller is authorized again. If denied, the stream ends. Zero or `Timeout.InfiniteTimeSpan` turns it off. |
+| `StreamReauthInterval` | 5 minutes | The caller is authorized again. If denied, the stream ends with the error a new request would get (`TaskNotFound` for a task-scoped stream, else `PermissionDenied`). Zero or `Timeout.InfiniteTimeSpan` turns it off. |
+| `StreamIdleTimeout` | off | A stream that sent no event for this long ends normally, and clients resume. Keep-alive comments do not count. Zero or `Timeout.InfiniteTimeSpan` turns it off. |
 | `MaxEventBytes` | 4 MB | An event above this is never stored or sent. The task fails and the agent is stopped. Send large artifacts in chunks. |
 
 The stream counters are per process. Opening a stream also counts against the rate limit like any other request.

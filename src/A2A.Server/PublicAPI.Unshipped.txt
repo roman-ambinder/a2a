@@ -491,3 +491,5 @@ A2A.Server.ArtifactWriter.WriteAsync(System.Collections.Generic.IEnumerable<A2A.
 A2A.Server.TaskUpdater.OpenArtifact(string? name = null, string? description = null, string? artifactId = null, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata = null) -> A2A.Server.ArtifactWriter!
 A2A.Server.A2AClaimTypes
 const A2A.Server.A2AClaimTypes.Tenant = "a2a:tenant" -> string!
+A2A.Server.A2ALimits.StreamIdleTimeout.get -> System.TimeSpan
+A2A.Server.A2ALimits.StreamIdleTimeout.set -> void
