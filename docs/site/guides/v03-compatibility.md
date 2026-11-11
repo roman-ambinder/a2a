@@ -204,7 +204,14 @@ Watch `requests` to see when v0.3 traffic stops. Then you can remove the opt-in.
 
 [!code-csharp[](../../../samples/Snippets/V03Compatibility.cs#Metrics)]
 
-Each dropped field is also logged once at Debug on the server. Card conversion problems are logged once each at Warning, on first use, not at startup.
+Spec A.2 asks for a warning when legacy objects are received, so these are logged at Warning, each once:
+
+- each dropped field (event 1000);
+- each card conversion problem, on first use, not at startup (event 1001);
+- each v0.3 operation the server answers, per binding (event 1002);
+- each v0.3 agent URL a client talks to (event 1003).
+
+The server logs through its logger factory. A client logs only after `V03CompatClientFactory.UseLogger(logger)`. The first logger set in a process is used for all of these.
 
 ## What can go wrong
 

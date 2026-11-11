@@ -11,12 +11,13 @@ using Microsoft.Extensions.Logging;
 namespace A2A.Tests;
 
 /// <summary>
-///     The startup check of the Agent Card's interfaces (spec 5.2, 8.3.1) and of encryption (13.4). It only warns: the app
+///     The startup check of the Agent Card's interfaces (spec 5.2, 8.3.1), of encryption (13.4) and of its required
+///     arrays (5.7). It only warns: the app
 ///     always starts.
 /// </summary>
 public class CardInterfaceCheckTests
 {
-    private const int Local = 702, NotOnCard = 703, TenantPattern = 704, Plain = 705, NoHttps = 706;
+    private const int Local = 702, NotOnCard = 703, TenantPattern = 704, Plain = 705, NoHttps = 706, EmptyArray = 708;
 
     private sealed class Capture : ILoggerProvider
     {
@@ -133,6 +134,39 @@ public class CardInterfaceCheckTests
         var log = await StartAsync(Environments.Production, publicBaseUrl: new Uri("https://agent.example"));
 
         Assert.Empty(log.Of(TenantPattern));
+    }
+
+    [Fact]
+    public async Task A_card_with_every_required_array_filled_gives_no_array_warning()
+    {
+        var log = await StartAsync(Environments.Development);
+
+        Assert.Empty(log.Of(EmptyArray));
+    }
+
+    [Fact]
+    public async Task Each_empty_required_array_of_the_card_warns_in_every_environment()
+    {
+        var log = await StartAsync(Environments.Development, card: c =>
+        {
+            c.DefaultInputModes = [];
+            c.DefaultOutputModes = [];
+            c.Skills = [new AgentSkill { Id = "a", Name = "A", Description = "a", Tags = ["x"] }, new AgentSkill { Id = "b", Name = "B", Description = "b" }];
+        });
+
+        var warnings = log.Of(EmptyArray);
+        Assert.Equal(3, warnings.Count);
+        Assert.Contains(warnings, m => m.Contains("defaultInputModes", StringComparison.Ordinal));
+        Assert.Contains(warnings, m => m.Contains("defaultOutputModes", StringComparison.Ordinal));
+        Assert.Contains(warnings, m => m.Contains("skills[id=b].tags", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_card_with_no_skills_warns()
+    {
+        var log = await StartAsync(Environments.Production, card: c => c.Skills = []);
+
+        Assert.Contains("skills is empty", Assert.Single(log.Of(EmptyArray)), StringComparison.Ordinal);
     }
 
     [Fact]

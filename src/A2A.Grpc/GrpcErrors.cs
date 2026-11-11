@@ -21,6 +21,9 @@ public static class GrpcErrors
     /// <summary>Metadata key for the A2A-Extensions service parameter.</summary>
     public const string ExtensionsKey = "a2a-extensions";
 
+    /// <summary>The metadata key of the authentication challenge on an UNAUTHENTICATED status (spec 3.3.2, 7.4).</summary>
+    public const string AuthChallengeKey = "www-authenticate";
+
     /// <summary>Metadata key for the idempotency key of SendMessage (the <c>Idempotency-Key</c> header of the HTTP bindings).</summary>
     public const string IdempotencyKeyKey = "idempotency-key";
 
