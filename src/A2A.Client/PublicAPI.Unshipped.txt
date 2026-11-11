@@ -208,6 +208,8 @@ A2A.Client.Credentials.OAuth2ClientCredentialsOptions.Logger.get -> Microsoft.Ex
 A2A.Client.Credentials.OAuth2ClientCredentialsOptions.Logger.set -> void
 A2A.Client.Credentials.OAuth2ClientCredentialsOptions.RequireScopes.get -> bool
 A2A.Client.Credentials.OAuth2ClientCredentialsOptions.RequireScopes.set -> void
+A2A.Client.Cards.UntrustedText.ToHtml() -> string!
+A2A.Client.Cards.UntrustedText.ToMarkdown() -> string!
 A2A.Client.A2AClientTextExtensions
 static A2A.Client.A2AClientTextExtensions.AskAsync(this A2A.Client.IA2AClient! client, string! text, string? contextId = null, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<string!>!
 static A2A.Client.A2AClientTextExtensions.StreamTextAsync(this A2A.Client.IA2AClient! client, string! text, string? contextId = null, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<string!>!

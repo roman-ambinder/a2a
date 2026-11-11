@@ -42,4 +42,31 @@ public readonly struct UntrustedText
     {
         return TextSanitizer.Sanitize(Raw, MaxLength);
     }
+
+    /// <summary>
+    ///     The sanitized text (<see cref="ToString" />), HTML-encoded, for an HTML page: card text cannot add markup or
+    ///     script. Encoding comes after the length cap, so the result can be longer than <see cref="MaxLength" />.
+    /// </summary>
+    public string ToHtml()
+    {
+        return System.Net.WebUtility.HtmlEncode(ToString());
+    }
+
+    /// <summary>
+    ///     The sanitized text (<see cref="ToString" />) with every ASCII punctuation character escaped with a backslash, as
+    ///     CommonMark allows, for Markdown output such as a chat UI: card text cannot add links, images, emphasis or HTML.
+    ///     Escaping comes after the length cap, so the result can be longer than <see cref="MaxLength" />.
+    /// </summary>
+    public string ToMarkdown()
+    {
+        var text = ToString();
+        var sb = new System.Text.StringBuilder(text.Length + 16);
+        foreach (var c in text)
+        {
+            if (c is >= '!' and <= '/' or >= ':' and <= '@' or >= '[' and <= '`' or >= '{' and <= '~') sb.Append('\\');
+            sb.Append(c);
+        }
+
+        return sb.ToString();
+    }
 }

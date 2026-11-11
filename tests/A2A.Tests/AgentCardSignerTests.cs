@@ -25,6 +25,44 @@ public class AgentCardSignerTests
         _ => RSA.Create(2048)
     };
 
+    // ---- values the signature would not cover (S2) ----
+
+    private static AgentCardSigningKey Es256() => new(ECDsa.Create(ECCurve.NamedCurves.nistP256), "k1", "ES256");
+
+    /// <summary>A card with a security requirement that has no scopes: the canonicalization prunes the empty list.</summary>
+    private static AgentCard CardWithPrunedValue()
+    {
+        var card = SigningTests.SampleCard();
+        card.SecurityRequirements = [new SecurityRequirement { Schemes = { ["bearer"] = new StringList() } }];
+        return card;
+    }
+
+    [Fact]
+    public void A_card_with_pruned_values_is_refused_when_asked_and_the_paths_are_named()
+    {
+        var card = CardWithPrunedValue();
+        Assert.NotEmpty(AgentCardCanonicalizer.PrunedPaths(AgentCardCanonicalizer.ToNode(card)));
+
+        var sign = Assert.Throws<ArgumentException>(() => AgentCardSigner.Sign(card, Es256(), refusePrunedValues: true));
+        Assert.Contains("$.securityRequirements", sign.Message);
+        Assert.Equal("card", sign.ParamName);
+        Assert.Throws<ArgumentException>(() => AgentCardSigner.CreateSignature(card, Es256(), refusePrunedValues: true));
+    }
+
+    [Fact]
+    public void Without_the_option_a_card_with_pruned_values_is_signed_around_them()
+    {
+        var card = CardWithPrunedValue();
+        Assert.Single(AgentCardSigner.Sign(card, Es256()).Signatures!);
+        Assert.Single(AgentCardSigner.Sign(card, Es256(), refusePrunedValues: false).Signatures!);
+    }
+
+    [Fact]
+    public void A_card_without_pruned_values_is_signed_with_the_option_on()
+    {
+        Assert.Single(AgentCardSigner.Sign(SigningTests.SampleCard(), Es256(), refusePrunedValues: true).Signatures!);
+    }
+
     // ---- AgentCardSigningKey ----
 
     [Theory]

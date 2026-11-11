@@ -443,6 +443,25 @@ public class HostConfigurationTests
     }
 
     [Fact]
+    public async Task RefusePrunedCardValues_refuses_to_sign_a_card_the_signature_would_not_fully_cover()
+    {
+        // A security requirement with no scopes is pruned by the canonicalization, so the signature would not cover it.
+        var key = new AgentCardSigningKey(System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256), "card-key", "ES256");
+        await using var host = await TestAgentHost.StartAsync(
+            o =>
+            {
+                o.AgentCard.SecuritySchemes = new() { ["bearer"] = SecurityScheme.Bearer() };
+                o.AgentCard.SecurityRequirements = [new SecurityRequirement { Schemes = { ["bearer"] = new StringList() } }];
+            },
+            configureHttp: h => { h.SigningKey = key; h.RefusePrunedCardValues = true; });
+
+        // The test server hands the endpoint's exception to the caller; a real server answers 500 and logs it.
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => host.Http().GetAsync(A2AProtocol.WellKnownAgentCardPath));
+        Assert.Contains("RefusePrunedCardValues", refused.Message);
+        Assert.Contains("$.securityRequirements", refused.Message);
+    }
+
+    [Fact]
     public async Task Agent_card_is_cacheable_signed_and_verifiable_via_jwks()
     {
         var key = new AgentCardSigningKey(System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256),

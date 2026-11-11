@@ -23,7 +23,7 @@ Severity: **High** = breaks or endangers real deployments today. **Med** = needs
 | S5 | Name is display metadata; hosts routing by name are spoofable (6/7 tested impls). | Med | [arXiv 2609.27624](https://arxiv.org/abs/2609.27624) | Client registry keyed by identity (S4); reject duplicate names; warn on homoglyphs. |
 | S6 | Prompt injection via card text reaches planner prompt. | High | MAESTRO [arXiv 2504.16902](https://arxiv.org/html/2504.16902v1); Red Hat, Unit 42 | `AgentCardSanitizer`: length caps, control-char strip, optional escaping; "untrusted text" wrapper type so callers cannot accidentally interpolate raw card strings. |
 
-Status: S1 is done (`CardTrustPolicy`: pinned keys, `jku` host allowlist per origin; a key the card points at by itself is never trusted, and signature enforcement starts once trust is configured, see `spec-decisions.md`). S4 is done (`PeerIdentity`, `IPeerIdentityResolver`). S5 is done (`AgentRegistry`: keyed by identity, duplicate names rejected, lookalike warning). S3 is covered in another form: `IPeerIdentityResolver` runs after the signature and pin checks and refuses a card by throwing, and `CardTrustPolicy.RequireSignature` and `TrustedKeys` require a signature from a known key; there is no built-in org-match helper. Still partial: S2 (the signer signs around the values the canonicalization prunes, instead of refusing them), S6 (`UntrustedText` removes control, bidi and invisible characters and caps the length, but has no optional escaping).
+Status: S1 is done (`CardTrustPolicy`: pinned keys, `jku` host allowlist per origin; a key the card points at by itself is never trusted, and signature enforcement starts once trust is configured, see `spec-decisions.md`). S4 is done (`PeerIdentity`, `IPeerIdentityResolver`). S5 is done (`AgentRegistry`: keyed by identity, duplicate names rejected, lookalike warning). S3 is covered in another form: `IPeerIdentityResolver` runs after the signature and pin checks and refuses a card by throwing, and `CardTrustPolicy.RequireSignature` and `TrustedKeys` require a signature from a known key; there is no built-in org-match helper. S2 is done as an option: `AgentCardSigner.Sign` and `CreateSignature` take `refusePrunedValues`, and `A2AHttpOptions.RefusePrunedCardValues` makes the server refuse to sign such a card (by default it still signs around them and logs warning 800). S6 is done: `UntrustedText.ToHtml()` and `ToMarkdown()` escape the sanitized text for HTML and Markdown output.
 
 ### 1.2 Push notifications
 
@@ -85,7 +85,7 @@ Status: S22, S23, S25, S26, S30, S32 and S33 are done (`TaskStreamer` and SSE re
 | S39 | Progress reporting, cost metadata, priorities, batch. | Low | PR #1448, #2121, #1029 | Not core. Metadata conventions documented, not enforced. |
 | S40 | File size limits / large binary streaming. | Med | inferred | Enforce caps (S20); prefer `url` parts for large files with signed URLs; SSRF guard on `url` part fetch. |
 
-Status: S35 is done (`SkillSelection`, `A2AClient.SelectSkill`, `AgentRequestContext.RequestedSkillId`; design: `docs/superpowers/specs/2026-11-08-s35-skill-selection-design.md`). S36 is done (`A2ACardResolver` cache and pinning). S40 is done (caps from `A2ALimits`, `SafeHttp.DownloadAsync` for `url` parts). Its storage side, large artifacts in an object store, is built in `A2A.Server` with the in-memory provider, the `MapA2AArtifacts` download route and `A2AArtifactDownloader`; the S3 (`A2A.Server.Storage.S3`) and Azure Blob (`A2A.Server.Storage.AzureBlob`) providers ship too: S3 downloads use presigned URLs, and Azure uses SAS URLs when the client holds the account key (otherwise the server proxies the download) (design: `docs/superpowers/specs/2026-11-08-artifact-object-store-design.md`; guide: `docs/site/guides/artifact-storage.md`). S39 is open (no metadata conventions written down).
+Status: S35 is done (`SkillSelection`, `A2AClient.SelectSkill`, `AgentRequestContext.RequestedSkillId`; design: `docs/superpowers/specs/2026-11-08-s35-skill-selection-design.md`). S36 is done (`A2ACardResolver` cache and pinning). S40 is done (caps from `A2ALimits`, `SafeHttp.DownloadAsync` for `url` parts). Its storage side, large artifacts in an object store, is built in `A2A.Server` with the in-memory provider, the `MapA2AArtifacts` download route and `A2AArtifactDownloader`; the S3 (`A2A.Server.Storage.S3`) and Azure Blob (`A2A.Server.Storage.AzureBlob`) providers ship too: S3 downloads use presigned URLs, and Azure uses SAS URLs when the client holds the account key (otherwise the server proxies the download) (design: `docs/superpowers/specs/2026-11-08-artifact-object-store-design.md`; guide: `docs/site/guides/artifact-storage.md`). S39 is done in the form the row planned (documented, not enforced): [Metadata keys](site/guides/metadata.md) lists every key the SDK reads or writes, cost is `a2a.usage`, and progress goes in working status messages; the guide says that neither the spec nor the SDK defines priority or batch keys.
 Status: S38 is done (`Elicitation`, `TaskUpdater.RequireInputAsync(context, form, text)`, `AgentRequestContext.ElicitationAnswer`, `A2AClient` helpers `UseElicitation`, `GetElicitationForm`, `AnswerElicitationAsync`; design: `docs/superpowers/specs/2026-11-08-s38-elicitation-design.md`).
 
 ---
@@ -226,12 +226,9 @@ Checked against the code on 2026-11-11. Everything else in Parts 1 to 3 is done,
 
 | # | What is still missing |
 |---|---|
-| S2 | The card signer signs around pruned (empty) values instead of refusing them. |
-| S6 | No optional escaping of card text (`UntrustedText` sanitizes and caps only). |
 | S11 | Push retry is options only; no pluggable retry policy. |
 | S24 | `SendMessageAsync` has no automatic fallback to streaming or polling (`AskAsync` polls). |
 | S34 | No `traceparent` in message metadata (headers only). |
-| S39 | No written metadata conventions for progress, cost, priority or batch. |
 | D1 | No Cosmos store. |
 | D2 | No mutation id per store write. |
 | D3 | No Azure Service Bus event bus. |

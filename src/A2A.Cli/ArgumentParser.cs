@@ -86,6 +86,9 @@ internal sealed class ParsedArgs
 /// </summary>
 internal static class ArgumentParser
 {
+    /// <summary>Task ids are random base64url, so some start with a dash and look like an option.</summary>
+    private const string DashHint = " If it is a value that starts with a dash, such as a task id, put -- before it.";
+
     public static bool HasHelp(IEnumerable<string> args)
     {
         foreach (var a in args)
@@ -118,7 +121,7 @@ internal static class ArgumentParser
                 var name = eq < 0 ? arg[2..] : arg[2..eq];
                 if (eq >= 0) inline = arg[(eq + 1)..];
                 option = options.FirstOrDefault(o => o.Name == name)
-                         ?? throw CliException.Usage($"Unknown option '--{name}'.");
+                         ?? throw CliException.Usage($"Unknown option '--{name}'.{DashHint}");
             }
             else if (arg.Length > 1 && arg[0] == '-')
             {
@@ -126,7 +129,7 @@ internal static class ArgumentParser
                 var shortName = arg[1..(eq < 0 ? arg.Length : eq)];
                 if (eq >= 0) inline = arg[(eq + 1)..];
                 option = shortName.Length == 1 ? options.FirstOrDefault(o => o.Short == shortName[0]) : null;
-                if (option is null) throw CliException.Usage($"Unknown option '-{shortName}'.");
+                if (option is null) throw CliException.Usage($"Unknown option '-{shortName}'.{DashHint}");
             }
             else
             {
