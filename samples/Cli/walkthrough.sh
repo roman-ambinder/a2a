@@ -40,9 +40,14 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 
-# The agent URL for every command. --allow-http is needed for an http:// URL; the key still goes only to loopback.
+# The agent URL for every command. --allow-http is needed for an http:// URL; the key still goes only to loopback. It goes
+# right after the command name, so that it stays an option when a command ends its options with "--".
 export A2A_AGENT_URL="$URL/"
-a2a() { dotnet run --project src/A2A.Cli -c Release --no-build -- "$@" --allow-http; }
+a2a() {
+  local command="$1"
+  shift
+  dotnet run --project src/A2A.Cli -c Release --no-build -- "$command" --allow-http "$@"
+}
 
 # check <expected exit code> <what> <command...>: runs the command, prints its output, compares the exit code.
 check() {
@@ -82,8 +87,9 @@ if [ -z "$task_id" ]; then
   echo "  -> FAIL: no task id in the answer"
   failures=$((failures + 1))
 else
-  check 0 "cancel" cancel "$task_id"
-  check 0 "get" get "$task_id"
+  # "--" ends the options: a task id is random base64url, so about one in 64 starts with a dash.
+  check 0 "cancel" cancel -- "$task_id"
+  check 0 "get" get -- "$task_id"
   grep -q "^State: *Canceled" "$LOGS/out" || { echo "  -> FAIL: the task is not canceled"; failures=$((failures + 1)); }
   check 0 "list" list --page-size 5
 fi

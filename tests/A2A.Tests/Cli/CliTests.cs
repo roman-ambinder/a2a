@@ -249,6 +249,20 @@ public sealed class CliTests
     }
 
     [Fact]
+    public async Task A_task_id_that_starts_with_a_dash_needs_the_end_of_options_marker()
+    {
+        // Task ids are random base64url, so about one in 64 starts with '-'.
+        await using var host = await StartAsync();
+
+        var bare = await RunAsync(host, ["get", "-xO7Vwxw2o-Pj7-6B5ZF1g"]);
+        Assert.Equal(2, bare.Code);
+        Assert.Contains("put -- before it", bare.Error);
+
+        var marked = await RunAsync(host, ["get", "--", "-xO7Vwxw2o-Pj7-6B5ZF1g"]);
+        Assert.Equal(5, marked.Code); // the id reached the agent, which has no such task
+    }
+
+    [Fact]
     public async Task No_arguments_is_a_usage_error()
     {
         await using var host = await StartAsync();

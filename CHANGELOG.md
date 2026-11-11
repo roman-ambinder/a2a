@@ -242,6 +242,17 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- CLI walkthrough (`samples/Cli/walkthrough.sh`): passes the task id after `--`, and puts `--allow-http` right after the
+  command name. Task ids are random base64url, so about one in 64 starts with a dash; such an id was read as an unknown
+  option and three checks failed (seen once in CI). The `a2a` error for an unknown option now says to put `--` before a
+  value that starts with a dash.
+- Card signing: new `AgentCardSigner.Sign` and `CreateSignature` overloads with `refusePrunedValues`, and
+  `A2AHttpOptions.RefusePrunedCardValues` (default false). With it, a card that has values the signature would not cover
+  (empty lists and objects the canonicalization removes) is refused, naming their paths, instead of signed around them.
+- Client: `UntrustedText.ToHtml()` and `ToMarkdown()` escape card text for HTML pages and Markdown output, so a card
+  cannot inject markup, links or formatting.
+- Docs: new [Metadata keys](docs/site/guides/metadata.md) guide: every metadata key the SDK reads or writes, cost
+  (`a2a.usage`), progress, and naming your own keys.
 - Server: a stream whose re-authorization (`StreamReauthInterval`) is denied now ends with the error a new request would
   get, `TaskNotFound` for a task-scoped stream (it does not confirm the task exists) or `PermissionDenied`, instead of
   ending quietly. The denial is logged and audited as before.

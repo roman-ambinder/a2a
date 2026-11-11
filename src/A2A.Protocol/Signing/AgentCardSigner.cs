@@ -48,8 +48,21 @@ public static class AgentCardSigner
     /// <summary>Returns a copy of <paramref name="card" /> with a new signature appended.</summary>
     public static AgentCard Sign(AgentCard card, AgentCardSigningKey key)
     {
+        return Sign(card, key, false);
+    }
+
+    /// <summary>
+    ///     Returns a copy of <paramref name="card" /> with a new signature appended. With
+    ///     <paramref name="refusePrunedValues" />, a card that has values the signature would not cover (see
+    ///     <see cref="AgentCardCanonicalizer.PrunedPaths" />) is refused instead of signed around them.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    ///     <paramref name="refusePrunedValues" /> is true and the card has such values; the message names their paths.
+    /// </exception>
+    public static AgentCard Sign(AgentCard card, AgentCardSigningKey key, bool refusePrunedValues)
+    {
         var signed = A2AJson.Clone(card);
-        var signature = CreateSignature(card, key);
+        var signature = CreateSignature(card, key, refusePrunedValues);
         signed.Signatures = [.. card.Signatures ?? [], signature];
         return signed;
     }
@@ -64,6 +77,21 @@ public static class AgentCardSigner
     /// </remarks>
     public static AgentCardSignature CreateSignature(AgentCard card, AgentCardSigningKey key)
     {
+        return CreateSignature(card, key, false);
+    }
+
+    /// <summary>
+    ///     Creates a detached JWS signature over <see cref="AgentCardCanonicalizer.Canonicalize" /> of
+    ///     <paramref name="card" />. With <paramref name="refusePrunedValues" />, a card that has values the signature would
+    ///     not cover (see <see cref="AgentCardCanonicalizer.PrunedPaths" />) is refused instead of signed around them.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    ///     <paramref name="refusePrunedValues" /> is true and the card has such values; the message names their paths.
+    /// </exception>
+    public static AgentCardSignature CreateSignature(AgentCard card, AgentCardSigningKey key, bool refusePrunedValues)
+    {
+        if (refusePrunedValues && PrunedValuesProblem(card) is { } problem)
+            throw new ArgumentException(problem, nameof(card));
         var payload = AgentCardCanonicalizer.Canonicalize(AgentCardCanonicalizer.ToNode(card));
         var header = new Dictionary<string, string> { ["alg"] = key.Algorithm, ["typ"] = "JOSE", ["kid"] = key.KeyId };
         if (key.JwksUrl is not null) header["jku"] = key.JwksUrl;
@@ -71,6 +99,19 @@ public static class AgentCardSigner
         var signingInput = Encoding.ASCII.GetBytes(protectedB64 + "." + Base64Url.Encode(payload));
         var sig = JwsAlgorithms.Sign(key.Algorithm, key.Key, signingInput);
         return new AgentCardSignature { Protected = protectedB64, Signature = Base64Url.Encode(sig) };
+    }
+
+    /// <summary>
+    ///     A message naming the values of <paramref name="card" /> that the signature would not cover, or null when it has
+    ///     none. Shared by the signer and the server's <c>RefusePrunedCardValues</c>.
+    /// </summary>
+    internal static string? PrunedValuesProblem(AgentCard card)
+    {
+        var pruned = AgentCardCanonicalizer.PrunedPaths(AgentCardCanonicalizer.ToNode(card));
+        return pruned.Count == 0
+            ? null
+            : "The Agent Card has values a signature would not cover, because the canonicalization removes them: " +
+              string.Join(", ", pruned) + ". Remove them, or give them content.";
     }
 }
 

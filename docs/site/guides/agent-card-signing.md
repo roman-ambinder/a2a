@@ -81,7 +81,7 @@ What the resolver does:
 
 <xref:A2A.Client.ResolvedAgentCard> holds the card, the raw JSON, the source, the verification result, and `Identity`. `Identity` is a <xref:A2A.Client.Peers.PeerIdentity>: the origin and the signing kid, with `Assurance` marking how strong it is. `AgentRegistry` in `A2A.Client.Peers` is keyed by it. Use it as the peer identity, not the card's `name`.
 
-Text from a card is untrusted. `Description` and each skill's name, description and examples are <xref:A2A.Client.Cards.UntrustedText>. `ToString()` removes control, bidi, zero-width and tag characters and cuts the text to 2000 characters (<xref:A2A.Client.A2ACardResolverOptions.MaxCardTextLength>). `Raw` is the text as received. Use the sanitized form when you show it or put it in a prompt.
+Text from a card is untrusted. `Description` and each skill's name, description and examples are <xref:A2A.Client.Cards.UntrustedText>. `ToString()` removes control, bidi, zero-width and tag characters and cuts the text to 2000 characters (<xref:A2A.Client.A2ACardResolverOptions.MaxCardTextLength>). `Raw` is the text as received. Use the sanitized form when you show it or put it in a prompt. On an HTML page use `ToHtml()`, and in Markdown output (a chat UI) use `ToMarkdown()`: both escape the sanitized text, so a card cannot add markup, links or formatting.
 
 ## Card pinning
 
@@ -104,7 +104,7 @@ The signed payload is the card reduced to the A2A v1.0 card schema, with empty v
 - Members that are not in the v1.0 schema are **not covered**. This includes fields from newer versions, extensions, and v0.3 compatibility fields.
 - Empty values (`null`, `""`, `[]`, `{}`) are removed, so they are not covered. `false` is removed from `AgentExtension.required` and `pkceRequired`. Other booleans keep `false`.
 - `signatures` is not part of the payload.
-- The server logs a warning once for each set of pruned paths it finds, and still signs.
+- The server logs a warning once for each set of pruned paths it finds, and still signs. Set `A2AHttpOptions.RefusePrunedCardValues = true` to refuse instead: serving such a card then fails with an `InvalidOperationException` that names the paths. Outside the server, `AgentCardSigner.Sign(card, key, refusePrunedValues: true)` does the same with an `ArgumentException`.
 - A verified card with a member that matches a v1.0 field only when case is ignored fails verification.
 
 Do not trust anything in a signed card that the signature does not cover. The resolver builds the model from the signed content only, so such fields never reach your code.

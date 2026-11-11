@@ -13,6 +13,14 @@ public sealed class A2AHttpOptions
     /// </summary>
     public AgentCardSigningKey? SigningKey { get; set; }
 
+    /// <summary>
+    ///     When true, a card that has values its signature would not cover (empty lists and objects that the
+    ///     canonicalization removes, see <see cref="AgentCardCanonicalizer.PrunedPaths" />) is refused instead of signed
+    ///     around them: serving it fails with an <see cref="InvalidOperationException" /> that names their paths. Only
+    ///     signed cards are checked. Default false, which signs around them and logs warning 800.
+    /// </summary>
+    public bool RefusePrunedCardValues { get; set; }
+
     /// <summary>Path where the public key set of <see cref="SigningKey" /> is served. Default <c>/.well-known/jwks.json</c>.</summary>
     public string JwksPath { get; set; } = "/.well-known/jwks.json";
 

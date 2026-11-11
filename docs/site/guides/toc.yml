@@ -72,6 +72,8 @@
   href: production-checklist.md
 - name: Spec decisions
   href: spec-decisions.md
+- name: Metadata keys
+  href: metadata.md
 - name: Command line tool
   href: cli.md
 - name: Versioning
