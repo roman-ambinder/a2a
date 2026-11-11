@@ -222,6 +222,14 @@ public sealed class A2ACardResolver
         if (cached?.ETag is not null) request.Headers.IfNoneMatch.Add(cached.ETag);
 
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        // Trust is bound to the origin of the card URL. An HttpClient that follows redirects must not let a card served
+        // by another origin be verified, pinned and identified as this one's. A redirect within the origin changes nothing.
+        if (response.RequestMessage?.RequestUri is { IsAbsoluteUri: true } final &&
+            !string.Equals(CardTrustPolicy.OriginOf(final), CardTrustPolicy.OriginOf(uri), StringComparison.Ordinal))
+            throw new A2AException(A2AErrorCode.InvalidAgentResponse,
+                $"The Agent Card request for {CardTrustPolicy.OriginOf(uri)} was redirected to {CardTrustPolicy.OriginOf(final)}. " +
+                "A card is only accepted from the origin it was asked for: use an HttpClient whose handler sets " +
+                "AllowAutoRedirect = false, or the card's final URL.");
         if (response.StatusCode == HttpStatusCode.NotModified && cached is not null)
         {
             var refreshed = cached with { Expires = Expiry(response) };

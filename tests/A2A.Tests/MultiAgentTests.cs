@@ -320,16 +320,33 @@ public sealed class ControlledCards : TenantCardProvider
     /// <summary>Card calls for this tenant throw.</summary>
     public string? FailingTenant { get; set; }
 
+    /// <summary>
+    /// While set, every card call for <see cref="SlowTenant"/> posts a hold here and waits until the test completes it, so a
+    /// test can check, call by call, what the caller holds while the provider is slow.
+    /// </summary>
+    public System.Threading.Channels.Channel<TaskCompletionSource>? Holds { get; set; }
+
+    /// <summary>The served card accepts artifacts written by the client (A2A 1.1).</summary>
+    public bool UserArtifacts { get; set; }
+
     public override async ValueTask<AgentCard?> GetCardAsync(AgentRequestScope scope, CancellationToken cancellationToken)
     {
         Interlocked.Increment(ref _calls);
         if (scope.Tenant == FailingTenant) throw new InvalidOperationException("card store down");
+        if (scope.Tenant == SlowTenant && Holds is { } holds)
+        {
+            var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await holds.Writer.WriteAsync(hold, cancellationToken);
+            await hold.Task.WaitAsync(cancellationToken);
+        }
         if (scope.Tenant == SlowTenant && Block is { } block)
         {
             Blocked.TrySetResult();
             await block.Task.WaitAsync(cancellationToken);
         }
-        return TestAgentHost.DefaultCard();
+        var card = TestAgentHost.DefaultCard();
+        if (UserArtifacts) card.Capabilities.UserArtifacts = true;
+        return card;
     }
 }
 
@@ -373,7 +390,10 @@ public class MultiAgentResolutionTests : IAsyncLifetime
 
     private int IdempotencyEntries => ((Server.Idempotency.InMemoryIdempotencyStore)_host.App.Services.GetRequiredService<Server.Idempotency.IdempotencyStore>()).Count;
 
-    private async Task<Server.Storage.TaskKey> StoreInterruptedTaskAsync(string tenant, string taskId)
+    private Task<Server.Storage.TaskKey> StoreInterruptedTaskAsync(string tenant, string taskId) =>
+        StoreInterruptedTaskAsync(Tasks, tenant, taskId);
+
+    private static async Task<Server.Storage.TaskKey> StoreInterruptedTaskAsync(Server.Storage.TaskStore tasks, string tenant, string taskId)
     {
         var key = new Server.Storage.TaskKey(tenant, "alice", taskId);
         var now = DateTimeOffset.UtcNow;
@@ -383,7 +403,7 @@ public class MultiAgentResolutionTests : IAsyncLifetime
             Status = new AgentTaskStatus { State = TaskState.InputRequired, Timestamp = now },
             History = [new Message { MessageId = "m0-" + taskId, Role = Role.User, Parts = [Part.FromText("first")], TaskId = taskId, ContextId = "c-" + taskId }],
         };
-        await Tasks.CreateAsync(new Server.Storage.TaskRecord(tenant, "alice", task, 0, now, now));
+        await tasks.CreateAsync(new Server.Storage.TaskRecord(tenant, "alice", task, 0, now, now));
         return key;
     }
 
@@ -492,6 +512,67 @@ public class MultiAgentResolutionTests : IAsyncLifetime
             _cards.Block.TrySetResult();
         }
         Assert.True(await slow.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    [Fact]
+    public async Task A_slow_card_provider_holds_no_task_lock_while_client_artifacts_are_stored()
+    {
+        // A2A 1.1 SendMessage with artifactUpdates and no message: the tenant's push capability must be resolved before the
+        // task lock, or a slow card provider stalls every task on the same lock stripe.
+        var cards = new ControlledCards { UserArtifacts = true };
+        await using var host = await TestAgentHost.StartAsync(o => o.EnableProtocolV11(), services: s =>
+        {
+            s.AddA2AServer();
+            s.AddSingleton<TenantCardProvider>(cards);
+            s.AddSingleton<AgentExecutorResolver>(new ControlledAgents());
+        });
+        var handler = host.Engine;
+        var tasks = host.App.Services.GetRequiredService<Server.Storage.TaskStore>();
+        var slowKey = await StoreInterruptedTaskAsync(tasks, "slow", "t-slow-artifacts");
+        var other = Enumerable.Range(0, 10_000).Select(i => "t-other-" + i)
+            .First(id => handler.LockStripe("acme", id) == handler.LockStripe("slow", slowKey.TaskId));
+        var otherKey = await StoreInterruptedTaskAsync(tasks, "acme", other);
+
+        cards.Holds = System.Threading.Channels.Channel.CreateUnbounded<TaskCompletionSource>();
+        var upload = new
+        {
+            jsonrpc = "2.0", id = 1, method = "SendMessage",
+            @params = new
+            {
+                tenant = "slow",
+                artifactUpdates = new[] { new { taskId = slowKey.TaskId, artifact = new { artifactId = "in-1", parts = new[] { new { text = "data" } } } } },
+            },
+        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/a2a")
+        {
+            Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(upload), System.Text.Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add(A2AProtocol.Headers.Version, "1.1");
+        var slow = host.Http("alice").SendAsync(request);
+
+        // Every card call of the request is held in turn. While each one waits, a task of another tenant on the same lock
+        // stripe must still get its lock.
+        var held = 0;
+        while (true)
+        {
+            var arrival = cards.Holds.Reader.ReadAsync().AsTask();
+            if (await Task.WhenAny(arrival, slow).WaitAsync(TimeSpan.FromSeconds(10)) == slow && !arrival.IsCompleted) break;
+            var hold = await arrival;
+            held++;
+            try
+            {
+                using var _ = await handler.LockAsync(otherKey, CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                hold.TrySetResult();
+            }
+        }
+        Assert.True(held > 0, "The request never asked for the card.");
+        using var response = await slow;
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("\"error\"", body);
+        Assert.Single((await tasks.GetAsync(slowKey))!.Task.Artifacts!);
     }
 
     [Fact]

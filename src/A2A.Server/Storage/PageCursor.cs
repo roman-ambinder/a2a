@@ -38,7 +38,7 @@ public static class PageCursor
             if (bar <= 0) throw new FormatException();
             return (long.Parse(s[..bar], CultureInfo.InvariantCulture), s[(bar + 1)..]);
         }
-        catch (FormatException)
+        catch (Exception e) when (e is FormatException or OverflowException) // OverflowException: ticks out of range
         {
             throw A2AException.InvalidParams("pageToken is invalid");
         }

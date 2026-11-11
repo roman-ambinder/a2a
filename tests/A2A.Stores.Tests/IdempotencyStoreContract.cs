@@ -296,6 +296,103 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         Assert.IsType<IdempotencyResult.New>(await other.TryBeginAsync(Scope, Hash));
     }
 
+    /// <summary>
+    /// Holds a row lock on the claim so <paramref name="taker" />'s stale-claim delete blocks on it, then runs
+    /// <paramref name="ownerAct" /> (the owner's late write) in that transaction and commits. The blocked delete then re-checks
+    /// its condition against the changed row, as an owner writing between the taker's read and its delete would make it.
+    /// </summary>
+    private async Task<IdempotencyResult> TakeOverWhileTheOwnerWritesAsync(PostgresStoreOptions schema,
+        PostgresIdempotencyStore taker, Func<Npgsql.NpgsqlConnection, Npgsql.NpgsqlTransaction, string, Task> ownerAct)
+    {
+        var table = $"\"{schema.Schema}\".a2a_idempotency";
+        await using var conn = await db.DataSource.OpenConnectionAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+        await using (var lockRow = new Npgsql.NpgsqlCommand($"SELECT 1 FROM {table} WHERE key = '{Scope.Key}' FOR UPDATE", conn, tx))
+            await lockRow.ExecuteNonQueryAsync();
+
+        var takeOver = taker.TryBeginAsync(Scope, Hash).AsTask();
+        // Wait until the taker's DELETE is waiting for the row lock.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (true)
+        {
+            await using var probe = db.DataSource.CreateCommand(
+                "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'DELETE FROM%' AND query LIKE $1");
+            probe.Parameters.AddWithValue("%" + schema.Schema + "%");
+            if ((long)(await probe.ExecuteScalarAsync())! > 0) break;
+            Assert.False(takeOver.IsCompleted, "The take-over finished without waiting on the row lock.");
+            Assert.True(DateTime.UtcNow < deadline, "The take-over never tried to delete the claim.");
+            await Task.Delay(10);
+        }
+
+        await ownerAct(conn, tx, table);
+        await tx.CommitAsync();
+        return await takeOver.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task A_claim_renewed_after_another_instance_saw_it_stale_is_not_taken_over()
+    {
+        var clock = new FakeTimeProvider();
+        var schema = await db.NewSchemaAsync(clock);
+        schema.IdempotencyClaimTimeout = TimeSpan.FromMinutes(5);
+        var owner = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
+        var taker = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
+        await BeginAsync(owner);
+        clock.Advance(TimeSpan.FromMinutes(6)); // the claim looks stale to the taker
+
+        var result = await TakeOverWhileTheOwnerWritesAsync(schema, taker, async (conn, tx, table) =>
+        {
+            // The owner's heartbeat (RenewAsync) lands after the taker read the row.
+            await using var renew = new Npgsql.NpgsqlCommand($"UPDATE {table} SET claimed_ticks = $1 WHERE key = $2 AND outcome IS NULL", conn, tx);
+            renew.Parameters.AddWithValue(clock.GetUtcNow().UtcTicks);
+            renew.Parameters.AddWithValue(Scope.Key);
+            Assert.Equal(1, await renew.ExecuteNonQueryAsync());
+        });
+
+        Assert.IsType<IdempotencyResult.InProgress>(result);
+    }
+
+    [Fact]
+    public async Task A_claim_completed_after_another_instance_saw_it_stale_keeps_its_outcome()
+    {
+        var clock = new FakeTimeProvider();
+        var schema = await db.NewSchemaAsync(clock);
+        schema.IdempotencyClaimTimeout = TimeSpan.FromMinutes(5);
+        var owner = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
+        var taker = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
+        await BeginAsync(owner);
+        // A finished entry of another key supplies a well-formed outcome to copy.
+        var donor = new IdempotencyScope(Scope.Tenant, Scope.Principal, "donor");
+        await owner.CompleteAsync(donor, await BeginAsync(owner, donor), new IdempotencyOutcome.TaskCreated("task-1"));
+        clock.Advance(TimeSpan.FromMinutes(6));
+
+        var result = await TakeOverWhileTheOwnerWritesAsync(schema, taker, async (conn, tx, table) =>
+        {
+            // The owner's CompleteAsync lands after the taker read the row.
+            await using var complete = new Npgsql.NpgsqlCommand(
+                $"UPDATE {table} SET outcome = (SELECT outcome FROM {table} WHERE key = 'donor'), expires_ticks = $1 WHERE key = $2 AND outcome IS NULL", conn, tx);
+            complete.Parameters.AddWithValue((clock.GetUtcNow() + TimeSpan.FromHours(24)).UtcTicks);
+            complete.Parameters.AddWithValue(Scope.Key);
+            Assert.Equal(1, await complete.ExecuteNonQueryAsync());
+        });
+
+        var done = Assert.IsType<IdempotencyResult.Completed>(result);
+        Assert.Equal("task-1", Assert.IsType<IdempotencyOutcome.TaskCreated>(done.Outcome).TaskId);
+    }
+
+    [Fact]
+    public async Task Waiting_on_a_running_claim_stops_when_the_waiter_is_cancelled()
+    {
+        var store = await CreateStoreAsync(new IdempotencyOptions());
+        await BeginAsync(store); // never finishes
+        using var cts = new CancellationTokenSource();
+        var running = Assert.IsType<IdempotencyResult.InProgress>(await store.TryBeginAsync(Scope, Hash, cts.Token));
+
+        await cts.CancelAsync();
+        // The poll loop must end with the caller instead of polling the database until the owner finishes.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running.Completion.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
     [Fact]
     public async Task Waiter_on_another_instance_sees_the_outcome()
     {

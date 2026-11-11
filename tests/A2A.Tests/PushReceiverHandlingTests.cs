@@ -260,6 +260,48 @@ public class PushReceiverHandlingTests
     }
 
     [Fact]
+    public async Task A_signed_replay_with_a_changed_unsigned_delivery_id_is_still_a_duplicate()
+    {
+        // The signature covers webhook-id, not X-A2A-Delivery-Id. A replay that changes only the unsigned header must not
+        // get a fresh de-duplication key.
+        var clock = new ManualClock();
+        var receiver = new PushNotificationReceiver(clock);
+        var calls = 0;
+        Task Handler(PushDelivery d, CancellationToken ct) { calls++; return Task.CompletedTask; }
+        var body = Body();
+
+        var first = SignedHeaders(clock, "d1", body);
+        first[A2AProtocol.Headers.DeliveryId] = "d1";
+        Assert.Equal(PushHandleOutcome.Handled, (await receiver.HandleAsync(first, body, Handler, signingSecret: Secret)).Outcome);
+
+        var replay = SignedHeaders(clock, "d1", body);
+        replay[A2AProtocol.Headers.DeliveryId] = "forged";
+        var result = await receiver.HandleAsync(replay, body, Handler, signingSecret: Secret);
+
+        Assert.Equal(PushHandleOutcome.Duplicate, result.Outcome);
+        Assert.Equal("d1", result.DeliveryId);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task A_signed_delivery_without_an_A2A_delivery_id_header_keeps_the_same_key_as_one_with_it()
+    {
+        var clock = new ManualClock();
+        var receiver = new PushNotificationReceiver(clock);
+        var calls = 0;
+        Task Handler(PushDelivery d, CancellationToken ct) { calls++; return Task.CompletedTask; }
+        var body = Body();
+
+        var withHeader = SignedHeaders(clock, "d1", body);
+        withHeader[A2AProtocol.Headers.DeliveryId] = "d1";
+        await receiver.HandleAsync(withHeader, body, Handler, signingSecret: Secret);
+        var without = await receiver.HandleAsync(SignedHeaders(clock, "d1", body), body, Handler, signingSecret: Secret);
+
+        Assert.Equal(PushHandleOutcome.Duplicate, without.Outcome);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
     public async Task Token_and_signature_must_both_match_when_both_are_given()
     {
         var clock = new ManualClock();

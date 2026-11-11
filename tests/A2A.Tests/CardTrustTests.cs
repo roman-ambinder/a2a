@@ -452,6 +452,40 @@ public class CardTrustTests
         Assert.Equal("Signer", resolved.Card.Name);
     }
 
+    /// <summary>What an auto-redirecting handler reports: the request now points at the redirect target.</summary>
+    private sealed class RedirectingCardServer(string json, Uri target) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            request.RequestUri = target;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                RequestMessage = request,
+                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+            });
+        }
+    }
+
+    [Fact]
+    public async Task A_card_served_from_another_origin_after_a_redirect_is_refused()
+    {
+        // An HttpClient that follows redirects (the default) must not let another origin's card be credited to this one.
+        var http = new HttpClient(new RedirectingCardServer(Unsigned(), new Uri("https://evil.example/card.json")));
+        var ex = await Assert.ThrowsAsync<A2AException>(() => new A2ACardResolver(http).ResolveAsync(AgentUrl));
+
+        Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
+        Assert.Contains("https://evil.example", ex.Message);
+    }
+
+    [Fact]
+    public async Task A_redirect_within_the_same_origin_is_accepted()
+    {
+        var http = new HttpClient(new RedirectingCardServer(Unsigned(), new Uri(Origin + "/cards/agent.json")));
+        var resolved = await new A2ACardResolver(http).ResolveAsync(AgentUrl);
+
+        Assert.Equal(new PeerIdentity(Origin), resolved.Identity);
+    }
+
     [Fact]
     public async Task Unsigned_card_rejected_once_trust_is_configured_unless_opted_out()
     {
