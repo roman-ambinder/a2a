@@ -211,7 +211,7 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
         }
         catch (Exception ex) when (ex is not RpcException)
         {
-            throw _support.Fail(ex, context, call, false);
+            throw await _support.FailAsync(ex, context, call, false).ConfigureAwait(false);
         }
     }
 
@@ -267,7 +267,7 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
         {
             // gRPC carries the status in trailers, so errors after the first message still reach the client cleanly.
             // A stream that sent its first event already echoed the extensions in the initial metadata.
-            throw _support.Fail(ex, context, call, headersSent);
+            throw await _support.FailAsync(ex, context, call, headersSent).ConfigureAwait(false);
         }
     }
 }

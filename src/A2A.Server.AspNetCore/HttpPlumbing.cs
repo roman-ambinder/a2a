@@ -226,11 +226,21 @@ internal static partial class HttpPlumbing
     public static async ValueTask SetAuthChallengeAsync(HttpContext http, A2AException ex, ServerCallContext call)
     {
         if (ex.Code != A2AErrorCode.Unauthenticated || http.Response.HasStarted) return;
-        var card = await ChallengeCardAsync(http, call).ConfigureAwait(false);
+        var scheme = await AuthChallengeSchemeAsync(http, call).ConfigureAwait(false);
         if (http.Response.HasStarted) return;
-        var scheme = card?.SecuritySchemes?.Values.Select(s => (s as HttpAuthScheme)?.Value.Scheme)
-            .FirstOrDefault(s => s is not null) ?? "Bearer";
         http.Response.Headers.WWWAuthenticate = new StringValues(scheme);
+    }
+
+    /// <summary>
+    ///     The scheme an authentication challenge names: the first HTTP auth scheme of the card of the call's tenant, else
+    ///     <c>Bearer</c>. The HTTP bindings send it as <c>WWW-Authenticate</c>, gRPC as <c>www-authenticate</c> metadata.
+    ///     Never throws.
+    /// </summary>
+    public static async ValueTask<string> AuthChallengeSchemeAsync(HttpContext http, ServerCallContext call)
+    {
+        var card = await ChallengeCardAsync(http, call).ConfigureAwait(false);
+        return card?.SecuritySchemes?.Values.Select(s => (s as HttpAuthScheme)?.Value.Scheme)
+            .FirstOrDefault(s => s is not null) ?? "Bearer";
     }
 
     private static async ValueTask<AgentCard?> ChallengeCardAsync(HttpContext http, ServerCallContext call)

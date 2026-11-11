@@ -29,4 +29,17 @@ public static class A2AHttpContextExtensions
             binding = ProtocolBindings.Grpc;
         return HttpPlumbing.CreateCallContext(http, binding);
     }
+
+    /// <summary>
+    ///     The scheme to name in an authentication challenge for <paramref name="call" /> (spec 3.3.2, 7.4): the first HTTP
+    ///     auth scheme of the card of the call's tenant, else <c>Bearer</c>. The JSON-RPC and REST bindings send it as
+    ///     <c>WWW-Authenticate</c>; the gRPC binding sends it as <c>www-authenticate</c> metadata. Never throws for a card
+    ///     that cannot be built: it falls back to the host's card, then to <c>Bearer</c>.
+    /// </summary>
+    public static ValueTask<string> GetA2AAuthChallengeSchemeAsync(this HttpContext http, ServerCallContext call)
+    {
+        ArgumentNullException.ThrowIfNull(http);
+        ArgumentNullException.ThrowIfNull(call);
+        return HttpPlumbing.AuthChallengeSchemeAsync(http, call);
+    }
 }

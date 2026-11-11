@@ -70,10 +70,16 @@ Each config runs only the test classes named in its `test-case-filter`, which ke
 Tests outside the filter do not count, so the score is a lower bound. When you add a test class for one of these
 targets, add it to the filter too.
 
-Mutants inside static initializers are reported as surviving even when a test catches them: with per-test coverage
-off, Stryker runs every mutant in one test process, so a `static readonly` field is built once and never sees the
-mutant. `AgentCardCanonicalizer`'s schema is built that way; check a surviving mutant there by making the change by
-hand and running the tests.
+Do not trust the score of a file whose mutants change `static readonly` data. With per-test coverage off, Stryker runs
+every mutant in one test process, so such a field is built once, with whichever mutant is active at that moment, and
+keeps that value for the rest of the run. It goes wrong both ways:
+
+- Mutants inside the field are reported as surviving even when a test catches them (`AgentCardCanonicalizer`'s schema,
+  `JwsAlgorithms.Supported`).
+- If the field is first built under a mutant that breaks it, every later mutant looks killed. `AwsSigV4RequestSigner`'s
+  list of header names does this: a run reports 100% although a hand-made change can pass every test.
+
+Check such a file by making the change by hand and running the tests.
 
 To run one target locally (Stryker is in the tool manifest; run it from the test project's folder, not the root):
 
