@@ -47,8 +47,10 @@ jobs:
 
       # Run from the test project's folder: from the repository root Stryker finds A2A.slnx and switches to solution mode.
       # The configs use the Microsoft Testing Platform runner: under VSTest the xunit v3 test process never sees the
-      # active mutant, so every mutant "survives". Per-test coverage capture is off (it timed out on this suite), so each
-      # config's test-case-filter keeps the run short by naming the test classes that exercise its target.
+      # active mutant, so every mutant "survives". Each config's test-case-filter keeps the run short by naming the test
+      # classes that exercise its target, and perTest coverage runs each mutant against only the tests that reach it.
+      # Neither fixes code that runs once per test process: that code is excluded with "// Stryker disable all"
+      # comments (CONTRIBUTING.md, Mutation testing).
       - name: Run Stryker
         working-directory: tests/A2A.Tests
         run: dotnet stryker --config-file ../mutation/${{ matrix.target }}.json --output "$RUNNER_TEMP/stryker"

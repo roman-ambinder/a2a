@@ -7,8 +7,10 @@ namespace A2A.Client.Identity.Aws;
 /// <summary>Signs one <see cref="HttpRequestMessage" /> in place. Shared by the handler and the provider.</summary>
 internal sealed class AwsSigV4RequestSigner
 {
+    // Stryker disable all : runs once per test process, so Stryker cannot test a mutant here (CONTRIBUTING.md, Mutation testing)
     private static readonly string[] SignerHeaders =
         ["Authorization", "X-Amz-Date", "X-Amz-Content-SHA256", "X-Amz-Security-Token"];
+    // Stryker restore all
 
     private readonly AWSCredentials? _credentials;
     private readonly long _maxBodyBytes;
