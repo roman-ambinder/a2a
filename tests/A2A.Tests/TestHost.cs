@@ -131,6 +131,25 @@ public sealed class ScenarioAgent : IAgentExecutor
             case "halfway": // starts work, then returns without finishing the task
                 await updater.StartWorkAsync(cancellationToken: ct);
                 break;
+            case "writer": // streams an artifact with ArtifactWriter and completes while the writer is still open
+            {
+                await updater.StartWorkAsync(cancellationToken: ct);
+                await using var writer = updater.OpenArtifact("story", "a short story", "w1");
+                await writer.WriteAsync("once ", ct);
+                await writer.WriteAsync("upon", ct);
+                await updater.CompleteAsync(cancellationToken: ct);
+                break;
+            }
+            case "writer-explicit": // completes the writer itself, then a second writer that never writes
+            {
+                await updater.StartWorkAsync(cancellationToken: ct);
+                var writer = updater.OpenArtifact("a", artifactId: "w2");
+                await writer.WriteAsync("x", ct);
+                await writer.CompleteAsync(ct);
+                await using (updater.OpenArtifact("unused", artifactId: "w3")) { }
+                await updater.CompleteAsync(cancellationToken: ct);
+                break;
+            }
             case "big":
                 await updater.StartWorkAsync(cancellationToken: ct);
                 await updater.AddArtifactAsync([Part.FromText(new string('x', 2048))], name: "big", cancellationToken: ct);

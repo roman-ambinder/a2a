@@ -113,14 +113,13 @@ internal sealed class EchoAgent : IAgentExecutor
         }
 
         await updater.StartWorkAsync("Echoing...", cancellationToken);
-        string? artifactId = null;
+        // The writer creates the artifact on the first write and appends after that; completing the task seals it.
+        await using var echo = updater.OpenArtifact("echo");
         var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         for (var i = 0; i < words.Length; i++)
         {
             await Task.Delay(150, cancellationToken);
-            artifactId = await updater.AddArtifactAsync([Part.FromText((i == 0 ? "" : " ") + words[i])], artifactId,
-                "echo",
-                append: i > 0, lastChunk: i == words.Length - 1, cancellationToken: cancellationToken);
+            await echo.WriteAsync((i == 0 ? "" : " ") + words[i], cancellationToken);
         }
 
         await updater.CompleteAsync(cancellationToken: cancellationToken);

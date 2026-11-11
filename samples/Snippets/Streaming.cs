@@ -42,6 +42,16 @@ internal static class Samples
         #endregion
     }
 
+    public static async Task WriteChunks(TaskUpdater updater, IAsyncEnumerable<string> words, CancellationToken ct)
+    {
+        #region Writer
+        await using var answer = updater.OpenArtifact("answer");
+        await foreach (var word in words.WithCancellation(ct))
+            await answer.WriteAsync(word, ct); // the first write creates the artifact, the next ones append
+        await updater.CompleteAsync(cancellationToken: ct); // sends the last chunk of the open writer first
+        #endregion
+    }
+
     public static async Task SendChunks(TaskUpdater updater, CancellationToken ct)
     {
         #region Chunks

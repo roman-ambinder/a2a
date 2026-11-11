@@ -15,6 +15,9 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - New text and state helpers on the model: `Artifact.GetText()`, `AgentTask.GetText()` (text of all artifacts),
   `SendMessageResponse.GetText()`, `StreamResponse.GetText()` (the text an artifact chunk or a message carries) and
   `StreamResponse.State` (the state of a status update or a task snapshot, so one check sees the end of a task).
+- New `TaskUpdater.OpenArtifact(name)` returns an `ArtifactWriter` that streams one artifact: the first `WriteAsync`
+  creates it, later ones append, and `CompleteAsync` (or disposing the writer) sends the last chunk. A terminal state of
+  the task completes the open writers first, so the artifact is sealed before the task ends. `samples/EchoAgent` uses it.
 - `samples/EchoClient` sends its API key with `AddApiKey` instead of a hand-written handler, and uses the new helpers.
 
 ### Identity providers

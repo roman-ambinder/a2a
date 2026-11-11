@@ -265,6 +265,7 @@ public sealed class TaskUpdater
     private readonly TaskUsageMeter _usage;
     private readonly ChannelWriter<StreamResponse> _writer;
     private Dictionary<string, ArtifactState>? _artifacts; // by artifact id; under _gate
+    private List<ArtifactWriter>? _openWriters; // under _gate
     private bool _replied;
     private bool _taskEmitted;
     private bool _terminal;
@@ -530,6 +531,63 @@ public sealed class TaskUpdater
         Dictionary<string, JsonElement>? metadata = null, CancellationToken cancellationToken = default)
     {
         if (state == TaskState.Unspecified) throw new ArgumentException("State must be specified.", nameof(state));
+        if (state.IsTerminal() && TakeOpenWriters() is { } open)
+            return CompleteWritersThenUpdateAsync(open, state, message, metadata, cancellationToken);
+        return WriteStatusAsync(state, message, metadata, cancellationToken);
+    }
+
+    /// <summary>
+    ///     Opens a writer that streams one artifact chunk by chunk: the first <see cref="ArtifactWriter.WriteAsync(string, CancellationToken)" />
+    ///     creates the artifact, later ones append, and <see cref="ArtifactWriter.CompleteAsync" /> (or disposing it) sends
+    ///     the last chunk. A terminal state (<see cref="CompleteAsync" />, <see cref="FailAsync" />, ...) completes the open
+    ///     writers first.
+    /// </summary>
+    /// <param name="name">Name of the artifact, or null.</param>
+    /// <param name="description">Description of the artifact, or null.</param>
+    /// <param name="artifactId">Id of the artifact, or null for a new one.</param>
+    /// <param name="metadata">Metadata of the artifact, sent with the first chunk. Copied.</param>
+    /// <exception cref="InvalidOperationException">The task is already terminal, or a direct reply was sent.</exception>
+    public ArtifactWriter OpenArtifact(string? name = null, string? description = null, string? artifactId = null,
+        Dictionary<string, JsonElement>? metadata = null)
+    {
+        CheckCanEmit();
+        var writer = new ArtifactWriter(this, artifactId ?? Guid.NewGuid().ToString(), name, description, metadata);
+        lock (_gate)
+        {
+            (_openWriters ??= []).Add(writer);
+        }
+
+        return writer;
+    }
+
+    internal void Forget(ArtifactWriter writer)
+    {
+        lock (_gate)
+        {
+            _openWriters?.Remove(writer);
+        }
+    }
+
+    private List<ArtifactWriter>? TakeOpenWriters()
+    {
+        lock (_gate)
+        {
+            if (_openWriters is not { Count: > 0 } open) return null;
+            _openWriters = null;
+            return open;
+        }
+    }
+
+    private async ValueTask CompleteWritersThenUpdateAsync(List<ArtifactWriter> open, TaskState state,
+        Message? message, Dictionary<string, JsonElement>? metadata, CancellationToken cancellationToken)
+    {
+        foreach (var writer in open) await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+        await WriteStatusAsync(state, message, metadata, cancellationToken).ConfigureAwait(false);
+    }
+
+    private ValueTask WriteStatusAsync(TaskState state, Message? message, Dictionary<string, JsonElement>? metadata,
+        CancellationToken cancellationToken)
+    {
         MarkTaskEvent(state.IsTerminal());
         if (message is not null) Stamp(message);
         var evt = new TaskStatusUpdateEvent

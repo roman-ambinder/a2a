@@ -94,6 +94,12 @@ If a client resumes after the events were trimmed or purged, the server sends a 
 
 An agent can send an artifact in chunks. Each chunk is an artifact update event with an `artifactId`. The flag `append` says if the parts go to an artifact that exists. The flag `lastChunk` says it is the final chunk.
 
+The easy way is <xref:A2A.Server.TaskUpdater.OpenArtifact*>. It returns an <xref:A2A.Server.ArtifactWriter> that keeps the id and the flags for you. The first write creates the artifact with its name, description and metadata. Each later write appends. `CompleteAsync` on the writer, or disposing it, sends the last chunk: an empty append with `lastChunk`. A terminal state of the task completes the open writers first, so the artifact is sealed before the task ends. A writer that never wrote sends nothing.
+
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#Writer)]
+
+The same with `AddArtifactAsync`, which gives you full control over each event:
+
 [!code-csharp[](../../../samples/Snippets/Streaming.cs#Chunks)]
 
 ### The lifecycle

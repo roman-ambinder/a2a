@@ -481,3 +481,11 @@ A2A.Server.A2ALimits.LiveInputCapacity.set -> void
 [A2AEXP005]static A2A.Server.LiveInputItem.operator ==(A2A.Server.LiveInputItem? left, A2A.Server.LiveInputItem? right) -> bool
 [A2AEXP005]A2A.Server.MalformedStreamRequest
 [A2AEXP005]static A2A.Server.MalformedStreamRequest.Create(A2A.A2AException! error, string? referenceId) -> A2A.StreamRequest!
+A2A.Server.ArtifactWriter
+A2A.Server.ArtifactWriter.ArtifactId.get -> string!
+A2A.Server.ArtifactWriter.CompleteAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+A2A.Server.ArtifactWriter.DisposeAsync() -> System.Threading.Tasks.ValueTask
+A2A.Server.ArtifactWriter.IsCompleted.get -> bool
+A2A.Server.ArtifactWriter.WriteAsync(string! text, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+A2A.Server.ArtifactWriter.WriteAsync(System.Collections.Generic.IEnumerable<A2A.Part!>! parts, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+A2A.Server.TaskUpdater.OpenArtifact(string? name = null, string? description = null, string? artifactId = null, System.Collections.Generic.Dictionary<string!, System.Text.Json.JsonElement>? metadata = null) -> A2A.Server.ArtifactWriter!
