@@ -12,7 +12,8 @@ var apiKey = args.Length > 2
       ?? throw new InvalidOperationException("Pass the API key as the third argument or set ECHO_AGENT_API_KEY.");
 var jwksFile = Environment.GetEnvironmentVariable("ECHO_AGENT_JWKS_FILE");
 
-// The agent requires the key in the X-Api-Key header on every A2A call.
+// The agent requires an API key. Its card names the header (X-Api-Key); AddApiKey sends the key there, only to the
+// agent's origin, and only over HTTPS or loopback.
 var services = new ServiceCollection();
 services.AddA2AClient("echo", o =>
 {
@@ -22,7 +23,7 @@ services.AddA2AClient("echo", o =>
     if (jwksFile is null) return;
     var jwks = A2AJson.Deserialize<JwkSet>(File.ReadAllText(jwksFile));
     o.Resolver.Trust.TrustedKeys[CardTrustPolicy.OriginOf(agentUrl)] = jwks;
-}).AddHttpMessageHandler(() => new ApiKeyHandler(apiKey));
+}).AddApiKey(apiKey);
 await using var provider = services.BuildServiceProvider();
 var client = await provider.GetRequiredService<IA2AClientFactory>().GetClientAsync("echo");
 Console.WriteLine($"Connected to '{client.AgentCard!.Name}': {client.AgentCard.Description}");
@@ -81,14 +82,3 @@ if (started is TaskResponse { Task: var task })
 var tasks = await client.ListTasksAsync(new ListTasksRequest { PageSize = 5 });
 Console.WriteLine($"tasks visible to me: {tasks.TotalSize}");
 
-/// <summary>Adds the <c>X-Api-Key</c> header to every request.</summary>
-internal sealed class ApiKeyHandler(string apiKey) : DelegatingHandler
-{
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-        CancellationToken cancellationToken)
-    {
-        request.Headers.Remove(Commons.Consts.XApiKey);
-        request.Headers.Add(Commons.Consts.XApiKey, apiKey);
-        return base.SendAsync(request, cancellationToken);
-    }
-}
