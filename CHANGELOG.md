@@ -69,6 +69,19 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Tests: `ProtoModelDriftTests` compares the hand-written JSON model with the types generated from `docs/a2a.proto`
   (spec §1.4): messages, fields, every case of the union messages (round-tripped through the model) and enum values.
 
+- Client webhooks (spec §13.2): `RegisterPushAsync` gives a config with neither a token nor authentication its own random
+  token (new `PushTokens.Create`, 32 bytes, base64url) and returns it in the config even though servers redact it. New
+  `A2AClient.RotatePushTokenAsync` registers a new token, then deletes the old config. New opt-in
+  `A2AClientOptions.RequireHttpsWebhooks` refuses non-https webhook URLs (loopback allowed). New opt-in
+  `PushNotificationReceiver.MaxDeliveriesPerMinute`: over the cap, `HandleAsync` answers the new
+  `PushHandleOutcome.RateLimited` (429) with `PushHandleResult.RetryAfter`; only authenticated deliveries count.
+
+- Agent Card caching (spec §8.6): the public card sends `Last-Modified` (the time this process first served that content;
+  `If-Modified-Since` does not give 304, the entity tag decides). The client card cache follows RFC 9111 as a private
+  cache: `no-store` is no longer kept (it was stored and revalidated), `Vary: *` and `Pragma: no-cache` revalidate,
+  freshness counts `Expires` minus `Date` and subtracts the response's age (`Age` or the time since `Date`), and
+  `Last-Modified` is sent back as `If-Modified-Since` when there is no entity tag. TCK `CARD-CACHE-003` now passes.
+
 ### Tests and CI
 
 - Coverage is now a ratchet. The new `coverage.yml` workflow (after each merge to `main`, by hand, and on pull requests
@@ -84,6 +97,14 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - New tests for `SafeHttp` (URL policy messages and options, redirects, error statuses, body limits with and without
   `Content-Length`) and `AgentCardCanonicalizer` (a card using every v1.0 field is signed whole, prune paths, bracket
   paths, case variants). Mutation score of `SafeHttp.cs`: 30% to 95%.
+- New tests for `AgentCardVerifier` (each signature-entry and header check with its exact reason, several signatures,
+  case-variant members, trusted keys pinned to another `alg`, unusable trusted keys, every `jku` refusal, failed and
+  timed-out fetches, caller cancellation, key set caching) and `Jwk` / `Base64Url` (EC curves and RSA, import round
+  trips, every refusal). Mutation scores: `AgentCardVerifier.cs` 63% to 85%, `Jwk.cs` 52% to 70%.
+- New tests for `PrivateAddressGuard` (every IPv4 and IPv6 range at its edges, NAT64, 6to4 and IPv4-compatible
+  addresses and their near misses, `InNetwork` prefixes inside a byte, ambiguous numeric hosts, the resolve-time and
+  connect-time checks and their messages) and `AwsSigV4Handler` (both constructors check the options). Mutation score of
+  `PrivateAddressGuard.cs`: 65% to 92%.
 
 ### Fixes
 

@@ -21,6 +21,7 @@ public sealed class ClientOptionsCloneTests
     private static Dictionary<string, object?> Samples() => new()
     {
         [nameof(A2AClientOptions.ProtocolVersion)] = "9.9",
+        [nameof(A2AClientOptions.RequireHttpsWebhooks)] = true,
         [nameof(A2AClientOptions.Extensions)] = new List<string> { "urn:ext" },
         [nameof(A2AClientOptions.Tenant)] = "tenant-a",
         [nameof(A2AClientOptions.SupportedBindings)] = new List<string> { "custom" },

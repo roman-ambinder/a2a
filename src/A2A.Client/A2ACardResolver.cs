@@ -220,6 +220,7 @@ public sealed class A2ACardResolver
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.AgentCardMediaType));
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.JsonMediaType, 0.9));
         if (cached?.ETag is not null) request.Headers.IfNoneMatch.Add(cached.ETag);
+        else if (cached?.LastModified is { } lastModified) request.Headers.IfModifiedSince = lastModified;
 
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
         // Trust is bound to the origin of the card URL. An HttpClient that follows redirects must not let a card served
@@ -232,7 +233,14 @@ public sealed class A2ACardResolver
                 "AllowAutoRedirect = false, or the card's final URL.");
         if (response.StatusCode == HttpStatusCode.NotModified && cached is not null)
         {
-            var refreshed = cached with { Expires = Expiry(response) };
+            var (expires, store) = Freshness(response);
+            if (!store)
+            {
+                _cache.TryRemove(key, out _);
+                return cached.Result;
+            }
+
+            var refreshed = cached with { Expires = expires };
             _cache[key] = refreshed;
             return refreshed.Result;
         }
@@ -305,8 +313,15 @@ public sealed class A2ACardResolver
             Identity = identity
         };
         // Without a normalizer the tree is the parsed received text, which a cache hit checks again: keep it, not the text.
-        _cache[key] = new CacheEntry(result, response.Headers.ETag, Expiry(response))
-            { Parsed = _options.CardNormalizer is null ? node : null };
+        var (freshUntil, keep) = Freshness(response);
+        if (keep)
+            _cache[key] = new CacheEntry(result, response.Headers.ETag, freshUntil)
+            {
+                Parsed = _options.CardNormalizer is null ? node : null,
+                LastModified = response.Content.Headers.LastModified
+            };
+        else
+            _cache.TryRemove(key, out _); // no-store: not kept, and no validator is sent next time
         return result;
     }
 
@@ -411,11 +426,40 @@ public sealed class A2ACardResolver
         await _options.PinStore.SetAsync(origin, new CardPin(hash, keyId), cancellationToken).ConfigureAwait(false);
     }
 
-    private DateTimeOffset Expiry(HttpResponseMessage response)
+    /// <summary>
+    ///     How long a card response may be used without asking again, as a private cache reads it (RFC 9111): <c>no-store</c>
+    ///     is not kept at all; <c>no-cache</c>, <c>Vary: *</c> and (without Cache-Control) <c>Pragma: no-cache</c> are kept
+    ///     but revalidated on every use; otherwise the freshness lifetime (<c>max-age</c>, else <c>Expires</c> minus
+    ///     <c>Date</c>, else <see cref="A2ACardResolverOptions.DefaultCacheDuration" />) less the response's age (<c>Age</c>, or
+    ///     the time since <c>Date</c> when that is larger). <c>s-maxage</c> is for shared caches and is ignored.
+    ///     <c>must-revalidate</c> needs nothing: a stale card is never used.
+    /// </summary>
+    internal (DateTimeOffset Expires, bool Store) Freshness(HttpResponseMessage response)
+    {
+        return Freshness(response, DateTimeOffset.UtcNow, _options.DefaultCacheDuration);
+    }
+
+    internal static (DateTimeOffset Expires, bool Store) Freshness(HttpResponseMessage response, DateTimeOffset now,
+        TimeSpan defaultLifetime)
     {
         var cc = response.Headers.CacheControl;
-        if (cc is { NoStore: true } or { NoCache: true }) return DateTimeOffset.MinValue;
-        return DateTimeOffset.UtcNow + (cc?.MaxAge ?? _options.DefaultCacheDuration);
+        if (cc is { NoStore: true }) return (DateTimeOffset.MinValue, false);
+        var revalidate = cc is { NoCache: true }
+                         || response.Headers.Vary.Contains("*")
+                         || (cc is null && response.Headers.Pragma.Any(p =>
+                             string.Equals(p.Name, "no-cache", StringComparison.OrdinalIgnoreCase)));
+        if (revalidate) return (DateTimeOffset.MinValue, true);
+
+        var date = response.Headers.Date;
+        TimeSpan lifetime;
+        if (cc?.MaxAge is { } maxAge) lifetime = maxAge;
+        else if (response.Content.Headers.Expires is { } expires) lifetime = expires - (date ?? now);
+        else lifetime = defaultLifetime;
+
+        var apparentAge = date is { } d && now > d ? now - d : TimeSpan.Zero;
+        var age = response.Headers.Age is { } a && a > apparentAge ? a : apparentAge;
+        var remaining = lifetime - age;
+        return (remaining > TimeSpan.Zero ? now + remaining : DateTimeOffset.MinValue, true);
     }
 
     private sealed record CacheEntry(ResolvedAgentCard Result, EntityTagHeaderValue? ETag, DateTimeOffset Expires)
@@ -425,6 +469,9 @@ public sealed class A2ACardResolver
         ///     parsed again.
         /// </summary>
         public JsonObject? Parsed { get; init; }
+
+        /// <summary>The response's <c>Last-Modified</c>, sent as <c>If-Modified-Since</c> when there is no entity tag.</summary>
+        public DateTimeOffset? LastModified { get; init; }
     }
 }
 

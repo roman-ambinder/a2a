@@ -60,6 +60,16 @@ public sealed class A2AClientOptions
     /// <summary>Sent as the A2A-Version header on every request.</summary>
     public string ProtocolVersion { get; set; } = A2AProtocol.Version;
 
+    /// <summary>
+    ///     When true, the client refuses to register a webhook URL that is not <c>https</c> (spec §13.2: clients SHOULD use
+    ///     HTTPS endpoints for webhook URLs), in <c>CreateTaskPushNotificationConfig</c> and in the push config of a
+    ///     <c>SendMessage</c>. A loopback URL (<c>localhost</c>, <c>127.0.0.1</c>, <c>[::1]</c>) is allowed for local
+    ///     development. Default false, so existing plain-HTTP webhooks (and test receivers) keep working; set it in
+    ///     production. The SDK's server refuses plain-HTTP webhooks by default anyway
+    ///     (<c>PushNotifications.AllowInsecureUrls</c>).
+    /// </summary>
+    public bool RequireHttpsWebhooks { get; set; }
+
     /// <summary>Extension URIs sent in the A2A-Extensions header.</summary>
     public IList<string> Extensions { get; set; } = new List<string>();
 
@@ -179,6 +189,7 @@ public sealed class A2AClientOptions
         return new A2AClientOptions
         {
             ProtocolVersion = ProtocolVersion,
+            RequireHttpsWebhooks = RequireHttpsWebhooks,
             Extensions = new List<string>(Extensions),
             Tenant = Tenant,
             SupportedBindings = new List<string>(SupportedBindings),
