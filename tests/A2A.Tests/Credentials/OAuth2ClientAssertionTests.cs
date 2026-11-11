@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using A2A.Client.Credentials;
@@ -308,5 +309,110 @@ public class OAuth2ClientAssertionTests
         using var ec = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             OAuth2ClientAssertions.PrivateKeyJwt(new AgentCardSigningKey(ec, "k", "ES256"), TimeSpan.FromSeconds(seconds)));
+    }
+
+    private static X509Certificate2 RsaCertificate()
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest("CN=a2a-test-client", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+    }
+
+    private static X509Certificate2 EcCertificate()
+    {
+        using var ec = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var request = new CertificateRequest("CN=a2a-test-client", ec, HashAlgorithmName.SHA256);
+        return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+    }
+
+    private static (JsonElement Header, JsonElement Claims, bool Verified) Decode(string jwt, string alg, AsymmetricAlgorithm publicKey)
+    {
+        var parts = jwt.Split('.');
+        Assert.Equal(3, parts.Length);
+        var verified = JwsAlgorithms.Verify(alg, publicKey, Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]), Base64Url.Decode(parts[2]));
+        return (JsonDocument.Parse(Base64Url.Decode(parts[0])).RootElement.Clone(),
+            JsonDocument.Parse(Base64Url.Decode(parts[1])).RootElement.Clone(), verified);
+    }
+
+    [Fact]
+    public async Task CertificateJwt_defaults_to_PS256_with_the_SHA256_thumbprint()
+    {
+        using var certificate = RsaCertificate();
+        var time = new FakeTimeProvider();
+        var jwt = await OAuth2ClientAssertions.CertificateJwt(certificate, timeProvider: time)(new OAuth2ClientAssertionContext("client-1", Idp), default);
+        using var publicKey = certificate.GetRSAPublicKey()!;
+        var (header, claims, verified) = Decode(jwt, "PS256", publicKey);
+
+        Assert.True(verified);
+        Assert.Equal("PS256", header.GetProperty("alg").GetString());
+        Assert.Equal("JWT", header.GetProperty("typ").GetString());
+        Assert.Equal(Base64Url.Encode(SHA256.HashData(certificate.RawData)), header.GetProperty("x5t#S256").GetString());
+        Assert.False(header.TryGetProperty("x5t", out _));
+        Assert.False(header.TryGetProperty("kid", out _));
+        var now = time.GetUtcNow().ToUnixTimeSeconds();
+        Assert.Equal("client-1", claims.GetProperty("iss").GetString());
+        Assert.Equal("client-1", claims.GetProperty("sub").GetString());
+        Assert.Equal(Idp.AbsoluteUri, claims.GetProperty("aud").GetString());
+        Assert.Equal(now, claims.GetProperty("nbf").GetInt64());
+        Assert.Equal(now + 300, claims.GetProperty("exp").GetInt64());
+        Assert.Equal(16, Base64Url.Decode(claims.GetProperty("jti").GetString()!).Length);
+    }
+
+    [Fact]
+    public async Task CertificateJwt_can_send_the_SHA1_thumbprint_as_x5t()
+    {
+        using var certificate = RsaCertificate();
+        var jwt = await OAuth2ClientAssertions.CertificateJwt(certificate, "RS256", OAuth2CertificateThumbprint.Sha1)(
+            new OAuth2ClientAssertionContext("client-1", Idp), default);
+        using var publicKey = certificate.GetRSAPublicKey()!;
+        var (header, _, verified) = Decode(jwt, "RS256", publicKey);
+
+        Assert.True(verified);
+        Assert.Equal("RS256", header.GetProperty("alg").GetString());
+        // x5t is the SHA-1 thumbprint, the same bytes as X509Certificate2.Thumbprint (hex).
+        Assert.Equal(Convert.FromHexString(certificate.Thumbprint), Base64Url.Decode(header.GetProperty("x5t").GetString()!));
+        Assert.False(header.TryGetProperty("x5t#S256", out _));
+    }
+
+    [Fact]
+    public async Task CertificateJwt_signs_with_an_EC_certificate()
+    {
+        using var certificate = EcCertificate();
+        var jwt = await OAuth2ClientAssertions.CertificateJwt(certificate, "ES256")(new OAuth2ClientAssertionContext("client-1", Idp), default);
+        using var publicKey = certificate.GetECDsaPublicKey()!;
+        Assert.True(Decode(jwt, "ES256", publicKey).Verified);
+    }
+
+    [Fact]
+    public void CertificateJwt_refuses_a_key_that_does_not_fit_the_algorithm()
+    {
+        using var rsa = RsaCertificate();
+        using var ec = EcCertificate();
+        Assert.Throws<ArgumentException>(() => OAuth2ClientAssertions.CertificateJwt(rsa, "ES256"));
+        Assert.Throws<ArgumentException>(() => OAuth2ClientAssertions.CertificateJwt(ec, "PS256"));
+        Assert.Throws<ArgumentException>(() => OAuth2ClientAssertions.CertificateJwt(rsa, "HS256"));
+    }
+
+    [Fact]
+    public void CertificateJwt_refuses_a_certificate_without_a_private_key()
+    {
+        using var withKey = RsaCertificate();
+        using var publicOnly = X509CertificateLoader.LoadCertificate(withKey.RawData);
+        var ex = Assert.Throws<ArgumentException>(() => OAuth2ClientAssertions.CertificateJwt(publicOnly));
+        Assert.Contains("private key", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CertificateJwt_through_the_provider_reaches_the_token_endpoint()
+    {
+        using var certificate = RsaCertificate();
+        var (p, h, _) = Make(OAuth2ClientAssertions.CertificateJwt(certificate));
+        Assert.Equal("Bearer tok1", await Apply(p));
+        var assertion = Assert.Single(h.Requests).Form["client_assertion"];
+        using var publicKey = certificate.GetRSAPublicKey()!;
+        var (header, claims, verified) = Decode(assertion, "PS256", publicKey);
+        Assert.True(verified);
+        Assert.True(header.TryGetProperty("x5t#S256", out _));
+        Assert.Equal(Idp.AbsoluteUri, claims.GetProperty("aud").GetString());
     }
 }

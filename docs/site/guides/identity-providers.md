@@ -10,6 +10,7 @@ The short version:
 | Call an agent with a client id and secret | `OAuth2ClientCredentialsProvider` with `ClientSecret` |
 | Call an agent with no secret, from Kubernetes or Azure workload identity | `OAuth2ClientCredentialsProvider` with `OAuth2ClientAssertions.FromFile` |
 | Call an agent with your own key instead of a secret (`private_key_jwt`) | `OAuth2ClientCredentialsProvider` with `OAuth2ClientAssertions.PrivateKeyJwt` |
+| Call an agent with a certificate registered at the identity provider (Entra certificate credentials) | `OAuth2ClientCredentialsProvider` with `OAuth2ClientAssertions.CertificateJwt` |
 | Call an agent with an Azure managed identity or any Azure.Identity credential | `AzureTokenCredentialProvider` from `RomanAmbinder.A2A.Client.Identity.Azure` |
 | Call an agent behind AWS IAM (API Gateway, Lambda function URLs) | `AwsSigV4Handler` from `RomanAmbinder.A2A.Client.Identity.Aws` |
 | Anything else (a token service of your own) | Your own `IA2ACredentialProvider` |
@@ -58,7 +59,17 @@ Kubernetes can mount a service account token into a pod, and Azure workload iden
 
 - The JWT has `iss` and `sub` set to the client id, `aud` set to the token endpoint, a random `jti`, and `iat`, `nbf` and `exp`. It lives 5 minutes by default, at most 1 hour.
 - Only asymmetric algorithms are possible (`ES256` to `ES512`, `RS256` to `RS512`, `PS256` to `PS512`).
-- The header names the key with `kid` only. Publish the public key with `key.ToPublicJwk()`. An identity provider that wants a certificate thumbprint in the header (`x5t`), as Entra does for certificate credentials, needs your own delegate. For Entra, prefer a token file or the Azure package.
+- The header names the key with `kid` only. Publish the public key with `key.ToPublicJwk()`. For an identity provider that registers a certificate instead of a key, use `CertificateJwt` below.
+
+### With a certificate
+
+Some identity providers register a certificate rather than a key, and want the assertion to name the certificate by its thumbprint. Microsoft Entra ID certificate credentials work this way. `CertificateJwt` signs with the certificate's private key:
+
+[!code-csharp[](../../../samples/Snippets/IdentityProviders.cs#CertificateJwt)]
+
+- The claims are the same as `PrivateKeyJwt`. The header has `alg`, `typ` (`JWT`) and a thumbprint instead of `kid`: `x5t#S256` (SHA-256, the default) or, with `OAuth2CertificateThumbprint.Sha1`, `x5t` (SHA-1). Microsoft's MSAL.NET guide on client assertions builds the first form; check which your identity provider accepts.
+- The algorithm defaults to `PS256`. `RS*` and `PS*` need an RSA certificate, `ES*` an EC one. A certificate without a private key, or with a key that does not fit the algorithm, is refused when you call `CertificateJwt`.
+- You own the certificate. It is not disposed, and it must stay usable as long as the provider is. The private key is read for each token request and released after signing.
 
 `ClientSecret` and `ClientAssertion` cannot both be set. Your own delegate works too: it gets the client id and the token endpoint, and returns the assertion. It is a credential, so it is sent only to the token endpoint the provider allows (`TokenEndpoint`, or the card's `tokenUrl` on the card's origin) and is removed from error messages. An empty assertion, one longer than 64 KiB, one with white space, or a delegate that throws fails the call with `Unauthenticated`.
 
