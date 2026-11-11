@@ -17,6 +17,6 @@ docker compose -f samples/MultiInstance/docker-compose.yml down -v
 Expected output ends with `OK: a task started on A was read, followed and cancelled through B.`
 
 Notes:
-- The API key (`demo-key-change-me`) and the database password are demo values.
+- The API key (a public demo key in `samples/Commons/Consts.cs`; the agents get only its hash, `ApiKeyHash` in `docker-compose.yml`) and the database password are demo values. Make a real key and its hash with `a2a keys new`.
 - Retention is opt-in: `AddA2ARetention()` is what purges old tasks and fails tasks whose instance died.
 - ASP.NET Core logs a Data Protection warning in the containers. The sample does not use push secrets. If you do, persist and share the key ring (`AddDataProtection()` + `AddA2ADataProtectionPushSecrets()`).

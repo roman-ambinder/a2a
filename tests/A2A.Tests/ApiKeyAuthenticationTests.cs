@@ -68,17 +68,22 @@ public class ApiKeyAuthenticationTests
     private static AgentCard Card() => AgentCard.Create("Keyed", "Needs a key");
 
     private static async Task<WebApplication> StartAsync(Action<A2AApiKeyOptions>? keys = null,
-        Action<WebApplication>? map = null, Action<IServiceCollection>? services = null, IConfiguration? configuration = null)
+        Action<WebApplication>? map = null, Action<IServiceCollection>? services = null, IConfiguration? configuration = null,
+        Action<A2AServerBuilder>? server = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         services?.Invoke(builder.Services);
-        void Configure(A2AServerBuilder a) => a.AddAgentExecutor<ScenarioAgent>().AddAgentCard(Card())
-            .AddApiKeyAuthentication(keys ?? (o => o
-                .Add("billing", Billing.Hash).Add("billing", Billing2.Hash)
-                .Add("reports", Reports.Hash)
-                .Add("acme-client", AcmeOnly.Hash, "acme")));
+        void Configure(A2AServerBuilder a)
+        {
+            a.AddAgentExecutor<ScenarioAgent>().AddAgentCard(Card())
+                .AddApiKeyAuthentication(keys ?? (o => o
+                    .Add("billing", Billing.Hash).Add("billing", Billing2.Hash)
+                    .Add("reports", Reports.Hash)
+                    .Add("acme-client", AcmeOnly.Hash, "acme")));
+            server?.Invoke(a);
+        }
         if (configuration is null) builder.Services.AddA2A(Configure);
         else builder.Services.AddA2A(configuration, Configure);
         var app = builder.Build();
@@ -180,15 +185,50 @@ public class ApiKeyAuthenticationTests
     }
 
     [Fact]
-    public async Task A_key_limited_to_a_tenant_is_refused_elsewhere()
+    public async Task A_key_limited_to_a_tenant_is_refused_elsewhere_and_audited()
     {
-        await using var app = await StartAsync();
-        Assert.Equal("hi there", await Client(app, AcmeOnly.Key, "/a2a/acme").AskAsync("hello"));
-        var ex = await Assert.ThrowsAsync<A2AException>(() => Client(app, AcmeOnly.Key).AskAsync("hello"));
+        var audit = new ListSink();
+        await using var app = await StartAsync(server: a => a.AddAuditSink(audit));
+        var acme = Client(app, AcmeOnly.Key, "/a2a/acme");
+        Assert.Equal("hi there", await acme.AskAsync("hello"));
+
+        // A call that names no task: PermissionDenied, saying the tenant is what is missing.
+        var ex = await Assert.ThrowsAsync<A2AException>(() => Client(app, AcmeOnly.Key, "/a2a/globex").AskAsync("hello"));
         Assert.Equal(A2AErrorCode.PermissionDenied, ex.Code);
-        ex = await Assert.ThrowsAsync<A2AException>(() => Client(app, AcmeOnly.Key, "/a2a/globex").AskAsync("hello"));
+        Assert.Equal("tenant", ex.Metadata!["permission"]);
+        ex = await Assert.ThrowsAsync<A2AException>(() => Client(app, AcmeOnly.Key).AskAsync("hello")); // default tenant ""
         Assert.Equal(A2AErrorCode.PermissionDenied, ex.Code);
-        Assert.Equal("hi there", await Client(app, Billing.Key, "/a2a/globex").AskAsync("hello")); // unlimited key
+
+        // A call that names a task looks like a missing task, as for every denial.
+        var task = (await acme.SendMessageAsync("task")).RequireTask();
+        ex = await Assert.ThrowsAsync<A2AException>(() => Client(app, AcmeOnly.Key, "/a2a/globex").GetTaskAsync(task.Id));
+        Assert.Equal(A2AErrorCode.TaskNotFound, ex.Code);
+
+        Assert.Equal("hi there", await Client(app, Billing.Key, "/a2a/globex").AskAsync("hello")); // an unlimited key
+
+        // Every refusal is in the audit trail, with its true reason.
+        await WaitFor(() => audit.Events.Count(e => e.Reason == "TenantNotAllowed") >= 3);
+        var denied = audit.Events.Where(e => e.Reason == "TenantNotAllowed").ToList();
+        Assert.All(denied, e => Assert.Equal(("apikey:acme-client", A2A.Server.Audit.A2AAuditOutcome.Denied), (e.Actor, e.Outcome)));
+        Assert.Contains(denied, e => e.Tenant == "globex" && e.Operation == "GetTask" && e.TaskId == task.Id);
+    }
+
+    private static async Task WaitFor(Func<bool> condition)
+    {
+        for (var i = 0; i < 100 && !condition(); i++) await Task.Delay(20);
+        Assert.True(condition());
+    }
+
+    private sealed class ListSink : A2A.Server.Audit.A2AAuditSink
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<A2A.Server.Audit.A2AAuditEvent> _events = new();
+        public IReadOnlyCollection<A2A.Server.Audit.A2AAuditEvent> Events => _events;
+
+        public override ValueTask WriteAsync(A2A.Server.Audit.A2AAuditEvent auditEvent, CancellationToken cancellationToken)
+        {
+            _events.Enqueue(auditEvent);
+            return ValueTask.CompletedTask;
+        }
     }
 
     [Fact]
@@ -234,6 +274,21 @@ public class ApiKeyAuthenticationTests
     {
         await using var app = await StartAsync();
         Assert.Equal([A2AApiKeyOptions.PolicyName], A2APolicies(app));
+    }
+
+    [Fact]
+    public async Task The_artifact_download_route_gets_the_api_key_policy_too()
+    {
+        await using var app = await StartAsync(map: a =>
+        {
+            a.MapA2A("/a2a");
+            a.MapA2AArtifacts("/a2a");
+        });
+        var artifactRoutes = ((IEndpointRouteBuilder)app).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
+            .Where(e => e.RoutePattern.RawText?.Contains("artifacts", StringComparison.Ordinal) == true).ToList();
+        Assert.NotEmpty(artifactRoutes);
+        Assert.All(artifactRoutes, e => Assert.Contains(e.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            a => a.Policy == A2AApiKeyOptions.PolicyName));
     }
 
     [Fact]
@@ -308,4 +363,25 @@ public class ApiKeyAuthenticationTests
         Assert.Contains("A2A:ApiKeys:Keys:0:Key", ex.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(Billing.Key, ex.Message, StringComparison.Ordinal);
     }
+}
+
+/// <summary>The tenant claim is not tied to API keys: any scheme that sets it limits the caller the same way.</summary>
+public class TenantClaimTests
+{
+    private static ServerCallContext Call(string tenant, params string[] allowed) => new()
+    {
+        Principal = "p", Tenant = tenant,
+        User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+            allowed.Select(t => new System.Security.Claims.Claim(A2AClaimTypes.Tenant, t)), "Bearer"))
+    };
+
+    [Theory]
+    [InlineData("acme", new string[0], true)]          // no claim: every tenant
+    [InlineData("acme", new[] { "acme" }, true)]
+    [InlineData("acme", new[] { "globex", "acme" }, true)]
+    [InlineData("globex", new[] { "acme" }, false)]
+    [InlineData("", new[] { "acme" }, false)]           // the default tenant is a tenant too
+    [InlineData("ACME", new[] { "acme" }, false)]       // ordinal, like tenants everywhere else
+    public void Claim_limits_the_tenants(string tenant, string[] allowed, bool expected) =>
+        Assert.Equal(expected, A2A.Server.Authorization.OperationAuthorization.TenantAllowed(Call(tenant, allowed)));
 }

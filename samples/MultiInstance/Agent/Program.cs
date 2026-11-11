@@ -1,14 +1,8 @@
-using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Encodings.Web;
 using A2A;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Postgres;
 using A2A.Server.Redis;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.Extensions.Options;
 
 // One agent app, started twice (see docker-compose.yml). Both instances share Postgres (tasks, events, outbox, idempotency)
 // and Redis (live events, cancel requests, "is this task running" leases), so a task started on one instance can be read,
@@ -16,18 +10,14 @@ using Microsoft.Extensions.Options;
 var builder = WebApplication.CreateBuilder(args);
 var publicUrl = builder.Configuration["PublicUrl"] ?? "http://localhost:8080";
 var instance = builder.Configuration["Instance"] ?? Environment.MachineName;
-var apiKey = builder.Configuration["ApiKey"] ?? Commons.Consts.TestApiKey;
-if (string.IsNullOrEmpty(apiKey))
-    throw new InvalidOperationException("Set ApiKey (callers send it in the X-Api-Key header).");
+// The agent stores only the hash of the callers' API key. The default is the hash of a public demo key; set ApiKeyHash
+// (from 'a2a keys new') for anything else.
+var apiKeyHash = builder.Configuration["ApiKeyHash"] ?? Commons.Consts.TestApiKeyHash;
 var postgres = builder.Configuration.GetConnectionString("a2a") ??
                throw new InvalidOperationException("Set ConnectionStrings:a2a.");
 var redis = builder.Configuration.GetConnectionString("redis") ??
             throw new InvalidOperationException("Set ConnectionStrings:redis.");
 
-builder.Services.AddAuthentication(ApiKeyAuthHandler.SchemeName)
-    .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthHandler>(ApiKeyAuthHandler.SchemeName, null);
-builder.Services.AddAuthorization();
-builder.Services.AddSingleton(new ApiKey(apiKey));
 builder.Services.AddSingleton(new InstanceName(instance));
 
 builder.Services.AddA2AServer(o =>
@@ -48,6 +38,7 @@ builder.Services.AddA2AServer(o =>
             Skills = [new AgentSkill { Id = "slow", Name = "Slow task", Description = "Counts to 30", Tags = ["demo"] }]
         };
     }).AddAgentExecutor<SlowAgent>()
+    .AddApiKeyAuthentication(o => o.Add("demo-client", apiKeyHash)) // every caller with the key is "demo-client"
     .AddPostgresStores(postgres) // tasks, event log, push configs, push outbox, idempotency
     .AddRedisEventBus(redis); // live events and cancel requests across instances (also the execution coordinator)
 builder.Services
@@ -65,35 +56,10 @@ app.UseAuthentication();
 app.UseA2A();
 app.UseAuthorization();
 app.MapAgentCard();
-app.MapA2A().RequireAuthorization();
+app.MapA2A(); // the API key protects the A2A endpoints
 app.Run();
 
-internal sealed record ApiKey(string Value);
-
 internal sealed record InstanceName(string Value);
-
-/// <summary>Accepts requests whose <c>X-Api-Key</c> header matches the configured key. Every caller is the same user.</summary>
-internal sealed class ApiKeyAuthHandler(
-    IOptionsMonitor<AuthenticationSchemeOptions> options,
-    ILoggerFactory logger,
-    UrlEncoder encoder,
-    ApiKey key)
-    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
-{
-    public const string SchemeName = "ApiKey";
-
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
-    {
-        var supplied = Request.Headers[Commons.Consts.XApiKey].ToString();
-        if (supplied.Length == 0) return Task.FromResult(AuthenticateResult.NoResult());
-        var ok = CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied),
-            Encoding.UTF8.GetBytes(key.Value));
-        if (!ok) return Task.FromResult(AuthenticateResult.Fail("Invalid API key"));
-        var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "demo-client")], SchemeName);
-        return Task.FromResult(
-            AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
-    }
-}
 
 /// <summary>Counts to 30, one step per second, and reports the instance that runs it. Stops when cancelled.</summary>
 internal sealed class SlowAgent(InstanceName instance) : IAgentExecutor

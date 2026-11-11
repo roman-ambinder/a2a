@@ -11,8 +11,9 @@ var apiKey = args.Length > 2
     : Environment.GetEnvironmentVariable("DEMO_API_KEY") ?? Commons.Consts.TestApiKey;
 
 var services = new ServiceCollection();
-services.AddA2AClient("a", o => o.AgentUrl = urlA).AddHttpMessageHandler(() => new ApiKeyHandler(apiKey));
-services.AddA2AClient("b", o => o.AgentUrl = urlB).AddHttpMessageHandler(() => new ApiKeyHandler(apiKey));
+// The card names the header (X-Api-Key); AddApiKey sends the key there, only to each agent's origin.
+services.AddA2AClient("a", o => o.AgentUrl = urlA).AddApiKey(apiKey);
+services.AddA2AClient("b", o => o.AgentUrl = urlB).AddApiKey(apiKey);
 await using var provider = services.BuildServiceProvider();
 var factory = provider.GetRequiredService<IA2AClientFactory>();
 var a = await factory.GetClientAsync("a");
@@ -56,14 +57,3 @@ if (final.Status.State != TaskState.Canceled)
 
 Console.WriteLine("OK: a task started on A was read, followed and cancelled through B.");
 return 0;
-
-internal sealed class ApiKeyHandler(string apiKey) : DelegatingHandler
-{
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-        CancellationToken cancellationToken)
-    {
-        request.Headers.Remove(Commons.Consts.XApiKey);
-        request.Headers.Add(Commons.Consts.XApiKey, apiKey);
-        return base.SendAsync(request, cancellationToken);
-    }
-}

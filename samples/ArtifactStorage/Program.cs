@@ -1,7 +1,5 @@
-using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Encodings.Web;
 using A2A;
 using A2A.Client;
 using A2A.Client.Transports;
@@ -16,14 +14,12 @@ using Amazon.S3.Model;
 using Amazon.S3.Util;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.Extensions.Options;
 
 // An agent that writes a 1 MiB file to an object store, and a client that downloads it. The store is MinIO (S3) or
 // Azurite (Azure Blob), both from docker-compose.yml next to this file:
 //   docker compose -f samples/ArtifactStorage/docker-compose.yml up -d --wait
 //   dotnet run --project samples/ArtifactStorage -- s3      # or: -- azure
-// The agent listens on 127.0.0.1 only. The API key and the store credentials are demo values.
+// The agent listens on 127.0.0.1 only. The API key is made for each run; the store credentials are demo values.
 
 if (args.Length == 0 || args[0] is not ("s3" or "azure"))
 {
@@ -33,7 +29,8 @@ if (args.Length == 0 || args[0] is not ("s3" or "azure"))
 
 var provider = args[0];
 const string agentUrl = "http://127.0.0.1:5380";
-const string apiKey = "demo-key-change-me"; // demo value
+// The caller's API key, made for this run. The agent stores only its hash (A2AApiKey.Hash).
+var apiKey = A2AApiKey.Create();
 const string container = "a2a-sample"; // the S3 bucket or the Azure container
 var keyPrefix = $"run-{Guid.NewGuid():N}/"; // a fresh prefix per run, so the check below sees only this run's objects
 
@@ -41,25 +38,22 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(agentUrl);
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
-// Downloads need the caller's A2A credentials: there are no links that work without them. This demo scheme accepts
-// one fixed API key in the X-Api-Key header.
-builder.Services.AddAuthentication(ApiKeyAuthHandler.SchemeName)
-    .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthHandler>(ApiKeyAuthHandler.SchemeName, null);
-builder.Services.AddAuthorization(o => o.AddPolicy("ApiKey", p => p.RequireAuthenticatedUser()));
+// Downloads need the caller's A2A credentials: there are no links that work without them. Callers send an API key in
+// the X-Api-Key header (AddApiKeyAuthentication below).
 
 var card = new AgentCard
 {
     Name = "File Agent",
     Description = "Makes a file and keeps its bytes in an object store.",
     Version = "1.0.0",
-    SecuritySchemes = new() { ["apiKey"] = SecurityScheme.ApiKey("X-Api-Key") },
-    SecurityRequirements = [new SecurityRequirement { Schemes = { ["apiKey"] = new StringList() } }],
+    // No SecuritySchemes: AddApiKeyAuthentication declares the X-Api-Key scheme on the card.
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["application/octet-stream"],
     Skills = [new AgentSkill { Id = "file", Name = "File", Description = "Makes a 1 MiB file", Tags = ["demo"] }]
 };
 
-builder.Services.AddA2A(a => a.AddAgentExecutor<FileAgent>().AddAgentCard(card))
+builder.Services.AddA2A(a => a.AddAgentExecutor<FileAgent>().AddAgentCard(card)
+        .AddApiKeyAuthentication(o => o.Add("file-client", apiKey.Hash)))
     .Configure<A2AServerOptions>(o =>
     {
         // The base of every artifact link: the origin clients send their credentials to (the agent's).
@@ -112,8 +106,8 @@ app.UseAuthentication();
 app.UseA2A();
 app.UseAuthorization();
 #region Map
-app.MapA2A("/a2a").RequireAuthorization("ApiKey");
-app.MapA2AArtifacts("/a2a").RequireAuthorization("ApiKey"); // the download route: same pattern, same authorization
+app.MapA2A("/a2a");
+app.MapA2AArtifacts("/a2a"); // the download route: same pattern; the API key protects both
 #endregion
 await app.StartAsync();
 Console.WriteLine($"Agent listening on {agentUrl}/a2a, store: {(provider == "s3" ? "S3 (MinIO)" : "Azure Blob (Azurite)")}");
@@ -122,7 +116,7 @@ var failures = new List<string>();
 
 // The handler adds the API key to requests for the agent. It must not follow redirects: the downloader follows the
 // one redirect itself, without credentials, so the key never goes to the store.
-var agentHandler = new ApiKeyHandler(apiKey) { InnerHandler = new SocketsHttpHandler { AllowAutoRedirect = false } };
+var agentHandler = new ApiKeyHandler(apiKey.Key) { InnerHandler = new SocketsHttpHandler { AllowAutoRedirect = false } };
 using var http = new HttpClient(agentHandler, disposeHandler: false);
 var options = new A2AClientOptions();
 var client = new A2AClient(new JsonRpcTransport(http, new Uri($"{agentUrl}/a2a"), options), options, card);
@@ -222,23 +216,3 @@ internal sealed class ApiKeyHandler(string apiKey) : DelegatingHandler
     }
 }
 
-/// <summary>Demo only: accepts requests whose <c>X-Api-Key</c> header is the fixed demo key.</summary>
-internal sealed class ApiKeyAuthHandler(
-    IOptionsMonitor<AuthenticationSchemeOptions> options,
-    ILoggerFactory logger,
-    UrlEncoder encoder)
-    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
-{
-    public const string SchemeName = "ApiKey";
-
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
-    {
-        var supplied = Request.Headers["X-Api-Key"].ToString();
-        if (supplied.Length == 0) return Task.FromResult(AuthenticateResult.NoResult());
-        if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied), "demo-key-change-me"u8))
-            return Task.FromResult(AuthenticateResult.Fail("Invalid API key"));
-        var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "file-client")], SchemeName);
-        return Task.FromResult(
-            AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
-    }
-}

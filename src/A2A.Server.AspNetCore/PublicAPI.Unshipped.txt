@@ -59,7 +59,6 @@ const A2A.Server.AspNetCore.A2AApiKeyOptions.CallerClaim = "a2a:apikey:caller" -
 const A2A.Server.AspNetCore.A2AApiKeyOptions.OwnerPrefix = "apikey:" -> string!
 const A2A.Server.AspNetCore.A2AApiKeyOptions.PolicyName = "A2AApiKey" -> string!
 const A2A.Server.AspNetCore.A2AApiKeyOptions.SchemeName = "A2AApiKey" -> string!
-const A2A.Server.AspNetCore.A2AApiKeyOptions.TenantClaim = "a2a:apikey:tenant" -> string!
 static A2A.Server.AspNetCore.A2AApiKeyAuthenticationExtensions.AddApiKeyAuthentication(this A2A.Server.A2AServerBuilder! builder, System.Action<A2A.Server.AspNetCore.A2AApiKeyOptions!>? configure = null) -> A2A.Server.A2AServerBuilder!
 A2A.Server.AspNetCore.ApiKeyCaller.Deconstruct(out string! CallerId, out System.Collections.Generic.IReadOnlyList<string!>? Tenants) -> void
 A2A.Server.AspNetCore.ApiKeyCaller.Equals(A2A.Server.AspNetCore.ApiKeyCaller? other) -> bool

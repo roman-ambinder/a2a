@@ -2,7 +2,8 @@
 #   docker compose -f samples/MultiInstance/docker-compose.yml up --build -d
 #   dotnet run --project samples/MultiInstance/Client
 #   docker compose -f samples/MultiInstance/docker-compose.yml down -v
-# The API key and the database password are demo values. Change them for anything real.
+# The API key (its hash here, the key in samples/Commons) and the database password are demo values. Change them for
+# anything real: 'a2a keys new' makes a key and its hash.
 x-agent: &agent
   build:
     context: ../..
@@ -11,7 +12,7 @@ x-agent: &agent
     postgres: { condition: service_healthy }
     redis: { condition: service_healthy }
   environment: &agent-env
-    ApiKey: sample-f47ac10b-58cc-4372-a567-0e02b2c3d47
+    ApiKeyHash: sha256:ff225598e72edb2ba25e7d5ebcd7f39cb44c9b4855e6a4efbf51245c5fa305ce # of the public demo key in samples/Commons
     ConnectionStrings__a2a: Host=postgres;Database=a2a;Username=a2a;Password=a2a-demo
     ConnectionStrings__redis: redis:6379
 

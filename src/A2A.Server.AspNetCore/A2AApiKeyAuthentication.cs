@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
-using A2A.Server.Pipeline;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -63,9 +62,6 @@ public sealed class A2AApiKeyOptions
     /// <summary>The claim that holds the caller id (without the prefix).</summary>
     public const string CallerClaim = "a2a:apikey:caller";
 
-    /// <summary>The claim, once per tenant, of a key limited to some tenants.</summary>
-    public const string TenantClaim = "a2a:apikey:tenant";
-
     /// <summary>The header the key travels in. Default <c>X-Api-Key</c>. The Agent Card declares it.</summary>
     public string HeaderName { get; set; } = "X-Api-Key";
 
@@ -97,7 +93,8 @@ public static class A2AApiKeyAuthenticationExtensions
     ///     Lets callers in with an API key, in one call: an ASP.NET Core authentication scheme that reads the key from
     ///     <see cref="A2AApiKeyOptions.HeaderName" />, a caller id per key (the task owner is <c>apikey:</c> and the id), the
     ///     scheme on the Agent Card (<c>securitySchemes</c> and <c>securityRequirements</c>, so clients such as
-    ///     <c>AddApiKey</c> and the <c>a2a</c> tool find the header), an optional tenant list per key, and the policy
+    ///     <c>AddApiKey</c> and the <c>a2a</c> tool find the header), an optional tenant list per key (as <see cref="A2AClaimTypes.Tenant" /> claims, so a call to another tenant is
+    ///     refused and audited like any other denial), and the policy
     ///     <see cref="A2AApiKeyOptions.PolicyName" /> on every A2A endpoint that has no authorization of its own.
     /// </summary>
     /// <remarks>
@@ -131,7 +128,6 @@ public static class A2AApiKeyAuthenticationExtensions
         services.AddAuthorization(o => o.AddPolicy(A2AApiKeyOptions.PolicyName,
             p => p.AddAuthenticationSchemes(A2AApiKeyOptions.SchemeName).RequireAuthenticatedUser()));
         services.AddSingleton<IPostConfigureOptions<A2AServerOptions>, CardDeclaration>();
-        builder.AddOperationFilter<ApiKeyTenantFilter>(A2AFilterStage.BeforeAuthorization);
         return builder;
     }
 
@@ -272,29 +268,9 @@ public static class A2AApiKeyAuthenticationExtensions
                 new(ClaimTypes.Name, caller.CallerId),
                 new(A2AApiKeyOptions.CallerClaim, caller.CallerId)
             ];
-            foreach (var tenant in caller.Tenants ?? []) claims.Add(new Claim(A2AApiKeyOptions.TenantClaim, tenant));
+            foreach (var tenant in caller.Tenants ?? []) claims.Add(new Claim(A2AClaimTypes.Tenant, tenant));
             var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name));
             return AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name));
-        }
-    }
-
-    /// <summary>Refuses a call to a tenant the caller's key is not allowed for, on every binding.</summary>
-    private sealed class ApiKeyTenantFilter : IA2AOperationFilter
-    {
-        public ValueTask<object?> InvokeAsync(A2AOperationContext context, object request, A2AOperationDelegate next,
-            CancellationToken cancellationToken)
-        {
-            var identity = context.Call.User?.Identities.FirstOrDefault(i =>
-                i.IsAuthenticated && i.AuthenticationType == A2AApiKeyOptions.SchemeName);
-            if (identity is not null)
-            {
-                var tenants = identity.FindAll(A2AApiKeyOptions.TenantClaim).Select(c => c.Value).ToList();
-                if (tenants.Count > 0 && !tenants.Contains(context.Call.Tenant, StringComparer.Ordinal))
-                    throw new A2AException(A2AErrorCode.PermissionDenied,
-                        "This API key is not allowed for this tenant.");
-            }
-
-            return next(context, request, cancellationToken);
         }
     }
 

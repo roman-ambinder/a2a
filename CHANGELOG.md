@@ -46,14 +46,23 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - README: a "Which packages do I need?" table.
 - Server API-key authentication: `AddApiKeyAuthentication(o => o.Add("billing", hash))` on the A2A builder. It registers
   an authentication scheme for `X-Api-Key`, gives each key a caller id (task owner `apikey:<id>`, so callers never share
-  tasks, also not with users of another scheme), declares the scheme on the Agent Card, can limit a key to tenants (on
-  every binding), and puts the `A2AApiKey` policy on every A2A endpoint without authorization of its own (endpoints with
+  tasks, also not with users of another scheme), declares the scheme on the Agent Card, can limit a key to tenants
+  (through the new `a2a:tenant` claim, below), and puts the `A2AApiKey` policy on every A2A endpoint without authorization of its own (endpoints with
   their own policy keep it). Keys are registered by their SHA-256 hash only. New `A2AApiKey` makes keys (`a2a_` and 32
   random bytes; other forms are refused) and hashes them. Keys come from code, the `A2A:ApiKeys` configuration section
   (reloaded without a restart; a broken reload keeps the previous keys; a plain `Key` entry is refused) or a custom
   `IApiKeyStore`. New CLI command `a2a keys new` / `a2a keys hash` (offline). `samples/EchoAgent` uses it instead of a
   hand-written handler and takes `--EchoAgent:ApiKeyHash`. The agent templates take `--auth apikey`; the client template
   sends `A2A_API_KEY`. Analyzer A2A0002 knows that `AddApiKeyAuthentication` protects the endpoints.
+- New claim type `A2AClaimTypes.Tenant` (`a2a:tenant`): a caller with one or more of these claims may call only those
+  tenants. The server checks it in its authorization step, on every binding, before the host's
+  `A2AAuthorizationHandler`: a call to another tenant is refused like any other denial (a task-scoped call looks like a
+  missing task, the rest is `PermissionDenied` with `permission` `tenant`), logged as a security event and written to
+  the audit trail with the reason `TenantNotAllowed`. API keys registered with tenants set it; other schemes can set it
+  in a claims transformation.
+- `samples/TenantAgent`, `samples/MultiInstance` and `samples/ArtifactStorage` use `AddApiKeyAuthentication` instead
+  of hand-written handlers. TenantAgent and ArtifactStorage make their keys at startup; TenantAgent limits each key to
+  its tenant. MultiInstance takes `ApiKeyHash` (a public demo key in `samples/Commons`, for the Docker demo only).
 - `samples/EchoClient` sends its API key with `AddApiKey` instead of a hand-written handler, and uses the new helpers.
 
 ### Identity providers
