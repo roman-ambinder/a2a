@@ -118,5 +118,5 @@ Built later: see `2026-11-11-aws-sigv4-design.md`, which decides the questions b
 1. `ClientAssertion` is a delegate, not a new `OAuth2ClientAuthentication` value. Setting it is the switch. If wrong: an enum value can be added later and mean the same.
 2. `PrivateKeyJwt` reuses `AgentCardSigningKey` instead of a new key type. The name reads oddly here, but the type is exactly a key, a `kid` and an algorithm.
 3. The Azure package takes a `TokenCredential` and does not reference `Azure.Identity`.
-4. No DI helper in the Azure package: `AddCredentialProvider(sp => new AzureTokenCredentialProvider(...))` already works, and a helper would make the package depend on `A2A.Client.DependencyInjection`.
+4. No DI helper in the Azure package: `AddCredentialProvider(sp => new AzureTokenCredentialProvider(...))` already works, and a helper would make the package depend on `A2A.Client.DependencyInjection`. **Revised 2026-11-11:** `AddAzureTokenCredential` added at the user's request; the package now depends on `A2A.Client.DependencyInjection`, and `AgentOrigin` defaults to the client's `AgentUrl` (read through the new public `GetA2AClientName()`, not `InternalsVisibleTo`).
 5. Default `RefreshBeforeExpiry` is 5 minutes for Azure (Entra tokens live about an hour) and stays 60 seconds for OAuth2.

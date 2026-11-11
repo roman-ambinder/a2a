@@ -84,14 +84,10 @@ internal static class Samples
     public static void AzureDi(IServiceCollection services)
     {
         #region AzureDi
+        // Uses the TokenCredential registered here. AgentOrigin defaults to AgentUrl.
         services.AddSingleton<Azure.Core.TokenCredential>(new DefaultAzureCredential());
         services.AddA2AClient("weather", o => o.AgentUrl = new Uri("https://agent.example.com/"))
-            .AddCredentialProvider(sp =>
-            {
-                var options = new AzureTokenCredentialOptions();
-                options.Scopes.Add("api://weather-agent/.default");
-                return new AzureTokenCredentialProvider(sp.GetRequiredService<Azure.Core.TokenCredential>(), options);
-            });
+            .AddAzureTokenCredential(o => o.Scopes.Add("api://weather-agent/.default"));
         #endregion
     }
 
@@ -176,12 +172,13 @@ internal static class Samples
     public static void AwsSigV4Di(IServiceCollection services)
     {
         #region AwsSigV4Di
-        var agentUrl = new Uri("https://abc123.execute-api.us-east-1.amazonaws.com/prod/");
-        services.AddA2AClient("orders", o => o.AgentUrl = agentUrl)
-            .AddHttpMessageHandler(() => new AwsSigV4Handler(new AwsSigV4Options
+        // Signs the card fetch and every call to AgentUrl's origin. AgentOrigin defaults to AgentUrl.
+        services.AddA2AClient("orders", o => o.AgentUrl = new Uri("https://abc123.execute-api.us-east-1.amazonaws.com/prod/"))
+            .AddAwsSigV4(o =>
             {
-                Region = "us-east-1", Service = "execute-api", AgentOrigin = agentUrl,
-            }));
+                o.Region = "us-east-1";
+                o.Service = "execute-api";
+            });
         #endregion
     }
 

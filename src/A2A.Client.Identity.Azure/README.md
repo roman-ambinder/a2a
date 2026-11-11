@@ -13,7 +13,9 @@ var entra = new AzureTokenCredentialProvider(new ManagedIdentityCredential(Manag
 var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [entra]);
 ```
 
-With `AddA2AClient`, use `.AddCredentialProvider(sp => new AzureTokenCredentialProvider(credential, options))`.
+With `AddA2AClient`: `.AddAzureTokenCredential(o => o.Scopes.Add("api://my-agent/.default"))` uses the `TokenCredential`
+registered in the service collection; an overload takes a factory for the credential. `AgentOrigin` defaults to the
+client's `AgentUrl`.
 
 - Handles the card's `oauth2SecurityScheme`, `openIdConnectSecurityScheme` and HTTP `Bearer` schemes, and sends
   `Authorization: Bearer`.

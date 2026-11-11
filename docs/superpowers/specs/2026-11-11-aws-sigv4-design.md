@@ -78,4 +78,4 @@ public sealed class AwsSigV4CredentialProvider : IA2ACredentialProvider
 2. Requests to other origins pass unsigned rather than fail. A signature is bound to its host, so this leaks nothing, and failing would break artifact downloads through the same client.
 3. Query values are decoded and encoded again (as the SigV4 rules say), not passed through as sent (as botocore does). The two agree on canonical input; on other input the rules are what AWS checks.
 4. Errors do not include AWS SDK messages (S6), unlike the Azure provider, which includes cleaned Azure messages.
-5. No DI helper: `AddHttpMessageHandler(() => new AwsSigV4Handler(options))` works on the `AddA2AClient` builder.
+5. No DI helper: `AddHttpMessageHandler(() => new AwsSigV4Handler(options))` works on the `AddA2AClient` builder. **Revised 2026-11-11:** `AddAwsSigV4` added at the user's request. It adds the handler to the named client's chain, so the card fetch is signed too; `AgentOrigin` defaults to the client's `AgentUrl`. The package now depends on `A2A.Client.DependencyInjection`.

@@ -186,6 +186,17 @@ public static class A2AClientServiceCollectionExtensions
         });
     }
 
+    /// <summary>
+    ///     The A2A client name of a builder that <see cref="AddA2AClient" /> returned, as <see cref="IA2AClientFactory" />
+    ///     and <see cref="A2ANamedClientOptions" /> know it. Null for any other <see cref="IHttpClientBuilder" />. For
+    ///     packages that add to an A2A client and need its options, for example its <see cref="A2ANamedClientOptions.AgentUrl" />.
+    /// </summary>
+    public static string? GetA2AClientName(this IHttpClientBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        return TryGetA2AClientName(builder);
+    }
+
     internal static string? TryGetA2AClientName(IHttpClientBuilder builder)
     {
         return builder.Name is { } n && n.StartsWith(DefaultA2AClientFactory.HttpClientPrefix, StringComparison.Ordinal)

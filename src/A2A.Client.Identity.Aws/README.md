@@ -16,7 +16,8 @@ var sigV4 = new AwsSigV4Handler(new AwsSigV4Options
 var client = await A2AClientFactory.CreateAsync(agentUrl, new HttpClient(sigV4));
 ```
 
-With `AddA2AClient`: `.AddHttpMessageHandler(() => new AwsSigV4Handler(options))`.
+With `AddA2AClient`: `.AddAwsSigV4(o => { o.Region = "us-east-1"; o.Service = "execute-api"; })`. `AgentOrigin` defaults
+to the client's `AgentUrl`, and the card fetch is signed too.
 
 - `AwsSigV4Handler` signs every request to `AgentOrigin`, the card fetch included, and lets requests to other origins
   through unsigned. Use it when the card declares no scheme, which is usual: the AWS front door checks the signature,

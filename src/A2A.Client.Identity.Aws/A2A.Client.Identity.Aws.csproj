@@ -5,7 +5,7 @@
         <PackageTags>$(PackageTags);aws;iam;sigv4</PackageTags>
     </PropertyGroup>
     <ItemGroup>
-        <ProjectReference Include="..\A2A.Client\A2A.Client.csproj"/>
+        <ProjectReference Include="..\A2A.Client.DependencyInjection\A2A.Client.DependencyInjection.csproj"/>
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="AWSSDK.Core"/>
