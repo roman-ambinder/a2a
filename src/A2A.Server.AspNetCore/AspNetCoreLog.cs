@@ -45,6 +45,29 @@ internal static partial class AspNetCoreLog
     [LoggerMessage(EventId = 701, Level = LogLevel.Critical, Message = "Stopping the application: {Message}")]
     public static partial void StoppingApplication(ILogger logger, Exception exception, string message);
 
+    [LoggerMessage(EventId = 702, Level = LogLevel.Warning,
+        Message = "The Agent Card lists the {Binding} interface at {Url}, a local address other agents cannot reach (spec 8.3.1). Set A2AHttpOptions.PublicBaseUrl to the public address, or list the interfaces in the card.")]
+    public static partial void CardInterfaceIsLocal(ILogger logger, string binding, string url);
+
+    [LoggerMessage(EventId = 703, Level = LogLevel.Warning,
+        Message = "The {Binding} binding is mapped at '{Pattern}' but the Agent Card does not list it (spec 5.2: agents must declare all supported protocols). Add it to SupportedInterfaces, or leave SupportedInterfaces empty to have them listed.")]
+    public static partial void MappedBindingNotOnCard(ILogger logger, string binding, string pattern);
+
+    [LoggerMessage(EventId = 704, Level = LogLevel.Warning,
+        Message = "The {Binding} binding is mapped at the tenant pattern '{Pattern}', which is never listed automatically. List it, with the tenant filled in, in each tenant's card (spec 5.2).")]
+    public static partial void TenantBindingNotListed(ILogger logger, string binding, string pattern);
+
+    [LoggerMessage(EventId = 705, Level = LogLevel.Warning,
+        Message = "The Agent Card lists the {Binding} interface at {Url}, which is not encrypted (spec 13.4: production deployments must use HTTPS or TLS).")]
+    public static partial void CardInterfaceNotEncrypted(ILogger logger, string binding, string url);
+
+    [LoggerMessage(EventId = 706, Level = LogLevel.Warning,
+        Message = "The server listens only on plain HTTP ({Addresses}) and A2AHttpOptions.PublicBaseUrl is not https (spec 13.4: production deployments must use HTTPS or TLS). Ignore this when a proxy in front terminates TLS, and set PublicBaseUrl to its https address.")]
+    public static partial void NoEncryptedEndpoint(ILogger logger, string addresses);
+
+    [LoggerMessage(EventId = 707, Level = LogLevel.Debug, Message = "The Agent Card interface check could not run")]
+    public static partial void CardCheckFailed(ILogger logger, Exception exception);
+
     // AgentCardEndpoint: 800-899
     [LoggerMessage(EventId = 800, Level = LogLevel.Warning,
         Message =
