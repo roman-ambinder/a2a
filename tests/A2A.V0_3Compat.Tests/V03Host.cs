@@ -105,6 +105,8 @@ public sealed class V03Host : IAsyncDisposable
         {
             o.AgentCard = DefaultCard();
             o.CancelGracePeriod = TimeSpan.FromMilliseconds(300);
+            // No shutdown drain: disposing a host whose agent is still running would otherwise wait the default 20 s.
+            o.ShutdownDrainTimeout = TimeSpan.Zero;
             o.ExtendedAgentCardProvider = (call, _, _) =>
             {
                 var card = DefaultCard();
