@@ -21,12 +21,12 @@ The SDK does not log callers in. Your app's authentication scheme does, and the 
 [!code-csharp[](../../../samples/Snippets/IdentityProviders.cs#EntraServer)]
 
 - `Authority` is your tenant. `Audience` is the application id URI of the agent's app registration.
-- `MapInboundClaims = false` keeps the claim names of the token. The resolver below reads `oid` and `tid` by those names.
+- `MapInboundClaims = false` keeps the claim names of the token. The resolver below reads `oid` and `tid` by those names, and the policy reads `roles`. Without it (the handler's default is `true`), the handler renames them to long URIs: `oid` becomes `http://schemas.microsoft.com/identity/claims/objectidentifier`, `tid` becomes `http://schemas.microsoft.com/identity/claims/tenantid`, `roles` becomes `ClaimTypes.Role`, and `sub` becomes `ClaimTypes.NameIdentifier`.
 - The policy asks for an app role. Define it on the agent's app registration and assign it to the callers you allow. Callers that use client credentials get it in the `roles` claim.
 
 ### The owner id
 
-Each task belongs to an owner id. The default resolver reads `NameIdentifier`, then `sub`. In Entra tokens, `sub` is different for each application, so the same caller would get another owner id in another app. `oid` is the id of the user or service principal, and it is the same in every app of the tenant. Use `tid` and `oid` together:
+Each task belongs to an owner id. The default resolver reads `NameIdentifier`, then `sub`. In Entra tokens, `sub` is different for each application, so the same caller would get another owner id in another app. `oid` is the id of the user or service principal, and it is the same in every app of the tenant. A person has a different `oid` in each tenant, so use `tid` and `oid` together. See `sub`, `oid` and `tid` in Microsoft's [ID token claims reference](https://learn.microsoft.com/en-us/entra/identity-platform/id-token-claims-reference).
 
 [!code-csharp[](../../../samples/Snippets/IdentityProviders.cs#EntraResolver)]
 
@@ -114,7 +114,8 @@ If the card does declare a scheme for SigV4, under a name you agreed on with the
 ## What can go wrong
 
 - **Every call is 401 on the server although the token is valid.** The token has no `oid` or `tid` (the resolver returns null), or claim names were mapped to long URIs. Set `MapInboundClaims = false`.
-- **The same caller sees different tasks in two apps.** You use the default resolver with Entra, which reads `sub`. Use the Entra resolver above.
+- **Every call is 403 although the caller has the app role.** The policy asks for `roles`, but the handler renamed it to `ClaimTypes.Role` (`MapInboundClaims` is `true` by default). Set `MapInboundClaims = false`, or require `ClaimTypes.Role` in the policy.
+- **The same caller sees different tasks in two apps.** You use the default resolver with Entra. It reads `NameIdentifier` (the handler maps `sub` to it by default) or `sub`, and `sub` is different in each app. Use the Entra resolver above.
 - **`ArgumentException`: "Set ClientSecret or ClientAssertion, not both".** Remove one.
 - **`Unauthenticated` from the token endpoint with `invalid_client`.** The identity provider does not trust the assertion: wrong issuer or subject in the federated credential, wrong public key, or the clock is off.
 - **`ArgumentException`: "Scopes is required".** The Azure provider needs a scope, for example `api://my-agent/.default`.
