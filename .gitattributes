@@ -1,3 +1,8 @@
+# Text files are stored and checked out with LF on every OS. Raw string literals take the line endings of their source
+# file, so a CRLF checkout on Windows used to change what tests compare (see #127). The signed test vectors keep their
+# exact bytes: tests/A2A.Tests/Vectors/.gitattributes turns conversion off there.
+* text=auto eol=lf
+
 # Most pull requests add lines to these lists, so a merge keeps the lines of both sides. The API analyzers do not need an order.
 **/PublicAPI.Shipped.txt merge=union
 **/PublicAPI.Unshipped.txt merge=union
