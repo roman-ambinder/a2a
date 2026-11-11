@@ -64,6 +64,10 @@ The second argument is `JSONRPC`, `HTTP+JSON` or `GRPC`.
 
 The `interop` job in the CI workflow installs Python 3.12 and the pinned requirements, then runs `interop/run.sh`. It runs on every push and pull request. The step is named "JSON-RPC + HTTP+JSON", but the script runs all three bindings.
 
+## Model and proto
+
+The JSON model in `A2A.Protocol` is written by hand; the gRPC types are generated from `docs/a2a.proto`. `tests/A2A.Grpc.Tests/ProtoModelDriftTests.cs` checks that they agree: every proto message has a model type with exactly its JSON fields, every case of the union messages (`Part`, `SecurityScheme`, `SendMessageResponse`, `StreamResponse`) reads into the model and writes back to an equal proto message (the protobuf parser judges), and enum value names match. A message, field, case or value added to the proto fails the test until the model has it.
+
 ## Binding parity
 
 The parity suite is `tests/A2A.Tests/Parity/ParityTests.cs`. It starts the SDK's own server and calls each of the 11 operations through the client over JSON-RPC, HTTP+JSON and gRPC. The same case must give the same result on all three. Test names are `{Operation}_{case}`.

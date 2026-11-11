@@ -2,6 +2,8 @@ using System.Runtime.CompilerServices;
 using A2A.Server.Agents;
 using A2A.Server.Pipeline;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
@@ -68,6 +70,29 @@ internal sealed class A2AEndpointRegistry
         }
     }
 
+    private readonly List<(string Binding, string Pattern)> _templateBindings = [];
+
+    /// <summary>
+    ///     Records a binding mapped at a pattern with a route parameter (a tenant template). It is never listed on a card
+    ///     automatically; the startup check warns about it.
+    /// </summary>
+    public void AddTemplateBinding(string binding, string pattern)
+    {
+        lock (_templateBindings)
+        {
+            if (!_templateBindings.Contains((binding, pattern))) _templateBindings.Add((binding, pattern));
+        }
+    }
+
+    /// <summary>The recorded template <c>(Binding, Pattern)</c> pairs.</summary>
+    public IReadOnlyList<(string Binding, string Pattern)> TemplateBindings()
+    {
+        lock (_templateBindings)
+        {
+            return _templateBindings.ToList();
+        }
+    }
+
     /// <summary>
     ///     True the first time it is called for <paramref name="source" /> (the route builder's data sources); false
     ///     after.
@@ -110,7 +135,10 @@ internal sealed class A2AStartupValidator(
     ILogger<A2AStartupValidator> logger,
     IServiceProvider services,
     IEnumerable<A2AExtensionOperation> extensions,
-    A2ARateLimitMarker? rateLimit = null) : IHostedService
+    A2ARateLimitMarker? rateLimit = null,
+    IHostEnvironment? environment = null,
+    IOptions<A2AHttpOptions>? http = null,
+    IServer? server = null) : IHostedService
 {
     internal const string NoPolicyMessage =
         "A2A endpoints have no authorization policy. Call app.MapA2A(...).RequireAuthorization() or MapA2A(pattern, o => o.AuthorizationPolicy = \"...\"), or set A2AServerOptions.AllowAnonymous = true.";
@@ -131,6 +159,8 @@ internal sealed class A2AStartupValidator(
     {
         CheckCardName();
         await CheckExtensionPoliciesAsync().ConfigureAwait(false);
+        // Listen addresses, and so the completed card, are known only once the server has started.
+        lifetime.ApplicationStarted.Register(CheckCardInterfaces);
         if (options.Value.AllowAnonymous) AspNetCoreLog.AnonymousCallersAllowed(logger);
 
         if (!registry.HasSources)
@@ -187,6 +217,72 @@ internal sealed class A2AStartupValidator(
                 throw new InvalidOperationException(
                     $"Extension operation '{extension.Method}' names authorization policy '{policy}', which is not registered.");
         }
+    }
+
+    /// <summary>
+    ///     Warns (never fails) when the Agent Card would send other agents to the wrong place (spec 5.2, 8.3.1) or over plain
+    ///     HTTP (13.4): a mapped binding the card does not list, a binding at a tenant pattern (never listed automatically),
+    ///     and, outside Development, an interface on a local address, an interface on plain HTTP, and a server with no HTTPS
+    ///     address and no https PublicBaseUrl.
+    /// </summary>
+    internal void CheckCardInterfaces()
+    {
+        try
+        {
+            var production = environment?.IsDevelopment() != true;
+            var bindings = registry.Bindings();
+            foreach (var (binding, pattern) in registry.TemplateBindings())
+                AspNetCoreLog.TenantBindingNotListed(logger, binding, pattern);
+
+            AgentCard? card = null;
+            if (services.GetService<IAgentCardProvider>() is { } cards)
+                try
+                {
+                    card = cards.Get();
+                }
+                catch (InvalidOperationException)
+                {
+                    // One agent per tenant: no host card to check.
+                }
+
+            var plainInterface = false;
+            if (card is not null)
+            {
+                foreach (var (binding, pattern) in bindings)
+                    if (!card.SupportedInterfaces.Any(i => string.Equals(i.ProtocolBinding, binding, StringComparison.OrdinalIgnoreCase)))
+                        AspNetCoreLog.MappedBindingNotOnCard(logger, binding, pattern);
+
+                if (production)
+                    foreach (var itf in card.SupportedInterfaces)
+                    {
+                        // A gRPC "host:port" address has no scheme and means TLS.
+                        if (!Uri.TryCreate(itf.Url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+                            uri = Uri.TryCreate("https://" + itf.Url, UriKind.Absolute, out var grpc) ? grpc : null;
+                        if (uri is null) continue;
+                        if (IsLocal(uri.Host)) AspNetCoreLog.CardInterfaceIsLocal(logger, itf.ProtocolBinding, itf.Url);
+                        else if (uri.Scheme == Uri.UriSchemeHttp)
+                        {
+                            plainInterface = true;
+                            AspNetCoreLog.CardInterfaceNotEncrypted(logger, itf.ProtocolBinding, itf.Url);
+                        }
+                    }
+            }
+
+            if (production && !plainInterface && http?.Value.PublicBaseUrl?.Scheme != Uri.UriSchemeHttps
+                && server?.Features.Get<IServerAddressesFeature>()?.Addresses is { Count: > 0 } addresses
+                && !addresses.Any(a => a.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+                AspNetCoreLog.NoEncryptedEndpoint(logger, string.Join(", ", addresses));
+        }
+        catch (Exception ex)
+        {
+            AspNetCoreLog.CardCheckFailed(logger, ex);
+        }
+    }
+
+    private static bool IsLocal(string host)
+    {
+        return string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)
+               || (System.Net.IPAddress.TryParse(host.Trim('[', ']'), out var ip) && System.Net.IPAddress.IsLoopback(ip));
     }
 
     private void Check()
