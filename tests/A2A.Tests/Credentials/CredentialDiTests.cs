@@ -245,6 +245,38 @@ public class CredentialDiTests
         Assert.Equal("Bearer bt", other.At("/x").Single().Header("Authorization"));
     }
 
+    [Fact]
+    public async Task AddOAuth2ClientCredentials_logs_through_the_app_logger_when_a_shared_endpoint_has_no_scopes()
+    {
+        var capture = new CaptureProvider();
+        await using var origin = await TestOrigin.StartAsync(async (context, o) =>
+        {
+            if (context.Request.Path == "/token")
+                await TestOrigin.WriteJson(context, """{"access_token":"t","token_type":"Bearer","expires_in":3600}""");
+            else if (context.Request.Path == "/.well-known/agent-card.json")
+            {
+                var s = new Dictionary<string, SecurityScheme>
+                {
+                    ["oauth"] = new OAuth2Scheme(new OAuth2SecurityScheme { Flows = new OAuthFlows { ClientCredentials = new ClientCredentialsOAuthFlow { TokenUrl = o.Uri("/token").ToString() } } }),
+                };
+                await TestOrigin.WriteCard(context, TestOrigin.Card(o.Url, s, [Cards.Req(("oauth", []))]));
+            }
+            else await TestOrigin.WriteJson(context, TestOrigin.RpcOk);
+        });
+        var services = new ServiceCollection();
+        services.AddLogging(b => b.SetMinimumLevel(LogLevel.Trace).AddProvider(capture));
+        services.AddA2AClient("agent", o => { o.AgentUrl = origin.Url; o.Client.MaxRetries = 0; })
+            .AddOAuth2ClientCredentials(o =>
+            {
+                o.ClientId = "id"; o.ClientSecret = "secret"; o.TokenEndpoint = origin.Uri("/token"); o.RequireHttps = false;
+            });
+        using var sp = services.BuildServiceProvider();
+
+        await (await Get(sp)).SendMessageAsync("hi");
+
+        Assert.Contains(capture.Lines, l => l.Contains("has no Scopes", StringComparison.Ordinal));
+    }
+
     private sealed class CaptureProvider : ILoggerProvider
     {
         public System.Collections.Concurrent.ConcurrentQueue<string> Lines { get; } = new();
