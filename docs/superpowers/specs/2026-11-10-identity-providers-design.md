@@ -48,6 +48,7 @@ public static class OAuth2ClientAssertions
 - B5. An assertion that is empty, longer than 64 KiB, or holds white space or control characters fails the token request with `Unauthenticated`. A delegate that throws fails it the same way. The message names the exception type only.
 - B6. `FromFile` reads the file on each call, trims surrounding white space, and caps it at 64 KiB. It is how Kubernetes projected service account tokens and Azure workload identity (`AZURE_FEDERATED_TOKEN_FILE`) are handed to a pod.
 - B7. `PrivateKeyJwt` signs a JWT with the claims `iss` and `sub` (the client id), `aud` (the token endpoint URL), `jti` (128 random bits), `iat`, `nbf` and `exp` (default lifetime 5 minutes, at most 1 hour). Header: `alg`, `typ: JWT`, `kid`. It reuses `AgentCardSigningKey` and `JwsAlgorithms`, so only asymmetric algorithms are possible.
+- B8. (Added 2026-11-11.) `CertificateJwt(certificate, algorithm = "PS256", thumbprint = Sha256)` signs the same claims with an X.509 certificate's private key, and names the certificate in the header by `x5t#S256` (default) or `x5t`, not `kid`. Entra certificate credentials need this: its examples carry a thumbprint header (`x5t#S256` with PS256 in the MSAL.NET client assertion guide, `x5t` with RS256 in the client credentials example). The key is read per token request and disposed; the certificate stays the caller's.
 
 ### 3.3 Non-goals for B
 

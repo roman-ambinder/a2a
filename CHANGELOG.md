@@ -11,6 +11,9 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   token file the platform rotates (Kubernetes service account tokens, Azure workload identity), and
   `OAuth2ClientAssertions.PrivateKeyJwt` signs a `private_key_jwt` with your own key. `ClientSecret` and `ClientAssertion`
   cannot both be set. `client_assertion` and `client_assertion_type` are refused in `AdditionalParameters`.
+- New `OAuth2ClientAssertions.CertificateJwt`: a client assertion signed with an X.509 certificate's private key, naming
+  the certificate by thumbprint (`x5t#S256` by default, or `x5t`) instead of `kid`, for identity providers that register
+  certificates, such as Entra ID certificate credentials. `PS256` by default; RSA and EC certificates.
 - New package `RomanAmbinder.A2A.Client.Identity.Azure`: `AzureTokenCredentialProvider` gets tokens from any Azure.Core
   `TokenCredential` (managed identity, workload identity, `DefaultAzureCredential`, ...). Scopes are required and set by the
   host, never taken from the card. One provider binds to one agent origin. Tokens are cached and refreshed before expiry.

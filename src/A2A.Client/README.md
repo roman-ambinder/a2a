@@ -16,7 +16,8 @@ Credentials: pass providers (`OAuth2ClientCredentialsProvider`, `ApiKeyCredentia
 `MutualTlsCredentialProvider`) instead of an `HttpClient`. They are chosen by the card's required schemes and sent only
 to the card's origin, never across a redirect. To log in without a secret, set
 `OAuth2ClientCredentialsOptions.ClientAssertion` (`OAuth2ClientAssertions.FromFile` for a Kubernetes or workload identity
-token file, `OAuth2ClientAssertions.PrivateKeyJwt` for your own key). Azure credentials:
+token file, `OAuth2ClientAssertions.PrivateKeyJwt` for your own key, `OAuth2ClientAssertions.CertificateJwt` for a
+certificate registered at the identity provider). Azure credentials:
 `RomanAmbinder.A2A.Client.Identity.Azure`.
 
 ```csharp

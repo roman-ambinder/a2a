@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using A2A.Client;
 using A2A.Client.Credentials;
 using A2A.Client.Identity.Aws;
@@ -126,6 +127,26 @@ internal static class Samples
             ClientAssertion = OAuth2ClientAssertions.PrivateKeyJwt(key),
             TokenEndpoint = new Uri("https://idp.example.com/oauth/token"),
             Scopes = ["agent.invoke"],
+        });
+
+        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [oauth]);
+        #endregion
+        _ = client;
+    }
+
+    public static async Task CertificateJwtAsync()
+    {
+        #region CertificateJwt
+        // Entra ID certificate credentials: upload the certificate (no private key) to the app registration.
+        using var certificate = X509CertificateLoader.LoadPkcs12FromFile("client.pfx", password: null);
+
+        using var oauth = new OAuth2ClientCredentialsProvider(new OAuth2ClientCredentialsOptions
+        {
+            ClientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID")!,
+            // PS256, and the x5t#S256 header that names the certificate.
+            ClientAssertion = OAuth2ClientAssertions.CertificateJwt(certificate),
+            TokenEndpoint = new Uri($"https://login.microsoftonline.com/{Environment.GetEnvironmentVariable("AZURE_TENANT_ID")}/oauth2/v2.0/token"),
+            Scopes = ["api://my-agent/.default"],
         });
 
         var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [oauth]);
