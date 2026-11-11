@@ -77,4 +77,8 @@ internal static partial class AspNetCoreLog
     // Health checks: 1200-1299
     [LoggerMessage(EventId = 1200, Level = LogLevel.Warning, Message = "Health check {Check} failed")]
     public static partial void HealthCheckFailed(ILogger logger, Exception exception, string check);
+
+    [LoggerMessage(EventId = 1300, Level = LogLevel.Error,
+        Message = "A2A API keys were not reloaded; the previous keys stay in use: {Problems}")]
+    public static partial void ApiKeysNotReloaded(ILogger logger, Exception exception, string problems);
 }

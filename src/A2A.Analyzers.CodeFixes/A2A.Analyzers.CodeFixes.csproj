@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- Code fixes for A2A.Analyzers, in their own assembly: it needs Roslyn Workspaces, which the command-line compiler
+         does not load. Ships inside RomanAmbinder.A2A.Server.AspNetCore next to the analyzers. -->
+    <PropertyGroup>
+        <TargetFrameworks>netstandard2.0</TargetFrameworks>
+        <IsPackable>false</IsPackable>
+        <IsAotCompatible>false</IsAotCompatible>
+        <EnablePackageValidation>false</EnablePackageValidation>
+        <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+        <IsRoslynComponent>true</IsRoslynComponent>
+        <IncludeSymbols>false</IncludeSymbols>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" PrivateAssets="all"/>
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.Analyzers\A2A.Analyzers.csproj"/>
+    </ItemGroup>
+</Project>

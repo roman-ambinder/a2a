@@ -4,6 +4,67 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Ease of use
+
+- New `A2AClient.AskAsync(text)`: sends a message and returns the answer as text, the text of a direct reply or of the
+  task's artifacts once the task completed (a task still running is polled). New `A2AClient.StreamTextAsync(text)`
+  yields the text as it streams; a task snapshot does not repeat text already yielded. It stops when the task ends or
+  needs input or authorization, even when the server keeps the stream open. Both throw the new
+  `TaskNotCompletedException` (with the task and its state) when the task fails, is rejected or canceled, or needs input
+  or authorization.
+- New text and state helpers on the model: `Artifact.GetText()`, `AgentTask.GetText()` (text of all artifacts),
+  `SendMessageResponse.GetText()`, `StreamResponse.GetText()` (the text an artifact chunk or a message carries) and
+  `StreamResponse.State` (the state of a status update or a task snapshot, so one check sees the end of a task).
+- New `TaskUpdater.OpenArtifact(name)` returns an `ArtifactWriter` that streams one artifact: the first `WriteAsync`
+  creates it, later ones append, and `CompleteAsync` (or disposing the writer) sends the last chunk. A terminal state of
+  the task completes the open writers first, so the artifact is sealed before the task ends. `samples/EchoAgent` uses it.
+- Configuration: `services.AddA2A(builder.Configuration.GetSection("A2A"), a => ...)` and `services.ConfigureA2A(section)`
+  read the Agent Card (name, description, version, provider, capabilities, modes, skills), `PublicBaseUrl`,
+  `AgentCardMaxAge`, every `A2ALimits` and `StreamingOptions` value, the rate limit and the main task settings. No
+  reflection, so it stays AOT-safe. An unknown key fails at startup with its path. Settings that weaken a secure default
+  (`AllowAnonymous`, `TreatMissingVersionAsCurrent`, `IncludeExceptionDetails`, `ClientContextIdPolicy`,
+  `RateLimit:Enabled`) are refused there and must be set in code. Code runs after configuration and wins.
+- New `A2AServerBuilder.UseDevelopmentDefaults()`: for local work, lets anonymous callers in, accepts calls without the
+  `A2A-Version` header and puts exception text in errors. Rate limiting and the limits stay on. The app refuses to start
+  in any environment other than Development.
+- The served Agent Card turns an unset `Capabilities.Streaming` into `true`: every executor can stream, so forgetting
+  the flag no longer makes streaming calls fail with `UnsupportedOperation`. An explicit `false` still refuses them. The
+  host's card instance is not changed.
+- New `A2AClientFactory.CreateForEndpoint(endpoint, httpClient, binding)`: a client for an endpoint you already know (an
+  agent in the same process, an address from your configuration), without fetching the card. It checks no capabilities
+  and verifies no card signature. The in-process samples use it instead of building a transport by hand.
+- New `AgentCard.Create(name, description, version = "1.0.0")` and chainable `AgentCard.AddSkill(...)` (refuses a duplicate
+  skill id).
+- New template pack `RomanAmbinder.A2A.Templates`: `dotnet new a2a-agent`, `a2a-client` and `a2a-chat-agent`. The agents
+  read their card from `appsettings.json`, use `UseDevelopmentDefaults()` in Development and require authorization
+  elsewhere. The pack stamps its own version into the package references. `src/A2A.Templates/test-templates.sh` (run in
+  CI after packing) builds each template against the packed SDK and runs the client against both agents.
+- Analyzers in `RomanAmbinder.A2A.Server.AspNetCore` report hosting mistakes at build time: A2A0001 (`UseA2A()` never
+  called), A2A0002 (endpoints mapped without authorization), A2A0003 (`UseA2A()` in the wrong place). Code fixes add
+  `app.UseA2A()` before `UseAuthorization()` and `.RequireAuthorization()` to the mapping. They are warnings, and the
+  startup checks are unchanged.
+- README: a "Which packages do I need?" table.
+- Server API-key authentication: `AddApiKeyAuthentication(o => o.Add("billing", hash))` on the A2A builder. It registers
+  an authentication scheme for `X-Api-Key`, gives each key a caller id (task owner `apikey:<id>`, so callers never share
+  tasks, also not with users of another scheme), declares the scheme on the Agent Card, can limit a key to tenants
+  (through the new `a2a:tenant` claim, below), and puts the `A2AApiKey` policy on every A2A endpoint without authorization of its own (endpoints with
+  their own policy keep it). Keys are registered by their SHA-256 hash only. New `A2AApiKey` makes keys (`a2a_` and 32
+  random bytes; other forms are refused) and hashes them. Keys come from code, the `A2A:ApiKeys` configuration section
+  (reloaded without a restart; a broken reload keeps the previous keys; a plain `Key` entry is refused) or a custom
+  `IApiKeyStore`. New CLI command `a2a keys new` / `a2a keys hash` (offline). `samples/EchoAgent` uses it instead of a
+  hand-written handler and takes `--EchoAgent:ApiKeyHash`. The agent templates take `--auth apikey`; the client template
+  sends `A2A_API_KEY`. Analyzer A2A0002 knows that `AddApiKeyAuthentication` protects the endpoints.
+- New claim type `A2AClaimTypes.Tenant` (`a2a:tenant`): a caller with one or more of these claims may call only those
+  tenants. The server checks it in its authorization step, on every binding, before the host's
+  `A2AAuthorizationHandler`: a call to another tenant is refused like any other denial (a task-scoped call looks like a
+  missing task, the rest is `PermissionDenied` with `permission` `tenant`), logged as a security event and written to
+  the audit trail with the reason `TenantNotAllowed`. API keys registered with tenants set it; other schemes can set it
+  in a claims transformation.
+- `samples/TenantAgent`, `samples/MultiInstance` and `samples/ArtifactStorage` use `AddApiKeyAuthentication` instead
+  of hand-written handlers. TenantAgent and ArtifactStorage make their keys at startup; TenantAgent limits each key to
+  its tenant. MultiInstance takes `ApiKeyHash` (a public demo key in `samples/Commons`, for the Docker demo only).
+- `samples/EchoClient` sends its API key with `AddApiKey` instead of a hand-written handler, and uses the new helpers.
+
 ### Identity providers
 
 - `OAuth2ClientCredentialsProvider` can log in without a secret. New `OAuth2ClientCredentialsOptions.ClientAssertion` sends a

@@ -1,6 +1,5 @@
 using A2A;
 using A2A.Client;
-using A2A.Client.Transports;
 using A2A.Elicitations;
 using A2A.Server;
 using A2A.Server.AspNetCore;
@@ -42,9 +41,8 @@ await app.StartAsync();
 var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
 Console.WriteLine($"Agent listening on {address}/a2a");
 
-var options = new A2AClientOptions();
 using var http = new HttpClient();
-var client = new A2AClient(new JsonRpcTransport(http, new Uri($"{address}/a2a"), options), options);
+var client = A2AClientFactory.CreateForEndpoint(new Uri($"{address}/a2a"), http);
 
 foreach (var reply in new[] { "accept", "decline", "cancel", "text" })
 {

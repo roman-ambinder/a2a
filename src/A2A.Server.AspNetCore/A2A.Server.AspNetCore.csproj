@@ -9,6 +9,15 @@
     <ItemGroup>
         <ProjectReference Include="..\A2A.Server\A2A.Server.csproj"/>
     </ItemGroup>
+    <!-- The hosting analyzers and their code fixes ship in this package (analyzers/dotnet/cs), so every host gets them.
+         Built first, not referenced, and not a package dependency. Skipped for DocFX metadata (DocfxMetadata=true), which
+         warns about a project reference without a matching assembly reference. -->
+    <ItemGroup Condition="'$(DocfxMetadata)' != 'true'">
+        <ProjectReference Include="..\A2A.Analyzers\A2A.Analyzers.csproj" ReferenceOutputAssembly="false" PrivateAssets="all"/>
+        <ProjectReference Include="..\A2A.Analyzers.CodeFixes\A2A.Analyzers.CodeFixes.csproj" ReferenceOutputAssembly="false" PrivateAssets="all"/>
+        <None Include="..\A2A.Analyzers\bin\$(Configuration)\netstandard2.0\A2A.Analyzers.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false"/>
+        <None Include="..\A2A.Analyzers.CodeFixes\bin\$(Configuration)\netstandard2.0\A2A.Analyzers.CodeFixes.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false"/>
+    </ItemGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="A2A.Tests"/>
         <InternalsVisibleTo Include="A2A.Server.V0_3Compat"/>

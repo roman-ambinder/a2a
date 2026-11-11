@@ -160,3 +160,21 @@ override A2A.Signing.JwksFetchResult.ToString() -> string!
 static A2A.Signing.JwksFetchResult.operator !=(A2A.Signing.JwksFetchResult? left, A2A.Signing.JwksFetchResult? right) -> bool
 static A2A.Signing.JwksFetchResult.operator ==(A2A.Signing.JwksFetchResult? left, A2A.Signing.JwksFetchResult? right) -> bool
 static A2A.A2AErrors.GetErrorInfoMetadata(System.Collections.Generic.IEnumerable<System.Text.Json.JsonElement>? details) -> System.Collections.Generic.Dictionary<string!, string!>?
+A2A.Artifact.GetText() -> string!
+A2A.AgentTask.GetText() -> string!
+A2A.SendMessageResponse.GetText() -> string!
+A2A.StreamResponse.GetText() -> string!
+A2A.StreamResponse.State.get -> A2A.TaskState?
+A2A.AgentCard.AddSkill(A2A.AgentSkill! skill) -> A2A.AgentCard!
+A2A.AgentCard.AddSkill(string! id, string! name, string! description, System.Collections.Generic.IEnumerable<string!>? tags = null, System.Collections.Generic.IEnumerable<string!>? examples = null) -> A2A.AgentCard!
+static A2A.AgentCard.Create(string! name, string! description, string! version = "1.0.0") -> A2A.AgentCard!
+A2A.A2AApiKey
+A2A.A2AApiKey.Hash.get -> string!
+A2A.A2AApiKey.Key.get -> string!
+const A2A.A2AApiKey.HashPrefix = "sha256:" -> string!
+const A2A.A2AApiKey.Prefix = "a2a_" -> string!
+override A2A.A2AApiKey.ToString() -> string!
+static A2A.A2AApiKey.ComputeHash(string! key) -> string!
+static A2A.A2AApiKey.Create() -> A2A.A2AApiKey!
+static A2A.A2AApiKey.IsWellFormed(string? key) -> bool
+static A2A.A2AApiKey.IsWellFormedHash(string? hash) -> bool

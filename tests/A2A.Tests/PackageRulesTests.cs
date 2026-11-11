@@ -214,8 +214,9 @@ public sealed class NamespaceRulesTests
         foreach (var projDir in Directory.GetDirectories(src))
         {
             var project = Path.GetFileName(projDir);
-            // Shared holds the netstandard2.0 polyfills, which live in System namespaces on purpose.
-            if (project == "Shared") continue;
+            // Shared holds the netstandard2.0 polyfills, which live in System namespaces on purpose. The template pack's code
+            // is the user's project: its namespace becomes the name passed to dotnet new.
+            if (project is "Shared" or "A2A.Templates") continue;
             var root = project == "A2A.Protocol" ? "A2A" : project;
             foreach (var file in Directory.EnumerateFiles(projDir, "*.cs", SearchOption.AllDirectories))
             {

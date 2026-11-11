@@ -130,6 +130,21 @@ public abstract record SendMessageResponse
     private protected SendMessageResponse()
     {
     }
+
+    /// <summary>
+    ///     The text of the result: the text of a direct message, or the text of the task's artifacts
+    ///     (<see cref="AgentTask.GetText" />). Empty when there is none. It does not check the task's state; a task that is
+    ///     still working or that failed can have no text yet.
+    /// </summary>
+    public string GetText()
+    {
+        return this switch
+        {
+            MessageResponse m => m.Message.GetText(),
+            TaskResponse t => t.Task.GetText(),
+            _ => string.Empty
+        };
+    }
 }
 
 /// <summary>SendMessage result: a task.</summary>
@@ -160,6 +175,34 @@ public abstract record StreamResponse
         StreamErrorEvent e => e.Error.TaskId,
         _ => null
     };
+
+    /// <summary>
+    ///     The task state this event reports: set for a <see cref="TaskEvent" /> and a <see cref="StatusUpdateEvent" />,
+    ///     null for every other event. Use it to see when a task ends, whichever of the two the server sent:
+    ///     <c>evt.State?.IsTerminal() == true</c>.
+    /// </summary>
+    [JsonIgnore]
+    public TaskState? State => this switch
+    {
+        TaskEvent t => t.Task.Status.State,
+        StatusUpdateEvent s => s.StatusUpdate.Status.State,
+        _ => null
+    };
+
+    /// <summary>
+    ///     The new text this event carries: the text parts of an <see cref="ArtifactUpdateEvent" /> or of a
+    ///     <see cref="MessageEvent" />. Empty for every other event, including a <see cref="TaskEvent" />, whose snapshot
+    ///     repeats text that earlier events already carried. Concatenate it over a stream to get the streamed text.
+    /// </summary>
+    public string GetText()
+    {
+        return this switch
+        {
+            ArtifactUpdateEvent a => a.ArtifactUpdate.Artifact.GetText(),
+            MessageEvent m => m.Message.GetText(),
+            _ => string.Empty
+        };
+    }
 
     /// <summary>Creates a <see cref="TaskEvent" /> for <paramref name="task" />.</summary>
     public static TaskEvent Of(AgentTask task)

@@ -35,6 +35,15 @@ internal static class OperationAuthorization
             throw new A2AException(A2AErrorCode.Unauthenticated);
         }
 
+        if (!TenantAllowed(call))
+        {
+            SecurityEventLog.Record(options, A2ATelemetry.SecurityEventNames.PermissionDenied, operation.Name, call,
+                string.IsNullOrEmpty(taskId) ? null : taskId);
+            await DeniedAsync(audit, call, operation, taskId, "TenantNotAllowed").ConfigureAwait(false);
+            if (!string.IsNullOrEmpty(taskId)) throw A2AException.TaskNotFound(taskId);
+            throw Denied(operation, PermissionTenant);
+        }
+
         if (await handler.AuthorizeAsync(call, operation, request, cancellationToken).ConfigureAwait(false)) return;
         SecurityEventLog.Record(options, A2ATelemetry.SecurityEventNames.PermissionDenied, operation.Name, call,
             string.IsNullOrEmpty(taskId) ? null : taskId);
@@ -45,6 +54,25 @@ internal static class OperationAuthorization
 
     /// <summary>The <c>permission</c> metadata value when the operation itself is denied.</summary>
     internal const string PermissionOperation = "operation";
+
+    /// <summary>The <c>permission</c> metadata value when the caller may not call the request's tenant.</summary>
+    internal const string PermissionTenant = "tenant";
+
+    /// <summary>
+    ///     True unless the caller carries <see cref="A2AClaimTypes.Tenant" /> claims and none of them is the call's tenant.
+    /// </summary>
+    internal static bool TenantAllowed(ServerCallContext call)
+    {
+        if (call.User is not { } user) return true;
+        var limited = false;
+        foreach (var claim in user.FindAll(A2AClaimTypes.Tenant))
+        {
+            if (string.Equals(claim.Value, call.Tenant, StringComparison.Ordinal)) return true;
+            limited = true;
+        }
+
+        return !limited;
+    }
 
     /// <summary>The <c>permission</c> metadata value when the skill a message names is denied (or unknown).</summary>
     internal const string PermissionSkill = "skill";
@@ -57,9 +85,12 @@ internal static class OperationAuthorization
     /// </summary>
     internal static A2AException Denied(A2AOperationDescriptor operation, string permission)
     {
-        var message = permission == PermissionSkill
-            ? $"The caller is not allowed to run the requested skill with {operation.Name}."
-            : $"The caller is not allowed to call {operation.Name}.";
+        var message = permission switch
+        {
+            PermissionSkill => $"The caller is not allowed to run the requested skill with {operation.Name}.",
+            PermissionTenant => $"The caller is not allowed to call {operation.Name} in this tenant.",
+            _ => $"The caller is not allowed to call {operation.Name}."
+        };
         return new A2AException(A2AErrorCode.PermissionDenied, message)
         {
             Metadata = new Dictionary<string, string>

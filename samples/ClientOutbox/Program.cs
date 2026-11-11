@@ -3,7 +3,6 @@ using A2A;
 using A2A.Client;
 using A2A.Client.Outbox;
 using A2A.Client.Postgres;
-using A2A.Client.Transports;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using Npgsql;
@@ -45,8 +44,7 @@ await app.StartAsync();
 Console.WriteLine("Billing agent listening on http://127.0.0.1:5390/a2a");
 
 using var http = new HttpClient();
-var clientOptions = new A2AClientOptions();
-var billing = new A2AClient(new JsonRpcTransport(http, new Uri("http://127.0.0.1:5390/a2a"), clientOptions), clientOptions);
+var billing = A2AClientFactory.CreateForEndpoint(new Uri("http://127.0.0.1:5390/a2a"), http);
 
 var (store, dispatcher) = await Shop.StartAsync(dataSource, peer =>
     peer == "billing-agent" ? billing : throw new InvalidOperationException($"No client for peer '{peer}'."));

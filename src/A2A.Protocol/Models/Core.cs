@@ -169,6 +169,12 @@ public sealed class Artifact : IJsonOnDeserialized
     {
         Parts ??= new List<Part>();
     }
+
+    /// <summary>Concatenated text of all text parts. Empty when the artifact has none.</summary>
+    public string GetText()
+    {
+        return string.Concat(Parts.OfType<TextPart>().Select(p => p.Text));
+    }
 }
 
 /// <summary>Status of a task (spec §4.1.2). Named to avoid clashing with <see cref="System.Threading.Tasks.TaskStatus" />.</summary>
@@ -221,6 +227,16 @@ public sealed class AgentTask
     ///     requested.
     /// </summary>
     public List<TimelineEntry>? Timeline { get; set; }
+
+    /// <summary>
+    ///     Concatenated text of the text parts of all <see cref="Artifacts" />, in order. Empty when there is none. The
+    ///     status message (for example the question of an input-required task) is not included: read
+    ///     <see cref="AgentTaskStatus.Message" /> for it.
+    /// </summary>
+    public string GetText()
+    {
+        return Artifacts is null ? string.Empty : string.Concat(Artifacts.Select(a => a.GetText()));
+    }
 }
 
 /// <summary>
