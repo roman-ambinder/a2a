@@ -557,6 +557,59 @@ public class OAuth2ClientCredentialsProviderTests
         Assert.Equal(1, h.Calls);
     }
 
+    /// <summary>Collects the event ids and messages logged through it.</summary>
+    private sealed class Captured : Microsoft.Extensions.Logging.ILogger
+    {
+        public ConcurrentQueue<(int Id, Microsoft.Extensions.Logging.LogLevel Level, string Message)> Events { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Events.Enqueue((eventId.Id, logLevel, formatter(state, exception)));
+    }
+
+    [Fact]
+    public void A_shared_token_endpoint_without_scopes_logs_a_warning_once()
+    {
+        // With TokenEndpoint set the provider serves every card origin, and without Scopes each card chooses the scopes of
+        // the token it then receives. That is allowed, but the host should know.
+        var log = new Captured();
+        Make(o => { o.TokenEndpoint = new Uri("https://auth.example/token"); o.Logger = log; });
+
+        var warning = Assert.Single(log.Events);
+        Assert.Equal(190, warning.Id);
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Warning, warning.Level);
+        Assert.Contains("Scopes", warning.Message);
+    }
+
+    [Fact]
+    public void No_warning_with_scopes_or_without_a_shared_token_endpoint()
+    {
+        var log = new Captured();
+        Make(o => { o.TokenEndpoint = new Uri("https://auth.example/token"); o.Scopes = ["agent.invoke"]; o.Logger = log; });
+        Make(o => o.Logger = log); // bound to the first card origin: card scopes reach only that agent's own token endpoint
+        Assert.Empty(log.Events);
+    }
+
+    [Fact]
+    public void RequireScopes_refuses_options_without_scopes()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => Make(o => { o.TokenEndpoint = new Uri("https://auth.example/token"); o.RequireScopes = true; }));
+        Assert.Contains("Scopes", ex.Message);
+        Assert.Throws<ArgumentException>(() => Make(o => { o.RequireScopes = true; o.Scopes = []; }));
+    }
+
+    [Fact]
+    public async Task RequireScopes_with_scopes_never_sends_the_card_scopes()
+    {
+        var (p, h, _) = Make(o => { o.TokenEndpoint = new Uri("https://auth.example/token"); o.Scopes = ["mine"]; o.RequireScopes = true; });
+        await Apply(p, OAuth(scopes: ["card.wants.more"]));
+        var body = Assert.Single(h.Requests).Body;
+        Assert.Contains("scope=mine", body);
+        Assert.DoesNotContain("card.wants.more", body);
+    }
+
     [Fact]
     public async Task Provider_with_TokenEndpoint_serves_every_origin()
     {

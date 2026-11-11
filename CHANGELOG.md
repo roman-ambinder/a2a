@@ -67,6 +67,11 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Identity providers
 
+- `OAuth2ClientCredentialsOptions.RequireScopes`: when true, a provider without `Scopes` is refused at construction, so
+  a card can never choose the scopes of the token. Default false: nothing changes for existing setups.
+- `OAuth2ClientCredentialsOptions.Logger`: a provider with a shared `TokenEndpoint` and no `Scopes` logs warning 190 (each
+  card then chooses the scopes of the token it receives). `AddOAuth2ClientCredentials` sets the logger from the app's
+  `ILoggerFactory`.
 - `OAuth2ClientCredentialsProvider` can log in without a secret. New `OAuth2ClientCredentialsOptions.ClientAssertion` sends a
   signed JWT as `client_assertion` (RFC 7523) instead of `client_secret`. New `OAuth2ClientAssertions.FromFile` reads a
   token file the platform rotates (Kubernetes service account tokens, Azure workload identity), and
