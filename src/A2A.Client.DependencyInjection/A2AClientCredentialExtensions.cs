@@ -1,6 +1,7 @@
 using System.Security.Cryptography.X509Certificates;
 using A2A.Client.Credentials;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace A2A.Client;
@@ -43,6 +44,8 @@ public static class A2AClientCredentialExtensions
         {
             var options = new OAuth2ClientCredentialsOptions();
             configure(sp, options);
+            options.Logger ??= sp.GetService<ILoggerFactory>()
+                ?.CreateLogger<OAuth2ClientCredentialsProvider>();
             return new OAuth2ClientCredentialsProvider(options);
         });
     }

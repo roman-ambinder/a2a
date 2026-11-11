@@ -12,7 +12,10 @@ namespace A2A.Client;
 ///             <description>130-149: <see cref="Outbox.ClientOutboxDispatcher" />.</description>
 ///         </item>
 ///         <item>
-///             <description>150-199: <see cref="Peers.AgentRegistry" />.</description>
+///             <description>150-189: <see cref="Peers.AgentRegistry" />.</description>
+///         </item>
+///         <item>
+///             <description>190-199: credential providers.</description>
 ///         </item>
 ///     </list>
 ///     The other assemblies use 200-499 (A2A.Server), 500-899 (A2A.Server.AspNetCore) and 900-999 (A2A.Server.Grpc).
@@ -31,6 +34,10 @@ internal static partial class ClientLog
     [LoggerMessage(EventId = 102, Level = LogLevel.Warning,
         Message = "Agent Card from {Origin} was accepted with status {Status}, because {Reason} (spec 8.4.3: clients should verify signed cards). Its content is not authenticated. Configure CardTrustPolicy.TrustedKeys or AllowedJkuHosts to require a verified signature. Logged once per origin.")]
     public static partial void CardNotVerified(ILogger logger, string origin, A2A.Signing.AgentCardVerificationStatus status, string reason);
+
+    [LoggerMessage(EventId = 103, Level = LogLevel.Warning,
+        Message = "Agent Card from {Origin} lacks REQUIRED fields: {Fields} (spec 5.7). The card is still used. Logged once per origin.")]
+    public static partial void CardMissingRequiredFields(ILogger logger, string origin, string fields);
 
     // AgentRegistry: 150-199
     [LoggerMessage(EventId = 150, Level = LogLevel.Warning,
@@ -59,4 +66,9 @@ internal static partial class ClientLog
     [LoggerMessage(EventId = 132, Level = LogLevel.Information,
         Message = "Client outbox entry {Id} for peer {Peer} failed: {Error}")]
     public static partial void OutboxEntryFailed(ILogger logger, string id, string peer, string error);
+
+    // Credential providers: 190-199
+    [LoggerMessage(EventId = 190, Level = LogLevel.Warning,
+        Message = "OAuth2 provider for token endpoint {TokenEndpoint} has no Scopes: it serves every card origin, and each card chooses the scopes of the token it receives. Set Scopes (and RequireScopes) when the endpoint is shared by several agents")]
+    public static partial void CardChoosesScopes(ILogger logger, string tokenEndpoint);
 }

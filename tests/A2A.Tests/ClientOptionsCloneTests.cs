@@ -28,6 +28,7 @@ public sealed class ClientOptionsCloneTests
         [nameof(A2AClientOptions.TransportFactories)] = new List<IA2ATransportFactory> { new Factory() },
         [nameof(A2AClientOptions.RestSubscribeMethod)] = HttpMethod.Put,
         [nameof(A2AClientOptions.ValidateCapabilities)] = false,
+        [nameof(A2AClientOptions.ValidateResponses)] = false,
         [nameof(A2AClientOptions.MaxRetries)] = 7,
         [nameof(A2AClientOptions.TimeProvider)] = new Clock(),
         [nameof(A2AClientOptions.CircuitBreaker)] = new CircuitBreakerOptions(),

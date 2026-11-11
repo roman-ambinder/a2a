@@ -152,6 +152,9 @@ public sealed class A2ACardResolver
     /// <summary>Origins whose unsigned or unverified card was already logged (spec 8.4.3), once each.</summary>
     private readonly ConcurrentDictionary<string, byte> _warnedUntrusted = new(StringComparer.Ordinal);
 
+    /// <summary>Origins whose card lacked a REQUIRED field and was already logged (spec 5.7), once each.</summary>
+    private readonly ConcurrentDictionary<string, byte> _warnedIncomplete = new(StringComparer.Ordinal);
+
     private readonly HttpClient _http;
     private readonly ILogger _logger;
     private readonly A2ACardResolverOptions _options;
@@ -303,6 +306,9 @@ public sealed class A2ACardResolver
                 _options.Trust.RequireSignature == false
                     ? "CardTrustPolicy.RequireSignature is false"
                     : "no trusted keys or jku hosts are configured in CardTrustPolicy");
+        if (_warnedIncomplete.Count < MaxWarnedOrigins && MissingRequired(card) is { Count: > 0 } missing
+            && _warnedIncomplete.TryAdd(origin, 0))
+            ClientLog.CardMissingRequiredFields(_logger, origin, string.Join(", ", missing));
         var keyId = verification.Status == AgentCardVerificationStatus.Verified ? verification.KeyId : null;
         await CheckPinAsync(origin, node, keyId, cancellationToken).ConfigureAwait(false);
 
@@ -335,6 +341,41 @@ public sealed class A2ACardResolver
         else
             _cache.TryRemove(key, out _); // no-store: not kept, and no validator is sent next time
         return result;
+    }
+
+    /// <summary>
+    ///     The REQUIRED card fields (spec 5.7, docs/a2a.proto) that are empty or missing. The card is still used: cards are
+    ///     read leniently, so a card from another SDK that leaves one out keeps working.
+    /// </summary>
+    internal static List<string> MissingRequired(AgentCard card)
+    {
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(card.Name)) missing.Add("name");
+        if (string.IsNullOrWhiteSpace(card.Description)) missing.Add("description");
+        if (string.IsNullOrWhiteSpace(card.Version)) missing.Add("version");
+        if (card.SupportedInterfaces is not { Count: > 0 }) missing.Add("supportedInterfaces");
+        else
+            for (var i = 0; i < card.SupportedInterfaces.Count; i++)
+            {
+                var itf = card.SupportedInterfaces[i];
+                if (string.IsNullOrWhiteSpace(itf?.Url)) missing.Add($"supportedInterfaces[{i}].url");
+                if (string.IsNullOrWhiteSpace(itf?.ProtocolBinding)) missing.Add($"supportedInterfaces[{i}].protocolBinding");
+            }
+
+        if (card.DefaultInputModes is not { Count: > 0 }) missing.Add("defaultInputModes");
+        if (card.DefaultOutputModes is not { Count: > 0 }) missing.Add("defaultOutputModes");
+        if (card.Skills is not { Count: > 0 }) missing.Add("skills");
+        else
+            for (var i = 0; i < card.Skills.Count; i++)
+            {
+                var skill = card.Skills[i];
+                if (string.IsNullOrWhiteSpace(skill?.Id)) missing.Add($"skills[{i}].id");
+                if (string.IsNullOrWhiteSpace(skill?.Name)) missing.Add($"skills[{i}].name");
+                if (string.IsNullOrWhiteSpace(skill?.Description)) missing.Add($"skills[{i}].description");
+                if (skill?.Tags is not { Count: > 0 }) missing.Add($"skills[{i}].tags");
+            }
+
+        return missing;
     }
 
     private bool IsRejected(AgentCardVerificationResult verification)

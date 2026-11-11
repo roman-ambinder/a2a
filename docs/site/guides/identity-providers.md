@@ -71,6 +71,8 @@ Some identity providers register a certificate rather than a key, and want the a
 - The algorithm defaults to `PS256`. `RS*` and `PS*` need an RSA certificate, `ES*` an EC one. A certificate without a private key, or with a key that does not fit the algorithm, is refused when you call `CertificateJwt`.
 - You own the certificate. It is not disposed, and it must stay usable as long as the provider is. The private key is read for each token request and released after signing.
 
+**Scopes with a shared token endpoint.** With `TokenEndpoint` set, one provider serves every agent, so it holds a credential that is valid for all of them. Without `Scopes`, each agent's card chooses the scopes of the token it receives, so a card can ask for scopes meant for another agent. Set `Scopes` in that case, and `RequireScopes = true` so that a configuration without them fails at startup. A provider with `TokenEndpoint` and no `Scopes` logs a warning (event 190) through `OAuth2ClientCredentialsOptions.Logger`; `AddOAuth2ClientCredentials` sets that logger from the app's logging. Without `TokenEndpoint`, the provider binds to the first card origin and uses only that agent's own token URL, so card scopes are allowed.
+
 `ClientSecret` and `ClientAssertion` cannot both be set. Your own delegate works too: it gets the client id and the token endpoint, and returns the assertion. It is a credential, so it is sent only to the token endpoint the provider allows (`TokenEndpoint`, or the card's `tokenUrl` on the card's origin) and is removed from error messages. An empty assertion, one longer than 64 KiB, one with white space, or a delegate that throws fails the call with `Unauthenticated`.
 
 ### With an Azure credential
@@ -129,7 +131,8 @@ If the card does declare a scheme for SigV4, under a name you agreed on with the
 - **The same caller sees different tasks in two apps.** You use the default resolver with Entra. It reads `NameIdentifier` (the handler maps `sub` to it by default) or `sub`, and `sub` is different in each app. Use the Entra resolver above.
 - **`ArgumentException`: "Set ClientSecret or ClientAssertion, not both".** Remove one.
 - **`Unauthenticated` from the token endpoint with `invalid_client`.** The identity provider does not trust the assertion: wrong issuer or subject in the federated credential, wrong public key, or the clock is off.
-- **`ArgumentException`: "Scopes is required".** The Azure provider needs a scope, for example `api://my-agent/.default`.
+- **`ArgumentException`: "Scopes is required".** The Azure provider needs a scope, for example `api://my-agent/.default`. The OAuth2 provider says "Scopes is required when RequireScopes is set": add the scopes you mean to request.
+- **Warning 190, "OAuth2 provider ... has no Scopes".** A shared `TokenEndpoint` without `Scopes`: set `Scopes` (and `RequireScopes`).
 - **"This provider is bound to another agent".** You used one Azure or AWS provider for two agents. Make one per agent.
 - **403 from API Gateway or a function URL saying the signature does not match.** `Region` or `Service` is wrong, or something changed a signed header after the handler ran. Put `AwsSigV4Handler` last, right above the primary handler.
 - **"The request body is larger than MaxSignedBodyBytes".** A streamed body over the limit. Raise `MaxSignedBodyBytes`, or set `UnsignedPayload` if the service accepts it.

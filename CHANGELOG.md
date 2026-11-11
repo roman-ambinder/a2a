@@ -80,6 +80,11 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Identity providers
 
+- `OAuth2ClientCredentialsOptions.RequireScopes`: when true, a provider without `Scopes` is refused at construction, so
+  a card can never choose the scopes of the token. Default false: nothing changes for existing setups.
+- `OAuth2ClientCredentialsOptions.Logger`: a provider with a shared `TokenEndpoint` and no `Scopes` logs warning 190 (each
+  card then chooses the scopes of the token it receives). `AddOAuth2ClientCredentials` sets the logger from the app's
+  `ILoggerFactory`.
 - `OAuth2ClientCredentialsProvider` can log in without a secret. New `OAuth2ClientCredentialsOptions.ClientAssertion` sends a
   signed JWT as `client_assertion` (RFC 7523) instead of `client_secret`. New `OAuth2ClientAssertions.FromFile` reads a
   token file the platform rotates (Kubernetes service account tokens, Azure workload identity), and
@@ -169,6 +174,13 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Unverified Agent Cards (spec §8.4.3): `A2ACardResolver` logs a warning (event 102) once per origin when it accepts an
   `Unsigned` or `Unverified` card, because no trusted keys or `jku` hosts are configured or `RequireSignature` is false.
   The default is unchanged: such cards are still accepted when no trust is configured.
+- Required fields in agent responses (spec §5.7): the client now rejects a response that lacks a REQUIRED field with
+  `InvalidAgentResponse`: a task without `id` or status `state`, a stream update without `taskId` or `contextId`, a message
+  without `messageId`, `role` or parts, an artifact without `artifactId` or parts (append chunks and stored artifacts may
+  be empty). Applies to SendMessage, GetTask, ListTasks, CancelTask and every stream event. New
+  `A2AClientOptions.ValidateResponses` (default true) turns it off; new `A2AValidator.ValidateResponse` overloads do the
+  checks. A fetched Agent Card that lacks REQUIRED fields is still used, and the resolver logs them once per origin
+  (event 103).
 
 ### Tests and CI
 

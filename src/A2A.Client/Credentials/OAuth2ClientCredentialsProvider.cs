@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using A2A.Text;
+using Microsoft.Extensions.Logging;
 
 namespace A2A.Client.Credentials;
 
@@ -49,9 +50,24 @@ public sealed class OAuth2ClientCredentialsOptions
 
     /// <summary>
     ///     Scopes to request. When null or empty, the card chooses the scopes: those of its security requirement are used. Set
-    ///     <c>Scopes</c> when one client id serves several APIs, so that a card cannot ask for more than you intend.
+    ///     <c>Scopes</c> when one client id serves several APIs, so that a card cannot ask for more than you intend; with a
+    ///     shared <see cref="TokenEndpoint" />, also set <see cref="RequireScopes" />.
     /// </summary>
     public IList<string>? Scopes { get; set; }
+
+    /// <summary>
+    ///     When true, <see cref="Scopes" /> must be set: the provider never asks for the scopes a card chooses. Turn it on
+    ///     when <see cref="TokenEndpoint" /> is shared by several agents, so that a card cannot obtain a token for scopes
+    ///     meant for another one. Default false.
+    /// </summary>
+    public bool RequireScopes { get; set; }
+
+    /// <summary>
+    ///     Optional. Gets a warning when <see cref="TokenEndpoint" /> is set and <see cref="Scopes" /> is not: then every card
+    ///     origin is served, and each card chooses the scopes of the token it receives. <c>AddOAuth2ClientCredentials</c>
+    ///     sets it from the app's <see cref="ILoggerFactory" />.
+    /// </summary>
+    public ILogger? Logger { get; set; }
 
     /// <summary>How the client authenticates to the token endpoint. Defaults to HTTP Basic.</summary>
     public OAuth2ClientAuthentication ClientAuthentication { get; set; } = OAuth2ClientAuthentication.ClientSecretBasic;
@@ -177,6 +193,10 @@ public sealed class OAuth2ClientCredentialsProvider : IA2ACredentialProvider, ID
         _tokenEndpoint = options.TokenEndpoint;
         _scopes = options.Scopes is { Count: > 0 } ? [.. options.Scopes] : null;
         _fixedScope = _scopes is null ? null : ScopeString(_scopes);
+        if (options.RequireScopes && _scopes is null)
+            throw new ArgumentException("Scopes is required when RequireScopes is set.", nameof(options));
+        if (options.TokenEndpoint is { } shared && _scopes is null && options.Logger is { } logger)
+            ClientLog.CardChoosesScopes(logger, shared.GetLeftPart(UriPartial.Authority));
         _clientAuthentication = options.ClientAuthentication;
         _additional = [.. options.AdditionalParameters];
         _schemeName = options.SchemeName;
