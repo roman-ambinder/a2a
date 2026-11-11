@@ -16,6 +16,9 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   (`AddApiKeyAuthentication` used to apply the `A2AApiKey` policy; that policy still exists for endpoints that take
   only API keys.)
 - Analyzer A2A0002 knows that `AddBearerAuthentication` and `AddCardAuthentication` protect the endpoints.
+- The `a2a-agent` and `a2a-chat-agent` templates (without `--auth apikey`) call `AddBearerAuthentication()` outside
+  Development: the card asks for a bearer token, and the app refuses to start until a scheme such as `AddJwtBearer()`
+  is registered, instead of answering every call with a 500.
 
 ### Ease of use
 

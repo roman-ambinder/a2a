@@ -12,6 +12,7 @@ dotnet new a2a-agent -n KeyedAgent --auth apikey   # API keys: hashes in appsett
 
 The agent templates read their Agent Card and limits from the `A2A` section of `appsettings.json`. In the Development
 environment they call `UseDevelopmentDefaults()`, so `curl` and anonymous callers work locally. In any other environment
-the A2A endpoints require authorization: add your authentication scheme in `Program.cs` before you deploy, or use
-`--auth apikey`, which requires an API key in every environment. The client template sends the key in the
-`A2A_API_KEY` environment variable.
+the agents made without `--auth apikey` ask for a bearer token (`AddBearerAuthentication()`, declared on the card) and
+refuse to start until you register the scheme, for example `AddJwtBearer()` from
+`Microsoft.AspNetCore.Authentication.JwtBearer`. With `--auth apikey`, an API key is required in every environment. The
+client template sends the key in the `A2A_API_KEY` environment variable.
