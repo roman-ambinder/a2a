@@ -29,7 +29,14 @@ public enum PushHandleOutcome
     ///     not create, or carries no task id (spec §4.3.3: clients MUST validate that the task id matches an expected
     ///     task). The handler did not run. Answer 404: the sender drops it and does not retry.
     /// </summary>
-    UnexpectedTask
+    UnexpectedTask,
+
+    /// <summary>
+    ///     <see cref="PushNotificationReceiver.MaxDeliveriesPerMinute" /> is set and was reached (spec §13.2: clients SHOULD
+    ///     rate-limit webhooks). The handler did not run and the id is not remembered. Answer 429 with
+    ///     <c>Retry-After</c> <see cref="PushHandleResult.RetryAfter" />: the sender retries later.
+    /// </summary>
+    RateLimited
 }
 
 /// <summary>
@@ -72,10 +79,18 @@ public sealed class PushHandleResult
         Error = error;
     }
 
+    /// <summary>
+    ///     For <see cref="PushHandleOutcome.RateLimited" />: how long until a delivery is accepted again. Send it as the
+    ///     <c>Retry-After</c> header (whole seconds, rounded up).
+    /// </summary>
+    public TimeSpan? RetryAfter { get; init; }
+
     /// <summary>What happened.</summary>
     public PushHandleOutcome Outcome { get; }
 
-    /// <summary>The HTTP status code to answer: 200, 400, 401, 500 or 503. A sender retries only 408, 429 and 5xx.</summary>
+    /// <summary>
+    ///     The HTTP status code to answer: 200, 400, 401, 404, 429, 500 or 503. A sender retries only 408, 429 and 5xx.
+    /// </summary>
     public int StatusCode { get; }
 
     /// <summary>The delivery id, when there was one.</summary>

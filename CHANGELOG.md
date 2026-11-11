@@ -69,6 +69,13 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Tests: `ProtoModelDriftTests` compares the hand-written JSON model with the types generated from `docs/a2a.proto`
   (spec §1.4): messages, fields, every case of the union messages (round-tripped through the model) and enum values.
 
+- Client webhooks (spec §13.2): `RegisterPushAsync` gives a config with neither a token nor authentication its own random
+  token (new `PushTokens.Create`, 32 bytes, base64url) and returns it in the config even though servers redact it. New
+  `A2AClient.RotatePushTokenAsync` registers a new token, then deletes the old config. New opt-in
+  `A2AClientOptions.RequireHttpsWebhooks` refuses non-https webhook URLs (loopback allowed). New opt-in
+  `PushNotificationReceiver.MaxDeliveriesPerMinute`: over the cap, `HandleAsync` answers the new
+  `PushHandleOutcome.RateLimited` (429) with `PushHandleResult.RetryAfter`; only authenticated deliveries count.
+
 ### Tests and CI
 
 - Coverage is now a ratchet. The new `coverage.yml` workflow (after each merge to `main`, by hand, and on pull requests
