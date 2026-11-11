@@ -1,7 +1,7 @@
 name: Release
 
 # Publishes all packages to nuget.org when a version tag is pushed:
-#   git tag v0.1.0 && git push origin v0.1.0
+#   git tag v0.2.0 && git push origin v0.2.0
 # Tags with a suffix (v0.2.0-preview.1) publish prereleases.
 # Requires the repository secret NUGET_API_KEY (nuget.org API key scoped to "RomanAmbinder.A2A.*" push).
 

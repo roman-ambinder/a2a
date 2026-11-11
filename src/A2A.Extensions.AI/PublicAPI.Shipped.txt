@@ -59,3 +59,9 @@ static A2A.Extensions.AI.A2AContentExtensions.ToAIContent(this A2A.Part! part) -
 static A2A.Extensions.AI.A2AContentExtensions.ToChatMessage(this A2A.Artifact! artifact) -> Microsoft.Extensions.AI.ChatMessage!
 static A2A.Extensions.AI.A2AContentExtensions.ToChatMessage(this A2A.Message! message) -> Microsoft.Extensions.AI.ChatMessage!
 static A2A.Extensions.AI.A2AContentExtensions.ToPart(this Microsoft.Extensions.AI.AIContent! content) -> A2A.Part?
+A2A.Extensions.AI.ChatClientAgentOptions.ContextMemoryMaxBytes.get -> long
+A2A.Extensions.AI.ChatClientAgentOptions.ContextMemoryMaxBytes.set -> void
+A2A.Extensions.AI.ChatClientAgentOptions.ContextMemoryMaxTasks.get -> int
+A2A.Extensions.AI.ChatClientAgentOptions.ContextMemoryMaxTasks.set -> void
+A2A.Extensions.AI.ChatClientAgentOptions.UseContextMemory.get -> bool
+A2A.Extensions.AI.ChatClientAgentOptions.UseContextMemory.set -> void

@@ -1,1 +1,23 @@
 #nullable enable
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.AgentOrigin.get -> System.Uri?
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.AgentOrigin.set -> void
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.AzureTokenCredentialOptions() -> void
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.RefreshBeforeExpiry.get -> System.TimeSpan
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.RefreshBeforeExpiry.set -> void
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.SchemeName.get -> string?
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.SchemeName.set -> void
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.Scopes.get -> System.Collections.Generic.IList<string!>!
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.TenantId.get -> string?
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.TenantId.set -> void
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.TimeProvider.get -> System.TimeProvider!
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.TimeProvider.set -> void
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.TokenRequestTimeout.get -> System.TimeSpan
+A2A.Client.Identity.Azure.AzureTokenCredentialOptions.TokenRequestTimeout.set -> void
+A2A.Client.Identity.Azure.AzureTokenCredentialProvider
+A2A.Client.Identity.Azure.AzureTokenCredentialProvider.ApplyAsync(System.Net.Http.HttpRequestMessage! request, A2A.Client.Credentials.A2ACredentialContext! context, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Client.Identity.Azure.AzureTokenCredentialProvider.AzureTokenCredentialProvider(Azure.Core.TokenCredential! credential, A2A.Client.Identity.Azure.AzureTokenCredentialOptions! options) -> void
+A2A.Client.Identity.Azure.AzureTokenCredentialProvider.CanHandle(A2A.Client.Credentials.A2ACredentialContext! context) -> bool
+A2A.Client.Identity.Azure.AzureTokenCredentialClientBuilderExtensions
+static A2A.Client.Identity.Azure.AzureTokenCredentialClientBuilderExtensions.AddAzureTokenCredential(this Microsoft.Extensions.DependencyInjection.IHttpClientBuilder! builder, System.Action<A2A.Client.Identity.Azure.AzureTokenCredentialOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IHttpClientBuilder!
+static A2A.Client.Identity.Azure.AzureTokenCredentialClientBuilderExtensions.AddAzureTokenCredential(this Microsoft.Extensions.DependencyInjection.IHttpClientBuilder! builder, System.Func<System.IServiceProvider!, Azure.Core.TokenCredential!>! credential, System.Action<A2A.Client.Identity.Azure.AzureTokenCredentialOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IHttpClientBuilder!

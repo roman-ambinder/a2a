@@ -1,2 +1,1 @@
 #nullable enable
-static A2A.Client.V0_3Compat.V03CompatClientFactory.UseLogger(Microsoft.Extensions.Logging.ILogger! logger) -> void

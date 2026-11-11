@@ -9,7 +9,7 @@
         <WarnOnPackingNonPackableProject>false</WarnOnPackingNonPackableProject>
 
         <!-- Default version for local builds. Release builds pass -p:Version=<tag> (see .github/workflows/release.yml). -->
-        <VersionPrefix>0.1.0</VersionPrefix>
+        <VersionPrefix>0.2.0</VersionPrefix>
         <Deterministic>true</Deterministic>
 
         <!-- [Experimental] APIs (see docs/site/guides/versioning.md). The repo's own code, tests, samples and snippets opt in here. -->
