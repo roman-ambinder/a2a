@@ -146,6 +146,12 @@ public sealed class A2ACardResolver
 
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new();
 
+    /// <summary>Most origins remembered for the unverified-card warning, so memory stays bounded.</summary>
+    private const int MaxWarnedOrigins = 1024;
+
+    /// <summary>Origins whose unsigned or unverified card was already logged (spec 8.4.3), once each.</summary>
+    private readonly ConcurrentDictionary<string, byte> _warnedUntrusted = new(StringComparer.Ordinal);
+
     private readonly HttpClient _http;
     private readonly ILogger _logger;
     private readonly A2ACardResolverOptions _options;
@@ -291,6 +297,12 @@ public sealed class A2ACardResolver
         var origin = CardTrustPolicy.OriginOf(uri);
         if (verification.Status == AgentCardVerificationStatus.Unsigned)
             CardUnsignedCounter.Add(1, new KeyValuePair<string, object?>("origin", origin));
+        if (verification.Status is AgentCardVerificationStatus.Unsigned or AgentCardVerificationStatus.Unverified
+            && _warnedUntrusted.Count < MaxWarnedOrigins && _warnedUntrusted.TryAdd(origin, 0))
+            ClientLog.CardNotVerified(_logger, origin, verification.Status,
+                _options.Trust.RequireSignature == false
+                    ? "CardTrustPolicy.RequireSignature is false"
+                    : "no trusted keys or jku hosts are configured in CardTrustPolicy");
         var keyId = verification.Status == AgentCardVerificationStatus.Verified ? verification.KeyId : null;
         await CheckPinAsync(origin, node, keyId, cancellationToken).ConfigureAwait(false);
 

@@ -153,9 +153,14 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - v0.3 deprecation warnings (spec A.2): each field the v0.3 conversion drops is now logged once at Warning (was Debug), the
   server warns once per v0.3 operation and binding it answers (event 1002), and the compat client warns once per v0.3 agent
   URL it talks to (event 1003). New `V03CompatClientFactory.UseLogger` gives the client a logger.
+- Unverified Agent Cards (spec §8.4.3): `A2ACardResolver` logs a warning (event 102) once per origin when it accepts an
+  `Unsigned` or `Unverified` card, because no trusted keys or `jku` hosts are configured or `RequireSignature` is false.
+  The default is unchanged: such cards are still accepted when no trust is configured.
 
 ### Tests and CI
 
+- `CardTrustTests.Card_change_raises_event_and_strict_throws` uses its own origin: the `a2a.card.changed` counter is
+  process-wide, and another card test running in parallel could count a second change for the shared origin.
 - Coverage is now a ratchet. The new `coverage.yml` workflow (after each merge to `main`, by hand, and on pull requests
   that change the coverage setup) checks line coverage per package against `.github/coverage-baseline.json` and fails
   when a package drops more than 0.5 points or reports no data. It replaces the report-only `coverage` job in `ci.yml`
