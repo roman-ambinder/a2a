@@ -221,6 +221,12 @@ internal static partial class ServerLog
             "Could not queue the catch-up push delivery of task {TaskId}; a webhook registered just now may miss the final event")]
     public static partial void PushCatchUpFailed(ILogger logger, Exception exception, string taskId);
 
+    [LoggerMessage(EventId = 316, Level = LogLevel.Error,
+        Message =
+            "The push RetryPolicy failed for delivery {Sequence} of task {TaskId} to webhook {ConfigId}; the default backoff is used")]
+    public static partial void PushRetryPolicyFailed(ILogger logger, Exception exception, long sequence,
+        string taskId, string configId);
+
     // A2ARetentionService: 230-249; A2AStartupDiagnostics: 250-259
     [LoggerMessage(EventId = 230, Level = LogLevel.Warning,
         Message = "Retention sweep failed; the next sweep tries again")]

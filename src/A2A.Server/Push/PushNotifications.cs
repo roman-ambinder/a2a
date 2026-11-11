@@ -172,7 +172,10 @@ internal enum PushSendOutcome
 /// <param name="Outcome">What happened.</param>
 /// <param name="Error">For a failure, a short description without secrets or the URL (stored with the delivery).</param>
 /// <param name="ErrorType">For a failure, the <c>error.type</c> span tag.</param>
-internal readonly record struct PushSendResult(PushSendOutcome Outcome, string? Error = null, string? ErrorType = null);
+/// <param name="StatusCode">The receiver's HTTP status, when it answered.</param>
+/// <param name="RetryAfter">The wait the receiver asked for in its <c>Retry-After</c> header, if any.</param>
+internal readonly record struct PushSendResult(PushSendOutcome Outcome, string? Error = null, string? ErrorType = null,
+    int? StatusCode = null, TimeSpan? RetryAfter = null);
 
 /// <summary>
 ///     Sends one webhook POST for one delivery (spec §4.3.3, §13.2), guarded by the SSRF policy: the URL and its resolved
@@ -277,7 +280,7 @@ internal sealed class PushWebhookSender(
             ServerLog.PushWebhookStatus(logger, config.Id, delivery.Task.TaskId, status, attempt);
             var retryable = status is 408 or 429 || status >= 500;
             return new PushSendResult(retryable ? PushSendOutcome.Retry : PushSendOutcome.Permanent, "HTTP " + code,
-                code);
+                code, status, RetryAfterOf(response, (time ?? TimeProvider.System).GetUtcNow()));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -302,5 +305,14 @@ internal sealed class PushWebhookSender(
             ServerLog.PushWebhookAttemptFailed(logger, ex, config.Id, delivery.Task.TaskId, attempt);
             return new PushSendResult(PushSendOutcome.Retry, "Timed out", "Timeout");
         }
+    }
+
+    /// <summary>The receiver's <c>Retry-After</c> as a wait (a date becomes the time until it, at least zero), or null.</summary>
+    internal static TimeSpan? RetryAfterOf(HttpResponseMessage response, DateTimeOffset now)
+    {
+        var header = response.Headers.RetryAfter;
+        if (header?.Delta is { } delta) return delta < TimeSpan.Zero ? TimeSpan.Zero : delta;
+        if (header?.Date is { } date) return date > now ? date - now : TimeSpan.Zero;
+        return null;
     }
 }

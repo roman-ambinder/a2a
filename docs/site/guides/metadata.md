@@ -17,6 +17,7 @@ A2A messages, tasks, artifacts and events carry a free-form `metadata` object. T
 | `skillId` | Message | Client, through `SelectSkill` | The skill the caller asks for. A hint, not an authorization decision. Experimental (`A2AEXP001`). | [Skill selection](skill-selection.md) |
 | `actorChain` | Message, echoed on the task | Client and server | The chain of actors on whose behalf the call is made. Nobody verifies it: treat it as untrusted text. Experimental (`A2AEXP002`). | [Authentication and ownership](auth-and-ownership.md) |
 | `a2a.usage` | Task | Server, from `ReportUsageAsync` | Usage so far: `{"tokens": n, "costUnits": x}`. | [Execution limits](execution-limits.md) |
+| `traceparent`, `tracestate` | Message | Client, with `A2AClientOptions.PropagateTraceInMetadata` | The W3C trace context of the send, for when a proxy drops the headers. The server reads it only when no `traceparent` header came, and the idempotency fingerprint ignores it. The key names are the W3C header names; the spec reserves no key for this. | [Observability](observability.md) |
 
 The server owns the keys it writes on tasks. An agent cannot set `a2a.approval.consumed`, `a2a.elicitation.answered`, `actorChain` or `a2a.usage` through event metadata, and the server removes an `a2a.artifact.sealed` that an agent sets on a chunk that is not the last one. How event metadata merges into the task (shallow, last write wins) is in [Spec decisions](spec-decisions.md).
 

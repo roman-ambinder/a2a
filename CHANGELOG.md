@@ -246,6 +246,15 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- Server: new `PushDelivery.RetryPolicy` (default null: the backoff as before). After a webhook attempt fails in a way
+  worth retrying, it gets a `PushRetryContext` (the attempt, the error, the HTTP status, the receiver's `Retry-After` and
+  the default wait) and returns the wait before the next attempt, or null to dead-letter now. `MaxAttempts` and
+  `MaxDeliveryAge` still apply. A policy that throws is logged (event 316) and the default backoff is used.
+- Client: new `A2AClientOptions.PropagateTraceInMetadata` (default false) also writes the send's W3C trace context into
+  the message metadata (`traceparent`, `tracestate`), for when a proxy drops the headers. The server uses it when the
+  request has no `traceparent` header, and the idempotency fingerprint now ignores those two message metadata keys. New
+  helpers `A2ATelemetry.InjectTraceContext(Message, Activity?)` and `A2ATelemetry.TryExtractTraceContext(Message?, out
+  ActivityContext)`.
 - Client: new `A2AClientOptions.WaitForTaskCompletion` (default false). When a blocking `SendMessageAsync` comes back
   with a task that is still submitted or working (some servers and proxies answer before the task ends), the client
   polls it until it is terminal or interrupted and returns it with the history the request asked for. A request with
