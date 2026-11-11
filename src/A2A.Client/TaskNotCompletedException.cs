@@ -1,7 +1,7 @@
 namespace A2A.Client;
 
 /// <summary>
-///     <see cref="A2AClient.AskAsync" /> or <see cref="A2AClient.StreamTextAsync" /> got a task that ended in a state other
+///     <see cref="A2AClientTextExtensions.AskAsync" /> or <see cref="A2AClientTextExtensions.StreamTextAsync" /> got a task that ended in a state other
 ///     than <see cref="TaskState.Completed" />: it failed, was rejected or canceled, or the agent needs input or
 ///     authorization before it can go on.
 /// </summary>
@@ -9,11 +9,20 @@ namespace A2A.Client;
 ///     To answer an agent that needs input, send the next message with the task's <see cref="AgentTask.ContextId" /> and
 ///     <see cref="AgentTask.Id" />. The status message is text from the agent: treat it as untrusted.
 /// </remarks>
-public sealed class TaskNotCompletedException : Exception
+public class TaskNotCompletedException : Exception
 {
     /// <summary>Creates the exception for <paramref name="task" />, which did not complete.</summary>
     public TaskNotCompletedException(AgentTask task)
-        : base(BuildMessage(task ?? throw new ArgumentNullException(nameof(task))))
+        : this(task, "The task")
+    {
+    }
+
+    /// <summary>
+    ///     Creates the exception with a message that starts with <paramref name="what" /> (for example "The skill call"),
+    ///     followed by the state the task ended in and its status message.
+    /// </summary>
+    protected TaskNotCompletedException(AgentTask task, string what)
+        : base(BuildMessage(task ?? throw new ArgumentNullException(nameof(task)), what))
     {
         Task = task;
     }
@@ -27,11 +36,11 @@ public sealed class TaskNotCompletedException : Exception
     /// <summary>The state the task ended in, for example <see cref="TaskState.Failed" /> or <see cref="TaskState.InputRequired" />.</summary>
     public TaskState State => Task.Status.State;
 
-    private static string BuildMessage(AgentTask task)
+    private static string BuildMessage(AgentTask task, string what)
     {
         var text = task.Status.Message?.GetText();
         return string.IsNullOrEmpty(text)
-            ? $"The task ended in state {task.Status.State}."
-            : $"The task ended in state {task.Status.State}: {text}";
+            ? $"{what} ended in state {task.Status.State}."
+            : $"{what} ended in state {task.Status.State}: {text}";
     }
 }

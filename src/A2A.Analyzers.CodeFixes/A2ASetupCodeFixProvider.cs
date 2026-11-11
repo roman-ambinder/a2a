@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Composition;
-using A2A.Analyzers;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
@@ -11,16 +10,21 @@ using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 namespace A2A.Analyzers.CodeFixes;
 
 /// <summary>
-///     Fixes for <see cref="A2ASetupAnalyzer" />: adds <c>.RequireAuthorization()</c> to a mapping without authorization
+///     Fixes for the A2A setup analyzer (A2A.Analyzers): adds <c>.RequireAuthorization()</c> to a mapping without authorization
 ///     (A2A0002), and adds <c>app.UseA2A();</c> before <c>UseAuthorization()</c> (A2A0001).
 /// </summary>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(A2ASetupCodeFixProvider))]
 [Shared]
-public sealed class A2ASetupCodeFixProvider : CodeFixProvider
+internal sealed class A2ASetupCodeFixProvider : CodeFixProvider
 {
     /// <inheritdoc />
     public override ImmutableArray<string> FixableDiagnosticIds { get; } =
-        ImmutableArray.Create(A2ASetupAnalyzer.MissingUseA2A.Id, A2ASetupAnalyzer.NoAuthorization.Id);
+        ImmutableArray.Create(MissingUseA2AId, NoAuthorizationId);
+
+    // The ids of A2ASetupAnalyzer's rules (A2A.Analyzers). Strings, not its descriptors: the two assemblies share no
+    // internals.
+    private const string MissingUseA2AId = "A2A0001";
+    private const string NoAuthorizationId = "A2A0002";
 
     /// <inheritdoc />
     public override FixAllProvider GetFixAllProvider()
@@ -37,7 +41,7 @@ public sealed class A2ASetupCodeFixProvider : CodeFixProvider
         {
             if (root.FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true)
                     .FirstAncestorOrSelf<InvocationExpressionSyntax>() is not { } map) continue;
-            if (diagnostic.Id == A2ASetupAnalyzer.NoAuthorization.Id)
+            if (diagnostic.Id == NoAuthorizationId)
                 context.RegisterCodeFix(CodeAction.Create("Add .RequireAuthorization()",
                     _ => Task.FromResult(context.Document.WithSyntaxRoot(RequireAuthorization(root, map))),
                     "A2A0002.RequireAuthorization"), diagnostic);

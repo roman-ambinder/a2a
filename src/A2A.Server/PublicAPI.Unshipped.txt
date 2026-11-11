@@ -493,3 +493,4 @@ A2A.Server.A2AClaimTypes
 const A2A.Server.A2AClaimTypes.Tenant = "a2a:tenant" -> string!
 A2A.Server.A2ALimits.StreamIdleTimeout.get -> System.TimeSpan
 A2A.Server.A2ALimits.StreamIdleTimeout.set -> void
+const A2A.Server.A2AClaimTypes.ApiKeyCaller = "a2a:apikey:caller" -> string!

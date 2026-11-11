@@ -16,4 +16,7 @@
     <ItemGroup>
         <ProjectReference Include="..\A2A.Analyzers\A2A.Analyzers.csproj"/>
     </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="A2A.Tests"/>
+    </ItemGroup>
 </Project>

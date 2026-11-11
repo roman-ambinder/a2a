@@ -4,6 +4,16 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Public API review
+
+- `AskAsync` and `StreamTextAsync` are extension methods on `IA2AClient` (`A2AClientTextExtensions`), so they work for
+  any client, not only `A2AClient`. Call sites do not change.
+- `TypedSkillCallException` derives from `TaskNotCompletedException`: one `catch` handles both.
+- The API-key caller claim moved to `A2AClaimTypes.ApiKeyCaller` (`a2a:apikey:caller`, unchanged), next to
+  `A2AClaimTypes.Tenant`. `A2AApiKeyOptions.CallerClaim` and `A2AApiKeyOptions.PolicyName` (and the `A2AApiKey` policy)
+  are gone.
+- The analyzer and code-fix types are internal: they are loaded from the package, never called.
+
 ### Authentication on the card
 
 - New `AddBearerAuthentication()` and `AddCardAuthentication(cardSchemeName, scheme, authenticationScheme)` on the A2A
@@ -13,8 +23,8 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Every A2A endpoint without authorization of its own now gets the policy `A2ACardSchemes`
   (`A2ACardAuthenticationExtensions.DefaultPolicyName`): the caller is authenticated by any declared scheme. API keys
   are one of them, so with `AddApiKeyAuthentication` and `AddBearerAuthentication` either a key or a token gets in.
-  (`AddApiKeyAuthentication` used to apply the `A2AApiKey` policy; that policy still exists for endpoints that take
-  only API keys.)
+  (`AddApiKeyAuthentication` used to apply an `A2AApiKey` policy, which is gone: for endpoints that take only API keys,
+  write a policy with `AddAuthenticationSchemes(A2AApiKeyOptions.SchemeName)`.)
 - Analyzer A2A0002 knows that `AddBearerAuthentication` and `AddCardAuthentication` protect the endpoints.
 - The `a2a-agent` and `a2a-chat-agent` templates (without `--auth apikey`) call `AddBearerAuthentication()` outside
   Development: the card asks for a bearer token, and the app refuses to start until a scheme such as `AddJwtBearer()`
@@ -22,8 +32,8 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Ease of use
 
-- New `A2AClient.AskAsync(text)`: sends a message and returns the answer as text, the text of a direct reply or of the
-  task's artifacts once the task completed (a task still running is polled). New `A2AClient.StreamTextAsync(text)`
+- New `AskAsync(text)` (on any `IA2AClient`): sends a message and returns the answer as text, the text of a direct reply or of the
+  task's artifacts once the task completed (a task still running is polled). New `StreamTextAsync(text)`
   yields the text as it streams; a task snapshot does not repeat text already yielded. It stops when the task ends or
   needs input or authorization, even when the server keeps the stream open. Both throw the new
   `TaskNotCompletedException` (with the task and its state) when the task fails, is rejected or canceled, or needs input
@@ -63,7 +73,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Server API-key authentication: `AddApiKeyAuthentication(o => o.Add("billing", hash))` on the A2A builder. It registers
   an authentication scheme for `X-Api-Key`, gives each key a caller id (task owner `apikey:<id>`, so callers never share
   tasks, also not with users of another scheme), declares the scheme on the Agent Card, can limit a key to tenants
-  (through the new `a2a:tenant` claim, below), and puts the `A2AApiKey` policy on every A2A endpoint without authorization of its own (endpoints with
+  (through the new `a2a:tenant` claim, below), and protects every A2A endpoint without authorization of its own (endpoints with
   their own policy keep it). Keys are registered by their SHA-256 hash only. New `A2AApiKey` makes keys (`a2a_` and 32
   random bytes; other forms are refused) and hashes them. Keys come from code, the `A2A:ApiKeys` configuration section
   (reloaded without a restart; a broken reload keeps the previous keys; a plain `Key` entry is refused) or a custom

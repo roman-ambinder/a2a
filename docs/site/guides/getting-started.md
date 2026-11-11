@@ -53,8 +53,8 @@ Call <xref:A2A.Server.TaskUpdater.ReplyAsync*> instead for a stateless reply wit
 
 <xref:A2A.Client.A2AClientFactory.CreateAsync*> fetches the Agent Card and picks the first interface in the card's order that the client supports.
 
-- <xref:A2A.Client.A2AClient.AskAsync*> returns the answer as text: the text of a direct reply, or of the task's artifacts once the task completed. A task that fails, or that needs input or authorization, throws <xref:A2A.Client.TaskNotCompletedException>, which holds the task.
-- <xref:A2A.Client.A2AClient.StreamTextAsync*> yields the text as the agent streams it, with the same exception at the end.
+- <xref:A2A.Client.A2AClientTextExtensions.AskAsync*> returns the answer as text: the text of a direct reply, or of the task's artifacts once the task completed. A task that fails, or that needs input or authorization, throws <xref:A2A.Client.TaskNotCompletedException>, which holds the task.
+- <xref:A2A.Client.A2AClientTextExtensions.StreamTextAsync*> yields the text as the agent streams it, with the same exception at the end.
 - <xref:A2A.Client.A2AClientFactory.CreateForEndpoint*> makes a client for an endpoint you already know, such as an agent in the same process, without fetching the card. The client then checks no capabilities and verifies no card signature.
 - For everything else use `SendMessageAsync`. It returns a <xref:A2A.SendMessageResponse>: either a direct message or a task. `GetText()` on the response, on an `AgentTask` and on an `Artifact` reads their text parts.
 
