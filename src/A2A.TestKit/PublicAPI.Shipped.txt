@@ -1,1 +1,128 @@
 #nullable enable
+A2A.TestKit.A2AAssert
+A2A.TestKit.A2AAssertionException
+A2A.TestKit.A2AAssertionException.A2AAssertionException() -> void
+A2A.TestKit.A2AAssertionException.A2AAssertionException(string! message) -> void
+A2A.TestKit.A2AAssertionException.A2AAssertionException(string! message, System.Exception! innerException) -> void
+A2A.TestKit.A2ATestHost
+A2A.TestKit.A2ATestHost.Card.get -> A2A.AgentCard!
+A2A.TestKit.A2ATestHost.Clock.get -> System.TimeProvider?
+A2A.TestKit.A2ATestHost.CreateClient(string! binding = "JSONRPC", string? user = null, A2A.Client.A2AClientOptions? options = null) -> A2A.Client.A2AClient!
+A2A.TestKit.A2ATestHost.CreateHandler() -> System.Net.Http.HttpMessageHandler!
+A2A.TestKit.A2ATestHost.CreateHttpClient(string? user = null) -> System.Net.Http.HttpClient!
+A2A.TestKit.A2ATestHost.DisposeAsync() -> System.Threading.Tasks.ValueTask
+A2A.TestKit.A2ATestHost.Handler.get -> A2A.Server.A2ARequestHandler!
+A2A.TestKit.A2ATestHost.Push.get -> A2A.TestKit.TestPushReceiver!
+A2A.TestKit.A2ATestHost.Services.get -> System.IServiceProvider!
+A2A.TestKit.A2ATestHost.Url.get -> System.Uri!
+A2A.TestKit.A2ATestHost.WaitIdleAsync(System.TimeSpan? timeout = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+A2A.TestKit.A2ATestHostOptions
+A2A.TestKit.A2ATestHostOptions.A2ATestHostOptions() -> void
+A2A.TestKit.A2ATestHostOptions.ConfigureCard.get -> System.Action<A2A.AgentCard!>?
+A2A.TestKit.A2ATestHostOptions.ConfigureCard.set -> void
+A2A.TestKit.A2ATestHostOptions.ConfigureHttp.get -> System.Action<A2A.Server.AspNetCore.A2AHttpOptions!>?
+A2A.TestKit.A2ATestHostOptions.ConfigureHttp.set -> void
+A2A.TestKit.A2ATestHostOptions.ConfigureServer.get -> System.Action<A2A.Server.A2AServerOptions!>?
+A2A.TestKit.A2ATestHostOptions.ConfigureServer.set -> void
+A2A.TestKit.A2ATestHostOptions.ConfigureServices.get -> System.Action<Microsoft.Extensions.DependencyInjection.IServiceCollection!>?
+A2A.TestKit.A2ATestHostOptions.ConfigureServices.set -> void
+A2A.TestKit.A2ATestHostOptions.RequireAuthentication.get -> bool
+A2A.TestKit.A2ATestHostOptions.RequireAuthentication.set -> void
+A2A.TestKit.A2ATestHostOptions.TimeProvider.get -> System.TimeProvider?
+A2A.TestKit.A2ATestHostOptions.TimeProvider.set -> void
+A2A.TestKit.ExpectedEvent
+A2A.TestKit.FakePeerAgent
+A2A.TestKit.FakePeerAgent.Calls.get -> System.Collections.Generic.IReadOnlyList<A2A.TestKit.PeerCall!>!
+A2A.TestKit.FakePeerAgent.Card.get -> A2A.AgentCard!
+A2A.TestKit.FakePeerAgent.CreateClient(string! binding = "JSONRPC", string? user = null, A2A.Client.A2AClientOptions? options = null) -> A2A.Client.A2AClient!
+A2A.TestKit.FakePeerAgent.CreateHandler() -> System.Net.Http.HttpMessageHandler!
+A2A.TestKit.FakePeerAgent.CreateHttpClient(string? user = null) -> System.Net.Http.HttpClient!
+A2A.TestKit.FakePeerAgent.DisposeAsync() -> System.Threading.Tasks.ValueTask
+A2A.TestKit.FakePeerAgent.Host.get -> A2A.TestKit.A2ATestHost!
+A2A.TestKit.FakePeerAgent.Script.get -> A2A.TestKit.FakePeerScript!
+A2A.TestKit.FakePeerAgent.UnmatchedCalls.get -> System.Collections.Generic.IReadOnlyList<A2A.TestKit.PeerCall!>!
+A2A.TestKit.FakePeerAgent.Url.get -> System.Uri!
+A2A.TestKit.FakePeerAgent.WaitForCallAsync(System.Func<A2A.TestKit.PeerCall!, bool>? predicate = null, System.TimeSpan? timeout = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TestKit.PeerCall!>!
+A2A.TestKit.FakePeerScript
+A2A.TestKit.FakePeerScript.Enqueue(System.Action<A2A.TestKit.PeerResponse!>! respond) -> A2A.TestKit.FakePeerScript!
+A2A.TestKit.FakePeerScript.Otherwise(System.Action<A2A.TestKit.PeerResponse!>! respond) -> A2A.TestKit.FakePeerScript!
+A2A.TestKit.FakePeerScript.When(System.Func<A2A.Server.AgentRequestContext!, bool>! predicate, System.Action<A2A.TestKit.PeerResponse!>! respond) -> A2A.TestKit.FakePeerScript!
+A2A.TestKit.FakePeerScript.WhenText(string! contains, System.Action<A2A.TestKit.PeerResponse!>! respond) -> A2A.TestKit.FakePeerScript!
+A2A.TestKit.PeerCall
+A2A.TestKit.PeerCall.ContextId.get -> string!
+A2A.TestKit.PeerCall.IsNewTask.get -> bool
+A2A.TestKit.PeerCall.Matched.get -> bool
+A2A.TestKit.PeerCall.Message.get -> A2A.Message!
+A2A.TestKit.PeerCall.TaskId.get -> string!
+A2A.TestKit.PeerCall.Text.get -> string!
+A2A.TestKit.PeerResponse
+A2A.TestKit.PeerResponse.Artifact(string! text, string? name = null) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.PeerResponse.Artifact(System.Collections.Generic.IEnumerable<A2A.Part!>! parts, string? name = null) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.PeerResponse.Complete(string? text = null) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.PeerResponse.Delay(System.TimeSpan delay) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.PeerResponse.Fail(string? text = null) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.PeerResponse.Reject(string? text = null) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.PeerResponse.Reply(string! text) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.PeerResponse.RequireAuth(string! text) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.PeerResponse.RequireInput(string! text) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.PeerResponse.Run(System.Func<A2A.Server.AgentRequestContext!, A2A.Server.TaskUpdater!, System.Threading.CancellationToken, System.Threading.Tasks.Task!>! step) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.PeerResponse.Throw(System.Exception! exception) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.PeerResponse.WaitFor(System.Threading.Tasks.Task! gate) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.PeerResponse.Working(string? text = null) -> A2A.TestKit.PeerResponse!
+A2A.TestKit.ReceivedPush
+A2A.TestKit.ReceivedPush.Body.get -> string!
+A2A.TestKit.ReceivedPush.DeliveryId.get -> string?
+A2A.TestKit.ReceivedPush.Event.get -> A2A.StreamResponse!
+A2A.TestKit.ReceivedPush.Headers.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
+A2A.TestKit.ReceivedPush.Method.get -> System.Net.Http.HttpMethod!
+A2A.TestKit.ReceivedPush.Sequence.get -> long?
+A2A.TestKit.ReceivedPush.Token.get -> string?
+A2A.TestKit.ReceivedPush.Url.get -> System.Uri!
+A2A.TestKit.TestClock
+A2A.TestKit.TestClock.Advance(System.TimeSpan by) -> void
+A2A.TestKit.TestClock.SetUtcNow(System.DateTimeOffset value) -> void
+A2A.TestKit.TestClock.TestClock(System.DateTimeOffset? start = null) -> void
+A2A.TestKit.TestEvents
+A2A.TestKit.TestPushReceiver
+A2A.TestKit.TestPushReceiver.Clear() -> void
+A2A.TestKit.TestPushReceiver.CreateInvoker() -> System.Net.Http.HttpMessageInvoker!
+A2A.TestKit.TestPushReceiver.Deliveries.get -> System.Collections.Generic.IReadOnlyList<A2A.TestKit.ReceivedPush!>!
+A2A.TestKit.TestPushReceiver.Events.get -> System.Collections.Generic.IReadOnlyList<A2A.StreamResponse!>!
+A2A.TestKit.TestPushReceiver.Respond.get -> System.Func<A2A.TestKit.ReceivedPush!, System.Net.HttpStatusCode>!
+A2A.TestKit.TestPushReceiver.Respond.set -> void
+A2A.TestKit.TestPushReceiver.TestPushReceiver() -> void
+A2A.TestKit.TestPushReceiver.WaitForAsync(System.Func<A2A.TestKit.ReceivedPush!, bool>? predicate = null, System.TimeSpan? timeout = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TestKit.ReceivedPush!>!
+A2A.TestKit.TestPushReceiver.WaitForCountAsync(int count, System.TimeSpan? timeout = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<A2A.TestKit.ReceivedPush!>!>!
+const A2A.TestKit.A2ATestHost.DefaultBaseUrl = "http://localhost/a2a" -> string!
+const A2A.TestKit.TestPushReceiver.DefaultUrl = "http://push.test/webhook" -> string!
+override A2A.TestKit.ExpectedEvent.ToString() -> string!
+override A2A.TestKit.PeerCall.ToString() -> string!
+override A2A.TestKit.ReceivedPush.ToString() -> string!
+override A2A.TestKit.TestClock.CreateTimer(System.Threading.TimerCallback! callback, object? state, System.TimeSpan dueTime, System.TimeSpan period) -> System.Threading.ITimer!
+override A2A.TestKit.TestClock.GetTimestamp() -> long
+override A2A.TestKit.TestClock.GetUtcNow() -> System.DateTimeOffset
+override A2A.TestKit.TestClock.LocalTimeZone.get -> System.TimeZoneInfo!
+override A2A.TestKit.TestClock.TimestampFrequency.get -> long
+static A2A.TestKit.A2AAssert.ContainsEventOrder(System.Collections.Generic.IEnumerable<A2A.StreamResponse!>! events, params A2A.TestKit.ExpectedEvent![]! expected) -> void
+static A2A.TestKit.A2AAssert.EventOrder(System.Collections.Generic.IEnumerable<A2A.StreamResponse!>! events, params A2A.TestKit.ExpectedEvent![]! expected) -> void
+static A2A.TestKit.A2AAssert.EventuallyHasStateAsync(A2A.Client.IA2AClient! client, string! taskId, A2A.TaskState expected, System.TimeSpan? timeout = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.AgentTask!>!
+static A2A.TestKit.A2AAssert.HasArtifact(A2A.AgentTask! task, string! nameOrId) -> A2A.Artifact!
+static A2A.TestKit.A2AAssert.HasState(A2A.AgentTask! task, A2A.TaskState expected) -> A2A.AgentTask!
+static A2A.TestKit.A2AAssert.HasState(A2A.SendMessageResponse! response, A2A.TaskState expected) -> A2A.AgentTask!
+static A2A.TestKit.A2AAssert.IsMessage(A2A.SendMessageResponse! response) -> A2A.Message!
+static A2A.TestKit.A2AAssert.IsTask(A2A.SendMessageResponse! response) -> A2A.AgentTask!
+static A2A.TestKit.A2AAssert.StateOrder(System.Collections.Generic.IEnumerable<A2A.StreamResponse!>! events, params A2A.TaskState[]! expected) -> void
+static A2A.TestKit.A2AAssert.ThrowsA2AAsync(System.Func<System.Threading.Tasks.Task!>! action, A2A.A2AErrorCode? expected = null) -> System.Threading.Tasks.Task<A2A.A2AException!>!
+static A2A.TestKit.A2ATestHost.DefaultCard() -> A2A.AgentCard!
+static A2A.TestKit.A2ATestHost.StartAsync(A2A.Server.IAgentExecutor! executor, System.Action<A2A.TestKit.A2ATestHostOptions!>? configure = null) -> System.Threading.Tasks.Task<A2A.TestKit.A2ATestHost!>!
+static A2A.TestKit.A2ATestHost.StartAsync(System.Func<A2A.Server.AgentRequestContext!, A2A.Server.TaskUpdater!, System.Threading.CancellationToken, System.Threading.Tasks.Task!>! execute, System.Action<A2A.TestKit.A2ATestHostOptions!>? configure = null) -> System.Threading.Tasks.Task<A2A.TestKit.A2ATestHost!>!
+static A2A.TestKit.A2ATestHost.StartAsync<TExecutor>(System.Action<A2A.TestKit.A2ATestHostOptions!>? configure = null) -> System.Threading.Tasks.Task<A2A.TestKit.A2ATestHost!>!
+static A2A.TestKit.A2ATestHost.StartWithBuilderAsync(System.Action<A2A.Server.A2AServerBuilder!>! configureAgent, System.Action<A2A.TestKit.A2ATestHostOptions!>? configure = null) -> System.Threading.Tasks.Task<A2A.TestKit.A2ATestHost!>!
+static A2A.TestKit.ExpectedEvent.Artifact(string? nameOrId = null) -> A2A.TestKit.ExpectedEvent!
+static A2A.TestKit.ExpectedEvent.Matching(string! description, System.Func<A2A.StreamResponse!, bool>! predicate) -> A2A.TestKit.ExpectedEvent!
+static A2A.TestKit.ExpectedEvent.Message() -> A2A.TestKit.ExpectedEvent!
+static A2A.TestKit.ExpectedEvent.Status(A2A.TaskState state) -> A2A.TestKit.ExpectedEvent!
+static A2A.TestKit.ExpectedEvent.Task(A2A.TaskState? state = null) -> A2A.TestKit.ExpectedEvent!
+static A2A.TestKit.FakePeerAgent.StartAsync(System.Action<A2A.TestKit.FakePeerScript!>! script, System.Action<A2A.TestKit.A2ATestHostOptions!>? configure = null) -> System.Threading.Tasks.Task<A2A.TestKit.FakePeerAgent!>!
+static A2A.TestKit.TestEvents.CollectAsync(this System.Collections.Generic.IAsyncEnumerable<A2A.StreamResponse!>! stream, System.TimeSpan? timeout = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<A2A.StreamResponse!>!>!
+static A2A.TestKit.TestEvents.Describe(System.Collections.Generic.IEnumerable<A2A.StreamResponse!>! events) -> string!

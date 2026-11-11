@@ -4,6 +4,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+## 0.2.0
+
+The first version published to NuGet: 0.1.0 was prepared but never published. Changes since 0.1.0 are below. One default changes behaviour for existing code: the client now rejects agent responses that lack a REQUIRED field (`A2AClientOptions.ValidateResponses`, see Protocol and bindings).
+
 ### Public API review
 
 - `AskAsync` and `StreamTextAsync` are extension methods on `IA2AClient` (`A2AClientTextExtensions`), so they work for
