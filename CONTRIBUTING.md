@@ -25,6 +25,7 @@ dotnet test tests/A2A.Tests
 dotnet test tests/A2A.Grpc.Tests
 dotnet test tests/A2A.V0_3Compat.Tests
 dotnet test tests/A2A.Extensions.AI.Tests
+dotnet test tests/A2A.Mcp.Tests
 dotnet test tests/A2A.Stores.Tests
 dotnet test tests/A2A.TestKit.Tests
 dotnet test samples/TestingAgent
@@ -33,6 +34,53 @@ dotnet test samples/TestingAgent
 `tests/A2A.Stores.Tests` needs Docker. It starts Postgres, Redis, MinIO and Azurite with Testcontainers. Without Docker it skips, unless `A2A_REQUIRE_DOCKER=1` is set. Then a missing Docker fails the run. CI sets it.
 
 See also [Build and test](README.md#build-and-test) in the README.
+
+## Coverage
+
+[coverage.yml](.github/workflows/coverage.yml) runs every suite above with line coverage after each merge to `main`, the
+store tests included. It compares each package with [.github/coverage-baseline.json](.github/coverage-baseline.json) and
+fails when a package is more than the file's `tolerance` (in percentage points) below its value, or has no coverage data.
+The check is not part of `all-green` and does not block a release, but a red run on `main` needs a fix.
+
+- Coverage went down on purpose (code removed, or moved to a package tested elsewhere)? Lower the value in the baseline
+  file in the same pull request and say why.
+- Coverage went up? The run's `coverage` artifact has `baseline-candidate.json`. Copy it over the baseline file to raise
+  the floor. The run summary says which packages can be raised.
+- A pull request that changes the baseline file, the workflow or `coverage_summary.py` runs the check itself. To check
+  any other branch before merging, start the workflow by hand (Actions, Coverage, Run workflow, pick the branch). To
+  see the numbers locally:
+
+```bash
+dotnet test --project tests/A2A.Tests/A2A.Tests.csproj -c Release -p:A2ACoverage=true --coverage --coverage-output-format cobertura --results-directory coverage
+python3 .github/scripts/coverage_summary.py coverage --baseline .github/coverage-baseline.json
+```
+
+A local run of one suite reports less than CI, which merges all suites, so expect some packages to fall below the baseline.
+
+## Mutation testing
+
+[mutation.yml](.github/workflows/mutation.yml) runs [Stryker.NET](https://stryker-mutator.io/docs/stryker-net/introduction/)
+every week on the security-critical code. Each config in [tests/mutation](tests/mutation) names one target: the SSRF guard
+(`security-http`), Agent Card signing, canonicalization and webhook signatures (`protocol-signing`), and AWS SigV4
+signing (`identity-aws`). It reports only and fails nothing. The score and the surviving mutants are in the run summary
+and the `mutation-<target>` artifact (open `mutation-report.html`). A surviving mutant is a change to the code that no
+test noticed: add a test that fails on it, or, if the change cannot alter behaviour, leave it.
+
+Each config runs only the test classes named in its `test-case-filter`, which keeps a run to minutes instead of hours.
+Tests outside the filter do not count, so the score is a lower bound. When you add a test class for one of these
+targets, add it to the filter too.
+
+Mutants inside static initializers are reported as surviving even when a test catches them: with per-test coverage
+off, Stryker runs every mutant in one test process, so a `static readonly` field is built once and never sees the
+mutant. `AgentCardCanonicalizer`'s schema is built that way; check a surviving mutant there by making the change by
+hand and running the tests.
+
+To run one target locally (Stryker is in the tool manifest; run it from the test project's folder, not the root):
+
+```bash
+dotnet tool restore
+cd tests/A2A.Tests && dotnet stryker --config-file ../mutation/security-http.json
+```
 
 ## Public API
 

@@ -69,6 +69,22 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Tests: `ProtoModelDriftTests` compares the hand-written JSON model with the types generated from `docs/a2a.proto`
   (spec §1.4): messages, fields, every case of the union messages (round-tripped through the model) and enum values.
 
+### Tests and CI
+
+- Coverage is now a ratchet. The new `coverage.yml` workflow (after each merge to `main`, by hand, and on pull requests
+  that change the coverage setup) checks line coverage per package against `.github/coverage-baseline.json` and fails
+  when a package drops more than 0.5 points or reports no data. It replaces the report-only `coverage` job in `ci.yml`
+  and does not block a release.
+- The store tests (`tests/A2A.Stores.Tests`: Postgres, Redis, S3 on MinIO, Azure Blob on Azurite) now count toward
+  coverage, so the store packages have a baseline too.
+- New weekly `mutation.yml` workflow: Stryker.NET mutation testing of the SSRF guard, Agent Card signing and
+  canonicalization, webhook signatures and AWS SigV4 signing. Report only. See [CONTRIBUTING](CONTRIBUTING.md#mutation-testing).
+- The AOT publish job runs in the `mcr.microsoft.com/dotnet/sdk:10.0-noble-aot` image, which has clang and zlib, instead
+  of installing them with `apt-get` on every run. An outage of Ubuntu's package mirrors no longer fails CI.
+- New tests for `SafeHttp` (URL policy messages and options, redirects, error statuses, body limits with and without
+  `Content-Length`) and `AgentCardCanonicalizer` (a card using every v1.0 field is signed whole, prune paths, bracket
+  paths, case variants). Mutation score of `SafeHttp.cs`: 30% to 95%.
+
 ### Fixes
 
 - Client: `PushNotificationReceiver.HandleAsync` with a signing secret de-duplicates on the signed `webhook-id`. It used the

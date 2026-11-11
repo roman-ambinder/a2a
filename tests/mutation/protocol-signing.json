@@ -1,0 +1,25 @@
+{
+  "stryker-config": {
+    "project": "A2A.Protocol.csproj",
+    "mutate": [
+      "**/Signing/**/*.cs",
+      "**/Push/WebhookSignature.cs"
+    ],
+    "test-runner": "mtp",
+    "target-framework": "net10.0",
+    "configuration": "Release",
+    "coverage-analysis": "off",
+    "reporters": [
+      "html",
+      "json",
+      "markdown",
+      "cleartext"
+    ],
+    "thresholds": {
+      "high": 80,
+      "low": 60,
+      "break": 0
+    },
+    "test-case-filter": "FullyQualifiedName~A2A.Tests.CanonicalizationTests.|FullyQualifiedName~A2A.Tests.CanonicalizationVectorTests.|FullyQualifiedName~A2A.Tests.CaseVariantMemberTests.|FullyQualifiedName~A2A.Tests.SigningTests.|FullyQualifiedName~A2A.Tests.CardTrustTests.|FullyQualifiedName~A2A.Tests.WebhookSignatureTests.|FullyQualifiedName~A2A.Tests.PushReceiverHandlingTests.|FullyQualifiedName~A2A.Tests.PeerIdentityTests.|FullyQualifiedName~A2A.Tests.AgentRegistryTests.|FullyQualifiedName~A2A.Tests.CardCompletionTests.|FullyQualifiedName~A2A.Tests.OutgoingValidationTests.|FullyQualifiedName~A2A.Tests.Cli.CliTrustAndAuthTests.|FullyQualifiedName~A2A.Tests.AgentCardCanonicalizerTests."
+  }
+}
