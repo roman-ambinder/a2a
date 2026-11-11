@@ -36,6 +36,15 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # NuGet packages, keyed on what decides them (central versions, project files, SDK). Restore took 67 s on
+      # windows-latest without it. A partial match still saves the unchanged packages; restore fetches the rest.
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj', 'global.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
       - name: Restore
         run: dotnet restore A2A.slnx
 
