@@ -11,7 +11,8 @@ using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 var baseUrl = builder.Configuration["BaseUrl"] ?? "http://localhost:5100";
-var apiKey = builder.Configuration["EchoAgent:ApiKey"] ?? Commons.Consts.TestApiKey;
+// No default key: a sample that starts with a key everyone knows would be open to anyone who read this file.
+var apiKey = builder.Configuration["EchoAgent:ApiKey"];
 if (string.IsNullOrEmpty(apiKey))
     throw new InvalidOperationException(
         "Set EchoAgent:ApiKey (for example: dotnet run -- --EchoAgent:ApiKey=<secret>). Callers send it in the X-Api-Key header.");

@@ -8,8 +8,8 @@ var agentUrl = new Uri(args.Length > 0 ? args[0] : "http://localhost:5100/");
 var text = args.Length > 1 ? args[1] : "hello from the A2A .NET SDK";
 var apiKey = args.Length > 2
     ? args[2]
-    : Environment.GetEnvironmentVariable("ECHO_AGENT_API_KEY") ?? Commons.Consts.TestApiKey;
-    //?? throw new InvalidOperationException("Pass the API key as the third argument or set ECHO_AGENT_API_KEY.");
+    : Environment.GetEnvironmentVariable("ECHO_AGENT_API_KEY")
+      ?? throw new InvalidOperationException("Pass the API key as the third argument or set ECHO_AGENT_API_KEY.");
 var jwksFile = Environment.GetEnvironmentVariable("ECHO_AGENT_JWKS_FILE");
 
 // The agent requires the key in the X-Api-Key header on every A2A call.
