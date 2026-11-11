@@ -74,10 +74,12 @@ jobs:
         shell: bash
         env:
           SMOKE_URL: http://127.0.0.1:18741
-          SMOKE_KEY: smoke-test-key
+          # A public, CI-only API key and its hash (A2AApiKey format). EchoAgent stores only the hash.
+          SMOKE_KEY: a2a_bmV0c3RhbmRhcmQgc21va2UgdGVzdCBrZXksIGNpISE
+          SMOKE_KEY_HASH: sha256:38063572e1ed848f6d4e2c31971ea0caa17e9a282a4e41af673fb370e3b36e68
         run: |
           set -eu
-          dotnet samples/EchoAgent/bin/Release/net10.0/EchoAgent.dll "--BaseUrl=$SMOKE_URL" "--EchoAgent:ApiKey=$SMOKE_KEY" > "$RUNNER_TEMP/echoagent.log" 2>&1 &
+          dotnet samples/EchoAgent/bin/Release/net10.0/EchoAgent.dll "--BaseUrl=$SMOKE_URL" "--EchoAgent:ApiKeyHash=$SMOKE_KEY_HASH" > "$RUNNER_TEMP/echoagent.log" 2>&1 &
           agent=$!
           trap 'kill "$agent" 2>/dev/null || true' EXIT
           up=0
