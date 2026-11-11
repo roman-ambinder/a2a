@@ -69,3 +69,6 @@ override A2A.Server.AspNetCore.ApiKeyCaller.ToString() -> string!
 static A2A.Server.AspNetCore.ApiKeyCaller.operator !=(A2A.Server.AspNetCore.ApiKeyCaller? left, A2A.Server.AspNetCore.ApiKeyCaller? right) -> bool
 static A2A.Server.AspNetCore.ApiKeyCaller.operator ==(A2A.Server.AspNetCore.ApiKeyCaller? left, A2A.Server.AspNetCore.ApiKeyCaller? right) -> bool
 A2A.Server.AspNetCore.ApiKeyCaller.<Clone>$() -> A2A.Server.AspNetCore.ApiKeyCaller!
+const A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.DefaultPolicyName = "A2ACardSchemes" -> string!
+static A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.AddBearerAuthentication(this A2A.Server.A2AServerBuilder! builder, string! authenticationScheme = "Bearer", string! cardSchemeName = "bearer", string? bearerFormat = "JWT", System.Collections.Generic.IEnumerable<string!>? scopes = null) -> A2A.Server.A2AServerBuilder!
+static A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.AddCardAuthentication(this A2A.Server.A2AServerBuilder! builder, string! cardSchemeName, A2A.SecurityScheme! scheme, string! authenticationScheme, System.Collections.Generic.IEnumerable<string!>? scopes = null) -> A2A.Server.A2AServerBuilder!

@@ -258,8 +258,8 @@ public static partial class A2AEndpointRouteBuilderExtensions
     private static void ApplyRateLimiting<TBuilder>(IEndpointRouteBuilder endpoints, TBuilder group)
         where TBuilder : IEndpointConventionBuilder
     {
-        // Every Map* method passes here, so this is also where API-key authentication protects endpoints by default.
-        A2AApiKeyAuthenticationExtensions.ApplyDefault(endpoints, group);
+        // Every Map* method passes here, so this is also where declared card schemes protect endpoints by default.
+        A2ACardAuthenticationExtensions.ApplyDefault(endpoints, group);
         var services = endpoints.ServiceProvider;
         if (services.GetService<A2ARateLimitMarker>() is null) return;
         if (!services.GetRequiredService<IOptions<A2ARateLimitOptions>>().Value.Enabled) return;

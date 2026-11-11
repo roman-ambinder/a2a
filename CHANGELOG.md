@@ -4,6 +4,19 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Authentication on the card
+
+- New `AddBearerAuthentication()` and `AddCardAuthentication(cardSchemeName, scheme, authenticationScheme)` on the A2A
+  builder: the scheme goes on the Agent Card (`securitySchemes`, and one more `securityRequirements` entry), so
+  clients know what to send, and it is proved by the ASP.NET Core scheme you name (default `Bearer`, as `AddJwtBearer()`
+  registers it). The app refuses to start when that scheme is not registered.
+- Every A2A endpoint without authorization of its own now gets the policy `A2ACardSchemes`
+  (`A2ACardAuthenticationExtensions.DefaultPolicyName`): the caller is authenticated by any declared scheme. API keys
+  are one of them, so with `AddApiKeyAuthentication` and `AddBearerAuthentication` either a key or a token gets in.
+  (`AddApiKeyAuthentication` used to apply the `A2AApiKey` policy; that policy still exists for endpoints that take
+  only API keys.)
+- Analyzer A2A0002 knows that `AddBearerAuthentication` and `AddCardAuthentication` protect the endpoints.
+
 ### Ease of use
 
 - New `A2AClient.AskAsync(text)`: sends a message and returns the answer as text, the text of a direct reply or of the
