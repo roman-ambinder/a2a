@@ -119,7 +119,7 @@ Keys are matched by `kid`, and a `TrustedKeys` set can hold several keys. To rot
 
 [!code-csharp[](../../../samples/Snippets/AgentCardSigning.cs#Rotation)]
 
-The server's key set shows only the current key, so clients that use `jku` pick up the new key after their cache expires (10 minutes). A key change with the same card content is not a card change. The pin keeps the hash and records the new `kid`.
+The server's key set shows only the current key, so clients that use `jku` pick up the new key after their cache expires: 10 minutes, or sooner when the key set's response says so (`Cache-Control: no-store`, `no-cache` or a shorter `max-age`, or `Expires`). Serve the key set with a short `max-age` so a removed key stops verifying soon (spec 8.4.3). A key change with the same card content is not a card change. The pin keeps the hash and records the new `kid`.
 
 ## What can go wrong
 

@@ -226,6 +226,16 @@ public sealed class PushTaskTracker : IDisposable
     }
 
     /// <summary>
+    ///     True when <paramref name="taskId" /> is tracked. Set <see cref="PushNotificationReceiver.ExpectedTask" /> to
+    ///     this method so the receiver refuses notifications for tasks this client did not create (spec §4.3.3).
+    /// </summary>
+    public async ValueTask<bool> IsTrackedAsync(string taskId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(taskId)) return false;
+        return await _store.GetAsync(taskId, cancellationToken).ConfigureAwait(false) is not null;
+    }
+
+    /// <summary>
     ///     Reports a notification you received (the handler of <see cref="PushNotificationReceiver.HandleAsync" /> is the
     ///     place). Ignored when the task is not tracked.
     /// </summary>

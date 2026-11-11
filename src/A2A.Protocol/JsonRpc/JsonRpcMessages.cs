@@ -100,6 +100,6 @@ public sealed class JsonRpcError
         if (A2AErrors.TryGetCodeFromDetails(Data, out var fromDetails)) code = fromDetails;
         else if (Code <= -32000 && Enum.IsDefined(typeof(A2AErrorCode), Code)) code = (A2AErrorCode)Code;
         else code = A2AErrorCode.Internal;
-        return new A2AException(code, Message) { Details = Data };
+        return new A2AException(code, Message) { Details = Data, Metadata = A2AErrors.GetErrorInfoMetadata(Data) };
     }
 }

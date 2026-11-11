@@ -39,6 +39,88 @@ public class PushReceiverHandlingTests
         };
     }
 
+    // ---- ExpectedTask (spec §4.3.3) ----
+
+    private static readonly Func<PushDelivery, CancellationToken, Task> Ok = (_, _) => Task.CompletedTask;
+
+    [Fact]
+    public async Task A_delivery_for_an_unexpected_task_is_refused_before_the_handler()
+    {
+        var calls = 0;
+        var receiver = new PushNotificationReceiver { ExpectedTask = (id, _) => ValueTask.FromResult(id == "mine") };
+
+        var other = await receiver.HandleAsync(TokenHeaders("d1"), Body("theirs"), (_, _) => { calls++; return Task.CompletedTask; }, expectedToken: "tok");
+        var mine = await receiver.HandleAsync(TokenHeaders("d2"), Body("mine"), (_, _) => { calls++; return Task.CompletedTask; }, expectedToken: "tok");
+
+        Assert.Equal(PushHandleOutcome.UnexpectedTask, other.Outcome);
+        Assert.Equal(404, other.StatusCode);
+        Assert.Equal(PushHandleOutcome.Handled, mine.Outcome);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task An_event_without_a_task_id_is_unexpected_when_the_check_is_on()
+    {
+        var receiver = new PushNotificationReceiver { ExpectedTask = (_, _) => ValueTask.FromResult(true) };
+        var body = Encoding.UTF8.GetBytes("{\"message\":{\"messageId\":\"m1\",\"role\":\"ROLE_AGENT\",\"parts\":[{\"text\":\"hi\"}]}}");
+
+        var result = await receiver.HandleAsync(TokenHeaders("d1"), body, Ok, expectedToken: "tok");
+
+        Assert.Equal(PushHandleOutcome.UnexpectedTask, result.Outcome);
+    }
+
+    [Fact]
+    public async Task Without_the_check_every_task_reaches_the_handler()
+    {
+        var receiver = new PushNotificationReceiver();
+        var result = await receiver.HandleAsync(TokenHeaders("d1"), Body("anything"), Ok, expectedToken: "tok");
+        Assert.Equal(PushHandleOutcome.Handled, result.Outcome);
+    }
+
+    [Fact]
+    public async Task A_refused_delivery_is_not_remembered_and_a_handled_one_stays_a_duplicate()
+    {
+        var expected = new HashSet<string>();
+        var receiver = new PushNotificationReceiver { ExpectedTask = (id, _) => ValueTask.FromResult(expected.Contains(id)) };
+
+        Assert.Equal(PushHandleOutcome.UnexpectedTask, (await receiver.HandleAsync(TokenHeaders("d1"), Body("t1"), Ok, expectedToken: "tok")).Outcome);
+        expected.Add("t1");
+        Assert.Equal(PushHandleOutcome.Handled, (await receiver.HandleAsync(TokenHeaders("d1"), Body("t1"), Ok, expectedToken: "tok")).Outcome);
+        expected.Clear(); // the task finished and is no longer tracked
+        Assert.Equal(PushHandleOutcome.Duplicate, (await receiver.HandleAsync(TokenHeaders("d1"), Body("t1"), Ok, expectedToken: "tok")).Outcome);
+    }
+
+    [Fact]
+    public async Task A_failing_check_is_a_handler_failure_and_the_retry_gets_through()
+    {
+        var fail = true;
+        var receiver = new PushNotificationReceiver
+        {
+            ExpectedTask = (_, _) => fail ? throw new InvalidOperationException("store down") : ValueTask.FromResult(true)
+        };
+
+        var first = await receiver.HandleAsync(TokenHeaders("d1"), Body(), Ok, expectedToken: "tok");
+        fail = false;
+        var retry = await receiver.HandleAsync(TokenHeaders("d1"), Body(), Ok, expectedToken: "tok");
+
+        Assert.Equal(PushHandleOutcome.HandlerFailed, first.Outcome);
+        Assert.Equal(500, first.StatusCode);
+        Assert.Equal(PushHandleOutcome.Handled, retry.Outcome);
+    }
+
+    [Fact]
+    public async Task The_tracker_is_the_expected_task_check()
+    {
+        var client = new FakeClient(_ => throw new InvalidOperationException("not called"));
+        using var tracker = new PushTaskTracker(client, (_, _) => Task.CompletedTask, sweepInterval: Timeout.InfiniteTimeSpan);
+        await tracker.TrackAsync("t1", TimeSpan.FromMinutes(5));
+        var receiver = new PushNotificationReceiver { ExpectedTask = tracker.IsTrackedAsync };
+
+        Assert.Equal(PushHandleOutcome.Handled, (await receiver.HandleAsync(TokenHeaders("d1"), Body("t1"), Ok, expectedToken: "tok")).Outcome);
+        Assert.Equal(PushHandleOutcome.UnexpectedTask, (await receiver.HandleAsync(TokenHeaders("d2"), Body("t2"), Ok, expectedToken: "tok")).Outcome);
+        Assert.False(await tracker.IsTrackedAsync(""));
+    }
+
     // ---- HandleAsync ----
 
     [Fact]

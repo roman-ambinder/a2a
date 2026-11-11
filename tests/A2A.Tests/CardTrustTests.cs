@@ -143,6 +143,77 @@ public class CardTrustTests
         Assert.Empty(jwks.Requests);
     }
 
+    // ---- §8.4.3: a key the publisher removed stops verifying when the published cache lifetime ends ----
+
+    private static (AgentCardVerifier Verifier, JwksServer Jwks, AgentCardSigningKey Key) JkuSetup(string? cacheControl)
+    {
+        var key = NewKey("k1", "https://keys.example/jwks.json");
+        var jwks = new JwksServer(Set(key)) { CacheControl = cacheControl };
+        var policy = new CardTrustPolicy();
+        policy.AllowJkuHost(Origin, "keys.example");
+        return (new AgentCardVerifier(policy, new GuardedJwksFetcher(new HttpMessageInvoker(jwks))), jwks, key);
+    }
+
+    [Fact]
+    public async Task A_key_removed_from_a_no_store_jwks_stops_verifying_at_once()
+    {
+        var (verifier, jwks, key) = JkuSetup("no-store");
+        Assert.Equal(AgentCardVerificationStatus.Verified, (await verifier.VerifyAsync(Signed(key), CardUri)).Status);
+
+        jwks.Set = new JwkSet(); // revoked at the publisher
+        var after = await verifier.VerifyAsync(Signed(key), CardUri);
+
+        Assert.NotEqual(AgentCardVerificationStatus.Verified, after.Status);
+        Assert.Equal(2, jwks.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("max-age=3600")]
+    public async Task A_jwks_without_a_short_lifetime_is_kept_for_the_default_ten_minutes(string? cacheControl)
+    {
+        var (verifier, jwks, key) = JkuSetup(cacheControl);
+        await verifier.VerifyAsync(Signed(key), CardUri);
+        jwks.Set = new JwkSet();
+
+        var again = await verifier.VerifyAsync(Signed(key), CardUri);
+
+        Assert.Equal(AgentCardVerificationStatus.Verified, again.Status); // still inside the cache lifetime
+        Assert.Single(jwks.Requests);
+    }
+
+    [Theory]
+    [InlineData("no-store", null, null, 0)]
+    [InlineData("no-cache", null, null, 0)]
+    [InlineData("max-age=300", null, null, 300)]
+    [InlineData("max-age=300", 100, null, 200)]
+    [InlineData("max-age=300", 400, null, 0)]
+    [InlineData(null, null, 120, 120)]
+    [InlineData(null, null, -5, 0)]
+    [InlineData(null, null, null, -1)]
+    public void Jwks_cache_lifetime_follows_the_response(string? cacheControl, int? ageSeconds, int? expiresInSeconds, int expected)
+    {
+        var date = new DateTimeOffset(2026, 11, 10, 12, 0, 0, TimeSpan.Zero);
+        using var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        response.Headers.Date = date;
+        if (cacheControl is not null) response.Headers.TryAddWithoutValidation("Cache-Control", cacheControl);
+        if (ageSeconds is { } age) response.Headers.Age = TimeSpan.FromSeconds(age);
+        if (expiresInSeconds is { } e) response.Content.Headers.Expires = date.AddSeconds(e);
+
+        var lifetime = GuardedJwksFetcher.MaxAgeOf(response, date);
+
+        Assert.Equal(expected < 0 ? null : TimeSpan.FromSeconds(expected), lifetime);
+    }
+
+    [Fact]
+    public void Jwks_cache_lifetime_is_capped_at_ten_minutes()
+    {
+        Assert.Equal(TimeSpan.FromMinutes(10), AgentCardVerifier.CacheLifetime(null));
+        Assert.Equal(TimeSpan.FromMinutes(10), AgentCardVerifier.CacheLifetime(TimeSpan.FromHours(1)));
+        Assert.Equal(TimeSpan.FromSeconds(30), AgentCardVerifier.CacheLifetime(TimeSpan.FromSeconds(30)));
+        Assert.Equal(TimeSpan.Zero, AgentCardVerifier.CacheLifetime(TimeSpan.FromSeconds(-1)));
+    }
+
     [Fact]
     public async Task Allowlisted_jku_verifies()
     {
@@ -676,13 +747,21 @@ public class CardTrustTests
 
         public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
 
+        /// <summary>The served key set; replace it to "remove" a key at the publisher.</summary>
+        public JwkSet Set { get; set; } = set;
+
+        /// <summary>The Cache-Control header of the response, or null for none.</summary>
+        public string? CacheControl { get; set; }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             lock (Requests) Requests.Add(request.RequestUri!.AbsoluteUri);
-            return Task.FromResult(new HttpResponseMessage(Status)
+            var response = new HttpResponseMessage(Status)
             {
-                Content = new StringContent(A2AJson.Serialize(set), Encoding.UTF8, "application/json"),
-            });
+                Content = new StringContent(A2AJson.Serialize(Set), Encoding.UTF8, "application/json"),
+            };
+            if (CacheControl is not null) response.Headers.TryAddWithoutValidation("Cache-Control", CacheControl);
+            return Task.FromResult(response);
         }
     }
 
