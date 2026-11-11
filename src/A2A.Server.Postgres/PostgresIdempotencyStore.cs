@@ -90,13 +90,13 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
             if (r.Outcome is not null ? r.ExpiresTicks <= r.NowTicks : IsStale(r.ClaimedTicks, r.NowTicks))
             {
                 // Expired outcome, or a claim nobody finished in time: drop exactly that entry and claim again.
-                await DeleteClaimAsync(scope, r.ClaimId, cancellationToken).ConfigureAwait(false);
+                await DeleteClaimAsync(scope, r, cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
             if (!r.Hash.AsSpan().SequenceEqual(requestHash)) return Mismatch;
             if (r.Outcome is not null) return new IdempotencyResult.Completed(OutcomeJson.Read(r.Outcome));
-            return new IdempotencyResult.InProgress(WaitAsync(scope, r.ClaimId));
+            return new IdempotencyResult.InProgress(WaitAsync(scope, r.ClaimId, cancellationToken));
         }
     }
 
@@ -141,16 +141,19 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
 
     /// <summary>
     ///     Polls the claim until it has an outcome (result), disappears or goes stale (canceled: the caller tries again).
+    ///     It also ends, canceled, when the waiting caller's <paramref name="cancellationToken" /> is canceled, so a caller
+    ///     that went away does not keep polling the database until the owner finishes.
     /// </summary>
-    private async Task<IdempotencyOutcome> WaitAsync(IdempotencyScope scope, Guid claimId)
+    private async Task<IdempotencyOutcome> WaitAsync(IdempotencyScope scope, Guid claimId,
+        CancellationToken cancellationToken)
     {
         var interval = _storeOptions.IdempotencyPollInterval > TimeSpan.Zero
             ? _storeOptions.IdempotencyPollInterval
             : TimeSpan.FromMilliseconds(200);
         while (true)
         {
-            await Task.Delay(interval, _time).ConfigureAwait(false);
-            var row = await ReadAsync(scope, CancellationToken.None).ConfigureAwait(false);
+            await Task.Delay(interval, _time, cancellationToken).ConfigureAwait(false);
+            var row = await ReadAsync(scope, cancellationToken).ConfigureAwait(false);
             if (row is not { } r || r.ClaimId != claimId || (r.Outcome is null && IsStale(r.ClaimedTicks, r.NowTicks)))
                 throw new TaskCanceledException("The idempotent request was abandoned.");
             if (r.Outcome is not null) return OutcomeJson.Read(r.Outcome);
@@ -181,13 +184,20 @@ public sealed class PostgresIdempotencyStore : IdempotencyStore
             reader.GetInt64(5));
     }
 
-    private async ValueTask DeleteClaimAsync(IdempotencyScope scope, Guid claimId, CancellationToken cancellationToken)
+    /// <summary>
+    ///     Deletes the entry only if it is still as <paramref name="seen" /> was read: an expired outcome, or a running claim
+    ///     whose claim time has not moved. The owner may renew or complete the claim between the read and this delete; its
+    ///     write must win, or a retry would run the request a second time.
+    /// </summary>
+    private async ValueTask DeleteClaimAsync(IdempotencyScope scope, Row seen, CancellationToken cancellationToken)
     {
         await using var cmd =
-            _db.CreateCommand(
-                $"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $4");
+            _db.CreateCommand(seen.Outcome is null
+                ? $"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $4 AND outcome IS NULL AND claimed_ticks = $5"
+                : $"DELETE FROM {_table} WHERE tenant = $1 AND principal = $2 AND key = $3 AND claim_id = $4 AND outcome IS NOT NULL");
         AddScope(cmd, scope);
-        cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = claimId });
+        cmd.Parameters.Add(new NpgsqlParameter<Guid> { TypedValue = seen.ClaimId });
+        if (seen.Outcome is null) cmd.Parameters.Add(new NpgsqlParameter<long> { TypedValue = seen.ClaimedTicks });
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 

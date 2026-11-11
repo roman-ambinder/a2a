@@ -85,6 +85,22 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   `Content-Length`) and `AgentCardCanonicalizer` (a card using every v1.0 field is signed whole, prune paths, bracket
   paths, case variants). Mutation score of `SafeHttp.cs`: 30% to 95%.
 
+### Fixes
+
+- Client: `PushNotificationReceiver.HandleAsync` with a signing secret de-duplicates on the signed `webhook-id`. It used the
+  unsigned `X-A2A-Delivery-Id` first, so a replay within the signature tolerance that changed only that header ran the
+  handler again. The SDK's sender puts the same value in both headers, so its deliveries keep the same id.
+- Client: `A2ACardResolver` refuses an Agent Card served from another origin after a redirect (`InvalidAgentResponse`),
+  instead of verifying, pinning and identifying it as the origin that was asked for. This matters for an `HttpClient` that
+  follows redirects; a redirect within the same origin is still accepted.
+- Server: a follow-up message and a 1.1 SendMessage with only client artifacts no longer ask the tenant's card provider
+  while holding the task lock. A slow card provider stalled every task on the same lock stripe, across tenants.
+- Server: a page token whose position is out of range gets InvalidParams instead of an internal error.
+- Postgres: the idempotency store deletes a stale claim only if it is unchanged since it was read. A claim its owner renewed
+  or completed in between was deleted, so a retry could run the request a second time.
+- Postgres: a request waiting on an idempotency key held by another request stops polling the database when its caller is
+  canceled.
+
 ### Documentation
 
 - Spec decisions: the push delivery defaults said "10 attempts". The default is no limit on the count (`MaxAttempts`

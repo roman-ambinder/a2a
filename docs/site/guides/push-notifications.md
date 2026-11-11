@@ -132,7 +132,7 @@ Two rules for a receiver:
 
 [!code-csharp[](../../../samples/Snippets/PushNotifications.cs#Receiver)]
 
-You give the token (`expectedToken`), the decoded signing secret (`signingSecret`), or both. The handler gets a <xref:A2A.Client.Push.PushDelivery>: the parsed `StreamResponse`, the delivery id and the sequence. The result says what to answer:
+You give the token (`expectedToken`), the decoded signing secret (`signingSecret`), or both. The handler gets a <xref:A2A.Client.Push.PushDelivery>: the parsed `StreamResponse`, the delivery id and the sequence. With a signing secret, the delivery id is the signed `webhook-id`, never the unsigned `X-A2A-Delivery-Id`, so a replay cannot get past the duplicate check by changing a header; without one it is `X-A2A-Delivery-Id`. The result says what to answer:
 
 | Outcome | Status | Meaning |
 |---|---|---|

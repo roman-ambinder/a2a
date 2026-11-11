@@ -231,15 +231,19 @@ public sealed class PushNotificationReceiver
             return new PushHandleResult(PushHandleOutcome.Unauthorized, 401);
 
         var keepUntil = _time.GetUtcNow() + Window;
+        string? signedId = null;
         if (!signingSecret.IsEmpty)
         {
-            var check = CheckSignature(headers, body.Span, signingSecret.Span, signatureTolerance, out _,
+            var check = CheckSignature(headers, body.Span, signingSecret.Span, signatureTolerance, out var webhookId,
                 out var lastAcceptable);
             if (check != PushValidationResult.Valid) return new PushHandleResult(PushHandleOutcome.Unauthorized, 401);
             if (lastAcceptable > keepUntil) keepUntil = lastAcceptable;
+            signedId = webhookId;
         }
 
-        var id = Find(headers, A2AProtocol.Headers.DeliveryId);
+        // With a signature, the id is the signed webhook-id: X-A2A-Delivery-Id is not covered by the signature, so a replay
+        // could change it to get past de-duplication. The SDK's sender puts the same value in both headers.
+        var id = signedId ?? Find(headers, A2AProtocol.Headers.DeliveryId);
         if (string.IsNullOrEmpty(id)) id = Find(headers, WebhookSignature.IdHeader);
         if (string.IsNullOrEmpty(id)) id = null;
         var sequenceText = Find(headers, A2AProtocol.Headers.NotificationSequence);
