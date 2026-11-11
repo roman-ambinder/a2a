@@ -10,9 +10,13 @@ using A2A.Server.Redis;
 var builder = WebApplication.CreateBuilder(args);
 var publicUrl = builder.Configuration["PublicUrl"] ?? "http://localhost:8080";
 var instance = builder.Configuration["Instance"] ?? Environment.MachineName;
-// The agent stores only the hash of the callers' API key. The default is the hash of a public demo key; set ApiKeyHash
-// (from 'a2a keys new') for anything else.
-var apiKeyHash = builder.Configuration["ApiKeyHash"] ?? Commons.Consts.TestApiKeyHash;
+// The agent stores only the hash of the callers' API key. No default: docker-compose.yml sets the hash of the public
+// demo key in samples/Commons. Anywhere else, set ApiKeyHash to the hash of your own key (from 'a2a keys new').
+var apiKeyHash = builder.Configuration["ApiKeyHash"];
+if (string.IsNullOrEmpty(apiKeyHash))
+    throw new InvalidOperationException(
+        "Set ApiKeyHash to the hash of an API key (for example: ApiKeyHash=sha256:...). "
+        + "Make a key and its hash with 'a2a keys new'. Callers send the key in the X-Api-Key header.");
 var postgres = builder.Configuration.GetConnectionString("a2a") ??
                throw new InvalidOperationException("Set ConnectionStrings:a2a.");
 var redis = builder.Configuration.GetConnectionString("redis") ??

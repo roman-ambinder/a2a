@@ -295,6 +295,10 @@ public sealed class TestAgentHost : IAsyncDisposable
             o.PushDelivery.InitialBackoff = TimeSpan.FromMilliseconds(10);
             o.PushDelivery.PollInterval = TimeSpan.FromMilliseconds(20);
             o.CancelGracePeriod = TimeSpan.FromSeconds(2);
+            // No shutdown drain: disposing a host whose agent is still running would otherwise wait the default 20 s
+            // (or, with a FakeTimeProvider that is not advanced, until the host's 30 s stop timeout). Tests of the
+            // drain itself set it in `configure`.
+            o.ShutdownDrainTimeout = TimeSpan.Zero;
             o.ExtendedAgentCardProvider = (call, _, _) =>
             {
                 var card = DefaultCard();

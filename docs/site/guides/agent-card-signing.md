@@ -69,7 +69,7 @@ Or allow a `jku` host for one origin. The key set is then fetched from that host
 What the resolver does:
 
 - `Failed` always stops resolution with <xref:A2A.Client.AgentCardVerificationException>.
-- `Unsigned` and `Unverified` are rejected once `TrustedKeys` or `AllowedJkuHosts` is not empty. Set `Trust.RequireSignature = false` to accept them. An accepted unsigned card counts `a2a.card.unsigned`.
+- `Unsigned` and `Unverified` are rejected once `TrustedKeys` or `AllowedJkuHosts` is not empty. Set `Trust.RequireSignature = false` to accept them. An accepted unsigned card counts `a2a.card.unsigned`. An accepted `Unsigned` or `Unverified` card also logs a warning (event 102) once per origin, naming the reason: no trust configured, or `RequireSignature = false`. The resolver logs through the `ILogger` passed to its constructor; `AddA2AClient` passes one.
 - With nothing configured, cards resolve and carry their status. Check `Verification.Status` yourself.
 - For a `Verified` card, the model is built only from the signed content.
 
