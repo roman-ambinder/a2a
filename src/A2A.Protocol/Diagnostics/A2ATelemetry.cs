@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using A2A.Json;
 
 namespace A2A.Diagnostics;
@@ -75,6 +76,50 @@ public static class A2ATelemetry
         if (traceParent is null || string.IsNullOrWhiteSpace(traceParent)) return false;
         return ActivityContext.TryParse(traceParent.Trim(),
             traceState is null || string.IsNullOrWhiteSpace(traceState) ? null : traceState.Trim(), true, out context);
+    }
+
+    /// <summary>
+    ///     Writes the W3C trace context of <paramref name="activity" /> into the message metadata, under the keys
+    ///     <see cref="TraceParentHeader" /> and <see cref="TraceStateHeader" /> (the header names), so it reaches the agent
+    ///     even when a proxy or gateway on the way drops the headers. A message that already carries a <c>traceparent</c> is
+    ///     left as it is. Does nothing without a W3C activity. Returns true when it wrote the context.
+    /// </summary>
+    /// <remarks>
+    ///     The metadata is part of the message: the agent stores it in the task history, where everyone who can read the
+    ///     task sees it. It holds only the trace and span ids and the sampling flag (and the vendor trace state, if any).
+    /// </remarks>
+    public static bool InjectTraceContext(Message message, Activity? activity)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        if (message.Metadata?.ContainsKey(TraceParentHeader) == true) return false;
+        var written = false;
+        InjectTraceContext(activity, (name, value) =>
+        {
+            message.Metadata ??= [];
+            message.Metadata[name] = A2AJson.SerializeToElement(value);
+            written = true;
+        });
+        return written;
+    }
+
+    /// <summary>
+    ///     Reads the W3C trace context that <see cref="InjectTraceContext(Message, Activity?)" /> wrote into the message
+    ///     metadata. Returns false (and an empty context) when the message carries none, or the value is not a valid
+    ///     <c>traceparent</c> string.
+    /// </summary>
+    public static bool TryExtractTraceContext(Message? message, out ActivityContext context)
+    {
+        context = default;
+        if (message?.Metadata is not { } metadata) return false;
+        return TryExtractTraceContext(StringOf(metadata, TraceParentHeader), StringOf(metadata, TraceStateHeader),
+            out context);
+
+        static string? StringOf(Dictionary<string, JsonElement> metadata, string key)
+        {
+            return metadata.TryGetValue(key, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
+        }
     }
 
     // ---- helpers shared by the SDK packages ----

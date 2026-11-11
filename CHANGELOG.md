@@ -77,6 +77,12 @@ The first version published to NuGet: 0.1.0 was prepared but never published. Ch
   called), A2A0002 (endpoints mapped without authorization), A2A0003 (`UseA2A()` in the wrong place). Code fixes add
   `app.UseA2A()` before `UseAuthorization()` and `.RequireAuthorization()` to the mapping. They are warnings, and the
   startup checks are unchanged.
+- A2A0001 and A2A0002 show in the editor as you type when one method holds the whole setup (the usual `Program.cs`):
+  it creates the app, maps the endpoints, hands the app, its builder or its services to none of your own methods, and
+  no other code names anything that could lift the warning. Otherwise they are still reported when you build. IDs and
+  severities are unchanged.
+- A2A0001 and A2A0002 read constant values: `AllowAnonymous = false` no longer silences A2A0002, and rate limiting
+  `Enabled = true` no longer silences A2A0001. A value that is not a constant still counts, as before.
 - README: a "Which packages do I need?" table.
 - Server API-key authentication: `AddApiKeyAuthentication(o => o.Add("billing", hash))` on the A2A builder. It registers
   an authentication scheme for `X-Api-Key`, gives each key a caller id (task owner `apikey:<id>`, so callers never share
@@ -250,6 +256,15 @@ The first version published to NuGet: 0.1.0 was prepared but never published. Ch
 
 ### Fixes
 
+- Server: new `PushDelivery.RetryPolicy` (default null: the backoff as before). After a webhook attempt fails in a way
+  worth retrying, it gets a `PushRetryContext` (the attempt, the error, the HTTP status, the receiver's `Retry-After` and
+  the default wait) and returns the wait before the next attempt, or null to dead-letter now. `MaxAttempts` and
+  `MaxDeliveryAge` still apply. A policy that throws is logged (event 316) and the default backoff is used.
+- Client: new `A2AClientOptions.PropagateTraceInMetadata` (default false) also writes the send's W3C trace context into
+  the message metadata (`traceparent`, `tracestate`), for when a proxy drops the headers. The server uses it when the
+  request has no `traceparent` header, and the idempotency fingerprint now ignores those two message metadata keys. New
+  helpers `A2ATelemetry.InjectTraceContext(Message, Activity?)` and `A2ATelemetry.TryExtractTraceContext(Message?, out
+  ActivityContext)`.
 - Client: new `A2AClientOptions.WaitForTaskCompletion` (default false). When a blocking `SendMessageAsync` comes back
   with a task that is still submitted or working (some servers and proxies answer before the task ends), the client
   polls it until it is terminal or interrupted and returns it with the history the request asked for. A request with

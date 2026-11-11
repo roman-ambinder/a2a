@@ -316,8 +316,8 @@ public sealed class PushDeliveryService : BackgroundService
                     else LogLostLease(d);
                     break;
                 case PushSendOutcome.Retry:
-                    await RetryOrDeadLetterAsync(entry, attempt, activity, result.Error!, result.ErrorType!)
-                        .ConfigureAwait(false);
+                    await RetryOrDeadLetterAsync(entry, attempt, activity, result.Error!, result.ErrorType!,
+                        result.StatusCode, result.RetryAfter).ConfigureAwait(false);
                     break;
                 default:
                     await DeadLetterAsync(entry, activity, result.Error!, result.ErrorType!).ConfigureAwait(false);
@@ -348,11 +348,12 @@ public sealed class PushDeliveryService : BackgroundService
     }
 
     /// <summary>
-    ///     A retryable failure: reschedules with backoff, or dead-letters after
-    ///     <see cref="PushDeliveryOptions.MaxAttempts" /> (when set).
+    ///     A retryable failure: reschedules with backoff (or the wait <see cref="PushDeliveryOptions.RetryPolicy" />
+    ///     returns), or dead-letters after <see cref="PushDeliveryOptions.MaxAttempts" /> (when set) or when the policy
+    ///     returns null.
     /// </summary>
     private async Task RetryOrDeadLetterAsync(OutboxEntry entry, int attempt, Activity? activity, string error,
-        string errorType)
+        string errorType, int? statusCode = null, TimeSpan? retryAfter = null)
     {
         var d = entry.Delivery;
         if (_options.MaxAttempts is { } maxAttempts && attempt >= maxAttempts)
@@ -362,10 +363,35 @@ public sealed class PushDeliveryService : BackgroundService
             return;
         }
 
+        var delay = Backoff(attempt);
+        if (_options.RetryPolicy is { } policy)
+        {
+            TimeSpan? decided;
+            try
+            {
+                decided = policy(new PushRetryContext(d.Task, d.ConfigId, d.Sequence, attempt, error, statusCode,
+                    retryAfter, delay));
+            }
+            catch (Exception ex)
+            {
+                ServerLog.PushRetryPolicyFailed(_logger, ex, d.Sequence, d.Task.TaskId, d.ConfigId);
+                decided = delay;
+            }
+
+            if (decided is not { } wait)
+            {
+                ServerLog.PushWebhookGaveUp(_logger, d.ConfigId, d.Task.TaskId, attempt);
+                await DeadLetterAsync(entry, activity, error, "GaveUp").ConfigureAwait(false);
+                return;
+            }
+
+            delay = wait < TimeSpan.Zero ? TimeSpan.Zero : wait > MaxPolicyDelay ? MaxPolicyDelay : wait;
+        }
+
         Fail(activity, errorType);
         activity?.AddEvent(new ActivityEvent(A2ATelemetry.Events.Retry));
         if (await _outbox
-                .RescheduleAsync(entry, attempt, _time.GetUtcNow() + Backoff(attempt), error, CancellationToken.None)
+                .RescheduleAsync(entry, attempt, Due(delay), error, CancellationToken.None)
                 .ConfigureAwait(false))
             Count(A2ATelemetry.Outcomes.Retried);
         else
@@ -407,6 +433,14 @@ public sealed class PushDeliveryService : BackgroundService
     private void LogLostLease(PushDelivery d)
     {
         ServerLog.PushLeaseLost(_logger, d.Sequence, d.Task.TaskId, d.ConfigId);
+    }
+
+    /// <summary>The longest wait a <see cref="PushDeliveryOptions.RetryPolicy" /> can set, so every outbox can store it.</summary>
+    internal static readonly TimeSpan MaxPolicyDelay = TimeSpan.FromDays(30);
+
+    private DateTimeOffset Due(TimeSpan delay)
+    {
+        return _time.GetUtcNow() + delay;
     }
 
     /// <summary>

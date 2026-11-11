@@ -33,6 +33,7 @@ public sealed class ClientOptionsCloneTests
         [nameof(A2AClientOptions.TimeProvider)] = new Clock(),
         [nameof(A2AClientOptions.CircuitBreaker)] = new CircuitBreakerOptions(),
         [nameof(A2AClientOptions.WaitForTaskCompletion)] = true,
+        [nameof(A2AClientOptions.PropagateTraceInMetadata)] = true,
         [nameof(A2AClientOptions.OnMessageReceived)] = new Func<ReceivedMessage, CancellationToken, ValueTask>((_, _) => ValueTask.CompletedTask),
         [nameof(A2AClientOptions.EndpointPolicy)] = AgentEndpointPolicies.AllowAll,
     };

@@ -42,6 +42,9 @@ The delivery span continues the trace of the agent run that produced the event. 
 - The server reads both headers on all three bindings into `ServerCallContext.TraceParent`. Client and server spans then share one trace.
 - A webhook POST carries the `traceparent` of its delivery span.
 - A `traceparent` you set in `A2ARequestOptions.Headers` replaces the one the SDK wrote.
+- With `A2AClientOptions.PropagateTraceInMetadata` (default false), the client also writes the send's span into the message metadata, under the keys `traceparent` and `tracestate`. Use it when a proxy or gateway between client and agent drops the headers. It applies to `SendMessage` and `SendStreamingMessage`, and a `traceparent` already in the metadata is kept.
+- The server uses the metadata only when the request carries no `traceparent` header: the header wins. The idempotency fingerprint ignores both keys, because every attempt of a retry runs in its own span.
+- The metadata is part of the message, so it is stored in the task history. Everyone who can read the task sees the trace and span ids. The helpers are `A2ATelemetry.InjectTraceContext(message, activity)` and `A2ATelemetry.TryExtractTraceContext(message, out context)`.
 
 ## Streams
 
@@ -184,7 +187,7 @@ Code 250 (Debug) means the checks were skipped because of a broken registration.
 - No spans appear. Add the source name to `AddSource`. Client and server sources have different names.
 - Metrics from `A2A` are missing. Add `AddMeter("A2A")` as well as `AddMeter("A2A.Server")`. This also hides the registry and v0.3 counters.
 - Two log lines share an id such as 1000 or 1100. They come from different packages. Filter by category as well as by id.
-- A client span and a server span are in different traces. A proxy may drop `traceparent`, or a custom header in `A2ARequestOptions.Headers` may replace it.
+- A client span and a server span are in different traces. A proxy may drop `traceparent`, or a custom header in `A2ARequestOptions.Headers` may replace it. If a proxy drops it, set `A2AClientOptions.PropagateTraceInMetadata`.
 
 ## See also
 

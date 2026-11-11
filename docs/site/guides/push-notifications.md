@@ -52,6 +52,16 @@ For a new task, put the config inline in `SendMessage`. It is saved before the t
 
 The wait before retry *n* is `InitialBackoff × 2^(n-1)`, with ±20 % jitter, capped at `MaxBackoff`.
 
+### Retry policy
+
+To decide the wait yourself, set `PushDelivery.RetryPolicy`. It is called after each failure in the "Retried with backoff" row above, and gets a <xref:A2A.Server.Push.PushRetryContext>: the task, config id, sequence, the attempt that failed (the first is 1), the error, the HTTP status (null for a timeout or a connection error), the receiver's `Retry-After` as a wait (null when it sent none), and `DefaultDelay`, the wait the default backoff would use. It never gets secrets.
+
+Return the wait before the next attempt, or null to dead-letter the delivery now. A negative wait counts as zero, and a wait longer than 30 days counts as 30 days. If the policy throws, the exception is logged (event 316) and the default backoff is used.
+
+[!code-csharp[](../../../samples/Snippets/PushNotifications.cs#RetryPolicy)]
+
+`MaxAttempts` and `MaxDeliveryAge` still apply: the policy is not asked after the last allowed attempt, and a delivery older than `MaxDeliveryAge` is dead-lettered when it is next leased, whatever the policy said. Failures in the "Dead-lettered" rows are dead-lettered without asking it.
+
 ### Options
 
 Set these on <xref:A2A.Server.A2AServerOptions.PushDelivery> (<xref:A2A.Server.Push.PushDeliveryOptions>) and <xref:A2A.Server.A2AServerOptions.PushNotifications> (<xref:A2A.Server.Push.PushNotificationOptions>).
@@ -65,6 +75,7 @@ Set these on <xref:A2A.Server.A2AServerOptions.PushDelivery> (<xref:A2A.Server.P
 | `PushDelivery.MaxAttempts` | null | Attempts per delivery, the first included. null: no count limit. |
 | `PushDelivery.MaxDeliveryAge` | 24 hours | Longest time a delivery may stay queued, from when it was queued. null: no limit. |
 | `PushDelivery.OnDeadLetter` | null | Callback when a delivery is dead-lettered. |
+| `PushDelivery.RetryPolicy` | null | Picks the wait before a retry, or dead-letters. null: the backoff above. |
 | `PushDelivery.Lease` | 1 minute | How long a leased delivery is hidden from other instances. |
 | `PushDelivery.PollInterval` | 1 second | How often the outbox is checked for due deliveries. |
 | `PushDelivery.BatchSize` | 50 | Most deliveries one instance sends at the same time. |
