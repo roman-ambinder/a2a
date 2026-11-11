@@ -438,6 +438,28 @@ public sealed class TaskContinuationTests
     }
 
     [Fact]
+    public async Task A_follow_up_committed_but_not_started_yet_refuses_a_continuation()
+    {
+        // Between a follow-up's commit and its execution's registration (it may wait for admission), neither the running
+        // registry nor the coordinator shows it: only the pending start does. A continuation then must not start beside it.
+        var agent = new TestAgent();
+        await using var host = await StartAsync(new FixedFactory(agent));
+        var key = await SeedAsync(host, "input");
+        host.Engine.BeginStart(key);
+        try
+        {
+            var result = await ContinueAsync(host, key);
+            Assert.Equal(TaskContinuationStatus.AlreadyRunning, result.Status);
+        }
+        finally
+        {
+            host.Engine.EndStart(key);
+        }
+
+        Assert.True((await ContinueAsync(host, key)).Started); // once the start is over, a continuation runs
+    }
+
+    [Fact]
     public async Task Second_continuation_during_a_run_is_refused()
     {
         var agent = new TestAgent();

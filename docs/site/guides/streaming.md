@@ -4,7 +4,7 @@ A streaming call sends the events of a task as they happen: status changes, arti
 
 ## Turn it on
 
-The card must declare streaming. Without it, the server refuses streaming calls with `UnsupportedOperation`, and the client fails fast before it sends anything.
+Streaming is on by default. The served card turns an unset `Capabilities.Streaming` into `true`, because every executor can stream: the engine turns its updates into events. Set it to `false` to refuse streaming calls. The server then answers them with `UnsupportedOperation`, and a client that read the card fails fast before it sends anything. The client also refuses to stream to another SDK's agent whose card leaves the flag unset.
 
 [!code-csharp[](../../../samples/Snippets/Streaming.cs#Capability)]
 
@@ -14,7 +14,13 @@ The card must declare streaming. Without it, the server refuses streaming calls 
 
 [!code-csharp[](../../../samples/EchoClient/Program.cs#Send)]
 
+`evt.GetText()` is the text an artifact chunk or a message carries, and `evt.State` is the task state of a status update or a task snapshot, so one check covers both.
+
 The first event is the task, or a direct message. A direct message is the only event, and the stream ends. Events of other executions of the same task, such as the `CANCELED` event of a `CancelTask`, arrive on the same stream.
+
+When you only need the text, <xref:A2A.Client.A2AClient.StreamTextAsync*> yields it chunk by chunk. It stops when the task ends or needs input or authorization, and throws <xref:A2A.Client.TaskNotCompletedException> if the task did not complete:
+
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#StreamText)]
 
 ## Follow a task
 
@@ -87,6 +93,12 @@ If a client resumes after the events were trimmed or purged, the server sends a 
 ## Artifact chunks
 
 An agent can send an artifact in chunks. Each chunk is an artifact update event with an `artifactId`. The flag `append` says if the parts go to an artifact that exists. The flag `lastChunk` says it is the final chunk.
+
+The easy way is <xref:A2A.Server.TaskUpdater.OpenArtifact*>. It returns an <xref:A2A.Server.ArtifactWriter> that keeps the id and the flags for you. The first write creates the artifact with its name, description and metadata. Each later write appends. `CompleteAsync` on the writer, or disposing it, sends the last chunk: an empty append with `lastChunk`. A terminal state of the task completes the open writers first, so the artifact is sealed before the task ends. A writer that never wrote sends nothing.
+
+[!code-csharp[](../../../samples/Snippets/Streaming.cs#Writer)]
+
+The same with `AddArtifactAsync`, which gives you full control over each event:
 
 [!code-csharp[](../../../samples/Snippets/Streaming.cs#Chunks)]
 

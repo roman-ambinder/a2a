@@ -278,3 +278,28 @@ public sealed class CardCompletionTests
         Assert.Equal(2, provider.Builds);
     }
 }
+
+public class CardStreamingDefaultTests
+{
+    private static AgentCard Card(bool? streaming) => new()
+    {
+        Name = "n", Description = "d", Version = "1", Capabilities = new AgentCapabilities { Streaming = streaming }
+    };
+
+    private static AgentCard Served(bool? streaming) =>
+        new A2A.Server.AgentCardProvider(new A2A.Server.A2AServerOptions { AgentCard = Card(streaming) }, []).Get();
+
+    [Fact]
+    public void Unset_streaming_is_served_as_true() => Assert.True(Served(null).Capabilities.Streaming);
+
+    [Fact]
+    public void Explicit_false_is_kept() => Assert.False(Served(false).Capabilities.Streaming);
+
+    [Fact]
+    public void Host_card_is_not_changed()
+    {
+        var options = new A2A.Server.A2AServerOptions { AgentCard = Card(null) };
+        _ = new A2A.Server.AgentCardProvider(options, []).Get();
+        Assert.Null(options.AgentCard.Capabilities.Streaming);
+    }
+}

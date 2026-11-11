@@ -7,7 +7,7 @@
 #
 # Names: chat, elicitation, typed, echo, mcp, testing, grpc, v03, cli, tenant, observed, memory, client,
 #        multi, storage, outbox.
-# Each sample listens on 127.0.0.1 only. EchoAgent gets a throwaway API key made here.
+# Each sample listens on 127.0.0.1 only. EchoAgent gets the hash of a throwaway API key made here.
 set -u
 
 cd "$(dirname "$0")/.."
@@ -82,8 +82,11 @@ run_self_contained() {
 
 run_echo() {
   echo "== echo (samples/EchoAgent + samples/EchoClient)"
-  local key="sample-$RANDOM$RANDOM"
-  dotnet run --project samples/EchoAgent -- "--EchoAgent:ApiKey=$key" >"$LOGS/echo-agent.log" 2>&1 &
+  # A throwaway API key in the A2A form (a2a_ and 32 random bytes, base64url) and its SHA-256 hash, for the agent.
+  local key hash
+  key="a2a_$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')"
+  hash="sha256:$(printf '%s' "$key" | sha256sum | cut -d' ' -f1)"
+  dotnet run --project samples/EchoAgent -- "--EchoAgent:ApiKeyHash=$hash" >"$LOGS/echo-agent.log" 2>&1 &
   BACKGROUND_PID=$!
   if ! wait_for "$ECHO_URL/.well-known/agent-card.json"; then
     record echo "FAIL: agent did not start (see $LOGS/echo-agent.log)"

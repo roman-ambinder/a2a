@@ -62,6 +62,7 @@ public static class RetryPolicy
                 // synthesized from a bare HTTP status, or server errors without that metadata, are not retried.
                 return IsRetryable(a2a);
             case HttpRequestException transport:
+                if (IsBlockedAddress(transport)) return false; // permanent: the SSRF guard refuses that target every time
                 return mode == RetryMode.Idempotent || NeverReachedServer(transport);
             default:
                 return false;
@@ -77,6 +78,18 @@ public static class RetryPolicy
         return error.HttpStatus is (int)HttpStatusCode.ServiceUnavailable or 429 /* Too Many Requests */
                || (A2AErrors.TryGetRetryableFromDetails(error.Details, out var explicitRetryable) && explicitRetryable);
     }
+
+    /// <summary>
+    ///     True when the SSRF guard refused the target, thrown directly or wrapped by the handler around its connect
+    ///     callback.
+    /// </summary>
+    private static bool IsBlockedAddress(HttpRequestException error) =>
+#if NETSTANDARD2_0
+        false; // the netstandard2.0 build has no SSRF guard
+#else
+        error is A2A.Security.Http.BlockedAddressException ||
+        error.InnerException is A2A.Security.Http.BlockedAddressException;
+#endif
 
     /// <summary>
     ///     True when the connection, name lookup, proxy tunnel or TLS handshake failed: no request byte reached the server, so

@@ -18,11 +18,37 @@ internal static class Samples
         #endregion
     }
 
+    public static async Task StreamText(A2AClient client)
+    {
+        #region StreamText
+        try
+        {
+            await foreach (var chunk in client.StreamTextAsync("write a poem"))
+                Console.Write(chunk);
+        }
+        catch (TaskNotCompletedException e) when (e.State == TaskState.InputRequired)
+        {
+            // Answer with the same context and task: client.SendMessageAsync(answer, e.Task.ContextId, e.Task.Id).
+            Console.WriteLine($"The agent asks: {e.Task.Status.Message?.GetText()}");
+        }
+        #endregion
+    }
+
     public static async Task SubscribeOnce(A2AClient client, string taskId)
     {
         #region Subscribe
         await foreach (var evt in client.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId }))
             Console.WriteLine(evt);
+        #endregion
+    }
+
+    public static async Task WriteChunks(TaskUpdater updater, IAsyncEnumerable<string> words, CancellationToken ct)
+    {
+        #region Writer
+        await using var answer = updater.OpenArtifact("answer");
+        await foreach (var word in words.WithCancellation(ct))
+            await answer.WriteAsync(word, ct); // the first write creates the artifact, the next ones append
+        await updater.CompleteAsync(cancellationToken: ct); // sends the last chunk of the open writer first
         #endregion
     }
 

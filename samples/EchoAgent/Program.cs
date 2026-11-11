@@ -1,28 +1,19 @@
-using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Text;
-using System.Text.Encodings.Web;
 using A2A;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Signing;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 var baseUrl = builder.Configuration["BaseUrl"] ?? "http://localhost:5100";
-// No default key: a sample that starts with a key everyone knows would be open to anyone who read this file.
-var apiKey = builder.Configuration["EchoAgent:ApiKey"];
-if (string.IsNullOrEmpty(apiKey))
+// The agent stores only the hash of its API key; the caller holds the key. Make a pair with `a2a keys new`
+// (or A2AApiKey.Create()) and start the agent with --EchoAgent:ApiKeyHash=<hash>. No default: a sample that starts
+// with a hash everyone knows would let in anyone who read the key in this file.
+var apiKeyHash = builder.Configuration["EchoAgent:ApiKeyHash"];
+if (string.IsNullOrEmpty(apiKeyHash))
     throw new InvalidOperationException(
-        "Set EchoAgent:ApiKey (for example: dotnet run -- --EchoAgent:ApiKey=<secret>). Callers send it in the X-Api-Key header.");
-
-// The A2A endpoints need authentication. This sample uses one shared API key; every caller is the same user.
-builder.Services.AddAuthentication(ApiKeyAuthHandler.SchemeName)
-    .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthHandler>(ApiKeyAuthHandler.SchemeName, null);
-builder.Services.AddAuthorizationBuilder()
-    .AddPolicy("ApiKey", p => p.RequireAuthenticatedUser());
-builder.Services.AddSingleton(new ApiKey(apiKey));
+        "Set EchoAgent:ApiKeyHash to the hash of an API key (for example: dotnet run -- --EchoAgent:ApiKeyHash=sha256:...). "
+        + "Make a key and its hash with 'a2a keys new'. Callers send the key in the X-Api-Key header.");
 
 var card = new AgentCard
 {
@@ -31,9 +22,7 @@ var card = new AgentCard
     Version = "1.0.0",
     // No SupportedInterfaces: the served card lists every mapped binding at the public base URL (set below).
     Capabilities = new AgentCapabilities { Streaming = true, PushNotifications = true },
-    // Say how to authenticate, so a client such as the a2a tool knows to send the key, and in which header.
-    SecuritySchemes = new() { ["apiKey"] = SecurityScheme.ApiKey("X-Api-Key") },
-    SecurityRequirements = [new SecurityRequirement { Schemes = { ["apiKey"] = new StringList() } }],
+    // No SecuritySchemes: AddApiKeyAuthentication declares the X-Api-Key scheme, so clients know to send the key.
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
     Skills =
@@ -57,7 +46,10 @@ if (builder.Configuration["EchoAgent:SigningKeyFile"] is { Length: > 0 } keyFile
 }
 
 // Limits (request size, stream duration, rate) keep their secure defaults: nothing to configure here.
-builder.Services.AddA2A(a => a.AddAgentExecutor<EchoAgent>().AddAgentCard(card))
+// AddApiKeyAuthentication: the scheme, the card's security declaration, and the policy on every A2A endpoint.
+// Every caller with this key is "echo-client"; register more keys (o.Add(...)) to give each caller its own tasks.
+builder.Services.AddA2A(a => a.AddAgentExecutor<EchoAgent>().AddAgentCard(card)
+        .AddApiKeyAuthentication(o => o.Add("echo-client", apiKeyHash)))
     // Development convenience: accept requests without the A2A-Version header (e.g. curl).
     .Configure<A2AServerOptions>(o => o.TreatMissingVersionAsCurrent = builder.Environment.IsDevelopment())
     .ConfigureA2AHttp(h =>
@@ -70,34 +62,8 @@ var app = builder.Build();
 app.UseAuthentication();
 app.UseA2A(); // per-caller rate limiting (adds UseRateLimiter)
 app.UseAuthorization();
-app.MapA2A("/a2a",
-    o => o.AuthorizationPolicy = "ApiKey"); // JSON-RPC, HTTP+JSON and the public Agent Card; needs a valid X-Api-Key
+app.MapA2A("/a2a"); // JSON-RPC, HTTP+JSON and the public Agent Card; the API key protects the A2A endpoints
 app.Run(baseUrl);
-
-internal sealed record ApiKey(string Value);
-
-/// <summary>Accepts requests whose <c>X-Api-Key</c> header matches the configured key.</summary>
-internal sealed class ApiKeyAuthHandler(
-    IOptionsMonitor<AuthenticationSchemeOptions> options,
-    ILoggerFactory logger,
-    UrlEncoder encoder,
-    ApiKey key)
-    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
-{
-    public const string SchemeName = "ApiKey";
-
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
-    {
-        var supplied = Request.Headers[Commons.Consts.XApiKey].ToString();
-        if (supplied.Length == 0) return Task.FromResult(AuthenticateResult.NoResult());
-        var ok = CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied),
-            Encoding.UTF8.GetBytes(key.Value));
-        if (!ok) return Task.FromResult(AuthenticateResult.Fail("Invalid API key"));
-        var identity = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "echo-client")], SchemeName);
-        return Task.FromResult(
-            AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
-    }
-}
 
 /// <summary>Replies directly to "ping"; otherwise runs a task that streams the text back as an artifact.</summary>
 internal sealed class EchoAgent : IAgentExecutor
@@ -113,14 +79,13 @@ internal sealed class EchoAgent : IAgentExecutor
         }
 
         await updater.StartWorkAsync("Echoing...", cancellationToken);
-        string? artifactId = null;
+        // The writer creates the artifact on the first write and appends after that; completing the task seals it.
+        await using var echo = updater.OpenArtifact("echo");
         var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         for (var i = 0; i < words.Length; i++)
         {
             await Task.Delay(150, cancellationToken);
-            artifactId = await updater.AddArtifactAsync([Part.FromText((i == 0 ? "" : " ") + words[i])], artifactId,
-                "echo",
-                append: i > 0, lastChunk: i == words.Length - 1, cancellationToken: cancellationToken);
+            await echo.WriteAsync((i == 0 ? "" : " ") + words[i], cancellationToken);
         }
 
         await updater.CompleteAsync(cancellationToken: cancellationToken);

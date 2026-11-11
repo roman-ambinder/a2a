@@ -47,6 +47,27 @@ public class GrpcTransportTests
         new(invoker, new A2AClientOptions { MaxRetries = maxRetries, Extensions = ["urn:a"] });
 
     [Fact]
+    public async Task A_response_the_model_cannot_hold_is_InvalidAgentResponse_as_over_HTTP()
+    {
+        // The agent sent it, so it is the agent's error, not the caller's (InvalidParams).
+        var task = ATask();
+        task.Metadata = new Google.Protobuf.WellKnownTypes.Struct { Fields = { ["k"] = new Google.Protobuf.WellKnownTypes.Value() } };
+        var client = new A2AClient(Transport(new ScriptedInvoker().ThenReturn(task)));
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync("t1"));
+        Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
+    }
+
+    [Fact]
+    public async Task A_response_missing_required_fields_is_InvalidAgentResponse()
+    {
+        var client = new A2AClient(Transport(new ScriptedInvoker().ThenReturn(new A2aPb.Task { Id = "t1" })));
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync("t1"));
+        Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
+    }
+
+    [Fact]
     public async Task Missing_required_field_fails_before_the_call()
     {
         var invoker = new ScriptedInvoker().ThenReturn(ATask());

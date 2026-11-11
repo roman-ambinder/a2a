@@ -393,6 +393,41 @@ public sealed class PostgresIdempotencyStoreTests(PostgresFixture db) : Idempote
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running.Completion.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    private async Task<long> RowsAsync(PostgresStoreOptions schema)
+    {
+        await using var count = db.DataSource.CreateCommand($"SELECT count(*) FROM \"{schema.Schema}\".a2a_idempotency");
+        return (long)(await count.ExecuteScalarAsync())!;
+    }
+
+    [Fact]
+    public async Task Maintenance_removes_the_claims_of_crashed_instances()
+    {
+        // A crashed instance never completes its claim, so it never gets an expiry. Unless the same key comes back, only
+        // maintenance can remove it.
+        var clock = new FakeTimeProvider();
+        var schema = await db.NewSchemaAsync(clock);
+        schema.IdempotencyClaimTimeout = TimeSpan.FromMinutes(5);
+        var store = new PostgresIdempotencyStore(db.DataSource, new IdempotencyOptions(), schema, clock);
+        var maintenance = new PostgresMaintenance(db.DataSource, schema, clock);
+        await BeginAsync(store); // crashed: never completed
+        await BeginAsync(store, new IdempotencyScope("t", "alice", "live")); // renewed below
+
+        clock.Advance(TimeSpan.FromMinutes(4));
+        await store.RenewAsync(new IdempotencyScope("t", "alice", "live"), (await ClaimIdAsync(schema, "live")));
+        Assert.Equal(0, (await maintenance.PurgeExpiredAsync()).IdempotencyEntries); // nothing stale yet
+        clock.Advance(TimeSpan.FromMinutes(2));
+
+        Assert.Equal(1, (await maintenance.PurgeExpiredAsync()).IdempotencyEntries);
+        Assert.Equal(1, await RowsAsync(schema)); // the renewed claim stays
+    }
+
+    private async Task<Guid> ClaimIdAsync(PostgresStoreOptions schema, string key)
+    {
+        await using var read = db.DataSource.CreateCommand($"SELECT claim_id FROM \"{schema.Schema}\".a2a_idempotency WHERE key = $1");
+        read.Parameters.AddWithValue(key);
+        return (Guid)(await read.ExecuteScalarAsync())!;
+    }
+
     [Fact]
     public async Task Waiter_on_another_instance_sees_the_outcome()
     {

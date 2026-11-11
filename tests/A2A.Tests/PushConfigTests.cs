@@ -393,3 +393,67 @@ public class PushConfigTests : IAsyncLifetime
         Assert.Contains("TASK_STATE_COMPLETED", late[^1].Body);
     }
 }
+
+/// <summary>A push config saved while its task is purged must not outlive the task.</summary>
+public class PushConfigPurgeRaceTests
+{
+    /// <summary>The in-memory store, with a save that can be held until the test lets it go.</summary>
+    private sealed class HoldingStore : PushConfigStore
+    {
+        private readonly InMemoryPushConfigStore _inner = new();
+        public TaskCompletionSource? Hold { get; set; }
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private async ValueTask WaitAsync()
+        {
+            if (Hold is not { } hold) return;
+            Entered.TrySetResult();
+            await hold.Task;
+        }
+
+        public override async ValueTask SaveAsync(PushConfigRecord record, CancellationToken cancellationToken = default)
+        {
+            await WaitAsync();
+            await _inner.SaveAsync(record, cancellationToken);
+        }
+
+        public override async ValueTask<bool> SaveIfUnderLimitAsync(PushConfigRecord record, int limit, CancellationToken cancellationToken = default)
+        {
+            await WaitAsync();
+            return await _inner.SaveIfUnderLimitAsync(record, limit, cancellationToken);
+        }
+
+        public override ValueTask<PushConfigRecord?> GetAsync(TaskKey task, string configId, CancellationToken cancellationToken = default) =>
+            _inner.GetAsync(task, configId, cancellationToken);
+
+        public override ValueTask<IReadOnlyList<PushConfigRecord>> ListAsync(TaskKey task, CancellationToken cancellationToken = default) =>
+            _inner.ListAsync(task, cancellationToken);
+
+        public override ValueTask<int> CountAsync(TaskKey task, CancellationToken cancellationToken = default) => _inner.CountAsync(task, cancellationToken);
+
+        public override ValueTask<bool> DeleteAsync(TaskKey task, string configId, CancellationToken cancellationToken = default) =>
+            _inner.DeleteAsync(task, configId, cancellationToken);
+
+        public override ValueTask DeleteAllAsync(TaskKey task, CancellationToken cancellationToken = default) => _inner.DeleteAllAsync(task, cancellationToken);
+    }
+
+    [Fact]
+    public async Task A_config_saved_while_its_task_is_purged_is_removed_and_the_create_is_TaskNotFound()
+    {
+        var store = new HoldingStore();
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddSingleton<PushConfigStore>(store));
+        var client = host.Client(ProtocolBindings.JsonRpc);
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+        var key = new TaskKey("", "alice", task.Id);
+
+        store.Hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var create = client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig { TaskId = task.Id, Url = "https://hooks.example/cb" });
+        await store.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10)); // the task check passed; the save waits
+        Assert.True(await host.App.Services.GetRequiredService<A2A.Server.Retention.A2ATaskAdmin>().DeleteTaskAsync(key));
+        store.Hold.SetResult();
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => create);
+        Assert.Equal(A2AErrorCode.TaskNotFound, ex.Code);
+        Assert.Equal(0, await store.CountAsync(key));
+    }
+}

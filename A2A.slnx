@@ -35,7 +35,10 @@
     <Project Path="samples/TestingAgent/TestingAgent.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/A2A.Analyzers/A2A.Analyzers.csproj" />
+    <Project Path="src/A2A.Analyzers.CodeFixes/A2A.Analyzers.CodeFixes.csproj" />
     <Project Path="src/A2A.Client.Grpc/A2A.Client.Grpc.csproj" />
+    <Project Path="src/A2A.Templates/A2A.Templates.csproj" />
     <Project Path="src/A2A.Client.Postgres/A2A.Client.Postgres.csproj" />
     <Project Path="src/A2A.Client.DependencyInjection/A2A.Client.DependencyInjection.csproj" />
     <Project Path="src/A2A.Client.Identity.Aws/A2A.Client.Identity.Aws.csproj" />

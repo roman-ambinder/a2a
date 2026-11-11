@@ -141,6 +141,34 @@ public class ChatClientFacadeTests
     }
 
     [Fact]
+    public async Task Completed_response_without_artifacts_has_the_status_message()
+    {
+        // An agent that ends with updater.CompleteAsync("text") replies in the status message only.
+        var transport = Unary(FakeTransport.TaskIn(TaskState.Completed, "t", "c", AgentMsg("the answer")));
+        var response = await transport.AsClient().AsChatClient().GetResponseAsync([new ChatMessage(ChatRole.User, "hi")]);
+        var message = Assert.Single(response.Messages);
+        Assert.Equal("the answer", message.Text);
+        Assert.Equal(ChatRole.Assistant, message.Role);
+    }
+
+    [Fact]
+    public async Task Streamed_completion_without_artifacts_has_the_status_message()
+    {
+        var transport = new FakeTransport { Stream = (_, _) => Events(Status(TaskState.Working), Status(TaskState.Completed, AgentMsg("the answer"))) };
+        var updates = await CollectAsync(transport.AsClient().AsChatClient(), new ChatMessage(ChatRole.User, "hi"));
+        Assert.Equal("the answer", string.Concat(updates.Select(u => u.Text)));
+        Assert.Equal(ChatFinishReason.Stop, updates.Last().FinishReason);
+    }
+
+    [Fact]
+    public async Task Streamed_completion_with_artifacts_does_not_repeat_the_status_message()
+    {
+        var transport = new FakeTransport { Stream = (_, _) => Events(Chunk("a1", "one"), Status(TaskState.Completed, AgentMsg("STATUS-NOT-SHOWN"))) };
+        var updates = await CollectAsync(transport.AsClient().AsChatClient(), new ChatMessage(ChatRole.User, "hi"));
+        Assert.Equal("one", string.Concat(updates.Select(u => u.Text)));
+    }
+
+    [Fact]
     public async Task Working_task_is_waited_for()
     {
         var transport = new FakeTransport

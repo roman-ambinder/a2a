@@ -258,6 +258,10 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
                     FillGeneration(proto, evt.Sequence);
                 await writer.WriteAsync(proto).ConfigureAwait(false);
             }
+
+            // As on the HTTP bindings: a handler that yields no event is the server's failure, not a successful empty
+            // stream.
+            if (!headersSent) throw new A2AException(A2AErrorCode.InvalidAgentResponse, "Empty stream");
         }
         catch (Exception ex) when (ex is not RpcException)
         {

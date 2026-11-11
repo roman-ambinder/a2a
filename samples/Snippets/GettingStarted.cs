@@ -18,13 +18,8 @@ internal static class Samples
         builder.Services.AddAuthorization();
         builder.Services.AddA2A(a => a
             .AddAgentExecutor<MyAgent>()
-            .AddAgentCard(new AgentCard
-            {
-                Name = "My Agent",
-                Description = "Says hello.",
-                Version = "1.0.0",
-                Capabilities = new AgentCapabilities { Streaming = true },
-            }));
+            .AddAgentCard(AgentCard.Create("My Agent", "Says hello.")
+                .AddSkill("hello", "Hello", "Says hello back", tags: ["greeting"])));
 
         var app = builder.Build();
         app.UseAuthentication();
@@ -40,16 +35,34 @@ internal static class Samples
     {
         #region Client
         var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), httpClient);
-        var reply = await client.SendMessageAsync("hello");
+        string answer = await client.AskAsync("hello"); // the reply's text; throws if the task does not complete
 
-        await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("stream this")))
-        {
-            if (evt is StatusUpdateEvent { StatusUpdate: var s })
-                Console.WriteLine(s.Status.State);
-        }
+        await foreach (var chunk in client.StreamTextAsync("stream this"))
+            Console.Write(chunk);
         #endregion
 
-        _ = reply;
+        _ = answer;
+    }
+
+    public static void FromConfiguration(WebApplicationBuilder builder)
+    {
+        #region FromConfiguration
+        // The card, limits, public URL and rate limit come from the "A2A" section; code after it wins.
+        builder.Services.AddA2A(builder.Configuration.GetSection("A2A"), a => a.AddAgentExecutor<MyAgent>());
+        #endregion
+    }
+
+    public static void Development(WebApplicationBuilder builder)
+    {
+        #region Development
+        builder.Services.AddA2A(a =>
+        {
+            a.AddAgentExecutor<MyAgent>();
+            // Anonymous callers, curl without the A2A-Version header, exception text in errors. Development only:
+            // in any other environment the app refuses to start.
+            if (builder.Environment.IsDevelopment()) a.UseDevelopmentDefaults();
+        });
+        #endregion
     }
 
     public static void ChangeDefaults(IServiceCollection services)

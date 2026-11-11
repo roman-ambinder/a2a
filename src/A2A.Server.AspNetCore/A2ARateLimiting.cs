@@ -186,6 +186,9 @@ internal sealed class A2ARateLimiterPolicy(
         if (wait < TimeSpan.FromSeconds(1)) wait = TimeSpan.FromSeconds(1);
         var error = A2AException.RateLimited(wait);
 
+        // A writer in the endpoint's own metadata comes first: the endpoint knows its format best.
+        if (http.GetEndpoint()?.Metadata.GetMetadata<IA2ARejectionWriter>()?.TryWriteAsync(http, error) is { } own)
+            return new ValueTask(own);
         foreach (var writer in writers)
             if (writer.TryWriteAsync(http, error) is { } written)
                 return new ValueTask(written);
@@ -205,7 +208,8 @@ internal sealed class A2ARateLimiterPolicy(
 ///     format. The JSON-RPC and HTTP+JSON formats are built in; a binding package (for example the gRPC binding) registers
 ///     one
 ///     for its endpoints with
-///     <c>services.TryAddEnumerable(ServiceDescriptor.Singleton&lt;IA2ARejectionWriter, MyWriter&gt;())</c>.
+///     <c>services.TryAddEnumerable(ServiceDescriptor.Singleton&lt;IA2ARejectionWriter, MyWriter&gt;())</c>, or puts one
+///     in the metadata of its own endpoints (<c>.WithMetadata(writer)</c>), which is asked first.
 ///     The registered writers are asked in order; the first one that writes wins.
 /// </summary>
 public interface IA2ARejectionWriter

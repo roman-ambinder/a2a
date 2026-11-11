@@ -13,6 +13,7 @@
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\A2A.Protocol\A2A.Protocol.csproj" />
@@ -25,6 +26,8 @@
     <ProjectReference Include="..\..\src\A2A.Server\A2A.Server.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server.TypedSkills\A2A.Server.TypedSkills.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Analyzers\A2A.Analyzers.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Analyzers.CodeFixes\A2A.Analyzers.CodeFixes.csproj" />
     <!-- gRPC is the third binding of the parity suite (Parity/ParityTests.cs). -->
     <ProjectReference Include="..\..\src\A2A.Server.Grpc\A2A.Server.Grpc.csproj" />
     <ProjectReference Include="..\..\src\A2A.Client.Grpc\A2A.Client.Grpc.csproj" />

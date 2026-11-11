@@ -11,7 +11,9 @@ namespace A2A.Server;
 ///     The default <see cref="IAgentCardProvider" />: a copy of <see cref="A2AServerOptions.AgentCard" /> (through the
 ///     wire format, so the
 ///     host's instance is never changed) that lists the URI of every registered <see cref="A2AExtensionOperation" /> in
-///     <see cref="AgentCapabilities.Extensions" /> (not required), unless the card already lists it. It adds no
+///     <see cref="AgentCapabilities.Extensions" /> (not required), unless the card already lists it, and that sets an unset
+///     <see cref="AgentCapabilities.Streaming" /> to true (every executor can stream; set it to false to refuse streaming
+///     calls). It adds no
 ///     interfaces: the core has
 ///     no addresses. The card is built on first use and cached. Derive to complete the copy further (see
 ///     <see cref="Complete" />).
@@ -135,6 +137,9 @@ public class AgentCardProvider : IAgentCardProvider
             list.Add(new AgentExtension { Uri = extension.ExtensionUri });
         }
 
+        // Every executor can stream: the engine turns its updates into events. An unset flag means "not decided", so the
+        // served card says yes. An explicit false keeps streaming calls refused.
+        card.Capabilities.Streaming ??= true;
         Complete(card);
         return card;
     }

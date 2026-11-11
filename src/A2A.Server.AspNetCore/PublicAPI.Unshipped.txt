@@ -26,3 +26,46 @@ static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AUploads(thi
 A2A.Server.AspNetCore.A2ACardAuthenticationExtensions
 static A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.RequireAgentCardSchemes<TBuilder>(this TBuilder builder, System.Collections.Generic.IReadOnlyDictionary<string!, string!>! schemes) -> TBuilder
 static A2A.Server.AspNetCore.A2AHttpContextExtensions.GetA2AAuthChallengeSchemeAsync(this Microsoft.AspNetCore.Http.HttpContext! http, A2A.Server.ServerCallContext! call) -> System.Threading.Tasks.ValueTask<string!>
+A2A.Server.AspNetCore.A2AConfigurationExtensions
+static A2A.Server.AspNetCore.A2AConfigurationExtensions.AddA2A(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Microsoft.Extensions.Configuration.IConfiguration! configuration, System.Action<A2A.Server.A2AServerBuilder!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static A2A.Server.AspNetCore.A2AConfigurationExtensions.ConfigureA2A(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Microsoft.Extensions.Configuration.IConfiguration! configuration) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+A2A.Server.AspNetCore.A2ADevelopmentDefaultsExtensions
+static A2A.Server.AspNetCore.A2ADevelopmentDefaultsExtensions.UseDevelopmentDefaults(this A2A.Server.A2AServerBuilder! builder) -> A2A.Server.A2AServerBuilder!
+A2A.Server.AspNetCore.A2AApiKeyAuthenticationExtensions
+A2A.Server.AspNetCore.A2AApiKeyEntry
+A2A.Server.AspNetCore.A2AApiKeyEntry.A2AApiKeyEntry() -> void
+A2A.Server.AspNetCore.A2AApiKeyEntry.CallerId.get -> string!
+A2A.Server.AspNetCore.A2AApiKeyEntry.CallerId.set -> void
+A2A.Server.AspNetCore.A2AApiKeyEntry.Hash.get -> string!
+A2A.Server.AspNetCore.A2AApiKeyEntry.Hash.set -> void
+A2A.Server.AspNetCore.A2AApiKeyEntry.Tenants.get -> System.Collections.Generic.List<string!>?
+A2A.Server.AspNetCore.A2AApiKeyEntry.Tenants.set -> void
+A2A.Server.AspNetCore.A2AApiKeyOptions
+A2A.Server.AspNetCore.A2AApiKeyOptions.A2AApiKeyOptions() -> void
+A2A.Server.AspNetCore.A2AApiKeyOptions.Add(string! callerId, string! hash, params string![]! tenants) -> A2A.Server.AspNetCore.A2AApiKeyOptions!
+A2A.Server.AspNetCore.A2AApiKeyOptions.CardSchemeName.get -> string!
+A2A.Server.AspNetCore.A2AApiKeyOptions.CardSchemeName.set -> void
+A2A.Server.AspNetCore.A2AApiKeyOptions.HeaderName.get -> string!
+A2A.Server.AspNetCore.A2AApiKeyOptions.HeaderName.set -> void
+A2A.Server.AspNetCore.A2AApiKeyOptions.Keys.get -> System.Collections.Generic.List<A2A.Server.AspNetCore.A2AApiKeyEntry!>!
+A2A.Server.AspNetCore.ApiKeyCaller
+A2A.Server.AspNetCore.ApiKeyCaller.ApiKeyCaller(string! CallerId, System.Collections.Generic.IReadOnlyList<string!>? Tenants = null) -> void
+A2A.Server.AspNetCore.ApiKeyCaller.CallerId.get -> string!
+A2A.Server.AspNetCore.ApiKeyCaller.CallerId.init -> void
+A2A.Server.AspNetCore.ApiKeyCaller.Tenants.get -> System.Collections.Generic.IReadOnlyList<string!>?
+A2A.Server.AspNetCore.ApiKeyCaller.Tenants.init -> void
+A2A.Server.AspNetCore.IApiKeyStore
+A2A.Server.AspNetCore.IApiKeyStore.FindAsync(string! keyHash, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Server.AspNetCore.ApiKeyCaller?>
+const A2A.Server.AspNetCore.A2AApiKeyOptions.CallerClaim = "a2a:apikey:caller" -> string!
+const A2A.Server.AspNetCore.A2AApiKeyOptions.OwnerPrefix = "apikey:" -> string!
+const A2A.Server.AspNetCore.A2AApiKeyOptions.PolicyName = "A2AApiKey" -> string!
+const A2A.Server.AspNetCore.A2AApiKeyOptions.SchemeName = "A2AApiKey" -> string!
+static A2A.Server.AspNetCore.A2AApiKeyAuthenticationExtensions.AddApiKeyAuthentication(this A2A.Server.A2AServerBuilder! builder, System.Action<A2A.Server.AspNetCore.A2AApiKeyOptions!>? configure = null) -> A2A.Server.A2AServerBuilder!
+A2A.Server.AspNetCore.ApiKeyCaller.Deconstruct(out string! CallerId, out System.Collections.Generic.IReadOnlyList<string!>? Tenants) -> void
+A2A.Server.AspNetCore.ApiKeyCaller.Equals(A2A.Server.AspNetCore.ApiKeyCaller? other) -> bool
+override A2A.Server.AspNetCore.ApiKeyCaller.Equals(object? obj) -> bool
+override A2A.Server.AspNetCore.ApiKeyCaller.GetHashCode() -> int
+override A2A.Server.AspNetCore.ApiKeyCaller.ToString() -> string!
+static A2A.Server.AspNetCore.ApiKeyCaller.operator !=(A2A.Server.AspNetCore.ApiKeyCaller? left, A2A.Server.AspNetCore.ApiKeyCaller? right) -> bool
+static A2A.Server.AspNetCore.ApiKeyCaller.operator ==(A2A.Server.AspNetCore.ApiKeyCaller? left, A2A.Server.AspNetCore.ApiKeyCaller? right) -> bool
+A2A.Server.AspNetCore.ApiKeyCaller.<Clone>$() -> A2A.Server.AspNetCore.ApiKeyCaller!

@@ -49,6 +49,56 @@ public sealed class AgentCard : IJsonOnDeserialized
     /// <summary>URL of an icon for the agent. Null when none.</summary>
     public string? IconUrl { get; set; }
 
+    /// <summary>
+    ///     Creates a card with a name, a description and a version, and nothing else: no interfaces (a server completes them
+    ///     from its mapped bindings) and no skills (add them with <see cref="AddSkill(string, string, string, IEnumerable{string}?, IEnumerable{string}?)" />).
+    /// </summary>
+    /// <exception cref="ArgumentException">An argument is empty.</exception>
+    public static AgentCard Create(string name, string description, string version = "1.0.0")
+    {
+        RequireText(name, nameof(name));
+        RequireText(description, nameof(description));
+        RequireText(version, nameof(version));
+        return new AgentCard { Name = name, Description = description, Version = version };
+    }
+
+    /// <summary>Adds a skill and returns this card, so calls can be chained.</summary>
+    /// <param name="id">Identifier of the skill, unique within the card.</param>
+    /// <param name="name">Human-readable name.</param>
+    /// <param name="description">What the skill does.</param>
+    /// <param name="tags">Keywords, or null for none.</param>
+    /// <param name="examples">Example prompts, or null for none.</param>
+    /// <exception cref="ArgumentException">An argument is empty, or the card already has a skill with this id.</exception>
+    public AgentCard AddSkill(string id, string name, string description, IEnumerable<string>? tags = null,
+        IEnumerable<string>? examples = null)
+    {
+        RequireText(id, nameof(id));
+        RequireText(name, nameof(name));
+        RequireText(description, nameof(description));
+        return AddSkill(new AgentSkill
+        {
+            Id = id, Name = name, Description = description, Tags = tags?.ToList() ?? new List<string>(),
+            Examples = examples?.ToList()
+        });
+    }
+
+    /// <summary>Adds <paramref name="skill" /> and returns this card, so calls can be chained.</summary>
+    /// <exception cref="ArgumentException">The card already has a skill with the same id.</exception>
+    public AgentCard AddSkill(AgentSkill skill)
+    {
+        ArgumentNullException.ThrowIfNull(skill);
+        Skills ??= new List<AgentSkill>();
+        if (Skills.Exists(s => string.Equals(s.Id, skill.Id, StringComparison.Ordinal)))
+            throw new ArgumentException($"The card already has a skill with id '{skill.Id}'.", nameof(skill));
+        Skills.Add(skill);
+        return this;
+    }
+
+    private static void RequireText(string value, string parameter)
+    {
+        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("A value is required.", parameter);
+    }
+
     // The generated metadata builds objects from constructor arguments, so a member the peer omitted (see A2AJson.RelaxRequired)
     // arrives as null instead of keeping its property initializer. Restore the defaults.
     void IJsonOnDeserialized.OnDeserialized()

@@ -19,6 +19,21 @@ public class ClientHttpJsonTests
         return (new V03HttpJsonTransport(server.Client(), Base, options), server);
     }
 
+    [Theory]
+    [InlineData("..")]
+    [InlineData(".")]
+    public async Task A_dot_segment_id_or_tenant_is_refused_before_sending(string dots)
+    {
+        var (transport, server) = Make(_ => new HttpResponseMessage(HttpStatusCode.OK));
+        var client = new A2AClient(transport);
+
+        var byId = await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync(dots));
+        Assert.Equal(A2AErrorCode.InvalidParams, byId.Code);
+        var byTenant = await Assert.ThrowsAsync<A2AException>(() => client.GetTaskAsync(new GetTaskRequest { Id = "t1", Tenant = dots }));
+        Assert.Equal(A2AErrorCode.InvalidParams, byTenant.Code);
+        Assert.Empty(server.Requests);
+    }
+
     private static async Task<List<StreamResponse>> ToListAsync(IAsyncEnumerable<StreamResponse> source)
     {
         var list = new List<StreamResponse>();

@@ -66,7 +66,7 @@ A runnable version with S3 (MinIO) and Azure Blob (Azurite) in Docker is in [sam
 
 Startup fails with `InvalidOperationException` when a store is registered and neither `PublicBaseUrl` nor `PublicBaseUrlResolver` is set. The link base must be the origin that clients send credentials to. Usually that is the origin of the agent card. A client sends credentials only to the card's origin, so a link on another origin cannot be downloaded.
 
-Map the download route next to `MapA2A`, with the same pattern and the same authorization:
+Map the download route next to `MapA2A`, with the same pattern and the same authorization. With `AddApiKeyAuthentication`, as here, both get the API-key policy; with your own policy, call `RequireAuthorization(...)` on both:
 
 [!code-csharp[](../../../samples/ArtifactStorage/Program.cs#Map)]
 

@@ -7,8 +7,9 @@ using static A2A.Server.Postgres.Sql;
 namespace A2A.Server.Postgres;
 
 /// <summary>
-///     Deletes rows that reads already ignore: event logs of terminal tasks past their retention (with their events) and
-///     finished idempotency entries past theirs. Safe to run from every instance at once. Tasks, contexts, push configs
+///     Deletes rows that reads already ignore: event logs of terminal tasks past their retention (with their events),
+///     finished idempotency entries past theirs, and idempotency claims older than
+///     <see cref="PostgresStoreOptions.IdempotencyClaimTimeout" /> that were never finished (their instance crashed). Safe to run from every instance at once. Tasks, contexts, push configs
 ///     and
 ///     push deliveries are not touched here: the retention sweep (<c>AddA2ARetention</c>) deletes them through the stores.
 /// </summary>
@@ -24,6 +25,7 @@ public sealed class PostgresMaintenance(
     TimeProvider? time = null)
 {
     private readonly DbClock _clock = new(time, options);
+    private readonly TimeSpan _claimTimeout = (options ?? new PostgresStoreOptions()).IdempotencyClaimTimeout;
     private readonly string _schema = PostgresSchema.Quote((options ?? new PostgresStoreOptions()).Schema);
 
     /// <summary>Deletes expired rows. Returns how many event logs and idempotency entries were removed.</summary>
@@ -45,9 +47,16 @@ public sealed class PostgresMaintenance(
              SELECT count(*) FROM gone
              """);
         logs.Parameters.Add(NullableLong(now));
+        // Finished entries past their retention, and claims nobody finished within the claim timeout (an instance that
+        // crashed): the same rule PostgresIdempotencyStore uses to take a claim over. A claim renewed meanwhile no longer
+        // matches when the delete reaches its row. With no claim timeout, unfinished claims are kept.
+        var staleClaims = _claimTimeout > TimeSpan.Zero && _claimTimeout != Timeout.InfiniteTimeSpan;
         var idem = new NpgsqlBatchCommand(
-            $"WITH gone AS (DELETE FROM {_schema}.a2a_idempotency WHERE expires_ticks IS NOT NULL AND expires_ticks <= {DbClock.Now(1)} RETURNING 1) SELECT count(*) FROM gone");
+            $"WITH gone AS (DELETE FROM {_schema}.a2a_idempotency WHERE (expires_ticks IS NOT NULL AND expires_ticks <= {DbClock.Now(1)})" +
+            (staleClaims ? $" OR (outcome IS NULL AND claimed_ticks <= {DbClock.Now(1)} - $2)" : "") +
+            " RETURNING 1) SELECT count(*) FROM gone");
         idem.Parameters.Add(NullableLong(now));
+        if (staleClaims) idem.Parameters.Add(new NpgsqlParameter<long> { TypedValue = _claimTimeout.Ticks });
         batch.BatchCommands.Add(logs);
         batch.BatchCommands.Add(idem);
 

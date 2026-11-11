@@ -102,9 +102,10 @@ internal static class CommandTable
         sb.AppendLine();
         sb.AppendLine("Commands:");
         foreach (var c in All) sb.AppendLine($"  {c.Name,-10} {c.Summary}");
+        sb.AppendLine($"  {"keys",-10} {Commands.KeysCommand.Summary}");
         sb.AppendLine();
         sb.AppendLine("Run 'a2a <command> --help' for the options of a command. 'a2a --version' shows the version.");
-        sb.AppendLine("Every command needs --agent <url> (or the env variable A2A_AGENT_URL).");
+        sb.AppendLine("Every command except keys needs --agent <url> (or the env variable A2A_AGENT_URL).");
         sb.AppendLine();
         sb.Append(ExitCodes.HelpText);
         return sb.ToString();

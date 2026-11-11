@@ -37,6 +37,12 @@ internal static class CliApp
         var first = args[0];
         if (first is "--help" or "-h" or "help")
         {
+            if (args.Length > 1 && args[1] == "keys")
+            {
+                output.Line(Commands.KeysCommand.Help);
+                return ExitCodes.Success;
+            }
+
             var topic = args.Length > 1 ? CommandTable.Find(args[1]) : null;
             output.Line(topic is null ? CommandTable.GeneralHelp() : CommandTable.CommandHelp(topic));
             return ExitCodes.Success;
@@ -47,6 +53,9 @@ internal static class CliApp
             output.Line(CommandTable.Version);
             return ExitCodes.Success;
         }
+
+        // Offline: no agent, no connection options.
+        if (first == "keys") return Commands.KeysCommand.Run(args[1..], env, output);
 
         var spec = CommandTable.Find(first) ??
                    throw CliException.Usage(

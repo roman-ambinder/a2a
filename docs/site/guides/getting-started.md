@@ -11,6 +11,18 @@ dotnet add package RomanAmbinder.A2A.Client              # call agents
 
 The NuGet IDs have the `RomanAmbinder.` prefix. Assemblies and namespaces are `A2A.*`.
 
+### Or start from a template
+
+```bash
+dotnet new install RomanAmbinder.A2A.Templates
+dotnet new a2a-agent -n MyAgent        # an agent; the card and limits are in appsettings.json
+dotnet new a2a-agent -n MyAgent --auth apikey   # the same, with API keys (hashes in appsettings.json)
+dotnet new a2a-client -n MyClient      # a console app that calls an agent
+dotnet new a2a-chat-agent -n MyChat    # an agent that hosts an IChatClient
+```
+
+`dotnet run` in the agent folder starts it in Development on `http://localhost:5000`, with `UseDevelopmentDefaults()`, so `dotnet run` in the client folder can call it right away. Outside Development the agent requires authorization: add your authentication scheme in `Program.cs` before you deploy.
+
 ## A server in about 20 lines
 
 These are the using lines the code needs:
@@ -31,7 +43,7 @@ What the code does:
 - `UseA2A()` adds the rate limiter middleware. The app refuses to start without it, unless you turn rate limiting off.
 - `MapA2A` maps JSON-RPC at `POST /a2a` and the HTTP+JSON routes under `/a2a`. See [Bindings](bindings.md). It also maps the Agent Card at `GET /.well-known/agent-card.json`.
 - The executor is resolved from a new DI scope for each execution, so scoped services are safe in it.
-- `Streaming = true` in the card is needed for the streaming call in the client below. Without it, the server answers streaming calls with `UnsupportedOperation`.
+- Streaming is on unless the card says `Streaming = false`: the served card turns an unset flag into `true`, because every executor can stream. The client checks the flag before it sends a streaming call.
 
 Call <xref:A2A.Server.TaskUpdater.ReplyAsync*> instead for a stateless reply with no task.
 
@@ -39,7 +51,12 @@ Call <xref:A2A.Server.TaskUpdater.ReplyAsync*> instead for a stateless reply wit
 
 [!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Client)]
 
-<xref:A2A.Client.A2AClientFactory.CreateAsync*> fetches the Agent Card and picks the first interface in the card's order that the client supports. `SendMessageAsync` returns a <xref:A2A.SendMessageResponse>: either a direct message or a task.
+<xref:A2A.Client.A2AClientFactory.CreateAsync*> fetches the Agent Card and picks the first interface in the card's order that the client supports.
+
+- <xref:A2A.Client.A2AClient.AskAsync*> returns the answer as text: the text of a direct reply, or of the task's artifacts once the task completed. A task that fails, or that needs input or authorization, throws <xref:A2A.Client.TaskNotCompletedException>, which holds the task.
+- <xref:A2A.Client.A2AClient.StreamTextAsync*> yields the text as the agent streams it, with the same exception at the end.
+- <xref:A2A.Client.A2AClientFactory.CreateForEndpoint*> makes a client for an endpoint you already know, such as an agent in the same process, without fetching the card. The client then checks no capabilities and verifies no card signature.
+- For everything else use `SendMessageAsync`. It returns a <xref:A2A.SendMessageResponse>: either a direct message or a task. `GetText()` on the response, on an `AgentTask` and on an `Artifact` reads their text parts.
 
 Every client method takes optional <xref:A2A.Client.A2ARequestOptions>: headers, timeout, idempotency key, extensions and `ConfigureRequest`. Two things happen without any setup:
 
@@ -66,30 +83,74 @@ These are the values of <xref:A2A.Server.A2ALimits> and <xref:A2A.Server.AspNetC
 
 [!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Defaults)]
 
-The Agent Card needs a name, a description and a version. If `SupportedInterfaces` is empty, the card is completed once, at first serve, from the bindings you mapped. Each URL is <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl> (or the first listen address) plus the mapped pattern. Set `PublicBaseUrl` behind a proxy or load balancer. Patterns with `{tenant}` are not listed.
+### Local development
+
+<xref:A2A.Server.AspNetCore.A2ADevelopmentDefaultsExtensions.UseDevelopmentDefaults*> relaxes three defaults for local work: anonymous callers are let in, a request without the `A2A-Version` header (plain curl) is accepted, and errors carry exception text. Rate limiting and the limits stay on. The app refuses to start when the host environment is not Development, so wrap the call in `IsDevelopment()` when the same code runs elsewhere:
+
+[!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Development)]
+
+### From configuration
+
+The same settings, and the card, can come from `appsettings.json` or any other configuration source:
+
+[!code-csharp[](../../../samples/Snippets/GettingStarted.cs#FromConfiguration)]
+
+```json
+{
+  "A2A": {
+    "Card": {
+      "Name": "My Agent",
+      "Description": "Says hello.",
+      "Version": "1.0.0",
+      "Capabilities": { "Streaming": true },
+      "Skills": [ { "Id": "hello", "Name": "Hello", "Description": "Says hello", "Tags": [ "greeting" ] } ]
+    },
+    "PublicBaseUrl": "https://agent.example.com",
+    "Limits": { "MaxRequestBodyBytes": 1048576, "MaxStreamDuration": "00:10:00" },
+    "RateLimit": { "TokenLimit": 10, "TokensPerPeriod": 30 }
+  }
+}
+```
+
+The keys are listed on <xref:A2A.Server.AspNetCore.A2AConfigurationExtensions>: the card, `PublicBaseUrl`, `AgentCardMaxAge`, every limit (`Limits`), the replay buffer (`Streaming`), the rate limit and a few task settings. Durations use the `TimeSpan` format. Two rules keep this safe:
+
+- An unknown key fails the app at startup and names the key, so a typo does not go unnoticed.
+- Settings that weaken a secure default (`AllowAnonymous`, `TreatMissingVersionAsCurrent`, `IncludeExceptionDetails`, `ClientContextIdPolicy`, `RateLimit:Enabled`) are refused there. Set them in code, where a reviewer sees them.
+
+Configuration is applied first. `AddAgentCard` and `Configure` calls in code override it. For the two-step form, call `services.ConfigureA2A(section)` before `AddA2AServer`.
+
+The Agent Card needs a name, a description and a version. `AgentCard.Create(name, description, version)` makes one, and `.AddSkill(id, name, description, tags, examples)` adds skills; an object initializer works too. If `SupportedInterfaces` is empty, the card is completed once, at first serve, from the bindings you mapped. Each URL is <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl> (or the first listen address) plus the mapped pattern. Set `PublicBaseUrl` behind a proxy or load balancer. Patterns with `{tenant}` are not listed.
 
 ## Run the samples
 
-The repository has two samples. Start the agent. It needs an API key:
+The repository has two samples. The agent needs an API key. Make one and its hash with the `a2a` tool, which works offline:
 
 ```bash
-dotnet run --project samples/EchoAgent -- --EchoAgent:ApiKey=my-secret
+dotnet run --project src/A2A.Cli -- keys new
+```
+
+Start the agent with the hash. It stores only the hash:
+
+```bash
+dotnet run --project samples/EchoAgent -- --EchoAgent:ApiKeyHash=sha256:...
 ```
 
 It listens on `http://localhost:5100`. Change that with `--BaseUrl=...`. In another terminal, run the client with the agent URL, a text and the key:
 
 ```bash
-dotnet run --project samples/EchoClient -- http://localhost:5100/ "hello from the SDK" my-secret
+dotnet run --project samples/EchoClient -- http://localhost:5100/ "hello from the SDK" a2a_...
 ```
 
-The client sends a `ping`, streams a reply, follows a task with `ObserveTaskAsync`, and lists its tasks. The sources are [EchoAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/EchoAgent/Program.cs) and [EchoClient](https://github.com/roman-ambinder/a2a/blob/main/samples/EchoClient/Program.cs). The agent sample also shows API-key authentication and optional card signing.
+The client sends a `ping`, streams a reply, follows a task with `ObserveTaskAsync`, and lists its tasks. The sources are [EchoAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/EchoAgent/Program.cs) and [EchoClient](https://github.com/roman-ambinder/a2a/blob/main/samples/EchoClient/Program.cs). The agent sample also shows API-key authentication (`AddApiKeyAuthentication`, see [Authentication and ownership](auth-and-ownership.md#api-keys)) and optional card signing.
 
 ## What can go wrong
 
+`RomanAmbinder.A2A.Server.AspNetCore` brings analyzers that report the first two mistakes below at build time, each with a code fix, and a third one: A2A0001 (endpoints mapped, `UseA2A()` never called), A2A0002 (endpoints mapped without authorization and no anonymous opt-in) and A2A0003 (`UseA2A()` before `UseAuthentication()` or after `UseAuthorization()`). They only report what they can see in your code; the startup checks stay the final word.
+
 - The app does not start and the message mentions `UseA2A()`: add `app.UseA2A()` after `UseAuthentication()` and before `UseAuthorization()`.
 - The app does not start and the message mentions an authorization policy: call `RequireAuthorization()` on the result of `MapA2A`.
-- The client throws `UnsupportedOperation` on a streaming call: the card does not declare `Streaming = true`.
-- A curl call is rejected: add the `A2A-Version: 1.0` header.
+- The client throws `UnsupportedOperation` on a streaming call: the agent's card says `Streaming = false`, or another SDK's agent leaves it unset.
+- A curl call is rejected: add the `A2A-Version: 1.0` header, or use `UseDevelopmentDefaults()` while you develop.
 
 ## See also
 
