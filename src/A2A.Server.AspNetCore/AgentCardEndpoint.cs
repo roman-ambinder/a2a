@@ -182,7 +182,7 @@ internal sealed class AgentCardEndpoint(
     }
 
     /// <summary>
-    ///     A copy of the card with its signature appended, as <see cref="AgentCardSigner.Sign" /> makes it. The signature
+    ///     A copy of the card with its signature appended, as <see cref="AgentCardSigner.Sign(AgentCard, AgentCardSigningKey)" /> makes it. The signature
     ///     covers only
     ///     the canonical content, so it is cached by the hash of that content and of the key (public key, kid, alg, jku).
     /// </summary>
@@ -198,6 +198,7 @@ internal sealed class AgentCardEndpoint(
         var cacheKey = Base64Url.Encode(hash.GetHashAndReset());
         if (!_signatures.TryGetValue(cacheKey, out var signature))
         {
+            if (httpOptions.Value.RefusePrunedCardValues) RefusePruned(card);
             WarnPruned(card);
             signature = AgentCardSigner.CreateSignature(card, key);
             _signatures.Set(cacheKey, signature);
@@ -208,6 +209,19 @@ internal sealed class AgentCardEndpoint(
                 A2AJson.GetTypeInfo<AgentCard>())!; // a copy: the card is shared
         signed.Signatures = [.. card.Signatures ?? [], signature];
         return signed;
+    }
+
+    /// <summary>
+    ///     <see cref="A2AHttpOptions.RefusePrunedCardValues" />: throws when the signature would not cover part of the card.
+    /// </summary>
+    private static void RefusePruned(AgentCard card)
+    {
+        var pruned = AgentCardCanonicalizer.PrunedPaths(AgentCardCanonicalizer.ToNode(card));
+        if (pruned.Count > 0)
+            throw new InvalidOperationException(
+                "A2AHttpOptions.RefusePrunedCardValues is set and the Agent Card has values its signature would not cover, " +
+                "because the canonicalization removes them: " + string.Join(", ", pruned) +
+                ". Remove them, or give them content.");
     }
 
     private void WarnPruned(AgentCard card)

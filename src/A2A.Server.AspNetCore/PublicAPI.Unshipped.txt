@@ -72,3 +72,5 @@ A2A.Server.AspNetCore.ApiKeyCaller.<Clone>$() -> A2A.Server.AspNetCore.ApiKeyCal
 const A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.DefaultPolicyName = "A2ACardSchemes" -> string!
 static A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.AddBearerAuthentication(this A2A.Server.A2AServerBuilder! builder, string! authenticationScheme = "Bearer", string! cardSchemeName = "bearer", string? bearerFormat = "JWT", System.Collections.Generic.IEnumerable<string!>? scopes = null) -> A2A.Server.A2AServerBuilder!
 static A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.AddCardAuthentication(this A2A.Server.A2AServerBuilder! builder, string! cardSchemeName, A2A.SecurityScheme! scheme, string! authenticationScheme, System.Collections.Generic.IEnumerable<string!>? scopes = null) -> A2A.Server.A2AServerBuilder!
+A2A.Server.AspNetCore.A2AHttpOptions.RefusePrunedCardValues.get -> bool
+A2A.Server.AspNetCore.A2AHttpOptions.RefusePrunedCardValues.set -> void

@@ -212,3 +212,5 @@ A2A.Client.Credentials.OAuth2ClientCredentialsOptions.Logger.get -> Microsoft.Ex
 A2A.Client.Credentials.OAuth2ClientCredentialsOptions.Logger.set -> void
 A2A.Client.Credentials.OAuth2ClientCredentialsOptions.RequireScopes.get -> bool
 A2A.Client.Credentials.OAuth2ClientCredentialsOptions.RequireScopes.set -> void
+A2A.Client.Cards.UntrustedText.ToHtml() -> string!
+A2A.Client.Cards.UntrustedText.ToMarkdown() -> string!
