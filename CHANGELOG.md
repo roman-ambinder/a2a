@@ -137,6 +137,12 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   `PushNotificationReceiver.MaxDeliveriesPerMinute`: over the cap, `HandleAsync` answers the new
   `PushHandleOutcome.RateLimited` (429) with `PushHandleResult.RetryAfter`; only authenticated deliveries count.
 
+- Agent Card caching (spec §8.6): the public card sends `Last-Modified` (the time this process first served that content;
+  `If-Modified-Since` does not give 304, the entity tag decides). The client card cache follows RFC 9111 as a private
+  cache: `no-store` is no longer kept (it was stored and revalidated), `Vary: *` and `Pragma: no-cache` revalidate,
+  freshness counts `Expires` minus `Date` and subtracts the response's age (`Age` or the time since `Date`), and
+  `Last-Modified` is sent back as `If-Modified-Since` when there is no entity tag. TCK `CARD-CACHE-003` now passes.
+
 ### Tests and CI
 
 - Coverage is now a ratchet. The new `coverage.yml` workflow (after each merge to `main`, by hand, and on pull requests
@@ -156,6 +162,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   case-variant members, trusted keys pinned to another `alg`, unusable trusted keys, every `jku` refusal, failed and
   timed-out fetches, caller cancellation, key set caching) and `Jwk` / `Base64Url` (EC curves and RSA, import round
   trips, every refusal). Mutation scores: `AgentCardVerifier.cs` 63% to 85%, `Jwk.cs` 52% to 70%.
+- New tests for `PrivateAddressGuard` (every IPv4 and IPv6 range at its edges, NAT64, 6to4 and IPv4-compatible
+  addresses and their near misses, `InNetwork` prefixes inside a byte, ambiguous numeric hosts, the resolve-time and
+  connect-time checks and their messages) and `AwsSigV4Handler` (both constructors check the options). Mutation score of
+  `PrivateAddressGuard.cs`: 65% to 92%.
 
 ### Fixes
 

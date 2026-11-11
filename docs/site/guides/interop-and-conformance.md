@@ -114,7 +114,7 @@ Counts come from `conformance/check.py`: one per requirement (TCK) or test (ACTS
 | TCK | JSON-RPC | 72 | 3 | 6 | 2 |
 | TCK | HTTP+JSON | 70 | 4 | 4 | 3 |
 | TCK | gRPC | 55 | 3 | 2 | 2 |
-| TCK | Agent card | 7 | 0 | 2 | 0 |
+| TCK | Agent card | 8 | 0 | 1 | 0 |
 
 Every TCK failure is explained below. None is an open SDK bug. Skips are capability tests that need an agent without the capability, or optional features. The TCK also lists some requirements as not tested or manual (for example in-task auth and client behavior). Those have no automated check.
 
