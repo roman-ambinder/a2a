@@ -26,6 +26,7 @@ Not available on v0.3: `ListTasks` (throws `UnsupportedOperation`). Push config 
 requires card signatures refuses it. gRPC is not supported.
 
 Fields v0.3 cannot carry are counted by the meter `A2A`, counter `a2a.compat.v0_3.dropped` (tag `field`).
+Call `V03CompatClientFactory.UseLogger(logger)` to get a warning (spec A.2) once per v0.3 agent URL the client talks to and once per dropped field.
 
 The package uses internals of the core packages, so all `RomanAmbinder.A2A.*` packages must have the same version.
 

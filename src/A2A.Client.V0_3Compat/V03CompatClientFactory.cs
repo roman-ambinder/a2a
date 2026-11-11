@@ -14,6 +14,17 @@ namespace A2A.Client.V0_3Compat;
 public static class V03CompatClientFactory
 {
     /// <summary>
+    ///     Sets the logger for the v0.3 warnings (spec A.2): a v0.3 agent the client talks to, once per URL, and each field
+    ///     the conversion drops, once. The first call wins, and a v0.3 server surface in the same process may have set it
+    ///     already. Without it nothing is logged.
+    /// </summary>
+    public static void UseLogger(Microsoft.Extensions.Logging.ILogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(logger);
+        V03LossReporter.UseLogger(logger);
+    }
+
+    /// <summary>
     ///     Resolves the card at <paramref name="agentUrl" /> and creates a client for it. A v0.3 card (top-level
     ///     <c>protocolVersion</c> <c>0.3.x</c>, no <c>supportedInterfaces</c>) is converted to the v1.0 model first, and reads
     ///     as
@@ -55,6 +66,7 @@ public static class V03CompatClientFactory
                        ?? throw new A2AException(A2AErrorCode.UnsupportedOperation,
                            $"No supported interface in Agent Card '{card.Name}'. The client supports v1.x and v0.3 over {string.Join(", ", options.SupportedBindings.Where(b => b is ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson))}.");
 
+        V03LossReporter.LegacyAgent(card.Name, selected.Url);
         var v03Options = V03ClientSupport.CopyForV03(options, selected.Tenant);
         EnsureAllowedNoDns(card, v03Options);
         var uri = new Uri(selected.Url, UriKind.Absolute);

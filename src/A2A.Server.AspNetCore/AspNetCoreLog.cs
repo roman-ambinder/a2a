@@ -68,6 +68,10 @@ internal static partial class AspNetCoreLog
     [LoggerMessage(EventId = 707, Level = LogLevel.Debug, Message = "The Agent Card interface check could not run")]
     public static partial void CardCheckFailed(ILogger logger, Exception exception);
 
+    [LoggerMessage(EventId = 708, Level = LogLevel.Warning,
+        Message = "The Agent Card's {Field} is empty, but the spec makes it REQUIRED, and required arrays must have at least one element (spec 5.7). Clients that check this may refuse the card.")]
+    public static partial void CardRequiredArrayEmpty(ILogger logger, string field);
+
     // AgentCardEndpoint: 800-899
     [LoggerMessage(EventId = 800, Level = LogLevel.Warning,
         Message =

@@ -82,6 +82,17 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   freshness counts `Expires` minus `Date` and subtracts the response's age (`Age` or the time since `Date`), and
   `Last-Modified` is sent back as `If-Modified-Since` when there is no entity tag. TCK `CARD-CACHE-003` now passes.
 
+- gRPC authentication challenge (spec §3.3.2, §7.4): an `UNAUTHENTICATED` status from the SDK now carries a
+  `www-authenticate` metadata entry naming the scheme, the same one the HTTP bindings send as `WWW-Authenticate` (the first
+  HTTP auth scheme of the tenant's card, else `Bearer`), on unary and streaming calls and on extension operations. New
+  `GrpcErrors.AuthChallengeKey`.
+- Required card arrays (spec §5.7): outside of `supportedInterfaces`, which was already refused when empty, an empty
+  `defaultInputModes`, `defaultOutputModes`, `skills` or skill `tags` now logs a warning at startup (event 708). The card is
+  still served, and cards are still read leniently; documented in spec-decisions.
+- v0.3 deprecation warnings (spec A.2): each field the v0.3 conversion drops is now logged once at Warning (was Debug), the
+  server warns once per v0.3 operation and binding it answers (event 1002), and the compat client warns once per v0.3 agent
+  URL it talks to (event 1003). New `V03CompatClientFactory.UseLogger` gives the client a logger.
+
 ### Tests and CI
 
 - Coverage is now a ratchet. The new `coverage.yml` workflow (after each merge to `main`, by hand, and on pull requests

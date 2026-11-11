@@ -1,5 +1,6 @@
 using System.Text.Json;
 using A2A.Grpc;
+using A2A.Server.AspNetCore;
 using Grpc.Core;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
@@ -35,10 +36,20 @@ internal sealed class GrpcCallSupport(ILogger logger, bool includeDetails)
     ///     echo
     ///     them in the error response, unless the initial metadata already carried them (<paramref name="headersSent" />).
     /// </summary>
-    public RpcException Fail(Exception ex, GrpcContext context, ServerCallContext? call, bool headersSent)
+    /// <remarks>
+    ///     An Unauthenticated error also carries a <c>www-authenticate</c> challenge naming the scheme, as the HTTP bindings
+    ///     send <c>WWW-Authenticate</c> (spec 3.3.2, 7.4).
+    /// </remarks>
+    public async Task<RpcException> FailAsync(Exception ex, GrpcContext context, ServerCallContext? call, bool headersSent)
     {
         if (call is { ActivatedExtensions.Count: > 0 } && !headersSent)
             context.ResponseTrailers.Add(GrpcErrors.ExtensionsKey, string.Join(",", call.ActivatedExtensions));
+        if (call is not null && ex is A2AException { Code: A2AErrorCode.Unauthenticated })
+        {
+            var scheme = await context.GetHttpContext().GetA2AAuthChallengeSchemeAsync(call).ConfigureAwait(false);
+            context.ResponseTrailers.Add(GrpcErrors.AuthChallengeKey, scheme);
+        }
+
         return Translate(ex, context);
     }
 

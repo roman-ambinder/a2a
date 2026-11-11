@@ -1,5 +1,6 @@
 using A2A.Client;
 using A2A.Server;
+using A2A.Server.Agents;
 using A2A.Server.AspNetCore;
 using Google.Protobuf;
 using Grpc.Core;
@@ -159,6 +160,62 @@ public class GrpcSecurityTests
         options!.AllowAnonymous = false;
         var ex = await Assert.ThrowsAsync<RpcException>(() => host.Raw(user: null).SendMessageAsync(Send("hello", "m2"), V()).ResponseAsync);
         Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
+    }
+
+    private sealed class SchemeCards : TenantCardProvider
+    {
+        public override ValueTask<AgentCard?> GetCardAsync(AgentRequestScope scope, CancellationToken cancellationToken)
+        {
+            var card = GrpcHost.Card();
+            if (scope.Tenant == "basic")
+                card.SecuritySchemes = new() { ["basic"] = new HttpAuthScheme(new HttpAuthSecurityScheme { Scheme = "Basic" }) };
+            return ValueTask.FromResult<AgentCard?>(card);
+        }
+    }
+
+    [Fact]
+    public async Task An_unauthenticated_error_carries_a_challenge_naming_the_tenants_scheme()
+    {
+        // Spec 3.3.2 / 7.4: the same scheme the HTTP bindings send as WWW-Authenticate, here as www-authenticate metadata.
+        await using var host = await GrpcHost.StartAsync(o => o.AllowAnonymous = true, requireAuth: false,
+            services: s => s.AddA2AServer().AddTenantCardProvider<SchemeCards>());
+        var anon = host.Raw(user: null);
+        async Task<string?> Challenge(string tenant)
+        {
+            var ex = await Assert.ThrowsAsync<RpcException>(() =>
+                anon.GetExtendedAgentCardAsync(new A2aPb.GetExtendedAgentCardRequest { Tenant = tenant }, V()).ResponseAsync);
+            Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
+            return ex.Trailers.GetValue(GrpcErrors.AuthChallengeKey);
+        }
+
+        Assert.Equal("Basic", await Challenge("basic"));
+        Assert.Equal("Bearer", await Challenge("other"));
+    }
+
+    [Fact]
+    public async Task The_challenge_is_sent_on_unary_and_streaming_calls()
+    {
+        A2AServerOptions? options = null;
+        await using var host = await GrpcHost.StartAsync(o => { o.AllowAnonymous = true; options = o; }, requireAuth: false);
+        options!.AllowAnonymous = false;
+        var anon = host.Raw(user: null);
+
+        var unary = await Assert.ThrowsAsync<RpcException>(() => anon.SendMessageAsync(Send("hello"), V()).ResponseAsync);
+        using var stream = anon.SendStreamingMessage(Send("task", "m2"), V());
+        var streaming = await Assert.ThrowsAsync<RpcException>(() => stream.ResponseStream.MoveNext(CancellationToken.None));
+
+        Assert.Equal(StatusCode.Unauthenticated, unary.StatusCode);
+        Assert.Equal("Bearer", unary.Trailers.GetValue(GrpcErrors.AuthChallengeKey));
+        Assert.Equal(StatusCode.Unauthenticated, streaming.StatusCode);
+        Assert.Equal("Bearer", streaming.Trailers.GetValue(GrpcErrors.AuthChallengeKey));
+    }
+
+    [Fact]
+    public async Task Other_errors_carry_no_challenge()
+    {
+        await using var host = await GrpcHost.StartAsync();
+        var ex = await Assert.ThrowsAsync<RpcException>(() => host.Raw().GetTaskAsync(new A2aPb.GetTaskRequest { Id = "missing" }, V()).ResponseAsync);
+        Assert.Null(ex.Trailers.GetValue(GrpcErrors.AuthChallengeKey));
     }
 
     // ------------------------------------------------------------------ startup checks

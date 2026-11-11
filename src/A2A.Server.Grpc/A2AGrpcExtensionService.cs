@@ -82,7 +82,7 @@ public sealed class A2AGrpcExtensionService : A2AExtensionService.A2AExtensionSe
         }
         catch (Exception ex) when (ex is not RpcException)
         {
-            throw _support.Fail(ex, context, call, false);
+            throw await _support.FailAsync(ex, context, call, false).ConfigureAwait(false);
         }
     }
 
