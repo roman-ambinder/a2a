@@ -1,12 +1,16 @@
 # Client resilience
 
-The client retries a failed unary call on its own. This guide also covers the circuit breaker, which stops calls to a peer that keeps failing.
+The client retries a failed unary call on its own. This guide also covers waiting for a task that is still running, and the circuit breaker, which stops calls to a peer that keeps failing.
 
 ## Retries
 
 A unary call is retried up to `MaxRetries` times (default 2) on HTTP 503, 429, errors the peer marked retryable, and some transport errors. Streams are not retried, but `SendStreamingMessageAsync` and `ObserveTaskAsync` reconnect. See <xref:A2A.Client.A2AClientOptions.MaxRetries>.
 
 A runnable version, where the agent answers 503 once and the client retries, is in [samples/ClientFeatures](https://github.com/roman-ambinder/a2a/blob/main/samples/ClientFeatures/README.md).
+
+## Tasks that are still running
+
+A blocking `SendMessageAsync` normally returns when the task is finished or needs input. This SDK's server waits that long. Some servers and proxies answer sooner, with a task that is still `SUBMITTED` or `WORKING`. Set <xref:A2A.Client.A2AClientOptions.WaitForTaskCompletion> to `true` and the client then polls the task once a second, as `WaitForTaskAsync` does, until it is terminal or interrupted, and returns that task with the history the request asked for. A request that sets `ReturnImmediately` is returned as it is. `AskAsync` always waits this way.
 
 ## Circuit breaker
 

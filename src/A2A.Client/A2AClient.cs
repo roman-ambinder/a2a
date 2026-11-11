@@ -77,12 +77,32 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
             RequireHttpsWebhook(push.Url, "configuration.taskPushNotificationConfig.url");
         }
 
-        return ClientTelemetry.TraceAsync(A2AProtocol.Methods.SendMessage, this, request.Tenant,
+        var sent = ClientTelemetry.TraceAsync(A2AProtocol.Methods.SendMessage, this, request.Tenant,
             request.Message?.TaskId, () =>
             {
                 var call = Checked(Guard(() => _transport.SendMessageAsync(request, options, cancellationToken)), A2AValidator.ValidateResponse);
                 return _options.OnMessageReceived is null ? call : InspectAsync(call, cancellationToken);
             }, cancellationToken, request.Message);
+        return _options.WaitForTaskCompletion && request.Configuration?.ReturnImmediately != true
+            ? UntilSettledAsync(sent, request.Configuration?.HistoryLength, options, cancellationToken)
+            : sent;
+    }
+
+    /// <summary>
+    ///     <see cref="A2AClientOptions.WaitForTaskCompletion" />: a task that is still submitted or working is polled until
+    ///     it is terminal or interrupted, then read once more with the history the request asked for.
+    /// </summary>
+    private async Task<SendMessageResponse> UntilSettledAsync(Task<SendMessageResponse> sent, int? historyLength,
+        A2ARequestOptions? options, CancellationToken cancellationToken)
+    {
+        var response = await sent.ConfigureAwait(false);
+        if (response is not TaskResponse running || running.Task.Status.State.IsTerminal() ||
+            running.Task.Status.State.IsInterrupted()) return response;
+        var settled = await WaitForTaskAsync(running.Task.Id, options: options, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (historyLength != 0)
+            settled = await GetTaskAsync(settled.Id, historyLength, options, cancellationToken).ConfigureAwait(false);
+        return running with { Task = settled };
     }
 
     /// <inheritdoc />

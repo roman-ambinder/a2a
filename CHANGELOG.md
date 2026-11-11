@@ -242,6 +242,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- Client: new `A2AClientOptions.WaitForTaskCompletion` (default false). When a blocking `SendMessageAsync` comes back
+  with a task that is still submitted or working (some servers and proxies answer before the task ends), the client
+  polls it until it is terminal or interrupted and returns it with the history the request asked for. A request with
+  `ReturnImmediately` is returned as it is.
 - CLI walkthrough (`samples/Cli/walkthrough.sh`): passes the task id after `--`, and puts `--allow-http` right after the
   command name. Task ids are random base64url, so about one in 64 starts with a dash; such an id was read as an unknown
   option and three checks failed (seen once in CI). The `a2a` error for an unknown option now says to put `--` before a
