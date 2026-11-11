@@ -147,6 +147,15 @@ public sealed class A2AClientOptions
     public CircuitBreakerOptions? CircuitBreaker { get; set; }
 
     /// <summary>
+    ///     When true, <c>SendMessageAsync</c> does not return a task that is still submitted or working: a server answers a
+    ///     blocking send with the running task once its long-poll timeout passes, and the client then polls the task (as
+    ///     <see cref="A2AClient.WaitForTaskAsync" /> does) until it is terminal or interrupted, and returns that task, with
+    ///     the history the request asked for. A request that sets <c>ReturnImmediately</c> is returned as it is. Default
+    ///     false.
+    /// </summary>
+    public bool WaitForTaskCompletion { get; set; }
+
+    /// <summary>
     ///     Called by <see cref="A2AClient" /> for every agent message it receives, before the caller sees it: a direct reply,
     ///     the
     ///     message of a status update, and the latest status message of a task snapshot (SendMessage, SendStreamingMessage,
@@ -208,6 +217,7 @@ public sealed class A2AClientOptions
             MaxRetries = MaxRetries,
             TimeProvider = TimeProvider,
             CircuitBreaker = CircuitBreaker,
+            WaitForTaskCompletion = WaitForTaskCompletion,
             OnMessageReceived = OnMessageReceived,
             EndpointPolicy = EndpointPolicy
         };
