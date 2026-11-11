@@ -95,6 +95,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   case-variant members, trusted keys pinned to another `alg`, unusable trusted keys, every `jku` refusal, failed and
   timed-out fetches, caller cancellation, key set caching) and `Jwk` / `Base64Url` (EC curves and RSA, import round
   trips, every refusal). Mutation scores: `AgentCardVerifier.cs` 63% to 85%, `Jwk.cs` 52% to 70%.
+- New tests for `PrivateAddressGuard` (every IPv4 and IPv6 range at its edges, NAT64, 6to4 and IPv4-compatible
+  addresses and their near misses, `InNetwork` prefixes inside a byte, ambiguous numeric hosts, the resolve-time and
+  connect-time checks and their messages) and `AwsSigV4Handler` (both constructors check the options). Mutation score of
+  `PrivateAddressGuard.cs`: 65% to 92%.
 
 ### Fixes
 
