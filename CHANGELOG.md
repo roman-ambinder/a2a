@@ -24,6 +24,9 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   reflection, so it stays AOT-safe. An unknown key fails at startup with its path. Settings that weaken a secure default
   (`AllowAnonymous`, `TreatMissingVersionAsCurrent`, `IncludeExceptionDetails`, `ClientContextIdPolicy`,
   `RateLimit:Enabled`) are refused there and must be set in code. Code runs after configuration and wins.
+- New `A2AServerBuilder.UseDevelopmentDefaults()`: for local work, lets anonymous callers in, accepts calls without the
+  `A2A-Version` header and puts exception text in errors. Rate limiting and the limits stay on. The app refuses to start
+  in any environment other than Development.
 - `samples/EchoClient` sends its API key with `AddApiKey` instead of a hand-written handler, and uses the new helpers.
 
 ### Identity providers

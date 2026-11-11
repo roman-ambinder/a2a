@@ -70,6 +70,12 @@ These are the values of <xref:A2A.Server.A2ALimits> and <xref:A2A.Server.AspNetC
 
 [!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Defaults)]
 
+### Local development
+
+<xref:A2A.Server.AspNetCore.A2ADevelopmentDefaultsExtensions.UseDevelopmentDefaults*> relaxes three defaults for local work: anonymous callers are let in, a request without the `A2A-Version` header (plain curl) is accepted, and errors carry exception text. Rate limiting and the limits stay on. The app refuses to start when the host environment is not Development, so wrap the call in `IsDevelopment()` when the same code runs elsewhere:
+
+[!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Development)]
+
 ### From configuration
 
 The same settings, and the card, can come from `appsettings.json` or any other configuration source:
@@ -123,7 +129,7 @@ The client sends a `ping`, streams a reply, follows a task with `ObserveTaskAsyn
 - The app does not start and the message mentions `UseA2A()`: add `app.UseA2A()` after `UseAuthentication()` and before `UseAuthorization()`.
 - The app does not start and the message mentions an authorization policy: call `RequireAuthorization()` on the result of `MapA2A`.
 - The client throws `UnsupportedOperation` on a streaming call: the card does not declare `Streaming = true`.
-- A curl call is rejected: add the `A2A-Version: 1.0` header.
+- A curl call is rejected: add the `A2A-Version: 1.0` header, or use `UseDevelopmentDefaults()` while you develop.
 
 ## See also
 

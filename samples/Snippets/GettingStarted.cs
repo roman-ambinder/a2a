@@ -57,6 +57,19 @@ internal static class Samples
         #endregion
     }
 
+    public static void Development(WebApplicationBuilder builder)
+    {
+        #region Development
+        builder.Services.AddA2A(a =>
+        {
+            a.AddAgentExecutor<MyAgent>();
+            // Anonymous callers, curl without the A2A-Version header, exception text in errors. Development only:
+            // in any other environment the app refuses to start.
+            if (builder.Environment.IsDevelopment()) a.UseDevelopmentDefaults();
+        });
+        #endregion
+    }
+
     public static void ChangeDefaults(IServiceCollection services)
     {
         #region Defaults

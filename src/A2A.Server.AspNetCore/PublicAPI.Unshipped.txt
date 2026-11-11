@@ -28,3 +28,5 @@ static A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.RequireAgentCardSch
 A2A.Server.AspNetCore.A2AConfigurationExtensions
 static A2A.Server.AspNetCore.A2AConfigurationExtensions.AddA2A(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Microsoft.Extensions.Configuration.IConfiguration! configuration, System.Action<A2A.Server.A2AServerBuilder!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static A2A.Server.AspNetCore.A2AConfigurationExtensions.ConfigureA2A(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Microsoft.Extensions.Configuration.IConfiguration! configuration) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+A2A.Server.AspNetCore.A2ADevelopmentDefaultsExtensions
+static A2A.Server.AspNetCore.A2ADevelopmentDefaultsExtensions.UseDevelopmentDefaults(this A2A.Server.A2AServerBuilder! builder) -> A2A.Server.A2AServerBuilder!
