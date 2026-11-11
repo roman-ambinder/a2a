@@ -76,6 +76,7 @@ public class LimitsTests
         Assert.Equal(4 * 1024 * 1024, l.MaxEventBytes);
         Assert.Equal(TimeSpan.FromHours(1), l.MaxStreamDuration);
         Assert.Equal(TimeSpan.FromMinutes(5), l.StreamReauthInterval);
+        Assert.Equal(TimeSpan.Zero, l.StreamIdleTimeout); // off
         Assert.Equal(10, l.MaxPushConfigsPerTask);
         Assert.NotNull(new A2AServerOptions().Limits);
         Assert.True(new A2ARateLimitOptions().Enabled);

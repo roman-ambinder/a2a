@@ -582,7 +582,10 @@ public sealed class RetentionTests
         await using var host = await StartAsync(clock, o => o.InterruptedTimeout = TimeSpan.FromSeconds(30));
         var busy = Key(await SendAsync(host, "input"));
         await host.WaitIdleAsync();
-        await Task.Delay(20); // the next status timestamp is later, so busy is listed first
+        // Status timestamps come from the real clock: wait until it is past busy's, so the next one is later and busy is listed first.
+        var busyAt = (await host.Handler.GetTaskAsync(new GetTaskRequest { Id = busy.TaskId }, Call())).Status.Timestamp!.Value;
+        var deadline = DateTime.UtcNow + Wait;
+        while (DateTimeOffset.UtcNow <= busyAt && DateTime.UtcNow < deadline) await Task.Delay(1);
         var idle = Key(await SendAsync(host, "input"));
         await host.WaitIdleAsync();
 

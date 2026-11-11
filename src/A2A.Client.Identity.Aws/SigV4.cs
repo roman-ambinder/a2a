@@ -15,7 +15,9 @@ internal static class SigV4
     public const string DateFormat = "yyyyMMdd'T'HHmmss'Z'";
 
     /// <summary>SHA-256 of an empty body, in lower-case hex.</summary>
+    // Stryker disable all : runs once per test process, so Stryker cannot test a mutant here (CONTRIBUTING.md, Mutation testing)
     public static readonly string EmptyPayloadHash = Hex(SHA256.HashData([]));
+    // Stryker restore all
 
     /// <summary>
     ///     Returns the <c>Authorization</c> header value. <paramref name="headers" /> are the headers to sign, with

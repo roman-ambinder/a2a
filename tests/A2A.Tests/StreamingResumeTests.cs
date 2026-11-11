@@ -448,7 +448,7 @@ public class StreamingResumeTests
 
     [Theory]
     [MemberData(nameof(Bindings))]
-    public async Task Stream_ends_when_authorization_revoked(string binding)
+    public async Task Stream_ends_with_an_error_when_authorization_revoked(string binding)
     {
         var auth = new Switchable();
         await using var host = await TestAgentHost.StartAsync(
@@ -459,10 +459,72 @@ public class StreamingResumeTests
 
         auth.Allow = false;
         // The "slow" agent never finishes, so a stream that ends within the (generous) timeout ended because of the re-check.
+        // It ends with the error a new request would get (A2ABreak finding 4), not quietly, so the client knows why.
         var rest = await stream.ReadToEndAsync(Timeout);
-        Assert.All(rest, f => Assert.Null(f.Error));
+        var last = Assert.IsType<Frame>(rest.LastOrDefault());
+        Assert.NotNull(last.Error);
+        Assert.Contains("PERMISSION_DENIED", last.Error);
+        Assert.All(rest.SkipLast(1), f => Assert.Null(f.Error));
         Assert.DoesNotContain(rest, f => f.Event is StatusUpdateEvent { StatusUpdate.Status.State: var s } && s.IsTerminal());
         await EventuallyAsync(() => Task.FromResult(host.Handler.OpenStreams == 0));
+    }
+
+    [Fact]
+    public async Task A_resubscribed_stream_that_loses_access_ends_as_TaskNotFound()
+    {
+        // As for a new request: a denied task-scoped call does not confirm that the task exists.
+        var auth = new Switchable();
+        await using var host = await TestAgentHost.StartAsync(
+            o => o.Limits.StreamReauthInterval = TimeSpan.FromMilliseconds(100),
+            services: s => s.Replace(ServiceDescriptor.Singleton<A2AAuthorizationHandler>(auth)));
+        var task = (await host.Handler.SendMessageAsync(new SendMessageRequest
+        {
+            Message = Message.FromUser("slow"), Configuration = new SendMessageConfiguration { ReturnImmediately = true },
+        }, AliceCall())).RequireTask();
+        await using var stream = host.Handler.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = task.Id }, AliceCall()).GetAsyncEnumerator();
+        Assert.True(await stream.MoveNextAsync().AsTask().WaitAsync(Timeout));
+
+        auth.Allow = false;
+        var ex = await Assert.ThrowsAsync<A2AException>(async () =>
+        {
+            while (await stream.MoveNextAsync().AsTask().WaitAsync(Timeout)) { }
+        });
+        Assert.Equal(A2AErrorCode.TaskNotFound, ex.Code);
+        auth.Allow = true;
+        await host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = task.Id }, AliceCall());
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task An_idle_stream_ends_cleanly_after_the_idle_timeout(string binding)
+    {
+        await using var host = await TestAgentHost.StartAsync(o => o.Limits.StreamIdleTimeout = TimeSpan.FromMilliseconds(300));
+        await using var stream = await RawSse.OpenAsync(host, SendStream(binding, "slow"), binding);
+        Assert.IsType<TaskEvent>((await stream.NextAsync(Timeout))!.Event);
+
+        // "slow" works and never finishes, so the stream goes quiet. It ends without an error, as at MaxStreamDuration:
+        // the client resumes with Last-Event-ID. The task goes on.
+        var watch = Stopwatch.StartNew();
+        var rest = await stream.ReadToEndAsync(Timeout);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(10), $"stream still open after {watch.Elapsed}");
+        Assert.All(rest, f => Assert.Null(f.Error));
+        await EventuallyAsync(() => Task.FromResult(host.Handler.OpenStreams == 0));
+    }
+
+    [Fact]
+    public async Task A_busy_stream_is_not_ended_by_the_idle_timeout()
+    {
+        await using var host = await TestAgentHost.StartAsync(
+            o => o.Limits.StreamIdleTimeout = TimeSpan.FromMilliseconds(200),
+            services: s => s.AddScoped<IAgentExecutor, FloodAgent>());
+        await using var stream = host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, AliceCall()).GetAsyncEnumerator();
+        Assert.True(await stream.MoveNextAsync());
+        var taskId = Assert.IsType<TaskEvent>(stream.Current.Event).Task.Id;
+
+        var watch = Stopwatch.StartNew();
+        while (watch.Elapsed < TimeSpan.FromSeconds(1))
+            Assert.True(await stream.MoveNextAsync().AsTask().WaitAsync(Timeout), $"the stream ended after {watch.Elapsed}");
+        await host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = taskId }, AliceCall()); // stop the flood
     }
 
     /// <summary>Emits artifacts without end (about 5 per millisecond at most), faster than a reader that pauses can take them.</summary>
@@ -493,17 +555,22 @@ public class StreamingResumeTests
         await using var stream = host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, AliceCall()).GetAsyncEnumerator();
         Assert.True(await stream.MoveNextAsync());
         var taskId = Assert.IsType<TaskEvent>(stream.Current.Event).Task.Id;
-        await Task.Delay(300); // a backlog builds up, so every following MoveNext completes at once
-        await WaitForSequenceAsync(host, taskId, 50);
+        // A backlog builds up while this reader pauses, so every following MoveNext completes at once. Wait for the agent to
+        // have stored a large backlog rather than for a fixed time (300 ms at the agent's top rate is about 1500 events).
+        await WaitForSequenceAsync(host, taskId, 1000);
 
         auth.Allow = false;
         var watch = Stopwatch.StartNew();
         var after = 0;
-        while (await stream.MoveNextAsync().AsTask().WaitAsync(Timeout))
+        var denied = await Assert.ThrowsAsync<A2AException>(async () =>
         {
-            after++;
-            if (watch.Elapsed > TimeSpan.FromSeconds(2)) break;
-        }
+            while (await stream.MoveNextAsync().AsTask().WaitAsync(Timeout))
+            {
+                after++;
+                if (watch.Elapsed > TimeSpan.FromSeconds(2)) break;
+            }
+        });
+        Assert.Equal(A2AErrorCode.PermissionDenied, denied.Code);
 
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(1), $"stream still open after {watch.Elapsed}");
         Assert.True(after <= 1, $"{after} events were sent after the re-check deadline passed");

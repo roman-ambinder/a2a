@@ -394,8 +394,11 @@ public class PushDeliveryTests
             using var http = new HttpClient(PushUrlValidator.CreateHandler(new PushNotificationOptions()));
             var ex = await Assert.ThrowsAsync<HttpRequestException>(() => http.GetAsync($"http://evil.example:{server.Port}/"));
             Assert.IsType<BlockedAddressException>(ex.InnerException ?? ex);
-            await Task.Delay(100);
-            Assert.Equal(0, server.Accepted);
+            // Negative check without a timed wait: the server accepts connections one at a time, in order. Once a later,
+            // plain connection has been answered, any connection the guarded handler made before it has been counted too.
+            using (var plain = new HttpClient { Timeout = TimeSpan.FromSeconds(10) })
+                (await plain.GetAsync($"http://127.0.0.1:{server.Port}/", TestContext.Current.CancellationToken)).Dispose();
+            Assert.Equal(1, server.Accepted); // only the plain one
         });
     }
 

@@ -393,8 +393,10 @@ public class SkillAuthorizationTests
         Assert.False(ended.IsCompleted);
         handler.DenyAll = true;
 
-        // The "hold" agent never finishes, so a stream that ends within the timeout ended because of the re-check.
-        await ended.WaitAsync(Wait);
+        // The "hold" agent never finishes, so a stream that ends within the timeout ended because of the re-check. It ends
+        // with the denial, so the caller knows why.
+        var denied = await Assert.ThrowsAsync<A2AException>(() => ended.WaitAsync(Wait));
+        Assert.Equal(A2AErrorCode.PermissionDenied, denied.Code);
         handler.DenyAll = false;
         await host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = taskId }, AliceCall());
     }

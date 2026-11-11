@@ -4,7 +4,7 @@
     "test-runner": "mtp",
     "target-framework": "net10.0",
     "configuration": "Release",
-    "coverage-analysis": "off",
+    "coverage-analysis": "perTest",
     "reporters": [
       "html",
       "json",
@@ -16,6 +16,7 @@
       "low": 60,
       "break": 0
     },
-    "test-case-filter": "FullyQualifiedName~A2A.Tests.ArtifactDownloaderTests.|FullyQualifiedName~A2A.Tests.CardTrustTests.|FullyQualifiedName~A2A.Tests.InteropHardeningTests.|FullyQualifiedName~A2A.Tests.PushUrlValidatorTests.|FullyQualifiedName~A2A.Tests.SigningTests.|FullyQualifiedName~A2A.Tests.PushDeliveryTests.|FullyQualifiedName~A2A.Tests.Telemetry.SecurityEventTests.|FullyQualifiedName~A2A.Tests.SafeHttpTests.|FullyQualifiedName~A2A.Tests.PrivateAddressGuardTests.|FullyQualifiedName~A2A.Tests.GuardedJwksFetcherTests."
+    "test-case-filter": "FullyQualifiedName~A2A.Tests.ArtifactDownloaderTests.|FullyQualifiedName~A2A.Tests.CardTrustTests.|FullyQualifiedName~A2A.Tests.InteropHardeningTests.|FullyQualifiedName~A2A.Tests.PushUrlValidatorTests.|FullyQualifiedName~A2A.Tests.SigningTests.|FullyQualifiedName~A2A.Tests.PushDeliveryTests.|FullyQualifiedName~A2A.Tests.Telemetry.SecurityEventTests.|FullyQualifiedName~A2A.Tests.SafeHttpTests.|FullyQualifiedName~A2A.Tests.PrivateAddressGuardTests.|FullyQualifiedName~A2A.Tests.GuardedJwksFetcherTests.",
+    "additional-timeout": 15000
   }
 }
