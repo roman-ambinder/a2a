@@ -139,4 +139,81 @@ public class BearerCardAuthenticationTests
         Assert.Equal("opaque", Assert.IsType<HttpAuthScheme>(card.SecuritySchemes!["bearer"]).Value.BearerFormat);
         Assert.Single(card.SecurityRequirements!);
     }
+
+    [Fact]
+    public void Card_security_puts_every_declared_scheme_on_a_card_in_order()
+    {
+        var services = new ServiceCollection();
+        services.AddA2AServer()
+            .AddApiKeyAuthentication(o => o.HeaderName = "X-Key")
+            .AddBearerAuthentication(TestAuthHandler.SchemeName, scopes: ["agent.invoke"]);
+        using var provider = services.BuildServiceProvider();
+        var security = provider.GetRequiredService<A2ACardSecurity>();
+
+        var card = AgentCard.Create("Tenant", "A tenant's card");
+        Assert.Same(card, security.Apply(card));
+
+        Assert.Equal("X-Key", Assert.IsType<ApiKeyScheme>(card.SecuritySchemes!["apiKey"]).Value.Name);
+        Assert.IsType<HttpAuthScheme>(card.SecuritySchemes["bearer"]);
+        Assert.Equal(["apiKey", "bearer"], card.SecurityRequirements!.Select(r => Assert.Single(r.Schemes).Key));
+        Assert.Equal(["agent.invoke"], card.SecurityRequirements![1].Schemes["bearer"].List);
+    }
+
+    [Fact]
+    public void Card_security_keeps_what_the_card_has_and_applies_once()
+    {
+        var services = new ServiceCollection();
+        services.AddA2AServer().AddBearerAuthentication(TestAuthHandler.SchemeName);
+        using var provider = services.BuildServiceProvider();
+        var security = provider.GetRequiredService<A2ACardSecurity>();
+        var own = SecurityScheme.Bearer("opaque");
+        var mtls = new SecurityRequirement { Schemes = { ["mtls"] = new StringList() } };
+        var card = AgentCard.Create("Tenant", "A tenant's card");
+        card.SecuritySchemes = new Dictionary<string, SecurityScheme> { ["bearer"] = own };
+        card.SecurityRequirements = [mtls];
+
+        security.Apply(security.Apply(card));
+
+        Assert.Same(own, card.SecuritySchemes["bearer"]);
+        Assert.Equal(2, card.SecurityRequirements.Count);
+        Assert.Same(mtls, card.SecurityRequirements[0]);
+        Assert.True(card.SecurityRequirements[1].Schemes.ContainsKey("bearer"));
+    }
+
+    [Fact]
+    public void Card_security_is_not_registered_without_a_declared_scheme()
+    {
+        var services = new ServiceCollection();
+        services.AddA2AServer();
+        using var provider = services.BuildServiceProvider();
+        Assert.Null(provider.GetService<A2ACardSecurity>());
+    }
+
+    [Fact]
+    public async Task A_tenant_provider_serves_the_declared_schemes_through_card_security()
+    {
+        await using var app = await StartAsync(a => a.AddBearerAuthentication(TestAuthHandler.SchemeName)
+                .AddTenantCardProvider<SecuredTenantCards>(),
+            map: a =>
+            {
+                a.MapAgentCard();
+                a.MapA2A("/{tenant}/a2a");
+            });
+        var json = await app.GetTestClient().GetStringAsync("/acme/.well-known/agent-card.json");
+        var card = System.Text.Json.JsonSerializer.Deserialize(json, A2A.Json.A2AJson.GetTypeInfo<AgentCard>())!;
+        Assert.Equal("acme", card.Name);
+        Assert.IsType<HttpAuthScheme>(card.SecuritySchemes!["bearer"]);
+        Assert.True(Assert.Single(card.SecurityRequirements!).Schemes.ContainsKey("bearer"));
+    }
+
+    private sealed class SecuredTenantCards(A2ACardSecurity security) : A2A.Server.Agents.TenantCardProvider
+    {
+        public override ValueTask<AgentCard?> GetCardAsync(A2A.Server.Agents.AgentRequestScope scope,
+            CancellationToken cancellationToken)
+        {
+            var card = AgentCard.Create(scope.Tenant ?? "none", "A tenant's card");
+            card.SupportedInterfaces = [new AgentInterface { Url = $"http://localhost/{scope.Tenant}/a2a", ProtocolBinding = ProtocolBindings.JsonRpc }];
+            return new(security.Apply(card));
+        }
+    }
 }

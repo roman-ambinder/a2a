@@ -179,7 +179,8 @@ internal sealed class TenantRules : A2AAuthorizationHandler
     }
 }
 
-public sealed class TenantCards : TenantCardProvider
+// A2ACardSecurity holds the schemes the host declares (here the API key), so each tenant's card lists them too.
+public sealed class TenantCards(A2ACardSecurity security) : TenantCardProvider
 {
     private readonly ConcurrentDictionary<string, AgentCard> _cards = new(StringComparer.Ordinal);
 
@@ -190,7 +191,7 @@ public sealed class TenantCards : TenantCardProvider
         return new(_cards.GetOrAdd(scope.Tenant, Build));
     }
 
-    private static AgentCard Build(string tenant) => new()
+    private AgentCard Build(string tenant) => security.Apply(new AgentCard
     {
         Name = $"{tenant} agent",
         Description = $"The {tenant} agent.",
@@ -201,9 +202,6 @@ public sealed class TenantCards : TenantCardProvider
             new AgentInterface { Url = $"http://127.0.0.1:5340/{tenant}/a2a", ProtocolBinding = ProtocolBindings.JsonRpc },
         ],
         Capabilities = new AgentCapabilities(),
-        // A tenant's card comes from this provider, so it declares the API-key scheme itself.
-        SecuritySchemes = new() { ["apiKey"] = SecurityScheme.ApiKey("X-Api-Key") },
-        SecurityRequirements = [new SecurityRequirement { Schemes = { ["apiKey"] = new StringList() } }],
         DefaultInputModes = ["text/plain"],
         DefaultOutputModes = ["text/plain"],
         Skills =
@@ -211,7 +209,7 @@ public sealed class TenantCards : TenantCardProvider
             new AgentSkill { Id = "summarize", Name = "Summarize", Description = "Summarizes a text", Tags = [tenant] },
             new AgentSkill { Id = "translate", Name = "Translate", Description = "Translates a text", Tags = [tenant] },
         ],
-    };
+    });
 }
 
 public sealed class TenantAgents : AgentExecutorResolver
