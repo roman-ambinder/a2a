@@ -702,6 +702,36 @@ public sealed class RetentionTests
     }
 
     [Fact]
+    public async Task A_context_swept_while_a_new_task_in_it_starts_is_there_again_when_the_task_is_stored()
+    {
+        // An old context whose tasks were purged is an orphan. A new message names it: the context is checked when the request
+        // starts, but the task row is written with the agent's first event. A sweep in between must not leave a task whose
+        // context is gone (the owner could not use it again, and another principal could adopt the id).
+        var clock = NewClock();
+        await using var host = await StartAsync(clock, o => o.InterruptedTimeout = null);
+        var store = host.App.Services.GetRequiredService<TaskStore>();
+        await store.GetOrCreateContextAsync(new ContextRecord("", "alice", "old-ctx", clock.GetUtcNow()));
+        clock.Advance(TimeSpan.FromDays(8));
+
+        var text = "quiet " + Guid.NewGuid().ToString("N");
+        var message = Message.FromUser(text);
+        message.ContextId = "old-ctx";
+        var send = host.Handler.SendMessageAsync(new SendMessageRequest { Message = message }, Call());
+        await EventuallyAsync(() => Task.FromResult(ScenarioAgent.QuietStarted.ContainsKey(text)), "the agent started");
+        await Sweeper(host).RunOnceAsync(CancellationToken.None);
+        Assert.Null(await store.GetContextAsync("", "old-ctx")); // swept: no task uses it yet
+
+        ScenarioAgent.Gate(text).SetResult();
+        var task = (await send.WaitAsync(Wait)).RequireTask();
+
+        Assert.Equal("old-ctx", task.ContextId);
+        Assert.Equal("alice", (await store.GetContextAsync("", "old-ctx"))?.Owner);
+        var next = Message.FromUser("hello");
+        next.ContextId = "old-ctx";
+        await host.Handler.SendMessageAsync(new SendMessageRequest { Message = next }, Call()); // the owner can use it again
+    }
+
+    [Fact]
     public async Task Only_one_instance_sweeps()
     {
         var clock = NewClock();

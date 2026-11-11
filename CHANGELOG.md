@@ -166,9 +166,40 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   addresses and their near misses, `InNetwork` prefixes inside a byte, ambiguous numeric hosts, the resolve-time and
   connect-time checks and their messages) and `AwsSigV4Handler` (both constructors check the options). Mutation score of
   `PrivateAddressGuard.cs`: 65% to 92%.
+- New tests for `AgentCardSigner` and `JwsAlgorithms` (key and algorithm checks, the protected header, every supported
+  algorithm signing and verifying, EC signature sizes, PKCS#1 vs PSS, wrong keys, `KeyMatches`) and `GuardedJwksFetcher`
+  (status codes, the 256 KiB cap with and without `Content-Length`, read errors, `Cache-Control`/`Age`/`Expires`
+  lifetimes, the timeout). Mutation scores: `AgentCardSigner.cs` 84% to 90%, `GuardedJwksFetcher.cs` 70% to 93%.
 
 ### Fixes
 
+- gRPC: a request holding a `google.protobuf.Value` with no kind set is `INVALID_ARGUMENT`, not `INTERNAL`.
+- gRPC client: a response the model cannot hold is `InvalidAgentResponse`, as over HTTP, not `InvalidParams`, and a
+  malformed `Value` in a response no longer escapes as a raw `InvalidOperationException`.
+- gRPC: a stream whose handler yields no event ends with `InvalidAgentResponse` ("Empty stream"), as on the HTTP bindings,
+  instead of a successful empty stream.
+- v0.3 compat: a rate limit rejection on a v0.3 HTTP+JSON route is written in the v0.3 error format (`{ code, message }`).
+  An endpoint can now carry its own `IA2ARejectionWriter` in its metadata, which is asked before the registered ones.
+- `A2AChatClient`: a task that completes with only a status message (an agent that ends with `CompleteAsync("text")`)
+  returns that message, unary and streaming, as `AsAIFunction` does. With artifacts, the status message stays hidden.
+- SSRF guard: IPv4-translated IPv6 addresses (`::ffff:0:a.b.c.d`, RFC 2765) are judged by their IPv4 address.
+- Client: a request refused by the SSRF guard (`BlockedAddressException`, also when wrapped by the handler) is not retried.
+- HTTP+JSON clients (v1.0 and v0.3): a task id, config id or tenant of `.` or `..` is refused with `InvalidParams` before
+  sending. `System.Uri` removes dot segments, even escaped, so the request went to another path of the same origin.
+- netstandard2.0: `A2AClientFactory.CreateAsync` with credential providers and no handler shares one `HttpClientHandler`
+  instead of making one per call, as the .NET 10 build already did.
+- Server: a context the orphan sweep removed while a new task in it was starting is put back when the task is stored, so
+  the task never points at a missing context.
+- Server: `ContinueTaskAsync` is refused (`AlreadyRunning`) while a follow-up's message is committed but its execution is
+  not registered yet.
+- Server: a push config created while its task is purged no longer outlives the task: the create answers `TaskNotFound`
+  and the purge deletes configs again after the task row.
+- Push outbox (in-memory and Postgres): a redriven dead letter waits while a later delivery of its task and config is in
+  flight, so one config never has two deliveries out at once.
+- Postgres: `PostgresMaintenance` also removes idempotency claims that were never finished within
+  `IdempotencyClaimTimeout` (their instance crashed).
+- S3: a PUT or CompleteMultipartUpload that fails after S3 applied it no longer leaves the object behind, as the Azure Blob
+  store already did.
 - Client: `PushNotificationReceiver.HandleAsync` with a signing secret de-duplicates on the signed `webhook-id`. It used the
   unsigned `X-A2A-Delivery-Id` first, so a replay within the signature tolerance that changed only that header ran the
   handler again. The SDK's sender puts the same value in both headers, so its deliveries keep the same id.

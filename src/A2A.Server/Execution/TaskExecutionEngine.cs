@@ -828,6 +828,12 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         var snapshot = EventEncoder.Encode(0, StreamResponse.Of(initial.Task));
                         IReadOnlyList<PushDelivery> deliveries =
                             push is null || !exec.PushEnabled ? [] : [NewDelivery(key, push.Id!)];
+                        // The context was checked when the request started, but the orphan sweep may have removed it since: an
+                        // old context with no task left is an orphan until this task is stored. Put it back, so the task never
+                        // points at a missing context. An existing one is left as it is (it may be shared with this caller).
+                        if (!string.IsNullOrEmpty(contextId))
+                            await _tasks.GetOrCreateContextAsync(new ContextRecord(key.Tenant, key.Owner, contextId, now),
+                                CancellationToken.None).ConfigureAwait(false);
                         if (push is not null)
                             await _pushConfigs.SaveInlineAsync(key, push, CancellationToken.None).ConfigureAwait(false);
                         CommitResult committed;

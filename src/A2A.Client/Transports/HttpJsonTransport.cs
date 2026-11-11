@@ -233,8 +233,13 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IA2AExten
         return string.IsNullOrEmpty(t) ? _baseUrl + path : $"{_baseUrl}/{Esc(t)}{path}";
     }
 
+    /// <summary>
+    ///     One path segment. "." and ".." are refused: System.Uri removes dot segments, even escaped as %2E%2E, so the request
+    ///     would go to another path of the same origin, with the same credentials.
+    /// </summary>
     private static string Esc(string? s)
     {
+        if (s is "." or "..") throw A2AException.InvalidParams("A path segment cannot be '.' or '..'.");
         return Uri.EscapeDataString(s ?? string.Empty);
     }
 

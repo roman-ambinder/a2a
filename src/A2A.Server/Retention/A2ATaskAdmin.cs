@@ -139,6 +139,9 @@ public sealed class A2ATaskAdmin
         await _pushConfigs.DeleteAllAsync(key, cancellationToken).ConfigureAwait(false);
         await _events.DeleteAsync(key, cancellationToken).ConfigureAwait(false);
         var deleted = await _tasks.DeleteAsync(key, cancellationToken).ConfigureAwait(false);
+        // A config created while this ran (its task check came before the row was deleted) may have been saved after the
+        // delete above: delete again (idempotent). A create that saves after this finds the row gone and removes its config.
+        await _pushConfigs.DeleteAllAsync(key, cancellationToken).ConfigureAwait(false);
         if (deleted && _objects is not null)
             await DeleteObjectsAsync(_objects, key, cancellationToken).ConfigureAwait(false);
         return deleted;

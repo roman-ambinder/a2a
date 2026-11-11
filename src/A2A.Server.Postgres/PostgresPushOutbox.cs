@@ -124,7 +124,8 @@ public sealed class PostgresPushOutbox : PushOutbox, IPushOutboxStatistics
     {
         if (max <= 0) return [];
         // The lease and due conditions are on o itself, so a row another leaser just took is re-checked after its lock (or
-        // skipped while locked). NOT EXISTS keeps every entry queued behind a lower sequence of its task and config.
+        // skipped while locked). NOT EXISTS keeps every entry queued behind a lower sequence of its task and config, and
+        // behind any leased entry of it (a redriven dead letter sorts before an entry that may be out already).
         var picked =
             $"""
              picked AS (
@@ -132,7 +133,8 @@ public sealed class PostgresPushOutbox : PushOutbox, IPushOutboxStatistics
                  WHERE o.due_ticks <= {DbClock.Now(1)} AND (o.lease_ticks IS NULL OR o.lease_ticks <= {DbClock.Now(1)})
                    AND NOT EXISTS (SELECT 1 FROM {_outbox} p
                                    WHERE p.tenant = o.tenant AND p.owner = o.owner AND p.task_id = o.task_id
-                                     AND p.config_id = o.config_id AND p.seq < o.seq)
+                                     AND p.config_id = o.config_id
+                                     AND (p.seq < o.seq OR p.lease_ticks > {DbClock.Now(1)}))
                  ORDER BY o.due_ticks, o.seq
                  LIMIT $3
                  FOR UPDATE OF o SKIP LOCKED
@@ -161,7 +163,8 @@ public sealed class PostgresPushOutbox : PushOutbox, IPushOutboxStatistics
                    AND COALESCE(i.n, 0) < $5
                    AND NOT EXISTS (SELECT 1 FROM {_outbox} p
                                    WHERE p.tenant = o.tenant AND p.owner = o.owner AND p.task_id = o.task_id
-                                     AND p.config_id = o.config_id AND p.seq < o.seq)
+                                     AND p.config_id = o.config_id
+                                     AND (p.seq < o.seq OR p.lease_ticks > {DbClock.Now(1)}))
                  ORDER BY o.due_ticks, o.seq
                  LIMIT $3 * 8
              ), ranked AS (
