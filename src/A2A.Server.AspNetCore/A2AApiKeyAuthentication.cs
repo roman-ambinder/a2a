@@ -53,7 +53,11 @@ public sealed class A2AApiKeyOptions
     /// <summary>The ASP.NET Core authentication scheme name.</summary>
     public const string SchemeName = "A2AApiKey";
 
-    /// <summary>The authorization policy that requires an API key. <c>MapA2A</c> applies it to endpoints without authorization.</summary>
+    /// <summary>
+    ///     An authorization policy that requires an API key, for endpoints that take only API keys. Endpoints without
+    ///     authorization get <see cref="A2ACardAuthenticationExtensions.DefaultPolicyName" /> instead, which also accepts
+    ///     the other declared schemes.
+    /// </summary>
     public const string PolicyName = "A2AApiKey";
 
     /// <summary>The prefix of the task owner id of an API-key caller.</summary>
@@ -95,7 +99,8 @@ public static class A2AApiKeyAuthenticationExtensions
     ///     scheme on the Agent Card (<c>securitySchemes</c> and <c>securityRequirements</c>, so clients such as
     ///     <c>AddApiKey</c> and the <c>a2a</c> tool find the header), an optional tenant list per key (as <see cref="A2AClaimTypes.Tenant" /> claims, so a call to another tenant is
     ///     refused and audited like any other denial), and the policy
-    ///     <see cref="A2AApiKeyOptions.PolicyName" /> on every A2A endpoint that has no authorization of its own.
+    ///     <see cref="A2ACardAuthenticationExtensions.DefaultPolicyName" /> (any declared scheme, API keys among them) on every
+    ///     A2A endpoint that has no authorization of its own.
     /// </summary>
     /// <remarks>
     ///     <para>
@@ -106,7 +111,7 @@ public static class A2AApiKeyAuthenticationExtensions
     ///     </para>
     ///     <para>
     ///         Endpoints that already carry authorization (<c>RequireAuthorization(...)</c>, <c>AuthorizationPolicy</c>,
-    ///         <c>AllowAnonymous</c>) keep it and do not get the API-key policy: add it to your policy yourself, for example
+    ///         <c>AllowAnonymous</c>) keep it and do not get the default policy: add the scheme to your policy yourself, for example
     ///         <c>p.AddAuthenticationSchemes(A2AApiKeyOptions.SchemeName, "Bearer")</c>. The card lists the API key as one
     ///         more way in. Cards from a <see cref="Agents.TenantCardProvider" /> are not changed: declare the scheme there.
     ///     </para>
@@ -128,22 +133,9 @@ public static class A2AApiKeyAuthenticationExtensions
         services.AddAuthorization(o => o.AddPolicy(A2AApiKeyOptions.PolicyName,
             p => p.AddAuthenticationSchemes(A2AApiKeyOptions.SchemeName).RequireAuthenticatedUser()));
         services.AddSingleton<IPostConfigureOptions<A2AServerOptions>, CardDeclaration>();
+        // Also a way into A2ACardSchemes, the default policy, next to schemes declared with AddCardAuthentication.
+        A2ACardAuthenticationExtensions.AddDefaultScheme(services, A2AApiKeyOptions.SchemeName);
         return builder;
-    }
-
-    /// <summary>
-    ///     Adds the API-key policy to the endpoints that have no authorization metadata once all their conventions ran,
-    ///     when <see cref="AddApiKeyAuthentication" /> was called. Every <c>MapA2A*</c> method calls it.
-    /// </summary>
-    internal static void ApplyDefault<TBuilder>(IEndpointRouteBuilder endpoints, TBuilder builder)
-        where TBuilder : IEndpointConventionBuilder
-    {
-        if (endpoints.ServiceProvider.GetService<ApiKeyMarker>() is null) return;
-        builder.Finally(endpoint =>
-        {
-            if (endpoint.Metadata.Any(m => m is IAuthorizeData or IAllowAnonymous)) return;
-            endpoint.Metadata.Add(new AuthorizeAttribute(A2AApiKeyOptions.PolicyName));
-        });
     }
 
     private sealed class ApiKeyMarker;

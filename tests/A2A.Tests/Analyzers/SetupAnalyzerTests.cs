@@ -90,6 +90,8 @@ public class SetupAnalyzerTests
     [InlineData("builder.Services.AddA2A(a => a.UseDevelopmentDefaults());")]
     [InlineData("builder.Services.AddAuthorization(o => o.FallbackPolicy = null);")]
     [InlineData("builder.Services.AddA2A(a => a.AddApiKeyAuthentication());")]
+    [InlineData("builder.Services.AddA2A(a => a.AddBearerAuthentication());")]
+    [InlineData("builder.Services.AddA2A(a => a.AddCardAuthentication(\"oidc\", A2A.SecurityScheme.Bearer(), \"Bearer\"));")]
     public async Task Anonymous_opt_in_lifts_A2A0002(string optIn) =>
         Assert.Empty(await Ids(Good.Replace(".RequireAuthorization()", "", StringComparison.Ordinal)
             .Replace("var app = builder.Build();", optIn + "\nvar app = builder.Build();", StringComparison.Ordinal)));

@@ -3,7 +3,11 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace A2A.Server.AspNetCore;
 
@@ -13,6 +17,160 @@ namespace A2A.Server.AspNetCore;
 /// </summary>
 public static class A2ACardAuthenticationExtensions
 {
+    /// <summary>
+    ///     The policy every A2A endpoint without authorization of its own gets once a scheme is declared with
+    ///     <see cref="AddCardAuthentication" />, <see cref="AddBearerAuthentication" /> or
+    ///     <see cref="A2AApiKeyAuthenticationExtensions.AddApiKeyAuthentication" />: the caller is authenticated by any one
+    ///     of the declared schemes.
+    /// </summary>
+    public const string DefaultPolicyName = "A2ACardSchemes";
+
+    /// <summary>
+    ///     Declares how callers authenticate, in one place: <paramref name="scheme" /> goes on the Agent Card under
+    ///     <paramref name="cardSchemeName" /> (in <c>securitySchemes</c>, and as one more way in under
+    ///     <c>securityRequirements</c>), and it is proved by the ASP.NET Core authentication scheme
+    ///     <paramref name="authenticationScheme" />, which you register as usual (for example <c>AddJwtBearer()</c>).
+    ///     Every A2A endpoint without authorization of its own then requires a caller authenticated by one of the declared
+    ///     schemes (<see cref="DefaultPolicyName" />).
+    /// </summary>
+    /// <param name="builder">The A2A builder.</param>
+    /// <param name="cardSchemeName">The key in the card's <c>securitySchemes</c>, for example <c>bearer</c>.</param>
+    /// <param name="scheme">What the card says, for example <c>SecurityScheme.Bearer()</c> or an OAuth 2.0 scheme.</param>
+    /// <param name="authenticationScheme">The ASP.NET Core authentication scheme that checks it.</param>
+    /// <param name="scopes">
+    ///     The scopes the card's requirement lists for this scheme, or null for none. They belong to OAuth 2.0 and OpenID
+    ///     Connect schemes; leave them out for other schemes. Not checked here: check them in your policies.
+    /// </param>
+    /// <remarks>
+    ///     <para>
+    ///         Endpoints that already carry authorization (<c>RequireAuthorization(...)</c>, <c>AuthorizationPolicy</c>,
+    ///         <c>AllowAnonymous</c>) keep it; the card still lists the scheme. The app refuses to start when
+    ///         <paramref name="authenticationScheme" /> is not registered. A scheme the card already has under
+    ///         <paramref name="cardSchemeName" /> is kept. Cards from a <see cref="TenantCardProvider" /> are not changed:
+    ///         declare the scheme there.
+    ///     </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">A name is blank, or <paramref name="cardSchemeName" /> is already declared.</exception>
+    public static A2AServerBuilder AddCardAuthentication(this A2AServerBuilder builder, string cardSchemeName,
+        SecurityScheme scheme, string authenticationScheme, IEnumerable<string>? scopes = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cardSchemeName);
+        ArgumentNullException.ThrowIfNull(scheme);
+        ArgumentException.ThrowIfNullOrWhiteSpace(authenticationScheme);
+        var services = builder.Services;
+        if (services.Any(d => d.ImplementationInstance is CardSchemeDeclaration c && c.CardName == cardSchemeName))
+            throw new ArgumentException($"The card scheme '{cardSchemeName}' is already declared.", nameof(cardSchemeName));
+        services.AddSingleton(new CardSchemeDeclaration(cardSchemeName, scheme, [.. scopes ?? []]));
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPostConfigureOptions<A2AServerOptions>, CardSchemeDeclarations>());
+        AddDefaultScheme(services, authenticationScheme);
+        return builder;
+    }
+
+    /// <summary>
+    ///     <see cref="AddCardAuthentication" /> for bearer tokens (JWT): declares an HTTP <c>bearer</c> scheme on the card,
+    ///     proved by <paramref name="authenticationScheme" /> (default <c>Bearer</c>, the name <c>AddJwtBearer()</c> uses).
+    /// </summary>
+    /// <param name="builder">The A2A builder.</param>
+    /// <param name="authenticationScheme">The ASP.NET Core authentication scheme. Default <c>Bearer</c>.</param>
+    /// <param name="cardSchemeName">The key in the card's <c>securitySchemes</c>. Default <c>bearer</c>.</param>
+    /// <param name="bearerFormat">The token format the card names. Default <c>JWT</c>.</param>
+    /// <param name="scopes">
+    ///     The scopes the card's requirement lists, or null for none (the usual case for a plain bearer scheme). Not
+    ///     checked here.
+    /// </param>
+    public static A2AServerBuilder AddBearerAuthentication(this A2AServerBuilder builder,
+        string authenticationScheme = "Bearer", string cardSchemeName = "bearer", string? bearerFormat = "JWT",
+        IEnumerable<string>? scopes = null)
+    {
+        return builder.AddCardAuthentication(cardSchemeName, SecurityScheme.Bearer(bearerFormat), authenticationScheme,
+            scopes);
+    }
+
+    /// <summary>
+    ///     Adds <paramref name="authenticationScheme" /> to <see cref="DefaultPolicyName" />, and the startup check that it
+    ///     is registered.
+    /// </summary>
+    internal static void AddDefaultScheme(IServiceCollection services, string authenticationScheme)
+    {
+        if (!services.Any(d => d.ImplementationInstance is DefaultScheme s && s.Name == authenticationScheme))
+            services.AddSingleton(new DefaultScheme(authenticationScheme));
+        services.AddAuthorization();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<AuthorizationOptions>, DefaultPolicy>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, DefaultSchemeCheck>());
+    }
+
+    /// <summary>
+    ///     Puts <see cref="DefaultPolicyName" /> on the endpoints that have no authorization metadata once all their
+    ///     conventions ran, when a scheme is declared. Every <c>MapA2A*</c> method calls it.
+    /// </summary>
+    internal static void ApplyDefault<TBuilder>(IEndpointRouteBuilder endpoints, TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        if (!endpoints.ServiceProvider.GetServices<DefaultScheme>().Any()) return;
+        builder.Finally(endpoint =>
+        {
+            if (endpoint.Metadata.Any(m => m is IAuthorizeData or IAllowAnonymous)) return;
+            endpoint.Metadata.Add(new AuthorizeAttribute(DefaultPolicyName));
+        });
+    }
+
+    internal sealed record DefaultScheme(string Name);
+
+    private sealed record CardSchemeDeclaration(string CardName, SecurityScheme Scheme, List<string> Scopes);
+
+    private sealed class DefaultPolicy(IEnumerable<DefaultScheme> schemes) : IConfigureOptions<AuthorizationOptions>
+    {
+        public void Configure(AuthorizationOptions options)
+        {
+            options.AddPolicy(DefaultPolicyName, p => p
+                .AddAuthenticationSchemes([.. schemes.Select(s => s.Name).Distinct(StringComparer.Ordinal)])
+                .RequireAuthenticatedUser());
+        }
+    }
+
+    /// <summary>Declares each <see cref="CardSchemeDeclaration" /> on the host's Agent Card.</summary>
+    private sealed class CardSchemeDeclarations(IEnumerable<CardSchemeDeclaration> declarations)
+        : IPostConfigureOptions<A2AServerOptions>
+    {
+        public void PostConfigure(string? name, A2AServerOptions options)
+        {
+            var card = options.AgentCard;
+            foreach (var d in declarations)
+            {
+                card.SecuritySchemes ??= new Dictionary<string, SecurityScheme>(StringComparer.Ordinal);
+                card.SecuritySchemes.TryAdd(d.CardName, d.Scheme);
+                card.SecurityRequirements ??= [];
+                if (!card.SecurityRequirements.Any(r => r.Schemes.Count == 1 && r.Schemes.ContainsKey(d.CardName)))
+                {
+                    var scopes = new StringList();
+                    scopes.List.AddRange(d.Scopes);
+                    card.SecurityRequirements.Add(new SecurityRequirement { Schemes = { [d.CardName] = scopes } });
+                }
+            }
+        }
+    }
+
+    /// <summary>Fails the app at startup when a declared scheme has no ASP.NET Core authentication scheme behind it.</summary>
+    private sealed class DefaultSchemeCheck(IEnumerable<DefaultScheme> schemes, IServiceProvider services)
+        : IHostedService
+    {
+        public async Task StartAsync(CancellationToken cancellationToken)
+        {
+            // Without AddAuthentication() there is no scheme provider at all: the same answer as a missing scheme.
+            var provider = services.GetService<IAuthenticationSchemeProvider>();
+            foreach (var name in schemes.Select(s => s.Name).Distinct(StringComparer.Ordinal))
+                if (provider is null || await provider.GetSchemeAsync(name).ConfigureAwait(false) is null)
+                    throw new InvalidOperationException(
+                        $"The A2A card declares a scheme that the ASP.NET Core authentication scheme '{name}' proves, but no such scheme is registered. Register it, for example builder.Services.AddAuthentication().AddJwtBearer() for 'Bearer'.");
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+    }
+
     /// <summary>
     ///     Adds an authorization requirement to the endpoints: the request must satisfy one of the card's
     ///     <c>securityRequirements</c>, each card scheme being proved by the ASP.NET Core authentication scheme that

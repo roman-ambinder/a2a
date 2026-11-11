@@ -26,7 +26,7 @@ public sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
     /// <summary>A2A0002: the mapped endpoints have no authorization.</summary>
     public static readonly DiagnosticDescriptor NoAuthorization = new(
         "A2A0002", "A2A endpoints need authorization",
-        "'{0}' maps A2A endpoints without authorization; the app refuses to start. Add .RequireAuthorization(), set o.AuthorizationPolicy, call AddApiKeyAuthentication() on the A2A builder, or allow anonymous callers on purpose (A2AServerOptions.AllowAnonymous or UseDevelopmentDefaults()).",
+        "'{0}' maps A2A endpoints without authorization; the app refuses to start. Add .RequireAuthorization(), set o.AuthorizationPolicy, call AddApiKeyAuthentication() or AddBearerAuthentication() on the A2A builder, or allow anonymous callers on purpose (A2AServerOptions.AllowAnonymous or UseDevelopmentDefaults()).",
         "A2A.Hosting", DiagnosticSeverity.Warning, true,
         "A2A endpoints refuse anonymous access unless the host opts in.",
         "https://roman-ambinder.github.io/a2a/guides/auth-and-ownership.html",
@@ -97,7 +97,8 @@ public sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
                     case "UseDevelopmentDefaults" when ns == "A2A.Server.AspNetCore":
                         state.AnonymousOptIn = true;
                         break;
-                    case "AddApiKeyAuthentication" when ns == "A2A.Server.AspNetCore":
+                    case "AddApiKeyAuthentication" or "AddCardAuthentication" or "AddBearerAuthentication"
+                        when ns == "A2A.Server.AspNetCore":
                         state.AuthorizedByDefault = true; // its policy goes on every A2A endpoint without authorization
                         break;
                     case "UseAuthentication" when ns == "Microsoft.AspNetCore.Builder":
