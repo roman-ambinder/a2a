@@ -85,6 +85,40 @@ public class SharedTests
         Assert.Contains("x.y", recorder.DroppedFields());
     }
 
+    private sealed class WarningLog : Microsoft.Extensions.Logging.ILogger
+    {
+        public List<(int Id, Microsoft.Extensions.Logging.LogLevel Level, string Message)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId,
+            TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Add((eventId.Id, logLevel, formatter(state, exception)));
+    }
+
+    [Fact]
+    public void Legacy_traffic_is_logged_at_Warning_once_per_operation_field_and_agent()
+    {
+        // Spec A.2: warn when legacy objects are received. Unique names, since the reporter remembers what it logged.
+        var log = new WarningLog();
+        var id = Guid.NewGuid().ToString("N");
+
+        V03LossReporter.Request("JSONRPC", "op-" + id, log);
+        V03LossReporter.Request("JSONRPC", "op-" + id, log);
+        V03LossReporter.Request("HTTP+JSON", "op-" + id, log);
+        V03LossReporter.Drop("field-" + id, log);
+        V03LossReporter.Drop("field-" + id, log);
+        V03LossReporter.LegacyAgent("Old agent", "https://old.example/" + id, log);
+        V03LossReporter.LegacyAgent("Old agent", "https://old.example/" + id, log);
+
+        Assert.All(log.Entries, e => Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Warning, e.Level));
+        Assert.Equal([1002, 1002, 1000, 1003], log.Entries.Select(e => e.Id));
+        Assert.Contains("op-" + id, log.Entries[0].Message, StringComparison.Ordinal);
+        Assert.Contains("HTTP+JSON", log.Entries[1].Message, StringComparison.Ordinal);
+        Assert.Contains("field-" + id, log.Entries[2].Message, StringComparison.Ordinal);
+        Assert.Contains("https://old.example/" + id, log.Entries[3].Message, StringComparison.Ordinal);
+    }
+
     // ---- version check ----
 
     [Fact]

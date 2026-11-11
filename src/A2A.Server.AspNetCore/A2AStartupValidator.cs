@@ -223,7 +223,7 @@ internal sealed class A2AStartupValidator(
     ///     Warns (never fails) when the Agent Card would send other agents to the wrong place (spec 5.2, 8.3.1) or over plain
     ///     HTTP (13.4): a mapped binding the card does not list, a binding at a tenant pattern (never listed automatically),
     ///     and, outside Development, an interface on a local address, an interface on plain HTTP, and a server with no HTTPS
-    ///     address and no https PublicBaseUrl.
+    ///     address and no https PublicBaseUrl. Also warns about an empty REQUIRED array on the card (5.7).
     /// </summary>
     internal void CheckCardInterfaces()
     {
@@ -248,6 +248,7 @@ internal sealed class A2AStartupValidator(
             var plainInterface = false;
             if (card is not null)
             {
+                CheckRequiredArrays(card);
                 foreach (var (binding, pattern) in bindings)
                     if (!card.SupportedInterfaces.Any(i => string.Equals(i.ProtocolBinding, binding, StringComparison.OrdinalIgnoreCase)))
                         AspNetCoreLog.MappedBindingNotOnCard(logger, binding, pattern);
@@ -277,6 +278,21 @@ internal sealed class A2AStartupValidator(
         {
             AspNetCoreLog.CardCheckFailed(logger, ex);
         }
+    }
+
+    /// <summary>
+    ///     Spec 5.7: the card's REQUIRED arrays must have at least one element. An empty <c>supportedInterfaces</c> is
+    ///     refused when the card is served; the others only warn, since the SDK reads cards leniently (spec-decisions.md).
+    /// </summary>
+    private void CheckRequiredArrays(AgentCard card)
+    {
+        if (card.DefaultInputModes is not { Count: > 0 }) AspNetCoreLog.CardRequiredArrayEmpty(logger, "defaultInputModes");
+        if (card.DefaultOutputModes is not { Count: > 0 }) AspNetCoreLog.CardRequiredArrayEmpty(logger, "defaultOutputModes");
+        if (card.Skills is not { Count: > 0 }) AspNetCoreLog.CardRequiredArrayEmpty(logger, "skills");
+        else
+            foreach (var skill in card.Skills)
+                if (skill.Tags is not { Count: > 0 })
+                    AspNetCoreLog.CardRequiredArrayEmpty(logger, $"skills[id={skill.Id}].tags");
     }
 
     private static bool IsLocal(string host)

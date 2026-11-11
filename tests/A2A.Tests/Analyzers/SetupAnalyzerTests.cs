@@ -13,14 +13,16 @@ namespace A2A.Tests.Analyzers;
 /// <summary>A2A0001-A2A0003 on small host programs, compiled in memory against the real ASP.NET Core and A2A assemblies.</summary>
 public class SetupAnalyzerTests
 {
-    private const string Usings = """
+    // Raw strings take the line endings of this file, which is CRLF in a Windows checkout. The tests edit the programs
+    // with "\n" replacements, so both are normalized to "\n".
+    private static readonly string Usings = """
         using Microsoft.AspNetCore.Builder;
         using Microsoft.Extensions.DependencyInjection;
         using Microsoft.Extensions.Hosting;
         using A2A.Server;
         using A2A.Server.AspNetCore;
 
-        """;
+        """.ReplaceLineEndings("\n");
 
     private static readonly Lazy<ImmutableArray<MetadataReference>> References = new(() =>
         ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
@@ -41,7 +43,7 @@ public class SetupAnalyzerTests
     private static async Task<string[]> Ids(string program) =>
         (await Analyze(program)).Select(d => d.Id).OrderBy(i => i, StringComparer.Ordinal).ToArray();
 
-    private const string Good = """
+    private static readonly string Good = """
         var builder = WebApplication.CreateBuilder(args);
         builder.Services.AddAuthentication();
         builder.Services.AddAuthorization();
@@ -52,7 +54,7 @@ public class SetupAnalyzerTests
         app.UseAuthorization();
         app.MapA2A("/a2a").RequireAuthorization();
         app.Run();
-        """;
+        """.ReplaceLineEndings("\n");
 
     [Fact]
     public async Task Correct_host_has_no_diagnostics() => Assert.Empty(await Ids(Good));
