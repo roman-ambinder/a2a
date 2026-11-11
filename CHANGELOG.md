@@ -84,6 +84,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - New tests for `SafeHttp` (URL policy messages and options, redirects, error statuses, body limits with and without
   `Content-Length`) and `AgentCardCanonicalizer` (a card using every v1.0 field is signed whole, prune paths, bracket
   paths, case variants). Mutation score of `SafeHttp.cs`: 30% to 95%.
+- New tests for `AgentCardVerifier` (each signature-entry and header check with its exact reason, several signatures,
+  case-variant members, trusted keys pinned to another `alg`, unusable trusted keys, every `jku` refusal, failed and
+  timed-out fetches, caller cancellation, key set caching) and `Jwk` / `Base64Url` (EC curves and RSA, import round
+  trips, every refusal). Mutation scores: `AgentCardVerifier.cs` 63% to 85%, `Jwk.cs` 52% to 70%.
 
 ### Documentation
 
