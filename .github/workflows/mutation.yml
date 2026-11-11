@@ -1,0 +1,72 @@
+name: Mutation testing
+
+# Stryker.NET on the security-critical code: the SSRF guard (A2A.Security.Http), Agent Card signing and canonicalization
+# and webhook signatures (A2A.Protocol), and AWS SigV4 signing (A2A.Client.Identity.Aws). Line coverage of these is
+# already high; the mutation score shows whether the tests would notice a wrong comparison, a dropped check or a flipped
+# condition. Report only (thresholds.break is 0 in each config): a run takes long and the score is for reading, not
+# gating. Weekly and on demand. Configs: tests/mutation/*.json.
+
+on:
+  schedule:
+    - cron: '23 4 * * 6'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Config in tests/mutation to run (all runs every one)
+        type: choice
+        default: all
+        options: [all, security-http, protocol-signing, identity-aws]
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  mutation:
+    name: Mutation (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # One config when started by hand with a target, otherwise all of them. (matrix is not available in a job-level if.)
+        target: ${{ fromJSON(inputs.target && inputs.target != 'all' && format('["{0}"]', inputs.target) || '["security-http", "protocol-signing", "identity-aws"]') }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      # Run from the test project's folder: from the repository root Stryker finds A2A.slnx and switches to solution mode.
+      # The configs use the Microsoft Testing Platform runner: under VSTest the xunit v3 test process never sees the
+      # active mutant, so every mutant "survives". Per-test coverage capture is off (it timed out on this suite), so each
+      # config's test-case-filter keeps the run short by naming the test classes that exercise its target.
+      - name: Run Stryker
+        working-directory: tests/A2A.Tests
+        run: dotnet stryker --config-file ../mutation/${{ matrix.target }}.json --output "$RUNNER_TEMP/stryker"
+
+      - name: Write summary
+        if: ${{ !cancelled() }}
+        run: |
+          report="$RUNNER_TEMP/stryker/reports/mutation-report.md"
+          if [ -f "$report" ]; then
+            { echo "## Mutation score: ${{ matrix.target }}"; echo; cat "$report"; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No mutation report was written." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-${{ matrix.target }}
+          path: ${{ runner.temp }}/stryker/reports
+          if-no-files-found: warn
