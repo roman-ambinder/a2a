@@ -188,3 +188,14 @@ A2A.Client.Credentials.OAuth2CertificateThumbprint
 A2A.Client.Credentials.OAuth2CertificateThumbprint.Sha1 = 1 -> A2A.Client.Credentials.OAuth2CertificateThumbprint
 A2A.Client.Credentials.OAuth2CertificateThumbprint.Sha256 = 0 -> A2A.Client.Credentials.OAuth2CertificateThumbprint
 static A2A.Client.Credentials.OAuth2ClientAssertions.CertificateJwt(System.Security.Cryptography.X509Certificates.X509Certificate2! certificate, string! algorithm = "PS256", A2A.Client.Credentials.OAuth2CertificateThumbprint thumbprint = A2A.Client.Credentials.OAuth2CertificateThumbprint.Sha256, System.TimeSpan? lifetime = null, System.TimeProvider? timeProvider = null) -> System.Func<A2A.Client.Credentials.OAuth2ClientAssertionContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>!
+A2A.Client.A2AClientOptions.RequireHttpsWebhooks.get -> bool
+A2A.Client.A2AClientOptions.RequireHttpsWebhooks.set -> void
+A2A.Client.A2AClient.RotatePushTokenAsync(A2A.TaskPushNotificationConfig! existing, string? newToken = null, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TaskPushNotificationConfig!>!
+A2A.Client.Push.PushTokens
+const A2A.Client.Push.PushTokens.ByteLength = 32 -> int
+static A2A.Client.Push.PushTokens.Create() -> string!
+A2A.Client.Push.PushHandleOutcome.RateLimited = 7 -> A2A.Client.Push.PushHandleOutcome
+A2A.Client.Push.PushHandleResult.RetryAfter.get -> System.TimeSpan?
+A2A.Client.Push.PushHandleResult.RetryAfter.init -> void
+A2A.Client.Push.PushNotificationReceiver.MaxDeliveriesPerMinute.get -> int?
+A2A.Client.Push.PushNotificationReceiver.MaxDeliveriesPerMinute.init -> void

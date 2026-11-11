@@ -143,6 +143,7 @@ You give the token (`expectedToken`), the decoded signing secret (`signingSecret
 | `Unauthorized` | 401 | Bad token, bad signature, or stale timestamp. The handler did not run. |
 | `BadRequest` | 400 | The credentials are right, but the body is not a `StreamResponse`. |
 | `UnexpectedTask` | 404 | `ExpectedTask` is set and the event is for a task you did not create, or has no task id. The handler did not run. |
+| `RateLimited` | 429 | `MaxDeliveriesPerMinute` is set and reached. The handler did not run and the id is not remembered. Send `Retry-After` from `RetryAfter`; the sender retries. |
 
 **Check the task id** (spec 4.3.3: clients must check that a notification is for a task they expect). Set <xref:A2A.Client.Push.PushNotificationReceiver.ExpectedTask> to a function that says whether a task id is yours; <xref:A2A.Client.Push.PushTaskTracker.IsTrackedAsync*> is one. A delivery for another task is `UnexpectedTask` before your handler runs. The check comes after the duplicate check, so a retry of a delivery you already handled is still `Duplicate` after the task stops being tracked, and a refused delivery is not remembered. Without `ExpectedTask` there is no check, so check the task id in your handler.
 
@@ -169,6 +170,14 @@ Register first, then read the task once. A task that finished before the webhook
 [!code-csharp[](../../../samples/Snippets/PushNotifications.cs#RegisterSafely)]
 
 If `GetTask` fails after the webhook was registered, the exception is thrown and the webhook stays registered.
+
+A config with neither a token nor authentication gets its own token from <xref:A2A.Client.Push.PushTokens.Create*> (32 random bytes, base64url), so each registration has a unique, single-purpose token (spec 13.2). The returned config carries it for your receiver, even though servers leave tokens out of their answers. Keep it as a secret.
+
+**HTTPS only.** Set <xref:A2A.Client.A2AClientOptions.RequireHttpsWebhooks> in production: the client then refuses a webhook URL that is not `https` (loopback is allowed), in `CreateTaskPushNotificationConfig` and in the push config of a `SendMessage`. It is off by default so plain-HTTP test receivers keep working. The SDK's server refuses plain-HTTP webhooks by default anyway.
+
+**Rotate a token** with <xref:A2A.Client.A2AClient.RotatePushTokenAsync*>. It registers the same URL with a new token first and deletes the old config after, so no notification is lost. Accept both tokens at your receiver until it returns. If the delete fails, both configs exist; delete the old one yourself.
+
+**Limit the rate.** Set <xref:A2A.Client.Push.PushNotificationReceiver.MaxDeliveriesPerMinute> to cap the deliveries `HandleAsync` accepts per minute. It counts only deliveries that passed the token and signature checks, so a caller without credentials cannot use up the budget. Over the cap the answer is `RateLimited` (429).
 
 ## Detect lost webhooks
 
