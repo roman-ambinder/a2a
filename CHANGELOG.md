@@ -81,6 +81,9 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   canonicalization, webhook signatures and AWS SigV4 signing. Report only. See [CONTRIBUTING](CONTRIBUTING.md#mutation-testing).
 - The AOT publish job runs in the `mcr.microsoft.com/dotnet/sdk:10.0-noble-aot` image, which has clang and zlib, instead
   of installing them with `apt-get` on every run. An outage of Ubuntu's package mirrors no longer fails CI.
+- New tests for `SafeHttp` (URL policy messages and options, redirects, error statuses, body limits with and without
+  `Content-Length`) and `AgentCardCanonicalizer` (a card using every v1.0 field is signed whole, prune paths, bracket
+  paths, case variants). Mutation score of `SafeHttp.cs`: 30% to 95%.
 
 ### Documentation
 

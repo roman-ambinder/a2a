@@ -70,6 +70,11 @@ Each config runs only the test classes named in its `test-case-filter`, which ke
 Tests outside the filter do not count, so the score is a lower bound. When you add a test class for one of these
 targets, add it to the filter too.
 
+Mutants inside static initializers are reported as surviving even when a test catches them: with per-test coverage
+off, Stryker runs every mutant in one test process, so a `static readonly` field is built once and never sees the
+mutant. `AgentCardCanonicalizer`'s schema is built that way; check a surviving mutant there by making the change by
+hand and running the tests.
+
 To run one target locally (Stryker is in the tool manifest; run it from the test project's folder, not the root):
 
 ```bash
