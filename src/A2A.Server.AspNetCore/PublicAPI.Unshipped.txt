@@ -25,3 +25,6 @@ static A2A.Server.AspNetCore.A2AHealthChecks.AddA2AHealthChecks(this Microsoft.E
 static A2A.Server.AspNetCore.A2AEndpointRouteBuilderExtensions.MapA2AUploads(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints, string! pattern = "/") -> Microsoft.AspNetCore.Routing.RouteGroupBuilder!
 A2A.Server.AspNetCore.A2ACardAuthenticationExtensions
 static A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.RequireAgentCardSchemes<TBuilder>(this TBuilder builder, System.Collections.Generic.IReadOnlyDictionary<string!, string!>! schemes) -> TBuilder
+A2A.Server.AspNetCore.A2AConfigurationExtensions
+static A2A.Server.AspNetCore.A2AConfigurationExtensions.AddA2A(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Microsoft.Extensions.Configuration.IConfiguration! configuration, System.Action<A2A.Server.A2AServerBuilder!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static A2A.Server.AspNetCore.A2AConfigurationExtensions.ConfigureA2A(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, Microsoft.Extensions.Configuration.IConfiguration! configuration) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

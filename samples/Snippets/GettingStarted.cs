@@ -49,6 +49,14 @@ internal static class Samples
         _ = answer;
     }
 
+    public static void FromConfiguration(WebApplicationBuilder builder)
+    {
+        #region FromConfiguration
+        // The card, limits, public URL and rate limit come from the "A2A" section; code after it wins.
+        builder.Services.AddA2A(builder.Configuration.GetSection("A2A"), a => a.AddAgentExecutor<MyAgent>());
+        #endregion
+    }
+
     public static void ChangeDefaults(IServiceCollection services)
     {
         #region Defaults

@@ -18,6 +18,12 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - New `TaskUpdater.OpenArtifact(name)` returns an `ArtifactWriter` that streams one artifact: the first `WriteAsync`
   creates it, later ones append, and `CompleteAsync` (or disposing the writer) sends the last chunk. A terminal state of
   the task completes the open writers first, so the artifact is sealed before the task ends. `samples/EchoAgent` uses it.
+- Configuration: `services.AddA2A(builder.Configuration.GetSection("A2A"), a => ...)` and `services.ConfigureA2A(section)`
+  read the Agent Card (name, description, version, provider, capabilities, modes, skills), `PublicBaseUrl`,
+  `AgentCardMaxAge`, every `A2ALimits` and `StreamingOptions` value, the rate limit and the main task settings. No
+  reflection, so it stays AOT-safe. An unknown key fails at startup with its path. Settings that weaken a secure default
+  (`AllowAnonymous`, `TreatMissingVersionAsCurrent`, `IncludeExceptionDetails`, `ClientContextIdPolicy`,
+  `RateLimit:Enabled`) are refused there and must be set in code. Code runs after configuration and wins.
 - `samples/EchoClient` sends its API key with `AddApiKey` instead of a hand-written handler, and uses the new helpers.
 
 ### Identity providers

@@ -70,6 +70,36 @@ These are the values of <xref:A2A.Server.A2ALimits> and <xref:A2A.Server.AspNetC
 
 [!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Defaults)]
 
+### From configuration
+
+The same settings, and the card, can come from `appsettings.json` or any other configuration source:
+
+[!code-csharp[](../../../samples/Snippets/GettingStarted.cs#FromConfiguration)]
+
+```json
+{
+  "A2A": {
+    "Card": {
+      "Name": "My Agent",
+      "Description": "Says hello.",
+      "Version": "1.0.0",
+      "Capabilities": { "Streaming": true },
+      "Skills": [ { "Id": "hello", "Name": "Hello", "Description": "Says hello", "Tags": [ "greeting" ] } ]
+    },
+    "PublicBaseUrl": "https://agent.example.com",
+    "Limits": { "MaxRequestBodyBytes": 1048576, "MaxStreamDuration": "00:10:00" },
+    "RateLimit": { "TokenLimit": 10, "TokensPerPeriod": 30 }
+  }
+}
+```
+
+The keys are listed on <xref:A2A.Server.AspNetCore.A2AConfigurationExtensions>: the card, `PublicBaseUrl`, `AgentCardMaxAge`, every limit (`Limits`), the replay buffer (`Streaming`), the rate limit and a few task settings. Durations use the `TimeSpan` format. Two rules keep this safe:
+
+- An unknown key fails the app at startup and names the key, so a typo does not go unnoticed.
+- Settings that weaken a secure default (`AllowAnonymous`, `TreatMissingVersionAsCurrent`, `IncludeExceptionDetails`, `ClientContextIdPolicy`, `RateLimit:Enabled`) are refused there. Set them in code, where a reviewer sees them.
+
+Configuration is applied first. `AddAgentCard` and `Configure` calls in code override it. For the two-step form, call `services.ConfigureA2A(section)` before `AddA2AServer`.
+
 The Agent Card needs a name, a description and a version. If `SupportedInterfaces` is empty, the card is completed once, at first serve, from the bindings you mapped. Each URL is <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl> (or the first listen address) plus the mapped pattern. Set `PublicBaseUrl` behind a proxy or load balancer. Patterns with `{tenant}` are not listed.
 
 ## Run the samples
