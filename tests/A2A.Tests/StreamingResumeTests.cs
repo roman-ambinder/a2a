@@ -493,8 +493,9 @@ public class StreamingResumeTests
         await using var stream = host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, AliceCall()).GetAsyncEnumerator();
         Assert.True(await stream.MoveNextAsync());
         var taskId = Assert.IsType<TaskEvent>(stream.Current.Event).Task.Id;
-        await Task.Delay(300); // a backlog builds up, so every following MoveNext completes at once
-        await WaitForSequenceAsync(host, taskId, 50);
+        // A backlog builds up while this reader pauses, so every following MoveNext completes at once. Wait for the agent to
+        // have stored a large backlog rather than for a fixed time (300 ms at the agent's top rate is about 1500 events).
+        await WaitForSequenceAsync(host, taskId, 1000);
 
         auth.Allow = false;
         var watch = Stopwatch.StartNew();

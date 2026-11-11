@@ -341,8 +341,11 @@ public sealed class V11ServerTests
         await host.WaitIdleAsync(); // generation 2
 
         var poll = GetTaskAsync(host, id, "1.1", new { id, currentGeneration = "2" });
-        await Task.Delay(200);
+        // The long poll holds a stream slot once it has decided to wait; a server that answers at once completes instead.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (host.Handler.OpenStreams == 0 && !poll.IsCompleted && DateTime.UtcNow < deadline) await Task.Delay(5);
         Assert.False(poll.IsCompleted);
+        Assert.Equal(1, host.Handler.OpenStreams);
         await RpcAsync(host, "SendMessage", Send("more", id), "1.1");
         var task = await poll.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.True(Gen(task) > 2);

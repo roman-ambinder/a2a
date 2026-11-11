@@ -198,6 +198,9 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Faster CI: test hosts in `A2A.Tests` and `A2A.V0_3Compat.Tests` no longer wait for a 20 s shutdown drain
   (`A2A.Tests` 4m50s to 45 s, `A2A.V0_3Compat.Tests` 43 s to 3 s); `pack`, `benchmarks` and `aot-publish` run alongside
   `build-test`; `build-test` caches NuGet packages.
+- Fewer fixed waits in tests: five tests now wait for the condition they check (a marker connection, an open stream,
+  stored events, the clock, the health check) instead of sleeping, and an unbounded poll has a deadline. The 17
+  remaining "nothing happens in N ms" checks need a production hook each; CONTRIBUTING does not list them yet.
 
 ### Fixes
 
