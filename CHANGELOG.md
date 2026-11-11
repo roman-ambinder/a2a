@@ -26,6 +26,27 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   build the detail entry. The gRPC client reads `BadRequest` back into `A2AException.Details`.
 - Each error detail object must carry an `@type` (spec v1.0.1 §3.3.2). An entry of `A2AException.Details` that is not an
   object with a non-empty `@type` is no longer sent. New `A2AErrors.HasType`.
+- The extended Agent Card over HTTP+JSON (`GET /extendedAgentCard`) has caching headers (spec §13.3):
+  `Cache-Control: private, no-cache`, `Vary: Authorization, Cookie, A2A-Version` and an `ETag` of the served bytes. A
+  matching `If-None-Match` gets 304, after authorization as before. JSON-RPC and gRPC are unchanged.
+- The client sends `A2A-Version` as Major.Minor only (spec §3.6): a card interface that lists `1.0.2`, or
+  `A2AClientOptions.ProtocolVersion = "1.0.2"`, is sent as `1.0`. New `A2AProtocol.ToMajorMinor`.
+- `PermissionDenied` says which permission is missing (spec §3.3.2): ErrorInfo metadata `permission` (`operation`,
+  `skill` or `policy`) and `operation` (the server's operation name), and a message that names the operation. It never
+  repeats a value the caller chose, and an unknown skill still gets the same error as a denied one.
+
+- Server: new opt-in `RequireAgentCardSchemes(map)` for `MapA2A` and `MapA2AGrpc` (spec §7.4, §13.3). It maps each card
+  security scheme to an ASP.NET Core authentication scheme and requires that one of the card's `securityRequirements` is
+  met; an unmapped card scheme is never met, and a card without requirements allows anonymous callers. Scopes are not
+  checked.
+- Client: new `PushNotificationReceiver.ExpectedTask` (spec §4.3.3). When set, a delivery for a task the client did not
+  create, or without a task id, is refused with the new `PushHandleOutcome.UnexpectedTask` (404) before the handler runs.
+  `PushTaskTracker.IsTrackedAsync` fits it. Without it nothing changes.
+- Client: a `jku` key set is cached for the lifetime its response gives (`no-store`, `no-cache`, `max-age` less `Age`,
+  `Expires`), at most the previous 10 minutes, so a key the publisher removes stops verifying cards sooner (spec §8.4.3).
+  New `IJwksLifetimeFetcher` and `JwksFetchResult`; `GuardedJwksFetcher` implements it.
+- Client: the JSON-RPC and HTTP+JSON clients fill `A2AException.Metadata` from the received `ErrorInfo`, as the gRPC
+  client already did. New `A2AErrors.GetErrorInfoMetadata`.
 
 ### Documentation
 

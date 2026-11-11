@@ -35,7 +35,13 @@ public static class ExtensionPolicy
             // The same order as the core: the anonymous backstop first, then the denial.
             throw !allowAnonymous && !call.IsAuthenticated
                 ? new A2AException(A2AErrorCode.Unauthenticated)
-                : new A2AException(A2AErrorCode.PermissionDenied);
+                : new A2AException(A2AErrorCode.PermissionDenied,
+                    $"The caller is not allowed to call {operation.Method}.")
+                {
+                    // Which permission is missing (spec §3.3.2), without the policy name, which is the server's own.
+                    Metadata = new Dictionary<string, string>
+                        { ["permission"] = "policy", ["operation"] = operation.Method }
+                };
         call.Items[A2AExtensionOperation.PolicySatisfiedItem] = true;
     }
 }

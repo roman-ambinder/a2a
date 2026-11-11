@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using A2A.Json;
+using A2A.Client.Streaming;
 using A2A.Push;
 
 namespace A2A.Client.Push;
@@ -75,6 +76,16 @@ public sealed class PushNotificationReceiver
     ///     over (the handler or its process died). Default 5 minutes.
     /// </summary>
     public TimeSpan ProcessingLease { get; init; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    ///     Says whether a task id is one this client created and expects notifications for (spec §4.3.3). When set,
+    ///     <see cref="HandleAsync" /> refuses a delivery for any other task, or one without a task id, with
+    ///     <see cref="PushHandleOutcome.UnexpectedTask" /> (404) before the handler runs. A retry of a delivery already
+    ///     handled is still <see cref="PushHandleOutcome.Duplicate" />, even when the task is no longer expected.
+    ///     <see cref="PushTaskTracker.IsTrackedAsync" /> fits here. Null (the default): no check, so the handler must
+    ///     check the task id itself.
+    /// </summary>
+    public Func<string, CancellationToken, ValueTask<bool>>? ExpectedTask { get; init; }
 
     /// <summary>
     ///     Validates a delivery. The token may arrive in <c>X-A2A-Notification-Token</c> or as <c>Authorization: Bearer</c>.
@@ -257,6 +268,29 @@ public sealed class PushNotificationReceiver
                 return new PushHandleResult(PushHandleOutcome.Duplicate, 200, id);
             if (claim == PushDeliveryClaim.InProgress)
                 return new PushHandleResult(PushHandleOutcome.InProgress, 503, id);
+        }
+
+        if (ExpectedTask is { } expected)
+        {
+            bool known;
+            try
+            {
+                known = ResumableStream.TaskIdOf(evt) is { } taskId &&
+                        await expected(taskId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                if (key is not null) await _store.ReleaseAsync(key, CancellationToken.None).ConfigureAwait(false);
+                if (e is OperationCanceledException && cancellationToken.IsCancellationRequested) throw;
+                return new PushHandleResult(PushHandleOutcome.HandlerFailed, 500, id, e);
+            }
+
+            if (!known)
+            {
+                // Not remembered as handled: if the task becomes expected, a retry of this delivery gets through.
+                if (key is not null) await _store.ReleaseAsync(key, CancellationToken.None).ConfigureAwait(false);
+                return new PushHandleResult(PushHandleOutcome.UnexpectedTask, 404, id);
+            }
         }
 
         try

@@ -267,7 +267,8 @@ internal static class ResumableStream
                sequence >= 1;
     }
 
-    private static string? TaskIdOf(StreamResponse response)
+    /// <summary>The task id an event carries, or null when it carries none.</summary>
+    internal static string? TaskIdOf(StreamResponse response)
     {
         var id = response switch
         {

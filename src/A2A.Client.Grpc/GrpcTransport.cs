@@ -297,7 +297,7 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
         CancellationToken ct)
     {
         var headers = new Metadata();
-        Set(headers, GrpcErrors.VersionKey, _options.ProtocolVersion);
+        Set(headers, GrpcErrors.VersionKey, A2AProtocol.ToMajorMinor(_options.ProtocolVersion)!); // spec §3.6: no patch number
         var extensions = call?.Extensions is { Count: > 0 } perCall
             ? _options.Extensions.Concat(perCall).Distinct(StringComparer.Ordinal)
             : _options.Extensions;

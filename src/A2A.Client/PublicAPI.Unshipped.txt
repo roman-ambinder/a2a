@@ -180,3 +180,7 @@ A2A.Client.Credentials.OAuth2ClientCredentialsOptions.ClientAssertion.get -> Sys
 A2A.Client.Credentials.OAuth2ClientCredentialsOptions.ClientAssertion.set -> void
 static A2A.Client.Credentials.OAuth2ClientAssertions.FromFile(string! path) -> System.Func<A2A.Client.Credentials.OAuth2ClientAssertionContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>!
 static A2A.Client.Credentials.OAuth2ClientAssertions.PrivateKeyJwt(A2A.Signing.AgentCardSigningKey! key, System.TimeSpan? lifetime = null, System.TimeProvider? timeProvider = null) -> System.Func<A2A.Client.Credentials.OAuth2ClientAssertionContext!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>!
+A2A.Client.Push.PushHandleOutcome.UnexpectedTask = 6 -> A2A.Client.Push.PushHandleOutcome
+A2A.Client.Push.PushNotificationReceiver.ExpectedTask.get -> System.Func<string!, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<bool>>?
+A2A.Client.Push.PushNotificationReceiver.ExpectedTask.init -> void
+A2A.Client.Push.PushTaskTracker.IsTrackedAsync(string! taskId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>

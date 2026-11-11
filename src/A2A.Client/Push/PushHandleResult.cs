@@ -22,7 +22,14 @@ public enum PushHandleOutcome
     ///     The credentials are right, but the body is not a valid <c>StreamResponse</c>. The handler did not run. Answer
     ///     400.
     /// </summary>
-    BadRequest
+    BadRequest,
+
+    /// <summary>
+    ///     <see cref="PushNotificationReceiver.ExpectedTask" /> is set and said no: the event is for a task this client did
+    ///     not create, or carries no task id (spec §4.3.3: clients MUST validate that the task id matches an expected
+    ///     task). The handler did not run. Answer 404: the sender drops it and does not retry.
+    /// </summary>
+    UnexpectedTask
 }
 
 /// <summary>

@@ -88,6 +88,21 @@ public static class A2AProtocol
                                                           && major == 1 && minor >= 1;
     }
 
+    /// <summary>
+    ///     <paramref name="version" /> without its patch part: <c>"1.0.2"</c> becomes <c>"1.0"</c> (spec §3.6: patch numbers
+    ///     SHOULD NOT be used in requests, responses and Agent Cards). A version with no second dot, null and empty come back
+    ///     unchanged.
+    /// </summary>
+    public static string? ToMajorMinor(string? version)
+    {
+        if (string.IsNullOrEmpty(version)) return version;
+        var text = version!.Trim();
+        var dot = text.IndexOf('.');
+        if (dot < 0) return text;
+        var next = text.IndexOf('.', dot + 1);
+        return next < 0 ? text : text.Substring(0, next);
+    }
+
     /// <summary>As <c>int.TryParse</c> with <c>NumberStyles.None</c>: ASCII digits only, at least one, no overflow.</summary>
     private static bool TryParseDigits(ReadOnlySpan<char> digits, out int value)
     {

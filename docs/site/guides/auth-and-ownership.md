@@ -15,6 +15,17 @@ If A2A endpoints have no authorization, the app does not start. The check is fai
 - If no endpoint exists yet when the host starts, the check runs again on `ApplicationStarted` and stops the app on failure.
 - <xref:A2A.Server.A2ARequestHandler> also refuses unauthenticated callers on its own, as a backstop.
 
+### Use the schemes the card declares
+
+The spec says an agent must authenticate requests with one of the schemes in its card's `securitySchemes` and `securityRequirements` (7.4, 13.3). Your ASP.NET Core schemes have their own names, so map each card scheme to one: `app.MapA2A("/a2a").RequireAuthorization().RequireAgentCardSchemes(new Dictionary<string, string> { ["bearer"] = "Bearer" })` (<xref:A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.RequireAgentCardSchemes*>). It works on `MapA2AGrpc` too.
+
+- A request passes when every scheme of one of the card's requirements authenticated it. It uses the card of the request's tenant.
+- A card without requirements, or with an empty requirement, allows anonymous callers, as the client reads the card. A card scheme you did not map can never be met.
+- It adds to `RequireAuthorization()`; it does not replace it. Scopes are not checked: check them in your policies.
+- A request that fails gets the ASP.NET Core answer (401 challenge or 403) before the A2A layer runs.
+
+Without it, the SDK does not check which scheme authenticated the caller.
+
 ## Allow anonymous callers
 
 [!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#Anonymous)]
@@ -52,7 +63,7 @@ To allow one caller a skill and deny another, override `AuthorizeSkillAsync` too
 
 - `Kind` is an <xref:A2A.Server.Authorization.A2AOperation>: the 11 built-in operations, or `Extension`. `Name` is the operation name, or the registered name of an extension operation.
 - A denied call whose request names a task (GetTask, CancelTask, SubscribeToTask, push config calls, and SendMessage with a `taskId`) is reported as `TaskNotFound`.
-- Any other denial (ListTasks, GetExtendedAgentCard, SendMessage without a task, extension operations) is `PermissionDenied`.
+- Any other denial (ListTasks, GetExtendedAgentCard, SendMessage without a task, extension operations) is `PermissionDenied`. Its ErrorInfo metadata says what was refused: `permission` is `operation` (your handler said no), `skill` (skill authorization said no, or the skill is unknown; both look the same) or `policy` (the ASP.NET Core policy of an extension operation failed), and `operation` is the operation name. Neither repeats anything the caller sent.
 - The base class allows every built-in operation and denies extension operations. The handler the server registers by default also allows an extension operation registered with `allow: true`, or whose ASP.NET Core policy succeeded. A handler of your own replaces it, so decide extension operations yourself.
 - Open streams call the handler again every <xref:A2A.Server.A2ALimits.StreamReauthInterval> (default 5 minutes). On denial the stream ends. See [limits](limits-and-rate-limiting.md).
 

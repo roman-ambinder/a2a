@@ -382,8 +382,8 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IA2AExten
             };
         return new A2AException(code, message)
         {
-            Details = details, HttpStatus = resp is null ? null : (int)resp.StatusCode,
-            RetryAfter = RetryAfterOf(resp, details)
+            Details = details, Metadata = A2AErrors.GetErrorInfoMetadata(details),
+            HttpStatus = resp is null ? null : (int)resp.StatusCode, RetryAfter = RetryAfterOf(resp, details)
         };
     }
 

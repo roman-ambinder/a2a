@@ -76,7 +76,8 @@ public sealed class AgentCardVerifier
 
     /// <summary>
     ///     Creates a verifier. <c>jku</c> key sets (HTTPS, host allowlisted for the card origin) are fetched with
-    ///     <paramref name="jwksFetcher" />, cached for 10 minutes (failures for 60 seconds), and at most
+    ///     <paramref name="jwksFetcher" />, cached for 10 minutes (failures for 60 seconds), or for the shorter lifetime an
+    ///     <see cref="IJwksLifetimeFetcher" /> reports from the response's cache headers, and at most
     ///     <see cref="MaxJkuFetchesPerVerification" /> distinct key sets are fetched per verification.
     /// </summary>
     /// <param name="policy">Decides which keys are trusted.</param>
@@ -271,15 +272,28 @@ public sealed class AgentCardVerifier
 
         var cacheKey = uri.AbsoluteUri;
         var now = DateTimeOffset.UtcNow;
-        if (!_jwksCache.TryGetValue(cacheKey, out var entry) || entry.Expires < now)
+        if (!_jwksCache.TryGetValue(cacheKey, out var entry) || entry.Expires <= now)
         {
             if (!fetches.Contains(cacheKey) && fetches.Count >= MaxJkuFetchesPerVerification)
                 return ([], $"jku fetch limit of {MaxJkuFetchesPerVerification} per card reached");
             fetches.Add(cacheKey);
             try
             {
-                var set = await _jwksFetcher.FetchAsync(uri, cancellationToken).ConfigureAwait(false);
-                entry = new JwksCacheEntry(DateTimeOffset.UtcNow + JwksCacheDuration, set, null);
+                JwkSet set;
+                var lifetime = JwksCacheDuration;
+                if (_jwksFetcher is IJwksLifetimeFetcher withLifetime)
+                {
+                    var result = await withLifetime.FetchWithLifetimeAsync(uri, cancellationToken)
+                        .ConfigureAwait(false);
+                    set = result.Keys;
+                    lifetime = CacheLifetime(result.MaxAge);
+                }
+                else
+                {
+                    set = await _jwksFetcher.FetchAsync(uri, cancellationToken).ConfigureAwait(false);
+                }
+
+                entry = new JwksCacheEntry(DateTimeOffset.UtcNow + lifetime, set, null);
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException
                                        || (ex is OperationCanceledException &&
@@ -296,10 +310,21 @@ public sealed class AgentCardVerifier
         return (entry.Set.Keys.Where(k => string.Equals(k.Kid, kid, StringComparison.Ordinal)).ToList(), null);
     }
 
+    /// <summary>
+    ///     How long a fetched key set is kept: the publisher's lifetime when it gave one, never longer than
+    ///     <see cref="JwksCacheDuration" /> and never negative. Zero means the set is used for this verification only.
+    /// </summary>
+    internal static TimeSpan CacheLifetime(TimeSpan? maxAge)
+    {
+        if (maxAge is not { } age) return JwksCacheDuration;
+        if (age <= TimeSpan.Zero) return TimeSpan.Zero;
+        return age < JwksCacheDuration ? age : JwksCacheDuration;
+    }
+
     private void EvictExpired(DateTimeOffset now)
     {
         foreach (var (key, cached) in _jwksCache)
-            if (cached.Expires < now)
+            if (cached.Expires <= now)
                 _jwksCache.TryRemove(new KeyValuePair<string, JwksCacheEntry>(key, cached));
     }
 

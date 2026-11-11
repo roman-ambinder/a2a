@@ -69,7 +69,7 @@ internal sealed class SkillAuthorizer(
                     .ConfigureAwait(false);
             // The handler-denial path, so the caller cannot tell a hidden skill from a missing one.
             if (!string.IsNullOrEmpty(taskId)) throw A2AException.TaskNotFound(taskId);
-            throw new A2AException(A2AErrorCode.PermissionDenied);
+            throw OperationAuthorization.Denied(operation, OperationAuthorization.PermissionSkill);
         }
 
         call.AuthorizedSkillId = id;

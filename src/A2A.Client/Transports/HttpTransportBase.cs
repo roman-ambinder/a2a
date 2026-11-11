@@ -41,7 +41,8 @@ public abstract class HttpTransportBase
     protected async Task ApplyHeadersAsync(HttpRequestMessage request, bool streaming, A2ARequestOptions? call,
         string? idempotencyKey, CancellationToken cancellationToken, string? lastEventId = null)
     {
-        request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, Options.ProtocolVersion);
+        request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version,
+            A2AProtocol.ToMajorMinor(Options.ProtocolVersion)); // spec §3.6: no patch number
         if (call?.Extensions is { Count: > 0 } perCall)
             request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Extensions,
                 string.Join(",", Options.Extensions.Concat(perCall).Distinct()));

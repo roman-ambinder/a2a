@@ -1,11 +1,13 @@
 using System.Globalization;
 using System.Text;
+using System.Security.Cryptography;
 using System.Text.Json;
 using A2A.Json;
 using A2A.Server.AspNetCore.Operations;
 using A2A.Server.Authorization;
 using A2A.Server.Pipeline;
 using A2A.Server.Streaming;
+using A2A.Signing;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -253,10 +255,34 @@ public sealed class RestEndpoint(
         });
     }
 
+    /// <summary>
+    ///     GET /extendedAgentCard (spec §13.3). The card depends on the caller, so it is <c>private</c> to the caller's
+    ///     cache and <c>no-cache</c>: a client may keep it, but asks again before each use. The entity tag is a hash of
+    ///     the served bytes, so an <c>If-None-Match</c> that still matches gets 304 and a changed card gets the new bytes.
+    /// </summary>
     private Task GetExtendedAgentCard(HttpContext http)
     {
-        return Run(http, (call, ct) =>
-            Box(handler.GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest { Tenant = call.Tenant }, call, ct)));
+        return RunWrite(http, async (call, ct) =>
+        {
+            var card = await handler
+                .GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest { Tenant = call.Tenant }, call, ct)
+                .ConfigureAwait(false);
+            var body = JsonSerializer.SerializeToUtf8Bytes(card, A2AJson.GetTypeInfo<AgentCard>(call.ProtocolVersion));
+            var tag = "\"" + Base64Url.Encode(SHA256.HashData(body))[..22] + "\"";
+            HttpPlumbing.WriteExtensionsHeader(http, call);
+            http.Response.Headers.CacheControl = "private, no-cache";
+            http.Response.Headers.Vary = "Authorization, Cookie, A2A-Version";
+            http.Response.Headers.ETag = tag;
+            if (AgentCardEndpoint.Matches(http.Request.Headers.IfNoneMatch, tag))
+            {
+                http.Response.StatusCode = StatusCodes.Status304NotModified;
+                return;
+            }
+
+            http.Response.ContentType = A2AProtocol.MediaType;
+            http.Response.ContentLength = body.Length;
+            await http.Response.Body.WriteAsync(body, ct).ConfigureAwait(false);
+        });
     }
 
     private RequestDelegate ExtensionHandler(A2AExtensionOperation extension)
@@ -276,7 +302,22 @@ public sealed class RestEndpoint(
         return await t.ConfigureAwait(false);
     }
 
-    private async Task Run(HttpContext http, Func<ServerCallContext, CancellationToken, Task<object?>> action)
+    private Task Run(HttpContext http, Func<ServerCallContext, CancellationToken, Task<object?>> action)
+    {
+        return RunWrite(http, async (call, ct) =>
+        {
+            var result = await action(call, ct).ConfigureAwait(false);
+            HttpPlumbing.WriteExtensionsHeader(http, call);
+            await HttpPlumbing.WriteJsonAsync(http, result, A2AProtocol.MediaType, call.ProtocolVersion)
+                .ConfigureAwait(false);
+        });
+    }
+
+    /// <summary>
+    ///     Runs a unary route whose action writes the response itself. Errors before the response starts are written as
+    ///     <c>google.rpc.Status</c>.
+    /// </summary>
+    private async Task RunWrite(HttpContext http, Func<ServerCallContext, CancellationToken, Task> write)
     {
         ServerCallContext call;
         try
@@ -293,10 +334,7 @@ public sealed class RestEndpoint(
         try
         {
             handler.ValidateCall(call);
-            var result = await action(call, http.RequestAborted).ConfigureAwait(false);
-            HttpPlumbing.WriteExtensionsHeader(http, call);
-            await HttpPlumbing.WriteJsonAsync(http, result, A2AProtocol.MediaType, call.ProtocolVersion)
-                .ConfigureAwait(false);
+            await write(call, http.RequestAborted).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
         {

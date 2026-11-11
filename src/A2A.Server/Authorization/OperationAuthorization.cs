@@ -40,7 +40,34 @@ internal static class OperationAuthorization
             string.IsNullOrEmpty(taskId) ? null : taskId);
         await DeniedAsync(audit, call, operation, taskId, "PermissionDenied").ConfigureAwait(false);
         if (!string.IsNullOrEmpty(taskId)) throw A2AException.TaskNotFound(taskId);
-        throw new A2AException(A2AErrorCode.PermissionDenied);
+        throw Denied(operation, PermissionOperation);
+    }
+
+    /// <summary>The <c>permission</c> metadata value when the operation itself is denied.</summary>
+    internal const string PermissionOperation = "operation";
+
+    /// <summary>The <c>permission</c> metadata value when the skill a message names is denied (or unknown).</summary>
+    internal const string PermissionSkill = "skill";
+
+    /// <summary>
+    ///     PermissionDenied that says which permission is missing (spec §3.3.2): metadata <c>permission</c>
+    ///     (<see cref="PermissionOperation" /> or <see cref="PermissionSkill" />) and <c>operation</c> (the server's operation
+    ///     name). It never repeats a value the caller chose, such as a skill id, and an unknown skill gets the same answer as
+    ///     a denied one.
+    /// </summary>
+    internal static A2AException Denied(A2AOperationDescriptor operation, string permission)
+    {
+        var message = permission == PermissionSkill
+            ? $"The caller is not allowed to run the requested skill with {operation.Name}."
+            : $"The caller is not allowed to call {operation.Name}.";
+        return new A2AException(A2AErrorCode.PermissionDenied, message)
+        {
+            Metadata = new Dictionary<string, string>
+            {
+                ["permission"] = permission,
+                ["operation"] = operation.Name
+            }
+        };
     }
 
     /// <summary>Writes the denial to the audit trail. Never throws.</summary>
