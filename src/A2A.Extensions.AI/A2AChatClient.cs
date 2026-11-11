@@ -82,8 +82,11 @@ public sealed class A2AChatClient : IChatClient
                         chatMessages.Add(artifact.ToChatMessage());
                     }
 
-                if (task.Status.State.IsInterrupted() && task.Status.Message is { } status &&
-                    status.MessageId != known.StatusMessageId && !EchoesArtifacts(status.Parts, ArtifactText(fresh)))
+                // An interrupted task asks something: its status message is the question. Otherwise the artifacts are the
+                // reply, else the status message (an agent that ends with CompleteAsync("text")), as A2AAgentFunction does.
+                if ((task.Status.State.IsInterrupted() || fresh is not { Count: > 0 }) &&
+                    task.Status.Message is { } status && status.MessageId != known.StatusMessageId &&
+                    !EchoesArtifacts(status.Parts, ArtifactText(fresh)))
                     chatMessages.Add(AgentMessage(status));
                 return new ChatResponse(chatMessages)
                 {
@@ -131,7 +134,8 @@ public sealed class A2AChatClient : IChatClient
 
                 case StatusUpdateEvent { StatusUpdate: var change }:
                     foreach (var update in StatusUpdates(change.ContextId, change.TaskId, change.Status,
-                                 artifactText.ToString(), known.StatusMessageId)) yield return update;
+                                 artifactText.ToString(), chunked.Count > 0 || emitted.Count > 0,
+                                 known.StatusMessageId)) yield return update;
                     // This SDK's server keeps the stream open at an interrupted state, waiting for a follow-up. The turn is over:
                     // stop here, or a caller that reads to the end would wait for the stream duration limit.
                     if (change.Status.State.IsInterrupted()) yield break;
@@ -151,7 +155,8 @@ public sealed class A2AChatClient : IChatClient
                         }
 
                     foreach (var update in StatusUpdates(snapshot.ContextId, snapshot.Id, snapshot.Status,
-                                 artifactText.ToString(), known.StatusMessageId)) yield return update;
+                                 artifactText.ToString(), chunked.Count > 0 || emitted.Count > 0,
+                                 known.StatusMessageId)) yield return update;
                     // A snapshot of the existing task starts a continued stream. Its old interrupted status is not this turn's end.
                     if (snapshot.Status.State.IsInterrupted() &&
                         snapshot.Status.Message?.MessageId != known.StatusMessageId) yield break;
@@ -174,7 +179,7 @@ public sealed class A2AChatClient : IChatClient
     }
 
     private static IEnumerable<ChatResponseUpdate> StatusUpdates(string? contextId, string? taskId,
-        AgentTaskStatus status, string artifactText, string? knownStatusMessageId)
+        AgentTaskStatus status, string artifactText, bool hadArtifacts, string? knownStatusMessageId)
     {
         var state = status.State;
         ThrowIfFailed(state);
@@ -182,7 +187,8 @@ public sealed class A2AChatClient : IChatClient
             yield break; // progress is not surfaced
         // A ChatClientAgentExecutor with KeepConversationOpen sends its reply as artifact chunks and again as the status message.
         // The caller must not see the same text twice, so an interrupted status that only repeats the artifacts adds no content.
-        var parts = state.IsInterrupted() && status.Message is { } message &&
+        // Any other state shows its status message only when the turn sent no artifacts (the agent replied in the status).
+        var parts = (state.IsInterrupted() || !hadArtifacts) && status.Message is { } message &&
                     message.MessageId != knownStatusMessageId && !EchoesArtifacts(message.Parts, artifactText)
             ? message.Parts
             : [];

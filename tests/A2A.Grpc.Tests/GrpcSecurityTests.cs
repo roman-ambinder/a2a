@@ -101,6 +101,47 @@ public class GrpcSecurityTests
         Assert.Equal(StatusCode.NotFound, other.StatusCode);
     }
 
+    [Fact]
+    public async Task A_proto_value_without_a_kind_is_invalid_argument_not_internal()
+    {
+        // A google.protobuf.Value with no kind set has no ProtoJSON form (the formatter throws InvalidOperationException).
+        // The request is the caller's mistake, as an unparseable body is over HTTP.
+        await using var host = await GrpcHost.StartAsync();
+        var request = Send("hello");
+        request.Message.Metadata = new Google.Protobuf.WellKnownTypes.Struct { Fields = { ["k"] = new Google.Protobuf.WellKnownTypes.Value() } };
+
+        var ex = await Assert.ThrowsAsync<RpcException>(() => host.Raw("alice").SendMessageAsync(request, V()).ResponseAsync);
+        Assert.Equal(StatusCode.InvalidArgument, ex.StatusCode);
+        Assert.Equal("INVALID_PARAMS", Info(ex).Reason);
+    }
+
+    /// <summary>Forwards every call to the real handler, except that a streaming send yields no event at all.</summary>
+    public class EmptyStreamHandler : System.Reflection.DispatchProxy
+    {
+        public IA2ARequestHandler Inner { get; set; } = null!;
+
+        protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args) =>
+            method!.Name == nameof(IA2ARequestHandler.SendStreamingMessageAsync)
+                ? AsyncEnumerable.Empty<A2A.Server.Streaming.SequencedEvent>()
+                : method.Invoke(Inner, args);
+    }
+
+    [Fact]
+    public async Task A_stream_with_no_event_is_an_error_as_on_the_HTTP_bindings()
+    {
+        await using var host = await GrpcHost.StartAsync(services: s => s.Replace(ServiceDescriptor.Singleton<IA2ARequestHandler>(sp =>
+        {
+            var proxy = System.Reflection.DispatchProxy.Create<IA2ARequestHandler, EmptyStreamHandler>();
+            ((EmptyStreamHandler)(object)proxy).Inner = sp.GetRequiredService<A2ARequestHandler>();
+            return proxy;
+        })));
+
+        using var call = host.Raw("alice").SendStreamingMessage(Send("hello"), V());
+        var ex = await Assert.ThrowsAsync<RpcException>(async () => { while (await call.ResponseStream.MoveNext(default)) { } });
+        Assert.Equal(StatusCode.Internal, ex.StatusCode);
+        Assert.Equal("INVALID_AGENT_RESPONSE", Info(ex).Reason);
+    }
+
     private sealed class FixedTenantResolver(string tenant) : ITenantResolver
     {
         public string Resolve(Microsoft.AspNetCore.Http.HttpContext http) => tenant;

@@ -27,6 +27,22 @@ public class ClientRequiredFieldTests
     private static Message UnspecifiedRole() => new() { MessageId = "m", Role = Role.Unspecified, Parts = [Part.FromText("a")] };
 
     [Theory]
+    [InlineData("..")]
+    [InlineData(".")]
+    public async Task A_dot_segment_id_or_tenant_is_refused_before_sending_over_http_json(string dots)
+    {
+        // System.Uri removes dot segments (also escaped as %2E%2E), so the request would reach another path of the same
+        // origin, credentials and all.
+        var (client, h) = Make("rest");
+
+        await Rejects(h, () => client.GetTaskAsync(dots), "A path segment cannot be '.' or '..'.");
+        await Rejects(h, () => client.CancelTaskAsync(dots), "A path segment cannot be '.' or '..'.");
+        await Rejects(h, () => client.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = "t1", Id = dots }),
+            "A path segment cannot be '.' or '..'.");
+        await Rejects(h, () => client.GetTaskAsync(new GetTaskRequest { Id = "t1", Tenant = dots }), "A path segment cannot be '.' or '..'.");
+    }
+
+    [Theory]
     [InlineData("jsonrpc")]
     [InlineData("rest")]
     public async Task Missing_required_field_fails_before_sending(string binding)

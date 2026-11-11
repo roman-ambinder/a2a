@@ -114,6 +114,54 @@ public sealed class S3ArtifactObjectStoreTests(MinioFixture minio) : ArtifactObj
         Assert.Empty(open.MultipartUploads ?? []);
     }
 
+    /// <summary>
+    /// Forwards to the real client, but reports a failure after S3 already applied the named call: what a client timeout or a
+    /// lost response looks like.
+    /// </summary>
+    public class FailAfterApplyClient : System.Reflection.DispatchProxy
+    {
+        public IAmazonS3 Inner { get; set; } = null!;
+        public string FailAfter { get; set; } = "";
+
+        protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
+        {
+            var result = method!.Invoke(Inner, args);
+            if (method.Name != FailAfter || result is not Task task) return result;
+            return FailAfterAsync(task, method.ReturnType);
+        }
+
+        private static object FailAfterAsync(Task call, Type returnType)
+        {
+            var type = returnType.GetGenericArguments()[0];
+            var fail = typeof(FailAfterApplyClient).GetMethod(nameof(Typed), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                .MakeGenericMethod(type);
+            return fail.Invoke(null, [call])!;
+        }
+
+        private static async Task<T> Typed<T>(Task call)
+        {
+            await call;
+            throw new AmazonS3Exception("The response was lost.");
+        }
+    }
+
+    [Theory]
+    [InlineData(nameof(IAmazonS3.PutObjectAsync), 1_000)] // one PUT
+    [InlineData(nameof(IAmazonS3.CompleteMultipartUploadAsync), 9 * 1024 * 1024)] // multipart
+    public async Task A_write_that_fails_after_S3_applied_it_leaves_no_object(string failAfter, int size)
+    {
+        var (_, client, bucket) = await NewAsync();
+        var proxy = System.Reflection.DispatchProxy.Create<IAmazonS3, FailAfterApplyClient>();
+        ((FailAfterApplyClient)(object)proxy).Inner = client;
+        ((FailAfterApplyClient)(object)proxy).FailAfter = failAfter;
+        var store = new S3ArtifactObjectStore(new S3ArtifactStoreOptions { BucketName = bucket, Client = proxy });
+        var key = NewKey();
+
+        await Assert.ThrowsAsync<AmazonS3Exception>(async () => await store.PutAsync(key, new MemoryStream(Bytes(size)), Info, long.MaxValue));
+
+        Assert.False(await store.ExistsAsync(key));
+    }
+
     /// <summary>Gives the first 9 MiB at once, then waits before the rest, so an upload spans a known time.</summary>
     private sealed class SlowTailStream(byte[] data, TimeSpan delay) : Stream
     {

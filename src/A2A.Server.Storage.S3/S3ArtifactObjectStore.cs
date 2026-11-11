@@ -101,6 +101,7 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
         long total = 0;
         var buffer = ArrayPool<byte>.Shared.Rent(PartSize);
         string? uploadId = null;
+        var committing = false; // the call that makes the object visible is under way
 
         // One part from the stream, counted and hashed. It never reads past maxBytes + 1, so an oversized stream stops early.
         async Task<int> ReadPartAsync()
@@ -127,6 +128,7 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
                     AutoCloseStream = false
                 };
                 AddFileName(put.Metadata, info);
+                committing = true;
                 await _client.PutObjectAsync(put, cancellationToken).ConfigureAwait(false);
                 return new ArtifactObjectWriteResult(total, ArtifactHash.Format(hash.GetHashAndReset()));
             }
@@ -151,11 +153,13 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
                 filled = await ReadPartAsync().ConfigureAwait(false);
             }
 
+            committing = true;
             await _client.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
             {
                 BucketName = _bucket, Key = fullKey, UploadId = uploadId, PartETags = parts
             }, cancellationToken).ConfigureAwait(false);
             uploadId = null;
+            committing = false; // the stamp below deletes the object itself when it fails
             try
             {
                 await StampCompletionAsync(fullKey).ConfigureAwait(false);
@@ -172,6 +176,9 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
         catch
         {
             if (uploadId is not null) await AbortAsync(fullKey, uploadId).ConfigureAwait(false);
+            // A PUT or a CompleteMultipartUpload that fails (or is cancelled) may still have taken effect on the service, as
+            // with a lost response: remove the object, as the Azure store does. The original failure is the one to report.
+            if (committing) await DeleteQuietlyAsync(fullKey).ConfigureAwait(false);
             throw;
         }
         finally
@@ -277,7 +284,7 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
         }
         catch (Exception)
         {
-            // The stamp failure is the one to report.
+            // The failure that led here is the one to report.
         }
     }
 

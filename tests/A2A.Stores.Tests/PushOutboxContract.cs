@@ -315,6 +315,51 @@ public abstract class PushOutboxContract
         Assert.IsType<TaskEvent>(A2AJson.Deserialize<StreamResponse>(Utf8(entry.Payload))); // the first event's body, not the second's
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_redriven_entry_waits_while_a_later_one_of_its_config_is_in_flight(bool capped)
+    {
+        // One delivery in flight per task and config: a redriven older sequence sorts first, but must not go out beside the
+        // newer one that is being sent.
+        var (tasks, outbox) = await CreateAsync(_time);
+        var first = (await CommitAsync(tasks, Alice, "c1"))[0];
+        Assert.True(await outbox.DeadLetterAsync(Assert.Single(await outbox.LeaseDueAsync(10, Lease)), "HTTP 500"));
+        await CommitAsync(tasks, Alice, "c1");
+        var sending = Assert.Single(await outbox.LeaseDueAsync(10, Lease));
+        Assert.NotEqual(first.Sequence, sending.Delivery.Sequence);
+
+        Assert.True(await outbox.RedriveAsync(first));
+
+        Assert.Empty(capped ? await outbox.LeaseDueCappedAsync(10, Lease, 10) : await outbox.LeaseDueAsync(10, Lease));
+        Assert.True(await outbox.CompleteAsync(sending));
+        Assert.Equal(first, Assert.Single(await outbox.LeaseDueAsync(10, Lease)).Delivery);
+    }
+
+    [Fact]
+    public async Task Concurrent_capped_leases_from_several_instances_keep_an_owner_within_its_cap()
+    {
+        // Each leaser counts the owner's leases and then takes free slots. Run at once from several instances, they must not
+        // all see the same free slots.
+        const int cap = 2;
+        for (var round = 0; round < 5; round++)
+        {
+            _records.Clear();
+            var (tasks, outbox) = await CreateAsync(_time);
+            for (var i = 0; i < 24; i++) await CommitAsync(tasks, OwnerTask("alice", i), "c1");
+            var instances = Enumerable.Range(0, 8).Select(i => i == 0 ? outbox : SecondInstance(outbox, _time)).ToList();
+            using var start = new Barrier(instances.Count);
+
+            var leases = await Task.WhenAll(instances.Select(instance => Task.Run(async () =>
+            {
+                start.SignalAndWait();
+                return await instance.LeaseDueCappedAsync(10, Lease, cap);
+            })));
+
+            Assert.True(leases.Sum(l => l.Count) <= cap, $"round {round}: {leases.Sum(l => l.Count)} leases for one owner, cap {cap}");
+        }
+    }
+
     [Fact]
     public async Task Redrive_on_a_key_collision_keeps_the_pending_entry_and_the_dead_letter()
     {
