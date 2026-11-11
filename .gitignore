@@ -12,3 +12,5 @@ conformance/results/
 docs/site/_site/
 docs/site/api/*
 !docs/site/api/index.md
+StrykerOutput/
+coverage/

@@ -1064,7 +1064,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     ///     No
     ///     agent for the tenant means no push. A failing provider fails closed: no push deliveries for this commit (logged).
     /// </summary>
-    private async ValueTask<bool> PushEnabledForTenantAsync(TaskKey key, CancellationToken ct)
+    internal async ValueTask<bool> PushEnabledForTenantAsync(TaskKey key, CancellationToken ct)
     {
         try
         {
@@ -1439,14 +1439,13 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     ///     an
     ///     existing task, as one change with its push deliveries, and publishes it to the task's subscribers. The caller holds
     ///     the
-    ///     task lock. Returns the stored record and the event's sequence, or null when the update was dropped (the task is
-    ///     terminal).
+    ///     task lock, so it resolves <paramref name="pushEnabled" /> (<see cref="PushEnabledForTenantAsync" />) before taking
+    ///     it. Returns the stored record and the event's sequence, or null when the update was dropped (the task is terminal).
     /// </summary>
     internal async ValueTask<(TaskRecord Record, long Sequence)?> StoreClientArtifactAsync(TaskKey key,
-        TaskRecord record, TaskArtifactUpdateEvent update,
+        TaskRecord record, TaskArtifactUpdateEvent update, bool pushEnabled,
         CancellationToken ct)
     {
-        var pushEnabled = await PushEnabledForTenantAsync(key, ct).ConfigureAwait(false);
         if (await ApplyAndStoreAsync(key, record, Encode(StreamResponse.Of(update)), pushEnabled)
                 .ConfigureAwait(false) is not { } stored) return null;
         Bus.Publish(ScopeKey(key.Tenant, key.TaskId), stored);
@@ -1475,14 +1474,16 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
 
     /// <summary>
     ///     A2A 1.1: the push deliveries of a follow-up's message update. Only configs of protocol version 1.1 get it (a 1.0
-    ///     webhook learns about the message from the task); none when the tenant's card has no push notifications. The caller
-    ///     holds the task lock; a config saved earlier in the same request is included.
+    ///     webhook learns about the message from the task); none when the tenant's card has no push notifications
+    ///     (<paramref name="pushEnabled" />, resolved before the task lock). The caller holds the task lock; a config saved
+    ///     earlier in the same request is included.
     /// </summary>
-    internal async ValueTask<IReadOnlyList<PushDelivery>> MessageDeliveriesAsync(TaskKey key, CancellationToken ct)
+    internal async ValueTask<IReadOnlyList<PushDelivery>> MessageDeliveriesAsync(TaskKey key, bool pushEnabled,
+        CancellationToken ct)
     {
+        if (!pushEnabled) return [];
         var configs = await _pushConfigs.Store.ListAsync(key, ct).ConfigureAwait(false);
         if (!configs.Any(c => A2AProtocol.IsVersion11OrLater(c.Config.ProtocolVersion))) return [];
-        if (!await PushEnabledForTenantAsync(key, ct).ConfigureAwait(false)) return [];
         return configs.Where(c => A2AProtocol.IsVersion11OrLater(c.Config.ProtocolVersion))
             .Select(c => NewDelivery(key, c.Config.Id!)).ToList();
     }

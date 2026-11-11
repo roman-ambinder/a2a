@@ -71,8 +71,12 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         EnsureMessageId(request);
         A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
-        if (request.Configuration?.TaskPushNotificationConfig is not null)
+        if (request.Configuration?.TaskPushNotificationConfig is { } push)
+        {
             RequireCapability(AgentCard?.Capabilities.PushNotifications, A2AErrorCode.PushNotificationNotSupported);
+            RequireHttpsWebhook(push.Url, "configuration.taskPushNotificationConfig.url");
+        }
+
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.SendMessage, this, request.Tenant,
             request.Message?.TaskId, () =>
             {
@@ -154,6 +158,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
         A2AValidator.ValidateOutgoing(config);
+        RequireHttpsWebhook(config.Url, "config.url");
         config.Tenant ??= _options.Tenant;
         RequireCapability(AgentCard?.Capabilities.PushNotifications, A2AErrorCode.PushNotificationNotSupported);
         return ClientTelemetry.TraceAsync(A2AProtocol.Methods.CreateTaskPushNotificationConfig, this, config.Tenant,
@@ -411,7 +416,10 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
     /// <remarks>
     ///     If GetTask fails, the exception is thrown and the webhook stays registered. <paramref name="config" />.TaskId is
     ///     set to
-    ///     <paramref name="taskId" /> (a different non-empty value is refused).
+    ///     <paramref name="taskId" /> (a different non-empty value is refused). When the config has neither a token nor
+    ///     authentication, <c>Token</c> is set to a new <see cref="PushTokens.Create" /> (spec §13.2: unique, single-purpose
+    ///     tokens). The returned <see cref="A2A.Client.Push.PushRegistration.Config" /> carries the token that was sent,
+    ///     for the receiver, even when the server redacts it in its answer.
     /// </remarks>
     public async Task<PushRegistration> RegisterPushAsync(string taskId, TaskPushNotificationConfig config,
         int? historyLength = 0, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
@@ -421,10 +429,65 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         if (!string.IsNullOrEmpty(config.TaskId) && config.TaskId != taskId)
             throw new ArgumentException("config.TaskId differs from taskId.", nameof(config));
         config.TaskId = taskId;
-        var stored = await CreateTaskPushNotificationConfigAsync(config, options, cancellationToken)
-            .ConfigureAwait(false);
+        if (config.Token is null && config.Authentication is null) config.Token = PushTokens.Create();
+        var stored = WithSentToken(await CreateTaskPushNotificationConfigAsync(config, options, cancellationToken)
+            .ConfigureAwait(false), config.Token);
         var task = await GetTaskAsync(taskId, historyLength, options, cancellationToken).ConfigureAwait(false);
         return new PushRegistration(stored, task);
+    }
+
+    /// <summary>
+    ///     Replaces the token of a webhook registration (spec §13.2): registers <paramref name="existing" />'s URL and
+    ///     authentication again with <paramref name="newToken" /> (default: a new <see cref="PushTokens.Create" />), and
+    ///     only then deletes the old registration, so no notification is lost in between. Accept both tokens at the
+    ///     receiver until this returns. Returns the new registration, with the new token (even when the server redacts it).
+    /// </summary>
+    /// <remarks>
+    ///     If the delete fails, the exception is thrown and both registrations exist; the old one still uses the old token.
+    ///     Delete it with <c>DeleteTaskPushNotificationConfigAsync</c>.
+    /// </remarks>
+    public async Task<TaskPushNotificationConfig> RotatePushTokenAsync(TaskPushNotificationConfig existing,
+        string? newToken = null, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(existing);
+        if (string.IsNullOrEmpty(existing.Id)) throw new ArgumentException("The registration has no id.", nameof(existing));
+        if (string.IsNullOrEmpty(existing.TaskId))
+            throw new ArgumentException("The registration has no task id.", nameof(existing));
+        var token = newToken ?? PushTokens.Create();
+        var replacement = WithSentToken(await CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig
+        {
+            Tenant = existing.Tenant, TaskId = existing.TaskId, Url = existing.Url,
+            Token = token, Authentication = existing.Authentication,
+            ProtocolVersion = existing.ProtocolVersion
+        }, options, cancellationToken).ConfigureAwait(false), token);
+        await DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest
+        {
+            Tenant = existing.Tenant, TaskId = existing.TaskId!, Id = existing.Id!
+        }, options, cancellationToken).ConfigureAwait(false);
+        return replacement;
+    }
+
+    /// <summary>
+    ///     The stored config with the token this client sent, when the server left it out of the answer (servers redact
+    ///     tokens; the SDK's server answers with an empty one). The token is this client's own, so nothing leaks.
+    /// </summary>
+    private static TaskPushNotificationConfig WithSentToken(TaskPushNotificationConfig stored, string? sent)
+    {
+        if (!string.IsNullOrEmpty(sent) && string.IsNullOrEmpty(stored.Token)) stored.Token = sent;
+        return stored;
+    }
+
+    /// <summary>
+    ///     Refuses a webhook URL that is not https when <see cref="A2AClientOptions.RequireHttpsWebhooks" /> is set. Loopback
+    ///     is allowed for local development.
+    /// </summary>
+    private void RequireHttpsWebhook(string? url, string field)
+    {
+        if (!_options.RequireHttpsWebhooks || string.IsNullOrWhiteSpace(url)) return;
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttps || uri.IsLoopback)) return;
+        throw A2AException.InvalidField(field,
+            "must be an https URL (spec 13.2), because A2AClientOptions.RequireHttpsWebhooks is set");
     }
 
     /// <summary>Pages through all tasks matching <paramref name="request" />.</summary>

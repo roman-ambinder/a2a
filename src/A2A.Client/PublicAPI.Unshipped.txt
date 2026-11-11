@@ -195,3 +195,14 @@ A2A.Client.TaskNotCompletedException.State.get -> A2A.TaskState
 A2A.Client.TaskNotCompletedException.Task.get -> A2A.AgentTask!
 A2A.Client.TaskNotCompletedException.TaskNotCompletedException(A2A.AgentTask! task) -> void
 static A2A.Client.A2AClientFactory.CreateForEndpoint(System.Uri! endpoint, System.Net.Http.HttpClient! httpClient, string! protocolBinding = "JSONRPC", A2A.Client.A2AClientOptions? options = null) -> A2A.Client.A2AClient!
+A2A.Client.A2AClientOptions.RequireHttpsWebhooks.get -> bool
+A2A.Client.A2AClientOptions.RequireHttpsWebhooks.set -> void
+A2A.Client.A2AClient.RotatePushTokenAsync(A2A.TaskPushNotificationConfig! existing, string? newToken = null, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.TaskPushNotificationConfig!>!
+A2A.Client.Push.PushTokens
+const A2A.Client.Push.PushTokens.ByteLength = 32 -> int
+static A2A.Client.Push.PushTokens.Create() -> string!
+A2A.Client.Push.PushHandleOutcome.RateLimited = 7 -> A2A.Client.Push.PushHandleOutcome
+A2A.Client.Push.PushHandleResult.RetryAfter.get -> System.TimeSpan?
+A2A.Client.Push.PushHandleResult.RetryAfter.init -> void
+A2A.Client.Push.PushNotificationReceiver.MaxDeliveriesPerMinute.get -> int?
+A2A.Client.Push.PushNotificationReceiver.MaxDeliveriesPerMinute.init -> void

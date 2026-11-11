@@ -938,6 +938,8 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
         var pushSaved = false;
         var committed = false;
         var attached = false; // the upload references are written once, however often the commit is retried
+        // Never ask the card provider under the task lock: the locks are shared by many tasks.
+        var pushEnabled = await _engine.PushEnabledForTenantAsync(key, ct).ConfigureAwait(false);
         var gate = await _engine.LockAsync(key, ct).ConfigureAwait(false);
         try
         {
@@ -1047,7 +1049,7 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
                     });
                     // The message update is a 1.1 event: only push configs of version 1.1 get it.
                     var encoded = EventEncoder.Encode(0, added);
-                    var deliveries = await _engine.MessageDeliveriesAsync(key, ct).ConfigureAwait(false);
+                    var deliveries = await _engine.MessageDeliveriesAsync(key, pushEnabled, ct).ConfigureAwait(false);
                     var result = await _tasks
                         .CommitAsync(new TaskCommit(record with { Task = next }, record.Version, encoded, deliveries),
                             ct).ConfigureAwait(false);
@@ -1064,7 +1066,7 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
                         foreach (var update in userArtifacts)
                         {
                             update.ContextId = contextId;
-                            if (await _engine.StoreClientArtifactAsync(key, latest, update, ct).ConfigureAwait(false) is
+                            if (await _engine.StoreClientArtifactAsync(key, latest, update, pushEnabled, ct).ConfigureAwait(false) is
                                 { } applied)
                                 (latest, last) = applied;
                         }
@@ -1824,6 +1826,8 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
             throw A2AException.InvalidParams("artifactUpdates[0].taskId is required when the request has no message");
         var updates = (await CheckArtifactUpdatesAsync(request, call, taskId, ct).ConfigureAwait(false))!;
         var key = Key(call, taskId);
+        // Never ask the card provider under the task lock: the locks are shared by many tasks.
+        var pushEnabled = await _engine.PushEnabledForTenantAsync(key, ct).ConfigureAwait(false);
         using var gate = await _engine.LockAsync(key, ct).ConfigureAwait(false);
         var record = await _tasks.GetAsync(key, ct).ConfigureAwait(false) ?? throw A2AException.TaskNotFound(taskId);
         if (record.Task.Status.State.IsTerminal())
@@ -1833,7 +1837,7 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
         foreach (var update in updates)
         {
             update.ContextId = record.Task.ContextId;
-            if (await _engine.StoreClientArtifactAsync(key, record, update, ct).ConfigureAwait(false) is
+            if (await _engine.StoreClientArtifactAsync(key, record, update, pushEnabled, ct).ConfigureAwait(false) is
                 { } applied) record = applied.Record;
         }
 

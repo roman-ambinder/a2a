@@ -88,6 +88,58 @@ public sealed class PushNotificationReceiver
     public Func<string, CancellationToken, ValueTask<bool>>? ExpectedTask { get; init; }
 
     /// <summary>
+    ///     The most deliveries <see cref="HandleAsync" /> accepts per minute, over all senders (spec §13.2: clients SHOULD
+    ///     rate-limit webhooks to prevent flooding). Counted after the token and signature checks, so a caller without the
+    ///     credentials cannot use up the budget. Over the limit the answer is
+    ///     <see cref="PushHandleOutcome.RateLimited" /> (429, with <see cref="PushHandleResult.RetryAfter" />) and the sender
+    ///     retries. Null (the default): no limit. Must be at least 1.
+    /// </summary>
+    public int? MaxDeliveriesPerMinute
+    {
+        get => _maxPerMinute;
+        init
+        {
+            if (value is < 1) throw new ArgumentOutOfRangeException(nameof(value), value, "Must be at least 1.");
+            _maxPerMinute = value;
+        }
+    }
+
+    private readonly int? _maxPerMinute;
+    private readonly object _rateGate = new();
+    private DateTimeOffset _windowStart = DateTimeOffset.MinValue;
+    private int _windowCount;
+
+    /// <summary>
+    ///     Takes one delivery from the budget of the current one-minute window. False, with the time until the window
+    ///     ends, when it is spent.
+    /// </summary>
+    private bool TryTakeDelivery(out TimeSpan retryAfter)
+    {
+        retryAfter = TimeSpan.Zero;
+        if (_maxPerMinute is not { } max) return true;
+        var now = _time.GetUtcNow();
+        lock (_rateGate)
+        {
+            if (now - _windowStart >= RateWindow)
+            {
+                _windowStart = now;
+                _windowCount = 0;
+            }
+
+            if (_windowCount < max)
+            {
+                _windowCount++;
+                return true;
+            }
+
+            retryAfter = _windowStart + RateWindow - now;
+            return false;
+        }
+    }
+
+    private static readonly TimeSpan RateWindow = TimeSpan.FromMinutes(1);
+
+    /// <summary>
     ///     Validates a delivery. The token may arrive in <c>X-A2A-Notification-Token</c> or as <c>Authorization: Bearer</c>.
     ///     Header names are matched case-insensitively. A delivery is remembered only once it is valid.
     /// </summary>
@@ -231,15 +283,22 @@ public sealed class PushNotificationReceiver
             return new PushHandleResult(PushHandleOutcome.Unauthorized, 401);
 
         var keepUntil = _time.GetUtcNow() + Window;
+        string? signedId = null;
         if (!signingSecret.IsEmpty)
         {
-            var check = CheckSignature(headers, body.Span, signingSecret.Span, signatureTolerance, out _,
+            var check = CheckSignature(headers, body.Span, signingSecret.Span, signatureTolerance, out var webhookId,
                 out var lastAcceptable);
             if (check != PushValidationResult.Valid) return new PushHandleResult(PushHandleOutcome.Unauthorized, 401);
             if (lastAcceptable > keepUntil) keepUntil = lastAcceptable;
+            signedId = webhookId;
         }
 
-        var id = Find(headers, A2AProtocol.Headers.DeliveryId);
+        if (!TryTakeDelivery(out var retryAfter))
+            return new PushHandleResult(PushHandleOutcome.RateLimited, 429) { RetryAfter = retryAfter };
+
+        // With a signature, the id is the signed webhook-id: X-A2A-Delivery-Id is not covered by the signature, so a replay
+        // could change it to get past de-duplication. The SDK's sender puts the same value in both headers.
+        var id = signedId ?? Find(headers, A2AProtocol.Headers.DeliveryId);
         if (string.IsNullOrEmpty(id)) id = Find(headers, WebhookSignature.IdHeader);
         if (string.IsNullOrEmpty(id)) id = null;
         var sequenceText = Find(headers, A2AProtocol.Headers.NotificationSequence);

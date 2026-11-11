@@ -267,15 +267,17 @@ jobs:
     # build-test is a matrix, so `needs` waits for every OS. Still run when only one OS failed.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
+    # Microsoft's .NET SDK image with the native AOT prerequisites (clang, zlib) already installed, so the job does not
+    # apt-get them at run time: Ubuntu's package mirrors were unreachable from the runners for over half an hour on
+    # 2026-11-11 and failed every run. The image brings the .NET 10 SDK too, so there is no setup-dotnet step.
+    container:
+      image: mcr.microsoft.com/dotnet/sdk:10.0-noble-aot
+    # In a container job, run steps default to `sh -e` (dash), which has no `set -o pipefail`.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Install native AOT prerequisites
-        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
 
       # pipefail: without it the step's status is tee's, so a failed publish passed. A2APublishAot (Directory.Build.props)
       # sets PublishAot only outside netstandard2.0; a global -p:PublishAot=true fails there with NETSDK1207.
@@ -380,41 +382,6 @@ jobs:
           name: docs-site
           path: docs/site/_site
           if-no-files-found: error
-
-  coverage:
-    name: Coverage report
-    # Report only. Instrumentation slows tests and would add timing flakes, so it runs after merges, never on a pull request,
-    # and it is deliberately not in all-green. Store tests need containers and are not included.
-    if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Test with coverage (net10.0)
-        run: |
-          status=0
-          for p in A2A.Tests A2A.Grpc.Tests A2A.V0_3Compat.Tests A2A.Extensions.AI.Tests A2A.Mcp.Tests A2A.TestKit.Tests; do
-            dotnet test --project "tests/$p/$p.csproj" -c Release -f net10.0 -p:A2ACoverage=true --coverage --coverage-output-format cobertura --results-directory coverage || status=1
-          done
-          exit $status
-
-      - name: Write summary
-        if: ${{ !cancelled() }}
-        run: python3 .github/scripts/coverage_summary.py coverage >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload coverage
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage
-          path: coverage/**/*.cobertura.xml
-          if-no-files-found: warn
 
   samples:
     name: Samples (run-samples.sh, no Docker)

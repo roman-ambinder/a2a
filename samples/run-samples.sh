@@ -57,6 +57,17 @@ wait_for() {
   return 1
 }
 
+# Waits until file $1 has a line containing $2 (up to 30 s), while the background sample runs.
+wait_for_line() {
+  local i
+  for i in $(seq 1 30); do
+    grep -qF -- "$2" "$1" 2>/dev/null && return 0
+    [ -n "$BACKGROUND_PID" ] && ! kill -0 "$BACKGROUND_PID" 2>/dev/null && return 1
+    sleep 1
+  done
+  return 1
+}
+
 # Runs a sample that starts its own agent, calls it and exits.
 run_self_contained() {
   local name="$1" project="$2"
@@ -96,7 +107,9 @@ run_mcp_mode() {
   local mode="$1" path="$2" body="$3" expect="$4"
   dotnet run --project samples/McpBridge -- "$mode" >"$LOGS/mcp-$mode.log" 2>&1 &
   BACKGROUND_PID=$!
-  if ! wait_for "$MCP_URL/.well-known/agent-card.json"; then
+  # The card answers as soon as the server is up, but in call mode the sample connects its MCP client after that.
+  # It prints "Press Ctrl+C to stop." once it is ready for requests (samples/McpBridge/Program.cs).
+  if ! wait_for "$MCP_URL/.well-known/agent-card.json" || ! wait_for_line "$LOGS/mcp-$mode.log" "Press Ctrl+C to stop."; then
     record "mcp $mode" "FAIL: did not start (see $LOGS/mcp-$mode.log)"
     stop_background
     return
