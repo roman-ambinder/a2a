@@ -109,7 +109,7 @@ public interface IA2AContextLifecycle
 }
 ```
 
-- Retention calls every registered `IA2AContextLifecycle` after `DeleteContextAsync` returns true. Each call is wrapped on its own: an exception is logged and the sweep goes on with the next hook and the next context. (Today `StepAsync` catches at step level, so one throw would skip the rest of the step's batch; a hook must not be able to do that.) The context is already deleted, so a failed hook leaves an orphan session behind; that is logged, not retried.
+- Retention calls every registered `IA2AContextLifecycle` after `DeleteContextAsync` returns true. Each call is wrapped on its own: an exception is logged and the sweep goes on with the next hook and the next context. (`BatchesAsync` already catches per item, so a throw would not stop the batch; but it would stop the later hooks for that context, so each hook is wrapped as well.) The context is already deleted, so a failed hook leaves an orphan session behind; that is logged, not retried.
 - In `Stored` mode the adapter registers one that calls `AgentSessionStore.DeleteSessionAsync` with the key built from `ContextRecord.Tenant`, `ContextRecord.Owner` and `ContextRecord.ContextId`. Sessions then live as long as their context, and no longer.
 - The hook is generic: any agent that keeps per-context state outside the task store can use it.
 
@@ -138,7 +138,7 @@ public interface IA2AContextLifecycle
 
 - `A2A.slnx`: the new package, test project and a sample (`samples/AgentFrameworkAgent`).
 - `Directory.Packages.props`: `Microsoft.Agents.AI.Abstractions` 1.28.0.
-- `A2A.Server`: `IA2AContextLifecycle` and the retention call (PublicAPI.Unshipped). The shipped `A2ARetentionService` constructor stays; a new overload takes the hooks.
+- `A2A.Server`: `IA2AContextLifecycle` and the retention call (PublicAPI.Unshipped). The shipped `A2ARetentionService` constructor keeps its signature (its `= null` defaults move to the new overload, as Roslyn's RS0027 rule asks); the new overload adds `lifecycles`.
 - README package table, a guide page under `docs/site/guides`, CHANGELOG, and the D33 row of the gap analysis open items.
 
 ## Testing

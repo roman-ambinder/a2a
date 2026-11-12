@@ -59,9 +59,10 @@ public interface IA2AContextLifecycle
 }
 ```
 
-- `A2ARetentionService`: a new public constructor with the shipped parameters plus `IEnumerable<IA2AContextLifecycle>? lifecycles` last. The shipped constructor calls it with null. Store as an array.
+- `A2ARetentionService`: a new public constructor with the shipped parameters plus `IEnumerable<IA2AContextLifecycle>? lifecycles = null` last; its last four parameters are optional. The shipped constructor keeps its signature but loses its `= null` defaults (PublicApiAnalyzers RS0027: the overload with optional parameters must have the most parameters; `*REMOVED*` the old shipped line in `PublicAPI.Unshipped.txt`). It calls the new one with null. Store as an array; a null entry throws `ArgumentException`.
 - `DeleteOrphanContextsAsync`: when `DeleteContextAsync` returns true, call each hook in its own `try`/`catch`. Rethrow `OperationCanceledException` when the sweep token is cancelled (as `StepAsync` does); log anything else with a new `ServerLog.ContextLifecycleHookFailed(logger, ex, contextId)` and continue with the next hook and the next context. Return the delete result unchanged.
-- `AddA2ARetention`: with two public constructors, replace `services.TryAddSingleton<A2ARetentionService>()` by a factory that calls the new constructor explicitly with `sp.GetServices<IA2AContextLifecycle>()` and resolves the other parameters as DI does today (`GetRequiredService` for required, `GetService` for the optional ones). The `IHostedService` registration does not change.
+- `AddA2ARetention`: with two public constructors, replace `services.TryAddSingleton<A2ARetentionService>()` by a factory, an internal `A2ARetentionService.FromServices(sp)` that calls the new constructor explicitly with `sp.GetServices<IA2AContextLifecycle>()` and resolves the other parameters as DI does today (`GetRequiredService` for required, `GetService` for the optional ones). Tests use the same factory. The `IHostedService` registration does not change.
+- Note: `BatchesAsync` already catches per item, so a hook's exception would not stop the batch; the per-hook `try`/`catch` is there so it does not stop the later hooks for that context.
 
 **Tests (`RetentionTests`):**
 1. Two orphan contexts deleted: a recording hook sees both `ContextRecord`s (tenant, owner, id).
