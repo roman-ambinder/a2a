@@ -36,6 +36,19 @@ between the same runs, so 10% leaves room for runner noise and still catches rea
 
 Time for these two is especially noisy on shared runners, because it depends on how many cores the runner gives the callers. Read it as a rough hint. Allocations stay stable between runs, so they are what the gate checks.
 
+## Task copies
+
+`TaskCopyBenchmark` measures what one long task costs in list copies (ADR-004). Each operation runs one task to the end with
+a blocking SendMessage.
+
+- `StatusMessages4000` / `StatusMessages2000`: status updates, each with a message, so the history and the timeline grow
+  by one entry per event.
+- `Appends2000` / `Appends1000`: appends to one artifact through the in-memory store wrapped without `IBatchTaskCommit`,
+  so each append is its own commit.
+
+Each case has a twin with half the events. When a task costs O(1) per event, doubling the events about doubles the
+allocation; an O(n) copy per event makes it grow about 3 to 3.5 times.
+
 ## Regenerate the baseline
 
 `baseline.json` must come from the CI runner, not a dev machine (allocations differ by OS and CPU). Do this when you

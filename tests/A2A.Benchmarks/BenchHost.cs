@@ -4,6 +4,7 @@ using A2A.Server;
 using A2A.Server.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace A2A.Benchmarks;
@@ -22,7 +23,8 @@ internal sealed class BenchHost : IAsyncDisposable
 
     public A2AClient Client { get; }
 
-    public static async Task<BenchHost> StartAsync<TExecutor>(Action<A2AServerOptions>? configure = null)
+    public static async Task<BenchHost> StartAsync<TExecutor>(Action<A2AServerOptions>? configure = null,
+        Action<IServiceCollection>? services = null)
         where TExecutor : class, IAgentExecutor
     {
         var card = new AgentCard
@@ -37,6 +39,7 @@ internal sealed class BenchHost : IAsyncDisposable
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
+        services?.Invoke(builder.Services); // before AddA2AServer, so its TryAdd defaults give way
         builder.Services.AddA2AServer(o =>
         {
             o.AgentCard = card;
