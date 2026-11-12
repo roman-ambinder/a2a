@@ -285,6 +285,12 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
   tenant acme without proving acme's schemes. It also checked artifact and upload routes against the default card.
   Now it checks the card of the artifact or upload route's tenant too. The call is then bound to the tenant that was
   checked, so a different body tenant is refused with InvalidParams.
+- `RequireAgentCardSchemes` on gRPC with one card per tenant: a call that names a tenant is no longer refused with
+  InvalidArgument ("tenant in request body does not match the endpoint tenant"). A gRPC call carries the tenant only in
+  its message, so the fix above refused every tenant but the default one. When the route names no tenant (gRPC, or
+  `/a2a` without `{tenant}`), the call now runs in the tenant its body names and is checked again against that tenant's
+  card, refused with `Unauthenticated` if it fails. A route tenant still binds the call. New hook
+  `ServerCallContext.TenantAuthentication`.
 - Performance, from the review of the hot paths:
   - A status update no longer doubles the copied history and timeline lists, and one with a message no longer
     re-measures the whole task (4000 updates with a message: 392 MB to 143 MB allocated). The copy per event remains.

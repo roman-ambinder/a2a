@@ -204,8 +204,11 @@ public static class A2ACardAuthenticationExtensions
     ///     A requirement is met when every scheme it names authenticated the request; the card is met when any one
     ///     requirement is. A card without requirements, or with an empty requirement, allows anonymous callers, as the
     ///     client reads it. A card scheme that is not in <paramref name="schemes" /> can never be met. Scopes are not
-    ///     checked here: check them in your policies. A request that fails gets the ASP.NET Core answer (challenge or
-    ///     403), before the A2A layer runs.
+    ///     checked here: check them in your policies. A request that fails for the tenant of its route gets the ASP.NET
+    ///     Core answer (challenge or 403), before the A2A layer runs. When the route names no tenant (gRPC, or <c>/a2a</c>
+    ///     without <c>{tenant}</c>) and the request body names one, the call is checked again against that tenant's card
+    ///     once the tenant is bound, and refused with <see cref="A2AErrorCode.Unauthenticated" /> if it fails. A tenant
+    ///     without a card (no agent serves it) has nothing to check: the A2A layer answers it.
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="schemes" /> is empty or has a blank name.</exception>
     public static TBuilder RequireAgentCardSchemes<TBuilder>(this TBuilder builder,
@@ -240,8 +243,43 @@ internal sealed class AgentCardSchemeRequirement(IReadOnlyDictionary<string, str
         if (context.Resource is not HttpContext http) return; // not an endpoint request: not met
         var card = await CardAsync(http).ConfigureAwait(false);
         // No card for this tenant: nothing to check against. The A2A layer answers an unknown tenant itself.
-        if (card is null || await IsMetAsync(card, http, requirement.Schemes).ConfigureAwait(false))
-            context.Succeed(requirement);
+        if (card is not null && !await IsMetAsync(card, http, requirement.Schemes).ConfigureAwait(false)) return;
+        // Checked before the body was read: a call whose body names another tenant is checked again (see Recheck).
+        if (http.Items[PassedKey] is not List<AgentCardSchemeRequirement> passed)
+            http.Items[PassedKey] = passed = [];
+        passed.Add(requirement);
+        context.Succeed(requirement);
+    }
+
+    /// <summary>The <see cref="HttpContext.Items" /> key of the requirements this request passed.</summary>
+    private static readonly object PassedKey = new();
+
+    /// <summary>
+    ///     The <see cref="ServerCallContext.TenantAuthentication" /> of a request that passed this requirement, or null when
+    ///     it passed none: the same check again, against the card of the tenant the call runs in, when that is not the
+    ///     tenant checked here (when the route names no tenant, a JSON-RPC, HTTP+JSON or gRPC body may name it).
+    /// </summary>
+    internal static Func<ServerCallContext, CancellationToken, ValueTask<bool>>? Recheck(HttpContext http)
+    {
+        if (!http.Items.TryGetValue(PassedKey, out var value) || value is not List<AgentCardSchemeRequirement> passed)
+            return null;
+        var checkedTenant = http.Items.TryGetValue(HttpPlumbing.CardCheckedTenantKey, out var t) ? t as string ?? "" : "";
+        return (call, ct) => string.Equals(call.Tenant, checkedTenant, StringComparison.Ordinal)
+            ? ValueTask.FromResult(true)
+            : RecheckAsync(http, passed, call, ct);
+    }
+
+    private static async ValueTask<bool> RecheckAsync(HttpContext http, List<AgentCardSchemeRequirement> passed,
+        ServerCallContext call, CancellationToken ct)
+    {
+        if (http.RequestServices.GetService<IAgentCardProvider>() is not { } cards) return true;
+        var card = await cards.GetAsync(new AgentRequestScope(call.Tenant, call.RouteValues), ct).ConfigureAwait(false);
+        // A tenant no agent serves has no card: as above, the A2A layer answers it.
+        if (card is null) return true;
+        foreach (var requirement in passed)
+            if (!await IsMetAsync(card, http, requirement.Schemes).ConfigureAwait(false))
+                return false;
+        return true;
     }
 
     internal static async Task<bool> IsMetAsync(AgentCard card, HttpContext http,
@@ -279,8 +317,10 @@ internal sealed class AgentCardSchemeRequirement(IReadOnlyDictionary<string, str
 
     /// <summary>
     ///     The card of the tenant this request runs in: the tenant resolver's, or else the tenant of an artifact or upload
-    ///     route. The tenant checked is recorded on the request (<see cref="HttpPlumbing.CardCheckedTenantKey" />), and the
-    ///     call is then bound to it, so a different tenant in the request body is refused instead of running unchecked.
+    ///     route. The tenant checked is recorded on the request (<see cref="HttpPlumbing.CardCheckedTenantKey" />). A call
+    ///     whose route named the tenant is bound to it, so a different tenant in the request body is refused. A call whose
+    ///     route named none may take the tenant its body names, and is then checked again against that tenant's card
+    ///     (<see cref="Recheck" />).
     /// </summary>
     private static async Task<AgentCard?> CardAsync(HttpContext http)
     {
