@@ -1,1 +1,2 @@
 #nullable enable
+static A2A.Security.Http.PrivateAddressGuard.ResolveAllowedAsync(string! host, System.Collections.Generic.IEnumerable<(System.Net.IPAddress! Network, int PrefixLength)>? allowedNetworks, string! hostKind, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<System.Net.IPAddress![]!>

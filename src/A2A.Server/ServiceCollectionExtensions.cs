@@ -291,10 +291,11 @@ public sealed class A2AServerBuilder
     ///     request, and the token can expire before the run ends.
     /// </summary>
     /// <remarks>
-    ///     Warning: the SDK sends the caller's <c>Authorization: Bearer</c> value to the exchanger whenever any scheme
-    ///     authenticated the caller. Register an exchanger only when a Bearer handler validates that header on these
-    ///     endpoints.
-    ///     On a host that authenticates with cookies, API keys or mTLS, that header is unchecked.
+    ///     The ASP.NET Core bindings keep the caller's <c>Authorization: Bearer</c> value only when a bearer scheme validated
+    ///     it as the caller's token: an <c>AddJwtBearer()</c> scheme, or the scheme named in <c>AddBearerAuthentication</c>
+    ///     (or <c>AddCardAuthentication</c> for a bearer, OAuth 2.0 or OpenID Connect card scheme). A caller authenticated
+    ///     by another scheme (a cookie, an API key, mTLS) has no token to exchange, unless the host lists that scheme in
+    ///     <c>A2AHttpOptions.TrustedBearerSchemes</c> and so trusts it to have validated the header.
     /// </remarks>
     public A2AServerBuilder AddTokenExchanger<
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>()
@@ -308,12 +309,7 @@ public sealed class A2AServerBuilder
     ///     Uses <paramref name="exchanger" /> to exchange tokens. Replaces an earlier exchanger. See
     ///     <see cref="AddTokenExchanger{T}" />.
     /// </summary>
-    /// <remarks>
-    ///     Warning: the SDK sends the caller's <c>Authorization: Bearer</c> value to the exchanger whenever any scheme
-    ///     authenticated the caller. Register an exchanger only when a Bearer handler validates that header on these
-    ///     endpoints.
-    ///     On a host that authenticates with cookies, API keys or mTLS, that header is unchecked.
-    /// </remarks>
+    /// <remarks>Which callers' tokens are kept: see <see cref="AddTokenExchanger{T}" />.</remarks>
     public A2AServerBuilder AddTokenExchanger(ITokenExchanger exchanger)
     {
         ArgumentNullException.ThrowIfNull(exchanger);

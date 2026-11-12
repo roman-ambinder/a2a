@@ -47,9 +47,13 @@ public class TokenExchangeServerTests
     ///     Registers <see cref="TestBearerHandler" /> as the bearer scheme (<c>AddBearerAuthentication</c>). The caller is
     ///     still authenticated by the test scheme (<c>X-Test-User</c>).
     /// </param>
-    private static Task<TestAgentHost> StartAsync(IAgentExecutor agent, ITokenExchanger? exchanger, bool bearerScheme = true) =>
-        TestAgentHost.StartAsync(services: s =>
+    /// <param name="trustedBearerSchemes">Names put in <see cref="A2AHttpOptions.TrustedBearerSchemes" />.</param>
+    private static Task<TestAgentHost> StartAsync(IAgentExecutor agent, ITokenExchanger? exchanger, bool bearerScheme = true,
+        string[]? trustedBearerSchemes = null, Action<IServiceCollection>? services = null) =>
+        TestAgentHost.StartAsync(configureHttp: o => o.TrustedBearerSchemes.UnionWith(trustedBearerSchemes ?? []),
+            services: s =>
         {
+            services?.Invoke(s);
             s.Replace(ServiceDescriptor.Singleton(agent));
             if (exchanger is not null) s.AddSingleton(exchanger);
             if (!bearerScheme) return;
@@ -74,6 +78,122 @@ public class TokenExchangeServerTests
     {
         // The caller is authenticated by another scheme (like an API key); nothing checked the Authorization header.
         Assert.False(await CanExchangeAsync(binding, bearerScheme: false, "Bearer unchecked-token"));
+    }
+
+    /// <summary>
+    ///     Runs one call whose caller the test scheme (<c>X-Test-User</c>, not a bearer scheme) authenticates, with no
+    ///     bearer scheme registered, and returns what the exchanger received.
+    /// </summary>
+    private static async Task<(bool? Can, List<TokenExchangeRequest> Requests)> ExchangeWithTrustedAsync(string binding,
+        string[]? trusted, string header = "Bearer gateway-checked-token", Action<IServiceCollection>? services = null,
+        string? tokenSub = null)
+    {
+        bool? can = null;
+        var exchanger = new RecordingExchanger();
+        var agent = new ProbeAgent(async (ctx, ct) =>
+        {
+            can = ctx.CanExchangeToken;
+            if (can == true) await ctx.ExchangeTokenAsync("api://b", null, ct);
+        });
+        await using var host = await StartAsync(agent, exchanger, bearerScheme: false, trusted, services);
+        var options = Bearer(header);
+        if (tokenSub is not null) options.Headers["X-Token-Sub"] = tokenSub;
+        await host.Client(binding).SendMessageAsync(Message.FromUser("hi"), options: options);
+        await host.WaitIdleAsync();
+        return (can, exchanger.Requests);
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task A_trusted_scheme_that_authenticated_the_caller_has_its_bearer_header_exchanged(string binding)
+    {
+        // The test scheme stands for an API key or gateway scheme that validated the token upstream.
+        var (can, requests) = await ExchangeWithTrustedAsync(binding, [TestAuthHandler.SchemeName]);
+        Assert.True(can);
+        Assert.Equal("gateway-checked-token", Assert.Single(requests).SubjectToken);
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task Without_trusted_schemes_a_non_bearer_scheme_does_not_forward(string binding)
+    {
+        var (can, requests) = await ExchangeWithTrustedAsync(binding, null);
+        Assert.False(can);
+        Assert.Empty(requests);
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task A_trusted_scheme_that_did_not_authenticate_the_caller_does_not_forward(string binding)
+    {
+        // "Other" is listed, but the caller was authenticated by the test scheme, which is not.
+        var (can, requests) = await ExchangeWithTrustedAsync(binding, [NoResultHandler.SchemeName],
+            services: s => s.AddAuthentication().AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions,
+                NoResultHandler>(NoResultHandler.SchemeName, null));
+        Assert.False(can);
+        Assert.Empty(requests);
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task A_trusted_scheme_whose_user_is_not_the_caller_does_not_forward(string binding)
+    {
+        // "Gateway" is listed and succeeds, but for Bob; Alice is the caller.
+        static void Gateway(IServiceCollection s) => s.AddAuthentication()
+            .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, TestBearerHandler>("Gateway", null);
+        var (can, requests) = await ExchangeWithTrustedAsync(binding, ["Gateway"], services: Gateway, tokenSub: "bob");
+        Assert.False(can);
+        Assert.Empty(requests);
+        (can, requests) = await ExchangeWithTrustedAsync(binding, ["Gateway"], services: Gateway, tokenSub: "alice");
+        Assert.True(can);
+        Assert.Single(requests);
+    }
+
+    [Theory]
+    [InlineData("Basic abc")]
+    [InlineData("Bearer a b")]
+    [InlineData("Bearer a,b")]
+    public async Task A_trusted_scheme_still_needs_one_well_formed_bearer_header(string header)
+    {
+        var (can, requests) = await ExchangeWithTrustedAsync(ProtocolBindings.JsonRpc, [TestAuthHandler.SchemeName], header);
+        Assert.False(can);
+        Assert.Empty(requests);
+    }
+
+    [Fact]
+    public void A_trusted_scheme_does_not_forward_two_Authorization_headers()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAuthentication().AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, null);
+        services.Configure<A2AHttpOptions>(o => o.TrustedBearerSchemes.Add(TestAuthHandler.SchemeName));
+        services.AddSingleton<ITenantResolver, RouteTenantResolver>();
+        services.AddSingleton<IPrincipalResolver, DefaultPrincipalResolver>();
+        services.AddSingleton<ITokenExchanger>(new RecordingExchanger());
+        var http = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
+        http.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "alice")], "test"));
+        http.Request.Headers["X-Test-User"] = "alice";
+        http.Request.Headers.Authorization = new StringValues(["Bearer aaa", "Bearer bbb"]);
+        Assert.Null(HttpPlumbing.CreateCallContext(http, null).InboundBearerToken);
+
+        http.Request.Headers.Authorization = "Bearer aaa";
+        Assert.Equal("aaa", HttpPlumbing.CreateCallContext(http, null).InboundBearerToken);
+    }
+
+    [Fact]
+    public async Task A_trusted_scheme_that_is_not_registered_stops_the_start()
+    {
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(
+            new ProbeAgent((_, _) => Task.CompletedTask), new RecordingExchanger(), bearerScheme: false, ["Missing"]));
+        Assert.Contains("'Missing'", error.Message, StringComparison.Ordinal);
+        Assert.Contains("TrustedBearerSchemes", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>A scheme that never authenticates anyone.</summary>
+    private sealed class NoResultHandler(Microsoft.Extensions.Options.IOptionsMonitor<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions> options,
+        Microsoft.Extensions.Logging.ILoggerFactory logger, System.Text.Encodings.Web.UrlEncoder encoder)
+        : Microsoft.AspNetCore.Authentication.AuthenticationHandler<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        public const string SchemeName = "Other";
+
+        protected override Task<Microsoft.AspNetCore.Authentication.AuthenticateResult> HandleAuthenticateAsync() =>
+            Task.FromResult(Microsoft.AspNetCore.Authentication.AuthenticateResult.NoResult());
     }
 
     [Theory, MemberData(nameof(Bindings))]

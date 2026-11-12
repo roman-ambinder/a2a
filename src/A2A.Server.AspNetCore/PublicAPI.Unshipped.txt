@@ -17,3 +17,4 @@ static A2A.Server.AspNetCore.A2ACallerPolicyExtensions.RequirePolicy(this A2A.Se
 *REMOVED*A2A.Server.AspNetCore.A2AEndpointOptions.AuthorizationPolicy.get -> string?
 *REMOVED*A2A.Server.AspNetCore.A2AEndpointOptions.AuthorizationPolicy.set -> void
 *REMOVED*static A2A.Server.AspNetCore.A2ADevelopmentDefaultsExtensions.UseDevelopmentDefaults(this A2A.Server.A2AServerBuilder! builder) -> A2A.Server.A2AServerBuilder!
+A2A.Server.AspNetCore.A2AHttpOptions.TrustedBearerSchemes.get -> System.Collections.Generic.ISet<string!>!

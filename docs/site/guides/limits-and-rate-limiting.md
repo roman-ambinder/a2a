@@ -15,6 +15,7 @@ All size, count and time limits are members of <xref:A2A.Server.A2ALimits>, reac
 | <xref:A2A.Server.A2ALimits.MaxRawPartBytes> | 8 MB | HTTP 413, reason `PAYLOAD_TOO_LARGE` |
 | <xref:A2A.Server.A2ALimits.MaxJsonDepth> | 32 | `InvalidParams` |
 | <xref:A2A.Server.A2ALimits.MaxHistoryLengthReturned> | 100 | No error. The newest messages are returned. |
+| <xref:A2A.Server.A2ALimits.MaxTimelineLengthReturned> | 100 | A2A 1.1. No error. The newest timeline entries are returned. |
 | <xref:A2A.Server.A2ALimits.MaxListPageSize> | 100 | No error. The page size is capped. |
 | <xref:A2A.Server.A2ALimits.MaxConcurrentStreamsPerTask> | 10 | `RATE_LIMITED` (HTTP 429) |
 | <xref:A2A.Server.A2ALimits.MaxConcurrentStreamsPerPrincipal> | 50 | `RATE_LIMITED` (HTTP 429) |
@@ -23,6 +24,7 @@ All size, count and time limits are members of <xref:A2A.Server.A2ALimits>, reac
 | <xref:A2A.Server.A2ALimits.MaxEventBytes> | 4 MB | The task fails and the agent is stopped. |
 | <xref:A2A.Server.A2ALimits.MaxTaskBytes> | 64 MiB | An agent event past it fails the task and stops the agent. A follow-up past it is refused with `UnsupportedOperation`. |
 | <xref:A2A.Server.A2ALimits.MaxArtifactsPerTask> | 1024 | The task fails and the agent is stopped. |
+| <xref:A2A.Server.A2ALimits.MaxTimelineEntries> | 1000 | A2A 1.1. No error. The oldest stored timeline entries are dropped. |
 | <xref:A2A.Server.A2ALimits.MaxStreamDuration> | 1 hour | The stream ends normally. Clients resume with `Last-Event-ID`. |
 | <xref:A2A.Server.A2ALimits.StreamReauthInterval> | 5 minutes | The authorization handler is asked again. On denial the stream ends with `TaskNotFound` (task-scoped streams) or `PermissionDenied`, as a new request would. |
 | <xref:A2A.Server.A2ALimits.StreamIdleTimeout> | off | A stream that sent no event for this long ends normally. Clients resume with `Last-Event-ID`. Keep-alive comments are not events. |
@@ -35,6 +37,7 @@ Notes:
 - `MaxJsonDepth` applies to request bodies only. Values above 64 have no effect.
 - `MaxEventBytes` is measured on the serialized JSON. A direct reply that is too large is not sent. The request gets a `FAILED` task instead.
 - `MaxTaskBytes` counts the content of the parts in the history and in the artifacts: text as UTF-8 bytes, `raw` as base64 length, a URL as its length and data as its JSON text length. Metadata (key names and JSON values), artifact names and descriptions, and file names are counted too. Ids and media types are not. The few markers the server sets itself are not counted where it sets them. The final `FAILED` event is always stored, so a task at the cap can still end.
+- `MaxTimelineEntries` bounds the A2A 1.1 timeline stored with each task. Every status update and every client message adds an entry. A status update without a message adds nothing to `MaxTaskBytes`, so without this limit an agent that reports progress would grow its task forever. Past the limit the oldest entries are dropped when a new one is added. The kept entries keep their generations, every message stays in the history, and a stream that resumes with `lastSeenGeneration` reads the event log, not the timeline (see [Streaming](streaming.md#grpc)). A `timelineLength` larger than what is kept returns what is kept. The default matches the default <xref:A2A.Server.StreamingOptions.ReplayBufferSize> (1000 events), so the timeline covers about as many changes as a resume can replay. Zero or negative keeps every entry.
 - Zero or `Timeout.InfiniteTimeSpan` turns off `MaxStreamDuration`, `StreamReauthInterval` and `StreamIdleTimeout`.
 - The history cap also applies when the caller asks for more, or sends no `historyLength`.
 

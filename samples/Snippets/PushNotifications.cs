@@ -78,6 +78,18 @@ internal static class Snippets
         #endregion
     }
 
+    public static void PinProxyTarget(IServiceCollection services)
+    {
+        #region PinProxyTarget
+        services.Configure<A2AServerOptions>(o =>
+        {
+            o.PushNotifications.Proxy = new System.Net.WebProxy("http://egress-proxy.internal:3128");
+            // The proxy gets the address the SDK checked (CONNECT 93.184.216.34:443), not the webhook's host name.
+            o.PushNotifications.PinProxyTarget = true;
+        });
+        #endregion
+    }
+
     public static void DeadLetterHook(IServiceCollection services)
     {
         #region DeadLetterHook

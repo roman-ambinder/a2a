@@ -1145,7 +1145,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 return null;
             }
 
-            if (ApplyToCopy(record.Task, evt) is not { } next)
+            if (ApplyToCopy(record.Task, evt, _options.Limits.MaxTimelineEntries) is not { } next)
             {
                 ServerLog.EventDropped(Logger, key.TaskId, record.Task.Status.State);
                 return null;
@@ -1160,7 +1160,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 encoded = Encode(StreamResponse.Of(FailureEvent(key.TaskId, record.Task.ContextId, OversizedTaskText)));
                 evt = encoded.Event;
                 if (exec is not null) CancelAll([exec]);
-                if (ApplyToCopy(record.Task, evt) is not { } failed)
+                if (ApplyToCopy(record.Task, evt, _options.Limits.MaxTimelineEntries) is not { } failed)
                 {
                     ServerLog.EventDropped(Logger, key.TaskId, record.Task.Status.State);
                     return null;
@@ -1817,9 +1817,11 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     ///     generations
     ///     existed must get its generation first, <see cref="WithGenerationAsync" />); a status update adds a status entry to
     ///     the
-    ///     timeline, and an artifact update places the artifact (<c>startGeneration</c>, <c>endGeneration</c>).
+    ///     timeline, and an artifact update places the artifact (<c>startGeneration</c>, <c>endGeneration</c>). The timeline
+    ///     keeps at most <paramref name="maxTimelineEntries" /> entries (<see cref="A2ALimits.MaxTimelineEntries" />; zero
+    ///     keeps all): the oldest are dropped (<see cref="TaskTimeline.Append" />).
     /// </summary>
-    internal static AgentTask? ApplyToCopy(AgentTask current, StreamResponse evt)
+    internal static AgentTask? ApplyToCopy(AgentTask current, StreamResponse evt, int maxTimelineEntries = 0)
     {
         if (current.Status.State.IsTerminal()) return null;
         var generation = (current.Generation ?? 0) + 1;
@@ -1831,7 +1833,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             next.Status = new AgentTaskStatus
                 { State = su.Status.State, Message = su.Status.Message, Timestamp = su.Status.Timestamp };
             if (su.Status.Message is { } m) (next.History ??= []).Add(m);
-            (next.Timeline ??= []).Add(TimelineEntry.FromStatus(next.Status, generation));
+            TaskTimeline.Append(next, TimelineEntry.FromStatus(next.Status, generation), maxTimelineEntries);
             next.Generation = generation;
             MergeMetadata(next, su.Metadata);
             return next;
