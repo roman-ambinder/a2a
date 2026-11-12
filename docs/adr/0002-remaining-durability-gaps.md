@@ -131,9 +131,29 @@ The main risk of Option C is the D2 investigation itself. If the failure exists,
      | Without `ITaskCommitLookup` | `TimeoutException` | The task ends `FAILED` with `0, 1`, as for the other chunks. |
      | With `ITaskCommitLookup` | either | Correct: each chunk once, `COMPLETED`. |
 
-     So a store that retries a commit internally must implement `ITaskCommitLookup`, or it can duplicate parts in the
-     task itself. `AmbiguousCommitTests.Without_the_lookup_a_conflict_on_a_middle_append_stores_the_chunk_twice` pins
-     this behaviour until it is fixed.
+     So a store that retries a commit internally could duplicate parts in the task itself without `ITaskCommitLookup`.
+
+     Fixed on 2026-11-12 in the engine. After a conflict, a store without the lookup gets one more check: when the
+     task is one version past the one the engine wrote and holds exactly this write, the event is kept as stored, with
+     the sequence read before the task (log event 226). For an append, "exactly this write" means the same artifact;
+     for any other event, the same whole task. Any other stored task is reloaded and the event is applied again, as
+     before. Results now:
+
+     | Store | Case | Result |
+     |---|---|---|
+     | Without `ITaskCommitLookup` | The store's own conflict | Each chunk once, 22 artifact events, `COMPLETED` (`Without_the_lookup_a_conflict_on_a_middle_append_stores_the_chunk_once`) |
+     | Without `ITaskCommitLookup` | Another writer changed the task first | The chunk is applied once on top of that change (`Without_the_lookup_a_real_conflict_on_a_middle_append_still_applies_the_chunk`) |
+     | Without `ITaskCommitLookup` | The store's own conflict on the chunk that creates the artifact | Stored once in the log (it was twice), task correct (`Without_the_lookup_a_conflict_on_the_chunk_that_creates_the_artifact_stores_it_once`) |
+     | Without `ITaskCommitLookup` | The store's own conflict on a status update (`working`, and the terminal `done`) | Stored once in the log (`working` was twice), sequences without a gap (`Without_the_lookup_a_conflict_on_a_status_update_stores_it_once`) |
+     | Without `ITaskCommitLookup` | Another writer changed the task first, then a status update | Applied once on top of that change (`Without_the_lookup_a_real_conflict_on_a_status_update_still_applies_it`) |
+
+     Before this, the terminal `done` was already stored once, for another reason: applying it again to the now
+     terminal task drops it, so the engine took its own stored event for a dropped one.
+
+     What is left: the check for events other than appends compares the whole task, so a store that does not give the
+     task back exactly as it was written fails it, and then the event is stored twice in the log as before (the task
+     itself is not doubled). The remaining doubt of the check is another writer whose one commit produced exactly this
+     write: it is taken for this write.
 2. [x] If the event is stored twice: add an optional mutation id to `TaskCommit`, a capability interface for stores that keep it, and implementations in the in-memory, Postgres and Redis stores. Follow ADR-001 rule 2, and add the startup check from ADR-001 action item 3.
 
    Done:
