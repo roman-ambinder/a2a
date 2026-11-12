@@ -19,7 +19,7 @@ public class DevelopmentDefaultsTests
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Services.AddA2A(a => a.AddAgentExecutor<ScenarioAgent>().AddAgentCard(TestAgentHost.DefaultCard())
-            .UseDevelopmentDefaults());
+            .ConfigureForDevelopment());
         var app = builder.Build();
         app.MapA2A("/a2a"); // no RequireAuthorization: development lets anonymous callers in
         return app;
@@ -44,15 +44,41 @@ public class DevelopmentDefaultsTests
     [Theory]
     [InlineData("Production")]
     [InlineData("Staging")]
-    public async Task Other_environments_refuse_to_start(string environment)
+    public async Task Other_environments_get_nothing_and_need_authorization(string environment)
     {
-        // The options are first read while the endpoints are mapped, so the failure comes before StartAsync.
+        // Without authorization of its own, the app refuses to start, and says why the call did not apply.
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
         {
             await using var app = Build(environment);
             await app.StartAsync();
         });
-        Assert.Contains("UseDevelopmentDefaults()", ex.Message, StringComparison.Ordinal);
+        Assert.StartsWith(A2AStartupValidator.NoPolicyMessage, ex.Message, StringComparison.Ordinal);
+        Assert.Contains("ConfigureForDevelopment() has no effect here", ex.Message, StringComparison.Ordinal);
         Assert.Contains(environment, ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Other_environments_keep_their_own_authorization()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+        builder.Services.AddAuthentication(TestAuthHandler.SchemeName)
+            .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, null);
+        builder.Services.AddAuthorization();
+        builder.Services.AddA2A(a => a.AddAgentExecutor<ScenarioAgent>().AddAgentCard(TestAgentHost.DefaultCard())
+            .ConfigureForDevelopment());
+        await using var app = builder.Build();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapA2A("/a2a").RequireAuthorization();
+        await app.StartAsync();
+        var options = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<A2AServerOptions>>().Value;
+        Assert.False(options.AllowAnonymous);
+        Assert.False(options.TreatMissingVersionAsCurrent);
+        Assert.NotEqual(true, options.IncludeExceptionDetails); // null: the Development-only default
+        using var http = app.GetTestClient();
+        http.DefaultRequestHeaders.Add("A2A-Version", "1.0");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await http.GetAsync("/a2a/tasks")).StatusCode);
     }
 }

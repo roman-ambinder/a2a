@@ -15,7 +15,7 @@ public class SurfaceTests
 {
     private const string CardPath = "/.well-known/agent-card.json";
 
-    private static WebApplicationBuilder NewBuilder(bool authorization = true)
+    private static WebApplicationBuilder NewBuilder(bool authorization = true, Action<A2AServerBuilder>? a2a = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -23,7 +23,8 @@ public class SurfaceTests
         builder.Services.AddAuthentication(TestAuthHandler.SchemeName)
             .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, null);
         if (authorization) builder.Services.AddAuthorization(o => o.AddPolicy("agents", p => p.RequireAuthenticatedUser()));
-        builder.Services.AddA2A(a => a.AddAgentExecutor<ScenarioAgent>().AddAgentCard(TestAgentHost.DefaultCard()));
+        var server = builder.Services.AddA2A(a => a.AddAgentExecutor<ScenarioAgent>().AddAgentCard(TestAgentHost.DefaultCard()));
+        a2a?.Invoke(server);
         return builder;
     }
 
@@ -104,9 +105,9 @@ public class SurfaceTests
     }
 
     [Fact]
-    public async Task MapA2A_with_policy_requires_authorization()
+    public async Task RequirePolicy_on_the_builder_protects_every_A2A_endpoint()
     {
-        await using var app = await StartAsync(NewBuilder(), a => a.MapA2A("/a2a", o => o.AuthorizationPolicy = "agents"));
+        await using var app = await StartAsync(NewBuilder(a2a: a => a.RequirePolicy("agents")), a => a.MapA2A("/a2a"));
         var http = app.GetTestClient();
         http.DefaultRequestHeaders.Add("A2A-Version", "1.0");
         Assert.Equal(HttpStatusCode.Unauthorized, (await http.GetAsync("/a2a/tasks")).StatusCode);
@@ -115,10 +116,38 @@ public class SurfaceTests
     }
 
     [Fact]
+    public async Task Card_stays_anonymous_when_the_builder_requires_a_policy()
+    {
+        await using var app = await StartAsync(NewBuilder(a2a: a => a.RequirePolicy("agents")), a => a.MapA2A("/a2a"));
+        Assert.Equal(HttpStatusCode.OK, (await app.GetTestClient().GetAsync(CardPath)).StatusCode);
+    }
+
+    [Fact]
     public async Task Card_stays_anonymous_when_group_requires_authorization()
     {
-        await using var app = await StartAsync(NewBuilder(), a => a.MapA2A("/a2a", o => o.AuthorizationPolicy = "agents"));
+        await using var app = await StartAsync(NewBuilder(), a => a.MapA2A("/a2a").RequireAuthorization("agents"));
         Assert.Equal(HttpStatusCode.OK, (await app.GetTestClient().GetAsync(CardPath)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Endpoint_authorization_wins_over_the_builder_policy()
+    {
+        // The group's own policy replaces the builder's default, as for the card schemes.
+        var builder = NewBuilder(a2a: a => a.RequirePolicy("admins"));
+        builder.Services.AddAuthorization(o => o.AddPolicy("admins", p => p.RequireRole("admin"))); // alice is no admin
+        await using var app = await StartAsync(builder, a => a.MapA2A("/a2a").RequireAuthorization("agents"));
+        var http = app.GetTestClient();
+        http.DefaultRequestHeaders.Add("A2A-Version", "1.0");
+        http.DefaultRequestHeaders.Add("X-Test-User", "alice");
+        Assert.Equal(HttpStatusCode.OK, (await http.GetAsync("/a2a/tasks")).StatusCode);
+    }
+
+    [Fact]
+    public async Task RequirePolicy_with_an_unregistered_policy_fails_startup()
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            StartAsync(NewBuilder(a2a: a => a.RequirePolicy("nope")), a => a.MapA2A("/a2a")));
+        Assert.Contains("RequirePolicy(\"nope\")", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -188,7 +217,8 @@ public class SurfaceTests
     public async Task Startup_error_names_the_fix()
     {
         var noAuth = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(NewBuilder(), a => a.MapA2A("/a2a")));
-        Assert.Equal("A2A endpoints have no authorization policy. Call app.MapA2A(...).RequireAuthorization() or MapA2A(pattern, o => o.AuthorizationPolicy = \"...\"), or set A2AServerOptions.AllowAnonymous = true.", noAuth.Message);
+        Assert.Equal(A2AStartupValidator.NoPolicyMessage, noAuth.Message);
+        Assert.Contains("RequirePolicy", noAuth.Message, StringComparison.Ordinal);
     }
 
     [Fact]

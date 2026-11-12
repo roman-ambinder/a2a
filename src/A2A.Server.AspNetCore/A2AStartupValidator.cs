@@ -136,7 +136,17 @@ internal sealed class A2AStartupValidator(
     IServer? server = null) : IHostedService
 {
     internal const string NoPolicyMessage =
-        "A2A endpoints have no authorization policy. Call app.MapA2A(...).RequireAuthorization() or MapA2A(pattern, o => o.AuthorizationPolicy = \"...\"), or set A2AServerOptions.AllowAnonymous = true.";
+        "A2A endpoints have no authorization policy. On the A2A builder, call AddApiKeyAuthentication(), AddBearerAuthentication() or RequirePolicy(\"...\"), or call app.MapA2A(...).RequireAuthorization(). To allow anonymous callers, call Configure(o => o.AllowAnonymous = true), or ConfigureForDevelopment() while you develop.";
+
+    /// <summary><see cref="NoPolicyMessage" />, and why <c>ConfigureForDevelopment()</c> did not apply when it was called.</summary>
+    internal static string NoPolicy(IServiceProvider services, IHostEnvironment? environment)
+    {
+        if (services.GetService<A2ACallerPolicyExtensions.DevelopmentDefaultsMarker>() is null ||
+            environment?.IsDevelopment() == true)
+            return NoPolicyMessage;
+        return NoPolicyMessage +
+               $" ConfigureForDevelopment() has no effect here: the host runs as '{environment?.EnvironmentName ?? "(no host environment)"}', not Development.";
+    }
 
     internal const string AnonymousWarning =
         "A2A endpoints allow anonymous callers. All anonymous callers share one owner and can read each other's tasks.";
@@ -303,7 +313,7 @@ internal sealed class A2AStartupValidator(
             if (!options.Value.AllowAnonymous
                 && (endpoint.Metadata.GetMetadata<IAuthorizeData>() is null ||
                     endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null))
-                throw new InvalidOperationException(NoPolicyMessage);
+                throw new InvalidOperationException(NoPolicy(services, environment));
         }
     }
 }

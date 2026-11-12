@@ -116,7 +116,7 @@ app.UseAuthorization();
 // DEMO ONLY. This is not an OAuth server: no client registry, no signed tokens, no revocation. It exists so the sample
 // can run without an identity provider. In production the token endpoint is your identity provider.
 app.MapPost("/demo/token", tokens.HandleAsync);
-app.MapA2A("/a2a", o => o.AuthorizationPolicy = "caller"); // the card stays anonymous
+app.MapA2A("/a2a").RequireAuthorization("caller"); // the card stays anonymous
 await app.StartAsync();
 Console.WriteLine($"Agent card at {agentUrl}.well-known/agent-card.json, demo token endpoint at {tokenUrl}");
 

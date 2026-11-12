@@ -21,7 +21,7 @@ dotnet new a2a-client -n MyClient      # a console app that calls an agent
 dotnet new a2a-chat-agent -n MyChat    # an agent that hosts an IChatClient
 ```
 
-`dotnet run` in the agent folder starts it in Development on `http://localhost:5000`, with `UseDevelopmentDefaults()`, so `dotnet run` in the client folder can call it right away. Outside Development the agent asks for a bearer token (`AddBearerAuthentication()`) and refuses to start until you register the scheme, for example `AddJwtBearer()`; the comment in `Program.cs` shows how. With `--auth apikey` it takes API keys instead, in every environment.
+`dotnet run` in the agent folder starts it in Development on `http://localhost:5000`, with `ConfigureForDevelopment()`, so `dotnet run` in the client folder can call it right away. Outside Development the agent asks for a bearer token (`AddBearerAuthentication()`) and refuses to start until you register the scheme, for example `AddJwtBearer()`; the comment in `Program.cs` shows how. With `--auth apikey` it takes API keys instead, in every environment.
 
 ## A server in about 20 lines
 
@@ -99,7 +99,7 @@ These are the values of <xref:A2A.Server.A2ALimits> and <xref:A2A.Server.AspNetC
 
 ### Local development
 
-<xref:A2A.Server.AspNetCore.A2ADevelopmentDefaultsExtensions.UseDevelopmentDefaults*> relaxes three defaults for local work: anonymous callers are let in, a request without the `A2A-Version` header (plain curl) is accepted, and errors carry exception text. Rate limiting and the limits stay on. The app refuses to start when the host environment is not Development, so wrap the call in `IsDevelopment()` when the same code runs elsewhere:
+<xref:A2A.Server.AspNetCore.A2ACallerPolicyExtensions.ConfigureForDevelopment*> relaxes three defaults for local work, in the Development environment only: anonymous callers are let in, a request without the `A2A-Version` header (plain curl) is accepted, and errors carry exception text. Rate limiting and the limits stay on. In any other environment it does nothing, so no environment check is needed. There, endpoints without authorization make the app refuse to start, and the error says that `ConfigureForDevelopment()` had no effect:
 
 [!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Development)]
 
@@ -163,7 +163,7 @@ The client sends a `ping`, streams a reply, follows a task with `ObserveTaskAsyn
 
 - The app does not start and the message mentions an authorization policy: call `RequireAuthorization()` on the result of `MapA2A`.
 - The client throws `UnsupportedOperation` on a streaming call: the agent's card says `Streaming = false`, or another SDK's agent leaves it unset.
-- A curl call is rejected: add the `A2A-Version: 1.0` header, or use `UseDevelopmentDefaults()` while you develop.
+- A curl call is rejected: add the `A2A-Version: 1.0` header, or use `ConfigureForDevelopment()` while you develop.
 
 ## See also
 

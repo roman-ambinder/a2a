@@ -136,9 +136,10 @@ public static partial class A2AEndpointRouteBuilderExtensions
     ///     Maps both bindings under one base URL: JSON-RPC at <c>POST {pattern}</c> and HTTP+JSON at
     ///     <c>{pattern}/message:send</c>,
     ///     <c>{pattern}/tasks/...</c>, etc. Declare both in the Agent Card with the same URL. Every endpoint is inside the
-    ///     returned group, so call <c>RequireAuthorization()</c> (or rate limiting, CORS) on it, or set
-    ///     <see cref="A2AEndpointOptions.AuthorizationPolicy" />. If no endpoint authorization is set and
-    ///     <see cref="A2AServerOptions.AllowAnonymous" /> is false, the app fails at startup. Unless
+    ///     returned group. Who may call is normally set on the A2A builder (<c>AddApiKeyAuthentication</c>,
+    ///     <c>AddBearerAuthentication</c>, <see cref="A2ACallerPolicyExtensions.RequirePolicy" />); <c>RequireAuthorization()</c>
+    ///     on the group works too. If the endpoints get no authorization and <see cref="A2AServerOptions.AllowAnonymous" />
+    ///     is false, the app fails at startup. Unless
     ///     <see cref="A2AEndpointOptions.MapAgentCard" /> is false, it also maps the public Agent Card (and JWKS) as
     ///     <see cref="MapAgentCard" /> does, on <paramref name="endpoints" /> and outside the returned group, so authorization
     ///     on the
@@ -176,7 +177,6 @@ public static partial class A2AEndpointRouteBuilderExtensions
         Record(endpoints, ProtocolBindings.JsonRpc, pattern);
         Record(endpoints, ProtocolBindings.HttpJson, pattern);
         ApplyRateLimiting(endpoints, group);
-        if (options.AuthorizationPolicy is { } policy) group.RequireAuthorization(policy);
         if (options.MapAgentCard && endpoints is not RouteGroupBuilder) endpoints.MapAgentCard();
         return group;
     }

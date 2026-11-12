@@ -10,3 +10,10 @@ static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.ConfigureRateLimitin
 *REMOVED*static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2A(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<A2A.Server.A2AServerBuilder!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 *REMOVED*static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2ADataProtectionPushSecrets(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 *REMOVED*static A2A.Server.AspNetCore.A2AServiceCollectionExtensions.ConfigureA2AHttp(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<A2A.Server.AspNetCore.A2AHttpOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+A2A.Server.AspNetCore.A2ACallerPolicyExtensions
+static A2A.Server.AspNetCore.A2ACallerPolicyExtensions.ConfigureForDevelopment(this A2A.Server.A2AServerBuilder! builder) -> A2A.Server.A2AServerBuilder!
+static A2A.Server.AspNetCore.A2ACallerPolicyExtensions.RequirePolicy(this A2A.Server.A2AServerBuilder! builder, string! policyName) -> A2A.Server.A2AServerBuilder!
+*REMOVED*A2A.Server.AspNetCore.A2ADevelopmentDefaultsExtensions
+*REMOVED*A2A.Server.AspNetCore.A2AEndpointOptions.AuthorizationPolicy.get -> string?
+*REMOVED*A2A.Server.AspNetCore.A2AEndpointOptions.AuthorizationPolicy.set -> void
+*REMOVED*static A2A.Server.AspNetCore.A2ADevelopmentDefaultsExtensions.UseDevelopmentDefaults(this A2A.Server.A2AServerBuilder! builder) -> A2A.Server.A2AServerBuilder!

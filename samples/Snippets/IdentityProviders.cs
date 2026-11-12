@@ -57,13 +57,14 @@ internal static class Samples
             .AddAgentExecutor<HelloAgent>()
             .AddAgentCard(new AgentCard { Name = "My Agent", Description = "Says hello.", Version = "1.0.0" })
             // The card declares the bearer scheme, so clients know to send a token; "Bearer" is AddJwtBearer's scheme.
-            .AddBearerAuthentication());
+            .AddBearerAuthentication()
+            .RequirePolicy("A2ACaller"));   // and the caller must have the Agent.Invoke role
         builder.Services.AddSingleton<IPrincipalResolver, EntraPrincipalResolver>();
 
         var app = builder.Build();
         app.UseAuthentication();
         app.UseAuthorization();
-        app.MapA2A("/a2a", o => o.AuthorizationPolicy = "A2ACaller");
+        app.MapA2A("/a2a");
         #endregion
     }
 

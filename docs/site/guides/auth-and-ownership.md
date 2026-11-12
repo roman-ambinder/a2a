@@ -6,7 +6,13 @@ The A2A server does not log callers in. Your ASP.NET Core app does that. The ser
 
 [!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#Protect)]
 
-`MapA2A` returns a route group. Call `.RequireAuthorization()` on it, or set <xref:A2A.Server.AspNetCore.A2AEndpointOptions.AuthorizationPolicy> as above. The Agent Card endpoints are mapped outside the group and stay anonymous.
+Who may call is set in one place, on the A2A builder. Each of these applies to every A2A endpoint that has no authorization of its own, so `MapA2A` needs no `RequireAuthorization()`:
+
+- <xref:A2A.Server.AspNetCore.A2ACallerPolicyExtensions.RequirePolicy*>: an ASP.NET Core authorization policy you register, as above. The app refuses to start when the policy is not registered. Several calls require all the policies.
+- `AddApiKeyAuthentication()`, `AddBearerAuthentication()` or `AddCardAuthentication(...)`: a caller authenticated by a scheme the card declares (see below).
+- Anonymous callers on purpose: `Configure(o => o.AllowAnonymous = true)`, or <xref:A2A.Server.AspNetCore.A2ACallerPolicyExtensions.ConfigureForDevelopment*> while you develop.
+
+`MapA2A` returns a route group, and `.RequireAuthorization(...)` on it works as in any ASP.NET Core app. Authorization on an endpoint or an outer group replaces the builder's policy there. The Agent Card endpoints are mapped outside the group and stay anonymous.
 
 If A2A endpoints have no authorization, the app does not start. The check is fail closed:
 
@@ -27,7 +33,7 @@ What it does:
 - **One owner per caller.** Each key is registered under a caller id. The task owner is `apikey:` and the id, so callers never see each other's tasks, and an API-key caller never shares tasks with a JWT user whose `sub` happens to be the same. Several keys may share a caller id, for rotation.
 - **The card.** The scheme is added to the card's `securitySchemes` and `securityRequirements`, so `AddApiKey` on the client and the `a2a` tool know to send the key, and in which header.
 - **Tenants.** A key registered with tenants may only call those tenants, on every binding. The key's caller gets one <xref:A2A.Server.A2AClaimTypes.Tenant> claim per tenant, and the server refuses a call to any other tenant like every other denial: a task-scoped call looks like a missing task, the rest is `PermissionDenied` (`permission`: `tenant`), and the audit trail records `TenantNotAllowed`. See [Multi-tenancy](multi-tenancy.md).
-- **Protection by default.** Every A2A endpoint that has no authorization of its own gets the policy `A2ACardSchemes` (a caller authenticated by any declared scheme, API keys among them), so `MapA2A` needs no `RequireAuthorization()`. To take only API keys on an endpoint, write a policy with `p.AddAuthenticationSchemes(A2AApiKeyOptions.SchemeName).RequireAuthenticatedUser()`. An endpoint with its own authorization (`RequireAuthorization(...)`, `AuthorizationPolicy`, also on an outer group) keeps it unchanged.
+- **Protection by default.** Every A2A endpoint that has no authorization of its own gets the policy `A2ACardSchemes` (a caller authenticated by any declared scheme, API keys among them), so `MapA2A` needs no `RequireAuthorization()`. To take only API keys on an endpoint, write a policy with `p.AddAuthenticationSchemes(A2AApiKeyOptions.SchemeName).RequireAuthenticatedUser()`. An endpoint with its own authorization (`RequireAuthorization(...)`, also on an outer group) keeps it unchanged.
 
 ### Keys are stored as hashes
 

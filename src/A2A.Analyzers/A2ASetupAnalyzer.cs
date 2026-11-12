@@ -24,7 +24,7 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
     /// <summary>A2A0002: the mapped endpoints have no authorization.</summary>
     public static readonly DiagnosticDescriptor NoAuthorization = new(
         "A2A0002", "A2A endpoints need authorization",
-        "'{0}' maps A2A endpoints without authorization; the app refuses to start. Add .RequireAuthorization(), set o.AuthorizationPolicy, call AddApiKeyAuthentication() or AddBearerAuthentication() on the A2A builder, or allow anonymous callers on purpose (A2AServerOptions.AllowAnonymous or UseDevelopmentDefaults()).",
+        "'{0}' maps A2A endpoints without authorization; the app refuses to start. Call AddApiKeyAuthentication(), AddBearerAuthentication() or RequirePolicy(...) on the A2A builder, add .RequireAuthorization(), or allow anonymous callers on purpose (A2AServerOptions.AllowAnonymous or ConfigureForDevelopment()).",
         "A2A.Hosting", DiagnosticSeverity.Warning, true,
         "A2A endpoints refuse anonymous access unless the host opts in.",
         "https://roman-ambinder.github.io/a2a/guides/auth-and-ownership.html",
@@ -38,7 +38,7 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
     ///     any other code names one, the method is left to the end-of-build check.
     /// </summary>
     private static readonly ImmutableHashSet<string> LiftingNames = ImmutableHashSet.Create(StringComparer.Ordinal,
-        "UseDevelopmentDefaults", "AddApiKeyAuthentication", "AddCardAuthentication", "AddBearerAuthentication",
+        "ConfigureForDevelopment", "AddApiKeyAuthentication", "AddCardAuthentication", "AddBearerAuthentication", "RequirePolicy",
         "AllowAnonymous", "FallbackPolicy", "A2AServerOptions");
 
     private static readonly ImmutableHashSet<string> HostingTypes = ImmutableHashSet.Create(StringComparer.Ordinal,
@@ -121,11 +121,11 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
                 var ns = method.ContainingNamespace?.ToDisplayString();
                 switch (method.Name)
                 {
-                    case "UseDevelopmentDefaults" when ns == "A2A.Server.AspNetCore":
+                    case "ConfigureForDevelopment" when ns == "A2A.Server.AspNetCore":
                         state.AnonymousOptIn = anonymousOptIn = true;
                         break;
                     case "AddApiKeyAuthentication" or "AddCardAuthentication" or "AddBearerAuthentication"
-                        when ns == "A2A.Server.AspNetCore":
+                        or "RequirePolicy" when ns == "A2A.Server.AspNetCore":
                         // its policy goes on every A2A endpoint without authorization
                         state.AuthorizedByDefault = authorizedByDefault = true;
                         break;
@@ -164,16 +164,12 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
 
     /// <summary>
     ///     True when the mapped endpoints get authorization that can be seen here: a chained <c>RequireAuthorization()</c>,
-    ///     a call on the local that holds the result, an options lambda that sets <c>AuthorizationPolicy</c>, or a receiver
-    ///     that is itself a route group (which may carry the policy).
+    ///     a call on the local that holds the result, or a receiver that is itself a route group (which may carry the
+    ///     policy).
     /// </summary>
     private static bool IsAuthorized(IInvocationOperation map, HashSet<ILocalSymbol> requireAuthorizationReceivers)
     {
         if (Receiver(map)?.Type?.Name == "RouteGroupBuilder") return true;
-        foreach (var argument in map.Arguments)
-            if (argument.Value.DescendantsAndSelf().OfType<ISimpleAssignmentOperation>().Any(a =>
-                    a.Target is IPropertyReferenceOperation { Property.Name: "AuthorizationPolicy" }))
-                return true;
 
         IOperation current = map;
         while (current.Parent is { } parent)

@@ -83,7 +83,7 @@ class MyAgent : IAgentExecutor
 
 This code is the compiled snippet in [samples/Snippets/GettingStarted.cs](samples/Snippets/GettingStarted.cs). What you get with no other configuration:
 
-- **Secure by default.** Without `.RequireAuthorization()` (or an authorization policy) the app refuses to start. For local experiments, `UseDevelopmentDefaults()` allows anonymous callers in Development only. See [Getting started](docs/site/guides/getting-started.md) and [Authentication and ownership](docs/site/guides/auth-and-ownership.md).
+- **Secure by default.** Without a caller policy on the builder (`RequirePolicy`, `AddApiKeyAuthentication`, `AddBearerAuthentication`) or `.RequireAuthorization()`, the app refuses to start. For local experiments, `ConfigureForDevelopment()` allows anonymous callers in Development only. See [Getting started](docs/site/guides/getting-started.md) and [Authentication and ownership](docs/site/guides/auth-and-ownership.md).
 - **Limits and rate limiting** are on, with defaults you can change. See [Limits and rate limiting](docs/site/guides/limits-and-rate-limiting.md).
 - **In-memory stores.** Tasks are lost on restart. For production, see [Durable stores](docs/site/guides/durable-stores.md) and the [Production checklist](docs/site/guides/production-checklist.md).
 

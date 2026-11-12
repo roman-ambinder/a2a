@@ -72,9 +72,9 @@ internal static class Samples
         builder.Services.AddA2A(a =>
         {
             a.AddAgentExecutor<MyAgent>();
-            // Anonymous callers, curl without the A2A-Version header, exception text in errors. Development only:
-            // in any other environment the app refuses to start.
-            if (builder.Environment.IsDevelopment()) a.UseDevelopmentDefaults();
+            // In Development: anonymous callers, curl without the A2A-Version header, exception text in errors.
+            // In any other environment it does nothing, so the endpoints need their usual authorization.
+            a.ConfigureForDevelopment();
         });
         #endregion
     }

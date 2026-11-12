@@ -71,7 +71,7 @@ public class SetupAnalyzerTests
 
     [Theory]
     [InlineData("var a2a = app.MapA2A(\"/a2a\");\nif (!app.Environment.IsDevelopment()) a2a.RequireAuthorization();")]
-    [InlineData("app.MapA2A(\"/a2a\", o => o.AuthorizationPolicy = \"agents\");")]
+    [InlineData("app.MapA2A(\"/a2a\").RequireAuthorization(\"agents\");")]
     [InlineData("app.MapA2A(\"/a2a\").WithName(\"a2a\").RequireAuthorization();")]
     [InlineData("app.MapGroup(\"/api\").RequireAuthorization().MapA2A(\"/a2a\");")]
     public async Task Visible_authorization_is_accepted(string mapping) =>
@@ -79,7 +79,9 @@ public class SetupAnalyzerTests
 
     [Theory]
     [InlineData("builder.Services.Configure<A2AServerOptions>(o => o.AllowAnonymous = true);")]
-    [InlineData("builder.Services.AddA2A(a => a.UseDevelopmentDefaults());")]
+    [InlineData("builder.Services.AddA2A(a => a.ConfigureForDevelopment());")]
+    [InlineData("builder.Services.AddA2A(a => a.RequirePolicy(\"agents\"));")]
+    [InlineData("builder.Services.AddA2A().Configure(o => o.AllowAnonymous = true);")]
     [InlineData("builder.Services.AddAuthorization(o => o.FallbackPolicy = null);")]
     [InlineData("builder.Services.AddA2A(a => a.AddApiKeyAuthentication());")]
     [InlineData("builder.Services.AddA2A(a => a.AddBearerAuthentication());")]
