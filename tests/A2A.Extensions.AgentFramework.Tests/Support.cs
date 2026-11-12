@@ -295,3 +295,45 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
         return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
     }
 }
+
+/// <summary>An <see cref="IA2AClient"/> whose answers the test scripts (copied from A2A.Extensions.AI.Tests). Used where the real server would hide the case (a task that stays working).</summary>
+public sealed class FakeTransport : IA2AClient
+{
+    public Func<SendMessageRequest, CancellationToken, Task<SendMessageResponse>> Send { get; set; } = (_, _) => throw new NotSupportedException();
+    public Func<SendMessageRequest, CancellationToken, IAsyncEnumerable<StreamResponse>> Stream { get; set; } = (_, _) => throw new NotSupportedException();
+    public Func<GetTaskRequest, CancellationToken, Task<AgentTask>> Get { get; set; } = (_, _) => throw new NotSupportedException();
+    public Func<CancelTaskRequest, CancellationToken, Task<AgentTask>> Cancel { get; set; } = (_, _) => throw new NotSupportedException();
+    public List<SendMessageRequest> Sent { get; } = [];
+
+    public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        lock (Sent) Sent.Add(request);
+        return Send(request, cancellationToken);
+    }
+
+    public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        lock (Sent) Sent.Add(request);
+        return Stream(request, cancellationToken);
+    }
+
+    public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => Get(request, cancellationToken);
+    public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => Cancel(request, cancellationToken);
+
+    public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+    public A2AClient AsClient(A2AClientOptions? options = null, AgentCard? card = null) => new(this, options, card);
+
+    public static AgentTask TaskIn(TaskState state, string id = "t1", string contextId = "c1", Message? message = null, List<Artifact>? artifacts = null) => new()
+    {
+        Id = id, ContextId = contextId, Status = new AgentTaskStatus { State = state, Message = message }, Artifacts = artifacts,
+    };
+
+    public static SendMessageResponse Respond(AgentTask task) => new TaskResponse(task);
+}

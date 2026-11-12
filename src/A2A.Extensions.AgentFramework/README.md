@@ -2,8 +2,9 @@
 
 Microsoft Agent Framework support for A2A. NuGet ID: `RomanAmbinder.A2A.Extensions.AgentFramework`.
 
-**Status: in development, experimental (`A2AEXP006`).** Hosting an `AIAgent` works: stateless, with stored sessions, and
-with bound tool approvals. The client side (a remote A2A agent as an `AIAgent`) is not done yet. The design is in
+**Status: in development, experimental (`A2AEXP006`).** Hosting an `AIAgent` works (stateless, with stored sessions,
+with bound tool approvals), and so does using a remote A2A agent as an `AIAgent`. Background responses
+(`AllowBackgroundResponses`) are not done yet: a run waits for the remote task, as without them. The design is in
 [docs/superpowers/specs/2026-11-12-agent-framework-adapter-design.md](../../docs/superpowers/specs/2026-11-12-agent-framework-adapter-design.md).
 
 ## Host an AIAgent as an A2A agent
@@ -86,6 +87,28 @@ When the agent asks to approve a tool call (it streams a `ToolApprovalRequestCon
 - Only the first request of a run is asked.
 - The request is answered only for the task that asked and the hash it showed. A new task in the context, or an older copy
   of the session from the store, drops the request without answering it.
+
+## Use a remote A2A agent as an AIAgent
+
+```csharp
+var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), httpClient);
+AIAgent weather = client.AsAIAgent(new A2AAIAgentOptions { Name = "weather", Description = "Forecasts" });
+
+var session = await weather.CreateSessionAsync();
+var reply = await weather.RunAsync("Weather in Paris?", session);
+```
+
+- It sends through `A2AChatClient` (`A2A.Extensions.AI`), with the same rules: only the trailing run of user messages is
+  sent, merged into one A2A message; system and tool messages are never sent; a response holds this turn's content only.
+- `A2ARemoteAgentSession` keeps the remote context id, and the task id while the remote task waits for input
+  (`input-required`, `auth-required`). The next run with the same session continues the conversation, or that task. It
+  serializes to `{"contextId":…,"taskId":…}` and refuses any other JSON; its `StateBag` is not kept. Without a session each
+  run is a new conversation.
+- Responses and updates carry `A2AAgentKeys.TaskId` and `A2AAgentKeys.TaskState` in `AdditionalProperties`.
+- A failed, rejected or canceled remote task throws `InvalidOperationException` with the state only, not the remote text.
+- `Name`, `Description` and `Id` come only from `A2AAIAgentOptions`, never from the remote card: Agent Framework can put
+  them in front of a model, and a card is remote text. `GetService<AgentCard>()` returns the card when the client knows it.
+- The name is not `A2AAgent`, so it is not confused with Agent Framework's own `Microsoft.Agents.AI.A2A.A2AAgent`.
 
 ## Logs
 

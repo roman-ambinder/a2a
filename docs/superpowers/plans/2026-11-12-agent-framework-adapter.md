@@ -222,6 +222,14 @@ public sealed class A2AAIAgentOptions : A2ARemoteAgentOptions
 - Failed, rejected, canceled: the facade already throws `InvalidOperationException` with the state only; let it through.
 - No session passed: use a throwaway one (each run a new conversation), as AF agents do when called without a session. Check the base `RunAsync` behaviour in the XML docs; if the base creates a session itself, rely on that.
 
+Done in Task 7, with these notes:
+- `AgentResponseUpdate` has no `ConversationId`, so callers read the ids from the session; the session is updated on every streaming update (not only at the end), so a caller that stops reading early still has them.
+- The base `RunAsync` docs say a new session is made when none is passed but not where; `RunCoreAsync` makes a throwaway `A2ARemoteAgentSession` itself when given null.
+- `AllowBackgroundResponses` is ignored until Task 8 (a run waits for the remote task); the README says so.
+- `A2ARemoteAgentSession` has a public parameterless constructor (an `AgentSession` subclass) and internal setters.
+- `FakeTransport` is copied into the test project from `tests/A2A.Extensions.AI.Tests/Support.cs` (test projects do not share code).
+- Task 9's end-to-end case 1 (hosted `AIAgent` called with `AsAIAgent`, both bindings, unary and streaming) is already in `RemoteAgentTests`.
+
 **Tests (`RemoteAgentTests`, a fake `IA2AClient`/transport as in `tests/A2A.Extensions.AI.Tests/ChatClientFacadeTests.cs`):**
 1. Only trailing user messages are sent; system messages never.
 2. Session round trip: serialize → deserialize gives the same ids; extra property or a number value is refused.

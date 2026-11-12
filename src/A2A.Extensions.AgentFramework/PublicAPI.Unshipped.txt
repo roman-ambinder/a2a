@@ -1,6 +1,20 @@
 #nullable enable
 [A2AEXP006]A2A.Extensions.AgentFramework.A2AAIAgentBuilderExtensions
+[A2AEXP006]A2A.Extensions.AgentFramework.A2AAIAgentOptions
+[A2AEXP006]A2A.Extensions.AgentFramework.A2AAIAgentOptions.A2AAIAgentOptions() -> void
+[A2AEXP006]A2A.Extensions.AgentFramework.A2AAIAgentOptions.Description.get -> string?
+[A2AEXP006]A2A.Extensions.AgentFramework.A2AAIAgentOptions.Description.set -> void
+[A2AEXP006]A2A.Extensions.AgentFramework.A2AAIAgentOptions.Id.get -> string?
+[A2AEXP006]A2A.Extensions.AgentFramework.A2AAIAgentOptions.Id.set -> void
+[A2AEXP006]A2A.Extensions.AgentFramework.A2AAIAgentOptions.Name.get -> string?
+[A2AEXP006]A2A.Extensions.AgentFramework.A2AAIAgentOptions.Name.set -> void
 [A2AEXP006]A2A.Extensions.AgentFramework.A2AAgentKeys
+[A2AEXP006]A2A.Extensions.AgentFramework.A2AClientAgentExtensions
+[A2AEXP006]A2A.Extensions.AgentFramework.A2ARemoteAIAgent
+[A2AEXP006]A2A.Extensions.AgentFramework.A2ARemoteAgentSession
+[A2AEXP006]A2A.Extensions.AgentFramework.A2ARemoteAgentSession.A2ARemoteAgentSession() -> void
+[A2AEXP006]A2A.Extensions.AgentFramework.A2ARemoteAgentSession.ContextId.get -> string?
+[A2AEXP006]A2A.Extensions.AgentFramework.A2ARemoteAgentSession.TaskId.get -> string?
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutor
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutor.AIAgentExecutor(Microsoft.Agents.AI.AIAgent! agent, A2A.Extensions.AgentFramework.AIAgentExecutorOptions? options = null, Microsoft.Agents.AI.AgentSessionStore? sessions = null, Microsoft.Extensions.Logging.ILogger<A2A.Extensions.AgentFramework.AIAgentExecutor!>? logger = null) -> void
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutor.ExecuteAsync(A2A.Server.AgentRequestContext! context, A2A.Server.TaskUpdater! updater, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
@@ -38,4 +52,8 @@
 [A2AEXP006]const A2A.Extensions.AgentFramework.A2AAgentKeys.ReferenceTaskIds = "a2a.referenceTaskIds" -> string!
 [A2AEXP006]const A2A.Extensions.AgentFramework.A2AAgentKeys.TaskId = "a2a.taskId" -> string!
 [A2AEXP006]const A2A.Extensions.AgentFramework.A2AAgentKeys.TaskState = "a2a.taskState" -> string!
+[A2AEXP006]override A2A.Extensions.AgentFramework.A2ARemoteAIAgent.Description.get -> string?
+[A2AEXP006]override A2A.Extensions.AgentFramework.A2ARemoteAIAgent.GetService(System.Type! serviceType, object? serviceKey = null) -> object?
+[A2AEXP006]override A2A.Extensions.AgentFramework.A2ARemoteAIAgent.Name.get -> string?
 [A2AEXP006]static A2A.Extensions.AgentFramework.A2AAIAgentBuilderExtensions.AddAIAgent(this A2A.Server.A2AServerBuilder! builder, System.Action<A2A.Extensions.AgentFramework.AIAgentExecutorOptions!>? configure = null, object? serviceKey = null) -> A2A.Server.A2AServerBuilder!
+[A2AEXP006]static A2A.Extensions.AgentFramework.A2AClientAgentExtensions.AsAIAgent(this A2A.Client.A2AClient! client, A2A.Extensions.AgentFramework.A2AAIAgentOptions? options = null) -> A2A.Extensions.AgentFramework.A2ARemoteAIAgent!
