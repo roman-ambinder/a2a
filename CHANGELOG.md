@@ -39,6 +39,12 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - New `DeleteTaskAsync(taskId)` on any `IA2AClient` (`TaskDeletionClientExtensions`): calls the task-deletion extension
   operation of an agent that serves it.
 
+### Fixes
+
+- The ASP.NET Core health check failure log line has event id 1400 (was 1200). 1200 is the security event
+  information line of `A2A.Server`, so filtering logs by 1200 also matched failed health checks. A test now checks that
+  the client, server, ASP.NET Core and gRPC assemblies never share an event id.
+
 ### Documentation
 
 - Spec decisions: blocking and non-blocking SendMessage. The SDK follows §3.2.2 where it disagrees with §3.1.1 ("MUST
