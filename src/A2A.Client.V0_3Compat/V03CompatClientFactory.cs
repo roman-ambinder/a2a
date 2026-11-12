@@ -84,6 +84,10 @@ public static class V03CompatClientFactory
         // A card that offers v1.0 is never downgraded.
         if (A2AClientFactory.SelectInterface(card, options) is not null)
             return A2AClientFactory.Create(card, httpClient, options);
+        // RequireExactProtocolVersion forbids falling back to an older version (spec 3.6.3). A card whose v1.x interfaces
+        // the exact rule refused is not downgraded to v0.3 either: the v1 factory refuses it, naming those interfaces.
+        if (options.RequireExactProtocolVersion && A2AClientFactory.SelectableInterfaces(card, options).Any())
+            return A2AClientFactory.Create(card, httpClient, options);
 
         var selected = SelectV03Interface(card, options)
                        ?? throw new A2AException(A2AErrorCode.UnsupportedOperation,

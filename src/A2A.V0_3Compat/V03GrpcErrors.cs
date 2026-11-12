@@ -63,6 +63,11 @@ internal static class V03GrpcErrors
             PermissionDenied => A2AErrorCode.PermissionDenied,
             _ => A2AErrorCode.Internal
         };
-        return new A2AException(fallback, message.Length > 0 ? message : $"gRPC status {status}");
+        return new A2AException(fallback, message.Length > 0 ? message : $"gRPC status {status}")
+        {
+            // As on the v1 path (GrpcErrors): UNAVAILABLE is the gRPC form of HTTP 503, a dropped connection or a server
+            // that is restarting. A resumable stream then reconnects instead of ending.
+            HttpStatus = status == Unavailable ? 503 : null
+        };
     }
 }
