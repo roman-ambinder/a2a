@@ -67,7 +67,6 @@ builder.Services.AddA2A(a => a
 
 var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A();                               // rate limiting; the app refuses to start without it
 app.UseAuthorization();
 app.MapA2A("/a2a").RequireAuthorization();  // JSON-RPC and HTTP+JSON at /a2a, the Agent Card at /.well-known/agent-card.json
 
@@ -75,30 +74,43 @@ class MyAgent : IAgentExecutor
 {
     public async Task ExecuteAsync(AgentRequestContext ctx, TaskUpdater updater, CancellationToken ct)
     {
-        await updater.StartWorkAsync(cancellationToken: ct);
-        await updater.AddArtifactAsync([Part.FromText($"You said: {ctx.UserText}")], name: "answer", cancellationToken: ct);
-        await updater.CompleteAsync(cancellationToken: ct);
+        await updater.StartWorkAsync(ct);
+        await updater.AddArtifactAsync($"You said: {ctx.UserText}", "answer", ct);
+        await updater.CompleteAsync(ct);
     }
 }
 ```
 
-This code is the compiled snippet in [samples/Snippets/GettingStarted.cs](samples/Snippets/GettingStarted.cs). What you get with no other configuration:
+This code is the compiled snippet in [samples/Snippets/GettingStarted.cs](samples/Snippets/GettingStarted.cs). For an agent that only answers with text, a function is enough:
 
-- **Secure by default.** Without `.RequireAuthorization()` (or an authorization policy) the app refuses to start. For local experiments, `UseDevelopmentDefaults()` allows anonymous callers in Development only. See [Getting started](docs/site/guides/getting-started.md) and [Authentication and ownership](docs/site/guides/auth-and-ownership.md).
+```csharp
+builder.Services.AddA2A(a => a
+    .AddAgentCard("My Agent", "Says hello.")
+    .AddAgentExecutor(ctx => $"You said: {ctx.UserText}")
+    .RequirePolicy("callers"));   // who may call, for every A2A endpoint; then app.MapA2A("/a2a") needs nothing more
+```
+
+What you get with no other configuration:
+
+- **Secure by default.** Without a caller policy on the builder (`RequirePolicy`, `AddApiKeyAuthentication`, `AddBearerAuthentication`) or `.RequireAuthorization()`, the app refuses to start. For local experiments, `ConfigureForDevelopment()` allows anonymous callers in Development only. See [Getting started](docs/site/guides/getting-started.md) and [Authentication and ownership](docs/site/guides/auth-and-ownership.md).
 - **Limits and rate limiting** are on, with defaults you can change. See [Limits and rate limiting](docs/site/guides/limits-and-rate-limiting.md).
 - **In-memory stores.** Tasks are lost on restart. For production, see [Durable stores](docs/site/guides/durable-stores.md) and the [Production checklist](docs/site/guides/production-checklist.md).
 
 ## Call an agent
 
 ```csharp
-var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), httpClient);
+var client = await A2AClient.ConnectAsync("https://agent.example.com/");
 string answer = await client.AskAsync("hello"); // the reply's text; throws if the task does not complete
 
 await foreach (var chunk in client.StreamTextAsync("stream this"))
     Console.Write(chunk);
+
+var chat = client.StartConversation();               // multi-turn: the ids are kept for you
+var reply = await chat.SendAsync("book a flight");
+while (reply.NeedsInput) reply = await chat.SendAsync(Console.ReadLine() ?? "");
 ```
 
-The client reads the agent's card, picks a binding the card offers, and retries safe failures. For credentials (OAuth2, API keys, mutual TLS, Azure, AWS), see [Client credentials](docs/site/guides/client-credentials.md). For DI and named clients, see [samples/EchoClient](samples/EchoClient/Program.cs).
+`ConnectAsync` reads the agent's card, picks a binding the card offers, and uses an HTTP handler that keeps no cookies and follows no redirects. It retries safe failures. Credentials, card trust and client options go in its options: `ConnectAsync(url, o => o.Credentials.Add(new ApiKeyCredentialProvider(key)))`. For credentials (OAuth2, API keys, mutual TLS, Azure, AWS), see [Client credentials](docs/site/guides/client-credentials.md). For DI and named clients, see [samples/EchoClient](samples/EchoClient/Program.cs).
 
 ## Guides
 

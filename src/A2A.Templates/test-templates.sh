@@ -39,12 +39,12 @@ for t in a2a-agent a2a-chat-agent; do
   dotnet build "$WORK/$t-apikey" -c Release --configfile "$WORK/nuget.config" -v quiet -nologo
 done
 
-# The analyzers ship in A2A.Server.AspNetCore: a host without UseA2A() gets A2A0001 at build time.
+# The analyzer ships in A2A.Server.AspNetCore: a host whose endpoints have no authorization gets A2A0002 at build time.
 cp -r "$WORK/a2a-agent" "$WORK/broken-agent"
 rm -rf "$WORK/broken-agent/bin" "$WORK/broken-agent/obj"
-sed -i.bak '/app.UseA2A();/d' "$WORK/broken-agent/Program.cs"
-if ! dotnet build "$WORK/broken-agent" -c Release --configfile "$WORK/nuget.config" -nologo 2>&1 | grep -q "warning A2A0001"; then
-  echo "FAIL: the A2A analyzers did not report A2A0001 for a host without UseA2A()"
+sed -i.bak -e '/ConfigureForDevelopment()/d' -e '/AddBearerAuthentication()/d' "$WORK/broken-agent/Program.cs"
+if ! dotnet build "$WORK/broken-agent" -c Release --configfile "$WORK/nuget.config" -nologo 2>&1 | grep -q "warning A2A0002"; then
+  echo "FAIL: the A2A analyzer did not report A2A0002 for a host without authorization"
   exit 1
 fi
 
@@ -93,4 +93,4 @@ if ASPNETCORE_ENVIRONMENT=Production timeout 60 dotnet run --project "$WORK/a2a-
   cat "$WORK/prod.log"; echo "FAIL: the production agent started without an authentication scheme"; exit 1
 fi
 grep -q "AddJwtBearer" "$WORK/prod.log" || { cat "$WORK/prod.log"; echo "FAIL: the production agent did not say what to add"; exit 1; }
-echo "OK: templates build (also --auth apikey), API-key agents refuse a client without the key and answer one with it, the analyzers report a missing UseA2A(), both agents answer the client in Development, and in Production an agent without a scheme refuses to start."
+echo "OK: templates build (also --auth apikey), API-key agents refuse a client without the key and answer one with it, the analyzer reports endpoints without authorization, both agents answer the client in Development, and in Production an agent without a scheme refuses to start."

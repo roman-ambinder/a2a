@@ -36,7 +36,6 @@ public class BearerCardAuthenticationTests
         builder.Services.ConfigureA2AHttp(h => h.PublicBaseUrl = new Uri("http://localhost"));
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         if (map is null) app.MapA2A("/a2a"); // no RequireAuthorization: the declared schemes protect it
         else map(app);

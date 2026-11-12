@@ -153,7 +153,7 @@ public sealed class InMemoryPushTaskStore : IPushTaskStore
 /// </summary>
 /// <remarks>
 ///     "Final" means the task is terminal or interrupted (input or auth required), as in
-///     <see cref="A2AClient.WaitForTaskAsync" />:
+///     <see cref="A2AClientExtensions.WaitForTaskAsync" />:
 ///     no more notifications come until you act. The entry is then removed. After a check that finds the task still
 ///     running, the
 ///     next deadline is the registered timeout from now. A failed <c>GetTask</c> is reported with

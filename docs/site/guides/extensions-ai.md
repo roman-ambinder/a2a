@@ -18,7 +18,7 @@ Register an `IChatClient`, then call <xref:A2A.Extensions.AI.A2AChatClientAgentB
 
 The reply streams to the caller as chunks of one artifact. The first chunk carries the artifact name (`response` by default), and the last one has `lastChunk` set. The task ends as `COMPLETED`.
 
-`AddChatClientAgent` registers a scoped executor and replaces any executor registered before. It reads the `IChatClient` from DI. To use a keyed client, pass `serviceKey`:
+`AddChatClientAgent` registers a scoped executor and replaces any executor registered before. Pass the `IChatClient` itself, as above, or leave it out to read it from DI (registered with `AddSingleton`, or with your provider's own registration). The options' reply, history and security settings are on <xref:A2A.Extensions.AI.A2AModelAgentOptions>, shared with `AddAIAgent`. To use a keyed client, pass `serviceKey`:
 
 [!code-csharp[](../../../samples/Snippets/ExtensionsAI.cs#HostKeyed)]
 

@@ -15,12 +15,6 @@ public sealed class A2AEndpointOptions
     /// </summary>
     public bool MapAgentCard { get; set; } = true;
 
-    /// <summary>
-    ///     The name of an ASP.NET Core authorization policy to require on the A2A endpoints (not on the card). Null:
-    ///     none.
-    /// </summary>
-    public string? AuthorizationPolicy { get; set; }
-
     /// <summary>Optional protocol adapter (v0.3 compatibility). Set by the compat package. Null: v1.0 only.</summary>
     internal IA2AProtocolAdapter? ProtocolAdapter { get; set; }
 }

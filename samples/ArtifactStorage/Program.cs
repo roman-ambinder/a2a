@@ -54,7 +54,7 @@ var card = new AgentCard
 
 builder.Services.AddA2A(a => a.AddAgentExecutor<FileAgent>().AddAgentCard(card)
         .AddApiKeyAuthentication(o => o.Add("file-client", apiKey.Hash)))
-    .Configure<A2AServerOptions>(o =>
+    .Configure(o =>
     {
         // The base of every artifact link: the origin clients send their credentials to (the agent's).
         o.ArtifactStorage.PublicBaseUrl = new Uri($"{agentUrl}/a2a");
@@ -103,7 +103,6 @@ app.Use(async (http, next) =>
     if (http.Request.Path.StartsWithSegments("/a2a/artifacts")) artifactStatus = http.Response.StatusCode;
 });
 app.UseAuthentication();
-app.UseA2A();
 app.UseAuthorization();
 #region Map
 app.MapA2A("/a2a");
@@ -196,7 +195,7 @@ internal sealed class FileAgent : IAgentExecutor
 
     public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken)
     {
-        await updater.StartWorkAsync(cancellationToken: cancellationToken);
+        await updater.StartWorkAsync(cancellationToken);
         await using var file = new MemoryStream(Content());
         // One sealed artifact with one url part. The part metadata gets the object's size and sha256.
         await updater.AddArtifactFromStreamAsync(file, "application/octet-stream", name: "data.bin",

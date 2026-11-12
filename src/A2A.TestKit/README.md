@@ -15,7 +15,7 @@ Test tools for A2A (Agent2Agent) agents. They work with any test framework: a fa
 ```csharp
 await using var host = await A2ATestHost.StartAsync(async (context, updater, ct) =>
 {
-    await updater.StartWorkAsync(cancellationToken: ct);
+    await updater.StartWorkAsync(ct);
     await updater.CompleteAsync("done", ct);
 });
 var client = host.CreateClient();

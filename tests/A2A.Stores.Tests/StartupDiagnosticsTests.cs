@@ -17,7 +17,7 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
 {
     private const string EphemeralProtector = "EphemeralPushSecretProtector";
     private const string LocalCoordinator = "InMemoryExecutionCoordinator";
-    private const string RetentionOff = "AddA2ARetention";
+    private const string RetentionOff = "AddRetention()";
 
     private static async Task<List<(LogLevel Level, string Message)>> StartAsync(Action<IServiceCollection> configure)
     {
@@ -49,7 +49,7 @@ public sealed class StartupDiagnosticsTests(PostgresFixture db, RedisFixture red
         var entry = Assert.Single(logs, e => e.Message.Contains(EphemeralProtector, StringComparison.Ordinal));
         Assert.Equal(LogLevel.Error, entry.Level);
         Assert.Contains("dead-lettered", entry.Message, StringComparison.Ordinal);
-        Assert.Contains("AddA2ADataProtectionPushSecrets", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("AddDataProtectionPushSecrets", entry.Message, StringComparison.Ordinal);
     }
 
     /// <summary>A durable task store with the process-local coordinator: a crash leaves the running tasks unrecovered.</summary>

@@ -144,7 +144,7 @@ public class RepeatCancelTests
         Assert.Contains("original", ex.Message);
     }
 
-    private sealed class StubTransport : IA2AClient
+    private sealed class StubTransport : IA2ATransport
     {
         public Func<AgentTask>? Cancel { get; init; }
         public Func<AgentTask>? Get { get; init; }

@@ -36,9 +36,8 @@ builder.Services.AddA2A(a => a.AddAgentExecutor<BillingAgent>().AddAgentCard(new
         DefaultOutputModes = ["text/plain"],
         Skills = [new AgentSkill { Id = "invoice", Name = "Invoice", Description = "Invoices an order", Tags = ["billing"] }]
     }))
-    .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+    .Configure(o => o.AllowAnonymous = true);
 var app = builder.Build();
-app.UseA2A();
 app.MapA2A("/a2a");
 await app.StartAsync();
 Console.WriteLine("Billing agent listening on http://127.0.0.1:5390/a2a");
@@ -201,7 +200,7 @@ internal sealed class BillingAgent(Invoices invoices) : IAgentExecutor
     {
         var orderId = context.UserText.Split(' ').Last();
         invoices.Add(orderId);
-        await updater.StartWorkAsync(cancellationToken: cancellationToken);
+        await updater.StartWorkAsync(cancellationToken);
         await updater.CompleteAsync($"Invoiced {orderId}.", cancellationToken);
     }
 }

@@ -32,5 +32,5 @@ public interface IA2ATransportFactory
     ///     Creates the transport. <paramref name="options" /> is the client's copy, already holding the interface's
     ///     tenant and version.
     /// </summary>
-    IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options);
+    IA2ATransport Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options);
 }

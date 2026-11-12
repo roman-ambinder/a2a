@@ -8,12 +8,12 @@ using Microsoft.CodeAnalysis.Operations;
 namespace A2A.Analyzers;
 
 /// <summary>
-///     Finds A2A hosting mistakes at build time that the app would otherwise report only when it starts: endpoints mapped
-///     without <c>UseA2A()</c> (A2A0001), endpoints without authorization (A2A0002), and <c>UseA2A()</c> in the wrong place
-///     of the middleware pipeline (A2A0003).
+///     Finds an A2A hosting mistake at build time that the app would otherwise report only when it starts: endpoints
+///     without authorization (A2A0002). A2A0001 and A2A0003 were about <c>UseA2A()</c>, which no longer exists: the rate
+///     limit runs inside the A2A endpoints.
 /// </summary>
 /// <remarks>
-///     A2A0001 and A2A0002 can depend on code anywhere in the project, so they are normally reported at the end of the
+///     A2A0002 can depend on code anywhere in the project, so it is normally reported at the end of the
 ///     build, which IDEs do not run while you type. When one method creates the app, maps the endpoints and calls none of
 ///     your own methods with the app, its builder or its services, and no other code names anything that could change the
 ///     answer, they are reported from that method instead, so the IDE shows them as you type.
@@ -21,44 +21,25 @@ namespace A2A.Analyzers;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
 {
-    /// <summary>A2A0001: endpoints are mapped, but <c>UseA2A()</c> is never called.</summary>
-    public static readonly DiagnosticDescriptor MissingUseA2A = new(
-        "A2A0001", "A2A endpoints need UseA2A()",
-        "'{0}' maps A2A endpoints, but app.UseA2A() is never called; the app refuses to start without it. Call app.UseA2A() after UseAuthentication() and before UseAuthorization().",
-        "A2A.Hosting", DiagnosticSeverity.Warning, true,
-        "UseA2A() adds the per-caller rate limiter that the A2A endpoints rely on.",
-        "https://roman-ambinder.github.io/a2a/guides/getting-started.html#what-can-go-wrong",
-        WellKnownDiagnosticTags.CompilationEnd);
-
     /// <summary>A2A0002: the mapped endpoints have no authorization.</summary>
     public static readonly DiagnosticDescriptor NoAuthorization = new(
         "A2A0002", "A2A endpoints need authorization",
-        "'{0}' maps A2A endpoints without authorization; the app refuses to start. Add .RequireAuthorization(), set o.AuthorizationPolicy, call AddApiKeyAuthentication() or AddBearerAuthentication() on the A2A builder, or allow anonymous callers on purpose (A2AServerOptions.AllowAnonymous or UseDevelopmentDefaults()).",
+        "'{0}' maps A2A endpoints without authorization; the app refuses to start. Call AddApiKeyAuthentication(), AddBearerAuthentication() or RequirePolicy(...) on the A2A builder, add .RequireAuthorization(), or allow anonymous callers on purpose (A2AServerOptions.AllowAnonymous or ConfigureForDevelopment()).",
         "A2A.Hosting", DiagnosticSeverity.Warning, true,
         "A2A endpoints refuse anonymous access unless the host opts in.",
         "https://roman-ambinder.github.io/a2a/guides/auth-and-ownership.html",
         WellKnownDiagnosticTags.CompilationEnd);
 
-    /// <summary>A2A0001 reported while you type, when one method holds the whole setup (see <see cref="IsSelfContained" />).</summary>
-    public static readonly DiagnosticDescriptor MissingUseA2ALive = Live(MissingUseA2A);
-
-    /// <summary>A2A0002 reported while you type, when one method holds the whole setup.</summary>
+    /// <summary>A2A0002 reported while you type, when one method holds the whole setup (see <see cref="IsSelfContained" />).</summary>
     public static readonly DiagnosticDescriptor NoAuthorizationLive = Live(NoAuthorization);
 
-    /// <summary>A2A0003: <c>UseA2A()</c> runs before authentication or after authorization.</summary>
-    public static readonly DiagnosticDescriptor UseA2AOrder = new(
-        "A2A0003", "UseA2A() is in the wrong place",
-        "Call UseA2A() {0}: the rate limiter partitions by caller, so it must run after authentication and before authorization",
-        "A2A.Hosting", DiagnosticSeverity.Warning, true,
-        null, "https://roman-ambinder.github.io/a2a/guides/limits-and-rate-limiting.html");
-
     /// <summary>
-    ///     Names that, outside the method being analyzed, may change its answer: a call or setting that lifts A2A0001 or
-    ///     A2A0002. When any other code names one, the method is left to the end-of-build check.
+    ///     Names that, outside the method being analyzed, may change its answer: a call or setting that lifts A2A0002. When
+    ///     any other code names one, the method is left to the end-of-build check.
     /// </summary>
     private static readonly ImmutableHashSet<string> LiftingNames = ImmutableHashSet.Create(StringComparer.Ordinal,
-        "UseA2A", "UseDevelopmentDefaults", "AddApiKeyAuthentication", "AddCardAuthentication", "AddBearerAuthentication",
-        "AllowAnonymous", "FallbackPolicy", "A2AServerOptions", "AddA2ARateLimiting", "A2ARateLimitOptions");
+        "ConfigureForDevelopment", "AddApiKeyAuthentication", "AddCardAuthentication", "AddBearerAuthentication", "RequirePolicy",
+        "AllowAnonymous", "FallbackPolicy", "A2AServerOptions");
 
     private static readonly ImmutableHashSet<string> HostingTypes = ImmutableHashSet.Create(StringComparer.Ordinal,
         "Microsoft.AspNetCore.Builder.WebApplication", "Microsoft.AspNetCore.Builder.WebApplicationBuilder",
@@ -71,7 +52,7 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
-        ImmutableArray.Create(MissingUseA2A, NoAuthorization, UseA2AOrder, MissingUseA2ALive, NoAuthorizationLive);
+        ImmutableArray.Create(NoAuthorization, NoAuthorizationLive);
 
     private static DiagnosticDescriptor Live(DiagnosticDescriptor d)
     {
@@ -96,21 +77,12 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
 
     private static void AnalyzeAssignment(ISimpleAssignmentOperation assignment, State state)
     {
-        switch (Classify(assignment))
-        {
-            case Setting.AnonymousOptIn:
-                state.AnonymousOptIn = true;
-                break;
-            case Setting.RateLimitOptOut:
-                state.RateLimitOptOut = true;
-                break;
-        }
+        if (Classify(assignment) == Setting.AnonymousOptIn) state.AnonymousOptIn = true;
     }
 
     /// <summary>
-    ///     What an assignment means for A2A0001/A2A0002. A constant value is taken at its word
-    ///     (<c>AllowAnonymous = false</c> opts nothing in, <c>Enabled = true</c> turns nothing off); any other value might
-    ///     be either, so it counts, to avoid warning about code that may be right.
+    ///     What an assignment means for A2A0002. A constant value is taken at its word (<c>AllowAnonymous = false</c> opts
+    ///     nothing in); any other value might be either, so it counts, to avoid warning about code that may be right.
     /// </summary>
     private static Setting Classify(ISimpleAssignmentOperation assignment)
     {
@@ -124,8 +96,6 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
                 isBool && !(bool)constant.Value! ? Setting.None : Setting.AnonymousOptIn,
             "FallbackPolicy" when type == "Microsoft.AspNetCore.Authorization.AuthorizationOptions" =>
                 Setting.AnonymousOptIn,
-            "Enabled" when type == "A2A.Server.AspNetCore.A2ARateLimitOptions" =>
-                isBool && (bool)constant.Value! ? Setting.None : Setting.RateLimitOptOut,
             _ => Setting.None
         };
     }
@@ -134,18 +104,14 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
     {
         foreach (var root in context.OperationBlocks)
         {
-            IInvocationOperation? useA2A = null, useAuthentication = null, useAuthorization = null;
-            bool createsApp = false, callsOwnHostingCode = false, anonymousOptIn = false, authorizedByDefault = false,
-                rateLimitOptOut = false;
+            bool createsApp = false, callsOwnHostingCode = false, anonymousOptIn = false, authorizedByDefault = false;
             var maps = new List<IInvocationOperation>();
             var requireAuthorizationReceivers = new HashSet<ILocalSymbol>(SymbolEqualityComparer.Default);
             foreach (var op in root.DescendantsAndSelf())
             {
                 if (op is ISimpleAssignmentOperation assignment)
                 {
-                    var setting = Classify(assignment);
-                    anonymousOptIn |= setting == Setting.AnonymousOptIn;
-                    rateLimitOptOut |= setting == Setting.RateLimitOptOut;
+                    anonymousOptIn |= Classify(assignment) == Setting.AnonymousOptIn;
                     continue;
                 }
 
@@ -155,27 +121,17 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
                 var ns = method.ContainingNamespace?.ToDisplayString();
                 switch (method.Name)
                 {
-                    case "UseA2A" when ns == "A2A.Server.AspNetCore":
-                        useA2A ??= invocation;
-                        state.UsesA2A = true;
-                        break;
-                    case "UseDevelopmentDefaults" when ns == "A2A.Server.AspNetCore":
+                    case "ConfigureForDevelopment" when ns == "A2A.Server.AspNetCore":
                         state.AnonymousOptIn = anonymousOptIn = true;
                         break;
                     case "AddApiKeyAuthentication" or "AddCardAuthentication" or "AddBearerAuthentication"
-                        when ns == "A2A.Server.AspNetCore":
+                        or "RequirePolicy" when ns == "A2A.Server.AspNetCore":
                         // its policy goes on every A2A endpoint without authorization
                         state.AuthorizedByDefault = authorizedByDefault = true;
                         break;
                     case "CreateBuilder" or "CreateSlimBuilder" or "CreateEmptyBuilder"
                         when method.ContainingType?.ToDisplayString() == "Microsoft.AspNetCore.Builder.WebApplication":
                         createsApp = true;
-                        break;
-                    case "UseAuthentication" when ns == "Microsoft.AspNetCore.Builder":
-                        useAuthentication ??= invocation;
-                        break;
-                    case "UseAuthorization" when ns == "Microsoft.AspNetCore.Builder":
-                        useAuthorization ??= invocation;
                         break;
                     case "RequireAuthorization":
                         if (Receiver(invocation) is ILocalReferenceOperation { Local: var local })
@@ -193,47 +149,27 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
                 // The whole setup is here: report now, so the IDE shows it while you type. The end-of-build check
                 // never sees these maps, so nothing is reported twice.
                 foreach (var map in maps)
-                {
-                    if (useA2A is null && !rateLimitOptOut)
-                        context.ReportDiagnostic(Diagnostic.Create(MissingUseA2ALive, map.Syntax.GetLocation(),
-                            Name(map.Syntax.GetLocation())));
                     if (!anonymousOptIn && !authorizedByDefault && !IsAuthorized(map, requireAuthorizationReceivers))
                         context.ReportDiagnostic(Diagnostic.Create(NoAuthorizationLive, map.Syntax.GetLocation(),
                             map.TargetMethod.Name));
-                }
 
                 maps.Clear();
             }
 
             foreach (var map in maps)
-            {
-                state.Maps.Add(map.Syntax.GetLocation());
                 if (!IsAuthorized(map, requireAuthorizationReceivers))
                     state.Unauthorized.Add((map.Syntax.GetLocation(), map.TargetMethod.Name));
-            }
-
-            if (useA2A is null) continue;
-            if (useAuthorization is not null && useA2A.Syntax.SpanStart > useAuthorization.Syntax.SpanStart)
-                context.ReportDiagnostic(Diagnostic.Create(UseA2AOrder, useA2A.Syntax.GetLocation(),
-                    "before UseAuthorization()"));
-            else if (useAuthentication is not null && useA2A.Syntax.SpanStart < useAuthentication.Syntax.SpanStart)
-                context.ReportDiagnostic(Diagnostic.Create(UseA2AOrder, useA2A.Syntax.GetLocation(),
-                    "after UseAuthentication()"));
         }
     }
 
     /// <summary>
     ///     True when the mapped endpoints get authorization that can be seen here: a chained <c>RequireAuthorization()</c>,
-    ///     a call on the local that holds the result, an options lambda that sets <c>AuthorizationPolicy</c>, or a receiver
-    ///     that is itself a route group (which may carry the policy).
+    ///     a call on the local that holds the result, or a receiver that is itself a route group (which may carry the
+    ///     policy).
     /// </summary>
     private static bool IsAuthorized(IInvocationOperation map, HashSet<ILocalSymbol> requireAuthorizationReceivers)
     {
         if (Receiver(map)?.Type?.Name == "RouteGroupBuilder") return true;
-        foreach (var argument in map.Arguments)
-            if (argument.Value.DescendantsAndSelf().OfType<ISimpleAssignmentOperation>().Any(a =>
-                    a.Target is IPropertyReferenceOperation { Property.Name: "AuthorizationPolicy" }))
-                return true;
 
         IOperation current = map;
         while (current.Parent is { } parent)
@@ -261,7 +197,7 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
     }
 
     /// <summary>
-    ///     True when no code outside <paramref name="block" /> names anything that could lift A2A0001 or A2A0002 (see
+    ///     True when no code outside <paramref name="block" /> names anything that could lift A2A0002 (see
     ///     <see cref="LiftingNames" />), so the method's own calls decide. A token scan, done once per syntax tree.
     /// </summary>
     private static bool IsSelfContained(Compilation compilation, SyntaxNode block, State state)
@@ -339,37 +275,22 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
 
     private static void Report(CompilationAnalysisContext context, State state)
     {
-        if (!state.UsesA2A && !state.RateLimitOptOut)
-            foreach (var location in state.Maps)
-                context.ReportDiagnostic(Diagnostic.Create(MissingUseA2A, location, Name(location)));
         if (state.AnonymousOptIn || state.AuthorizedByDefault) return;
         foreach (var (location, method) in state.Unauthorized)
             context.ReportDiagnostic(Diagnostic.Create(NoAuthorization, location, method));
     }
 
-    private static string Name(Location location)
-    {
-        var text = location.SourceTree?.GetText().ToString(location.SourceSpan) ?? "MapA2A";
-        var paren = text.IndexOf('(');
-        var dot = text.LastIndexOf('.', paren < 0 ? text.Length - 1 : paren);
-        return paren > dot ? text.Substring(dot + 1, paren - dot - 1) : "MapA2A";
-    }
-
     private enum Setting
     {
         None,
-        AnonymousOptIn,
-        RateLimitOptOut
+        AnonymousOptIn
     }
 
     private sealed class State
     {
         public readonly ConcurrentDictionary<SyntaxTree, bool> TreeNamesLifting = new();
-        public readonly ConcurrentBag<Location> Maps = new();
         public readonly ConcurrentBag<(Location Location, string Method)> Unauthorized = new();
         public volatile bool AnonymousOptIn;
         public volatile bool AuthorizedByDefault;
-        public volatile bool RateLimitOptOut;
-        public volatile bool UsesA2A;
     }
 }

@@ -280,7 +280,7 @@ public class GrpcTransportTests
     {
         public string ProtocolBinding => ProtocolBindings.Grpc;
         public bool CanCreate(AgentInterface agentInterface) => true;
-        public IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options) =>
+        public IA2ATransport Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options) =>
             new GrpcTransport(invokers[agentInterface.Url], options);
     }
 

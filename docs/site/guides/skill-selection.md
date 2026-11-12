@@ -43,17 +43,15 @@ The skills on the public card count. A skill that is only on the extended card c
 
 ## Client side
 
-Call `A2AClient.SelectSkill` and pass both the message and the returned options to the send method:
+Set `Skill` on the call's <xref:A2A.Client.A2ARequestOptions>:
 
 [!code-csharp[](../../../samples/Snippets/SkillSelection.cs#Client)]
 
-`SelectSkill` sets `metadata["skillId"]` on the message and adds the extension URI to the call's extensions. It changes the options you pass and returns them. With null, it makes new options. It works with any send method that takes a message or a request, streaming included. The `string text` overload builds its own message, so it does not fit.
-
-If you skip the returned options, the server never sees the extension and ignores the selection.
+The client sets `metadata["skillId"]` on the message and adds the extension URI to the call's extensions. Your options are not changed, so you can reuse them. It works with every send, streaming and the `string text` overload included.
 
 When `ValidateCapabilities` is on and the client knows the card, a skill that is not on the card fails at once with `InvalidParams`, and nothing is sent. The check is skipped when the card declares an extended card that the client has not loaded with `RefreshWithExtendedAgentCardAsync`, because the public list is then incomplete. The server decides in that case.
 
-`SelectSkill` does not require the card to declare the extension. A plain peer ignores the header and the key.
+`Skill` does not require the card to declare the extension. A plain peer ignores the header and the key.
 
 ## A hint, not authorization
 
@@ -61,11 +59,10 @@ The id comes from the caller. Treat it as untrusted text. Without `rejectUnknown
 
 ## What can go wrong
 
-- `RequestedSkillId` is always null. Your card does not declare `SkillSelection.CreateExtension()`, or the client did not pass the options from `SelectSkill`.
+- `RequestedSkillId` is always null. Your card does not declare `SkillSelection.CreateExtension()`, or the client did not set `Skill` on the call's options.
 - A skill is refused though it exists. It is only on the extended card, and the caller is anonymous or not allowed to call `GetExtendedAgentCard`.
 - An unknown id reaches your executor. `rejectUnknownSkills` is off. Branch on known ids and handle the rest.
-- `SelectSkill` throws `InvalidParams` before sending. The loaded card does not list the skill. Check the id, or load the extended card first.
-- `SelectSkill` throws `ArgumentException`. The skill id is null or empty.
+- A send with `Skill` throws `InvalidParams` before sending. The loaded card does not list the skill. Check the id, or load the extended card first.
 
 ## See also
 

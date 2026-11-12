@@ -25,10 +25,10 @@ public sealed class A2AAgentFunction : AIFunction
     private static readonly TimeSpan CancelTimeout = TimeSpan.FromSeconds(5);
     private static readonly JsonElement Schema = BuildSchema();
 
-    private readonly A2AClient _client;
+    private readonly IA2AClient _client;
     private readonly A2AAgentFunctionOptions _options;
 
-    internal A2AAgentFunction(A2AClient client, string name, string description, A2AAgentFunctionOptions options)
+    internal A2AAgentFunction(IA2AClient client, string name, string description, A2AAgentFunctionOptions options)
     {
         _client = client;
         Name = name;

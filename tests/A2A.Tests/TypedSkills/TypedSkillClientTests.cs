@@ -7,7 +7,7 @@ namespace A2A.Tests.TypedSkills;
 public class TypedSkillClientTests
 {
     /// <summary>Answers every send with a fixed response, as another SDK's agent might.</summary>
-    private sealed class FakeTransport(Func<SendMessageRequest, SendMessageResponse> send, Func<string, AgentTask>? get = null) : IA2AClient
+    private sealed class FakeTransport(Func<SendMessageRequest, SendMessageResponse> send, Func<string, AgentTask>? get = null) : IA2ATransport
     {
         public SendMessageRequest? Sent { get; private set; }
         public A2ARequestOptions? SentOptions { get; private set; }

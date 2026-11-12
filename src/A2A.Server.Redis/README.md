@@ -62,7 +62,7 @@ Registration rules:
   `RunningPollInterval` 1 s, `StreamCheckInterval` 30 s (how often an idle SubscribeToTask stream looks in the store,
   which finds events a lost bus message dropped; one small set of store reads per idle stream per interval). `LeaseTtl`
   must be longer than 2 x `Heartbeat`. An execution whose heartbeats lapse past `LeaseTtl` is treated as dead: with
-  `services.AddA2ARetention()` its task is marked `FAILED`. Without retention nobody recovers it.
+  `AddRetention()` on the A2A builder its task is marked `FAILED`. Without retention nobody recovers it.
 
 A runnable example with two instances is
 in [samples/MultiInstance](https://github.com/roman-ambinder/a2a/tree/main/samples/MultiInstance).

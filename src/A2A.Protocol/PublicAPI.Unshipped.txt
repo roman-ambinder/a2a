@@ -4,4 +4,8 @@ A2A.Deletion.TaskDeletion
 const A2A.Deletion.TaskDeletion.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/task-deletion/v1" -> string!
 const A2A.Deletion.TaskDeletion.IdParam = "id" -> string!
 const A2A.Deletion.TaskDeletion.Method = "a2a.tasks.delete" -> string!
+A2A.SendMessageResponse.ContextId.get -> string?
+A2A.SendMessageResponse.State.get -> A2A.TaskState?
+A2A.SendMessageResponse.TaskId.get -> string?
+A2A.StreamResponse.ContextId.get -> string?
 const A2A.A2AProtocol.LegacyAgentCardPath = "/.well-known/agent.json" -> string!

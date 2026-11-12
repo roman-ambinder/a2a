@@ -1,3 +1,4 @@
+using A2A.Server;
 using System.Security.Cryptography;
 using A2A.Client;
 using A2A.Client.Cards;
@@ -11,14 +12,14 @@ namespace Snippets.AgentCardSigning;
 
 internal static class Snippets
 {
-    public static void ServerKey(IServiceCollection services)
+    public static void ServerKey(A2AServerBuilder a)
     {
         #region ServerKey
         var ec = ECDsa.Create();
         ec.ImportFromPem(File.ReadAllText("card-signing-key.pem"));
         var signingKey = new AgentCardSigningKey(ec, "echo-1", "ES256", "https://agent.example.com/.well-known/jwks.json");
 
-        services.ConfigureA2AHttp(h => h.SigningKey = signingKey);
+        a.ConfigureHttp(h => h.SigningKey = signingKey);   // a: the builder of AddA2A
         #endregion
     }
 

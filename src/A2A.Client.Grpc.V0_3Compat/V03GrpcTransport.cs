@@ -19,7 +19,7 @@ namespace A2A.Client.Grpc.V0_3Compat;
 ///     and retries an idempotent call that found the server unavailable, up to <see cref="A2AClientOptions.MaxRetries" />.
 ///     v0.3 gRPC has no ListTasks.
 /// </summary>
-internal sealed class V03GrpcTransport : IA2AClient
+internal sealed class V03GrpcTransport : IA2ATransport
 {
     private static readonly JsonFormatter Formatter = new(JsonFormatter.Settings.Default);
     private static readonly JsonParser Parser = new(JsonParser.Settings.Default.WithIgnoreUnknownFields(true));
@@ -286,7 +286,7 @@ internal sealed class V03GrpcTransportFactory(GrpcChannelOptions? channelOptions
         }
     }
 
-    public IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options)
+    public IA2ATransport Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options)
     {
         return new V03GrpcTransport(
             GrpcChannelPool.For(channelOptions).CallInvoker(GrpcTransport.ParseAddress(agentInterface.Url)), options);

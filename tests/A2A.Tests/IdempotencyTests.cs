@@ -1,3 +1,4 @@
+using A2A.Client;
 using System.Diagnostics.Metrics;
 using System.Net;
 using System.Security.Claims;

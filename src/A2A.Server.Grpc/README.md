@@ -4,7 +4,6 @@ gRPC hosting for A2A (Agent2Agent) agents on ASP.NET Core. Runs on the same requ
 
 ```csharp
 builder.Services.AddA2AGrpc();   // also registers AddA2AServerAspNetCore()
-app.UseA2A();
 app.MapA2AGrpc().RequireAuthorization();   // without it the app refuses to start (unless AllowAnonymous)
 ```
 

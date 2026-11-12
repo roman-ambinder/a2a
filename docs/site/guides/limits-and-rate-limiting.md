@@ -50,7 +50,7 @@ The 429 body has the error `RATE_LIMITED`. `Retry-After` is in whole seconds (at
 
 ## Rate limit
 
-The server adds a token bucket per caller. A token bucket holds up to `TokenLimit` tokens and gets `TokensPerPeriod` tokens back every `ReplenishmentPeriod`. Each request takes one token. Change it with <xref:A2A.Server.AspNetCore.A2ARateLimitingExtensions.AddA2ARateLimiting*>:
+The server adds a token bucket per caller. A token bucket holds up to `TokenLimit` tokens and gets `TokensPerPeriod` tokens back every `ReplenishmentPeriod`. Each request takes one token. Change it with <xref:A2A.Server.AspNetCore.A2AServiceCollectionExtensions.ConfigureRateLimiting*> on the A2A builder:
 
 [!code-csharp[](../../../samples/Snippets/LimitsAndRateLimiting.cs#RateLimit)]
 
@@ -63,17 +63,17 @@ The server adds a token bucket per caller. A token bucket holds up to `TokenLimi
 
 Details:
 
-- `MapA2A` applies the policy named `a2a`. The policy has no queue: a request without a token is rejected at once.
+- `MapA2A` puts its endpoints under the limit. No middleware is needed. The policy has no queue: a request without a token is rejected at once.
+- The limit is taken after authentication and before the authorization decision, so a request with wrong credentials uses a token too. Endpoints that allow anonymous callers take it when the endpoint runs. Each request is counted once.
 - Each tenant and caller pair has its own bucket. Every request also draws from a bucket per caller across all tenants, with the same settings, so spreading requests over tenants gives no extra budget.
 - An anonymous caller has no tenant in its key. The limit runs before authorization and the tenant is text from the URL, so random tenant names would otherwise create buckets without end. Anonymous callers from one address share one bucket across all tenants.
-- To use your own policy, register one named `a2a` with `AddRateLimiter`. The default is then skipped.
+- To use your own policy, register an `IRateLimiterPolicy<string>` as a keyed service: `services.AddKeyedSingleton<IRateLimiterPolicy<string>, MyPolicy>(A2ARateLimitingExtensions.PolicyName)`. The default is then skipped.
+- The limit does not use the ASP.NET Core rate limiter middleware. An app that calls `UseRateLimiter()` for its own endpoints does not count A2A requests twice.
 - The rejection is written in the format of the binding (JSON-RPC or HTTP+JSON). A binding package such as gRPC registers an <xref:A2A.Server.AspNetCore.IA2ARejectionWriter> for its own format, or puts one in the metadata of its endpoints (`.WithMetadata(writer)`), which is asked first. The v0.3 HTTP+JSON routes of `EnableV03Compat` answer in the v0.3 error format this way. v0.3 JSON-RPC calls share the v1.0 JSON-RPC endpoint, so they get a v1.0 JSON-RPC error.
 
-### UseA2A is required
+### Turning it off
 
-Add the middleware with `app.UseA2A()`. It calls `UseRateLimiter()`, so do not call that yourself. Put it after `UseAuthentication()` and before `UseAuthorization()`. If A2A endpoints use the rate limit and `UseA2A()` was not called, the app does not start.
-
-To turn rate limiting off, set `Enabled = false`. `MapA2A` then adds no policy and `UseA2A()` is not required:
+To turn rate limiting off, set `Enabled = false`. `MapA2A` then adds no limit:
 
 [!code-csharp[](../../../samples/Snippets/LimitsAndRateLimiting.cs#RateLimitOff)]
 
@@ -98,7 +98,6 @@ Behind a reverse proxy or load balancer, every connection comes from the proxy. 
 
 ## What can go wrong
 
-- **The app does not start and asks for `app.UseA2A()`.** Add it, or set `Enabled = false`.
 - **Anonymous users get 429 together.** The proxy address is the partition. Enable forwarded headers.
 - **Large uploads get 413.** Send big content by URL, or raise the limits.
 - **A long stream ends by itself.** That is `MaxStreamDuration`. Resume with `Last-Event-ID`; see [streaming](streaming.md).

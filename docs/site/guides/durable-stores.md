@@ -14,7 +14,7 @@ The default stores live in memory. That is fine for development and tests. It is
 
 - <xref:A2A.Server.Postgres.A2APostgresServiceCollectionExtensions.AddPostgresStores*> (package `RomanAmbinder.A2A.Server.Postgres`) replaces the task, event, push config, push outbox and idempotency stores. It also registers the Postgres execution coordinator, unless you registered another one or set `RegisterCoordinator = false`.
 - `AddRedisEventBus` (package `RomanAmbinder.A2A.Server.Redis`) fans live events out to every instance. It also registers the Redis execution coordinator, which replaces the Postgres one.
-- `AddA2ARetention` turns on the sweep. See [Retention](retention.md).
+- `AddRetention` turns on the sweep. See [Retention](retention.md).
 - The two `DataProtection` lines give push secrets a key that every instance shares. See below.
 
 A runnable setup with two instances, Postgres and Redis is in [samples/MultiInstance](https://github.com/roman-ambinder/a2a/tree/main/samples/MultiInstance).
@@ -114,7 +114,7 @@ An agent that is still alive stops at its next heartbeat, which finds the lease 
 
 ## Push secrets across instances
 
-Push configs hold tokens and credentials. They are stored protected. The default protector (`EphemeralPushSecretProtector`) uses a key per process. With a durable outbox, a restart or another instance could not read those secrets, and the deliveries would be dead-lettered. Call `AddDataProtection()` with a key ring that is persisted and shared by every instance, then `AddA2ADataProtectionPushSecrets()`. You can also register your own `IPushSecretProtector`.
+Push configs hold tokens and credentials. They are stored protected. The default protector (`EphemeralPushSecretProtector`) uses a key per process. With a durable outbox, a restart or another instance could not read those secrets, and the deliveries would be dead-lettered. Call `AddDataProtection()` with a key ring that is persisted and shared by every instance, then `AddDataProtectionPushSecrets()` on the A2A builder. You can also register your own `IPushSecretProtector`.
 
 ## Startup diagnostics
 

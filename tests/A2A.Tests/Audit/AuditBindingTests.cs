@@ -1,3 +1,4 @@
+using A2A.Client;
 using A2A.Server.Audit;
 
 namespace A2A.Tests.Audit;

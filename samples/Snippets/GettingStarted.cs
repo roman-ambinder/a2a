@@ -23,7 +23,6 @@ internal static class Samples
 
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a").RequireAuthorization();
         #endregion
@@ -31,10 +30,10 @@ internal static class Samples
         return app;
     }
 
-    public static async Task CallAgentAsync(HttpClient httpClient)
+    public static async Task CallAgentAsync()
     {
         #region Client
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), httpClient);
+        var client = await A2AClient.ConnectAsync("https://agent.example.com/");
         string answer = await client.AskAsync("hello"); // the reply's text; throws if the task does not complete
 
         await foreach (var chunk in client.StreamTextAsync("stream this"))
@@ -42,6 +41,31 @@ internal static class Samples
         #endregion
 
         _ = answer;
+    }
+
+    public static async Task ConversationAsync(A2AClient client)
+    {
+        #region Conversation
+        var chat = client.StartConversation();         // keeps the context id and the waiting task's id
+        var reply = await chat.SendAsync("book a flight to Paris");
+        while (reply.NeedsInput)
+        {
+            Console.WriteLine(reply.StatusText);          // the agent's question
+            reply = await chat.SendAsync(Console.ReadLine() ?? "");
+        }
+
+        Console.WriteLine(reply.EnsureCompleted().Text); // throws if the task failed, was rejected or canceled
+        #endregion
+    }
+
+    public static void TextAgent(WebApplicationBuilder builder)
+    {
+        #region TextAgent
+        builder.Services.AddA2A(a => a
+            .AddAgentCard("My Agent", "Says hello.")
+            .AddAgentExecutor(ctx => $"You said: {ctx.UserText}")
+            .RequirePolicy("callers"));   // who may call, for every A2A endpoint; then app.MapA2A("/a2a") needs nothing more
+        #endregion
     }
 
     public static void FromConfiguration(WebApplicationBuilder builder)
@@ -58,9 +82,9 @@ internal static class Samples
         builder.Services.AddA2A(a =>
         {
             a.AddAgentExecutor<MyAgent>();
-            // Anonymous callers, curl without the A2A-Version header, exception text in errors. Development only:
-            // in any other environment the app refuses to start.
-            if (builder.Environment.IsDevelopment()) a.UseDevelopmentDefaults();
+            // In Development: anonymous callers, curl without the A2A-Version header, exception text in errors.
+            // In any other environment it does nothing, so the endpoints need their usual authorization.
+            a.ConfigureForDevelopment();
         });
         #endregion
     }
@@ -68,13 +92,15 @@ internal static class Samples
     public static void ChangeDefaults(IServiceCollection services)
     {
         #region Defaults
-        services.AddA2AServer(o => o.Limits.MaxRequestBodyBytes = 1024 * 1024);
-        services.AddA2ARateLimiting(o =>
-        {
-            o.TokenLimit = 10;
-            o.TokensPerPeriod = 30;
-        });
-        services.ConfigureA2AHttp(h => h.PublicBaseUrl = new Uri("https://agent.example.com"));
+        services.AddA2A(a => a
+            .AddAgentExecutor<MyAgent>()
+            .Configure(o => o.Limits.MaxRequestBodyBytes = 1024 * 1024)
+            .ConfigureRateLimiting(r =>
+            {
+                r.TokenLimit = 10;
+                r.TokensPerPeriod = 30;
+            })
+            .ConfigureHttp(h => h.PublicBaseUrl = new Uri("https://agent.example.com")));
         #endregion
     }
 }
@@ -84,9 +110,9 @@ internal sealed class MyAgent : IAgentExecutor
 {
     public async Task ExecuteAsync(AgentRequestContext ctx, TaskUpdater updater, CancellationToken ct)
     {
-        await updater.StartWorkAsync(cancellationToken: ct);
-        await updater.AddArtifactAsync([Part.FromText($"You said: {ctx.UserText}")], name: "answer", cancellationToken: ct);
-        await updater.CompleteAsync(cancellationToken: ct);
+        await updater.StartWorkAsync(ct);
+        await updater.AddArtifactAsync($"You said: {ctx.UserText}", "answer", ct);
+        await updater.CompleteAsync(ct);
     }
 }
 #endregion

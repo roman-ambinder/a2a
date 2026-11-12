@@ -26,7 +26,7 @@ public sealed class ExecutorTests
 
     private static Task<AgentTask> Run(A2AClient client, Message message, string? skill = null)
     {
-        var options = skill is null ? null : client.SelectSkill(message, skill);
+        var options = skill is null ? null : new A2ARequestOptions { Skill = skill };
         return SendAsync(client, message, options);
     }
 

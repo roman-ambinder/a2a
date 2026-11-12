@@ -50,9 +50,9 @@ public static class A2AGrpcExtensions
     /// </summary>
     /// <remarks>
     ///     Like <c>MapA2A</c>, the app fails at startup unless you call <c>RequireAuthorization()</c> on the result or set
-    ///     <see cref="A2AServerOptions.AllowAnonymous" />. The <c>"a2a"</c> rate limit policy is applied (rejections are
-    ///     <c>RESOURCE_EXHAUSTED</c> with <c>RetryInfo</c>), so the host must call <c>app.UseA2A()</c> unless
-    ///     <see cref="A2ARateLimitOptions.Enabled" /> is false.
+    ///     <see cref="A2AServerOptions.AllowAnonymous" />. The per-caller rate limit is applied unless
+    ///     <see cref="A2ARateLimitOptions.Enabled" /> is false (rejections are <c>RESOURCE_EXHAUSTED</c> with
+    ///     <c>RetryInfo</c>); no middleware is needed.
     /// </remarks>
     /// <exception cref="InvalidOperationException"><c>services.AddA2AServerAspNetCore()</c> was not called.</exception>
     public static GrpcServiceEndpointConventionBuilder MapA2AGrpc(this IEndpointRouteBuilder endpoints)

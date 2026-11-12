@@ -9,6 +9,8 @@ public class ElicitationClientTests
 
     private sealed class Recording : IA2AClient
     {
+    public AgentCard? AgentCard => null;
+
         public List<(SendMessageRequest Request, A2ARequestOptions? Options)> Sent { get; } = [];
 
         public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)

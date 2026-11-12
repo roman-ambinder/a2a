@@ -13,7 +13,7 @@ internal static class Samples
             Name = "My Agent",
             Description = "Streams its answer.",
             Version = "1.0.0",
-            Capabilities = new AgentCapabilities { Streaming = true },
+            Capabilities = new AgentCapabilities { Streaming = true }, // the default when unset; false turns streaming off
         };
         #endregion
     }
@@ -21,15 +21,13 @@ internal static class Samples
     public static async Task StreamText(A2AClient client)
     {
         #region StreamText
-        try
+        var chat = client.StartConversation();
+        await foreach (var chunk in chat.StreamTextAsync("write a poem"))
+            Console.Write(chunk);
+        if (chat.LastReply!.NeedsInput)
         {
-            await foreach (var chunk in client.StreamTextAsync("write a poem"))
-                Console.Write(chunk);
-        }
-        catch (TaskNotCompletedException e) when (e.State == TaskState.InputRequired)
-        {
-            // Answer with the same context and task: client.SendMessageAsync(answer, e.Task.ContextId, e.Task.Id).
-            Console.WriteLine($"The agent asks: {e.Task.Status.Message?.GetText()}");
+            // The next send answers the same task: await chat.SendAsync(answer).
+            Console.WriteLine($"The agent asks: {chat.LastReply.StatusText}");
         }
         #endregion
     }
@@ -48,7 +46,7 @@ internal static class Samples
         await using var answer = updater.OpenArtifact("answer");
         await foreach (var word in words.WithCancellation(ct))
             await answer.WriteAsync(word, ct); // the first write creates the artifact, the next ones append
-        await updater.CompleteAsync(cancellationToken: ct); // sends the last chunk of the open writer first
+        await updater.CompleteAsync(ct); // sends the last chunk of the open writer first
         #endregion
     }
 

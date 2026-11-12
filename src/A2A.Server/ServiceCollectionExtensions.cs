@@ -25,7 +25,8 @@ namespace A2A.Server;
 public static class A2AServerServiceCollectionExtensions
 {
     /// <summary>
-    ///     Registers the A2A server core and returns a builder to add the agent, its card and extra services.
+    ///     The server core alone, for hosts without ASP.NET Core; an ASP.NET Core app calls <c>AddA2A</c> instead, which
+    ///     calls this.     ///     Registers the A2A server core and returns a builder to add the agent, its card and extra services.
     ///     Defaults: in-memory stores (tasks, events, push outbox, push configs, idempotency), a hosted
     ///     <see cref="PushDeliveryService" />
     ///     that sends push notifications through an HTTP client with the SSRF guard, the <see cref="A2APushAdmin" />
@@ -114,9 +115,10 @@ public static class A2AServerServiceCollectionExtensions
     ///     <see cref="A2AServerOptions.InterruptedTimeout" /> for input, and fails tasks whose execution died with its
     ///     instance.
     ///     Without it none of this happens. Call it on every instance; one sweeps per interval. Options are checked when the
-    ///     service starts. Calling it again only applies <paramref name="configure" /> as well.
+    ///     service starts. Calling it again only applies <paramref name="configure" /> as well. Public form:
+    ///     <see cref="A2AServerBuilder.AddRetention" />.
     /// </summary>
-    public static IServiceCollection AddA2ARetention(this IServiceCollection services,
+    internal static IServiceCollection AddA2ARetention(this IServiceCollection services,
         Action<A2ARetentionOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -169,6 +171,31 @@ public sealed class A2AServerBuilder
     /// <summary>The underlying service collection.</summary>
     public IServiceCollection Services { get; }
 
+    /// <summary>
+    ///     Configures <see cref="A2AServerOptions" />: limits, streaming, push, idempotency, anonymous access and the rest.
+    ///     Can be called more than once; the calls run in order, after settings read from configuration.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="configure" /> is null.</exception>
+    public A2AServerBuilder Configure(Action<A2AServerOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        Services.Configure(configure);
+        return this;
+    }
+
+    /// <summary>
+    ///     Adds the retention sweep (<see cref="Retention.A2ARetentionService" />) as a hosted service: deletes expired
+    ///     terminal tasks with their data and orphan contexts, cancels tasks that waited longer than
+    ///     <see cref="A2AServerOptions.InterruptedTimeout" /> for input, and fails tasks whose execution died with its
+    ///     instance. Without it none of this happens. Call it on every instance; one sweeps per interval. Options are checked
+    ///     when the service starts. Calling it again only applies <paramref name="configure" /> as well.
+    /// </summary>
+    public A2AServerBuilder AddRetention(Action<A2ARetentionOptions>? configure = null)
+    {
+        Services.AddA2ARetention(configure);
+        return this;
+    }
+
     /// <summary>Uses <typeparamref name="T" /> as the agent. Scoped: one instance per execution. Replaces an earlier executor.</summary>
     public A2AServerBuilder AddAgentExecutor<
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>()
@@ -185,11 +212,47 @@ public sealed class A2AServerBuilder
         return this;
     }
 
+    /// <summary>
+    ///     Uses a function that answers each message with text as the agent: a direct reply for a new turn, or, when the
+    ///     message continues a task that waited for input, an artifact with the text and the task completed. The quickest
+    ///     agent: <c>a.AddAgentExecutor(ctx =&gt; $"You said: {ctx.UserText}")</c>. Replaces an earlier executor.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="reply" /> is null.</exception>
+    public A2AServerBuilder AddAgentExecutor(Func<AgentRequestContext, string> reply)
+    {
+        ArgumentNullException.ThrowIfNull(reply);
+        return AddAgentExecutor((context, _) => Task.FromResult(reply(context)));
+    }
+
+    /// <summary>
+    ///     Uses an async function that answers each message with text as the agent, like
+    ///     <see cref="AddAgentExecutor(Func{AgentRequestContext, string})" />. Replaces an earlier executor.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="reply" /> is null.</exception>
+    public A2AServerBuilder AddAgentExecutor(Func<AgentRequestContext, CancellationToken, Task<string>> reply)
+    {
+        ArgumentNullException.ThrowIfNull(reply);
+        Services.Replace(ServiceDescriptor.Singleton<IAgentExecutor>(new ReplyAgentExecutor(reply)));
+        return this;
+    }
+
     /// <summary>Sets the public Agent Card (same as setting <see cref="A2AServerOptions.AgentCard" />).</summary>
     public A2AServerBuilder AddAgentCard(AgentCard card)
     {
         Services.Configure<A2AServerOptions>(o => o.AgentCard = card);
         return this;
+    }
+
+    /// <summary>
+    ///     Sets a public Agent Card with a name and a description, version <c>1.0.0</c>. The served card is completed with
+    ///     the interfaces of the mapped bindings, and streaming is on. It names no input or output modes, so every media type
+    ///     is accepted. Use <see cref="AddAgentCard(AgentCard)" /> with <see cref="AgentCard.Create" /> and <c>AddSkill</c>
+    ///     to list skills and modes.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="name" /> or <paramref name="description" /> is empty.</exception>
+    public A2AServerBuilder AddAgentCard(string name, string description)
+    {
+        return AddAgentCard(AgentCard.Create(name, description));
     }
 
     /// <summary>

@@ -36,7 +36,7 @@ Notes:
 - MinIO and Azurite run on a private address over plain HTTP, so the downloader needs
   `SafeHttpOptions { AllowPrivateNetworks = true, AllowHttp = true }`. A store on a public HTTPS host needs neither.
 - Each run writes under a new key prefix and does not delete its object. `down -v` removes them. A real host runs
-  `AddA2ARetention()`, whose sweep removes objects of deleted tasks.
+  `AddRetention()`, whose sweep removes objects of deleted tasks.
 - The MinIO image comes from `cgr.dev`, pinned by digest, as in `tests/A2A.Stores.Tests`.
 
 See the [artifact storage guide](../../docs/site/guides/artifact-storage.md).

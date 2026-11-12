@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -129,10 +128,7 @@ internal sealed class A2AEndpointRegistry
 ///     maps endpoints while the web host starts), the check runs again on <c>ApplicationStarted</c> and stops the app on
 ///     failure.
 ///     <see cref="A2ARequestHandler" /> also rejects anonymous callers on its own as a backstop. The same check fails the
-///     start when
-///     A2A endpoints use the rate limit policy but <c>app.UseA2A()</c> (the rate limiter middleware) was not added, and
-///     when the
-///     Agent Card has no name (<c>AddAgentCard(...)</c> was not called).
+///     start when the Agent Card has no name (<c>AddAgentCard(...)</c> was not called).
 /// </summary>
 internal sealed class A2AStartupValidator(
     A2AEndpointRegistry registry,
@@ -141,19 +137,25 @@ internal sealed class A2AStartupValidator(
     ILogger<A2AStartupValidator> logger,
     IServiceProvider services,
     IEnumerable<A2AExtensionOperation> extensions,
-    A2ARateLimitMarker? rateLimit = null,
     IHostEnvironment? environment = null,
     IOptions<A2AHttpOptions>? http = null,
     IServer? server = null) : IHostedService
 {
     internal const string NoPolicyMessage =
-        "A2A endpoints have no authorization policy. Call app.MapA2A(...).RequireAuthorization() or MapA2A(pattern, o => o.AuthorizationPolicy = \"...\"), or set A2AServerOptions.AllowAnonymous = true.";
+        "A2A endpoints have no authorization policy. On the A2A builder, call AddApiKeyAuthentication(), AddBearerAuthentication() or RequirePolicy(\"...\"), or call app.MapA2A(...).RequireAuthorization(). To allow anonymous callers, call Configure(o => o.AllowAnonymous = true), or ConfigureForDevelopment() while you develop.";
+
+    /// <summary><see cref="NoPolicyMessage" />, and why <c>ConfigureForDevelopment()</c> did not apply when it was called.</summary>
+    internal static string NoPolicy(IServiceProvider services, IHostEnvironment? environment)
+    {
+        if (services.GetService<A2ACallerPolicyExtensions.DevelopmentDefaultsMarker>() is null ||
+            environment?.IsDevelopment() == true)
+            return NoPolicyMessage;
+        return NoPolicyMessage +
+               $" ConfigureForDevelopment() has no effect here: the host runs as '{environment?.EnvironmentName ?? "(no host environment)"}', not Development.";
+    }
 
     internal const string AnonymousWarning =
         "A2A endpoints allow anonymous callers. All anonymous callers share one owner and can read each other's tasks.";
-
-    internal const string NoRateLimiterMessage =
-        "Call app.UseA2A() before app.UseAuthorization(), or set A2ARateLimitOptions.Enabled = false (services.AddA2ARateLimiting(o => o.Enabled = false)).";
 
     internal const string NoCardNameMessage =
         "The Agent Card has no name. Call AddAgentCard(...) on the A2A builder or set A2AServerOptions.AgentCard.";
@@ -313,7 +315,6 @@ internal sealed class A2AStartupValidator(
 
     private void Check()
     {
-        var needsRateLimiter = false;
         foreach (var endpoint in registry.Endpoints())
         {
             var name = endpoint.DisplayName;
@@ -322,13 +323,7 @@ internal sealed class A2AStartupValidator(
             if (!options.Value.AllowAnonymous
                 && (endpoint.Metadata.GetMetadata<IAuthorizeData>() is null ||
                     endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null))
-                throw new InvalidOperationException(NoPolicyMessage);
-            if (endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName ==
-                A2ARateLimitingExtensions.PolicyName)
-                needsRateLimiter = true;
+                throw new InvalidOperationException(NoPolicy(services, environment));
         }
-
-        if (needsRateLimiter && rateLimit is { IsMiddlewareAdded: false })
-            throw new InvalidOperationException(NoRateLimiterMessage);
     }
 }

@@ -1,6 +1,3 @@
-#if (AuthApiKey)
-using A2A.Server;
-#endif
 using A2A.Server.AspNetCore;
 using A2AAgent1;
 
@@ -26,11 +23,10 @@ builder.Services.AddA2A(builder.Configuration.GetSection("A2A"), a =>
 #if (AuthApiKey)
     a.AddApiKeyAuthentication(); // every A2A endpoint requires a key, in Development too
     // Local work: accept curl without the A2A-Version header.
-    if (builder.Environment.IsDevelopment())
-        a.Services.Configure<A2AServerOptions>(o => o.TreatMissingVersionAsCurrent = true);
+    if (builder.Environment.IsDevelopment()) a.Configure(o => o.TreatMissingVersionAsCurrent = true);
 #else
     // Local work: anonymous callers, and curl without the A2A-Version header (Development only).
-    if (builder.Environment.IsDevelopment()) a.UseDevelopmentDefaults();
+    if (builder.Environment.IsDevelopment()) a.ConfigureForDevelopment();
     // Anywhere else: the card says "send a bearer token", and every A2A endpoint requires one ("Bearer" from AddJwtBearer).
     else a.AddBearerAuthentication();
 #endif
@@ -38,11 +34,6 @@ builder.Services.AddA2A(builder.Configuration.GetSection("A2A"), a =>
 
 var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A(); // per-caller rate limiting
 app.UseAuthorization();
-#if (AuthApiKey)
 app.MapA2A("/a2a"); // JSON-RPC at POST /a2a, HTTP+JSON under /a2a, the card at /.well-known/agent-card.json
-#else
-app.MapA2A("/a2a"); // JSON-RPC at POST /a2a, HTTP+JSON under /a2a, the card at /.well-known/agent-card.json
-#endif
 app.Run();

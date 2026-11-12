@@ -11,7 +11,7 @@ using A2A.V0_3Compat;
 namespace A2A.Client.V0_3Compat;
 
 /// <summary>The v0.3 JSON-RPC 2.0 binding. Shapes come from the v0.3 JSON schema (<see cref="V03JsonCodec" />).</summary>
-internal sealed class V03JsonRpcTransport : HttpTransportBase, IA2AClient, IResumableTransport, ITransportBinding
+internal sealed class V03JsonRpcTransport : HttpTransportBase, IA2ATransport, IResumableTransport, ITransportBinding
 {
     private static readonly V03JsonCodec Codec = V03JsonCodec.Instance;
     private readonly Uri _endpoint;

@@ -10,7 +10,7 @@ var options = new AzureTokenCredentialOptions();
 options.Scopes.Add("api://my-agent/.default");
 
 var entra = new AzureTokenCredentialProvider(new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned), options);
-var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [entra]);
+var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(entra));
 ```
 
 With `AddA2AClient`: `.AddAzureTokenCredential(o => o.Scopes.Add("api://my-agent/.default"))` uses the `TokenCredential`

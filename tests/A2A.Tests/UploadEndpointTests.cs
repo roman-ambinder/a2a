@@ -1,3 +1,4 @@
+using A2A.Client;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -685,7 +686,6 @@ public sealed class UploadEndpointTests
         builder.Services.AddSingleton<ArtifactObjectStore>(store);
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2AUploads("/a2a").RequireAuthorization();
         await app.StartAsync();

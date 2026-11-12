@@ -20,28 +20,12 @@
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutor.ExecuteAsync(A2A.Server.AgentRequestContext! context, A2A.Server.TaskUpdater! updater, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.AIAgentExecutorOptions() -> void
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.AllowUrlParts.get -> bool
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.AllowUrlParts.set -> void
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.ArtifactName.get -> string!
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.ArtifactName.set -> void
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.ConfigureRunOptions.get -> System.Action<Microsoft.Agents.AI.AgentRunOptions!, A2A.Server.AgentRequestContext!>?
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.ConfigureRunOptions.set -> void
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.ContextMemoryMaxBytes.get -> long
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.ContextMemoryMaxBytes.set -> void
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.ContextMemoryMaxTasks.get -> int
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.ContextMemoryMaxTasks.set -> void
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.KeepConversationOpen.get -> bool
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.KeepConversationOpen.set -> void
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.MaxHistoryMessages.get -> int
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.MaxHistoryMessages.set -> void
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.SessionMode.get -> A2A.Extensions.AgentFramework.AgentSessionMode
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.SessionMode.set -> void
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.StreamChunkSize.get -> int
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.StreamChunkSize.set -> void
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.ToolApprovals.get -> A2A.Extensions.AgentFramework.ToolApprovalMode
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.ToolApprovals.set -> void
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.UseContextMemory.get -> bool
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.UseContextMemory.set -> void
 [A2AEXP006]A2A.Extensions.AgentFramework.AgentSessionMode
 [A2AEXP006]A2A.Extensions.AgentFramework.AgentSessionMode.Stateless = 0 -> A2A.Extensions.AgentFramework.AgentSessionMode
 [A2AEXP006]A2A.Extensions.AgentFramework.AgentSessionMode.Stored = 1 -> A2A.Extensions.AgentFramework.AgentSessionMode
@@ -56,4 +40,5 @@
 [A2AEXP006]override A2A.Extensions.AgentFramework.A2ARemoteAIAgent.GetService(System.Type! serviceType, object? serviceKey = null) -> object?
 [A2AEXP006]override A2A.Extensions.AgentFramework.A2ARemoteAIAgent.Name.get -> string?
 [A2AEXP006]static A2A.Extensions.AgentFramework.A2AAIAgentBuilderExtensions.AddAIAgent(this A2A.Server.A2AServerBuilder! builder, System.Action<A2A.Extensions.AgentFramework.AIAgentExecutorOptions!>? configure = null, object? serviceKey = null) -> A2A.Server.A2AServerBuilder!
-[A2AEXP006]static A2A.Extensions.AgentFramework.A2AClientAgentExtensions.AsAIAgent(this A2A.Client.A2AClient! client, A2A.Extensions.AgentFramework.A2AAIAgentOptions? options = null) -> A2A.Extensions.AgentFramework.A2ARemoteAIAgent!
+[A2AEXP006]static A2A.Extensions.AgentFramework.A2AClientAgentExtensions.AsAIAgent(this A2A.Client.IA2AClient! client, A2A.Extensions.AgentFramework.A2AAIAgentOptions? options = null) -> A2A.Extensions.AgentFramework.A2ARemoteAIAgent!
+[A2AEXP006]static A2A.Extensions.AgentFramework.A2AAIAgentBuilderExtensions.AddAIAgent(this A2A.Server.A2AServerBuilder! builder, Microsoft.Agents.AI.AIAgent! agent, System.Action<A2A.Extensions.AgentFramework.AIAgentExecutorOptions!>? configure = null) -> A2A.Server.A2AServerBuilder!

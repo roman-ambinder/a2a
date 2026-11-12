@@ -164,14 +164,13 @@ public sealed class A2ATestHost : IAsyncDisposable
         configureAgent(agent);
         builder.Services.AddA2AServerAspNetCore();
         builder.Services.AddKeyedSingleton(PushDeliveryService.InvokerServiceKey, push.CreateInvoker());
-        if (options.ConfigureHttp is { } http) builder.Services.ConfigureA2AHttp(http);
+        if (options.ConfigureHttp is { } http) agent.ConfigureHttp(http);
         options.ConfigureServices?.Invoke(builder.Services);
 
         var app = builder.Build();
         try
         {
             app.UseAuthentication();
-            app.UseA2A();
             app.UseAuthorization();
             app.MapAgentCard();
             var routes = app.MapA2A("/a2a");
@@ -223,7 +222,7 @@ public sealed class A2ATestHost : IAsyncDisposable
         A2AClientOptions? options)
     {
         options ??= new A2AClientOptions();
-        IA2AClient transport = binding switch
+        IA2ATransport transport = binding switch
         {
             ProtocolBindings.JsonRpc => new JsonRpcTransport(http, url, options),
             ProtocolBindings.HttpJson => new HttpJsonTransport(http, url, options),

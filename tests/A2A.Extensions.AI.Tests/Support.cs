@@ -71,20 +71,26 @@ public sealed class AgentHost : IAsyncDisposable
         Skills = [new AgentSkill { Id = "chat", Name = "Chat", Description = "Chats", Tags = ["test"] }],
     };
 
+    /// <param name="asInstance">Passes <paramref name="chat"/> to <c>AddChatClientAgent</c> itself instead of registering it in DI.</param>
     public static async Task<AgentHost> StartAsync(IChatClient chat, Action<ChatClientAgentOptions>? configure = null, object? serviceKey = null,
-        Func<A2AServerBuilder, A2AServerBuilder>? before = null)
+        Func<A2AServerBuilder, A2AServerBuilder>? before = null, bool asInstance = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
-        if (serviceKey is null) builder.Services.AddSingleton(chat);
+        if (asInstance) { }
+        else if (serviceKey is null) builder.Services.AddSingleton(chat);
         else builder.Services.AddKeyedSingleton(serviceKey, chat);
         builder.Services.AddAuthorization();
-        builder.Services.AddA2A(a => (before?.Invoke(a) ?? a).AddAgentCard(Card()).AddChatClientAgent(configure, serviceKey))
-            .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+        builder.Services.AddA2A(a =>
+            {
+                var b = (before?.Invoke(a) ?? a).AddAgentCard(Card());
+                if (asInstance) b.AddChatClientAgent(chat, configure);
+                else b.AddChatClientAgent(configure, serviceKey);
+            })
+            .Configure(o => o.AllowAnonymous = true);
 
         var app = builder.Build();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a");
         await app.StartAsync();
@@ -95,7 +101,7 @@ public sealed class AgentHost : IAsyncDisposable
     {
         options ??= new A2AClientOptions();
         var http = App.GetTestClient();
-        IA2AClient transport = binding switch
+        IA2ATransport transport = binding switch
         {
             ProtocolBindings.JsonRpc => new JsonRpcTransport(http, new Uri(BaseUrl), options),
             ProtocolBindings.HttpJson => new HttpJsonTransport(http, new Uri(BaseUrl), options),
@@ -117,7 +123,7 @@ public static class Bindings
 }
 
 /// <summary>An <see cref="IA2AClient"/> whose answers the test scripts. Used where the real server would hide the case (a task that stays working).</summary>
-public sealed class FakeTransport : IA2AClient
+public sealed class FakeTransport : IA2ATransport
 {
     public Func<SendMessageRequest, CancellationToken, Task<SendMessageResponse>> Send { get; set; } = (_, _) => throw new NotSupportedException();
     public Func<SendMessageRequest, CancellationToken, IAsyncEnumerable<StreamResponse>> Stream { get; set; } = (_, _) => throw new NotSupportedException();

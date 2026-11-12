@@ -11,19 +11,19 @@ internal static class Samples
     public static void Register(IServiceCollection services)
     {
         #region Register
-        services.AddA2AServer(o =>
+        var a2a = services.AddA2A(a => a.Configure(o =>
         {
             // The base of every artifact link. It must be the origin that clients send credentials to.
             o.ArtifactStorage.PublicBaseUrl = new Uri("https://agent.example.com/a2a");
             o.ArtifactStorage.InlineThresholdBytes = 256 * 1024;
             o.ArtifactStorage.Delivery = ArtifactDelivery.Redirect;
-        });
+        }));
 
         // For tests and development. A durable provider replaces it in production.
         services.AddSingleton<ArtifactObjectStore>(new InMemoryArtifactObjectStore());
 
         // The sweep also removes orphan objects. Needed with any durable store.
-        services.AddA2ARetention();
+        a2a.AddRetention();
         #endregion
     }
 
@@ -63,15 +63,14 @@ internal static class Samples
     public static void EnableUploads(IServiceCollection services, WebApplication app)
     {
         #region EnableUploads
-        services.AddA2AServer(o =>
-        {
-            o.ArtifactStorage.PublicBaseUrl = new Uri("https://agent.example.com/a2a");
-            o.ArtifactStorage.Uploads.Enabled = true;
-            o.ArtifactStorage.Uploads.MaxUploadBytes = 2L << 30; // 2 GiB
-        });
-
-        // Without the retention sweep, uploads that no message used are never deleted.
-        services.AddA2ARetention();
+        services.AddA2A(a => a
+            .Configure(o =>
+            {
+                o.ArtifactStorage.PublicBaseUrl = new Uri("https://agent.example.com/a2a");
+                o.ArtifactStorage.Uploads.Enabled = true;
+                o.ArtifactStorage.Uploads.MaxUploadBytes = 2L << 30; // 2 GiB
+            })
+            .AddRetention());   // without the retention sweep, uploads that no message used are never deleted
 
         // Next to MapA2A and MapA2AArtifacts, with the same pattern and the same authorization.
         app.MapA2AUploads("/a2a").RequireAuthorization();

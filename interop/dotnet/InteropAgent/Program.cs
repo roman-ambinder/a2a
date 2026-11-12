@@ -17,7 +17,7 @@ builder.WebHost.ConfigureKestrel(k =>
     k.ListenLocalhost(port, o => o.Protocols = HttpProtocols.Http1);
     k.ListenLocalhost(port + 1, o => o.Protocols = HttpProtocols.Http2);
 });
-builder.Services.AddA2AServer(o =>
+var a2a = builder.Services.AddA2AServer(o =>
 {
     // The interop clients are anonymous; production agents call RequireAuthorization() instead.
     o.AllowAnonymous = true;
@@ -40,7 +40,7 @@ builder.Services.AddA2AServer(o =>
 }).AddAgentExecutor<ScenarioAgent>();
 builder.Services.AddA2AServerAspNetCore();
 // All interop clients share one address, so the default per-caller budget (20 burst, 60 per minute) is too small for a full run.
-builder.Services.AddA2ARateLimiting(o =>
+a2a.ConfigureRateLimiting(o =>
 {
     o.TokenLimit = 10_000;
     o.TokensPerPeriod = 10_000;
@@ -48,7 +48,6 @@ builder.Services.AddA2ARateLimiting(o =>
 builder.Services.AddA2AGrpc();
 
 var app = builder.Build();
-app.UseA2A();
 app.MapAgentCard();
 app.MapA2A("/a2a");
 app.MapA2AGrpc();
