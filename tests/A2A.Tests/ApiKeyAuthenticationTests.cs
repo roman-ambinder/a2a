@@ -174,6 +174,29 @@ public class ApiKeyAuthenticationTests
         Assert.Equal("apikey:billing", await owner.Task);
     }
 
+    [Fact]
+    public async Task Another_scheme_cannot_claim_an_api_key_owner()
+    {
+        // A token whose sub is literally "apikey:billing" must not become the owner of the API-key caller billing.
+        await using var app = await StartAsync(
+            services: s => s.AddAuthentication().AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, null),
+            map: a => a.MapA2A("/a2a").RequireAuthorization(p => p
+                .AddAuthenticationSchemes(A2AApiKeyOptions.SchemeName, TestAuthHandler.SchemeName).RequireAuthenticatedUser()));
+        var task = (await Client(app, Billing.Key).SendMessageAsync("task")).RequireTask();
+
+        var impostor = app.GetTestClient();
+        impostor.DefaultRequestHeaders.Add("X-Test-User", "apikey:billing");
+        var ex = await Assert.ThrowsAsync<A2AException>(() =>
+            A2AClientFactory.CreateForEndpoint(new Uri("http://localhost/a2a"), impostor).GetTaskAsync(task.Id));
+        Assert.Equal(A2AErrorCode.Unauthenticated, ex.Code);
+
+        // Any other id from that scheme still works, and the API-key caller still owns its task.
+        var other = app.GetTestClient();
+        other.DefaultRequestHeaders.Add("X-Test-User", "billing");
+        Assert.Equal("hi there", await A2AClientFactory.CreateForEndpoint(new Uri("http://localhost/a2a"), other).AskAsync("hello"));
+        Assert.Equal(task.Id, (await Client(app, Billing.Key).GetTaskAsync(task.Id)).Id);
+    }
+
     private sealed class Spy(TaskCompletionSource<string> seen) : IPrincipalResolver
     {
         public string? Resolve(System.Security.Claims.ClaimsPrincipal user)

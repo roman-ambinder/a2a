@@ -77,9 +77,11 @@ internal static partial class HttpPlumbing
         if (user.Identity?.IsAuthenticated == true)
         {
             principal = principalResolver.Resolve(user);
-            // "anonymous" is reserved for unauthenticated callers, also when a custom resolver returns it.
+            // "anonymous" is reserved for unauthenticated callers, also when a custom resolver returns it, and owners
+            // starting with "apikey:" for API-key callers, so another scheme's sub can never become an API-key caller.
             if (string.IsNullOrEmpty(principal) || string.Equals(principal, ServerCallContext.AnonymousPrincipal,
-                    StringComparison.Ordinal))
+                    StringComparison.Ordinal) || (principal.StartsWith(A2AApiKeyOptions.OwnerPrefix,
+                    StringComparison.Ordinal) && !IsApiKeyOwner(user, principal)))
                 throw new A2AException(A2AErrorCode.Unauthenticated);
         }
 
@@ -111,6 +113,20 @@ internal static partial class HttpPlumbing
                 ? parent
                 : default
         };
+    }
+
+    /// <summary>
+    ///     True when <paramref name="owner" /> is the owner id the API-key scheme issued: an identity of that scheme has it
+    ///     as its <see cref="System.Security.Claims.ClaimTypes.NameIdentifier" />.
+    /// </summary>
+    private static bool IsApiKeyOwner(System.Security.Claims.ClaimsPrincipal user, string owner)
+    {
+        foreach (var identity in user.Identities)
+            if (identity.IsAuthenticated &&
+                string.Equals(identity.AuthenticationType, A2AApiKeyOptions.SchemeName, StringComparison.Ordinal) &&
+                identity.HasClaim(System.Security.Claims.ClaimTypes.NameIdentifier, owner))
+                return true;
+        return false;
     }
 
     /// <summary>

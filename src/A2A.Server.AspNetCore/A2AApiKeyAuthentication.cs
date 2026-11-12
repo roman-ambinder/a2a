@@ -54,7 +54,10 @@ public sealed class A2AApiKeyOptions
     public const string SchemeName = "A2AApiKey";
 
 
-    /// <summary>The prefix of the task owner id of an API-key caller.</summary>
+    /// <summary>
+    ///     The prefix of the task owner id of an API-key caller. Reserved: a caller of another scheme whose owner id starts
+    ///     with it is refused as unauthenticated.
+    /// </summary>
     public const string OwnerPrefix = "apikey:";
 
 

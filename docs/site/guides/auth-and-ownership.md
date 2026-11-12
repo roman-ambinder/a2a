@@ -24,7 +24,7 @@ If A2A endpoints have no authorization, the app does not start. The check is fai
 What it does:
 
 - **Authentication.** An ASP.NET Core scheme (`A2AApiKey`) reads the key from the `X-Api-Key` header (<xref:A2A.Server.AspNetCore.A2AApiKeyOptions.HeaderName>). Keys in the query string are never read. A missing, malformed or unknown key is unauthenticated (401).
-- **One owner per caller.** Each key is registered under a caller id. The task owner is `apikey:` and the id, so callers never see each other's tasks, and an API-key caller never shares tasks with a JWT user whose `sub` happens to be the same. Several keys may share a caller id, for rotation.
+- **One owner per caller.** Each key is registered under a caller id. The task owner is `apikey:` and the id, so callers never see each other's tasks, and an API-key caller never shares tasks with a JWT user whose `sub` happens to be the same. Owner ids that start with `apikey:` are reserved for API-key callers: a caller from any other scheme that resolves to one (a `sub` of `apikey:billing`, say) is refused as unauthenticated. Several keys may share a caller id, for rotation.
 - **The card.** The scheme is added to the card's `securitySchemes` and `securityRequirements`, so `AddApiKey` on the client and the `a2a` tool know to send the key, and in which header.
 - **Tenants.** A key registered with tenants may only call those tenants, on every binding. The key's caller gets one <xref:A2A.Server.A2AClaimTypes.Tenant> claim per tenant, and the server refuses a call to any other tenant like every other denial: a task-scoped call looks like a missing task, the rest is `PermissionDenied` (`permission`: `tenant`), and the audit trail records `TenantNotAllowed`. See [Multi-tenancy](multi-tenancy.md).
 - **Protection by default.** Every A2A endpoint that has no authorization of its own gets the policy `A2ACardSchemes` (a caller authenticated by any declared scheme, API keys among them), so `MapA2A` needs no `RequireAuthorization()`. To take only API keys on an endpoint, write a policy with `p.AddAuthenticationSchemes(A2AApiKeyOptions.SchemeName).RequireAuthenticatedUser()`. An endpoint with its own authorization (`RequireAuthorization(...)`, `AuthorizationPolicy`, also on an outer group) keeps it unchanged.
@@ -105,7 +105,7 @@ Without it, the SDK does not check which scheme authenticated the caller.
 
 Set <xref:A2A.Server.A2AServerOptions.AllowAnonymous> to skip the check. A warning is logged once at startup. All anonymous callers share one owner, `anonymous`, so they can read each other's tasks. Do not use this in production.
 
-The id `anonymous` is reserved. If an authenticated user resolves to it, the request is refused as unauthenticated.
+The id `anonymous` is reserved. If an authenticated user resolves to it, the request is refused as unauthenticated. So are ids that start with `apikey:`, unless the API-key scheme issued them.
 
 ## How a task is bound to a caller
 
