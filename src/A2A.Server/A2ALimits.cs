@@ -94,7 +94,8 @@ public sealed class A2ALimits
 
     /// <summary>
     ///     How often an open stream asks <see cref="A2AAuthorizationHandler" /> again; on denial the stream ends. Zero or
-    ///     <see cref="Timeout.InfiniteTimeSpan" /> turns it off. Default 5 minutes.
+    ///     <see cref="Timeout.InfiniteTimeSpan" /> turns it off. Default 5 minutes. The clock is the
+    ///     <see cref="TimeProvider" /> registered in DI, else <see cref="TimeProvider.System" />.
     /// </summary>
     public TimeSpan StreamReauthInterval { get; set; } = TimeSpan.FromMinutes(5);
 
@@ -102,7 +103,8 @@ public sealed class A2ALimits
     ///     How long a stream may wait for the task's next event; then it ends normally, as at
     ///     <see cref="MaxStreamDuration" />, and clients resume with <c>Last-Event-ID</c>. The wait starts when the stream
     ///     asks for the next event, so time the client takes to read what was already sent does not count. Keep-alive comments do not count as events. The task goes on. Zero or
-    ///     <see cref="Timeout.InfiniteTimeSpan" /> turns it off. Default off.
+    ///     <see cref="Timeout.InfiniteTimeSpan" /> turns it off. Default off. The clock is the <see cref="TimeProvider" />
+    ///     registered in DI, else <see cref="TimeProvider.System" />.
     /// </summary>
     public TimeSpan StreamIdleTimeout { get; set; }
 

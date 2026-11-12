@@ -875,21 +875,24 @@ internal sealed class TaskStreamer
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var limits = _options.Limits;
+        // The idle and re-check deadlines follow the engine's clock (the TimeProvider registered in DI), so tests can run
+        // them on a manual clock instead of depending on how fast the machine schedules the agent and the reader.
+        var clock = _engine.Clock;
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (TimeLimits.IsTimeLimit(limits.MaxStreamDuration)) stop.CancelAfter(limits.MaxStreamDuration);
         TimeSpan? reauthEvery =
             TimeLimits.IsTimeLimit(limits.StreamReauthInterval) ? limits.StreamReauthInterval : null;
         TimeSpan? idleAfter = TimeLimits.IsTimeLimit(limits.StreamIdleTimeout) ? limits.StreamIdleTimeout : null;
 
-        static long Ticks(TimeSpan t)
+        long Ticks(TimeSpan t)
         {
-            return (long)(t.TotalSeconds * Stopwatch.Frequency);
+            return (long)(t.TotalSeconds * clock.TimestampFrequency);
         }
 
         var events = source.GetAsyncEnumerator(stop.Token);
         Task<bool>? move = null;
         Task? deadline = null; // one timer for the re-check, kept across events until it fires
-        var reauthAt = reauthEvery is { } first ? Stopwatch.GetTimestamp() + Ticks(first) : long.MaxValue;
+        var reauthAt = reauthEvery is { } first ? clock.GetTimestamp() + Ticks(first) : long.MaxValue;
         var idleAt = long.MaxValue;
         try
         {
@@ -901,7 +904,7 @@ internal sealed class TaskStreamer
                     // Idle means the source sent nothing while the stream waited for it, so the deadline starts when the
                     // stream asks for the next event. Time the reader spends between reads is not idle time: the stream
                     // has events to send then, and ending it would cut off a busy task's stream under a slow reader.
-                    if (idleAfter is { } idle) idleAt = Stopwatch.GetTimestamp() + Ticks(idle);
+                    if (idleAfter is { } idle) idleAt = clock.GetTimestamp() + Ticks(idle);
                     var next = events.MoveNextAsync();
                     if ((reauthEvery is null && idleAfter is null) || next.IsCompleted)
                     {
@@ -914,18 +917,18 @@ internal sealed class TaskStreamer
                         while (!move.IsCompleted)
                         {
                             var wakeAt = Math.Min(reauthAt, idleAt);
-                            var wait = Stopwatch.GetElapsedTime(Stopwatch.GetTimestamp(), wakeAt);
+                            var wait = clock.GetElapsedTime(clock.GetTimestamp(), wakeAt);
                             if (wait > TimeSpan.Zero)
                             {
-                                deadline ??= Task.Delay(wait, stop.Token);
+                                deadline ??= Task.Delay(wait, clock, stop.Token);
                                 if (await Task.WhenAny(move, deadline).ConfigureAwait(false) == move ||
                                     stop.IsCancellationRequested) break;
                                 deadline = null;
-                                if (Stopwatch.GetTimestamp() < wakeAt)
+                                if (clock.GetTimestamp() < wakeAt)
                                     continue; // a deadline moved between events: wait again
                             }
 
-                            var now = Stopwatch.GetTimestamp();
+                            var now = clock.GetTimestamp();
                             if (now >= idleAt) yield break; // StreamIdleTimeout: a clean end; the finally stops the source
                             if (now >= reauthAt && !await StillAuthorizedAsync().ConfigureAwait(false))
                                 throw Revoked(); // the finally stops the source
@@ -944,7 +947,7 @@ internal sealed class TaskStreamer
                 if (!more) yield break;
 
                 // Busy stream: the next event may always be ready, so check the deadline before every event too.
-                if (Stopwatch.GetTimestamp() >= reauthAt && !await StillAuthorizedAsync().ConfigureAwait(false))
+                if (clock.GetTimestamp() >= reauthAt && !await StillAuthorizedAsync().ConfigureAwait(false))
                     throw Revoked();
                 yield return events.Current;
             }
@@ -982,7 +985,7 @@ internal sealed class TaskStreamer
                     .ConfigureAwait(false);
             }
 
-            reauthAt = Stopwatch.GetTimestamp() + Ticks(reauthEvery!.Value);
+            reauthAt = clock.GetTimestamp() + Ticks(reauthEvery!.Value);
             return allowed;
         }
 
