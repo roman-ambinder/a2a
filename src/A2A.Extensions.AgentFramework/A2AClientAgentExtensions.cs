@@ -11,7 +11,7 @@ public static class A2AClientAgentExtensions
     ///     Returns an <see cref="A2ARemoteAIAgent" /> that sends to the remote agent behind <paramref name="client" />.
     ///     <paramref name="options" /> defaults to a new <see cref="A2AAIAgentOptions" />.
     /// </summary>
-    public static A2ARemoteAIAgent AsAIAgent(this A2AClient client, A2AAIAgentOptions? options = null)
+    public static A2ARemoteAIAgent AsAIAgent(this IA2AClient client, A2AAIAgentOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         return new A2ARemoteAIAgent(client, options ?? new A2AAIAgentOptions());

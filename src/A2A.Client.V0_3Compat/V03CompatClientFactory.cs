@@ -70,7 +70,7 @@ public static class V03CompatClientFactory
         var v03Options = V03ClientSupport.CopyForV03(options, selected.Tenant);
         EnsureAllowedNoDns(card, v03Options);
         var uri = new Uri(selected.Url, UriKind.Absolute);
-        IA2AClient transport = selected.ProtocolBinding == ProtocolBindings.JsonRpc
+        IA2ATransport transport = selected.ProtocolBinding == ProtocolBindings.JsonRpc
             ? new V03JsonRpcTransport(httpClient, uri, v03Options)
             : new V03HttpJsonTransport(httpClient, uri, v03Options);
         return new A2AClient(transport, v03Options, card);

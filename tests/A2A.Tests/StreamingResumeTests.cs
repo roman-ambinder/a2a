@@ -1,3 +1,4 @@
+using A2A.Client;
 using A2A.Server.AspNetCore;
 using System.Diagnostics;
 using System.Net;

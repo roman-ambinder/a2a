@@ -94,7 +94,7 @@ public sealed class AgentHost : IAsyncDisposable
     {
         options ??= new A2AClientOptions();
         var http = App.GetTestClient();
-        IA2AClient transport = binding switch
+        IA2ATransport transport = binding switch
         {
             ProtocolBindings.JsonRpc => new JsonRpcTransport(http, new Uri(BaseUrl), options),
             ProtocolBindings.HttpJson => new HttpJsonTransport(http, new Uri(BaseUrl), options),
@@ -116,7 +116,7 @@ public static class Bindings
 }
 
 /// <summary>An <see cref="IA2AClient"/> whose answers the test scripts. Used where the real server would hide the case (a task that stays working).</summary>
-public sealed class FakeTransport : IA2AClient
+public sealed class FakeTransport : IA2ATransport
 {
     public Func<SendMessageRequest, CancellationToken, Task<SendMessageResponse>> Send { get; set; } = (_, _) => throw new NotSupportedException();
     public Func<SendMessageRequest, CancellationToken, IAsyncEnumerable<StreamResponse>> Stream { get; set; } = (_, _) => throw new NotSupportedException();

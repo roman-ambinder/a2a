@@ -1,3 +1,4 @@
+using A2A.Client;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;

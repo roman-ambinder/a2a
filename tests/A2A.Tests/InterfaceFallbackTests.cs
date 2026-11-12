@@ -23,7 +23,7 @@ public sealed class InterfaceFallbackTests
         new() { Id = id, ContextId = contextId, Status = new AgentTaskStatus { State = TaskState.Completed } };
 
     /// <summary>A transport that answers from a script: each call takes the next failure (null: answer).</summary>
-    private class FakeTransport(string name) : IA2AClient, ITransportBinding
+    private class FakeTransport(string name) : IA2ATransport, ITransportBinding
     {
         private readonly ConcurrentQueue<Exception?> _failures = new();
         public string Name { get; } = name;
@@ -174,7 +174,7 @@ public sealed class InterfaceFallbackTests
         public string ProtocolBinding => transport.Name;
         public bool CanCreate(AgentInterface agentInterface) => true;
 
-        public IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options)
+        public IA2ATransport Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options)
         {
             Interlocked.Increment(ref CreateAttempts);
             if (FailCreates > 0)

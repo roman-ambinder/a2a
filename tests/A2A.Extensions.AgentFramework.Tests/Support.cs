@@ -267,7 +267,7 @@ public sealed class AgentHost : IAsyncDisposable
         var http = App.GetTestClient();
         if (user is not null) http.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, user);
         var url = new Uri(tenant is null ? BaseUrl : $"{BaseUrl}/{tenant}");
-        IA2AClient transport = binding switch
+        IA2ATransport transport = binding switch
         {
             ProtocolBindings.JsonRpc => new JsonRpcTransport(http, url, options),
             ProtocolBindings.HttpJson => new HttpJsonTransport(http, url, options),
@@ -300,7 +300,7 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
 }
 
 /// <summary>An <see cref="IA2AClient"/> whose answers the test scripts (copied from A2A.Extensions.AI.Tests). Used where the real server would hide the case (a task that stays working).</summary>
-public sealed class FakeTransport : IA2AClient
+public sealed class FakeTransport : IA2ATransport
 {
     public Func<SendMessageRequest, CancellationToken, Task<SendMessageResponse>> Send { get; set; } = (_, _) => throw new NotSupportedException();
     public Func<SendMessageRequest, CancellationToken, IAsyncEnumerable<StreamResponse>> Stream { get; set; } = (_, _) => throw new NotSupportedException();

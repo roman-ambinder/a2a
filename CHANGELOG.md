@@ -42,6 +42,20 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
   `A2AClient.ResolvedCard` keeps the card's source, signature check and peer identity (also set by
   `A2AClientFactory.CreateAsync`). The README, getting started and the credential guides use it;
   `A2AClientFactory.CreateAsync(url, httpClient)` stays for an `HttpClient` you already have.
+- **Transports are no longer clients (breaking).** The 11 operations moved to `IA2ATransport`, which JSON-RPC,
+  HTTP+JSON, gRPC, the v0.3 transports and `IA2ATransportFactory.Create` use. `IA2AClient` extends it and adds
+  `AgentCard`; only `A2AClient` implements it, over a transport (`new A2AClient(IA2ATransport, ...)`). So the shortcuts
+  (`AskAsync`, `StartConversation`, ...) no longer compile on a raw transport, which skipped the client's checks.
+- **Shortcuts are extensions on `IA2AClient` (breaking for callers without `using A2A.Client`).** `SendMessageAsync(text
+  | message)`, `SendStreamingMessageAsync(message)`, `GetTaskAsync(id)`, `CancelTaskAsync(id)`, `SubscribeToTaskAsync(id)`,
+  `WaitForTaskAsync` and `ListAllTasksAsync` moved from `A2AClient` to `A2AClientExtensions`. `AsAIFunction`,
+  `AsChatClient`, `AsAIAgent` and `AsMcpTools` take any `IA2AClient` (`AsAIAgent` resumes a background stream with
+  `ObserveTaskAsync` when it gets an `A2AClient`, and subscribes once otherwise).
+- **`A2ARequestOptions.Skill` replaces `A2AClient.SelectSkill` (breaking, experimental `A2AEXP001`).** Set it on a send's
+  options; the client checks it against the card, writes `metadata["skillId"]` and requests the extension, without
+  changing your message or options. It works for every send, the text overload included.
+- `BearerTokenCredentialProvider`: a bearer token from your own source, asked for on every request. There is no
+  fixed-token constructor on purpose.
 - Multi-turn without handling ids: `client.StartConversation()` returns an `A2AConversation`. `SendAsync` and
   `StreamTextAsync` keep the context id and the id of a task that waits for input, and return an `AgentReply` (`Text`,
   `StatusText`, `State`, ids, `IsCompleted`, `NeedsInput`, `NeedsAuth`, `EnsureCompleted()`) without throwing for a task

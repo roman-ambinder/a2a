@@ -58,6 +58,12 @@ Other OAuth2 flows, API keys in the query string and HTTP Basic are not covered 
 
 To log in with no secret (a Kubernetes or Azure workload identity token file, or `private_key_jwt`), see [Identity providers](identity-providers.md).
 
+### A bearer token from your own source
+
+<xref:A2A.Client.Credentials.BearerTokenCredentialProvider> sends a token you get elsewhere (a vault, a token broker, your app's sign-in) as `Authorization: Bearer`, for a card that asks for an HTTP bearer, OAuth 2.0 or OpenID Connect scheme. It asks your source on every request, so a rotated token is picked up. It takes no fixed token on purpose: a token that never changes is rarely right in a long-lived client.
+
+[!code-csharp[](../../../samples/Snippets/ClientCredentials.cs#Bearer)]
+
 ### A custom provider
 
 A provider has two methods. `CanHandle` says whether it can satisfy a scheme. `ApplyAsync` adds the credential to a request. The client calls `ApplyAsync` on every attempt, so retries and stream resumes get a fresh credential. A provider must not change `RequestUri`. If it does, the request fails with `InvalidOperationException`.

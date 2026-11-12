@@ -9,9 +9,9 @@ using ModelContextProtocol.Server;
 namespace A2A.Mcp;
 
 /// <summary>What the tools made by one <see cref="A2AClientMcpExtensions.AsMcpTools" /> call share.</summary>
-internal sealed class A2AMcpBridge(A2AClient client, A2AMcpToolOptions options, string? getTaskToolName)
+internal sealed class A2AMcpBridge(IA2AClient client, A2AMcpToolOptions options, string? getTaskToolName)
 {
-    internal A2AClient Client { get; } = client;
+    internal IA2AClient Client { get; } = client;
     internal A2AMcpToolOptions Options { get; } = options;
     internal TaskOwnerMap Owners { get; } = new(options.MaxTrackedTasks);
     internal A2AMcpResults Results { get; } = new(options, getTaskToolName);
@@ -141,7 +141,10 @@ internal sealed class A2AMcpTool : McpServerTool
                     await LookupKnownAsync(taskId, requestOptions, deadline.Token, ct).ConfigureAwait(false);
 
             var message = Message.FromUser(text, contextId, taskId);
-            requestOptions = client.SelectSkill(message, _skillId!, requestOptions);
+            requestOptions ??= new A2ARequestOptions(); // made for this call (CreateRequestOptions), so it is ours to set
+#pragma warning disable A2AEXP001
+            requestOptions.Skill = _skillId;
+#pragma warning restore A2AEXP001
             var response = await client.SendMessageAsync(message,
                     new SendMessageConfiguration { ReturnImmediately = true }, requestOptions, deadline.Token)
                 .ConfigureAwait(false);

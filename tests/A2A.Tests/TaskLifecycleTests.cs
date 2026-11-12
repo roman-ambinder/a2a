@@ -1,3 +1,4 @@
+using A2A.Client;
 using A2A.Server;
 using A2A.Server.Storage;
 using static A2A.Tests.TaskStoreTests;

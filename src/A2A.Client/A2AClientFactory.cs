@@ -63,7 +63,7 @@ public static class A2AClientFactory
 
         // A2AClient fills request.Tenant from its options, so a fallback must have the same tenant (null and empty are equal).
         var tenant = NullIfEmpty(selected.Tenant);
-        var candidates = new List<(AgentInterface, Func<IA2AClient>)> { (selected, () => primary) };
+        var candidates = new List<(AgentInterface, Func<IA2ATransport>)> { (selected, () => primary) };
         foreach (var itf in acceptable.Skip(1))
         {
             if (!string.Equals(NullIfEmpty(itf.Tenant), tenant, StringComparison.Ordinal)) continue;
@@ -94,7 +94,7 @@ public static class A2AClientFactory
 
     private static string? NullIfEmpty(string? value) => string.IsNullOrEmpty(value) ? null : value;
 
-    private static IA2AClient CreateTransport(AgentInterface selected, HttpClient httpClient,
+    private static IA2ATransport CreateTransport(AgentInterface selected, HttpClient httpClient,
         A2AClientOptions options)
     {
         return FactoryFor(options, selected.ProtocolBinding) is { } factory

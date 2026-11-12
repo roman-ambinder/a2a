@@ -11,7 +11,7 @@ public static class A2AClientTextExtensions
     /// <summary>
     ///     Sends <paramref name="text" /> and returns the agent's answer as text: the text of a direct reply, or the text of
     ///     the task's artifacts once the task has completed. A task that is still running when the call returns is polled
-    ///     every second, like <see cref="A2AClient.WaitForTaskAsync" />.
+    ///     every second, like <see cref="A2AClientExtensions.WaitForTaskAsync" />.
     /// </summary>
     /// <param name="client">The client: an <see cref="A2AClient" />, or any other <see cref="IA2AClient" />.</param>
     /// <param name="text">The message text.</param>
@@ -103,7 +103,7 @@ public static class A2AClientTextExtensions
         if (ended is not null) throw new TaskNotCompletedException(ended);
     }
 
-    /// <summary>Polls the task until it is terminal or interrupted, like <see cref="A2AClient.WaitForTaskAsync" />.</summary>
+    /// <summary>Polls the task until it is terminal or interrupted, like <see cref="A2AClientExtensions.WaitForTaskAsync" />.</summary>
     internal static async Task<AgentTask> WaitAsync(IA2AClient client, string taskId, A2ARequestOptions? options,
         CancellationToken cancellationToken)
     {

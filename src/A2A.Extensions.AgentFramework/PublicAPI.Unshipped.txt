@@ -56,4 +56,4 @@
 [A2AEXP006]override A2A.Extensions.AgentFramework.A2ARemoteAIAgent.GetService(System.Type! serviceType, object? serviceKey = null) -> object?
 [A2AEXP006]override A2A.Extensions.AgentFramework.A2ARemoteAIAgent.Name.get -> string?
 [A2AEXP006]static A2A.Extensions.AgentFramework.A2AAIAgentBuilderExtensions.AddAIAgent(this A2A.Server.A2AServerBuilder! builder, System.Action<A2A.Extensions.AgentFramework.AIAgentExecutorOptions!>? configure = null, object? serviceKey = null) -> A2A.Server.A2AServerBuilder!
-[A2AEXP006]static A2A.Extensions.AgentFramework.A2AClientAgentExtensions.AsAIAgent(this A2A.Client.A2AClient! client, A2A.Extensions.AgentFramework.A2AAIAgentOptions? options = null) -> A2A.Extensions.AgentFramework.A2ARemoteAIAgent!
+[A2AEXP006]static A2A.Extensions.AgentFramework.A2AClientAgentExtensions.AsAIAgent(this A2A.Client.IA2AClient! client, A2A.Extensions.AgentFramework.A2AAIAgentOptions? options = null) -> A2A.Extensions.AgentFramework.A2ARemoteAIAgent!

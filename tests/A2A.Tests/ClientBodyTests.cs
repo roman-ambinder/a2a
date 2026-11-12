@@ -25,7 +25,7 @@ public class ClientBodyTests
         }
     }
 
-    private static IA2AClient Client(string binding, HttpMessageHandler handler)
+    private static IA2ATransport Client(string binding, HttpMessageHandler handler)
     {
         var http = new HttpClient(handler);
         var options = new A2AClientOptions { MaxRetries = 0 };

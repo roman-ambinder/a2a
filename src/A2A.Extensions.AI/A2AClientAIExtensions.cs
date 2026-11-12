@@ -13,7 +13,7 @@ public static class A2AClientAIExtensions
     ///     text
     ///     and a tool description goes straight to the model.
     /// </summary>
-    public static A2AAgentFunction AsAIFunction(this A2AClient client, string name, string description,
+    public static A2AAgentFunction AsAIFunction(this IA2AClient client, string name, string description,
         A2AAgentFunctionOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(client);
@@ -28,7 +28,7 @@ public static class A2AClientAIExtensions
     ///     Uses the remote agent through <see cref="IChatClient" />. Disposing it does not dispose
     ///     <paramref name="client" />.
     /// </summary>
-    public static A2AChatClient AsChatClient(this A2AClient client, A2AChatClientOptions? options = null)
+    public static A2AChatClient AsChatClient(this IA2AClient client, A2AChatClientOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         return new A2AChatClient(client, options ?? new A2AChatClientOptions());

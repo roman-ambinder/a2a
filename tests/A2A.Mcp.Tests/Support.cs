@@ -15,7 +15,7 @@ using ModelContextProtocol.Server;
 namespace A2A.Mcp.Tests;
 
 /// <summary>An <see cref="IA2AClient"/> whose answers the test scripts.</summary>
-public sealed class FakeTransport : IA2AClient
+public sealed class FakeTransport : IA2ATransport
 {
     public Func<SendMessageRequest, CancellationToken, Task<SendMessageResponse>> Send { get; set; } = (_, _) => throw new NotSupportedException();
     public Func<GetTaskRequest, CancellationToken, Task<AgentTask>> Get { get; set; } = (_, _) => throw new NotSupportedException();

@@ -56,8 +56,19 @@ internal static class Snippets
         _ = client;
     }
 
+    public static async Task BearerAsync(Func<CancellationToken, ValueTask<string>> tokenFromVault)
+    {
+        #region Bearer
+        // A token from your own source, asked for on every request, so a rotated token is picked up.
+        var client = await A2AClient.ConnectAsync("https://agent.example.com/",
+            o => o.Credentials.Add(new BearerTokenCredentialProvider(tokenFromVault)));
+        #endregion
+        _ = client;
+    }
+
     #region Custom
-    // Handles a card that asks for an HTTP Bearer scheme and gets the token from your own source.
+    // Handles a card that asks for an HTTP Bearer scheme and gets the token from your own source
+    // (BearerTokenCredentialProvider does this; write your own for other schemes or headers).
     internal sealed class VaultTokenProvider(Func<CancellationToken, ValueTask<string>> getToken) : IA2ACredentialProvider
     {
         public bool CanHandle(A2ACredentialContext context) =>

@@ -7,7 +7,7 @@ namespace A2A.Client;
 ///     <c>InvokeExtensionOperation</c>,
 ///     registered on the server with <c>AddExtensionOperation</c>. Implemented by <see cref="A2AClient" /> and by the
 ///     built-in
-///     transports. It is a separate interface so that <see cref="IA2AClient" /> stays as it is for other transports.
+///     transports. It is a separate interface so that <see cref="IA2ATransport" /> stays as it is for other transports.
 /// </summary>
 /// <remarks>
 ///     Most callers use <see cref="ExtensionOperationClientExtensions" />, which also activates the extension for the

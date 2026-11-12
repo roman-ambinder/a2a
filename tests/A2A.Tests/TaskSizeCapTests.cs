@@ -1,3 +1,4 @@
+using A2A.Client;
 using System.Text.Json;
 using A2A.Server;
 using A2A.Server.Storage;

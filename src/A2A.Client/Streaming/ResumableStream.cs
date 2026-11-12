@@ -16,7 +16,7 @@ public readonly record struct StreamFrame(StreamResponse Response, string? Id);
 /// <summary>
 ///     Optional contract for a transport whose stream frames carry server event ids and which can send the last one back
 ///     to
-///     resume. Implement it, next to <see cref="IA2AClient" />, on a transport returned by an
+///     resume. Implement it, next to <see cref="IA2ATransport" />, on a transport returned by an
 ///     <see cref="IA2ATransportFactory" />:
 ///     <see cref="A2AClient" /> then reconnects dropped streams from the last cursor (<c>Last-Event-ID</c> on HTTP). A
 ///     transport
@@ -36,7 +36,7 @@ public readonly record struct StreamFrame(StreamResponse Response, string? Id);
 public interface IResumableTransport
 {
     /// <summary>
-    ///     Sends a message and streams the events as frames. Same as <see cref="IA2AClient.SendStreamingMessageAsync" />,
+    ///     Sends a message and streams the events as frames. Same as <see cref="IA2ATransport.SendStreamingMessageAsync" />,
     ///     with each frame's event id.
     /// </summary>
     /// <param name="request">The message request.</param>

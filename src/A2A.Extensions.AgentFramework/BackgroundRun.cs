@@ -11,7 +11,7 @@ namespace A2A.Extensions.AgentFramework;
 ///     shows the same content as <see cref="A2AChatClient" />: artifacts are the reply; an interrupted task's status
 ///     message is its question; a status message that only repeats the artifacts adds nothing.
 /// </summary>
-internal sealed class BackgroundRun(A2AClient client, A2ARemoteAgentOptions options)
+internal sealed class BackgroundRun(IA2AClient client, A2ARemoteAgentOptions options)
 {
     /// <summary>
     ///     What the caller has already had of <paramref name="taskId" /> (a task it continues): all of its artifacts and its

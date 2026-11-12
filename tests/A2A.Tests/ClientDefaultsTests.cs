@@ -69,7 +69,7 @@ public class ClientDefaultsTests
     {
         options ??= new A2AClientOptions();
         var http = new HttpClient(handler);
-        IA2AClient transport = binding == ProtocolBindings.JsonRpc
+        IA2ATransport transport = binding == ProtocolBindings.JsonRpc
             ? new JsonRpcTransport(http, new Uri(Endpoint), options)
             : new HttpJsonTransport(http, new Uri(Endpoint), options);
         return new A2AClient(transport, options);

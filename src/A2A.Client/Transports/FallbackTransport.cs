@@ -19,7 +19,7 @@ namespace A2A.Client.Transports;
 ///     fail, the error of the first interface tried is thrown: it is the one the caller would have seen without fallback.
 ///     A stream falls back only while it has delivered no event.
 /// </remarks>
-internal sealed class FallbackTransport : IA2AClient, IResumableTransport, IA2AExtensionOperationClient
+internal sealed class FallbackTransport : IA2ATransport, IResumableTransport, IA2AExtensionOperationClient
 #pragma warning disable A2AEXP005
     , ILiveTransport
 #pragma warning restore A2AEXP005
@@ -37,8 +37,8 @@ internal sealed class FallbackTransport : IA2AClient, IResumableTransport, IA2AE
     ///     The interfaces in card order, each with the function that creates its transport. At least two.
     /// </param>
     /// <param name="primary">The transport of the first candidate, already created (so creation errors surface at once).</param>
-    public FallbackTransport(IReadOnlyList<(AgentInterface Interface, Func<IA2AClient> Create)> candidates,
-        IA2AClient primary)
+    public FallbackTransport(IReadOnlyList<(AgentInterface Interface, Func<IA2ATransport> Create)> candidates,
+        IA2ATransport primary)
     {
         _candidates = new Candidate[candidates.Count];
         for (var i = 0; i < candidates.Count; i++)
@@ -51,7 +51,7 @@ internal sealed class FallbackTransport : IA2AClient, IResumableTransport, IA2AE
     /// <summary>The binding of the current transport, or null when it names none (for <see cref="A2AClient" />'s spans). It changes on a fallback.</summary>
     internal string? CurrentBinding => (_candidates[Volatile.Read(ref _current)].Created as ITransportBinding)?.Binding;
 
-    // ---- IA2AClient ----
+    // ---- IA2ATransport ----
 
     public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null,
         CancellationToken cancellationToken = default) =>
@@ -139,7 +139,7 @@ internal sealed class FallbackTransport : IA2AClient, IResumableTransport, IA2AE
 
     // ---- Fallback ----
 
-    private async Task<T> RunAsync<T>(Func<IA2AClient, Task<T>> call, CancellationToken ct)
+    private async Task<T> RunAsync<T>(Func<IA2ATransport, Task<T>> call, CancellationToken ct)
     {
         var start = Volatile.Read(ref _current);
         ExceptionDispatchInfo? firstError = null;
@@ -166,7 +166,7 @@ internal sealed class FallbackTransport : IA2AClient, IResumableTransport, IA2AE
         throw new InvalidOperationException(); // unreachable
     }
 
-    private async IAsyncEnumerable<T> StreamAsync<T>(Func<IA2AClient, CancellationToken, IAsyncEnumerable<T>> open,
+    private async IAsyncEnumerable<T> StreamAsync<T>(Func<IA2ATransport, CancellationToken, IAsyncEnumerable<T>> open,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var start = Volatile.Read(ref _current);
@@ -235,7 +235,7 @@ internal sealed class FallbackTransport : IA2AClient, IResumableTransport, IA2AE
     ///     The transport of candidate <paramref name="index" />. False when it cannot be created: that candidate is skipped
     ///     (the creation is tried again on a later call).
     /// </summary>
-    private bool TryGet(int index, out IA2AClient transport)
+    private bool TryGet(int index, out IA2ATransport transport)
     {
         try
         {
@@ -261,16 +261,16 @@ internal sealed class FallbackTransport : IA2AClient, IResumableTransport, IA2AE
             yield return new StreamFrame(item, null);
     }
 
-    private sealed class Candidate(AgentInterface itf, Func<IA2AClient> create, IA2AClient? created)
+    private sealed class Candidate(AgentInterface itf, Func<IA2ATransport> create, IA2ATransport? created)
     {
         private readonly object _lock = new();
-        private IA2AClient? _transport = created;
+        private IA2ATransport? _transport = created;
 
         public AgentInterface Interface { get; } = itf;
 
-        public IA2AClient? Created => Volatile.Read(ref _transport);
+        public IA2ATransport? Created => Volatile.Read(ref _transport);
 
-        public IA2AClient Get()
+        public IA2ATransport Get()
         {
             if (Volatile.Read(ref _transport) is { } t) return t;
             lock (_lock)

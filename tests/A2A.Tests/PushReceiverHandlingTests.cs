@@ -433,6 +433,8 @@ public class PushReceiverHandlingTests
 
     private sealed class FakeClient(Func<string, AgentTask> getTask) : IA2AClient
     {
+    public AgentCard? AgentCard => null;
+
         public ConcurrentQueue<string> Calls { get; } = new();
 
         public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)

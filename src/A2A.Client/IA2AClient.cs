@@ -3,10 +3,26 @@ using A2A.Client.Resilience;
 namespace A2A.Client;
 
 /// <summary>
-///     All A2A operations (spec §3.1). Implemented by <see cref="A2AClient" /> and by each transport. Every method takes
-///     optional per-call <see cref="A2ARequestOptions" />.
+///     The A2A client: what application code calls. <see cref="A2AClient" /> implements it over a transport, adding
+///     capability checks, response validation, the circuit breaker and stream resume; the shortcuts (<c>AskAsync</c>,
+///     <c>StartConversation</c>, string overloads) extend it. Mock it in tests of code that calls an agent.
 /// </summary>
-public interface IA2AClient
+public interface IA2AClient : IA2ATransport
+{
+    /// <summary>
+    ///     The agent's card when the client has one (made from a card or by URL): capability checks and adapters read it.
+    ///     Null for a client made for an endpoint without a card.
+    /// </summary>
+    AgentCard? AgentCard { get; }
+}
+
+/// <summary>
+///     All A2A operations (spec §3.1) on one binding: what a transport implements (JSON-RPC, HTTP+JSON, gRPC, or your own
+///     through an <see cref="IA2ATransportFactory" />). Application code calls an <see cref="IA2AClient" /> instead; wrap a
+///     transport in an <see cref="A2AClient" /> to get one. Every method takes optional per-call
+///     <see cref="A2ARequestOptions" />.
+/// </summary>
+public interface IA2ATransport
 {
     /// <summary>SendMessage (spec §3.1.1): sends a message and waits for the result, a task or a message.</summary>
     Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null,
@@ -149,7 +165,7 @@ public sealed class A2AClientOptions
     /// <summary>
     ///     When true, <c>SendMessageAsync</c> does not return a task that is still submitted or working: a server answers a
     ///     blocking send with the running task once its long-poll timeout passes, and the client then polls the task (as
-    ///     <see cref="A2AClient.WaitForTaskAsync" /> does) until it is terminal or interrupted, and returns that task, with
+    ///     <see cref="A2AClientExtensions.WaitForTaskAsync" /> does) until it is terminal or interrupted, and returns that task, with
     ///     the history the request asked for. A request that sets <c>ReturnImmediately</c> is returned as it is. Default
     ///     false.
     /// </summary>

@@ -30,7 +30,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
 {
     private readonly CircuitBreaker? _breaker;
     private readonly A2AClientOptions _options;
-    private readonly IA2AClient _transport;
+    private readonly IA2ATransport _transport;
     private readonly string? _binding;
     private volatile bool _extendedCardLoaded;
 
@@ -38,7 +38,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
     ///     Creates a client over <paramref name="transport" />. <paramref name="options" /> defaults to a new
     ///     <see cref="A2AClientOptions" />. <paramref name="agentCard" /> enables capability checks when given.
     /// </summary>
-    public A2AClient(IA2AClient transport, A2AClientOptions? options = null, AgentCard? agentCard = null)
+    public A2AClient(IA2ATransport transport, A2AClientOptions? options = null, AgentCard? agentCard = null)
     {
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _options = options ?? new A2AClientOptions();
@@ -105,7 +105,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
     /// <summary>The protocol version the client speaks, for the client's spans.</summary>
     internal string TelemetryProtocolVersion => _options.ProtocolVersion;
 
-    // ---- IA2AClient ----
+    // ---- IA2ATransport operations ----
 
     /// <inheritdoc />
     public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null,
@@ -114,6 +114,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         EnsureMessageId(request);
         A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
+        options = ApplySkill(request.Message, options);
         if (request.Configuration?.TaskPushNotificationConfig is { } push)
         {
             RequireCapability(AgentCard?.Capabilities.PushNotifications, A2AErrorCode.PushNotificationNotSupported);
@@ -142,10 +143,10 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         var response = await sent.ConfigureAwait(false);
         if (response is not TaskResponse running || running.Task.Status.State.IsTerminal() ||
             running.Task.Status.State.IsInterrupted()) return response;
-        var settled = await WaitForTaskAsync(running.Task.Id, options: options, cancellationToken: cancellationToken)
+        var settled = await this.WaitForTaskAsync(running.Task.Id, options: options, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         if (historyLength != 0)
-            settled = await GetTaskAsync(settled.Id, historyLength, options, cancellationToken).ConfigureAwait(false);
+            settled = await this.GetTaskAsync(settled.Id, historyLength, options, cancellationToken).ConfigureAwait(false);
         return running with { Task = settled };
     }
 
@@ -156,6 +157,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         EnsureMessageId(request);
         A2AValidator.ValidateOutgoing(request);
         request.Tenant ??= _options.Tenant;
+        options = ApplySkill(request.Message, options);
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation,
             "Agent does not declare streaming support.");
         return ClientTelemetry.TraceStream(A2AProtocol.Methods.SendStreamingMessage, this, request.Tenant,
@@ -313,75 +315,6 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
     // ---- Convenience ----
 
     /// <summary>
-    ///     Sends a text message. Pass <paramref name="taskId" />/<paramref name="contextId" /> to continue a
-    ///     conversation.
-    /// </summary>
-    public Task<SendMessageResponse> SendMessageAsync(string text, string? contextId = null, string? taskId = null,
-        A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        return SendMessageAsync(new SendMessageRequest { Message = Message.FromUser(text, contextId, taskId) }, options,
-            cancellationToken);
-    }
-
-    /// <summary>Sends <paramref name="message" /> and waits for the result (spec §3.1.1).</summary>
-    public Task<SendMessageResponse> SendMessageAsync(Message message, SendMessageConfiguration? configuration = null,
-        A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        return SendMessageAsync(new SendMessageRequest { Message = message, Configuration = configuration }, options,
-            cancellationToken);
-    }
-
-    /// <summary>Sends <paramref name="message" /> and streams the updates (spec §3.1.2).</summary>
-    public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(Message message,
-        SendMessageConfiguration? configuration = null, A2ARequestOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        return SendStreamingMessageAsync(new SendMessageRequest { Message = message, Configuration = configuration },
-            options, cancellationToken);
-    }
-
-    /// <summary>
-    ///     Fetches a task (spec §3.1.3). <paramref name="historyLength" /> limits the history; null means the server
-    ///     default.
-    /// </summary>
-    public Task<AgentTask> GetTaskAsync(string taskId, int? historyLength = null, A2ARequestOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        return GetTaskAsync(new GetTaskRequest { Id = taskId, HistoryLength = historyLength }, options,
-            cancellationToken);
-    }
-
-    /// <summary>Asks the agent to cancel a task (spec §3.1.5).</summary>
-    public Task<AgentTask> CancelTaskAsync(string taskId, A2ARequestOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        return CancelTaskAsync(new CancelTaskRequest { Id = taskId }, options, cancellationToken);
-    }
-
-    /// <summary>Streams updates of an existing task (spec §3.1.6).</summary>
-    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(string taskId, A2ARequestOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        return SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = taskId }, options, cancellationToken);
-    }
-
-    /// <summary>
-    ///     Polls a task until it reaches a terminal or interrupted state. Use when streaming and push are not available,
-    ///     or to recover after a dropped stream.
-    /// </summary>
-    public async Task<AgentTask> WaitForTaskAsync(string taskId, TimeSpan? pollInterval = null,
-        A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        var delay = pollInterval ?? TimeSpan.FromSeconds(1);
-        while (true)
-        {
-            var task = await GetTaskAsync(taskId, 0, options, cancellationToken).ConfigureAwait(false);
-            if (task.Status.State.IsTerminal() || task.Status.State.IsInterrupted()) return task;
-            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>
     ///     Registers a webhook for an existing task safely: it registers FIRST, then calls GetTask once. A task that finishes
     ///     after the
     ///     registration reaches the webhook; a task that finished before it is seen in the returned
@@ -410,7 +343,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         if (config.Token is null && config.Authentication is null) config.Token = PushTokens.Create();
         var stored = WithSentToken(await CreateTaskPushNotificationConfigAsync(config, options, cancellationToken)
             .ConfigureAwait(false), config.Token);
-        var task = await GetTaskAsync(taskId, historyLength, options, cancellationToken).ConfigureAwait(false);
+        var task = await this.GetTaskAsync(taskId, historyLength, options, cancellationToken).ConfigureAwait(false);
         return new PushRegistration(stored, task);
     }
 
@@ -468,26 +401,6 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
             "must be an https URL (spec 13.2), because A2AClientOptions.RequireHttpsWebhooks is set");
     }
 
-    /// <summary>Pages through all tasks matching <paramref name="request" />.</summary>
-    public async IAsyncEnumerable<AgentTask> ListAllTasksAsync(ListTasksRequest? request = null,
-        A2ARequestOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        request ??= new ListTasksRequest();
-        while (true)
-        {
-            var page = await ListTasksAsync(request, options, cancellationToken).ConfigureAwait(false);
-            foreach (var t in page.Tasks) yield return t;
-            if (string.IsNullOrEmpty(page.NextPageToken)) yield break;
-            request = new ListTasksRequest
-            {
-                Tenant = request.Tenant, ContextId = request.ContextId, Status = request.Status,
-                PageSize = request.PageSize,
-                PageToken = page.NextPageToken, HistoryLength = request.HistoryLength,
-                StatusTimestampAfter = request.StatusTimestampAfter, IncludeArtifacts = request.IncludeArtifacts
-            };
-        }
-    }
-
     /// <summary>Fetches the extended card and makes it the current card for capability checks (spec §3.1.11).</summary>
     public async Task<AgentCard> RefreshWithExtendedAgentCardAsync(A2ARequestOptions? options = null,
         CancellationToken cancellationToken = default)
@@ -499,33 +412,25 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         return card;
     }
 
-    /// <summary>
-    ///     Selects a skill for one send: writes <paramref name="skillId" /> to the message metadata and requests the
-    ///     skill-selection
-    ///     extension. Pass <paramref name="message" /> and the returned options to a send method that takes a message or a
-    ///     request. The returned
-    ///     options must be passed, because they request the extension; without them the server ignores the selection.
-    /// </summary>
-    /// <param name="message">The message to send. It is changed and must be the one you send.</param>
-    /// <param name="skillId">The <see cref="AgentSkill.Id" /> of the skill. Not empty.</param>
-    /// <param name="options">Options for the call, or null for new ones. These options are changed and returned.</param>
-    /// <returns>The options to pass with <paramref name="message" />.</returns>
-    /// <remarks>
-    ///     When <see cref="A2AClientOptions.ValidateCapabilities" /> is on and the card is known, a skill that is not on the
-    ///     card fails here,
-    ///     and nothing is sent. The check is skipped when the card declares an extended card that is not loaded yet
-    ///     (<see cref="RefreshWithExtendedAgentCardAsync" />), because the public list is then incomplete. A plain A2A peer
-    ///     ignores the
-    ///     selection.
-    /// </remarks>
-    /// <exception cref="ArgumentException"><paramref name="skillId" /> is null or empty.</exception>
-    /// <exception cref="A2AException">InvalidParams: the card does not list the skill.</exception>
-    [Experimental("A2AEXP001",
-        UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
-    public A2ARequestOptions SelectSkill(Message message, string skillId, A2ARequestOptions? options = null)
+    /// <summary>Options with <see cref="A2ARequestOptions.Skill" /> set to <paramref name="skillId" />, copied.</summary>
+    private static A2ARequestOptions WithSkill(A2ARequestOptions? options, string skillId)
     {
-        ArgumentNullException.ThrowIfNull(message);
-        ArgumentException.ThrowIfNullOrEmpty(skillId);
+        var copy = (options ?? new A2ARequestOptions()).WithExtension(SkillSelection.ExtensionUri);
+#pragma warning disable A2AEXP001
+        copy.Skill = skillId;
+#pragma warning restore A2AEXP001
+        return copy;
+    }
+
+    /// <summary>
+    ///     Applies <see cref="A2ARequestOptions.Skill" /> to an outgoing message: checks it against the card, writes it to
+    ///     the message metadata, and returns options that request the skill-selection extension.
+    /// </summary>
+    private A2ARequestOptions? ApplySkill(Message? message, A2ARequestOptions? options)
+    {
+#pragma warning disable A2AEXP001
+        if (options?.Skill is not { Length: > 0 } skillId || message is null) return options;
+#pragma warning restore A2AEXP001
         var extendedLoaded =
             _extendedCardLoaded; // read before the card: a refresh writes the card first, then the flag
         if (_options.ValidateCapabilities && AgentCard is { } card
@@ -535,12 +440,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
             throw A2AException.InvalidParams($"The Agent Card has no skill '{skillId}'.");
 
         message.SetRequestedSkillId(skillId);
-        options ??= new A2ARequestOptions();
-        if (options.Extensions is null or { IsReadOnly: true })
-            options.Extensions = new List<string>(options.Extensions ?? []);
-        if (!options.Extensions.Contains(SkillSelection.ExtensionUri))
-            options.Extensions.Add(SkillSelection.ExtensionUri);
-        return options;
+        return options.WithExtension(SkillSelection.ExtensionUri);
     }
 
     /// <summary>
@@ -557,7 +457,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
     /// <param name="options">Options for the call, or null for new ones. These options are changed.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <remarks>
-    ///     It uses <see cref="SelectSkill" />, so the same card check applies. The server refuses input that does not fit the
+    ///     It uses <see cref="A2ARequestOptions.Skill" />, so the same card check applies. The server refuses input that does not fit the
     ///     skill with
     ///     <see cref="A2AErrorCode.InvalidParams" />; the details are in <see cref="A2AException.Details" />.
     /// </remarks>
@@ -583,8 +483,8 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
             MessageId = Message.NewId(), Role = Role.User,
             Parts = [Part.FromData(JsonSerializer.SerializeToElement(input, inputType))]
         };
-        options = SelectSkill(message, skillId, options);
-        var response = await SendMessageAsync(message, options: options, cancellationToken: cancellationToken)
+        options = WithSkill(options, skillId);
+        var response = await this.SendMessageAsync(message, options: options, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         switch (response)
         {
@@ -592,7 +492,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
                 return ReadResult(reply.Parts, outputType);
             case TaskResponse { Task: var task }:
                 if (!task.Status.State.IsTerminal() && !task.Status.State.IsInterrupted())
-                    task = await WaitForTaskAsync(task.Id, options: options, cancellationToken: cancellationToken)
+                    task = await this.WaitForTaskAsync(task.Id, options: options, cancellationToken: cancellationToken)
                         .ConfigureAwait(false);
                 if (task.Status.State != TaskState.Completed) throw new TypedSkillCallException(task);
                 for (var i = (task.Artifacts?.Count ?? 0) - 1; i >= 0; i--)

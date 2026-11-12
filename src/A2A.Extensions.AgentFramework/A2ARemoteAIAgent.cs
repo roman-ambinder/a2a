@@ -45,10 +45,10 @@ public sealed class A2ARemoteAIAgent : AIAgent
 
     private readonly BackgroundRun _background;
     private readonly A2AChatClient _chat;
-    private readonly A2AClient _client;
+    private readonly IA2AClient _client;
     private readonly A2AAIAgentOptions _options;
 
-    internal A2ARemoteAIAgent(A2AClient client, A2AAIAgentOptions options)
+    internal A2ARemoteAIAgent(IA2AClient client, A2AAIAgentOptions options)
     {
         _client = client;
         _options = options;
@@ -211,8 +211,11 @@ public sealed class A2ARemoteAIAgent : AIAgent
         if (options?.ContinuationToken is { } token)
         {
             var seen = ResumeFrom(token, messages);
-            updates = _background.StreamAsync(_client.ObserveTaskAsync(seen.TaskId, _options.RequestOptions, cancellationToken),
-                seen, cancellationToken);
+            // An A2AClient follows the task across dropped streams; another client gets one subscription.
+            var events = _client is A2AClient a2a
+                ? a2a.ObserveTaskAsync(seen.TaskId, _options.RequestOptions, cancellationToken)
+                : _client.SubscribeToTaskAsync(seen.TaskId, _options.RequestOptions, cancellationToken);
+            updates = _background.StreamAsync(events, seen, cancellationToken);
         }
         else if (options?.AllowBackgroundResponses == true)
         {

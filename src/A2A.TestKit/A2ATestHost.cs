@@ -222,7 +222,7 @@ public sealed class A2ATestHost : IAsyncDisposable
         A2AClientOptions? options)
     {
         options ??= new A2AClientOptions();
-        IA2AClient transport = binding switch
+        IA2ATransport transport = binding switch
         {
             ProtocolBindings.JsonRpc => new JsonRpcTransport(http, url, options),
             ProtocolBindings.HttpJson => new HttpJsonTransport(http, url, options),

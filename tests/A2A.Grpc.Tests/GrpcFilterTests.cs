@@ -1,3 +1,4 @@
+using A2A.Client;
 using System.Collections.Concurrent;
 using A2A.Server.Authorization;
 using A2A.Server.Pipeline;

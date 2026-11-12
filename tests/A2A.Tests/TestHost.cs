@@ -352,7 +352,7 @@ public sealed class TestAgentHost : IAsyncDisposable
     public A2AClient Client(string binding, string? user = "alice", A2AClientOptions? options = null)
     {
         options ??= new A2AClientOptions();
-        IA2AClient transport = binding switch
+        IA2ATransport transport = binding switch
         {
             ProtocolBindings.JsonRpc => new JsonRpcTransport(Http(user), new Uri(BaseUrl), options),
             ProtocolBindings.HttpJson => new HttpJsonTransport(Http(user), new Uri(BaseUrl), options),

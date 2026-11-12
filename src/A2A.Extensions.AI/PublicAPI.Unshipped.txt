@@ -1,1 +1,5 @@
 #nullable enable
+static A2A.Extensions.AI.A2AClientAIExtensions.AsAIFunction(this A2A.Client.IA2AClient! client, string! name, string! description, A2A.Extensions.AI.A2AAgentFunctionOptions? options = null) -> A2A.Extensions.AI.A2AAgentFunction!
+static A2A.Extensions.AI.A2AClientAIExtensions.AsChatClient(this A2A.Client.IA2AClient! client, A2A.Extensions.AI.A2AChatClientOptions? options = null) -> A2A.Extensions.AI.A2AChatClient!
+*REMOVED*static A2A.Extensions.AI.A2AClientAIExtensions.AsAIFunction(this A2A.Client.A2AClient! client, string! name, string! description, A2A.Extensions.AI.A2AAgentFunctionOptions? options = null) -> A2A.Extensions.AI.A2AAgentFunction!
+*REMOVED*static A2A.Extensions.AI.A2AClientAIExtensions.AsChatClient(this A2A.Client.A2AClient! client, A2A.Extensions.AI.A2AChatClientOptions? options = null) -> A2A.Extensions.AI.A2AChatClient!

@@ -14,7 +14,7 @@ namespace A2A.Client.Transports;
 
 /// <summary>JSON-RPC 2.0 over HTTP binding (spec §9).</summary>
 #pragma warning disable A2AEXP005 // the live exchange of A2A 1.1
-public sealed class JsonRpcTransport : HttpTransportBase, IA2AClient, IA2AExtensionOperationClient, IResumableTransport,
+public sealed class JsonRpcTransport : HttpTransportBase, IA2ATransport, IA2AExtensionOperationClient, IResumableTransport,
     ITransportBinding, ILiveTransport
 #pragma warning restore A2AEXP005
 {

@@ -7,6 +7,8 @@ namespace A2A.Tests;
 /// <summary>An <see cref="IA2AClient"/> whose send and get-task are scripted by the test. Everything else throws. Compiled into A2A.Tests and A2A.Stores.Tests.</summary>
 public sealed class ScriptedA2AClient : IA2AClient
 {
+    public AgentCard? AgentCard => null;
+
     private readonly ConcurrentQueue<string> _sendKeys = new();
     private readonly ConcurrentQueue<string> _gets = new();
 

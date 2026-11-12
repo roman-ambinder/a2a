@@ -1,6 +1,6 @@
 # Simpler SDK surface: one way to do each common thing
 
-Date: 2026-11-12. Status: phases 1 and 2 done (see "Phase 2 as built"); phase 3 not started.
+Date: 2026-11-12. Status: phases 1 and 2 done (see "Phase 2 as built"); phase 3 items 1-3 done (see "Phase 3 as built"), items 4-5 open.
 Scope: the developer-facing API of `A2A.Client`, `A2A.Protocol` (response types), `A2A.Server`, `A2A.Server.AspNetCore` and the two AI adapters. It builds on `2026-11-07-sdk-design-principles-design.md`: safe and correct by default stays the floor, and "easy to use" is the principle this design serves.
 
 Decisions from the user:
@@ -183,6 +183,22 @@ Phase 2 shipped with these differences from the plan above:
   - One shared options base for the two adapters.
   - Instance overloads: `AddChatClientAgent(chatClient, ...)` and `AddAIAgent(agent, ...)`.
 - **Surface size.** Store, engine and coordination types move to `A2A.Server.Advanced` (namespace), so IntelliSense in `A2A.Server` shows the hosting basics.
+
+### Phase 3 as built (items 1-3)
+
+- `A2AClient.ConnectAsync(url, o => ...)` with `A2AConnectOptions` (`Credentials`, `Card`, `Client`, `Handler`).
+  `A2AClientFactory.CreateAsync(url, httpClient)` stays public for an `HttpClient` the caller already has; the docs
+  lead with `ConnectAsync`. `A2AClient.ResolvedCard` keeps the resolved card.
+- The 11 operations moved to `IA2ATransport`; `IA2AClient : IA2ATransport` adds `AgentCard`. The interfaces are linked
+  rather than duplicated, so an `A2AClient` can wrap another `IA2AClient`; that is harmless and keeps one definition of
+  each operation. `ObserveTaskAsync` stays on `A2AClient` (it needs the resume internals); the Agent Framework adapter
+  uses it when it has an `A2AClient` and subscribes once otherwise.
+- `A2ARequestOptions.Skill` replaces `SelectSkill`; the client copies the options before adding the extension.
+- `BearerTokenCredentialProvider` takes a token source only, keeping the earlier decision against a fixed-token
+  provider.
+- Not changed: `Extensions` and `MaxRetries` on both `A2AClientOptions` and `A2ARequestOptions`. They are a client
+  default and a per-call override (the same layering as the tenant, D6 of the design principles), not two ways to do
+  one thing. The per-transport credential models (AWS handler versus provider, gRPC channel setup) were not unified.
 
 ## 4. Open decisions
 
