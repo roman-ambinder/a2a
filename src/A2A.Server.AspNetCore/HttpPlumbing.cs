@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 
 namespace A2A.Server.AspNetCore;
@@ -107,7 +108,8 @@ internal static partial class HttpPlumbing
         }
 
         // Kept only when a token exchanger is registered, the caller is authenticated and a bearer scheme validated the
-        // token as the caller's. Never logged or stored.
+        // token as the caller's (or a scheme listed in A2AHttpOptions.TrustedBearerSchemes authenticated the caller).
+        // Never logged or stored.
         var bearer = principal != ServerCallContext.AnonymousPrincipal &&
                      services.GetService<ITokenExchanger>() is not null
             ? BearerToken(http.Request.Headers.Authorization)
@@ -147,7 +149,9 @@ internal static partial class HttpPlumbing
     ///     card scheme (<see cref="A2ACardAuthenticationExtensions.AddCardAuthentication" />), authenticated the request, and
     ///     the token's user is the caller (it shares an identity with <paramref name="user" />, or resolves to
     ///     <paramref name="principal" />). Another scheme (an API key, a cookie) authenticating the caller is not enough:
-    ///     nothing checked the header then.
+    ///     nothing checked the header then. The exception is a scheme the host listed in
+    ///     <see cref="A2AHttpOptions.TrustedBearerSchemes" />: it counts as a bearer scheme, the host trusting it to have
+    ///     validated the header.
     /// </summary>
     /// <remarks>
     ///     The handlers' results for this request are reused (a handler authenticates once per request). A scheme that has
@@ -163,9 +167,12 @@ internal static partial class HttpPlumbing
         var all = provider.GetAllSchemesAsync();
         if (!all.IsCompletedSuccessfully) return false;
         var declared = services.GetServices<A2ACardAuthenticationExtensions.BearerScheme>();
+        var trusted = services.GetService<IOptions<A2AHttpOptions>>()?.Value.TrustedBearerSchemes;
         foreach (var scheme in all.Result)
         {
-            if (!IsJwtBearerHandler(scheme.HandlerType) && !declared.Any(d => d.Name == scheme.Name)) continue;
+            if (!IsJwtBearerHandler(scheme.HandlerType) && !declared.Any(d => d.Name == scheme.Name) &&
+                trusted?.Contains(scheme.Name) != true)
+                continue;
             var handler = handlers.GetHandlerAsync(http, scheme.Name);
             if (!handler.IsCompletedSuccessfully || handler.Result is not { } h) continue;
             var result = h.AuthenticateAsync();
