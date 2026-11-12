@@ -1,1 +1,3 @@
 #nullable enable
+A2A.Client.Grpc.GrpcTransportFactory.Create(A2A.AgentInterface! agentInterface, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions! options) -> A2A.Client.IA2ATransport!
+*REMOVED*A2A.Client.Grpc.GrpcTransportFactory.Create(A2A.AgentInterface! agentInterface, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions! options) -> A2A.Client.IA2AClient!

@@ -23,7 +23,7 @@ Register an `AIAgent`, then call `AddAIAgent` on the A2A builder:
 
 The reply streams to the caller as chunks of one artifact named `response`, exactly as `AddChatClientAgent` streams a chat client's reply (the two share the code). Every execution is an A2A task, so cancel and follow-ups always work: cancelling the task cancels the token the agent runs with, and the task ends `CANCELED`.
 
-`AddAIAgent` registers a scoped executor and replaces any executor registered before. The agent is resolved from each execution's DI scope, so it can depend on scoped services. Pass `serviceKey` for a keyed agent.
+`AddAIAgent` registers a scoped executor and replaces any executor registered before. Pass the agent itself, as above, when one instance can serve every execution. Leave it out to resolve the agent from each execution's DI scope, so it can depend on scoped services; pass `serviceKey` for a keyed agent. The options share their reply, history and security settings with `AddChatClientAgent` (<xref:A2A.Extensions.AI.A2AModelAgentOptions>).
 
 The agent gets the A2A task id, the context id and the message's reference task ids in `AgentRunOptions.AdditionalProperties` (keys in `A2AAgentKeys`). Caller metadata is never copied there, because an agent may put those properties in front of a model. Code that runs during the run, such as a tool, reads them through `AIAgent.CurrentRunContext?.RunOptions?.AdditionalProperties`. Set more with `ConfigureRunOptions`, from data you trust:
 
@@ -66,7 +66,12 @@ In `Stored` mode the session of each context and caller is kept in an `AgentSess
 
 ### Deleted with the context
 
-When the [retention](retention.md) sweep deletes a context, it tells every registered `IA2AContextLifecycle` (package `A2A.Server`). In stored mode the adapter registers one that deletes the context's session, so sessions live as long as their context. A failed delete is logged (event 1801). The hook is general: any agent that keeps per-context state outside the task store can use it.
+When the [retention](retention.md) sweep deletes a context, it tells every registered `IA2AContextLifecycle` (package `A2A.Server`). In stored mode the adapter registers one that deletes the context's sessions, so sessions live as long as their context. A failed delete is logged (event 1801).
+
+- **Shared contexts:** each caller has its own session. That includes callers that `A2AServerOptions.ContextAccess` lets into another owner's context.
+- **The index:** the store cannot list its keys, so the adapter keeps a small index session per context with the callers who saved one. Its owner partition is `i:`, where callers have `o:` and their principal. Deleting the context deletes every listed caller's session, then the index.
+- **Cost:** each process records a caller once per context, right after that caller's session is saved, within the same save timeout. A failure there is logged (event 1802), and the session itself stays saved.
+- **Limit:** the store has no compare-and-set, so two callers saving the index at the same moment can lose one entry. That caller's session then outlives the context until the store's own expiry removes it. The hook is general: any agent that keeps per-context state outside the task store can use it.
 
 [!code-csharp[](../../../samples/Snippets/AgentFramework.cs#Lifecycle)]
 
@@ -77,7 +82,7 @@ With `ToolApprovals = ToolApprovalMode.Bound` (stored mode only), a tool approva
 - The run stops. What the agent said before stays with the task. The task waits in `INPUT_REQUIRED` with the call's canonical description as its status text, for example `delete_file({"path":"/tmp/x"})` (the arguments as RFC 8785 JSON, so key order does not matter), and its hash in the status metadata (`a2a.approval.hash`).
 - A follow-up that echoes the hash approves that call: the agent gets an approval response and runs again. A follow-up without it declines, with the reason "The caller did not approve this action.". A wrong hash is refused before the agent runs. The caller's own words follow the response.
 - If the agent then asks for a different call, the caller is asked again: an approval answers one exact call. Only the first request of a run is asked.
-- The pending request is kept in the session with the task id and the hash. It is answered only for the task that asked and the hash that task shows. A new task in the context, or an older copy of the session from the store, drops it unanswered.
+- The pending request is kept in the session store with the task id and the hash, as a record of its own per task, not in the caller's session. It is answered only for the task that asked and the hash that task shows; an older copy of the record from the store is dropped unanswered. Another task in the context, even one that runs at the same time and saves the session last, cannot remove it. Deleting the context deletes it.
 
 ## Use a remote agent as an AIAgent
 

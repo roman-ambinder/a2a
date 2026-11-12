@@ -21,7 +21,7 @@ var card = new AgentCard
     Description = "Echoes your message back, streaming it word by word.",
     Version = "1.0.0",
     // No SupportedInterfaces: the served card lists every mapped binding at the public base URL (set below).
-    Capabilities = new AgentCapabilities { Streaming = true, PushNotifications = true },
+    Capabilities = new AgentCapabilities { PushNotifications = true },
     // No SecuritySchemes: AddApiKeyAuthentication declares the X-Api-Key scheme, so clients know to send the key.
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
@@ -51,8 +51,8 @@ if (builder.Configuration["EchoAgent:SigningKeyFile"] is { Length: > 0 } keyFile
 builder.Services.AddA2A(a => a.AddAgentExecutor<EchoAgent>().AddAgentCard(card)
         .AddApiKeyAuthentication(o => o.Add("echo-client", apiKeyHash)))
     // Development convenience: accept requests without the A2A-Version header (e.g. curl).
-    .Configure<A2AServerOptions>(o => o.TreatMissingVersionAsCurrent = builder.Environment.IsDevelopment())
-    .ConfigureA2AHttp(h =>
+    .Configure(o => o.TreatMissingVersionAsCurrent = builder.Environment.IsDevelopment())
+    .ConfigureHttp(h =>
     {
         h.PublicBaseUrl = new Uri(baseUrl);
         h.SigningKey = signingKey;
@@ -60,7 +60,6 @@ builder.Services.AddA2A(a => a.AddAgentExecutor<EchoAgent>().AddAgentCard(card)
 
 var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A(); // per-caller rate limiting (adds UseRateLimiter)
 app.UseAuthorization();
 app.MapA2A("/a2a"); // JSON-RPC, HTTP+JSON and the public Agent Card; the API key protects the A2A endpoints
 app.Run(baseUrl);
@@ -88,6 +87,6 @@ internal sealed class EchoAgent : IAgentExecutor
             await echo.WriteAsync((i == 0 ? "" : " ") + words[i], cancellationToken);
         }
 
-        await updater.CompleteAsync(cancellationToken: cancellationToken);
+        await updater.CompleteAsync(cancellationToken);
     }
 }

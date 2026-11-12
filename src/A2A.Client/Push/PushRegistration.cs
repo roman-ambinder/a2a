@@ -20,7 +20,7 @@ public sealed class PushRegistration
     public AgentTask Task { get; }
 
     /// <summary>
-    ///     True when the task is terminal or interrupted (see <see cref="A2AClient.WaitForTaskAsync" />): no further
+    ///     True when the task is terminal or interrupted (see <see cref="A2AClientExtensions.WaitForTaskAsync" />): no further
     ///     notification is
     ///     expected, so do not wait for a callback. Servers of other SDKs send no catch-up delivery for a task that already
     ///     finished.

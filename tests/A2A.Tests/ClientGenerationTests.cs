@@ -39,7 +39,7 @@ public sealed class ClientGenerationTests
     };
 
     /// <summary>A transport whose subscriptions play scripts, one per call, and whose GetTask answers a fixed task.</summary>
-    private sealed class ScriptedTransport(AgentTask current, params Func<IAsyncEnumerable<StreamResponse>>[] scripts) : IA2AClient
+    private sealed class ScriptedTransport(AgentTask current, params Func<IAsyncEnumerable<StreamResponse>>[] scripts) : IA2ATransport
     {
         private int _next;
         public List<SubscribeToTaskRequest> Subscribes { get; } = [];

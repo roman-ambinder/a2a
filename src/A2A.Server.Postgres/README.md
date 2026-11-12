@@ -12,7 +12,7 @@ builder.Services.AddA2AServer(o => o.AgentCard = card)
 
 // Push secrets are stored protected. Use a protector whose keys survive restarts and are shared by all instances:
 builder.Services.AddDataProtection();               // persist the key ring where every instance can read it
-builder.Services.AddA2ADataProtectionPushSecrets();  // from A2A.Server.AspNetCore
+// and on the A2A builder: .AddDataProtectionPushSecrets() (from A2A.Server.AspNetCore)
 ```
 
 `AddA2APostgresStores(connectionString | NpgsqlDataSource, configure)` does the same on an `IServiceCollection`, before
@@ -22,7 +22,7 @@ or after `AddA2AServer`.
 
 `AddPostgresStores` also registers `PostgresExecutionCoordinator` (set `RegisterCoordinator = false` to keep the
 in-memory one; `AddPostgresExecutionCoordinator(...)` registers it alone). Its leases live in the database, so they
-survive a crash of the instance and then expire: the retention sweep (`AddA2ARetention`) finds them and fails the tasks
+survive a crash of the instance and then expire: the retention sweep (`AddRetention`) finds them and fails the tasks
 that were running. With the in-memory coordinator the leases die with the process and those tasks stay `WORKING`. With
 several instances it also gives you the cluster-wide running check, cancel requests and sweep lease, without Redis.
 
@@ -86,7 +86,7 @@ like the in-memory stores.
 - `PostgresTaskStore` constructor now takes `StreamingOptions` second:
   `PostgresTaskStore(NpgsqlDataSource, StreamingOptions, PostgresStoreOptions?, TimeProvider?)`. Prefer
   `AddPostgresStores`.
-- Purges, the interrupted-state timeout and dead-execution recovery run only with `services.AddA2ARetention()`. It is
+- Purges, the interrupted-state timeout and dead-execution recovery run only with `AddRetention()` on the A2A builder. It is
   opt-in.
 
 ## Behavior
@@ -124,7 +124,7 @@ Differences, because the store is shared by several instances:
   `PostgresMaintenance.PurgeExpiredAsync()` runs it by hand.
 - That cleanup covers event logs and idempotency entries. Expired tasks (with their push configs, deliveries and dead
   letters), orphan contexts, timed-out interrupted tasks and dead executions are handled by the retention sweep
-  (`services.AddA2ARetention()`).
+  (`AddRetention()` on the A2A builder).
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a),
 implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 10.

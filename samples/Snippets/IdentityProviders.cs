@@ -55,16 +55,16 @@ internal static class Samples
             .AddPolicy("A2ACaller", p => p.RequireClaim("roles", "Agent.Invoke"));
         builder.Services.AddA2A(a => a
             .AddAgentExecutor<HelloAgent>()
-            .AddAgentCard(new AgentCard { Name = "My Agent", Description = "Says hello.", Version = "1.0.0" })
+            .AddAgentCard("My Agent", "Says hello.")
             // The card declares the bearer scheme, so clients know to send a token; "Bearer" is AddJwtBearer's scheme.
-            .AddBearerAuthentication());
+            .AddBearerAuthentication()
+            .RequirePolicy("A2ACaller"));   // and the caller must have the Agent.Invoke role
         builder.Services.AddSingleton<IPrincipalResolver, EntraPrincipalResolver>();
 
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
-        app.MapA2A("/a2a", o => o.AuthorizationPolicy = "A2ACaller");
+        app.MapA2A("/a2a");
         #endregion
     }
 
@@ -78,7 +78,7 @@ internal static class Samples
         // Any TokenCredential works: ManagedIdentityCredential, WorkloadIdentityCredential, DefaultAzureCredential, ...
         var entra = new AzureTokenCredentialProvider(new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned), options);
 
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [entra]);
+        var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(entra));
         #endregion
         _ = client;
     }
@@ -106,7 +106,7 @@ internal static class Samples
             Scopes = ["api://my-agent/.default"],
         });
 
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [oauth]);
+        var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(oauth));
         #endregion
         _ = client;
     }
@@ -127,7 +127,7 @@ internal static class Samples
             Scopes = ["agent.invoke"],
         });
 
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [oauth]);
+        var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(oauth));
         #endregion
         _ = client;
     }
@@ -147,7 +147,7 @@ internal static class Samples
             Scopes = ["api://my-agent/.default"],
         });
 
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [oauth]);
+        var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(oauth));
         #endregion
         _ = client;
     }
@@ -197,7 +197,7 @@ internal static class Samples
             Credentials = new BasicAWSCredentials("AKIDEXAMPLE", Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY")),
         });
 
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [aws]);
+        var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(aws));
         #endregion
         _ = client;
     }

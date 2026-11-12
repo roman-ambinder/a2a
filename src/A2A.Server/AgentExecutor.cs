@@ -430,11 +430,23 @@ public sealed class TaskUpdater
         return UpdateStatusAsync(TaskState.Submitted, null, null, cancellationToken);
     }
 
+    /// <summary>Moves the task to Working, with no agent message. Same as <c>StartWorkAsync(null, cancellationToken)</c>.</summary>
+    public ValueTask StartWorkAsync(CancellationToken cancellationToken)
+    {
+        return StartWorkAsync(null, cancellationToken);
+    }
+
     /// <summary>Moves the task to Working, with an optional agent message.</summary>
     public ValueTask StartWorkAsync(string? text = null, CancellationToken cancellationToken = default)
     {
         return UpdateStatusAsync(TaskState.Working, text is null ? null : NewAgentMessage(text), null,
             cancellationToken);
+    }
+
+    /// <summary>Moves the task to Completed (terminal), with no agent message. Same as <c>CompleteAsync(null, cancellationToken)</c>.</summary>
+    public ValueTask CompleteAsync(CancellationToken cancellationToken)
+    {
+        return CompleteAsync(null, cancellationToken);
     }
 
     /// <summary>Moves the task to Completed (terminal), with an optional agent message.</summary>
@@ -444,6 +456,12 @@ public sealed class TaskUpdater
             cancellationToken);
     }
 
+    /// <summary>Moves the task to Failed (terminal), with no agent message. Same as <c>FailAsync(null, cancellationToken)</c>.</summary>
+    public ValueTask FailAsync(CancellationToken cancellationToken)
+    {
+        return FailAsync(null, cancellationToken);
+    }
+
     /// <summary>Moves the task to Failed (terminal), with an optional agent message.</summary>
     public ValueTask FailAsync(string? text = null, CancellationToken cancellationToken = default)
     {
@@ -451,11 +469,23 @@ public sealed class TaskUpdater
             cancellationToken);
     }
 
+    /// <summary>Moves the task to Rejected (terminal), with no agent message. Same as <c>RejectAsync(null, cancellationToken)</c>.</summary>
+    public ValueTask RejectAsync(CancellationToken cancellationToken)
+    {
+        return RejectAsync(null, cancellationToken);
+    }
+
     /// <summary>Moves the task to Rejected (terminal), with an optional agent message.</summary>
     public ValueTask RejectAsync(string? text = null, CancellationToken cancellationToken = default)
     {
         return UpdateStatusAsync(TaskState.Rejected, text is null ? null : NewAgentMessage(text), null,
             cancellationToken);
+    }
+
+    /// <summary>Moves the task to Canceled (terminal), with no agent message. Same as <c>CancelAsync(null, cancellationToken)</c>.</summary>
+    public ValueTask CancelAsync(CancellationToken cancellationToken)
+    {
+        return CancelAsync(null, cancellationToken);
     }
 
     /// <summary>Moves the task to Canceled (terminal), with an optional agent message.</summary>
@@ -539,7 +569,7 @@ public sealed class TaskUpdater
     /// <summary>
     ///     Opens a writer that streams one artifact chunk by chunk: the first <see cref="ArtifactWriter.WriteAsync(string, CancellationToken)" />
     ///     creates the artifact, later ones append, and <see cref="ArtifactWriter.CompleteAsync" /> (or disposing it) sends
-    ///     the last chunk. A terminal state (<see cref="CompleteAsync" />, <see cref="FailAsync" />, ...) completes the open
+    ///     the last chunk. A terminal state (<see cref="CompleteAsync(string, CancellationToken)" />, <see cref="FailAsync(string, CancellationToken)" />, ...) completes the open
     ///     writers first.
     /// </summary>
     /// <param name="name">Name of the artifact, or null.</param>
@@ -601,6 +631,20 @@ public sealed class TaskUpdater
                     metadata) // the stored event keeps its own: the caller may reuse the dictionary
         };
         return _writer.WriteAsync(StreamResponse.Of(evt), cancellationToken);
+    }
+
+    /// <summary>
+    ///     Adds an artifact with one text part and returns its id: the usual way to hand back an answer before
+    ///     <see cref="CompleteAsync(CancellationToken)" />. Use the overload with parts for files, data or streamed chunks.
+    /// </summary>
+    /// <param name="text">The artifact's text.</param>
+    /// <param name="name">A human-readable name, or null.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    public ValueTask<string> AddArtifactAsync(string text, string? name = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        return AddArtifactAsync([Part.FromText(text)], name: name, cancellationToken: cancellationToken);
     }
 
     /// <summary>
@@ -1038,6 +1082,28 @@ public sealed class TaskUpdater
             Hash = null;
             Stored = null;
         }
+    }
+}
+
+/// <summary>
+///     An agent that answers each message with text: a direct reply for a new turn, or, when the message continues a task
+///     that waited for input, an artifact with the text and the task completed. Made by
+///     <c>A2AServerBuilder.AddAgentExecutor</c> with a function that returns text.
+/// </summary>
+internal sealed class ReplyAgentExecutor(Func<AgentRequestContext, CancellationToken, Task<string>> reply) : IAgentExecutor
+{
+    public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken)
+    {
+        var text = await reply(context, cancellationToken).ConfigureAwait(false)
+                   ?? throw new InvalidOperationException("The agent function returned null instead of text.");
+        if (context.IsNewTask)
+        {
+            await updater.ReplyAsync(text, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        await updater.AddArtifactAsync(text, "answer", cancellationToken).ConfigureAwait(false);
+        await updater.CompleteAsync(cancellationToken).ConfigureAwait(false);
     }
 }
 

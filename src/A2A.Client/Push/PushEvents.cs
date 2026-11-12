@@ -5,7 +5,7 @@ internal static class PushEvents
 {
     /// <summary>
     ///     Terminal or interrupted: no more notifications come until the caller acts. Same rule as
-    ///     <see cref="A2AClient.WaitForTaskAsync" />.
+    ///     <see cref="A2AClientExtensions.WaitForTaskAsync" />.
     /// </summary>
     public static bool IsFinal(TaskState state)
     {

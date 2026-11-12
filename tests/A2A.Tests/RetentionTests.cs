@@ -905,6 +905,60 @@ public sealed class RetentionTests
     }
 
     /// <summary>Refuses to delete one context, as a store does when a task starts using it between list and delete.</summary>
+    /// <summary>
+    /// Deletes the context, and then puts it back at once, as the engine does when a new message to the context arrives
+    /// just after the sweep removed it (TaskExecutionEngine recreates a context the orphan sweep deleted).
+    /// </summary>
+    private sealed class RecreatingContextStore(TaskStore inner, string recreatedContextId) : TaskStore
+    {
+        public override async ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default)
+        {
+            var existing = await inner.GetContextAsync(tenant, contextId, ct);
+            var deleted = await inner.DeleteContextAsync(tenant, contextId, ct);
+            if (deleted && contextId == recreatedContextId && existing is not null)
+                await inner.GetOrCreateContextAsync(existing with { CreatedAt = DateTimeOffset.UtcNow }, ct);
+            return deleted;
+        }
+
+        public override ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default) => inner.DeleteAsync(key, ct);
+        public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) => inner.GetAsync(key, ct);
+        public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => inner.CreateAsync(record, ct);
+        public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default) => inner.UpdateAsync(record, expectedVersion, ct);
+        public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default) => inner.CommitAsync(commit, ct);
+        public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => inner.ListAsync(query, ct);
+        public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => inner.GetContextAsync(tenant, contextId, ct);
+        public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => inner.GetOrCreateContextAsync(record, ct);
+        public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default) => inner.ListExpiredAsync(terminalBefore, max, ct);
+        public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) => inner.ListInterruptedBeforeAsync(before, max, ct);
+        public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default) => inner.ListOrphanContextsAsync(createdBefore, max, ct);
+        public override ValueTask<TaskRecord?> GetForMaintenanceAsync(string tenant, string taskId, CancellationToken ct = default) => inner.GetForMaintenanceAsync(tenant, taskId, ct);
+    }
+
+    [Fact]
+    public async Task A_context_recreated_right_after_the_sweep_deleted_it_is_not_reported()
+    {
+        // The sweep deletes "old-a", and a new message puts it back before the hooks run: its stored state (an agent's
+        // session) belongs to a live conversation again, so the hooks must not erase it.
+        var clock = NewClock();
+        var hook = new RecordingLifecycle();
+        var events = new InMemoryEventStore(new StreamingOptions { TerminalRetention = TimeSpan.FromDays(30) }, clock);
+        var outbox = new InMemoryPushOutbox(clock);
+        var store = new RecreatingContextStore(new InMemoryTaskStore(events, outbox), "old-a");
+        await using var host = await StartAsync(clock, o => o.InterruptedTimeout = null, s =>
+        {
+            s.AddSingleton<TaskStore>(store);
+            s.AddSingleton<EventStore>(events);
+            s.AddSingleton<PushOutbox>(outbox);
+            s.AddSingleton<IA2AContextLifecycle>(hook);
+        });
+        await SeedOrphanContextsAsync(host, clock);
+
+        await HookedSweeper(host).RunOnceAsync(CancellationToken.None);
+
+        Assert.NotNull(await store.GetContextAsync("", "old-a"));
+        Assert.Equal(["old-b"], hook.Seen.Select(c => c.ContextId).ToArray());
+    }
+
     private sealed class RefusingContextDeleteStore(TaskStore inner, string refusedContextId) : TaskStore
     {
         public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default) =>

@@ -46,7 +46,7 @@ namespace A2A.Client.Grpc;
 ///     </para>
 /// </remarks>
 #pragma warning disable A2AEXP005 // the live exchange of A2A 1.1
-public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, IDisposable, ITransportBinding,
+public sealed class GrpcTransport : IA2ATransport, IA2AExtensionOperationClient, IDisposable, ITransportBinding,
     ILiveTransport
 #pragma warning restore A2AEXP005
 {
@@ -565,7 +565,7 @@ public sealed class GrpcTransportFactory(GrpcChannelOptions? channelOptions = nu
     ///     not
     ///     used: gRPC needs its own HTTP/2 handler.
     /// </summary>
-    public IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options)
+    public IA2ATransport Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options)
     {
         return new GrpcTransport(
             GrpcChannelPool.For(channelOptions).CallInvoker(GrpcTransport.ParseAddress(agentInterface.Url)), options);

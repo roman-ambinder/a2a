@@ -277,21 +277,12 @@ public class GrpcSecurityTests
     }
 
     [Fact]
-    public async Task Startup_fails_without_the_rate_limiter_middleware()
-    {
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => GrpcHost.StartAsync(useA2A: false));
-        Assert.Contains("UseA2A", ex.Message);
-    }
-
-    [Fact]
     public async Task AddA2AGrpc_registers_the_aspnetcore_services()
     {
         // AddA2AGrpc includes AddA2AServerAspNetCore (one registration call per binding package), so the startup check and the
         // rate limit still apply without the explicit call.
         await using var host = await GrpcHost.StartAsync(aspNetCore: false);
         Assert.IsType<MessageResponse>(await host.Client().SendMessageAsync("hello"));
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => GrpcHost.StartAsync(aspNetCore: false, useA2A: false));
-        Assert.Contains("UseA2A", ex.Message);
     }
 
     [Fact]

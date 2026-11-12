@@ -12,7 +12,6 @@ internal static class Snippets
         Name = "Support Agent",
         Description = "Answers support questions.",
         Version = "1.0.0",
-        Capabilities = new AgentCapabilities { Streaming = true },
         DefaultInputModes = ["text/plain"],
         DefaultOutputModes = ["text/plain"],
         Skills = [new AgentSkill { Id = "support", Name = "Support", Description = "Answers questions", Tags = ["support"] }],
@@ -21,10 +20,10 @@ internal static class Snippets
     public static void Host(IServiceCollection services, IChatClient chatClient)
     {
         #region Host
-        services.AddSingleton(chatClient);   // any provider that implements IChatClient
         services.AddA2A(a => a
             .AddAgentCard(Card)
-            .AddChatClientAgent(o => o.Instructions = "You are a helpful support agent. Keep answers short."));
+            .AddChatClientAgent(chatClient,   // any provider that implements IChatClient
+                o => o.Instructions = "You are a helpful support agent. Keep answers short."));
         #endregion
     }
 

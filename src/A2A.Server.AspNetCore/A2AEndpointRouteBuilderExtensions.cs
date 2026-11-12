@@ -21,8 +21,7 @@ public static class A2AServiceCollectionExtensions
     ///     through, the default <see cref="ITenantResolver" /> (<see cref="RouteTenantResolver" />),
     ///     the startup check that fails the app when A2A endpoints have no authorization policy (see
     ///     <see cref="A2AServerOptions.AllowAnonymous" />), and the default rate limit policy (see
-    ///     <see cref="A2ARateLimitingExtensions.AddA2ARateLimiting" />; the host
-    ///     adds the middleware with <c>app.UseA2A()</c>). Call it once next to <c>AddA2AServer(...)</c>. <c>MapA2A</c> throws
+    ///     <see cref="ConfigureRateLimiting" />; no middleware is needed). Call it once next to <c>AddA2AServer(...)</c>. <c>MapA2A</c> throws
     ///     <see cref="InvalidOperationException" /> if it was not called, so the check cannot be skipped by mistake.
     ///     It replaces the <see cref="IAgentCardProvider" /> registration (with the one that completes an empty card):
     ///     register a
@@ -40,35 +39,89 @@ public static class A2AServiceCollectionExtensions
     }
 
     /// <summary>
-    ///     One-call registration of the A2A server: <c>AddA2AServer()</c>, then <see cref="AddA2AServerAspNetCore" />, then
-    ///     <paramref name="configure" /> with the builder (agent, card, stores, filters). Returns the service collection, like
-    ///     <see cref="AddA2AServerAspNetCore" />; the builder is only available inside <paramref name="configure" />. Hosts
-    ///     that need
-    ///     <see cref="A2AServerOptions" /> set at registration use the two-step form.
+    ///     Registers the A2A server with its ASP.NET Core endpoints and returns the builder: the agent, the card, options
+    ///     (<see cref="A2AServerBuilder.Configure" />, <see cref="ConfigureHttp" />, <see cref="ConfigureRateLimiting" />),
+    ///     stores, filters and authentication all go on it. <paramref name="configure" /> runs on the builder at once; you
+    ///     can also chain calls on the result. Call it once.
     /// </summary>
-    /// <exception cref="ArgumentNullException"><paramref name="services" /> or <paramref name="configure" /> is null.</exception>
-    public static IServiceCollection AddA2A(this IServiceCollection services, Action<A2AServerBuilder> configure)
+    /// <exception cref="ArgumentNullException"><paramref name="services" /> is null.</exception>
+    public static A2AServerBuilder AddA2A(this IServiceCollection services, Action<A2AServerBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(configure);
         var builder = services.AddA2AServer();
         services.AddA2AServerAspNetCore();
-        configure(builder);
-        return services;
+        configure?.Invoke(builder);
+        return builder;
     }
 
-    /// <summary>Configures HTTP-level settings (caller id, SSE keep-alive, card signing).</summary>
-    public static IServiceCollection ConfigureA2AHttp(this IServiceCollection services,
-        Action<A2AHttpOptions> configure)
+    /// <summary>
+    ///     Configures HTTP-level settings: the public base URL, Agent Card signing and caching, SSE keep-alive. Can be called
+    ///     more than once.
+    /// </summary>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static A2AServerBuilder ConfigureHttp(this A2AServerBuilder builder, Action<A2AHttpOptions> configure)
     {
-        return services.Configure(configure);
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(configure);
+        builder.Services.Configure(configure);
+        return builder;
+    }
+
+    /// <summary>
+    ///     Configures the per-caller rate limit of the A2A endpoints (on by default: 20 requests burst, 60 per minute), or
+    ///     turns it off with <see cref="A2ARateLimitOptions.Enabled" /> = false. The bucket is per tenant and caller: the
+    ///     principal, or for an anonymous caller its remote IP address. A rejected request gets HTTP 429 with a
+    ///     <c>Retry-After</c> header and the <c>RATE_LIMITED</c> error, in the format of the binding.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         The limit is taken after authentication and before the authorization decision, so a request with wrong
+    ///         credentials counts too: it is checked by the authorization middleware's result handler. An endpoint that has
+    ///         no authorization policy (anonymous callers allowed) is checked when the endpoint runs. A request is counted
+    ///         once. A host that replaces <see cref="Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler" /> after this call keeps the
+    ///         limit, but requests that fail authorization are then not counted.
+    ///     </para>
+    ///     <para>
+    ///         Behind a reverse proxy or load balancer every connection comes from the proxy, so all anonymous callers would
+    ///         share the proxy's bucket. Enable the ForwardedHeaders middleware (<c>app.UseForwardedHeaders()</c> with the
+    ///         proxy listed in <c>ForwardedHeadersOptions.KnownProxies</c> or <c>KnownNetworks</c>), so the remote address is
+    ///         the client's.
+    ///     </para>
+    ///     To replace the policy, register your own as a keyed service:
+    ///     <c>services.AddKeyedSingleton&lt;IRateLimiterPolicy&lt;string&gt;, MyPolicy&gt;(A2ARateLimitingExtensions.PolicyName)</c>.
+    ///     This is separate from the ASP.NET Core rate limiter middleware: a host that uses <c>UseRateLimiter()</c> for its
+    ///     own endpoints does not count A2A requests twice. To drop rate limiting, set
+    ///     <see cref="A2ARateLimitOptions.Enabled" /> to false.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static A2AServerBuilder ConfigureRateLimiting(this A2AServerBuilder builder,
+        Action<A2ARateLimitOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(configure);
+        builder.Services.AddA2ARateLimiting(configure);
+        return builder;
     }
 
     /// <summary>
     ///     Stores push notification secrets (token, credentials) with ASP.NET Core Data Protection instead of the default
     ///     per-process key. Configure the key ring (persistence, application name) with <c>AddDataProtection()</c>.
     /// </summary>
-    public static IServiceCollection AddA2ADataProtectionPushSecrets(this IServiceCollection services)
+    /// <exception cref="ArgumentNullException"><paramref name="builder" /> is null.</exception>
+    public static A2AServerBuilder AddDataProtectionPushSecrets(this A2AServerBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.Services.AddA2ADataProtectionPushSecrets();
+        return builder;
+    }
+
+    internal static IServiceCollection ConfigureA2AHttp(this IServiceCollection services,
+        Action<A2AHttpOptions> configure)
+    {
+        return services.Configure(configure);
+    }
+
+    internal static IServiceCollection AddA2ADataProtectionPushSecrets(this IServiceCollection services)
     {
         services.AddDataProtection();
         services.Replace(ServiceDescriptor.Singleton<IPushSecretProtector, DataProtectionPushSecretProtector>());
@@ -83,9 +136,10 @@ public static partial class A2AEndpointRouteBuilderExtensions
     ///     Maps both bindings under one base URL: JSON-RPC at <c>POST {pattern}</c> and HTTP+JSON at
     ///     <c>{pattern}/message:send</c>,
     ///     <c>{pattern}/tasks/...</c>, etc. Declare both in the Agent Card with the same URL. Every endpoint is inside the
-    ///     returned group, so call <c>RequireAuthorization()</c> (or rate limiting, CORS) on it, or set
-    ///     <see cref="A2AEndpointOptions.AuthorizationPolicy" />. If no endpoint authorization is set and
-    ///     <see cref="A2AServerOptions.AllowAnonymous" /> is false, the app fails at startup. Unless
+    ///     returned group. Who may call is normally set on the A2A builder (<c>AddApiKeyAuthentication</c>,
+    ///     <c>AddBearerAuthentication</c>, <see cref="A2ACallerPolicyExtensions.RequirePolicy" />); <c>RequireAuthorization()</c>
+    ///     on the group works too. If the endpoints get no authorization and <see cref="A2AServerOptions.AllowAnonymous" />
+    ///     is false, the app fails at startup. Unless
     ///     <see cref="A2AEndpointOptions.MapAgentCard" /> is false, it also maps the public Agent Card (and JWKS) as
     ///     <see cref="MapAgentCard" /> does, on <paramref name="endpoints" /> and outside the returned group, so authorization
     ///     on the
@@ -125,7 +179,6 @@ public static partial class A2AEndpointRouteBuilderExtensions
         Record(endpoints, ProtocolBindings.JsonRpc, pattern);
         Record(endpoints, ProtocolBindings.HttpJson, pattern);
         ApplyRateLimiting(endpoints, group);
-        if (options.AuthorizationPolicy is { } policy) group.RequireAuthorization(policy);
         if (options.MapAgentCard && endpoints is not RouteGroupBuilder) endpoints.MapAgentCard();
         return group;
     }
@@ -254,8 +307,9 @@ public static partial class A2AEndpointRouteBuilderExtensions
     }
 
     /// <summary>
-    ///     Applies the <c>"a2a"</c> rate limit policy when it is registered and
-    ///     <see cref="A2ARateLimitOptions.Enabled" /> is true.
+    ///     Puts the endpoints under the per-caller rate limit when it is registered and
+    ///     <see cref="A2ARateLimitOptions.Enabled" /> is true: the authorization result handler takes it for endpoints with
+    ///     an authorization policy, and the endpoint itself for the others.
     /// </summary>
     private static void ApplyRateLimiting<TBuilder>(IEndpointRouteBuilder endpoints, TBuilder group)
         where TBuilder : IEndpointConventionBuilder
@@ -265,16 +319,19 @@ public static partial class A2AEndpointRouteBuilderExtensions
         var services = endpoints.ServiceProvider;
         if (services.GetService<A2ARateLimitMarker>() is null) return;
         if (!services.GetRequiredService<IOptions<A2ARateLimitOptions>>().Value.Enabled) return;
-        group.RequireRateLimiting(A2ARateLimitingExtensions.PolicyName);
+        group.WithMetadata(A2ARateLimitMetadata.Instance);
+        group.Add(b =>
+        {
+            if (b.RequestDelegate is { } inner) b.RequestDelegate = A2ARateLimitGate.Wrap(inner);
+        });
     }
 
     /// <summary>
     ///     Puts endpoints of another binding under the same checks as <see cref="MapA2A" />: the fail-closed startup check
     ///     (they
     ///     must carry an authorization policy unless <see cref="A2AServerOptions.AllowAnonymous" /> is true) and the
-    ///     <c>"a2a"</c>
-    ///     rate limit policy (so the host must call <c>app.UseA2A()</c> unless <see cref="A2ARateLimitOptions.Enabled" />
-    ///     is false; register an <see cref="IA2ARejectionWriter" /> to answer its rejections in the binding's own format).
+    ///     per-caller rate limit (register an <see cref="IA2ARejectionWriter" /> to answer its rejections in the binding's own
+    ///     format).
     ///     Their display names get the prefix <c>"A2A {bindingName} "</c>. Requires
     ///     <see cref="A2AServiceCollectionExtensions.AddA2AServerAspNetCore" />. The built-in gRPC binding
     ///     (<c>MapA2AGrpc</c>) is built on it; do not call it again on that binding's endpoints.

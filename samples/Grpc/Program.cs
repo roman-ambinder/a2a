@@ -34,7 +34,6 @@ var card = new AgentCard
         new AgentInterface { Url = $"http://127.0.0.1:{grpcPort}", ProtocolBinding = ProtocolBindings.Grpc },
         new AgentInterface { Url = $"http://127.0.0.1:{httpPort}/a2a", ProtocolBinding = ProtocolBindings.JsonRpc }
     ],
-    Capabilities = new AgentCapabilities { Streaming = true },
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
     Skills = [new AgentSkill { Id = "binding", Name = "Binding", Description = "Names the binding", Tags = ["demo"] }]
@@ -51,7 +50,6 @@ builder.Services.AddA2AServer(o =>
 builder.Services.AddA2AGrpc(); // also adds the ASP.NET Core part of the server
 
 var app = builder.Build();
-app.UseA2A();
 app.MapAgentCard();
 app.MapA2A("/a2a");
 app.MapA2AGrpc(); // lf.a2a.v1.A2AService; no pattern argument
@@ -121,11 +119,11 @@ internal sealed class BindingAgent : IAgentExecutor
             return;
         }
 
-        await updater.StartWorkAsync(cancellationToken: cancellationToken);
+        await updater.StartWorkAsync(cancellationToken);
         var id = await updater.AddArtifactAsync([Part.FromText("over ")], name: "answer",
             cancellationToken: cancellationToken);
         await updater.AddArtifactAsync([Part.FromText(context.Call.Binding ?? "unknown")], id, append: true,
             lastChunk: true, cancellationToken: cancellationToken);
-        await updater.CompleteAsync(cancellationToken: cancellationToken);
+        await updater.CompleteAsync(cancellationToken);
     }
 }

@@ -14,7 +14,7 @@ public sealed class ClientOptionsCloneTests
     {
         public string ProtocolBinding => "custom";
         public bool CanCreate(AgentInterface agentInterface) => false;
-        public IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options) => throw new NotSupportedException();
+        public IA2ATransport Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options) => throw new NotSupportedException();
     }
 
     /// <summary>One non-default value per property. A new property without a value here fails the test, so it cannot be forgotten.</summary>

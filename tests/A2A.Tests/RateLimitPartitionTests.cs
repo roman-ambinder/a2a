@@ -32,19 +32,20 @@ public class RateLimitPartitionTests
     }
 
     [Fact]
-    public async Task Dropping_a_partitions_limiter_keeps_its_bucket()
+    public async Task Disposing_the_limiter_disposes_the_inner_bucket()
     {
-        using var policy = new A2ARateLimiterPolicy(
-            Options.Create(new A2ARateLimitOptions { TokenLimit = 1, TokensPerPeriod = 1, ReplenishmentPeriod = TimeSpan.FromMinutes(1) }),
-            new RouteTenantResolver(), new NameResolver(), []);
-        var partition = policy.GetPartition(Request("a", "alice"));
-        var limiter = partition.Factory(partition.PartitionKey);
-        Assert.True(limiter.AttemptAcquire().IsAcquired);
+        var inner = new TokenBucketRateLimiter(new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = 1, TokensPerPeriod = 1, ReplenishmentPeriod = TimeSpan.FromMinutes(1), AutoReplenishment = true,
+        });
+        using var perPrincipal = PartitionedRateLimiter.Create<string, string>(
+            p => RateLimitPartition.GetNoLimiter(p));
+        var limiter = new TenantAndPrincipalLimiter(inner, perPrincipal, "user:x");
 
-        // The middleware's idle cleanup calls DisposeAsync. The bucket is the policy's, so a new limiter finds it empty.
+        // The partitioned limiter's idle cleanup calls DisposeAsync.
         await limiter.DisposeAsync();
-        var again = partition.Factory(partition.PartitionKey);
-        Assert.False(again.AttemptAcquire().IsAcquired);
+
+        Assert.Throws<ObjectDisposedException>(() => inner.AttemptAcquire());
     }
 
     [Fact]

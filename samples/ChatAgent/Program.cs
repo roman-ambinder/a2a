@@ -27,7 +27,6 @@ var card = new AgentCard
     Name = "Chat Agent",
     Description = "A tiny rule-based chat agent hosted with A2A.Extensions.AI.",
     Version = "1.0.0",
-    Capabilities = new AgentCapabilities { Streaming = true },
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
     Skills = [new AgentSkill { Id = "chat", Name = "Chat", Description = "Answers simple questions", Tags = ["chat"] }]
@@ -38,10 +37,9 @@ var card = new AgentCard
 builder.Services.AddA2A(a => a
         .AddAgentCard(card)
         .AddChatClientAgent(o => o.Instructions = "You are a helpful, short-spoken agent."))
-    .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+    .Configure(o => o.AllowAnonymous = true);
 
 var app = builder.Build();
-app.UseA2A();
 app.MapA2A("/a2a");
 await app.StartAsync();
 

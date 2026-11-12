@@ -27,7 +27,7 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
         "Push secrets are protected with a per-process key (EphemeralPushSecretProtector), but the push outbox is durable ({Outbox}). " +
         "Push configs with a token or credentials will be dead-lettered after a restart or when another instance sends them, " +
         "because their secrets cannot be read there. Register a persistent IPushSecretProtector: for example " +
-        "services.AddDataProtection() with a key ring persisted and shared by every instance, then services.AddA2ADataProtectionPushSecrets() " +
+        "services.AddDataProtection() with a key ring persisted and shared by every instance, then AddDataProtectionPushSecrets() on the A2A builder " +
         "(A2A.Server.AspNetCore).";
 
     internal const string LocalCoordinatorMessage =
@@ -40,11 +40,11 @@ internal sealed class A2AStartupDiagnostics(IServiceProvider services, ILogger<A
     internal const string RetentionOffMessage =
         "The task store is durable ({TaskStore}), but the retention sweep is off (it is opt-in). Without it, terminal tasks and " +
         "their data are never deleted, tasks waiting for input never time out (InterruptedTimeout does nothing), and tasks whose " +
-        "instance died while running stay WORKING. Call services.AddA2ARetention() to turn it on; ignore this if you clean up yourself.";
+        "instance died while running stay WORKING. Call AddRetention() on the A2A builder to turn it on; ignore this if you clean up yourself.";
 
     internal const string UploadsWithoutRetentionMessage =
         "Inbound file uploads are on (ArtifactStorage.Uploads.Enabled), but the retention sweep is off (it is opt-in). Nothing purges the uploads " +
-        "that no message ever used, so they stay in the object store for good. Call services.AddA2ARetention() to turn it on.";
+        "that no message ever used, so they stay in the object store for good. Call AddRetention() on the A2A builder to turn it on.";
 
     internal const string InMemoryObjectsMessage =
         "The task store is durable ({TaskStore}), but artifact objects are kept by the process-local InMemoryArtifactObjectStore. " +

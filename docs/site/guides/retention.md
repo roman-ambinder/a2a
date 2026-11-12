@@ -6,11 +6,11 @@ Retention is a background sweep. It deletes old tasks, removes unused contexts, 
 
 [!code-csharp[](../../../samples/Snippets/Retention.cs#Register)]
 
-<xref:A2A.Server.A2AServerServiceCollectionExtensions.AddA2ARetention*> adds the sweep as a hosted service. Call it on every instance; only one instance sweeps per interval. The options are checked when the service starts, and an invalid value throws `InvalidOperationException`. A second call only applies its `configure` as well.
+<xref:A2A.Server.A2AServerBuilder.AddRetention*> (on the A2A builder) adds the sweep as a hosted service. Call it on every instance; only one instance sweeps per interval. The options are checked when the service starts, and an invalid value throws `InvalidOperationException`. A second call only applies its `configure` as well.
 
 ## What is not done without it
 
-Without `AddA2ARetention`:
+Without `AddRetention`:
 
 - terminal tasks and their data are never deleted,
 - `A2AServerOptions.InterruptedTimeout` does nothing, so tasks waiting for input never time out. It still decides whether a [continuation](proactive-continuation.md) may start, even with no sweep,

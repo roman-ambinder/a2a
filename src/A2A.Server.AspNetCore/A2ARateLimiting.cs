@@ -1,7 +1,7 @@
-using System.Diagnostics;
 using System.Threading.RateLimiting;
 using A2A.JsonRpc;
-using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,106 +22,170 @@ public sealed class A2ARateLimitOptions
     /// <summary>How often tokens are added back. Default 1 minute.</summary>
     public TimeSpan ReplenishmentPeriod { get; set; } = TimeSpan.FromMinutes(1);
 
-    /// <summary>
-    ///     Turns rate limiting on or off. Default true. When false, <c>MapA2A</c> adds no rate limit policy and the startup
-    ///     check
-    ///     does not require <c>app.UseA2A()</c>.
-    /// </summary>
+    /// <summary>Turns rate limiting on or off. Default true. When false, <c>MapA2A</c> adds no rate limit.</summary>
     public bool Enabled { get; set; } = true;
 }
 
-/// <summary>Registers the rate limit policy and adds the middleware for A2A endpoints.</summary>
+/// <summary>Registers the per-caller rate limit of the A2A endpoints.</summary>
 public static class A2ARateLimitingExtensions
 {
-    /// <summary>Name of the ASP.NET Core rate limiter policy applied to A2A endpoints.</summary>
+    /// <summary>
+    ///     Service key of the rate limit policy: register your own <see cref="IRateLimiterPolicy{TPartitionKey}" /> of
+    ///     <see cref="string" /> under this key to replace the default.
+    /// </summary>
     public const string PolicyName = "a2a";
 
     /// <summary>
-    ///     Registers the ASP.NET Core rate limiter policy <c>"a2a"</c>: a token bucket per tenant and caller
-    ///     (20 requests burst, 60 per minute by default). The caller is the principal, or for an anonymous caller its remote
-    ///     IP
-    ///     address (<c>HttpContext.Connection.RemoteIpAddress</c>). <c>MapA2A</c> applies it unless
-    ///     <see cref="A2ARateLimitOptions.Enabled" /> is false. A rejected request gets HTTP 429 with a <c>Retry-After</c>
-    ///     header and the <c>RATE_LIMITED</c> error, in the format of the binding. <c>AddA2AServerAspNetCore</c> calls this
-    ///     with
-    ///     the defaults; call it again to change them. The host must add the middleware with <c>app.UseA2A()</c>.
-    ///     One call is one request, so each later request on an A2A 1.1 SendLiveMessage call (a gRPC two-way stream) takes a
-    ///     token from the same buckets too; one refused for want of a token becomes a <c>RESOURCE_EXHAUSTED</c> stream error.
+    ///     Registers the per-caller rate limit of the A2A endpoints: a token bucket per tenant and caller (20 requests burst,
+    ///     60 per minute by default). The caller is the principal, or for an anonymous caller its remote IP address
+    ///     (<c>HttpContext.Connection.RemoteIpAddress</c>). <c>MapA2A</c> applies it unless
+    ///     <see cref="A2ARateLimitOptions.Enabled" /> is false; no middleware is needed. A rejected request gets HTTP 429 with
+    ///     a <c>Retry-After</c> header and the <c>RATE_LIMITED</c> error, in the format of the binding. <c>AddA2A</c> calls
+    ///     this with the defaults; change them with <c>ConfigureRateLimiting</c> on the A2A builder, which calls this.
     /// </summary>
-    /// <remarks>
-    ///     <para>
-    ///         Behind a reverse proxy or load balancer every connection comes from the proxy, so all anonymous callers would
-    ///         share
-    ///         the proxy's bucket. Enable the ForwardedHeaders middleware (<c>app.UseForwardedHeaders()</c> with the proxy
-    ///         listed in
-    ///         <c>ForwardedHeadersOptions.KnownProxies</c> or <c>KnownNetworks</c>) before <c>UseA2A()</c>, so the remote
-    ///         address is the client's.
-    ///     </para>
-    ///     To replace the policy, register your own under the same name, for example
-    ///     <c>services.AddRateLimiter(o =&gt; o.AddPolicy("a2a", ...))</c>. The default is then skipped (no duplicate-name
-    ///     exception,
-    ///     whatever the registration order) and yours is applied by <c>MapA2A</c>. Your policy counts each call once: the
-    ///     later requests of a SendLiveMessage stream do not draw from it. To drop rate limiting, set
-    ///     <see cref="A2ARateLimitOptions.Enabled" /> to false.
-    /// </remarks>
-    public static IServiceCollection AddA2ARateLimiting(this IServiceCollection services,
+    internal static IServiceCollection AddA2ARateLimiting(this IServiceCollection services,
         Action<A2ARateLimitOptions>? configure = null)
     {
         if (configure is not null) services.Configure(configure);
         if (services.Any(d => d.ServiceType == typeof(A2ARateLimitMarker))) return services;
         services.AddSingleton<A2ARateLimitMarker>();
         services.TryAddSingleton<A2ARateLimiterPolicy>();
-        services.AddRateLimiter(_ => { });
-        // Post-configure runs after every host Configure, so a policy the host registered under "a2a" always wins.
-        // The singleton itself is the policy (not a copy the middleware activates), so the later requests of a live stream
-        // draw from the very buckets the middleware uses (see A2ARateLimiterPolicy.LiveAdmission).
-        services.AddOptions<RateLimiterOptions>().PostConfigure<A2ARateLimiterPolicy, A2ARateLimitMarker>(
-            (o, policy, marker) =>
-            {
-                try
-                {
-                    o.AddPolicy(PolicyName, policy);
-                    marker.DefaultPolicyAdded = true;
-                }
-                catch (ArgumentException)
-                {
-                    /* the host supplied its own "a2a" policy */
-                }
-            });
+        services.TryAddSingleton<A2ARateLimitGate>();
+        DecorateAuthorizationResultHandler(services);
         return services;
     }
 
     /// <summary>
-    ///     Adds the A2A middleware: the ASP.NET Core rate limiter (<c>UseRateLimiter()</c>). Call it after <c>UseRouting()</c>
-    ///     (implicit
-    ///     with <c>WebApplication</c>) and <c>UseAuthentication()</c>, so the caller is known, and before
-    ///     <c>UseAuthorization()</c>.
-    ///     Use it instead of calling <c>UseRateLimiter()</c> yourself: the startup check looks for this call, and the limiter
-    ///     must not run twice.
+    ///     Wraps the authorization middleware's result handler (the default one when none is registered yet), so the limit
+    ///     is taken after authentication and before the authorization decision is acted on.
     /// </summary>
-    public static IApplicationBuilder UseA2A(this IApplicationBuilder app)
+    private static void DecorateAuthorizationResultHandler(IServiceCollection services)
     {
-        app.ApplicationServices.GetService<A2ARateLimitMarker>()?.MiddlewareAdded();
-        return app.UseRateLimiter();
+        var existing = services.LastOrDefault(d => d.ServiceType == typeof(IAuthorizationMiddlewareResultHandler));
+        if (existing is not null) services.Remove(existing);
+        services.AddSingleton<IAuthorizationMiddlewareResultHandler>(sp =>
+            new A2ARateLimitAuthorizationResultHandler(Create(sp, existing), sp.GetRequiredService<A2ARateLimitGate>()));
+    }
+
+    private static IAuthorizationMiddlewareResultHandler Create(IServiceProvider sp, ServiceDescriptor? descriptor)
+    {
+        return descriptor switch
+        {
+            null => new AuthorizationMiddlewareResultHandler(),
+            { ImplementationInstance: IAuthorizationMiddlewareResultHandler instance } => instance,
+            { ImplementationFactory: { } factory } => (IAuthorizationMiddlewareResultHandler)factory(sp),
+            { ImplementationType: { } type } =>
+                (IAuthorizationMiddlewareResultHandler)ActivatorUtilities.CreateInstance(sp, type),
+            _ => new AuthorizationMiddlewareResultHandler()
+        };
+    }
+}
+
+/// <summary>Records that the rate limit is registered (<see cref="A2ARateLimitingExtensions.AddA2ARateLimiting" />).</summary>
+internal sealed class A2ARateLimitMarker;
+
+/// <summary>Endpoint metadata: this A2A endpoint is under the rate limit.</summary>
+internal sealed class A2ARateLimitMetadata
+{
+    public static readonly A2ARateLimitMetadata Instance = new();
+}
+
+/// <summary>
+///     Takes one permit per request from the policy's partition: the host's keyed policy
+///     (<see cref="A2ARateLimitingExtensions.PolicyName" />) or the default <see cref="A2ARateLimiterPolicy" />. A request is
+///     counted once, whether the authorization result handler or the endpoint asks first.
+/// </summary>
+internal sealed class A2ARateLimitGate : IDisposable
+{
+    private static readonly object CountedKey = new();
+    private readonly PartitionedRateLimiter<HttpContext> _limiter;
+    private readonly IRateLimiterPolicy<string> _policy;
+    private readonly TimeSpan _replenishmentPeriod;
+
+    public A2ARateLimitGate(IServiceProvider services)
+    {
+        _policy = services.GetKeyedService<IRateLimiterPolicy<string>>(A2ARateLimitingExtensions.PolicyName)
+                  ?? services.GetRequiredService<A2ARateLimiterPolicy>();
+        _limiter = PartitionedRateLimiter.Create<HttpContext, string>(_policy.GetPartition);
+        _replenishmentPeriod = services.GetRequiredService<IOptions<A2ARateLimitOptions>>().Value.ReplenishmentPeriod;
+    }
+
+    /// <summary>
+    ///     The <see cref="ServerCallContext.LiveRequestAdmission" /> of a request to an endpoint under the rate limit: one
+    ///     call counts as one request, so each later request of an A2A 1.1 live stream (a gRPC SendLiveMessage stream) takes
+    ///     a permit from the same partition, and one refused for want of a permit throws <c>RateLimited</c> with the wait.
+    ///     Null when the endpoint is not under the rate limit.
+    /// </summary>
+    public static Action? LiveAdmission(HttpContext http)
+    {
+        if (http.GetEndpoint()?.Metadata.GetMetadata<A2ARateLimitMetadata>() is null) return null;
+        if (http.RequestServices.GetService<A2ARateLimitGate>() is not { } gate) return null;
+        return () =>
+        {
+            using var lease = gate._limiter.AttemptAcquire(http, 1);
+            if (lease.IsAcquired) return;
+            var wait = lease.TryGetMetadata(MetadataName.RetryAfter, out var after) ? after : gate._replenishmentPeriod;
+            throw A2AException.RateLimited(wait < TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : wait);
+        };
+    }
+
+    public void Dispose()
+    {
+        _limiter.Dispose();
+    }
+
+    /// <summary>
+    ///     True when the request may go on. False when it was rejected: the response (429 in the binding's format) is
+    ///     written.
+    /// </summary>
+    public async ValueTask<bool> TryEnterAsync(HttpContext http)
+    {
+        if (http.Items.ContainsKey(CountedKey)) return true;
+        http.Items[CountedKey] = true;
+        var lease = await _limiter.AcquireAsync(http, 1, http.RequestAborted).ConfigureAwait(false);
+        if (lease.IsAcquired)
+        {
+            http.Response.RegisterForDispose(lease);
+            return true;
+        }
+
+        using (lease)
+        {
+            http.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            if (_policy.OnRejected is { } onRejected)
+                await onRejected(new OnRejectedContext { HttpContext = http, Lease = lease }, http.RequestAborted)
+                    .ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
+    /// <summary>Wraps an A2A endpoint so it takes the limit when the authorization result handler did not.</summary>
+    public static RequestDelegate Wrap(RequestDelegate inner)
+    {
+        return async http =>
+        {
+            var gate = http.RequestServices.GetRequiredService<A2ARateLimitGate>();
+            if (await gate.TryEnterAsync(http).ConfigureAwait(false)) await inner(http).ConfigureAwait(false);
+        };
     }
 }
 
 /// <summary>
-///     Records that the rate limit policy is registered and whether <c>UseA2A()</c> added the middleware. Set when the
-///     pipeline is configured, which is before requests flow, so the startup check can read it.
+///     Takes the limit for A2A endpoints after authentication and before the authorization result is acted on, so callers
+///     with wrong credentials are limited too. Other endpoints pass straight through.
 /// </summary>
-internal sealed class A2ARateLimitMarker
+internal sealed class A2ARateLimitAuthorizationResultHandler(
+    IAuthorizationMiddlewareResultHandler inner,
+    A2ARateLimitGate gate) : IAuthorizationMiddlewareResultHandler
 {
-    private volatile bool _middlewareAdded;
-
-    public bool IsMiddlewareAdded => _middlewareAdded;
-
-    /// <summary>True when the default policy is the registered <c>"a2a"</c> policy (the host did not supply its own).</summary>
-    public bool DefaultPolicyAdded { get; set; }
-
-    public void MiddlewareAdded()
+    public async Task HandleAsync(RequestDelegate next, HttpContext context, AuthorizationPolicy policy,
+        PolicyAuthorizationResult authorizeResult)
     {
-        _middlewareAdded = true;
+        if (context.GetEndpoint()?.Metadata.GetMetadata<A2ARateLimitMetadata>() is not null
+            && !await gate.TryEnterAsync(context).ConfigureAwait(false))
+            return;
+        await inner.HandleAsync(next, context, policy, authorizeResult).ConfigureAwait(false);
     }
 }
 
@@ -135,8 +199,6 @@ internal sealed class A2ARateLimitMarker
 ///     unauthenticated caller its remote IP address, so anonymous callers do not share one bucket. Every request also
 ///     draws
 ///     from a bucket per caller alone (same settings), so one caller cannot get more by spreading requests over tenants.
-///     The buckets live here, not in the middleware's partitions, so <see cref="LiveAdmission" /> can take a token from
-///     them for each later request of a live stream.
 /// </summary>
 internal sealed class A2ARateLimiterPolicy(
     IOptions<A2ARateLimitOptions> options,
@@ -151,67 +213,14 @@ internal sealed class A2ARateLimiterPolicy(
         PartitionedRateLimiter.Create<string, string>(principal =>
             RateLimitPartition.GetTokenBucketLimiter(principal, _ => Bucket(options.Value)));
 
-    // Keyed by the partition key. A full bucket is idle and freed (with its timer) by the partitioned limiter.
-    private readonly PartitionedRateLimiter<string> _perTenant =
-        PartitionedRateLimiter.Create<string, string>(key =>
-            RateLimitPartition.GetTokenBucketLimiter(key, _ => Bucket(options.Value)));
-
     public void Dispose()
     {
-        _perTenant.Dispose();
         _perPrincipal.Dispose();
-    }
-
-    /// <summary>
-    ///     The <see cref="ServerCallContext.LiveRequestAdmission" /> of a request to an endpoint under this policy: takes a
-    ///     token for each later request of a live stream from the caller's buckets, and throws <c>RateLimited</c> (with the
-    ///     wait) when one is empty. Null when the endpoint is not under the <c>"a2a"</c> policy or the host replaced it.
-    /// </summary>
-    internal static Action? LiveAdmission(HttpContext http)
-    {
-        var metadata = http.GetEndpoint()?.Metadata;
-        if (metadata?.GetMetadata<EnableRateLimitingAttribute>()?.PolicyName != A2ARateLimitingExtensions.PolicyName ||
-            metadata.GetMetadata<DisableRateLimitingAttribute>() is not null)
-            return null;
-        var services = http.RequestServices;
-        if (services.GetService<A2ARateLimitMarker>() is not { } marker) return null;
-        _ = services.GetRequiredService<IOptions<RateLimiterOptions>>().Value; // runs the post-configure that sets the flag
-        if (!marker.DefaultPolicyAdded) return null;
-        var policy = services.GetRequiredService<A2ARateLimiterPolicy>();
-        (string Key, string Caller)? partition = null; // the same partition the middleware used; most calls never ask
-        return () =>
-        {
-            var (key, caller) = partition ??= policy.Partition(http);
-            using var lease = policy.Acquire(key, caller);
-            if (!lease.IsAcquired) throw policy.Rejection(lease);
-        };
     }
 
     public Func<OnRejectedContext, CancellationToken, ValueTask>? OnRejected => RejectAsync;
 
     public RateLimitPartition<string> GetPartition(HttpContext httpContext)
-    {
-        var (key, caller) = Partition(httpContext);
-        return RateLimitPartition.Get(key, k => new TenantAndPrincipalLimiter(this, k, caller));
-    }
-
-    /// <summary>Takes a permit from the partition's bucket and from the caller's bucket; either one empty refuses.</summary>
-    internal RateLimitLease Acquire(string key, string caller, int permitCount = 1)
-    {
-        var first = _perTenant.AttemptAcquire(key, permitCount);
-        if (!first.IsAcquired) return first;
-        var second = _perPrincipal.AttemptAcquire(caller, permitCount);
-        if (second.IsAcquired) return first;
-        first.Dispose();
-        return second;
-    }
-
-    internal RateLimiterStatistics? Statistics(string key)
-    {
-        return _perTenant.GetStatistics(key);
-    }
-
-    private (string Key, string Caller) Partition(HttpContext httpContext)
     {
         var tenant = tenants.Resolve(httpContext) ?? "";
         var principal = ServerCallContext.AnonymousPrincipal;
@@ -227,7 +236,8 @@ internal sealed class A2ARateLimiterPolicy(
         // get no tenant in the key. Cost: anonymous callers from one address share one bucket across tenants. The key has
         // no '|', so it cannot collide with an authenticated key ("{tenant}|user:{id}").
         var key = principal == ServerCallContext.AnonymousPrincipal ? caller : $"{tenant}|{caller}";
-        return (key, caller);
+        return RateLimitPartition.Get(key,
+            _ => new TenantAndPrincipalLimiter(new TokenBucketRateLimiter(Bucket(_options)), _perPrincipal, caller));
     }
 
     private static TokenBucketRateLimiterOptions Bucket(A2ARateLimitOptions o)
@@ -242,20 +252,14 @@ internal sealed class A2ARateLimiterPolicy(
         };
     }
 
-    /// <summary>The <c>RateLimited</c> error of a refused lease, with its wait (at least one second).</summary>
-    private A2AException Rejection(RateLimitLease lease)
-    {
-        var wait = lease.TryGetMetadata(MetadataName.RetryAfter, out var after)
-            ? after
-            : _options.ReplenishmentPeriod;
-        if (wait < TimeSpan.FromSeconds(1)) wait = TimeSpan.FromSeconds(1);
-        return A2AException.RateLimited(wait);
-    }
-
     private ValueTask RejectAsync(OnRejectedContext context, CancellationToken cancellationToken)
     {
         var http = context.HttpContext;
-        var error = Rejection(context.Lease);
+        var wait = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var after)
+            ? after
+            : _options.ReplenishmentPeriod;
+        if (wait < TimeSpan.FromSeconds(1)) wait = TimeSpan.FromSeconds(1);
+        var error = A2AException.RateLimited(wait);
 
         // A writer in the endpoint's own metadata comes first: the endpoint knows its format best.
         if (http.GetEndpoint()?.Metadata.GetMetadata<IA2ARejectionWriter>()?.TryWriteAsync(http, error) is { } own)
@@ -296,31 +300,48 @@ public interface IA2ARejectionWriter
 }
 
 /// <summary>
-///     The middleware's limiter of one partition: takes a permit from the tenant+principal bucket and from the shared
-///     per-principal bucket, both held by the policy. Either one empty rejects the request. It owns no bucket, so the
-///     middleware's idle cleanup may drop it at any time without losing a bucket's state; it reports itself idle a while
-///     after its last request. Queueing is off, so the async path is the same as the sync one.
+///     Takes a permit from the tenant+principal bucket and from the shared per-principal bucket. Either one empty rejects
+///     the
+///     request. Queueing is off, so the async path is the same as the sync one.
 /// </summary>
-internal sealed class TenantAndPrincipalLimiter(A2ARateLimiterPolicy policy, string key, string principal)
-    : RateLimiter
+internal sealed class TenantAndPrincipalLimiter(
+    RateLimiter tenantBucket,
+    PartitionedRateLimiter<string> perPrincipal,
+    string principal) : RateLimiter
 {
-    private long _lastUsed = Stopwatch.GetTimestamp();
-
-    public override TimeSpan? IdleDuration => Stopwatch.GetElapsedTime(Interlocked.Read(ref _lastUsed));
+    public override TimeSpan? IdleDuration => tenantBucket.IdleDuration;
 
     public override RateLimiterStatistics? GetStatistics()
     {
-        return policy.Statistics(key);
+        return tenantBucket.GetStatistics();
     }
 
     protected override RateLimitLease AttemptAcquireCore(int permitCount)
     {
-        Interlocked.Exchange(ref _lastUsed, Stopwatch.GetTimestamp());
-        return policy.Acquire(key, principal, permitCount);
+        var first = tenantBucket.AttemptAcquire(permitCount);
+        if (!first.IsAcquired) return first;
+        var second = perPrincipal.AttemptAcquire(principal, permitCount);
+        if (second.IsAcquired) return first;
+        first.Dispose();
+        return second;
     }
 
     protected override ValueTask<RateLimitLease> AcquireAsyncCore(int permitCount, CancellationToken cancellationToken)
     {
         return new ValueTask<RateLimitLease>(AttemptAcquireCore(permitCount));
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) tenantBucket.Dispose();
+        base.Dispose(disposing);
+    }
+
+    // The partitioned limiter's idle cleanup calls DisposeAsync, which runs Dispose(false). Without this the bucket and its
+    // replenishment timer would never be released.
+    protected override async ValueTask DisposeAsyncCore()
+    {
+        await tenantBucket.DisposeAsync().ConfigureAwait(false);
+        await base.DisposeAsyncCore().ConfigureAwait(false);
     }
 }

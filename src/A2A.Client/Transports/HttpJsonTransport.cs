@@ -15,7 +15,7 @@ namespace A2A.Client.Transports;
 
 /// <summary>HTTP+JSON/REST binding (spec §11).</summary>
 #pragma warning disable A2AEXP005 // the live exchange of A2A 1.1
-public sealed class HttpJsonTransport : HttpTransportBase, IA2AClient, IA2AExtensionOperationClient,
+public sealed class HttpJsonTransport : HttpTransportBase, IA2ATransport, IA2AExtensionOperationClient,
     IResumableTransport, ITransportBinding, ILiveTransport
 #pragma warning restore A2AEXP005
 {

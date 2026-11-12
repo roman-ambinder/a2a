@@ -25,7 +25,7 @@ public static class A2AClientMcpExtensions
     /// <param name="options">Options, or null for the defaults.</param>
     /// <param name="card">The card to read skills from. Null means <see cref="A2AClient.AgentCard" />.</param>
     /// <exception cref="InvalidOperationException">There is no card: pass one, or create the client with one.</exception>
-    public static IReadOnlyList<McpServerTool> AsMcpTools(this A2AClient client, A2AMcpToolOptions? options = null,
+    public static IReadOnlyList<McpServerTool> AsMcpTools(this IA2AClient client, A2AMcpToolOptions? options = null,
         AgentCard? card = null)
     {
         ArgumentNullException.ThrowIfNull(client);

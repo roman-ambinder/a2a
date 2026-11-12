@@ -43,7 +43,6 @@ var card = new AgentCard
         new AgentInterface { Url = url, ProtocolBinding = ProtocolBindings.HttpJson },
         new AgentInterface { Url = grpcUrl, ProtocolBinding = ProtocolBindings.Grpc }
     ],
-    Capabilities = new AgentCapabilities { Streaming = true },
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
     Skills = [new AgentSkill { Id = "echo", Name = "Echo", Description = "Repeats the input", Tags = ["echo"] }]
@@ -52,12 +51,11 @@ var card = new AgentCard
 // AllowAnonymous is fine for a sample that only listens on loopback. A real agent needs authentication
 // (see samples/EchoAgent) and RequireAuthorization() on MapA2A; that covers the v0.3 routes too.
 builder.Services.AddA2A(a => a.AddAgentExecutor<EchoAgent>().AddAgentCard(card))
-    .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+    .Configure(o => o.AllowAnonymous = true);
 // v0.3 gRPC (service a2a.v1.A2AService), next to the v1.0 gRPC service.
 builder.Services.AddA2AGrpcV03Compat();
 
 var app = builder.Build();
-app.UseA2A();
 // EnableV03Compat adds the v0.3 JSON-RPC methods on the same URL, the v0.3 HTTP+JSON routes under /v1/...,
 // and the v0.3 members on the Agent Card. v1.0 calls are unchanged.
 app.MapA2A("/", o => o.EnableV03Compat());

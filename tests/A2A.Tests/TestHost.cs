@@ -310,8 +310,8 @@ public sealed class TestAgentHost : IAsyncDisposable
 
     public static async Task<TestAgentHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<A2AHttpOptions>? configureHttp = null,
         Action<IServiceCollection>? services = null, bool requireAuth = true,
-        Action<RouteGroupBuilder>? configureRoutes = null, bool useA2A = true, Action<WebApplication>? configurePipeline = null,
-        bool grpc = false, Action<IEndpointConventionBuilder>? configureGrpcRoutes = null)
+        Action<RouteGroupBuilder>? configureRoutes = null, Action<WebApplication>? configurePipeline = null,
+        bool grpc = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -348,7 +348,6 @@ public sealed class TestAgentHost : IAsyncDisposable
         var app = builder.Build();
         configurePipeline?.Invoke(app);
         app.UseAuthentication();
-        if (useA2A) app.UseA2A();
         app.UseAuthorization();
         app.MapAgentCard();
         var a2a = app.MapA2A("/a2a");
@@ -358,7 +357,6 @@ public sealed class TestAgentHost : IAsyncDisposable
         {
             var g = app.MapA2AGrpc();
             if (requireAuth) g.RequireAuthorization();
-            configureGrpcRoutes?.Invoke(g);
         }
         await app.StartAsync();
         return new TestAgentHost(app, webhooks);
@@ -375,7 +373,7 @@ public sealed class TestAgentHost : IAsyncDisposable
     public A2AClient Client(string binding, string? user = "alice", A2AClientOptions? options = null)
     {
         options ??= new A2AClientOptions();
-        IA2AClient transport = binding switch
+        IA2ATransport transport = binding switch
         {
             ProtocolBindings.JsonRpc => new JsonRpcTransport(Http(user), new Uri(BaseUrl), options),
             ProtocolBindings.HttpJson => new HttpJsonTransport(Http(user), new Uri(BaseUrl), options),

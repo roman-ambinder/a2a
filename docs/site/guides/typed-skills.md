@@ -98,12 +98,12 @@ The check runs again when the handler starts, so a validator runs twice. Keep it
 
 [!code-csharp[](../../../samples/Snippets/TypedSkills.cs#Client)]
 
-`CallSkillAsync` uses `SelectSkill` and `SendMessageAsync`, and `WaitForTaskAsync` if the task is not finished. It returns the data part of the last artifact that has one. It also reads a direct message reply with a data part, so it works with agents from other SDKs.
+`CallSkillAsync` uses `A2ARequestOptions.Skill` and `SendMessageAsync`, and `WaitForTaskAsync` if the task is not finished. It returns the data part of the last artifact that has one. It also reads a direct message reply with a data part, so it works with agents from other SDKs.
 
 - A task that ends in any state but `completed` throws `TypedSkillCallException`, with the `Task` and its `State`. It is a `TaskNotCompletedException`, so the `catch` that handles `AskAsync` handles it too.
 - A result that does not parse, or is missing, throws `A2AException` with `InvalidAgentResponse`.
 - A refused input throws `A2AException` with `InvalidParams`. Read `Details` for the fields.
-- When `ValidateCapabilities` is on and the client knows the card, a skill that is not on the card fails before anything is sent. The same rule as `SelectSkill`.
+- When `ValidateCapabilities` is on and the client knows the card, a skill that is not on the card fails before anything is sent. The same rule as for `A2ARequestOptions.Skill`.
 
 ## Limits
 
@@ -116,7 +116,7 @@ The check runs again when the handler starts, so a validator runs twice. Keep it
 ## What can go wrong
 
 - `AddTypedSkills` throws at startup about signatures. The card is signed. Add the skills before signing.
-- Every call is refused with "Name a skill". The client did not pass the options from `SelectSkill`, or the card lost the skill-selection extension. `CallSkillAsync` does this for you.
+- Every call is refused with "Name a skill". The client did not set `A2ARequestOptions.Skill`, or the card lost the skill-selection extension. `CallSkillAsync` does this for you.
 - A plain message never reaches your old executor. You used `AddAgentExecutor` after `AddTypedSkills`, which replaced the router, or you did not call `UseFallback`.
 - A required property is not enforced. It is not marked `required` or `[JsonRequired]`.
 - A refusal says `message.parts`. The message has no data part, or has more than one.

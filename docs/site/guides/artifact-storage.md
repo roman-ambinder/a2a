@@ -161,7 +161,7 @@ An object lives and dies with its task. There are no separate retention periods.
   - At most `BatchSize` objects go per sweep.
   - Listing a bucket is slow and costs money, so one instance runs this step at most once per `OrphanSweepInterval` (6 hours by default), not on every sweep. A run that stops at `BatchSize` does not count: the next sweep continues, so a backlog drains.
 
-The sweep runs only with `AddA2ARetention`. Without it, orphans stay. Keep `OrphanGracePeriod` longer than your slowest upload plus commit: a younger object may belong to a task that is not committed yet.
+The sweep runs only with `AddRetention`. Without it, orphans stay. Keep `OrphanGracePeriod` longer than your slowest upload plus commit: a younger object may belong to a task that is not committed yet.
 
 Encryption at rest is the bucket's job. The SDK stores the bytes as given. Turn on server-side encryption and access logging at the storage service, and keep the bucket private. In `Proxy` mode the SDK never gives a client a bucket name. In `Redirect` mode the client sees a presigned URL that names it, for a few minutes.
 
@@ -242,7 +242,7 @@ The store is the source of truth, so the quota holds across instances and needs 
 
 Nothing deletes an upload while a message can still use it. When the server accepts a message, it writes a small reference object for each upload link: `_uploadrefs/{tenant}/{ownerHash}/{objectId}/{taskId}`. The upload itself is `_uploads/{tenant}/{ownerHash}/{objectId}`. The owner hash is the SHA-256 of the principal, so bucket keys hold no user ids. Both key forms have more segments than an artifact key, so the orphan step of the sweep leaves them alone.
 
-With `AddA2ARetention`, the sweep has a step for unused uploads. It runs at most once per `OrphanSweepInterval`, and deletes at most `BatchSize` objects per sweep. A run that fails or stops at `BatchSize` does not count, so a backlog drains.
+With `AddRetention`, the sweep has a step for unused uploads. It runs at most once per `OrphanSweepInterval`, and deletes at most `BatchSize` objects per sweep. A run that fails or stops at `BatchSize` does not count, so a backlog drains.
 
 - It looks at uploads older than `UnusedUploadTtl + OrphanGracePeriod`. The window to attach a new message closes at `UnusedUploadTtl`, so a reference written at the last moment is always seen.
 - A reference younger than `OrphanGracePeriod` keeps the upload, because its message may be committing.

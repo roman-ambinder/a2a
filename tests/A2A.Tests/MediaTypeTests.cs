@@ -1,3 +1,5 @@
+using A2A.Client;
+
 namespace A2A.Tests;
 
 public class MediaTypeTests

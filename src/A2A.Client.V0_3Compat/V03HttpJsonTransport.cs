@@ -20,7 +20,7 @@ namespace A2A.Client.V0_3Compat;
 ///     is
 ///     <c>GET /v1/card</c> and uses the JSON-RPC card dialect.
 /// </summary>
-internal sealed class V03HttpJsonTransport : HttpTransportBase, IA2AClient, IResumableTransport, ITransportBinding
+internal sealed class V03HttpJsonTransport : HttpTransportBase, IA2ATransport, IResumableTransport, ITransportBinding
 {
     private static readonly V03ProtoJsonCodec Codec = V03ProtoJsonCodec.Instance;
     private readonly string _baseUrl;

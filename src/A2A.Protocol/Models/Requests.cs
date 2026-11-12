@@ -131,6 +131,28 @@ public abstract record SendMessageResponse
     {
     }
 
+    /// <summary>The task's state, or null for a direct message.</summary>
+    [JsonIgnore]
+    public TaskState? State => this is TaskResponse t ? t.Task.Status.State : null;
+
+    /// <summary>The task's id, or the <see cref="Message.TaskId" /> of a direct message (null when it has none).</summary>
+    [JsonIgnore]
+    public string? TaskId => this switch
+    {
+        TaskResponse t => t.Task.Id,
+        MessageResponse m => m.Message.TaskId,
+        _ => null
+    };
+
+    /// <summary>The context id of the task or of the direct message. Null when a direct message has none.</summary>
+    [JsonIgnore]
+    public string? ContextId => this switch
+    {
+        TaskResponse t => t.Task.ContextId,
+        MessageResponse m => m.Message.ContextId,
+        _ => null
+    };
+
     /// <summary>
     ///     The text of the result: the text of a direct message, or the text of the task's artifacts
     ///     (<see cref="AgentTask.GetText" />). Empty when there is none. It does not check the task's state; a task that is
@@ -173,6 +195,18 @@ public abstract record StreamResponse
         ArtifactUpdateEvent a => a.ArtifactUpdate.TaskId,
         MessageUpdateEvent u => u.MessageUpdate.TaskId,
         StreamErrorEvent e => e.Error.TaskId,
+        _ => null
+    };
+
+    /// <summary>The context id this event refers to. Null for a <see cref="StreamErrorEvent" /> and when not set.</summary>
+    [JsonIgnore]
+    public string? ContextId => this switch
+    {
+        TaskEvent t => t.Task.ContextId,
+        MessageEvent m => m.Message.ContextId,
+        StatusUpdateEvent s => s.StatusUpdate.ContextId,
+        ArtifactUpdateEvent a => a.ArtifactUpdate.ContextId,
+        MessageUpdateEvent u => u.MessageUpdate.ContextId,
         _ => null
     };
 

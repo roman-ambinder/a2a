@@ -1545,10 +1545,12 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private async ValueTask<AgentTask> CancelTaskCoreAsync(CancelTaskRequest request, ServerCallContext call,
         CancellationToken cancellationToken)
     {
-        // Every authorized CancelTask counts, whether or not the task exists or can still be canceled.
-        _anomalies?.CancelRequested(call, CancelOperationName);
         var card = await _requestCards.RequireAgentForTaskAsync(call, request.Id, cancellationToken)
             .ConfigureAwait(false);
+        // Every authorized CancelTask in a tenant an agent serves counts, whether or not the task exists or can still be
+        // canceled. Counted only after the tenant resolved: a made-up tenant per call must not take a tracked entry each,
+        // or it fills the detector's table and no other caller is watched.
+        _anomalies?.CancelRequested(call, CancelOperationName);
         A2AValidator.RequireId(request.Id, "id");
         var key = Key(call, request.Id);
         var record = await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) ??

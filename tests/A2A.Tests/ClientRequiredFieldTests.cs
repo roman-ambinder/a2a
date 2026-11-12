@@ -12,7 +12,7 @@ public class ClientRequiredFieldTests
     {
         var handler = new RecordingHandler();
         var http = new HttpClient(handler);
-        IA2AClient transport = binding == "jsonrpc" ? new JsonRpcTransport(http, Endpoint) : new HttpJsonTransport(http, Endpoint);
+        IA2ATransport transport = binding == "jsonrpc" ? new JsonRpcTransport(http, Endpoint) : new HttpJsonTransport(http, Endpoint);
         return (new A2AClient(transport), handler);
     }
 

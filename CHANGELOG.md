@@ -4,6 +4,69 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Server hosting (breaking)
+
+One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpler-sdk-surface-design.md`, phase 2.
+
+- **`UseA2A()` is removed.** The per-caller rate limit runs inside the A2A endpoints. For endpoints with an
+  authorization policy it is taken after authentication and before the authorization decision, so requests with wrong
+  credentials still use tokens. Endpoints that allow anonymous callers take it when they run. A request is counted
+  once. The limit no longer uses the ASP.NET Core rate limiter middleware: a host's own `UseRateLimiter()` does not
+  count A2A requests twice. To replace the policy, register a keyed `IRateLimiterPolicy<string>` under
+  `A2ARateLimitingExtensions.PolicyName` (it used to be a named `AddRateLimiter` policy). Analyzer rules A2A0001 and
+  A2A0003 and their code fix are removed.
+- **`AddA2A` returns the `A2AServerBuilder`**, and the configure lambda is optional. New on the builder:
+  `Configure(A2AServerOptions)`, `ConfigureHttp`, `ConfigureRateLimiting`, `AddRetention` and
+  `AddDataProtectionPushSecrets`. The `IServiceCollection` forms `ConfigureA2AHttp`, `AddA2ARateLimiting`,
+  `AddA2ARetention` and `AddA2ADataProtectionPushSecrets` are no longer public. `AddA2AServer` stays for hosts without
+  ASP.NET Core.
+- **Who may call is set on the builder.** `RequirePolicy(name)` puts an authorization policy on every A2A endpoint that
+  has none of its own, like the card schemes of `AddApiKeyAuthentication` and `AddBearerAuthentication`; the app
+  refuses to start when the policy is not registered. `A2AEndpointOptions.AuthorizationPolicy` is removed: use
+  `RequirePolicy`, or `RequireAuthorization(policy)` on the group.
+- **`UseDevelopmentDefaults()` is now `ConfigureForDevelopment()`.** It does nothing outside Development instead of
+  throwing, so it needs no environment check. Endpoints without authorization still stop the app there, and the error
+  says that `ConfigureForDevelopment()` had no effect.
+- **Shorter agents.** `AddAgentExecutor(ctx => "text")` and `AddAgentExecutor(async (ctx, ct) => "text")` make an agent
+  that answers with text (a direct reply, or an artifact and Completed for a task that waited for input).
+  `TaskUpdater.StartWorkAsync`, `CompleteAsync`, `FailAsync`, `RejectAsync` and `CancelAsync` take a lone
+  `CancellationToken`; `AddArtifactAsync(text, name, ct)` adds a text artifact.
+- **Shorter cards.** `AddAgentCard(name, description)`. The samples drop `Capabilities.Streaming = true`, which the
+  served card already defaults.
+
+### Client
+
+- One way to reach an agent by URL: `A2AClient.ConnectAsync(url, o => ...)`. It fetches and checks the card and sends
+  through a handler that keeps no cookies and follows no redirects. `A2AConnectOptions` holds `Credentials` (sent only
+  to the card's origin), `Card` (trust and pins), `Client` (retries, extensions, `UseGrpc()`) and an optional `Handler`.
+  `A2AClient.ResolvedCard` keeps the card's source, signature check and peer identity (also set by
+  `A2AClientFactory.CreateAsync`). The README, getting started and the credential guides use it;
+  `A2AClientFactory.CreateAsync(url, httpClient)` stays for an `HttpClient` you already have.
+- **Transports are no longer clients (breaking).** The 11 operations moved to `IA2ATransport`, which JSON-RPC,
+  HTTP+JSON, gRPC, the v0.3 transports and `IA2ATransportFactory.Create` use. `IA2AClient` extends it and adds
+  `AgentCard`; only `A2AClient` implements it, over a transport (`new A2AClient(IA2ATransport, ...)`). So the shortcuts
+  (`AskAsync`, `StartConversation`, ...) no longer compile on a raw transport, which skipped the client's checks.
+- **Shortcuts are extensions on `IA2AClient` (breaking for callers without `using A2A.Client`).** `SendMessageAsync(text
+  | message)`, `SendStreamingMessageAsync(message)`, `GetTaskAsync(id)`, `CancelTaskAsync(id)`, `SubscribeToTaskAsync(id)`,
+  `WaitForTaskAsync` and `ListAllTasksAsync` moved from `A2AClient` to `A2AClientExtensions`. `AsAIFunction`,
+  `AsChatClient`, `AsAIAgent` and `AsMcpTools` take any `IA2AClient` (`AsAIAgent` resumes a background stream with
+  `ObserveTaskAsync` when it gets an `A2AClient`, and subscribes once otherwise).
+- **`A2ARequestOptions.Skill` replaces `A2AClient.SelectSkill` (breaking, experimental `A2AEXP001`).** Set it on a send's
+  options; the client checks it against the card, writes `metadata["skillId"]` and requests the extension, without
+  changing your message or options. It works for every send, the text overload included.
+- **AI adapters.** `A2AModelAgentOptions` holds the reply, history and security settings shared by
+  `ChatClientAgentOptions` and `AIAgentExecutorOptions` (same names and defaults as before). `AddChatClientAgent(chatClient,
+  ...)` and `AddAIAgent(agent, ...)` take the model itself, so it need not be registered in DI first.
+- `BearerTokenCredentialProvider`: a bearer token from your own source, asked for on every request. There is no
+  fixed-token constructor on purpose.
+- Multi-turn without handling ids: `client.StartConversation()` returns an `A2AConversation`. `SendAsync` and
+  `StreamTextAsync` keep the context id and the id of a task that waits for input, and return an `AgentReply` (`Text`,
+  `StatusText`, `State`, ids, `IsCompleted`, `NeedsInput`, `NeedsAuth`, `EnsureCompleted()`) without throwing for a task
+  state. See [Getting started](docs/site/guides/getting-started.md#a-conversation). Design:
+  `docs/superpowers/specs/2026-11-12-simpler-sdk-surface-design.md`.
+- `SendMessageResponse.State`, `.TaskId` and `.ContextId`, and `StreamResponse.ContextId`, so a result can be read
+  without a type switch.
+
 ### Agent Framework
 
 - New package `RomanAmbinder.A2A.Extensions.AgentFramework` (experimental, `A2AEXP006`): Microsoft Agent Framework
@@ -100,14 +163,11 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 ### Security
 
 - Fixes from the security review:
-  - `RequireAgentCardSchemes` now checks the card of the tenant the call runs in. Before, it used the route tenant only,
-    so a call to `/a2a` with a `tenant` in the body (and every gRPC call) was checked against the default tenant's card.
-    New hook `ServerCallContext.TenantAuthentication`.
   - Live exchange: a refused uplink call reaches only the caller's own downlinks. Before, another caller of the same
     tenant who knew the task id could put an error frame with a reference id of their choice on the owner's stream.
   - Rate limiting: each request after the first on a gRPC `SendLiveMessage` stream takes a token from the caller's
-    buckets and is refused with `RESOURCE_EXHAUSTED` when none is left; the stream stays open. New hook
-    `ServerCallContext.LiveRequestAdmission` (`A2AEXP005`). A host's own `"a2a"` policy does not count these requests.
+    buckets (a host's own `"a2a"` policy too) and is refused with `RESOURCE_EXHAUSTED` when none is left; the stream
+    stays open. New hook `ServerCallContext.LiveRequestAdmission` (`A2AEXP005`).
   - Behaviour change: the inbound bearer token (for `ITokenExchanger`) is kept only when a bearer scheme validated it as
     the caller's. A token sent next to an API key, or one the JWT handler rejected, is no longer exchanged.
   - Owner ids starting with `apikey:` are reserved for the API-key scheme: another identity with such an id is refused
@@ -161,8 +221,58 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - New `DeleteTaskAsync(taskId)` on any `IA2AClient` (`TaskDeletionClientExtensions`): calls the task-deletion extension
   operation of an agent that serves it.
 
+### Postgres artifact rows
+
+- New `PostgresStoreOptions.ArtifactRows` (default false). It stores the parts of each task's artifacts in their own
+  rows (`a2a_artifact_parts`, migration 0007), so an append writes only its new parts instead of rewriting the whole
+  task. `ArtifactRowsCompactAt` (default 256) bounds the rows of one artifact.
+- Turn it on only when every instance sharing the database runs this version. Reads handle both forms either way.
+  Before a downgrade, turn it off and call the new `PostgresTaskStore.InlineArtifactPartsAsync` until it returns 0.
+- The ADR-003 benchmark (`tests/A2A.Benchmarks.Postgres`) measures the write cost. The design is
+  `docs/superpowers/specs/2026-11-12-postgres-artifact-rows-design.md`.
+
 ### Fixes
 
+- v0.3 gRPC: errors carry what the other bindings send. UNAUTHENTICATED names its scheme in a `www-authenticate`
+  trailer, as v1 gRPC does (spec 3.3.2, 7.4). An error with a wait (a rate limit, a full input buffer) carries it in a
+  `retry-after` trailer, in whole seconds. The v0.3 gRPC client reads that trailer as `A2AException.RetryAfter`.
+- Anomaly signals: a CancelTask is counted only after its tenant resolved to an agent. One caller could name a made-up
+  tenant in each call, take a tracked entry each time, and fill `MaxTrackedCallers`, so that no other caller was watched.
+- Retention: a context recreated right after the orphan sweep deleted it (a new message to it) is no longer reported to
+  `IA2AContextLifecycle`. The hooks would have erased stored state, such as an agent's session, of a live conversation.
+  The sweep checks again before notifying. This narrows the window, but does not close it.
+- Agent Framework: a resumed or polled background run no longer repeats the reply as the status message. After a dropped
+  stream, the status message was judged against only the content since the token, so a completed task's status message
+  that repeats its artifacts was shown again.
+- v0.3 gRPC client: an `UNAVAILABLE` status (a dropped connection, a restarting server) carries HTTP 503, as on the v1
+  gRPC path. A v0.3 gRPC stream now reconnects with backoff instead of ending with Internal.
+- `V03CompatClientFactory`: with `RequireExactProtocolVersion`, a card whose v1.x interfaces the exact-version rule
+  refuses is no longer downgraded to its v0.3 interface. It is refused as `A2AClientFactory` refuses it, naming those
+  interfaces (spec 3.6.3). Without the option, a v0.3 interface is still the fallback.
+- Agent Framework: a task's pending tool approval survives another task of the context that runs at the same time.
+  Requests were kept in the caller's session, so a run that had loaded the session before the request was saved, and
+  saved it after, dropped the request. Approving the waiting task then completed it, and the approved tool never ran.
+  Each request is now a record of its own in the `AgentSessionStore` (owner partition `a:`, one per task), deleted when
+  it is answered and listed in the context's index, so deleting the context deletes it. Requests that earlier versions
+  kept in the session are still answered for their own task.
+- Agent Framework: deleting a shared context deletes every caller's stored session, not only the owner's. Sessions are
+  saved per caller, so the sessions of callers that `ContextAccess` let into another owner's context stayed in the store
+  for good, with their whole conversation. A per-context index session (owner partition `i:`) now records the callers.
+  Each process adds a caller once, after that caller's session is saved. The delete hook removes every listed session and
+  then the index. A failed index write is logged (event 1802).
+- Agent Framework: each task keeps its own pending tool approval in the session. A session had one slot per context,
+  so any other run in the context (another task) took a waiting task's request out. The approved tool then never ran,
+  although the server accepted the approval. Pending requests are now kept per task (at most 16 per session). A request
+  saved by an earlier version, in the old single slot, is still answered for its own task.
+- Server: a batch commit is no longer stored twice after a version conflict caused by the store's own write (a store
+  that retries a commit and meets its first attempt). With a store that has batch commits but no `ITaskCommitLookup`,
+  the engine handed the batch to the single-event path, which appended every chunk again. Now it checks whether the
+  stored task is exactly one version on and holds the batch's artifacts, as #153 does for single commits.
+- Security: `RequireAgentCardSchemes` checked the card of the route tenant only. A request to `/a2a` with
+  `"tenant": "acme"` in its body was checked against the default tenant's card, or against no card, and then ran in
+  tenant acme without proving acme's schemes. It also checked artifact and upload routes against the default card.
+  Now it checks the card of the artifact or upload route's tenant too. The call is then bound to the tenant that was
+  checked, so a different body tenant is refused with InvalidParams.
 - Performance, from the review of the hot paths:
   - A status update no longer doubles the copied history and timeline lists, and one with a message no longer
     re-measures the whole task (4000 updates with a message: 392 MB to 143 MB allocated). The copy per event remains.

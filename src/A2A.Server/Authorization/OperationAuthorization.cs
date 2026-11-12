@@ -13,8 +13,7 @@ internal static class OperationAuthorization
 {
     /// <summary>
     ///     Refuses anonymous callers unless <see cref="A2AServerOptions.AllowAnonymous" /> is set (so direct callers that skip
-    ///     <see cref="A2ARequestHandler.ValidateCall" /> are covered), and calls that fail the binding's
-    ///     <see cref="ServerCallContext.TenantAuthentication" /> for the bound tenant, then asks <paramref name="handler" /> about
+    ///     <see cref="A2ARequestHandler.ValidateCall" /> are covered), then asks <paramref name="handler" /> about
     ///     <paramref name="operation" />.
     ///     A denial of a task-scoped operation looks like a missing task; any other denial is
     ///     <see cref="A2AErrorCode.PermissionDenied" />.
@@ -29,16 +28,6 @@ internal static class OperationAuthorization
         CancellationToken cancellationToken)
     {
         if (!options.AllowAnonymous && !call.IsAuthenticated)
-        {
-            SecurityEventLog.Record(options, A2ATelemetry.SecurityEventNames.Unauthenticated, operation.Name, call,
-                taskId);
-            await DeniedAsync(audit, call, operation, taskId, "Unauthenticated").ConfigureAwait(false);
-            throw new A2AException(A2AErrorCode.Unauthenticated);
-        }
-
-        // The binding's tenant-dependent authentication, for the tenant the call runs in (it may come from the body).
-        if (call.TenantAuthentication is { } authenticate &&
-            !await authenticate(call, cancellationToken).ConfigureAwait(false))
         {
             SecurityEventLog.Record(options, A2ATelemetry.SecurityEventNames.Unauthenticated, operation.Name, call,
                 taskId);

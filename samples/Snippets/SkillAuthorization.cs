@@ -65,9 +65,8 @@ internal static class Snippets
     {
         #region Client
         // The same call as skill selection. The server reads metadata["skillId"].
-        var message = Message.FromUser("Bonjour tout le monde");
-        var options = a2a.SelectSkill(message, "translate");
-        var response = await a2a.SendMessageAsync(message, options: options);
+        var response = await a2a.SendMessageAsync(Message.FromUser("Bonjour tout le monde"),
+            options: new A2ARequestOptions { Skill = "translate" });
         #endregion
 
         _ = response;

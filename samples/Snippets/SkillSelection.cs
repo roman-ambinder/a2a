@@ -51,9 +51,8 @@ internal static class Snippets
     public static async Task SelectAsync(A2AClient a2a)
     {
         #region Client
-        var message = Message.FromUser("Bonjour tout le monde");
-        var options = a2a.SelectSkill(message, "translate");
-        var response = await a2a.SendMessageAsync(message, options: options);
+        var response = await a2a.SendMessageAsync(Message.FromUser("Bonjour tout le monde"),
+            options: new A2ARequestOptions { Skill = "translate" });
         #endregion
 
         _ = response;

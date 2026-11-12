@@ -32,6 +32,16 @@ public class EndToEndTests
         Assert.Equal(TaskState.Completed, streamed.OfType<StatusUpdateEvent>().Last().StatusUpdate.Status.State);
     }
 
+    [Fact]
+    public async Task A_chat_client_instance_needs_no_DI_registration()
+    {
+        var chat = FakeChatClient.Replying("from ", "the instance");
+        await using var host = await AgentHost.StartAsync(chat, o => o.ArtifactName = "answer", asInstance: true);
+        var task = Assert.IsType<TaskResponse>(await host.Client(ProtocolBindings.JsonRpc).SendMessageAsync("hi")).Task;
+        Assert.Equal("from the instance", AllText(task));
+        Assert.Equal("answer", Assert.Single(task.Artifacts!).Name); // the options apply as for the DI form
+    }
+
     [Theory]
     [MemberData(nameof(Bindings.All), MemberType = typeof(Bindings))]
     public async Task Facade_talks_to_a_hosted_chat_client(string binding)

@@ -109,7 +109,24 @@ public sealed class FakeSessionStore : AgentSessionStore
 
     public int Deletes => _deletes;
 
-    public IReadOnlyCollection<AgentSessionStoreKey> Keys => [.. _sessions.Keys];
+    /// <summary>The keys of callers' sessions. The context indexes (owner partition <c>i:</c>) are in <see cref="IndexKeys"/>.</summary>
+    public IReadOnlyCollection<AgentSessionStoreKey> Keys => [.. _sessions.Keys.Where(k => !IsIndex(k) && !IsApproval(k))];
+
+    /// <summary>The keys of the context indexes the executor keeps (which callers have a session in a context).</summary>
+    public IReadOnlyCollection<AgentSessionStoreKey> IndexKeys => [.. _sessions.Keys.Where(IsIndex)];
+
+    /// <summary>The keys of pending approval records, one per task that waits for an answer (owner partition <c>a:</c>).</summary>
+    public IReadOnlyCollection<AgentSessionStoreKey> ApprovalKeys => [.. _sessions.Keys.Where(IsApproval)];
+
+    private static bool IsIndex(AgentSessionStoreKey key) =>
+        key.Partitions is { } partitions && partitions.TryGetValue("a2a.owner", out var owner) && owner == "i:";
+
+    // Index and approval records are not callers' sessions: Saves, SavedKeys, Deletes and DeletedKeys count sessions only.
+    private static bool IsRecord(AgentSessionStoreKey key) => IsIndex(key) || IsApproval(key);
+
+    private static bool IsApproval(AgentSessionStoreKey key) =>
+        key.Partitions is { } partitions && partitions.TryGetValue("a2a.owner", out var owner) &&
+        owner.StartsWith("a:", StringComparison.Ordinal);
 
     /// <summary>Every key saved, in order.</summary>
     public IReadOnlyList<AgentSessionStoreKey> SavedKeys => [.. _saved];
@@ -119,6 +136,9 @@ public sealed class FakeSessionStore : AgentSessionStore
 
     /// <summary>When true, a save never completes and ignores its token, like a store that hangs.</summary>
     public bool HangOnSave { get; set; }
+
+    /// <summary>When true, saving a context index throws; sessions and approval records still save.</summary>
+    public bool FailIndexSaves { get; set; }
 
     /// <summary>When true, a delete throws, like a store that is down.</summary>
     public bool FailOnDelete { get; set; }
@@ -131,11 +151,6 @@ public sealed class FakeSessionStore : AgentSessionStore
 
     private readonly ConcurrentDictionary<AgentSessionStoreKey, JsonElement> _json = new();
 
-    /// <summary>
-    /// With <see cref="SerializeSessions"/>: every get returns the first copy saved for the key, like a lagging replica.
-    /// </summary>
-    public bool ServeFirstSave { get; set; }
-
     public override async ValueTask<AgentSession?> GetSessionAsync(AIAgent agent, AgentSessionStoreKey key,
         CancellationToken cancellationToken = default)
     {
@@ -146,26 +161,25 @@ public sealed class FakeSessionStore : AgentSessionStore
     public override async ValueTask SaveSessionAsync(AIAgent agent, AgentSessionStoreKey key, AgentSession session,
         CancellationToken cancellationToken = default)
     {
-        Interlocked.Increment(ref _saves);
+        if (!IsRecord(key)) Interlocked.Increment(ref _saves);
+        if (FailIndexSaves && IsIndex(key)) throw new IOException("index save failed");
         if (HangOnSave) await new TaskCompletionSource().Task;
-        _saved.Enqueue(key);
+        if (!IsRecord(key)) _saved.Enqueue(key);
         _sessions[key] = session;
         if (SerializeSessions)
         {
             // A round trip through text, as a database would keep it.
             var json = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken);
-            var copy = JsonDocument.Parse(json.GetRawText()).RootElement.Clone();
-            if (ServeFirstSave) _json.TryAdd(key, copy);
-            else _json[key] = copy;
+            _json[key] = JsonDocument.Parse(json.GetRawText()).RootElement.Clone();
         }
     }
 
     public override ValueTask DeleteSessionAsync(AIAgent agent, AgentSessionStoreKey key,
         CancellationToken cancellationToken = default)
     {
-        Interlocked.Increment(ref _deletes);
+        if (!IsRecord(key)) Interlocked.Increment(ref _deletes);
         if (FailOnDelete) throw new IOException("store down");
-        _deleted.Enqueue(key);
+        if (!IsRecord(key)) _deleted.Enqueue(key);
         _sessions.TryRemove(key, out _);
         _json.TryRemove(key, out _);
         return ValueTask.CompletedTask;
@@ -247,11 +261,10 @@ public sealed class AgentHost : IAsyncDisposable
             .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, null);
         builder.Services.AddAuthorization();
         builder.Services.AddA2A(a => addAgent(a.AddAgentCard(Card())))
-            .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+            .Configure(o => o.AllowAnonymous = true);
 
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a");
         await app.StartAsync();
@@ -268,7 +281,7 @@ public sealed class AgentHost : IAsyncDisposable
         var http = App.GetTestClient();
         if (user is not null) http.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, user);
         var url = new Uri(tenant is null ? BaseUrl : $"{BaseUrl}/{tenant}");
-        IA2AClient transport = binding switch
+        IA2ATransport transport = binding switch
         {
             ProtocolBindings.JsonRpc => new JsonRpcTransport(http, url, options),
             ProtocolBindings.HttpJson => new HttpJsonTransport(http, url, options),
@@ -301,7 +314,7 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
 }
 
 /// <summary>An <see cref="IA2AClient"/> whose answers the test scripts (copied from A2A.Extensions.AI.Tests). Used where the real server would hide the case (a task that stays working).</summary>
-public sealed class FakeTransport : IA2AClient
+public sealed class FakeTransport : IA2ATransport
 {
     public Func<SendMessageRequest, CancellationToken, Task<SendMessageResponse>> Send { get; set; } = (_, _) => throw new NotSupportedException();
     public Func<SendMessageRequest, CancellationToken, IAsyncEnumerable<StreamResponse>> Stream { get; set; } = (_, _) => throw new NotSupportedException();

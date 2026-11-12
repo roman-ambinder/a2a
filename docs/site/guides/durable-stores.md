@@ -14,7 +14,7 @@ The default stores live in memory. That is fine for development and tests. It is
 
 - <xref:A2A.Server.Postgres.A2APostgresServiceCollectionExtensions.AddPostgresStores*> (package `RomanAmbinder.A2A.Server.Postgres`) replaces the task, event, push config, push outbox and idempotency stores. It also registers the Postgres execution coordinator, unless you registered another one or set `RegisterCoordinator = false`.
 - `AddRedisEventBus` (package `RomanAmbinder.A2A.Server.Redis`) fans live events out to every instance. It also registers the Redis execution coordinator, which replaces the Postgres one.
-- `AddA2ARetention` turns on the sweep. See [Retention](retention.md).
+- `AddRetention` turns on the sweep. See [Retention](retention.md).
 - The two `DataProtection` lines give push secrets a key that every instance shares. See below.
 
 A runnable setup with two instances, Postgres and Redis is in [samples/MultiInstance](https://github.com/roman-ambinder/a2a/tree/main/samples/MultiInstance).
@@ -35,12 +35,20 @@ Each task change, its event and its push deliveries are written in one transacti
 | `RegisterCoordinator` | `true` | Whether the stores registration also registers the Postgres execution coordinator. It never replaces a coordinator you registered (for example Redis's). |
 | `CancelPollInterval` | 1 second | How often the Postgres coordinator reads cancel requests from the other instances. This is the delay of a cross-instance CancelTask. |
 | `UseDatabaseClock` | `true` | Deadlines use the database clock (`statement_timestamp()`). `false` uses the `TimeProvider`, for tests with a fake clock. |
+| `ArtifactRows` | `false` | Store artifact parts in their own rows, so an append writes only its new parts. See **Artifact rows** below. |
+| `ArtifactRowsCompactAt` | 256 | With `ArtifactRows`: once an artifact has this many rows, its next write stores all its parts in one row again. At least 2. |
 
 - **Schema.** The schema is kept by numbered migrations. They are applied at startup under an advisory lock, in one transaction. A start on an up-to-date database takes no lock and changes nothing. With `CreateSchemaOnStartup = false` the app refuses to start when the database version differs from the package. The error says which version the database has and what to run. Export `PostgresSchema.ScriptFor("<schema>")` for a new database, and `PostgresSchema.ScriptFor("<schema>", <version in the error>)` for an upgrade. Run it in one transaction, for example `psql -1 -f`. You can also call `PostgresSchema.EnsureSchemaAsync` from your migration step, and `PostgresSchema.VerifySchemaAsync` to check without changing anything. A database newer than the package (after a rollback) is refused when auto-create is off, and logs a warning when it is on.
 - **Claim timeout.** The heartbeat of a running execution renews the idempotency claim. So a live request keeps its key, and the timeout only has to cover a missed heartbeat. A crashed instance frees its keys after this time.
 - **Retries after a crash.** When a request creates a task, the Postgres task store writes the idempotency outcome in the same transaction as the task. A crash cannot leave a task without it, so a retry attaches to the task and does not run the agent again. A direct reply (a message and no task) has no commit to join, so its outcome is best effort: a crash right after the reply can let a retry run the agent again. A crash before the first commit also runs the agent again. Delivery is at-least-once. A follow-up message to an existing task is safe: its message id is in the task history.
 - **Claim ids.** Every claim of a key has an id. An instance whose claim went stale cannot complete, abandon or renew the claim of the instance that took the key over.
 - **Clocks.** Push outbox due times and leases, idempotency timeouts and event log retention use the database clock, so instances with skewed clocks agree on what has expired. Task timestamps still come from the instance that wrote them. Skew shifts when retention and `InterruptedTimeout` act on a task. Keep instance clocks in sync.
+- **Artifact rows.** By default every commit rewrites the whole task, its artifacts included. So an artifact streamed in *n* commits writes about *n*²/2 chunks' worth of bytes. Batch commits merge chunks that queue up, but a producer slower than a commit, such as a model streaming tokens, gets one commit per chunk.
+  - **What the option changes:** with `ArtifactRows`, the parts go in `a2a_artifact_parts` (migration 0007), and an append writes one row with its new parts. The ADR-003 benchmark (`tests/A2A.Benchmarks.Postgres`) has the numbers.
+  - **Before you turn it on:** every instance that shares the database must run a version with the option. An older version reads such a task with empty parts.
+  - **Reads:** they handle both forms either way, and a task stored inline moves to rows on its next commit.
+  - **Before a downgrade:** turn it off everywhere, then call `PostgresTaskStore.InlineArtifactPartsAsync()` until it returns 0.
+  - **Alternative:** moving long artifacts to an [artifact object store](artifact-storage.md) also keeps them out of the task.
 - **Cleanup scope.** The cleanup deletes event logs and idempotency entries. Expired tasks, orphan contexts, timed-out tasks and dead executions are the job of the [retention sweep](retention.md).
 
 [!code-csharp[](../../../samples/Snippets/DurableStores.cs#PostgresOptions)]
@@ -106,7 +114,7 @@ An agent that is still alive stops at its next heartbeat, which finds the lease 
 
 ## Push secrets across instances
 
-Push configs hold tokens and credentials. They are stored protected. The default protector (`EphemeralPushSecretProtector`) uses a key per process. With a durable outbox, a restart or another instance could not read those secrets, and the deliveries would be dead-lettered. Call `AddDataProtection()` with a key ring that is persisted and shared by every instance, then `AddA2ADataProtectionPushSecrets()`. You can also register your own `IPushSecretProtector`.
+Push configs hold tokens and credentials. They are stored protected. The default protector (`EphemeralPushSecretProtector`) uses a key per process. With a durable outbox, a restart or another instance could not read those secrets, and the deliveries would be dead-lettered. Call `AddDataProtection()` with a key ring that is persisted and shared by every instance, then `AddDataProtectionPushSecrets()` on the A2A builder. You can also register your own `IPushSecretProtector`.
 
 ## Startup diagnostics
 

@@ -47,7 +47,6 @@ internal sealed class BenchHost : IAsyncDisposable
         builder.Services.AddA2ARateLimiting(o => o.Enabled = false);
 
         var app = builder.Build();
-        app.UseA2A();
         app.MapA2A("/a2a");
         await app.StartAsync();
 

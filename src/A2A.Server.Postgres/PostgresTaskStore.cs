@@ -38,6 +38,8 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
     private readonly string _tasks;
     private readonly TimeProvider _time;
     private readonly string _updateSql;
+    private readonly PostgresArtifactRows _artifactRows;
+    private readonly bool _useArtifactRows;
 
     /// <summary>
     ///     Creates the store over <paramref name="dataSource" />. Create the tables first (<see cref="PostgresSchema" />
@@ -60,22 +62,25 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         _streaming = streaming ?? throw new ArgumentNullException(nameof(streaming));
         _time = time ?? TimeProvider.System;
         _clock = new DbClock(_time, options);
-        var s = PostgresSchema.Quote((options ?? new PostgresStoreOptions()).Schema);
+        var settings = options ?? new PostgresStoreOptions();
+        var s = PostgresSchema.Quote(settings.Schema);
         _tasks = $"{s}.a2a_tasks";
+        _artifactRows = new PostgresArtifactRows($"{s}.a2a_artifact_parts", _tasks, settings.ArtifactRowsCompactAt);
+        _useArtifactRows = settings.ArtifactRows;
         _contexts = $"{s}.a2a_contexts";
         _eventTables = EventTables.For(options);
         _outbox = PostgresPushOutbox.OutboxTable(options);
         _idempotency = $"{s}.a2a_idempotency";
         _insertSql =
             $"""
-             INSERT INTO {_tasks} (tenant, task_id, owner, context_id, state, status_ticks, version, created_ticks, updated_ticks, task)
-             VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9)
+             INSERT INTO {_tasks} (tenant, task_id, owner, context_id, state, status_ticks, version, created_ticks, updated_ticks, task, parts_layout)
+             VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8, $9, $10)
              ON CONFLICT (tenant, task_id) DO NOTHING
              """;
         _updateSql =
             $"""
              UPDATE {_tasks}
-                SET context_id = $4, state = $5, status_ticks = COALESCE($6, created_ticks), version = version + 1, updated_ticks = $7, task = $8
+                SET context_id = $4, state = $5, status_ticks = COALESCE($6, created_ticks), version = version + 1, updated_ticks = $7, task = $8, parts_layout = $10
               WHERE tenant = $1 AND task_id = $2 AND owner = $3 AND version = $9
              RETURNING created_ticks
              """;
@@ -94,16 +99,28 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
     {
         ValidateBatch(commit);
         var key = commit.Record.Key;
-        var (json, stored) = ForUpdate(commit.Record, commit.ExpectedVersion);
+        var (json, stored) = ForUpdate(commit.Record, commit.ExpectedVersion, _useArtifactRows);
 
         await using var conn = await _db.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var tx = await conn.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var rows = _useArtifactRows
+            ? await _artifactRows.ReadAsync(conn, tx, key, cancellationToken).ConfigureAwait(false)
+            : null;
         await using (var update = new NpgsqlCommand(_updateSql, conn, tx))
         {
-            AddUpdateParameters(update, stored, json, commit.ExpectedVersion);
+            AddUpdateParameters(update, stored, json, commit.ExpectedVersion, Layout);
             if (await update.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not long createdTicks)
                 throw new ConcurrencyException(key, commit.ExpectedVersion);
             stored = stored with { CreatedAt = new DateTimeOffset(createdTicks, TimeSpan.Zero) };
+        }
+
+        if (_useArtifactRows)
+        {
+            var appended = new Dictionary<string, List<Part>>(StringComparer.Ordinal);
+            var replaced = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var e in commit.Events) Changes(e.Event.Event, appended, replaced);
+            await _artifactRows.WriteAsync(conn, tx, key, commit.Record.Task, rows, appended, replaced,
+                cancellationToken).ConfigureAwait(false);
         }
 
         var now = _clock.NowTicks;
@@ -163,12 +180,11 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
     public override async ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand(
-            $"SELECT owner, version, created_ticks, updated_ticks, task FROM {_tasks} WHERE tenant = $1 AND task_id = $2 AND owner = $3");
+            $"SELECT owner, version, created_ticks, updated_ticks, task, parts_layout FROM {_tasks} WHERE tenant = $1 AND task_id = $2 AND owner = $3");
         cmd.Parameters.Add(TextParam(key.Tenant));
         cmd.Parameters.Add(TextParam(key.TaskId));
         cmd.Parameters.Add(TextParam(key.Owner));
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadRecord(reader, key.Tenant) : null;
+        return await ReadOneAsync(cmd, key.Tenant, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -178,20 +194,19 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         ArgumentNullException.ThrowIfNull(tenant);
         ArgumentNullException.ThrowIfNull(taskId);
         await using var cmd = _db.CreateCommand(
-            $"SELECT owner, version, created_ticks, updated_ticks, task FROM {_tasks} WHERE tenant = $1 AND task_id = $2");
+            $"SELECT owner, version, created_ticks, updated_ticks, task, parts_layout FROM {_tasks} WHERE tenant = $1 AND task_id = $2");
         cmd.Parameters.Add(TextParam(tenant));
         cmd.Parameters.Add(TextParam(taskId));
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadRecord(reader, tenant) : null;
+        return await ReadOneAsync(cmd, tenant, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public override async ValueTask<TaskRecord> CreateAsync(TaskRecord record,
         CancellationToken cancellationToken = default)
     {
-        var (json, stored) = ForCreate(record);
+        var (json, stored) = ForCreate(record, false);
         await using var cmd = _db.CreateCommand(_insertSql);
-        AddInsertParameters(cmd, stored, json);
+        AddInsertParameters(cmd, stored, json, PostgresArtifactRows.InlineLayout);
         if (await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 0)
             throw new DuplicateTaskException(record.Key);
         return stored;
@@ -201,9 +216,11 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
     public override async ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion,
         CancellationToken cancellationToken = default)
     {
-        var (json, stored) = ForUpdate(record, expectedVersion);
+        // Written with its parts inline (layout 0): the rows, if any, are then ignored, and the next commit with
+        // ArtifactRows on rewrites them.
+        var (json, stored) = ForUpdate(record, expectedVersion, false);
         await using var cmd = _db.CreateCommand(_updateSql);
-        AddUpdateParameters(cmd, stored, json, expectedVersion);
+        AddUpdateParameters(cmd, stored, json, expectedVersion, PostgresArtifactRows.InlineLayout);
         var created = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         if (created is not long createdTicks) throw new ConcurrencyException(record.Key, expectedVersion);
         return stored with { CreatedAt = new DateTimeOffset(createdTicks, TimeSpan.Zero) };
@@ -222,8 +239,9 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         ArgumentNullException.ThrowIfNull(commit);
         ValidateDeliveries(commit);
         var key = commit.Record.Key;
-        var (json, stored) =
-            commit.IsCreate ? ForCreate(commit.Record) : ForUpdate(commit.Record, commit.ExpectedVersion);
+        var (json, stored) = commit.IsCreate
+            ? ForCreate(commit.Record, _useArtifactRows)
+            : ForUpdate(commit.Record, commit.ExpectedVersion, _useArtifactRows);
         // The bytes the engine encoded, as they are: the log keeps them and every delivery sends them (encoded here only for an
         // event made without them).
         var eventBytes = EventEncoder.EnsureEncoded(commit.Event).Json;
@@ -231,20 +249,32 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
 
         await using var conn = await _db.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var tx = await conn.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var rows = _useArtifactRows && !commit.IsCreate
+            ? await _artifactRows.ReadAsync(conn, tx, key, cancellationToken).ConfigureAwait(false)
+            : null;
         if (commit.IsCreate)
         {
             await using var insert = new NpgsqlCommand(_insertSql, conn, tx);
-            AddInsertParameters(insert, stored, json);
+            AddInsertParameters(insert, stored, json, Layout);
             if (await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 0)
                 throw new DuplicateTaskException(key);
         }
         else
         {
             await using var update = new NpgsqlCommand(_updateSql, conn, tx);
-            AddUpdateParameters(update, stored, json, commit.ExpectedVersion);
+            AddUpdateParameters(update, stored, json, commit.ExpectedVersion, Layout);
             if (await update.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not long createdTicks)
                 throw new ConcurrencyException(key, commit.ExpectedVersion);
             stored = stored with { CreatedAt = new DateTimeOffset(createdTicks, TimeSpan.Zero) };
+        }
+
+        if (_useArtifactRows)
+        {
+            var appended = new Dictionary<string, List<Part>>(StringComparer.Ordinal);
+            var replaced = new HashSet<string>(StringComparer.Ordinal);
+            Changes(commit.Event.Event, appended, replaced);
+            await _artifactRows.WriteAsync(conn, tx, key, commit.Record.Task, rows, appended, replaced,
+                cancellationToken).ConfigureAwait(false);
         }
 
         var now = _clock.NowTicks; // log and outbox deadlines; null = the database clock
@@ -312,7 +342,7 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         var count = new NpgsqlBatchCommand($"SELECT count(*) FROM {_tasks} WHERE {filter}");
         foreach (var a in countArgs) count.Parameters.Add(a);
         var page = new NpgsqlBatchCommand(
-            $"SELECT owner, version, created_ticks, updated_ticks, task FROM {_tasks} WHERE {pageFilter} ORDER BY status_ticks DESC, task_id LIMIT ${pageArgs.Count}");
+            $"SELECT owner, version, created_ticks, updated_ticks, task, parts_layout FROM {_tasks} WHERE {pageFilter} ORDER BY status_ticks DESC, task_id LIMIT ${pageArgs.Count}");
         foreach (var a in pageArgs) page.Parameters.Add(a);
         batch.BatchCommands.Add(count);
         batch.BatchCommands.Add(page);
@@ -322,8 +352,16 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         var total = checked((int)reader.GetInt64(0));
         await reader.NextResultAsync(cancellationToken).ConfigureAwait(false);
         var records = new List<TaskRecord>();
+        var inRows = new Dictionary<string, AgentTask>(StringComparer.Ordinal);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            records.Add(ReadRecord(reader, query.Tenant));
+        {
+            var record = ReadRecord(reader, query.Tenant);
+            records.Add(record);
+            if (reader.GetInt16(5) == PostgresArtifactRows.RowsLayout) inRows[record.Task.Id] = record.Task;
+        }
+
+        await reader.DisposeAsync().ConfigureAwait(false);
+        await _artifactRows.FillAsync(null, null, _db, query.Tenant, inRows, cancellationToken).ConfigureAwait(false);
 
         var hasMore = records.Count > query.PageSize;
         if (hasMore) records.RemoveAt(records.Count - 1);
@@ -548,20 +586,117 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         return list;
     }
 
-    private static (string Json, TaskRecord Stored) ForCreate(TaskRecord record)
+    private static (string Json, TaskRecord Stored) ForCreate(TaskRecord record, bool withoutParts)
     {
         ArgumentNullException.ThrowIfNull(record);
         if (record.Version != 0) throw new ArgumentException("A new record must have Version 0.", nameof(record));
-        return Snapshot(record with { Version = 1 });
+        return Snapshot(record with { Version = 1 }, withoutParts);
     }
 
-    private (string Json, TaskRecord Stored) ForUpdate(TaskRecord record, long expectedVersion)
+    private (string Json, TaskRecord Stored) ForUpdate(TaskRecord record, long expectedVersion, bool withoutParts)
     {
         ArgumentNullException.ThrowIfNull(record);
-        return Snapshot(record with { Version = expectedVersion + 1, UpdatedAt = _time.GetUtcNow() });
+        return Snapshot(record with { Version = expectedVersion + 1, UpdatedAt = _time.GetUtcNow() }, withoutParts);
     }
 
-    private static void AddInsertParameters(NpgsqlCommand cmd, TaskRecord stored, string json)
+    /// <summary>
+    ///     Converts up to <paramref name="batchSize" /> tasks whose artifact parts are in rows
+    ///     (<see cref="PostgresStoreOptions.ArtifactRows" />) back to parts in the task, and deletes their rows. Returns how
+    ///     many it converted: call it until it returns 0. The task's version does not change, because its content does not.
+    ///     Turn <see cref="PostgresStoreOptions.ArtifactRows" /> off on every instance first, then run this before
+    ///     downgrading to a version without the option.
+    /// </summary>
+    public async ValueTask<int> InlineArtifactPartsAsync(int batchSize = 100, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(batchSize, 1);
+        await using var conn = await _db.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var keys = new List<(string Tenant, string TaskId)>();
+        await using (var pick = new NpgsqlCommand(
+                         $"SELECT tenant, task_id FROM {_tasks} WHERE parts_layout = {PostgresArtifactRows.RowsLayout} LIMIT $1", conn))
+        {
+            pick.Parameters.Add(new NpgsqlParameter<int> { TypedValue = batchSize });
+            await using var reader = await pick.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                keys.Add((reader.GetString(0), reader.GetString(1)));
+        }
+
+        var converted = 0;
+        foreach (var (tenant, taskId) in keys)
+        {
+            await using var tx = await conn.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            AgentTask task;
+            await using (var read = new NpgsqlCommand(
+                             $"SELECT task FROM {_tasks} WHERE tenant = $1 AND task_id = $2 AND parts_layout = {PostgresArtifactRows.RowsLayout} FOR UPDATE",
+                             conn, tx))
+            {
+                read.Parameters.Add(TextParam(tenant));
+                read.Parameters.Add(TextParam(taskId));
+                if (await read.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not string json) continue;
+                task = A2AJson.Deserialize<AgentTask>(json)!;
+            }
+
+            await _artifactRows.FillAsync(conn, tx, _db, tenant,
+                new Dictionary<string, AgentTask>(StringComparer.Ordinal) { [taskId] = task }, cancellationToken)
+                .ConfigureAwait(false);
+            await using var batch = new NpgsqlBatch(conn, tx);
+            var update = new NpgsqlBatchCommand(
+                $"UPDATE {_tasks} SET task = $3, parts_layout = {PostgresArtifactRows.InlineLayout} WHERE tenant = $1 AND task_id = $2");
+            update.Parameters.Add(TextParam(tenant));
+            update.Parameters.Add(TextParam(taskId));
+            update.Parameters.Add(TextParam(A2AJson.Serialize(task)));
+            var delete = new NpgsqlBatchCommand(
+                $"DELETE FROM {_artifactRows.Table} WHERE tenant = $1 AND task_id = $2");
+            delete.Parameters.Add(TextParam(tenant));
+            delete.Parameters.Add(TextParam(taskId));
+            batch.BatchCommands.Add(update);
+            batch.BatchCommands.Add(delete);
+            await batch.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await tx.CommitAsync(CancellationToken.None).ConfigureAwait(false);
+            converted++;
+        }
+
+        return converted;
+    }
+
+    /// <summary>The <c>parts_layout</c> a commit writes: rows with <see cref="PostgresStoreOptions.ArtifactRows" />, else inline.</summary>
+    private short Layout => _useArtifactRows ? PostgresArtifactRows.RowsLayout : PostgresArtifactRows.InlineLayout;
+
+    /// <summary>
+    ///     The artifact changes of one event: the parts an append adds (in order, per artifact), or an artifact that is
+    ///     replaced. Other events change no parts.
+    /// </summary>
+    private static void Changes(StreamResponse evt, Dictionary<string, List<Part>> appended, HashSet<string> replaced)
+    {
+        if (evt is not ArtifactUpdateEvent { ArtifactUpdate: { } update }) return;
+        var id = update.Artifact.ArtifactId;
+        if (!update.Append)
+        {
+            replaced.Add(id);
+            return;
+        }
+
+        if (!appended.TryGetValue(id, out var list)) appended[id] = list = [];
+        list.AddRange(update.Artifact.Parts);
+    }
+
+    private async ValueTask<TaskRecord?> ReadOneAsync(NpgsqlCommand cmd, string tenant,
+        CancellationToken cancellationToken)
+    {
+        TaskRecord record;
+        await using (var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
+            record = ReadRecord(reader, tenant);
+            if (reader.GetInt16(5) != PostgresArtifactRows.RowsLayout) return record;
+        }
+
+        await _artifactRows.FillAsync(null, null, _db, tenant,
+            new Dictionary<string, AgentTask>(StringComparer.Ordinal) { [record.Task.Id] = record.Task },
+            cancellationToken).ConfigureAwait(false);
+        return record;
+    }
+
+    private static void AddInsertParameters(NpgsqlCommand cmd, TaskRecord stored, string json, short layout)
     {
         cmd.Parameters.Add(TextParam(stored.Tenant));
         cmd.Parameters.Add(TextParam(stored.Task.Id));
@@ -572,9 +707,11 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         cmd.Parameters.Add(Long(stored.CreatedAt.UtcTicks));
         cmd.Parameters.Add(Long(stored.UpdatedAt.UtcTicks));
         cmd.Parameters.Add(TextParam(json));
+        cmd.Parameters.Add(new NpgsqlParameter<short> { TypedValue = layout });
     }
 
-    private static void AddUpdateParameters(NpgsqlCommand cmd, TaskRecord stored, string json, long expectedVersion)
+    private static void AddUpdateParameters(NpgsqlCommand cmd, TaskRecord stored, string json, long expectedVersion,
+        short layout)
     {
         cmd.Parameters.Add(TextParam(stored.Tenant));
         cmd.Parameters.Add(TextParam(stored.Task.Id));
@@ -589,16 +726,27 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         cmd.Parameters.Add(Long(stored.UpdatedAt.UtcTicks));
         cmd.Parameters.Add(TextParam(json));
         cmd.Parameters.Add(Long(expectedVersion));
+        cmd.Parameters.Add(new NpgsqlParameter<short> { TypedValue = layout });
     }
 
     /// <summary>
     ///     Serializes the task once and returns both the JSON and a record rebuilt from it, so what is returned matches
     ///     what is stored.
     /// </summary>
-    private static (string Json, TaskRecord Stored) Snapshot(TaskRecord record)
+    private static (string Json, TaskRecord Stored) Snapshot(TaskRecord record, bool withoutParts)
     {
-        var json = A2AJson.Serialize(record.Task);
-        return (json, record with { Task = A2AJson.Deserialize<AgentTask>(json) });
+        if (!withoutParts)
+        {
+            var full = A2AJson.Serialize(record.Task);
+            return (full, record with { Task = A2AJson.Deserialize<AgentTask>(full) });
+        }
+
+        // ArtifactRows: the task row holds no parts. The returned copy gets them back from the record (the parts are
+        // shared; nobody changes them).
+        var json = A2AJson.Serialize(PostgresArtifactRows.WithoutParts(record.Task));
+        var task = A2AJson.Deserialize<AgentTask>(json)!;
+        PostgresArtifactRows.CopyParts(record.Task, task);
+        return (json, record with { Task = task });
     }
 
     private static TaskRecord ReadRecord(NpgsqlDataReader reader, string tenant)

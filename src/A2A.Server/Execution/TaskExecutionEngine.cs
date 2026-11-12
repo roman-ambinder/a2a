@@ -1385,6 +1385,51 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
+    ///     <see cref="FindOwnWriteAsync" /> for a batch: after a version conflict, for a store without
+    ///     <see cref="ITaskCommitLookup" />, whether the store already holds this batch. It does when the stored task is
+    ///     exactly one version past <paramref name="written" /> (a batch is one version) and every artifact the batch appended
+    ///     to serializes to the same bytes as in <paramref name="next" />. A batch only appends, so applying it again would
+    ///     put its parts in the task twice. Returns the task as stored and the sequence of the batch's first event, or null.
+    /// </summary>
+    /// <remarks>
+    ///     The sequence is read before the task, as in <see cref="FindOwnWriteAsync" />. The batch appended
+    ///     <paramref name="count" /> events, so its first one is <paramref name="count" /> - 1 before the last.
+    /// </remarks>
+    private async ValueTask<BatchCommitResult?> FindOwnBatchAsync(TaskKey key, TaskRecord written, AgentTask next,
+        List<SequencedEvent> batch, int count, ConcurrencyException conflict)
+    {
+        try
+        {
+            var sequence = await _events.LastSequenceAsync(key, CancellationToken.None).ConfigureAwait(false);
+            if (await _tasks.GetAsync(key, CancellationToken.None).ConfigureAwait(false) is not { } stored ||
+                stored.Version != written.Version + 1)
+                return null;
+
+            var checkedIds = new HashSet<string>(StringComparer.Ordinal);
+            for (var i = 0; i < count; i++)
+            {
+                var id = ((ArtifactUpdateEvent)batch[i].Event).ArtifactUpdate.Artifact.ArtifactId;
+                if (!checkedIds.Add(id)) continue;
+                var mine = IndexOfArtifact(next.Artifacts, id);
+                var theirs = IndexOfArtifact(stored.Task.Artifacts, id);
+                if (mine < 0 || theirs < 0 ||
+                    !A2AJson.SerializeToUtf8Bytes(next.Artifacts![mine])
+                        .AsSpan().SequenceEqual(A2AJson.SerializeToUtf8Bytes(stored.Task.Artifacts![theirs])))
+                    return null;
+            }
+
+            var first = sequence - count + 1;
+            ServerLog.CommitFoundAfterFailure(Logger, conflict, key.TaskId, first);
+            return new BatchCommitResult(stored, first);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ServerLog.CommitLookupFailed(Logger, ex, key.TaskId);
+            return null;
+        }
+    }
+
+    /// <summary>
     ///     Whether an event may go into a batch commit: an append of parts that adds nothing else (no name, description or
     ///     metadata) and does not seal the artifact. Its effect on the task and on the task's size is then known without
     ///     walking the task. Anything else is stored on its own.
@@ -1490,15 +1535,24 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             // As in ApplyAndStoreAsync: the batch may be stored although the call failed. Only then is it kept as stored;
             // otherwise a conflict hands the events to the single path, which reloads the task, and any other failure is
             // raised as before.
-            if (mutationIds is null ||
-                await FindStoredCommitAsync(key, mutationIds, ex).ConfigureAwait(false) is not { } found)
+            if (mutationIds is not null &&
+                await FindStoredCommitAsync(key, mutationIds, ex).ConfigureAwait(false) is { } found)
+            {
+                committed = new BatchCommitResult(found.Record, found.Sequence);
+            }
+            else if (mutationIds is null && ex is ConcurrencyException conflict &&
+                     await FindOwnBatchAsync(key, record, next!, batch, count, conflict).ConfigureAwait(false) is { } own)
+            {
+                // As FindOwnWriteAsync does for one event: the conflict was this batch, which the store already wrote.
+                committed = own;
+            }
+            else
             {
                 if (ex is not ConcurrencyException) throw;
                 exec.Committed = null; // the single path reloads the task
                 return 0;
             }
 
-            committed = new BatchCommitResult(found.Record, found.Sequence);
             recovered = true;
         }
 
