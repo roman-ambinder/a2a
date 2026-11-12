@@ -107,9 +107,24 @@ The main risk of Option C is the D2 investigation itself. If the failure exists,
 
 ## Action items
 
-1. [ ] Write a test with a `TaskStore` that applies a commit and then throws (a timeout after the commit). Record what the engine does: whether the event is stored twice, and whether the task ends up correct.
+1. [x] Write a test with a `TaskStore` that applies a commit and then throws (a timeout after the commit). Record what the engine does: whether the event is stored twice, and whether the task ends up correct.
+
+   Done in `tests/A2A.Tests/AmbiguousCommitTests.cs`. The store wraps the in-memory one, applies the first or second artifact commit of the `task` scenario, and then throws. Results on 2026-11-12:
+
+   | The store throws | Commit that fails | Result |
+   |---|---|---|
+   | `TimeoutException` | 1 (creates the artifact) | The task ends `FAILED` with `part1` only. The run stops, so `part2` and `COMPLETED` are lost although the agent produced them. |
+   | `TimeoutException` | 2 (last chunk) | The task ends `FAILED` with both parts. `COMPLETED` is lost. |
+   | `ConcurrencyException` | 1 | The task ends correct (`COMPLETED`, `part1, part2`), but the event log holds the `part1` event twice (sequences 3 and 4). A stream replay or push delivery would see it twice. |
+   | `ConcurrencyException` | 2 | Correct. The append is refused on the sealed artifact, so nothing is stored twice. |
+
+   So D2 is real. A timeout after the commit makes the engine fail a task whose write landed, and a version conflict caused by the caller's own write stores the event twice.
+
+   - The shipped stores never produce the conflict case themselves: `PostgresTaskStore` has no internal retry, and there is no Redis task store. It can happen with a store that retries internally.
+   - The timeout case applies to any store whose commit answer can be lost after the transaction committed.
+   - Not tested yet: a conflict on an append that is not the last chunk, which could duplicate parts in the task itself.
 2. [ ] If the event is stored twice: add an optional mutation id to `TaskCommit`, a capability interface for stores that keep it, and implementations in the in-memory, Postgres and Redis stores. Follow ADR-001 rule 2, and add the startup check from ADR-001 action item 3.
-3. [ ] If the event is not stored twice: record why in the gap analysis, and close D2 there.
+3. [x] ~~If the event is not stored twice: record why in the gap analysis, and close D2 there.~~ Not applicable: item 1 shows the failure.
 4. [ ] Finish ADR-001 before tagging the release:
    - make `GetForMaintenanceAsync` virtual, or move it to a capability interface;
    - add the rule to `docs/site/guides/versioning.md`;
