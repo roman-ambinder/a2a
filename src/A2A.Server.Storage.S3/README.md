@@ -34,15 +34,40 @@ Credentials come from the default AWS chain. To use your own client, set `o.Clie
 - Keys with an empty segment (an empty task id) are written with the marker `%-` in that segment, because some
   S3-compatible services refuse `//`. Callers never see it.
 - `CreatedAt` is the time the write finished. S3 dates a multipart object from when the upload started, so after a
-  multipart upload completes the store tags the object with its completion time and uses that. If the stamp cannot be
-  written, the upload fails and the object is deleted. A listing uses the S3 date only when the object has no stamp; any
-  other tag read error is thrown (the sweep retries).
+  multipart upload completes the store tags the object with how long the upload took (`a2a-upload-ms`, timed by the
+  uploading process from before the upload started), and a listing dates the object at its S3 date plus that time. The
+  date stays on the S3 clock, as a single-part object's does, so a server whose clock is off does not shift it. If the
+  stamp cannot be written, the upload fails and the object is deleted. A multipart object listed without a stamp (its
+  upload completed a moment ago, or the process died before stamping it) is dated 7 days after its S3 date: the orphan
+  sweep leaves it alone until then, and still collects it in the end. Any other tag read error is thrown (the sweep
+  retries). The completion time by the server's clock (`a2a-completed-at`) is also written, and read, for earlier
+  versions.
 
 ## Permissions
 
 `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucket`, `s3:AbortMultipartUpload`, and
-`s3:PutObjectTagging` / `s3:GetObjectTagging` (required: for `CreatedAt` of large objects). Add a bucket lifecycle rule
-that aborts incomplete multipart uploads, as a safety net for a crashed process.
+`s3:PutObjectTagging` / `s3:GetObjectTagging` (required: for `CreatedAt` of large objects).
+
+Add a bucket lifecycle rule that aborts incomplete multipart uploads. A failed upload is aborted, but a process that
+crashes mid-upload leaves its parts behind: they are billed, never listed as objects, and nothing else removes them.
+For example, with the AWS CLI (`aws s3api put-bucket-lifecycle-configuration`; this replaces the bucket's lifecycle
+configuration, so merge it with any rules you have):
+
+```json
+{
+  "Rules": [
+    {
+      "ID": "abort-incomplete-multipart-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}
+```
+
+Set `Prefix` to your `KeyPrefix` to limit the rule to the store's objects, and keep `DaysAfterInitiation` longer than
+your largest upload takes.
 
 ## Tests
 
