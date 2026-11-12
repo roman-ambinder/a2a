@@ -227,7 +227,7 @@ internal sealed class V03GrpcService : V03Pb.A2AService.A2AServiceBase
         }
         catch (Exception ex) when (ex is not RpcException)
         {
-            throw Fail(ex, context, call);
+            throw await FailAsync(ex, context, call).ConfigureAwait(false);
         }
     }
 
@@ -252,7 +252,7 @@ internal sealed class V03GrpcService : V03Pb.A2AService.A2AServiceBase
         }
         catch (Exception ex) when (ex is not RpcException)
         {
-            throw Fail(ex, context, call);
+            throw await FailAsync(ex, context, call).ConfigureAwait(false);
         }
     }
 
@@ -280,7 +280,13 @@ internal sealed class V03GrpcService : V03Pb.A2AService.A2AServiceBase
                 string.Join(",", call.ActivatedExtensions));
     }
 
-    private RpcException Fail(Exception ex, GrpcContext context, A2ACall? call)
+    /// <summary>
+    ///     The exception to throw for a failed call. As the v1 gRPC binding and the v0.3 HTTP bindings do, an
+    ///     UNAUTHENTICATED error names its scheme in a <c>www-authenticate</c> trailer (spec 3.3.2, 7.4), and an error with
+    ///     a wait (a rate limit, a full input buffer) carries it in a <c>retry-after</c> trailer, in whole seconds. The v0.3
+    ///     proto has no error details for either.
+    /// </summary>
+    private async Task<RpcException> FailAsync(Exception ex, GrpcContext context, A2ACall? call)
     {
         if (ex is OperationCanceledException && context.CancellationToken.IsCancellationRequested)
             return new RpcException(new Status(StatusCode.Cancelled, "Call canceled by the client"));
@@ -291,6 +297,16 @@ internal sealed class V03GrpcService : V03Pb.A2AService.A2AServiceBase
             InvalidProtocolBufferException proto => A2AException.InvalidParams($"Invalid message: {proto.Message}"),
             _ => HttpPlumbing.Normalize(ex, _logger, _includeDetails)
         };
+        if (a2a.Code == A2AErrorCode.Unauthenticated)
+        {
+            var challengeCall = call ?? A2ACall.Anonymous();
+            var scheme = await HttpPlumbing.AuthChallengeSchemeAsync(context.GetHttpContext(), challengeCall)
+                .ConfigureAwait(false);
+            context.ResponseTrailers.Add(V03GrpcErrors.AuthChallengeKey, scheme);
+        }
+
+        if (a2a.RetryAfter is { } wait)
+            context.ResponseTrailers.Add(V03GrpcErrors.RetryAfterKey, V03GrpcErrors.RetryAfterValue(wait));
         var (status, message) = V03GrpcErrors.ToStatus(a2a);
         return new RpcException(new Status((StatusCode)status, message));
     }

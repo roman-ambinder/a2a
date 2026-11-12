@@ -61,8 +61,13 @@ internal sealed class BackgroundRun(A2AClient client, A2ARemoteAgentOptions opti
                 messages.Add(fresh.ToChatMessage());
             }
 
-        if ((task.Status.State.IsInterrupted() || messages.Count == 0) && task.Status.Message is { } status &&
-            status.MessageId != seen.StatusMessageId && !Echoes(status.Parts, text.ToString()))
+        // Judged on the whole task, not only on what is new since the token: a caller that already had the artifacts
+        // (from a stream that dropped) must not get them again as the status message.
+        var anyArtifacts = task.Artifacts is { Count: > 0 } all && all.Any(a => a.Parts.Count > 0);
+        var allText = task.Artifacts is { } every ? string.Concat(every.Select(a => TextOf(a.Parts))) : "";
+        if ((task.Status.State.IsInterrupted() || !anyArtifacts) && task.Status.Message is { } status &&
+            status.MessageId != seen.StatusMessageId && !Echoes(status.Parts, text.ToString()) &&
+            !Echoes(status.Parts, allText))
             messages.Add(AgentMessage(status));
         return new ChatResponse(messages)
         {
@@ -81,7 +86,9 @@ internal sealed class BackgroundRun(A2AClient client, A2ARemoteAgentOptions opti
         var status = seen.StatusMessageId;
         var taskId = seen.TaskId;
         var text = new System.Text.StringBuilder();
-        var hadArtifacts = false;
+        // A resumed stream: the caller already had these parts, so the turn had artifacts.
+        var hadArtifacts = seen.Artifacts.Values.Any(n => n > 0);
+        string? snapshotText = null; // the text of every artifact, once a task snapshot gave them all
 
         await foreach (var evt in events.WithCancellation(cancellationToken).ConfigureAwait(false))
             switch (evt)
@@ -94,6 +101,7 @@ internal sealed class BackgroundRun(A2AClient client, A2ARemoteAgentOptions opti
                 case ArtifactUpdateEvent { ArtifactUpdate: var chunk }:
                 {
                     taskId = chunk.TaskId;
+                    if (snapshotText is not null) snapshotText += TextOf(chunk.Artifact.Parts);
                     var before = chunk.Append && parts.TryGetValue(chunk.Artifact.ArtifactId, out var n) ? n : 0;
                     parts[chunk.Artifact.ArtifactId] = before + chunk.Artifact.Parts.Count;
                     if (options.OnArtifactReceived is { } hook) await hook(chunk.Artifact, cancellationToken).ConfigureAwait(false);
@@ -106,6 +114,7 @@ internal sealed class BackgroundRun(A2AClient client, A2ARemoteAgentOptions opti
 
                 case TaskEvent { Task: var snapshot }:
                     taskId = snapshot.Id;
+                    snapshotText = snapshot.Artifacts is { } all ? string.Concat(all.Select(a => TextOf(a.Parts))) : "";
                     if (snapshot.Artifacts is { } artifacts)
                         foreach (var artifact in artifacts)
                         {
@@ -140,7 +149,8 @@ internal sealed class BackgroundRun(A2AClient client, A2ARemoteAgentOptions opti
             if (state is TaskState.Working or TaskState.Submitted or TaskState.Unspecified) yield break;
             var message = taskStatus.Message;
             var show = (state.IsInterrupted() || !hadArtifacts) && message is not null &&
-                       message.MessageId != status && !Echoes(message.Parts, text.ToString());
+                       message.MessageId != status && !Echoes(message.Parts, text.ToString()) &&
+                       !(snapshotText is not null && Echoes(message.Parts, snapshotText));
             if (message is not null) status = message.MessageId;
             yield return Update(contextId, id, state, message?.MessageId, show ? message!.Parts : [],
                 state == TaskState.Completed ? ChatFinishReason.Stop : null, IsLast(state) ? null : Token());

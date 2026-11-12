@@ -235,7 +235,8 @@ internal sealed class V03GrpcTransport : IA2AClient
         if (ex.StatusCode == StatusCode.DeadlineExceeded && timeout != Timeout.InfiniteTimeSpan)
             return new TaskCanceledException($"The request timed out after {timeout.TotalSeconds:0.###} s.",
                 new TimeoutException(null, ex));
-        return V03GrpcErrors.FromStatus((int)ex.StatusCode, ex.Status.Detail);
+        return V03GrpcErrors.FromStatus((int)ex.StatusCode, ex.Status.Detail,
+            V03GrpcErrors.ParseRetryAfter(ex.Trailers?.GetValue(V03GrpcErrors.RetryAfterKey)));
     }
 
     private static T To<T>(JsonNode json) where T : IMessage<T>, new()

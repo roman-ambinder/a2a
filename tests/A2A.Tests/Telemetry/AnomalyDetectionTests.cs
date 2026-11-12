@@ -220,6 +220,36 @@ public sealed class AnomalyDetectionTests
     }
 
     [Fact]
+    public async Task Cancels_in_tenants_no_agent_serves_do_not_fill_the_callers_table()
+    {
+        // Only "acme" and "globex" have agents. Mallory names a fresh made-up tenant in each CancelTask: each call fails,
+        // and must not take a tracked entry, or the table fills and no other caller is watched.
+        var log = new CaptureProvider();
+        await using var host = await TestAgentHost.StartAsync(o =>
+        {
+            o.Anomalies.Enabled = true;
+            o.Anomalies.CancellationsPerMinute = 2;
+            o.Anomalies.MaxTrackedCallers = 2;
+        }, services: s =>
+        {
+            s.AddA2AServer().AddTenantCardProvider<TenantCards>();
+            s.AddSingleton<TimeProvider>(new FakeTimeProvider());
+            s.AddLogging(b => b.AddProvider(log));
+        });
+
+        for (var i = 0; i < 5; i++)
+            await Assert.ThrowsAsync<A2AException>(() =>
+                host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = "x" }, Call("mallory", $"made-up-{i}")));
+
+        // Alice, in a real tenant, goes over the threshold: she is still tracked and reported.
+        for (var i = 0; i < 3; i++)
+            await Assert.ThrowsAsync<A2AException>(() =>
+                host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = $"missing-{i}" }, Call("alice", "acme")));
+
+        Assert.Contains(SecurityEventLog.HashPrincipal("alice"), Assert.Single(log.Anomalies()), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Creations_and_cancellations_have_separate_counts()
     {
         var log = new CaptureProvider();
