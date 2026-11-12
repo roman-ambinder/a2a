@@ -12,7 +12,7 @@ internal static class ExitCodes
     /// <summary>The command line is wrong.</summary>
     public const int Usage = 2;
 
-    /// <summary>The network failed, the connection failed, or <c>--timeout</c> ran out.</summary>
+    /// <summary>The network failed, the connection failed, the Agent Card could not be fetched, or <c>--timeout</c> ran out.</summary>
     public const int Network = 3;
 
     /// <summary>The agent refused the credentials, or wants credentials the tool does not have.</summary>
@@ -45,7 +45,7 @@ internal static class ExitCodes
                                      0    success
                                      1    unexpected or local error (for example a file already exists)
                                      2    usage error
-                                     3    network, connection or timeout error
+                                     3    network, connection or timeout error, or no Agent Card at the URL
                                      4    authentication or authorization error
                                      5    not found (task, or no matching artifact)
                                      6    other A2A or protocol error from the agent

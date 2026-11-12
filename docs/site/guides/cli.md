@@ -188,7 +188,7 @@ With `--json`, the tool prints protocol objects as the agent sent them, in the A
 | 0 | Success. |
 | 1 | Unexpected or local error, for example a file that already exists. |
 | 2 | Usage error: unknown option, missing value, bad number, wrong number of arguments. |
-| 3 | Network or connection error, or `--timeout` ran out. |
+| 3 | Network or connection error, the Agent Card could not be fetched (for example HTTP 404), or `--timeout` ran out. |
 | 4 | Authentication or authorization error (HTTP 401 or 403, or a missing credential). |
 | 5 | Not found: the task does not exist, or no artifact matches. |
 | 6 | Another A2A or protocol error from the agent. |
@@ -205,6 +205,7 @@ Errors go to standard error. A stack trace is never printed.
 - Secret values (token, API key, client secret) are replaced with `***` in everything the tool prints, also when the agent echoes them. The tool never prints its own options. OAuth2 access tokens that the tool gets from a token endpoint are not known in advance and are not replaced.
 - Text from the agent is cleaned before it is shown in the terminal: control characters (such as escape sequences), bidi controls and invisible characters are removed. This includes error messages from the server.
 - In error messages, the query string and user info of every URL are removed, because presigned URLs are secrets.
+- The card chooses the URLs the tool calls. A card fetched from a public address that names a private, loopback or link-local endpoint is refused before any call (exit 6), as `A2AClient.ConnectAsync` does. A card from a private address may name private endpoints.
 - Credentials go only to the card's origin, never follow a redirect, and never go over plain HTTP to a host that is not loopback. `--allow-http` only lets you fetch an HTTP card.
 - Downloads go to the agent's origin with your credentials. When the agent answers with a redirect to a storage URL, that URL is fetched once, without credentials, and only if it is HTTPS and not a private address (unless you give `--allow-private-storage`).
 
