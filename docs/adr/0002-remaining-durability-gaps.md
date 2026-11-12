@@ -122,7 +122,18 @@ The main risk of Option C is the D2 investigation itself. If the failure exists,
 
    - The shipped stores never produce the conflict case themselves: `PostgresTaskStore` has no internal retry, and there is no Redis task store. It can happen with a store that retries internally.
    - The timeout case applies to any store whose commit answer can be lost after the transaction committed.
-   - Not tested yet: a conflict on an append that is not the last chunk, which could duplicate parts in the task itself.
+   - A conflict on an append that is not the last chunk (tested on 2026-11-12, `many-chunks` scenario, commit 2 is
+     chunk `1`):
+
+     | Store | The store throws | Result |
+     |---|---|---|
+     | Without `ITaskCommitLookup` | `ConcurrencyException` | The task ends `COMPLETED`, but chunk `1` is in the task twice (`0, 1, 1, 2, ...`) and the event log holds 23 artifact events instead of 22. The artifact is still open, so the second append is accepted. |
+     | Without `ITaskCommitLookup` | `TimeoutException` | The task ends `FAILED` with `0, 1`, as for the other chunks. |
+     | With `ITaskCommitLookup` | either | Correct: each chunk once, `COMPLETED`. |
+
+     So a store that retries a commit internally must implement `ITaskCommitLookup`, or it can duplicate parts in the
+     task itself. `AmbiguousCommitTests.Without_the_lookup_a_conflict_on_a_middle_append_stores_the_chunk_twice` pins
+     this behaviour until it is fixed.
 2. [x] If the event is stored twice: add an optional mutation id to `TaskCommit`, a capability interface for stores that keep it, and implementations in the in-memory, Postgres and Redis stores. Follow ADR-001 rule 2, and add the startup check from ADR-001 action item 3.
 
    Done:
