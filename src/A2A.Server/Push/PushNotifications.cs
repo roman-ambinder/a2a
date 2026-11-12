@@ -43,9 +43,24 @@ public sealed class PushNotificationOptions
     ///     address, and the proxy resolves the webhook host itself. The only check on the webhook host is then the SDK's DNS
     ///     lookup before each attempt, so a host that resolves public for that lookup and private (for example
     ///     169.254.169.254) when the proxy resolves it is reached (DNS rebinding). The proxy must enforce egress filtering:
-    ///     refuse private, loopback, link-local and other internal addresses after its own lookup.
+    ///     refuse private, loopback, link-local and other internal addresses after its own lookup, or set
+    ///     <see cref="PinProxyTarget" />.
     /// </summary>
     public IWebProxy? Proxy { get; set; }
+
+    /// <summary>
+    ///     Send each proxied webhook delivery to the address the SDK checked, not to the host name. Default false. When true
+    ///     and a delivery goes through <see cref="Proxy" /> (not bypassed), the webhook host is resolved and checked once
+    ///     before the attempt, and the request is sent to the first address of that lookup: the proxy gets
+    ///     <c>CONNECT 93.184.216.34:443</c> (or <c>POST http://93.184.216.34/...</c> for http://) in place of the name,
+    ///     so DNS rebinding through the proxy is blocked. The Host header stays the webhook's host (and port, when not the
+    ///     default), and for https:// the TLS server name (SNI) and the certificate check use the host name, as without
+    ///     pinning. Trade-off: the proxy no longer sees the host name, so proxy rules, allowlists and bypass lists by host
+    ///     name stop matching (a rule or bypass by IP address applies instead), and only one address is tried. It has no
+    ///     effect when <see cref="AllowPrivateNetworks" /> is true, for a webhook URL that is an IP literal, or for a request
+    ///     the proxy bypasses (that one gets the connect-time check).
+    /// </summary>
+    public bool PinProxyTarget { get; set; }
 
     /// <summary>
     ///     Timeout of one webhook POST, and of the DNS check before it. Retries are set in
@@ -137,13 +152,40 @@ public static class PushUrlValidator
     ///     Throws <see cref="A2AException" /> for policy violations (permanent) and <see cref="HttpRequestException" /> when
     ///     resolution fails or finds a private address.
     /// </summary>
-    internal static async ValueTask ValidateForDeliveryAsync(string url, PushNotificationOptions options,
+    /// <returns>
+    ///     With <see cref="PushNotificationOptions.PinProxyTarget" /> on and a proxied delivery, the URL to send to: the
+    ///     webhook URL with its host replaced by the checked address. Otherwise null (send to the webhook URL).
+    /// </returns>
+    internal static async ValueTask<Uri?> ValidateForDeliveryAsync(string url, PushNotificationOptions options,
         CancellationToken cancellationToken)
     {
         Validate(url, options);
         var uri = new Uri(url);
+        if (PinsProxyTarget(uri, options))
+        {
+            // One lookup is both the check and the target, so nothing can rebind between them.
+            var addresses = await PrivateAddressGuard.ResolveAllowedAsync(uri.Host, options.AllowedNetworks, "Webhook",
+                cancellationToken).ConfigureAwait(false);
+            var address = addresses[0].IsIPv4MappedToIPv6 ? addresses[0].MapToIPv4() : addresses[0];
+            return new UriBuilder(uri) { Host = address.ToString() }.Uri;
+        }
+
         await PrivateAddressGuard.EnsureHostAllowedAsync(uri.Host, options.AllowPrivateNetworks,
             options.AllowedNetworks, "Webhook", cancellationToken).ConfigureAwait(false);
+        return null;
+    }
+
+    /// <summary>True when <paramref name="uri" /> is a host name whose delivery goes through the proxy and is to be pinned.</summary>
+    private static bool PinsProxyTarget(Uri uri, PushNotificationOptions options)
+    {
+        return options is { PinProxyTarget: true, AllowPrivateNetworks: false, Proxy: { } proxy } &&
+               PrivateAddressGuard.TryGetLiteral(uri) is null && !proxy.IsBypassed(uri) && proxy.GetProxy(uri) is not null;
+    }
+
+    /// <summary>The Host header of <paramref name="uri" />: its host, and its port when not the scheme's default.</summary>
+    internal static string HostHeader(Uri uri)
+    {
+        return uri.IsDefaultPort ? uri.IdnHost : $"{uri.IdnHost}:{uri.Port.ToString(CultureInfo.InvariantCulture)}";
     }
 
     /// <summary>True for addresses that must not be reached from the agent by default.</summary>
@@ -213,11 +255,13 @@ internal sealed class PushWebhookSender(
     {
         try
         {
+            Uri? pinned;
             try
             {
                 using var vcts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 vcts.CancelAfter(options.Timeout);
-                await PushUrlValidator.ValidateForDeliveryAsync(config.Url, options, vcts.Token).ConfigureAwait(false);
+                pinned = await PushUrlValidator.ValidateForDeliveryAsync(config.Url, options, vcts.Token)
+                    .ConfigureAwait(false);
             }
             catch (A2AException ex)
             {
@@ -254,6 +298,14 @@ internal sealed class PushWebhookSender(
 
             using var request = new HttpRequestMessage(HttpMethod.Post, config.Url)
                 { Content = new ReadOnlyMemoryContent(body) };
+            if (pinned is not null)
+            {
+                // PinProxyTarget: the proxy is asked for the checked address. SocketsHttpHandler takes the TLS server
+                // name (SNI) and the certificate name check from the Host header, so both stay the webhook's host name.
+                request.Headers.Host = PushUrlValidator.HostHeader(request.RequestUri!);
+                request.RequestUri = pinned;
+            }
+
             request.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
             // The body is an A2A payload of the config's version; say so, as on every other A2A request (a2a-js #647).
             request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, headerVersion);
