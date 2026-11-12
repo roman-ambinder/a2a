@@ -162,6 +162,14 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Security
 
+- Token exchange: `A2AHttpOptions.TrustedBearerSchemes` (empty by default) names ASP.NET Core schemes, other than a
+  bearer scheme, whose callers may have their `Authorization: Bearer` header exchanged, for a gateway or API-key scheme
+  that already checked the token. The SDK then trusts that scheme to have validated it. The scheme must have
+  authenticated this caller, and the app refuses to start when a listed name is not a registered scheme.
+- Push: `PushNotificationOptions.PinProxyTarget` (off by default) sends a proxied webhook to the address the SDK checked,
+  so DNS rebinding through the proxy no longer reaches an internal address. The request keeps the webhook's host name in
+  the Host header and for TLS (server name and certificate check). The proxy sees only the address, so proxy rules,
+  allowlists and bypass lists by host name stop matching.
 - Fixes from the security review:
   - Live exchange: a refused uplink call reaches only the caller's own downlinks. Before, another caller of the same
     tenant who knew the task id could put an error frame with a reference id of their choice on the owner's stream.
@@ -203,6 +211,10 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Server
 
+- `A2ALimits.MaxTimelineEntries` (default 1000; 0 keeps every entry) caps the stored A2A 1.1 timeline: past it, the
+  oldest entries are dropped. Before, every status update added an entry with no limit, and `MaxTaskBytes` did not count
+  them. Generations are not renumbered, the messages stay in the history, and resume (which reads the event store) is
+  unchanged.
 - New `AddTaskDeletion()` on the A2A builder (spec §13.4: agents SHOULD let users request deletion of their data). It
   adds the opt-in SDK extension operation `a2a.tasks.delete` (extension
   `https://github.com/roman-ambinder/a2a/extensions/task-deletion/v1`, `A2A.Deletion.TaskDeletion`) on every binding,
@@ -327,6 +339,8 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Documentation
 
+- ADR-004 (proposed): how to remove the copy of the history, timeline and parts lists made for each task event, which
+  makes the cost grow with the square of the event count.
 - The v0.3 compatibility guide, emptied by mistake in roman-ambinder/a2a#159, is restored and covers v0.3 gRPC and REST
   `GET /v1/tasks`. The v0.3 package READMEs no longer say ListTasks and gRPC are unavailable, and the streaming guide,
   bindings table and gRPC docs say that an A2A 1.1 client resumes over gRPC by generation.
