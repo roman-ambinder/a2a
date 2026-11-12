@@ -58,7 +58,7 @@ In `Stored` mode the session of each context and caller is kept in an `AgentSess
 [!code-csharp[](../../../samples/Snippets/AgentFramework.cs#HostStored)]
 
 - The key is the context id, with the tenant and the owner as partitions: one caller never loads another caller's session for the same context id.
-- The session is saved after each run. When the run succeeds, the save comes before the task's final status, and a failed save fails the task, so a turn is never lost quietly. After a failure or a cancel the save is best effort and logged (event 1400). A save may take at most 5 seconds, so a store that hangs cannot hold the execution.
+- The session is saved after each run. When the run succeeds, the save comes before the task's final status, and a failed save fails the task, so a turn is never lost quietly. After a failure or a cancel the save is best effort and logged (event 1800). A save may take at most 5 seconds, so a store that hangs cannot hold the execution.
 - Two tasks of one context that run at the same time race on the session: the last save wins.
 - The host refuses to start in this mode without an `AgentSessionStore`.
 - `MaxHistoryMessages` and `UseContextMemory` do not shape the prompt in this mode: the session does.
@@ -66,7 +66,7 @@ In `Stored` mode the session of each context and caller is kept in an `AgentSess
 
 ### Deleted with the context
 
-When the [retention](retention.md) sweep deletes a context, it tells every registered `IA2AContextLifecycle` (package `A2A.Server`). In stored mode the adapter registers one that deletes the context's session, so sessions live as long as their context. A failed delete is logged (event 1401). The hook is general: any agent that keeps per-context state outside the task store can use it.
+When the [retention](retention.md) sweep deletes a context, it tells every registered `IA2AContextLifecycle` (package `A2A.Server`). In stored mode the adapter registers one that deletes the context's session, so sessions live as long as their context. A failed delete is logged (event 1801). The hook is general: any agent that keeps per-context state outside the task store can use it.
 
 [!code-csharp[](../../../samples/Snippets/AgentFramework.cs#Lifecycle)]
 

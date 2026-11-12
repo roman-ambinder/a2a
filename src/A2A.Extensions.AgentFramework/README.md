@@ -58,7 +58,7 @@ builder.Services.AddA2ARetention();   // deletes a context's session with the co
   the prompt in this mode.
 - The session is saved after each run. When the run succeeds, the save comes before the task's final status, and a failed
   save fails the task (the turn is not lost quietly). After a failure or a cancel the save is best effort and logged
-  (event 1400, see Logs). A save may take at most 5 seconds, so a store that hangs cannot hold the execution.
+  (event 1800, see Logs). A save may take at most 5 seconds, so a store that hangs cannot hold the execution.
 - Two tasks of one context that run at the same time race on the session: the last save wins.
 - The host refuses to start in this mode without an `AgentSessionStore`.
 - When the retention sweep deletes a context, the context's session is deleted from the store too.
@@ -137,8 +137,8 @@ while (response.ContinuationToken is { } token)
 
 | Id | Level | When |
 |---|---|---|
-| 1400 | Warning | A session save after a failed or canceled run failed. |
-| 1401 | Warning | Deleting the session of a deleted context failed. |
+| 1800 | Warning | A session save after a failed or canceled run failed. |
+| 1801 | Warning | Deleting the session of a deleted context failed. |
 
 ## Do not mix with Microsoft's A2A packages
 
