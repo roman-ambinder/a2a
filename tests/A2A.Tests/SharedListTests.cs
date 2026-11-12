@@ -296,6 +296,46 @@ public class SharedListTests
     }
 
     [Fact]
+    public void CountParts_and_CopyLastParts_read_without_building_the_list()
+    {
+        static string Text(List<Part> parts) => string.Concat(parts.OfType<TextPart>().Select(p => p.Text));
+
+        var stored = new Artifact { ArtifactId = "a", Parts = [Part.FromText("0"), Part.FromText("1")] };
+        var v1 = stored.CopyWithParts([Part.FromText("2")]);
+        var v2 = v1.CopyWithParts([Part.FromText("3"), Part.FromText("4")]);
+        var fork = v1.CopyWithParts([Part.FromText("f")]);
+
+        Assert.Equal(3, v1.CountParts());
+        Assert.Equal(5, v2.CountParts());
+        Assert.Equal(4, fork.CountParts());
+        Assert.Equal("34", Text(v2.CopyLastParts(2)));
+        Assert.Equal("01234", Text(v2.CopyLastParts(5)));
+        Assert.Empty(v2.CopyLastParts(0));
+        Assert.Equal("2f", Text(fork.CopyLastParts(2)));
+        Assert.Same(v2.CopyLastParts(1)[0], v2.CopyLastParts(1)[0]); // the parts are shared, the list is new
+        Assert.NotSame(v2.CopyLastParts(1), v2.CopyLastParts(1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => v2.CopyLastParts(6));
+        Assert.Throws<ArgumentOutOfRangeException>(() => v2.CopyLastParts(-1));
+        Assert.False(v1.PartsStore.IsMaterialized);
+        Assert.False(v2.PartsStore.IsMaterialized);
+        Assert.False(fork.PartsStore.IsMaterialized);
+
+        // A built (or set) list answers the same, and a change made to it counts.
+        v2.Parts.Add(Part.FromText("5"));
+        Assert.True(v2.PartsStore.IsMaterialized);
+        Assert.Equal(6, v2.CountParts());
+        Assert.Equal("45", Text(v2.CopyLastParts(2)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => v2.CopyLastParts(7));
+        Assert.Equal(2, stored.CountParts());
+        Assert.Equal("01", Text(stored.CopyLastParts(2)));
+
+        // A null list counts as empty, as CopyWithParts treats it.
+        var none = new Artifact { ArtifactId = "n", Parts = null! };
+        Assert.Equal(0, none.CountParts());
+        Assert.Empty(none.CopyLastParts(0));
+    }
+
+    [Fact]
     public void Timeline_trim_keeps_every_version_and_matches_the_list_path()
     {
         const int max = 1000;

@@ -126,6 +126,15 @@ internal sealed class AppendList<T>
         return list;
     }
 
+    /// <summary>A new list with the <paramref name="count" /> items of this version from <paramref name="index" /> on.</summary>
+    public List<T> GetRange(int index, int count)
+    {
+        if (index < 0 || count < 0 || index > Count - count) throw new ArgumentOutOfRangeException(nameof(count));
+        var list = new List<T>(count);
+        if (count > 0) list.AddRange(new ArraySegment<T>(_buffer.Items, _start + index, count));
+        return list;
+    }
+
     /// <summary>A new list with <paramref name="convert" /> applied to each item, in order.</summary>
     public List<TOut> ConvertAll<TOut>(Func<T, TOut> convert)
     {

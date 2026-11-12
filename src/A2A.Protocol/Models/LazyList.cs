@@ -104,6 +104,23 @@ internal struct LazyList<T>
         }
     }
 
+    /// <summary>How many items the content has (0 when the property is null), without building the list.</summary>
+    public int Count => Volatile.Read(ref _list) is { } list ? list.Count : _shared?.Count ?? 0;
+
+    /// <summary>A new list with the last <paramref name="count" /> items of the content, without building this one's list.</summary>
+    public List<T> GetLast(int count)
+    {
+        if (Volatile.Read(ref _list) is { } list)
+        {
+            if (count < 0 || count > list.Count) throw new ArgumentOutOfRangeException(nameof(count));
+            return list.GetRange(list.Count - count, count);
+        }
+
+        var shared = _shared ?? AppendList<T>.Empty;
+        if (count < 0 || count > shared.Count) throw new ArgumentOutOfRangeException(nameof(count));
+        return shared.GetRange(shared.Count - count, count);
+    }
+
     /// <summary>A new list with <paramref name="convert" /> applied to each item, without building this one's list.</summary>
     public List<TOut>? ConvertAll<TOut>(Func<T, TOut> convert)
     {
