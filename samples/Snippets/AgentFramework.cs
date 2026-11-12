@@ -27,10 +27,9 @@ internal static class Snippets
     public static void Host(IServiceCollection services, AIAgent agent)
     {
         #region Host
-        services.AddSingleton(agent);   // any Agent Framework agent, for example a ChatClientAgent
         services.AddA2A(a => a
             .AddAgentCard(Card)
-            .AddAIAgent());
+            .AddAIAgent(agent));   // any Agent Framework agent, for example a ChatClientAgent
         #endregion
     }
 

@@ -1,6 +1,6 @@
 # Simpler SDK surface: one way to do each common thing
 
-Date: 2026-11-12. Status: phases 1 and 2 done (see "Phase 2 as built"); phase 3 items 1-3 done (see "Phase 3 as built"), items 4-5 open.
+Date: 2026-11-12. Status: done. Phases 1-3 shipped; see "Phase 2 as built" and "Phase 3 as built" for what changed from the plan.
 Scope: the developer-facing API of `A2A.Client`, `A2A.Protocol` (response types), `A2A.Server`, `A2A.Server.AspNetCore` and the two AI adapters. It builds on `2026-11-07-sdk-design-principles-design.md`: safe and correct by default stays the floor, and "easy to use" is the principle this design serves.
 
 Decisions from the user:
@@ -184,7 +184,7 @@ Phase 2 shipped with these differences from the plan above:
   - Instance overloads: `AddChatClientAgent(chatClient, ...)` and `AddAIAgent(agent, ...)`.
 - **Surface size.** Store, engine and coordination types move to `A2A.Server.Advanced` (namespace), so IntelliSense in `A2A.Server` shows the hosting basics.
 
-### Phase 3 as built (items 1-3)
+### Phase 3 as built
 
 - `A2AClient.ConnectAsync(url, o => ...)` with `A2AConnectOptions` (`Credentials`, `Card`, `Client`, `Handler`).
   `A2AClientFactory.CreateAsync(url, httpClient)` stays public for an `HttpClient` the caller already has; the docs
@@ -199,6 +199,14 @@ Phase 2 shipped with these differences from the plan above:
 - Not changed: `Extensions` and `MaxRetries` on both `A2AClientOptions` and `A2ARequestOptions`. They are a client
   default and a per-call override (the same layering as the tenant, D6 of the design principles), not two ways to do
   one thing. The per-transport credential models (AWS handler versus provider, gRPC channel setup) were not unified.
+- AI adapters: `A2AModelAgentOptions` in `A2A.Extensions.AI` holds the eight shared settings; `ChatClientAgentOptions`
+  and `AIAgentExecutorOptions` derive from it (the Agent Framework package already referenced Extensions.AI). The names
+  were kept. `AddChatClientAgent(chatClient, ...)` and `AddAIAgent(agent, ...)` take the model itself; they register it
+  under a private key and reuse the keyed path, so session cleanup and the startup checks behave the same.
+- Server surface: not moved. The 139 public types of `A2A.Server` are already split over sub-namespaces (`Storage`,
+  `Push`, `Idempotency`, `Coordination`, ...); the root `A2A.Server` namespace has about 41, most of them what an agent
+  author uses. Moving the dozen binding-author types (`A2ARequestHandler`, `TaskEventBus`, `TaskStateMachine`, the
+  executor factories) to an `Advanced` namespace would break every binding package for a small gain in IntelliSense.
 
 ## 4. Open decisions
 

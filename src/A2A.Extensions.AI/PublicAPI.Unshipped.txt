@@ -3,3 +3,38 @@ static A2A.Extensions.AI.A2AClientAIExtensions.AsAIFunction(this A2A.Client.IA2A
 static A2A.Extensions.AI.A2AClientAIExtensions.AsChatClient(this A2A.Client.IA2AClient! client, A2A.Extensions.AI.A2AChatClientOptions? options = null) -> A2A.Extensions.AI.A2AChatClient!
 *REMOVED*static A2A.Extensions.AI.A2AClientAIExtensions.AsAIFunction(this A2A.Client.A2AClient! client, string! name, string! description, A2A.Extensions.AI.A2AAgentFunctionOptions? options = null) -> A2A.Extensions.AI.A2AAgentFunction!
 *REMOVED*static A2A.Extensions.AI.A2AClientAIExtensions.AsChatClient(this A2A.Client.A2AClient! client, A2A.Extensions.AI.A2AChatClientOptions? options = null) -> A2A.Extensions.AI.A2AChatClient!
+A2A.Extensions.AI.A2AModelAgentOptions
+A2A.Extensions.AI.A2AModelAgentOptions.AllowUrlParts.get -> bool
+A2A.Extensions.AI.A2AModelAgentOptions.AllowUrlParts.set -> void
+A2A.Extensions.AI.A2AModelAgentOptions.ArtifactName.get -> string!
+A2A.Extensions.AI.A2AModelAgentOptions.ArtifactName.set -> void
+A2A.Extensions.AI.A2AModelAgentOptions.ContextMemoryMaxBytes.get -> long
+A2A.Extensions.AI.A2AModelAgentOptions.ContextMemoryMaxBytes.set -> void
+A2A.Extensions.AI.A2AModelAgentOptions.ContextMemoryMaxTasks.get -> int
+A2A.Extensions.AI.A2AModelAgentOptions.ContextMemoryMaxTasks.set -> void
+A2A.Extensions.AI.A2AModelAgentOptions.KeepConversationOpen.get -> bool
+A2A.Extensions.AI.A2AModelAgentOptions.KeepConversationOpen.set -> void
+A2A.Extensions.AI.A2AModelAgentOptions.MaxHistoryMessages.get -> int
+A2A.Extensions.AI.A2AModelAgentOptions.MaxHistoryMessages.set -> void
+A2A.Extensions.AI.A2AModelAgentOptions.StreamChunkSize.get -> int
+A2A.Extensions.AI.A2AModelAgentOptions.StreamChunkSize.set -> void
+A2A.Extensions.AI.A2AModelAgentOptions.UseContextMemory.get -> bool
+A2A.Extensions.AI.A2AModelAgentOptions.UseContextMemory.set -> void
+static A2A.Extensions.AI.A2AChatClientAgentBuilderExtensions.AddChatClientAgent(this A2A.Server.A2AServerBuilder! builder, Microsoft.Extensions.AI.IChatClient! chatClient, System.Action<A2A.Extensions.AI.ChatClientAgentOptions!>? configure = null) -> A2A.Server.A2AServerBuilder!
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.AllowUrlParts.get -> bool
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.AllowUrlParts.set -> void
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.ArtifactName.get -> string!
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.ArtifactName.set -> void
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.ContextMemoryMaxBytes.get -> long
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.ContextMemoryMaxBytes.set -> void
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.ContextMemoryMaxTasks.get -> int
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.ContextMemoryMaxTasks.set -> void
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.KeepConversationOpen.get -> bool
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.KeepConversationOpen.set -> void
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.MaxHistoryMessages.get -> int
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.MaxHistoryMessages.set -> void
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.StreamChunkSize.get -> int
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.StreamChunkSize.set -> void
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.UseContextMemory.get -> bool
+*REMOVED*A2A.Extensions.AI.ChatClientAgentOptions.UseContextMemory.set -> void
+A2A.Extensions.AI.A2AModelAgentOptions.A2AModelAgentOptions() -> void

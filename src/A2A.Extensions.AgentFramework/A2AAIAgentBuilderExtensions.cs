@@ -25,7 +25,7 @@ public static class A2AAIAgentBuilderExtensions
     /// <remarks>
     ///     With <see cref="AgentSessionMode.Stored" />, register an <see cref="AgentSessionStore" /> as well: the host
     ///     refuses to start without one. The stored session of a context is deleted when the retention sweep
-    ///     (<c>AddA2ARetention</c>) deletes the context.
+    ///     (<c>AddRetention</c> on the A2A builder) deletes the context.
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">An option is out of range.</exception>
     /// <exception cref="NotSupportedException">The options choose a mode this version cannot run yet.</exception>
@@ -50,4 +50,22 @@ public static class A2AAIAgentBuilderExtensions
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, StoredSessionCheck>());
         return builder;
     }
+
+    /// <summary>
+    ///     Uses <paramref name="agent" /> itself as the A2A agent, without registering it in DI first. The same agent
+    ///     instance serves every execution, so it must be safe to share. Otherwise as
+    ///     <see cref="AddAIAgent(A2AServerBuilder, Action{AIAgentExecutorOptions}?, object?)" />.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="builder" /> or <paramref name="agent" /> is null.</exception>
+    public static A2AServerBuilder AddAIAgent(this A2AServerBuilder builder, AIAgent agent,
+        Action<AIAgentExecutorOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(agent);
+        var key = new InstanceKey(); // private to this registration, so it never meets a host's own keyed agent
+        builder.Services.AddKeyedSingleton(key, agent);
+        return builder.AddAIAgent(configure, key);
+    }
+
+    private sealed class InstanceKey;
 }

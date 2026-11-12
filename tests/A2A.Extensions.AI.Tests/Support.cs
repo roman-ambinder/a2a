@@ -71,16 +71,23 @@ public sealed class AgentHost : IAsyncDisposable
         Skills = [new AgentSkill { Id = "chat", Name = "Chat", Description = "Chats", Tags = ["test"] }],
     };
 
+    /// <param name="asInstance">Passes <paramref name="chat"/> to <c>AddChatClientAgent</c> itself instead of registering it in DI.</param>
     public static async Task<AgentHost> StartAsync(IChatClient chat, Action<ChatClientAgentOptions>? configure = null, object? serviceKey = null,
-        Func<A2AServerBuilder, A2AServerBuilder>? before = null)
+        Func<A2AServerBuilder, A2AServerBuilder>? before = null, bool asInstance = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
-        if (serviceKey is null) builder.Services.AddSingleton(chat);
+        if (asInstance) { }
+        else if (serviceKey is null) builder.Services.AddSingleton(chat);
         else builder.Services.AddKeyedSingleton(serviceKey, chat);
         builder.Services.AddAuthorization();
-        builder.Services.AddA2A(a => (before?.Invoke(a) ?? a).AddAgentCard(Card()).AddChatClientAgent(configure, serviceKey))
+        builder.Services.AddA2A(a =>
+            {
+                var b = (before?.Invoke(a) ?? a).AddAgentCard(Card());
+                if (asInstance) b.AddChatClientAgent(chat, configure);
+                else b.AddChatClientAgent(configure, serviceKey);
+            })
             .Configure(o => o.AllowAnonymous = true);
 
         var app = builder.Build();

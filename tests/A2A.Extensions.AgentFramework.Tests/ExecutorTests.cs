@@ -153,6 +153,22 @@ public class ExecutorTests
         Assert.IsType<FakeSession>(agent.Calls[0].Session);
     }
 
+    [Fact]
+    public async Task An_agent_instance_needs_no_DI_registration()
+    {
+        var agent = FakeAIAgent.Replying("from the instance");
+        await using var host = await AgentHost.StartAsync(a => a.AddAIAgent(agent, o => o.ArtifactName = "answer"));
+        var task = Assert.IsType<TaskResponse>(await host.Client().SendMessageAsync("hi")).Task;
+        Assert.Equal("from the instance", task.GetText());
+        Assert.Equal("answer", Assert.Single(task.Artifacts!).Name);
+        Assert.Single(agent.Calls);
+    }
+
+    [Fact]
+    public void A_null_agent_instance_is_refused() =>
+        Assert.Throws<ArgumentNullException>(() =>
+            new Microsoft.Extensions.DependencyInjection.ServiceCollection().AddA2AServer().AddAIAgent((Microsoft.Agents.AI.AIAgent)null!));
+
     // ---- 4. run options ----
 
     [Fact]

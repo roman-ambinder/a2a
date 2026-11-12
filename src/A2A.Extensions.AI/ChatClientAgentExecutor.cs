@@ -20,9 +20,9 @@ namespace A2A.Extensions.AI;
 ///     </para>
 ///     <para>
 ///         By default history is per task: a new task in the same context does not see earlier tasks. Turn on
-///         <see cref="ChatClientAgentOptions.UseContextMemory" /> to give the model the earlier tasks of the context, or
+///         <see cref="A2A.Extensions.AI.A2AModelAgentOptions.UseContextMemory" /> to give the model the earlier tasks of the context, or
 ///         use
-///         <see cref="ChatClientAgentOptions.KeepConversationOpen" /> to continue one task.
+///         <see cref="A2A.Extensions.AI.A2AModelAgentOptions.KeepConversationOpen" /> to continue one task.
 ///     </para>
 /// </remarks>
 public sealed class ChatClientAgentExecutor : IAgentExecutor

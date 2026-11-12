@@ -54,6 +54,9 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 - **`A2ARequestOptions.Skill` replaces `A2AClient.SelectSkill` (breaking, experimental `A2AEXP001`).** Set it on a send's
   options; the client checks it against the card, writes `metadata["skillId"]` and requests the extension, without
   changing your message or options. It works for every send, the text overload included.
+- **AI adapters.** `A2AModelAgentOptions` holds the reply, history and security settings shared by
+  `ChatClientAgentOptions` and `AIAgentExecutorOptions` (same names and defaults as before). `AddChatClientAgent(chatClient,
+  ...)` and `AddAIAgent(agent, ...)` take the model itself, so it need not be registered in DI first.
 - `BearerTokenCredentialProvider`: a bearer token from your own source, asked for on every request. There is no
   fixed-token constructor on purpose.
 - Multi-turn without handling ids: `client.StartConversation()` returns an `A2AConversation`. `SendAsync` and
