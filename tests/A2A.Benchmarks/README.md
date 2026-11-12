@@ -1,5 +1,8 @@
 # A2A benchmarks
 
+BenchmarkDotNet benchmarks for the SDK's hot paths (send, streaming, JSON-RPC envelopes, card verification, concurrent
+load). CI uses them as an allocation regression gate.
+
 Run all benchmarks (from the repo root):
 
     dotnet run -c Release --project tests/A2A.Benchmarks -- --job short --exporters json --filter '*'
@@ -16,6 +19,9 @@ The `Benchmarks (regression check)` job in `.github/workflows/ci.yml` blocks CI.
 
 - a benchmark allocates more than 10% above `baseline.json`, or
 - a benchmark is in the results but not in the baseline, or the other way round.
+
+One short run is noisy, so when the first comparison fails the job runs the benchmarks once more and fails only if the
+second comparison fails too. The results are uploaded as the `benchmark-results` artifact.
 
 Mean time is printed but does not fail the job. On shared runners the same commit measured 13.6 ms and 31.7 ms for
 `StreamingTaskBenchmark.ThousandEvents` in two runs, so a timing gate would be noise. Allocations moved by about 1%
