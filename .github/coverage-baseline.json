@@ -4,7 +4,7 @@
     "A2A.Analyzers": 98.3,
     "A2A.Analyzers.CodeFixes": 94.8,
     "A2A.Cli": 93.1,
-    "A2A.Client": 96.1,
+    "A2A.Client": 96.8,
     "A2A.Client.DependencyInjection": 98.5,
     "A2A.Client.Grpc": 86.3,
     "A2A.Client.Identity.Aws": 97.5,
