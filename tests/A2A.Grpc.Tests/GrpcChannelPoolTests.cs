@@ -149,6 +149,102 @@ public sealed class GrpcChannelPoolTests
         Assert.Single(disposed); // released when the stream ended
     }
 
+    // ---- the call kinds A2A does not use: a CallInvoker must still lease and release for each ----
+
+    private static readonly global::Grpc.Core.Marshaller<byte[]> Bytes = global::Grpc.Core.Marshallers.Create(b => b, b => b);
+
+    private static global::Grpc.Core.Method<byte[], byte[]> Method(global::Grpc.Core.MethodType type) =>
+        new(type, "test.Nothing", "Call", Bytes, Bytes);
+
+    private static global::Grpc.Core.CallOptions Versioned() =>
+        new(new global::Grpc.Core.Metadata { { "a2a-version", "1.0" } });
+
+    [Fact]
+    public async Task A_blocking_unary_call_releases_its_channel_when_it_returns()
+    {
+        await using var host = await GrpcHost.StartAsync();
+        var (pool, _, disposed) = Pool(host, 0, TimeSpan.Zero, new Clock());
+        var invoker = pool.CallInvoker(host.BaseAddress);
+
+        // The host has no such method: the call fails, and the lease is released all the same.
+        Assert.Throws<global::Grpc.Core.RpcException>(() =>
+            invoker.BlockingUnaryCall(Method(global::Grpc.Core.MethodType.Unary), null, Versioned(), []));
+        Assert.Single(disposed);
+        Assert.Equal(0, pool.Count);
+    }
+
+    [Fact]
+    public async Task A_client_streaming_call_releases_its_channel_when_the_response_arrives()
+    {
+        await using var host = await GrpcHost.StartAsync();
+        var (pool, _, disposed) = Pool(host, 0, TimeSpan.Zero, new Clock());
+        var invoker = pool.CallInvoker(host.BaseAddress);
+
+        var call = invoker.AsyncClientStreamingCall(Method(global::Grpc.Core.MethodType.ClientStreaming), null, Versioned());
+        Assert.Empty(disposed); // held while the call is open
+        await Assert.ThrowsAsync<global::Grpc.Core.RpcException>(async () => await call.ResponseAsync);
+
+        Assert.Single(disposed);
+        call.Dispose(); // a dispose after the response changes nothing
+        Assert.Single(disposed);
+        Assert.Equal(0, pool.Count);
+    }
+
+    [Fact]
+    public async Task A_duplex_call_holds_its_channel_until_it_is_disposed()
+    {
+        await using var host = await GrpcHost.StartAsync();
+        var (pool, _, disposed) = Pool(host, 0, TimeSpan.Zero, new Clock());
+        var invoker = pool.CallInvoker(host.BaseAddress);
+
+        var call = invoker.AsyncDuplexStreamingCall(Method(global::Grpc.Core.MethodType.DuplexStreaming), null, Versioned());
+        await Assert.ThrowsAsync<global::Grpc.Core.RpcException>(() => call.ResponseStream.MoveNext(CancellationToken.None));
+        Assert.Empty(disposed); // a stream has no response to wait for: the caller's dispose ends it
+
+        call.Dispose();
+        Assert.Single(disposed);
+        Assert.Equal(0, pool.Count);
+    }
+
+    [Theory]
+    [InlineData(global::Grpc.Core.MethodType.Unary)]
+    [InlineData(global::Grpc.Core.MethodType.ServerStreaming)]
+    [InlineData(global::Grpc.Core.MethodType.ClientStreaming)]
+    [InlineData(global::Grpc.Core.MethodType.DuplexStreaming)]
+    public void A_call_that_cannot_start_releases_its_lease(global::Grpc.Core.MethodType type)
+    {
+        // A channel that is disposed already: the call throws before it starts, and the lease must not stay held. No idle
+        // channel is kept, so a released lease gives the channel back to dispose at once; a held one never would.
+        var broken = GrpcChannel.ForAddress(Agent(1));
+        broken.Dispose();
+        var disposed = new List<GrpcChannel>();
+        var brokenPool = new GrpcChannelPool(_ => broken, disposed.Add, 0, TimeSpan.Zero, new Clock());
+        var invoker = brokenPool.CallInvoker(Agent(1));
+        var method = Method(type);
+
+        Assert.Throws<ObjectDisposedException>(() =>
+        {
+            switch (type)
+            {
+                case global::Grpc.Core.MethodType.Unary:
+                    invoker.AsyncUnaryCall(method, null, Versioned(), []);
+                    break;
+                case global::Grpc.Core.MethodType.ServerStreaming:
+                    invoker.AsyncServerStreamingCall(method, null, Versioned(), []);
+                    break;
+                case global::Grpc.Core.MethodType.ClientStreaming:
+                    invoker.AsyncClientStreamingCall(method, null, Versioned());
+                    break;
+                default:
+                    invoker.AsyncDuplexStreamingCall(method, null, Versioned());
+                    break;
+            }
+        });
+
+        Assert.Same(broken, Assert.Single(disposed));
+        Assert.Equal(0, brokenPool.Count);
+    }
+
     [Fact]
     public void The_factories_share_one_pool_per_channel_options()
     {

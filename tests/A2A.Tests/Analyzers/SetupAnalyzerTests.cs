@@ -229,6 +229,49 @@ public class SetupAnalyzerTests
         Assert.Empty(await Ids(fixedProgram));
     }
 
+    /// <summary>The A2A0002 diagnostics of the document, as the IDE hands them to a Fix All.</summary>
+    private sealed class Diagnostics(ImmutableArray<Diagnostic> diagnostics) : FixAllContext.DiagnosticProvider
+    {
+        public override Task<IEnumerable<Diagnostic>> GetDocumentDiagnosticsAsync(Document document, CancellationToken cancellationToken) =>
+            Task.FromResult<IEnumerable<Diagnostic>>(diagnostics);
+
+        public override Task<IEnumerable<Diagnostic>> GetProjectDiagnosticsAsync(Project project, CancellationToken cancellationToken) =>
+            Task.FromResult<IEnumerable<Diagnostic>>(diagnostics);
+
+        public override Task<IEnumerable<Diagnostic>> GetAllDiagnosticsAsync(Project project, CancellationToken cancellationToken) =>
+            Task.FromResult<IEnumerable<Diagnostic>>(diagnostics);
+    }
+
+    [Fact]
+    public async Task Fix_all_adds_RequireAuthorization_to_every_mapping_in_the_document()
+    {
+        var program = Good.Replace("app.MapA2A(\"/a2a\").RequireAuthorization();", "app.MapA2A(\"/one\");\napp.MapA2A(\"/two\");",
+            StringComparison.Ordinal);
+        using var workspace = new AdhocWorkspace();
+        var project = workspace.AddProject(ProjectInfo.Create(ProjectId.CreateNewId(), VersionStamp.Default, "Host", "Host",
+            LanguageNames.CSharp, compilationOptions: new CSharpCompilationOptions(OutputKind.ConsoleApplication),
+            metadataReferences: References.Value));
+        var document = workspace.AddDocument(project.Id, "Program.cs", SourceText.From(Usings + program));
+        var provider = new A2ASetupCodeFixProvider();
+        var compilation = (await document.Project.GetCompilationAsync())!;
+        var found = (await compilation.WithAnalyzers([new A2ASetupAnalyzer()]).GetAnalyzerDiagnosticsAsync())
+            .Where(d => provider.FixableDiagnosticIds.Contains(d.Id)).ToImmutableArray();
+        Assert.Equal(2, found.Length);
+
+        var fixAll = provider.GetFixAllProvider();
+        Assert.NotNull(fixAll);
+        var context = new FixAllContext(document, provider, FixAllScope.Document, "A2A0002.RequireAuthorization",
+            provider.FixableDiagnosticIds, new Diagnostics(found), CancellationToken.None);
+        var action = Assert.IsAssignableFrom<CodeAction>(await fixAll.GetFixAsync(context));
+        var operation = Assert.Single(await action.GetOperationsAsync(CancellationToken.None));
+        var fixedText = (await ((ApplyChangesOperation)operation).ChangedSolution.GetDocument(document.Id)!.GetTextAsync())
+            .ToString()[Usings.Length..];
+
+        Assert.Contains("app.MapA2A(\"/one\").RequireAuthorization();", fixedText, StringComparison.Ordinal);
+        Assert.Contains("app.MapA2A(\"/two\").RequireAuthorization();", fixedText, StringComparison.Ordinal);
+        Assert.Empty(await Ids(fixedText));
+    }
+
     [Fact]
     public async Task Fix_inside_a_method_body()
     {
