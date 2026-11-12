@@ -10,6 +10,7 @@ using A2A.Json;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using A2A.Server.Storage;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -128,6 +129,54 @@ public class TokenExchangeServerTests
         Assert.Equal("caller-token", request.SubjectToken);
         Assert.Equal("api://b", request.Audience);
         Assert.Equal(["read", "write"], request.Scopes);
+    }
+
+    private static readonly Microsoft.IdentityModel.Tokens.SymmetricSecurityKey JwtKey = new(new byte[32]);
+
+    private static string Jwt(string sub, Microsoft.IdentityModel.Tokens.SecurityKey key) =>
+        new Microsoft.IdentityModel.JsonWebTokens.JsonWebTokenHandler().CreateToken(new Microsoft.IdentityModel.Tokens.SecurityTokenDescriptor
+        {
+            Subject = new ClaimsIdentity([new Claim("sub", sub)]),
+            SigningCredentials = new Microsoft.IdentityModel.Tokens.SigningCredentials(key, Microsoft.IdentityModel.Tokens.SecurityAlgorithms.HmacSha256),
+        });
+
+    [Theory]
+    [InlineData(true, true)]   // the endpoint's policy authenticates with the JWT scheme: the usual JWT host
+    [InlineData(false, true)]  // another scheme authenticated the caller; the JWT scheme validates the header on demand
+    [InlineData(true, false)]  // a token the JWT scheme rejects (wrong key) is never kept
+    [InlineData(false, false)]
+    public async Task An_AddJwtBearer_scheme_validates_the_token_it_keeps(bool jwtPolicy, bool validToken)
+    {
+        bool? can = null;
+        var agent = new ProbeAgent((ctx, _) => { can = ctx.CanExchangeToken; return Task.CompletedTask; });
+        await using var host = await TestAgentHost.StartAsync(
+            services: s =>
+            {
+                s.Replace(ServiceDescriptor.Singleton<IAgentExecutor>(agent));
+                s.AddSingleton<ITokenExchanger>(new RecordingExchanger());
+                s.AddAuthentication().AddJwtBearer(o =>
+                {
+                    o.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+                    {
+                        IssuerSigningKey = JwtKey, ValidateIssuer = false, ValidateAudience = false, ValidateLifetime = false,
+                    };
+                });
+            },
+            configureRoutes: a2a =>
+            {
+                if (jwtPolicy) a2a.RequireAuthorization(p => p.AddAuthenticationSchemes("Bearer").RequireAuthenticatedUser());
+            });
+        var key = validToken ? JwtKey : new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(Enumerable.Repeat((byte)7, 32).ToArray());
+        try
+        {
+            await host.Client(ProtocolBindings.JsonRpc).SendMessageAsync(Message.FromUser("hi"), options: Bearer("Bearer " + Jwt("alice", key)));
+        }
+        catch (A2AException) when (jwtPolicy && !validToken)
+        {
+            return; // the endpoint refused the call: nothing ran, nothing was kept
+        }
+        await host.WaitIdleAsync();
+        Assert.Equal(validToken, can);
     }
 
     [Theory, MemberData(nameof(Bindings))]
