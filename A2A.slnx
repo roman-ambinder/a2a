@@ -69,6 +69,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/A2A.Benchmarks/A2A.Benchmarks.csproj" />
+    <Project Path="tests/A2A.Benchmarks.Postgres/A2A.Benchmarks.Postgres.csproj" />
     <Project Path="tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj" />
     <Project Path="tests/A2A.Extensions.AgentFramework.Tests/A2A.Extensions.AgentFramework.Tests.csproj" />
     <Project Path="tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj" />
