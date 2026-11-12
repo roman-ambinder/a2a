@@ -128,6 +128,19 @@ public sealed class ServerCallContext
     /// </summary>
     public ActivityContext TraceParent { get; init; }
 
+    /// <summary>
+    ///     A2A 1.1: asked before each later request of a live exchange
+    ///     (<see cref="A2ARequestHandler.SendLiveMessageAsync" />) that comes on this same call, such as every request of a
+    ///     gRPC SendLiveMessage stream after the first. A binding counts one call as one request, so it sets this to apply its
+    ///     per-request limits to each of them too. Throw an <see cref="A2AException" /> (for example
+    ///     <see cref="A2AErrorCode.RateLimited" />) to refuse that request: it becomes a <see cref="StreamErrorEvent" /> on the
+    ///     downlink, as any refusal of a later request does, and the exchange stays open. The ASP.NET Core binding sets it to
+    ///     take a token from the caller's <c>"a2a"</c> rate limit. Null (the default): no check.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("A2AEXP005",
+        UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public Action? LiveRequestAdmission { get; init; }
+
     /// <summary>Free-form per-request state for bindings and executors.</summary>
     public IDictionary<string, object?> Items { get; } = new Dictionary<string, object?>();
 

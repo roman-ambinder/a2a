@@ -50,7 +50,7 @@ The 429 body has the error `RATE_LIMITED`. `Retry-After` is in whole seconds (at
 
 ## Rate limit
 
-The server adds a token bucket per caller. A token bucket holds up to `TokenLimit` tokens and gets `TokensPerPeriod` tokens back every `ReplenishmentPeriod`. Each request takes one token. Change it with <xref:A2A.Server.AspNetCore.A2ARateLimitingExtensions.AddA2ARateLimiting*>:
+The server adds a token bucket per caller. A token bucket holds up to `TokenLimit` tokens and gets `TokensPerPeriod` tokens back every `ReplenishmentPeriod`. Each request takes one token. On a gRPC `SendLiveMessage` stream (A2A 1.1), which is one HTTP request, each request after the first takes one token too. Change it with <xref:A2A.Server.AspNetCore.A2ARateLimitingExtensions.AddA2ARateLimiting*>:
 
 [!code-csharp[](../../../samples/Snippets/LimitsAndRateLimiting.cs#RateLimit)]
 
@@ -64,9 +64,10 @@ The server adds a token bucket per caller. A token bucket holds up to `TokenLimi
 Details:
 
 - `MapA2A` applies the policy named `a2a`. The policy has no queue: a request without a token is rejected at once.
+- A request on a live stream without a token is refused on its own, as a `StreamError` with code `RESOURCE_EXHAUSTED` and the `referenceId` of its message. The stream stays open. On HTTP each uplink call of a live exchange is its own request, so it is limited as any call is.
 - Each tenant and caller pair has its own bucket. Every request also draws from a bucket per caller across all tenants, with the same settings, so spreading requests over tenants gives no extra budget.
 - An anonymous caller has no tenant in its key. The limit runs before authorization and the tenant is text from the URL, so random tenant names would otherwise create buckets without end. Anonymous callers from one address share one bucket across all tenants.
-- To use your own policy, register one named `a2a` with `AddRateLimiter`. The default is then skipped.
+- To use your own policy, register one named `a2a` with `AddRateLimiter`. The default is then skipped. Your policy counts each HTTP request once, so the later requests of a gRPC live stream do not draw from it.
 - The rejection is written in the format of the binding (JSON-RPC or HTTP+JSON). A binding package such as gRPC registers an <xref:A2A.Server.AspNetCore.IA2ARejectionWriter> for its own format, or puts one in the metadata of its endpoints (`.WithMetadata(writer)`), which is asked first. The v0.3 HTTP+JSON routes of `EnableV03Compat` answer in the v0.3 error format this way. v0.3 JSON-RPC calls share the v1.0 JSON-RPC endpoint, so they get a v1.0 JSON-RPC error.
 
 ### UseA2A is required

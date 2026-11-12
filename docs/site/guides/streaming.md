@@ -220,7 +220,10 @@ The API is experimental (`A2AEXP005`).
 - gRPC uses the bidi `SendLiveMessage` call. JSON-RPC (`SendLiveMessage`) and HTTP+JSON (`POST /message:live`) split it by
   the `Accept` header: the call with `Accept: text/event-stream` is the downlink (the stream); every other call is an
   uplink that must name its task and answers with the task. On HTTP a refused uplink call fails, and the same refusal
-  also shows on the downlink, so `SendAsync` throws and `Events` has the `StreamErrorEvent`.
+  also shows on the caller's own downlinks of the task, so `SendAsync` throws and `Events` has the `StreamErrorEvent`.
+  A refused call of another caller (who gets `TaskNotFound`) never reaches the owner's downlinks.
+- Each later request on a gRPC stream takes a token from the caller's [rate limit](limits-and-rate-limiting.md#rate-limit),
+  as an HTTP uplink call does. Without a token the request is refused with `RESOURCE_EXHAUSTED`, and the stream stays open.
 
 ### Input for a running agent
 
