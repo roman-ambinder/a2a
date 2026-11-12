@@ -1,3 +1,4 @@
+using A2A.Server;
 using System.Text.Json.Nodes;
 using A2A.Client;
 using A2A.Client.Grpc.V0_3Compat;
@@ -346,5 +347,39 @@ public class GrpcCompatTests
         var named = V03GrpcErrors.FromStatus(14, "TaskNotFoundError: gone");
         Assert.Equal(A2AErrorCode.TaskNotFound, named.Code);
         Assert.Null(named.HttpStatus);
+    }
+
+    [Fact]
+    public async Task An_unauthenticated_call_gets_a_www_authenticate_challenge()
+    {
+        // As the v1 gRPC binding and the v0.3 HTTP bindings do (spec 3.3.2, 7.4): the challenge names the scheme.
+        // Started with anonymous calls allowed (the startup check needs a policy otherwise), then refused: the call then
+        // reaches the service, which answers UNAUTHENTICATED itself.
+        A2AServerOptions? options = null;
+        await using var host = await V03Host.StartAsync(grpc: true, requireAuth: false, configure: o =>
+        {
+            o.AllowAnonymous = true;
+            options = o;
+        });
+        options!.AllowAnonymous = false;
+        var stub = Stub(host, user: null);
+
+        var ex = await Assert.ThrowsAsync<RpcException>(async () => await stub.GetTaskAsync(new P.GetTaskRequest { Name = "tasks/x" }));
+
+        Assert.Equal(StatusCode.Unauthenticated, ex.StatusCode);
+        Assert.False(string.IsNullOrEmpty(ex.Trailers.GetValue("www-authenticate")));
+    }
+
+    [Fact]
+    public void The_retry_delay_travels_as_a_retry_after_trailer_and_back()
+    {
+        Assert.Equal("3", V03GrpcErrors.RetryAfterValue(TimeSpan.FromSeconds(2.2)));
+        Assert.Equal(TimeSpan.FromSeconds(3), V03GrpcErrors.ParseRetryAfter("3"));
+        Assert.Null(V03GrpcErrors.ParseRetryAfter("soon"));
+        Assert.Null(V03GrpcErrors.ParseRetryAfter(null));
+
+        var limited = V03GrpcErrors.FromStatus(8, "RateLimitedError: slow down", TimeSpan.FromSeconds(3));
+        Assert.Equal(A2AErrorCode.RateLimited, limited.Code);
+        Assert.Equal(TimeSpan.FromSeconds(3), limited.RetryAfter);
     }
 }

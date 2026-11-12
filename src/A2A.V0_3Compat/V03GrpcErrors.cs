@@ -47,12 +47,38 @@ internal static class V03GrpcErrors
     ///     The A2A error of a v0.3 gRPC status: by the name prefix of the message when it has one, else by the status code
     ///     (the closest A2A error).
     /// </summary>
-    public static A2AException FromStatus(int status, string? detail)
+    public static A2AException FromStatus(int status, string? detail) => FromStatus(status, detail, null);
+
+    /// <summary>
+    ///     The trailer that carries the server's wait before a retry, in whole seconds. The v0.3 proto has no error details,
+    ///     so this stands in for the <c>Retry-After</c> header of the HTTP bindings and the <c>RetryInfo</c> of v1 gRPC.
+    /// </summary>
+    public const string RetryAfterKey = "retry-after";
+
+    /// <summary>The trailer that names the authentication scheme of an UNAUTHENTICATED error, as v1 gRPC sends it.</summary>
+    public const string AuthChallengeKey = "www-authenticate";
+
+    /// <summary>The <see cref="RetryAfterKey" /> value of a wait: whole seconds, rounded up, at least 1.</summary>
+    public static string RetryAfterValue(TimeSpan wait) =>
+        Math.Max(1, (long)Math.Ceiling(wait.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>The wait in a <see cref="RetryAfterKey" /> value, or null when it is not a whole number of seconds.</summary>
+    public static TimeSpan? ParseRetryAfter(string? value) =>
+        long.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture,
+            out var seconds) && seconds is >= 0 and <= 86_400
+            ? TimeSpan.FromSeconds(seconds)
+            : null;
+
+    /// <summary>
+    ///     <see cref="FromStatus(int, string?)" />, with the server's wait (<see cref="RetryAfterKey" />) as
+    ///     <see cref="A2AException.RetryAfter" />.
+    /// </summary>
+    public static A2AException FromStatus(int status, string? detail, TimeSpan? retryAfter)
     {
         var message = detail ?? "";
         foreach (var (code, name, _) in Table)
             if (message.StartsWith(name + ":", StringComparison.Ordinal))
-                return new A2AException(code, message[(name.Length + 1)..].Trim());
+                return new A2AException(code, message[(name.Length + 1)..].Trim()) { RetryAfter = retryAfter };
         var fallback = status switch
         {
             InvalidArgument => A2AErrorCode.InvalidParams,
@@ -67,7 +93,8 @@ internal static class V03GrpcErrors
         {
             // As on the v1 path (GrpcErrors): UNAVAILABLE is the gRPC form of HTTP 503, a dropped connection or a server
             // that is restarting. A resumable stream then reconnects instead of ending.
-            HttpStatus = status == Unavailable ? 503 : null
+            HttpStatus = status == Unavailable ? 503 : null,
+            RetryAfter = retryAfter
         };
     }
 }

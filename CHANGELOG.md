@@ -158,6 +158,9 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- v0.3 gRPC: errors carry what the other bindings send. UNAUTHENTICATED names its scheme in a `www-authenticate`
+  trailer, as v1 gRPC does (spec 3.3.2, 7.4). An error with a wait (a rate limit, a full input buffer) carries it in a
+  `retry-after` trailer, in whole seconds. The v0.3 gRPC client reads that trailer as `A2AException.RetryAfter`.
 - Anomaly signals: a CancelTask is counted only after its tenant resolved to an agent. One caller could name a made-up
   tenant in each call, take a tracked entry each time, and fill `MaxTrackedCallers`, so that no other caller was watched.
 - Retention: a context recreated right after the orphan sweep deleted it (a new message to it) is no longer reported to
