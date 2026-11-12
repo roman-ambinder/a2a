@@ -186,12 +186,12 @@ Phase 2 shipped with these differences from the plan above:
 
 ## 4. Open decisions
 
-- D1 (C6). Should `TaskNotCompletedException` derive from `A2AException`? `A2AException` requires an `A2AErrorCode`, and the code drives `Retryable` and `IsRetryable`. No existing code describes "the task did not complete", and reusing a wire code would mislead retry logic. Options:
-  - a new SDK-local code that is never sent on the wire and is not retryable;
-  - a shared base `A2AClientException`;
-  - leave it as is. With `A2AConversation`, callers no longer need to catch it for normal multi-turn.
-
-  This is not part of phase 1.
+- D1 (C6). Settled: `TaskNotCompletedException` stays a plain `Exception`. Deriving from `A2AException` needs an
+  `A2AErrorCode`, and an `A2AException` thrown in a server request path (an extension operation or filter that calls a
+  peer agent) is passed to the caller as is, with the code's number as the JSON-RPC code. A code that must never reach
+  the wire would need a guard on every binding's output (JSON-RPC, HTTP+JSON, gRPC, v0.3, stream errors); today the
+  same exception becomes a generic Internal error. With `A2AConversation`, multi-turn callers no longer catch it, so the
+  gain does not pay for the risk.
 - D2 (phase 2). Settled: see "Phase 2 as built".
 
 ## 5. Testing
