@@ -27,7 +27,6 @@ var card = new AgentCard
     Name = "Chat Agent",
     Description = "A tiny rule-based chat agent hosted with A2A.Extensions.AI.",
     Version = "1.0.0",
-    Capabilities = new AgentCapabilities { Streaming = true },
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
     Skills = [new AgentSkill { Id = "chat", Name = "Chat", Description = "Answers simple questions", Tags = ["chat"] }]

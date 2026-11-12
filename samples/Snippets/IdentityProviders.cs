@@ -55,7 +55,7 @@ internal static class Samples
             .AddPolicy("A2ACaller", p => p.RequireClaim("roles", "Agent.Invoke"));
         builder.Services.AddA2A(a => a
             .AddAgentExecutor<HelloAgent>()
-            .AddAgentCard(new AgentCard { Name = "My Agent", Description = "Says hello.", Version = "1.0.0" })
+            .AddAgentCard("My Agent", "Says hello.")
             // The card declares the bearer scheme, so clients know to send a token; "Bearer" is AddJwtBearer's scheme.
             .AddBearerAuthentication()
             .RequirePolicy("A2ACaller"));   // and the caller must have the Agent.Invoke role

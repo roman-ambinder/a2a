@@ -13,7 +13,7 @@ internal static class Samples
             Name = "My Agent",
             Description = "Streams its answer.",
             Version = "1.0.0",
-            Capabilities = new AgentCapabilities { Streaming = true },
+            Capabilities = new AgentCapabilities { Streaming = true }, // the default when unset; false turns streaming off
         };
         #endregion
     }
@@ -46,7 +46,7 @@ internal static class Samples
         await using var answer = updater.OpenArtifact("answer");
         await foreach (var word in words.WithCancellation(ct))
             await answer.WriteAsync(word, ct); // the first write creates the artifact, the next ones append
-        await updater.CompleteAsync(cancellationToken: ct); // sends the last chunk of the open writer first
+        await updater.CompleteAsync(ct); // sends the last chunk of the open writer first
         #endregion
     }
 

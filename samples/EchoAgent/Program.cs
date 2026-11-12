@@ -21,7 +21,7 @@ var card = new AgentCard
     Description = "Echoes your message back, streaming it word by word.",
     Version = "1.0.0",
     // No SupportedInterfaces: the served card lists every mapped binding at the public base URL (set below).
-    Capabilities = new AgentCapabilities { Streaming = true, PushNotifications = true },
+    Capabilities = new AgentCapabilities { PushNotifications = true },
     // No SecuritySchemes: AddApiKeyAuthentication declares the X-Api-Key scheme, so clients know to send the key.
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
@@ -87,6 +87,6 @@ internal sealed class EchoAgent : IAgentExecutor
             await echo.WriteAsync((i == 0 ? "" : " ") + words[i], cancellationToken);
         }
 
-        await updater.CompleteAsync(cancellationToken: cancellationToken);
+        await updater.CompleteAsync(cancellationToken);
     }
 }

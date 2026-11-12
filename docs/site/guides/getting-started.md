@@ -37,6 +37,12 @@ The agent is a class that implements <xref:A2A.Server.IAgentExecutor>:
 
 [!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Agent)]
 
+An agent that only answers with text can be a function instead. A new turn gets a direct reply. A message that answers a task waiting for input gets the text as an artifact, and the task completes:
+
+[!code-csharp[](../../../samples/Snippets/GettingStarted.cs#TextAgent)]
+
+`AddAgentCard(name, description)` makes a card with version `1.0.0`. The served card is completed with the interfaces of the mapped bindings, and streaming is on. A card that names no input modes accepts every media type. Use `AgentCard.Create(...).AddSkill(...)` to list skills, and set `DefaultInputModes` to restrict what callers may send.
+
 What the code does:
 
 - <xref:A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2A*> registers the server and its endpoints and returns the <xref:A2A.Server.A2AServerBuilder>. Every setting goes on the builder: `Configure` (<xref:A2A.Server.A2AServerOptions>), `ConfigureHttp`, `ConfigureRateLimiting`, `AddRetention`, stores, filters and authentication.

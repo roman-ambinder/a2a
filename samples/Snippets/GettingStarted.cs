@@ -58,6 +58,16 @@ internal static class Samples
         #endregion
     }
 
+    public static void TextAgent(WebApplicationBuilder builder)
+    {
+        #region TextAgent
+        builder.Services.AddA2A(a => a
+            .AddAgentCard("My Agent", "Says hello.")
+            .AddAgentExecutor(ctx => $"You said: {ctx.UserText}")
+            .RequirePolicy("callers"));   // who may call, for every A2A endpoint; then app.MapA2A("/a2a") needs nothing more
+        #endregion
+    }
+
     public static void FromConfiguration(WebApplicationBuilder builder)
     {
         #region FromConfiguration
@@ -100,9 +110,9 @@ internal sealed class MyAgent : IAgentExecutor
 {
     public async Task ExecuteAsync(AgentRequestContext ctx, TaskUpdater updater, CancellationToken ct)
     {
-        await updater.StartWorkAsync(cancellationToken: ct);
-        await updater.AddArtifactAsync([Part.FromText($"You said: {ctx.UserText}")], name: "answer", cancellationToken: ct);
-        await updater.CompleteAsync(cancellationToken: ct);
+        await updater.StartWorkAsync(ct);
+        await updater.AddArtifactAsync($"You said: {ctx.UserText}", "answer", ct);
+        await updater.CompleteAsync(ct);
     }
 }
 #endregion

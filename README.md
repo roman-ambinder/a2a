@@ -74,14 +74,23 @@ class MyAgent : IAgentExecutor
 {
     public async Task ExecuteAsync(AgentRequestContext ctx, TaskUpdater updater, CancellationToken ct)
     {
-        await updater.StartWorkAsync(cancellationToken: ct);
-        await updater.AddArtifactAsync([Part.FromText($"You said: {ctx.UserText}")], name: "answer", cancellationToken: ct);
-        await updater.CompleteAsync(cancellationToken: ct);
+        await updater.StartWorkAsync(ct);
+        await updater.AddArtifactAsync($"You said: {ctx.UserText}", "answer", ct);
+        await updater.CompleteAsync(ct);
     }
 }
 ```
 
-This code is the compiled snippet in [samples/Snippets/GettingStarted.cs](samples/Snippets/GettingStarted.cs). What you get with no other configuration:
+This code is the compiled snippet in [samples/Snippets/GettingStarted.cs](samples/Snippets/GettingStarted.cs). For an agent that only answers with text, a function is enough:
+
+```csharp
+builder.Services.AddA2A(a => a
+    .AddAgentCard("My Agent", "Says hello.")
+    .AddAgentExecutor(ctx => $"You said: {ctx.UserText}")
+    .RequirePolicy("callers"));   // who may call, for every A2A endpoint; then app.MapA2A("/a2a") needs nothing more
+```
+
+What you get with no other configuration:
 
 - **Secure by default.** Without a caller policy on the builder (`RequirePolicy`, `AddApiKeyAuthentication`, `AddBearerAuthentication`) or `.RequireAuthorization()`, the app refuses to start. For local experiments, `ConfigureForDevelopment()` allows anonymous callers in Development only. See [Getting started](docs/site/guides/getting-started.md) and [Authentication and ownership](docs/site/guides/auth-and-ownership.md).
 - **Limits and rate limiting** are on, with defaults you can change. See [Limits and rate limiting](docs/site/guides/limits-and-rate-limiting.md).

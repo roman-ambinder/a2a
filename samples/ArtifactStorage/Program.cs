@@ -195,7 +195,7 @@ internal sealed class FileAgent : IAgentExecutor
 
     public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken)
     {
-        await updater.StartWorkAsync(cancellationToken: cancellationToken);
+        await updater.StartWorkAsync(cancellationToken);
         await using var file = new MemoryStream(Content());
         // One sealed artifact with one url part. The part metadata gets the object's size and sha256.
         await updater.AddArtifactFromStreamAsync(file, "application/octet-stream", name: "data.bin",

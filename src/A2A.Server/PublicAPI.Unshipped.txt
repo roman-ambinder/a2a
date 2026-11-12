@@ -35,3 +35,4 @@ A2A.Server.TaskUpdater.CompleteAsync(System.Threading.CancellationToken cancella
 A2A.Server.TaskUpdater.FailAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 A2A.Server.TaskUpdater.RejectAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 A2A.Server.TaskUpdater.StartWorkAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Server.A2AServerBuilder.AddAgentCard(string! name, string! description) -> A2A.Server.A2AServerBuilder!

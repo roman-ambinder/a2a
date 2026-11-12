@@ -8,7 +8,7 @@ namespace Snippets.ApiKeys;
 internal sealed class MyAgent : IAgentExecutor
 {
     public Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken) =>
-        updater.CompleteAsync(cancellationToken: cancellationToken).AsTask();
+        updater.CompleteAsync(cancellationToken).AsTask();
 }
 
 internal static class Samples

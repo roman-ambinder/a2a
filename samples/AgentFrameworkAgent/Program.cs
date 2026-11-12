@@ -30,7 +30,6 @@ var card = new AgentCard
     Name = "Math Agent",
     Description = "A tiny rule-based Agent Framework agent hosted with A2A.Extensions.AgentFramework.",
     Version = "1.0.0",
-    Capabilities = new AgentCapabilities { Streaming = true },
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
     Skills = [new AgentSkill { Id = "math", Name = "Math", Description = "Adds and multiplies", Tags = ["math"] }]

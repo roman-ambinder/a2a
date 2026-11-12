@@ -1,6 +1,6 @@
 # Simpler SDK surface: one way to do each common thing
 
-Date: 2026-11-12. Status: approved direction; phase 1 in progress.
+Date: 2026-11-12. Status: phases 1 and 2 done (see "Phase 2 as built"); phase 3 not started.
 Scope: the developer-facing API of `A2A.Client`, `A2A.Protocol` (response types), `A2A.Server`, `A2A.Server.AspNetCore` and the two AI adapters. It builds on `2026-11-07-sdk-design-principles-design.md`: safe and correct by default stays the floor, and "easy to use" is the principle this design serves.
 
 Decisions from the user:
@@ -139,6 +139,31 @@ Console.WriteLine(reply.EnsureCompleted().Text);
 - An executor shortcut: `AddAgent(Func<AgentRequestContext, CancellationToken, ValueTask<string>>)`, which replies with the returned text. The README hello world uses it.
 - `AddA2A(string name, string description, Action<A2AServerBuilder>)` builds the card. Default input and output modes become `text/plain` when empty. The samples move to `AgentCard.Create` and drop `Streaming = true`.
 
+### Phase 2 as built
+
+Phase 2 shipped with these differences from the plan above:
+
+- Rate limiting (D2, settled). An endpoint filter alone would run after authorization, and requests with wrong
+  credentials would no longer be counted. That would weaken a default, so the limit is taken in a decorator of
+  `IAuthorizationMiddlewareResultHandler` for endpoints with a policy (after authentication, before the decision is
+  acted on), and by the endpoint itself for anonymous endpoints. A host that replaces the result handler after `AddA2A`
+  keeps the limit, but requests that fail authorization are then not counted. A custom policy is a keyed
+  `IRateLimiterPolicy<string>`.
+- Caller policy. `AddApiKeyAuthentication`, `AddBearerAuthentication` and `AddCardAuthentication` keep their names:
+  they also declare the scheme on the card, which a `Require*` name would hide. `RequirePolicy(name)` was added next to
+  them. Anonymous access is `Configure(o => o.AllowAnonymous = true)` or `ConfigureForDevelopment()`;
+  no `AllowAnonymousInDevelopment()` was added, because `ConfigureForDevelopment()` already covers it.
+- The reply shortcut is two overloads of `AddAgentExecutor` (a sync `Func<AgentRequestContext, string>` and an async
+  `Func<AgentRequestContext, CancellationToken, Task<string>>`), not a new `AddAgent` name.
+- `AddAgentCard(name, description)` on the builder instead of an `AddA2A(name, description, ...)` overload, so `AddA2A`
+  keeps one shape.
+- Default input and output modes were not changed. The server checks message parts against the card's input modes, and
+  a card without modes accepts every media type. Defaulting to `text/plain` would make such agents refuse files and
+  data, and tell clients they take only text.
+- Not done: the `ArtifactOptions` record for the rare `AddArtifactAsync` parameters, `RequireInputAsync(form, text)`
+  without the context, and moving health checks onto the builder (`AddA2AHealthChecks` stays on
+  `IHealthChecksBuilder`, the ASP.NET Core convention).
+
 ### Phase 3: client entry point and surface size (C3, C4, C5, C6, S6, S7)
 
 - **Connecting.**
@@ -167,7 +192,7 @@ Console.WriteLine(reply.EnsureCompleted().Text);
   - leave it as is. With `A2AConversation`, callers no longer need to catch it for normal multi-turn.
 
   This is not part of phase 1.
-- D2 (phase 2). An endpoint filter runs after routing. Confirm in a test that a rejected request still costs no executor work and that the limiter still sees the authenticated principal.
+- D2 (phase 2). Settled: see "Phase 2 as built".
 
 ## 5. Testing
 

@@ -36,7 +36,6 @@ builder.Services.AddA2AServer(o =>
                 new AgentInterface { Url = publicUrl, ProtocolBinding = ProtocolBindings.JsonRpc },
                 new AgentInterface { Url = publicUrl, ProtocolBinding = ProtocolBindings.HttpJson }
             ],
-            Capabilities = new AgentCapabilities { Streaming = true },
             DefaultInputModes = ["text/plain"],
             DefaultOutputModes = ["text/plain"],
             Skills = [new AgentSkill { Id = "slow", Name = "Slow task", Description = "Counts to 30", Tags = ["demo"] }]
@@ -79,6 +78,6 @@ internal sealed class SlowAgent(InstanceName instance) : IAgentExecutor
                 append: i > 1, lastChunk: i == 30, cancellationToken: cancellationToken);
         }
 
-        await updater.CompleteAsync(cancellationToken: cancellationToken);
+        await updater.CompleteAsync(cancellationToken);
     }
 }

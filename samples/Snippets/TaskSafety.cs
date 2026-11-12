@@ -16,7 +16,7 @@ internal sealed class DeleteFilesAgent : IAgentExecutor
         {
             case ApprovalState.Approved:
                 // The follow-up carried the hash of the exact action. Do it now.
-                await updater.CompleteAsync(cancellationToken: cancellationToken);
+                await updater.CompleteAsync(cancellationToken);
                 break;
             default:
                 // First message, or a follow-up without the hash: ask again.

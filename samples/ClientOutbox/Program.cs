@@ -200,7 +200,7 @@ internal sealed class BillingAgent(Invoices invoices) : IAgentExecutor
     {
         var orderId = context.UserText.Split(' ').Last();
         invoices.Add(orderId);
-        await updater.StartWorkAsync(cancellationToken: cancellationToken);
+        await updater.StartWorkAsync(cancellationToken);
         await updater.CompleteAsync($"Invoiced {orderId}.", cancellationToken);
     }
 }

@@ -12,7 +12,6 @@ internal static class Snippets
         Name = "Support Agent",
         Description = "Answers support questions.",
         Version = "1.0.0",
-        Capabilities = new AgentCapabilities { Streaming = true },
         DefaultInputModes = ["text/plain"],
         DefaultOutputModes = ["text/plain"],
         Skills = [new AgentSkill { Id = "support", Name = "Support", Description = "Answers questions", Tags = ["support"] }],

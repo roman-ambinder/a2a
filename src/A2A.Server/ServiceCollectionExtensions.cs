@@ -244,6 +244,18 @@ public sealed class A2AServerBuilder
     }
 
     /// <summary>
+    ///     Sets a public Agent Card with a name and a description, version <c>1.0.0</c>. The served card is completed with
+    ///     the interfaces of the mapped bindings, and streaming is on. It names no input or output modes, so every media type
+    ///     is accepted. Use <see cref="AddAgentCard(AgentCard)" /> with <see cref="AgentCard.Create" /> and <c>AddSkill</c>
+    ///     to list skills and modes.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="name" /> or <paramref name="description" /> is empty.</exception>
+    public A2AServerBuilder AddAgentCard(string name, string description)
+    {
+        return AddAgentCard(AgentCard.Create(name, description));
+    }
+
+    /// <summary>
     ///     Uses <typeparamref name="T" /> to supply each tenant's Agent Card (multi-agent hosting: one agent per tenant).
     ///     Singleton.
     ///     Replaces an earlier provider. The default <see cref="IAgentCardProvider" /> completes the cards it returns. Without

@@ -12,7 +12,7 @@ namespace Snippets.AuthAndOwnership;
 internal sealed class MyAgent : IAgentExecutor
 {
     public Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken) =>
-        updater.CompleteAsync(cancellationToken: cancellationToken).AsTask();
+        updater.CompleteAsync(cancellationToken).AsTask();
 }
 
 #region Resolver
@@ -69,7 +69,7 @@ internal static class Samples
             .AddPolicy("A2ACaller", p => p.RequireAuthenticatedUser());
         builder.Services.AddA2A(a => a
             .AddAgentExecutor<MyAgent>()
-            .AddAgentCard(new AgentCard { Name = "My Agent", Description = "Says hello.", Version = "1.0.0" })
+            .AddAgentCard("My Agent", "Says hello.")
             .RequirePolicy("A2ACaller"));   // every A2A endpoint; the Agent Card stays anonymous
 
         var app = builder.Build();

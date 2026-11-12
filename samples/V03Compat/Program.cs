@@ -30,7 +30,6 @@ var card = new AgentCard
         new AgentInterface { Url = url, ProtocolBinding = ProtocolBindings.JsonRpc },
         new AgentInterface { Url = url, ProtocolBinding = ProtocolBindings.HttpJson }
     ],
-    Capabilities = new AgentCapabilities { Streaming = true },
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
     Skills = [new AgentSkill { Id = "echo", Name = "Echo", Description = "Repeats the input", Tags = ["echo"] }]

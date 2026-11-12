@@ -4,6 +4,36 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Server hosting (breaking)
+
+One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpler-sdk-surface-design.md`, phase 2.
+
+- **`UseA2A()` is removed.** The per-caller rate limit runs inside the A2A endpoints. For endpoints with an
+  authorization policy it is taken after authentication and before the authorization decision, so requests with wrong
+  credentials still use tokens. Endpoints that allow anonymous callers take it when they run. A request is counted
+  once. The limit no longer uses the ASP.NET Core rate limiter middleware: a host's own `UseRateLimiter()` does not
+  count A2A requests twice. To replace the policy, register a keyed `IRateLimiterPolicy<string>` under
+  `A2ARateLimitingExtensions.PolicyName` (it used to be a named `AddRateLimiter` policy). Analyzer rules A2A0001 and
+  A2A0003 and their code fix are removed.
+- **`AddA2A` returns the `A2AServerBuilder`**, and the configure lambda is optional. New on the builder:
+  `Configure(A2AServerOptions)`, `ConfigureHttp`, `ConfigureRateLimiting`, `AddRetention` and
+  `AddDataProtectionPushSecrets`. The `IServiceCollection` forms `ConfigureA2AHttp`, `AddA2ARateLimiting`,
+  `AddA2ARetention` and `AddA2ADataProtectionPushSecrets` are no longer public. `AddA2AServer` stays for hosts without
+  ASP.NET Core.
+- **Who may call is set on the builder.** `RequirePolicy(name)` puts an authorization policy on every A2A endpoint that
+  has none of its own, like the card schemes of `AddApiKeyAuthentication` and `AddBearerAuthentication`; the app
+  refuses to start when the policy is not registered. `A2AEndpointOptions.AuthorizationPolicy` is removed: use
+  `RequirePolicy`, or `RequireAuthorization(policy)` on the group.
+- **`UseDevelopmentDefaults()` is now `ConfigureForDevelopment()`.** It does nothing outside Development instead of
+  throwing, so it needs no environment check. Endpoints without authorization still stop the app there, and the error
+  says that `ConfigureForDevelopment()` had no effect.
+- **Shorter agents.** `AddAgentExecutor(ctx => "text")` and `AddAgentExecutor(async (ctx, ct) => "text")` make an agent
+  that answers with text (a direct reply, or an artifact and Completed for a task that waited for input).
+  `TaskUpdater.StartWorkAsync`, `CompleteAsync`, `FailAsync`, `RejectAsync` and `CancelAsync` take a lone
+  `CancellationToken`; `AddArtifactAsync(text, name, ct)` adds a text artifact.
+- **Shorter cards.** `AddAgentCard(name, description)`. The samples drop `Capabilities.Streaming = true`, which the
+  served card already defaults.
+
 ### Client
 
 - Multi-turn without handling ids: `client.StartConversation()` returns an `A2AConversation`. `SendAsync` and

@@ -8,7 +8,7 @@ internal sealed class GreeterAgent : IAgentExecutor
 {
     public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken)
     {
-        await updater.StartWorkAsync(cancellationToken: cancellationToken);
+        await updater.StartWorkAsync(cancellationToken);
         await updater.AddArtifactAsync([Part.FromText($"Hello, {context.UserText}")], name: "greeting", cancellationToken: cancellationToken);
         await updater.CompleteAsync("Done", cancellationToken);
     }
@@ -118,7 +118,7 @@ internal static class Snippets
         var clock = new TestClock();
         await using var host = await A2ATestHost.StartAsync(async (context, updater, ct) =>
         {
-            await updater.StartWorkAsync(cancellationToken: ct);
+            await updater.StartWorkAsync(ct);
             await Task.Delay(TimeSpan.FromHours(1), clock, ct); // the agent waits on the fake clock too
             await updater.CompleteAsync("late", ct);
         }, options =>
