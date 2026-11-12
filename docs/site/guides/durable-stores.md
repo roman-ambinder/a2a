@@ -1,6 +1,6 @@
 # Durable stores and several instances
 
-The default stores live in memory. That is fine for development and tests. It is not enough when tasks must survive a restart, or when more than one instance serves the same agent. This guide shows the Postgres stores and coordinator, the Redis event bus and coordinator, and what to check at startup.
+The default stores live in memory. That is fine for development and tests. It is not enough when tasks must survive a restart, or when more than one instance serves the same agent. This guide shows the Postgres stores and coordinator, the Redis event bus and coordinator, and what to check at startup. The execution coordinator is the part that tracks which agent runs are live, holds a lease (a claim renewed by heartbeats) for each, and carries CancelTask between instances.
 
 ## When in-memory stops being enough
 
