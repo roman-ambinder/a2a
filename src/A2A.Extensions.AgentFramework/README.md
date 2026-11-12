@@ -69,7 +69,7 @@ builder.Services.AddA2A(a => a
 ```csharp
 .AddAIAgent(o =>
 {
-    o.SessionMode = AgentSessionMode.Stored;   // needed: the request waits in the session
+    o.SessionMode = AgentSessionMode.Stored;   // needed: the request waits in the session store
     o.ToolApprovals = ToolApprovalMode.Bound;
 })
 ```

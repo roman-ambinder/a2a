@@ -237,6 +237,12 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 - `V03CompatClientFactory`: with `RequireExactProtocolVersion`, a card whose v1.x interfaces the exact-version rule
   refuses is no longer downgraded to its v0.3 interface. It is refused as `A2AClientFactory` refuses it, naming those
   interfaces (spec 3.6.3). Without the option, a v0.3 interface is still the fallback.
+- Agent Framework: a task's pending tool approval survives another task of the context that runs at the same time.
+  Requests were kept in the caller's session, so a run that had loaded the session before the request was saved, and
+  saved it after, dropped the request. Approving the waiting task then completed it, and the approved tool never ran.
+  Each request is now a record of its own in the `AgentSessionStore` (owner partition `a:`, one per task), deleted when
+  it is answered and listed in the context's index, so deleting the context deletes it. Requests that earlier versions
+  kept in the session are still answered for their own task.
 - Agent Framework: deleting a shared context deletes every caller's stored session, not only the owner's. Sessions are
   saved per caller, so the sessions of callers that `ContextAccess` let into another owner's context stayed in the store
   for good, with their whole conversation. A per-context index session (owner partition `i:`) now records the callers.

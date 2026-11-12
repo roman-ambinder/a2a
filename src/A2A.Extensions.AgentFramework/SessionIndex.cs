@@ -7,8 +7,9 @@ namespace A2A.Extensions.AgentFramework;
 /// <summary>
 ///     Which callers have a stored session in a context. Sessions are per caller (<see cref="SessionKeys.For" />), and a
 ///     context can be shared (<c>A2AServerOptions.ContextAccess</c>), but <see cref="AgentSessionStore" /> cannot list
-///     keys. So each context has an index session, under its own key, whose state lists the callers; deleting the context
-///     deletes every listed caller's session and then the index.
+///     keys. So each context has an index session, under its own key, whose state lists the callers and the pending
+///     approval records (<see cref="SessionKeys.ApprovalFor" />); deleting the context deletes every listed caller's
+///     session, every listed record, and then the index.
 /// </summary>
 /// <remarks>
 ///     The store has no compare-and-set, so two callers saving the index at the same moment can lose one entry, and that
@@ -18,6 +19,13 @@ namespace A2A.Extensions.AgentFramework;
 internal static class SessionIndex
 {
     internal const string StateKey = "a2a.sessionCallers";
+
+    /// <summary>The state key of the pending approval records of the context (<see cref="SessionKeys.ApprovalFor" />).</summary>
+    internal const string ApprovalsKey = "a2a.approvalRecords";
+
+    /// <summary>Most approval records one index lists; the oldest falls out (it then relies on the store's own expiry).</summary>
+    internal const int MaxApprovals = 1_000;
+
     private const int MaxCached = 10_000;
 
     private static readonly ConcurrentDictionary<(AgentSessionStore Store, string Tenant, string Context, string Caller), byte>
@@ -44,8 +52,26 @@ internal static class SessionIndex
     }
 
     /// <summary>
-    ///     Deletes the session of <paramref name="owner" /> and of every caller in the context's index, then the index.
-    ///     Returns the callers whose sessions were deleted.
+    ///     Records that the context has a pending approval record of <paramref name="caller" /> for
+    ///     <paramref name="taskId" />. One read and one save per request: a request is asked once per approval.
+    /// </summary>
+    internal static async ValueTask AddApprovalAsync(AgentSessionStore store, AIAgent agent, string tenant,
+        string contextId, string caller, string taskId, CancellationToken cancellationToken)
+    {
+        var key = SessionKeys.IndexFor(tenant, contextId);
+        var index = await store.GetOrCreateSessionAsync(agent, key, cancellationToken).ConfigureAwait(false);
+        var approvals = ReadApprovals(index);
+        var entry = new ApprovalRecordEntry(caller, taskId);
+        if (approvals.Contains(entry)) return;
+        approvals.Add(entry);
+        if (approvals.Count > MaxApprovals) approvals.RemoveRange(0, approvals.Count - MaxApprovals);
+        index.StateBag.SetValue(ApprovalsKey, approvals, SessionIndexJson.Default.Options);
+        await store.SaveSessionAsync(agent, key, index, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Deletes the session of <paramref name="owner" /> and of every caller in the context's index, every approval
+    ///     record it lists, then the index.
     /// </summary>
     internal static async ValueTask DeleteAllAsync(AgentSessionStore store, AIAgent agent, string tenant, string contextId,
         string owner, CancellationToken cancellationToken)
@@ -60,6 +86,11 @@ internal static class SessionIndex
             await store.DeleteSessionAsync(agent, SessionKeys.For(tenant, caller, contextId), cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        // Answered requests are deleted when they are taken; deleting one that is gone already does nothing.
+        foreach (var approval in ReadApprovals(index))
+            await store.DeleteSessionAsync(agent, SessionKeys.ApprovalFor(tenant, approval.Caller, contextId,
+                approval.TaskId), cancellationToken).ConfigureAwait(false);
 
         await store.DeleteSessionAsync(agent, key, cancellationToken).ConfigureAwait(false);
         foreach (var k in Known.Keys)
@@ -82,7 +113,28 @@ internal static class SessionIndex
 
         return [];
     }
+
+    private static List<ApprovalRecordEntry> ReadApprovals(AgentSession index)
+    {
+        try
+        {
+            if (index.StateBag.TryGetValue(ApprovalsKey, out List<ApprovalRecordEntry>? approvals,
+                    SessionIndexJson.Default.Options) && approvals is not null)
+                return approvals.Where(a => a is not null && !string.IsNullOrEmpty(a.Caller) &&
+                                            !string.IsNullOrEmpty(a.TaskId)).ToList();
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException)
+        {
+            // Unreadable: no records known. They then rely on the store's own expiry.
+        }
+
+        return [];
+    }
 }
 
+/// <summary>One pending approval record of a context: whose, and for which task.</summary>
+internal sealed record ApprovalRecordEntry(string Caller, string TaskId);
+
 [JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(List<ApprovalRecordEntry>))]
 internal sealed partial class SessionIndexJson : JsonSerializerContext;

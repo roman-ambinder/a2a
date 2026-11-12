@@ -34,7 +34,7 @@ namespace A2A.Extensions.AgentFramework;
 ///         <see cref="AgentSessionStore" />, only the new message is sent, and the session is saved after the run: before
 ///         the task's final status when the run succeeds (a failed save then fails the task), and on a best-effort basis
 ///         after a failure or a cancel. Two tasks of one context that run at the same time race on the session: the last
-///         save wins.
+///         save wins. A pending tool approval is not part of that race: each task's request is a record of its own.
 ///     </para>
 /// </remarks>
 [Experimental("A2AEXP006", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
@@ -110,7 +110,15 @@ public sealed class AIAgentExecutor : IAgentExecutor
         var stored = await _sessions.GetOrCreateSessionAsync(_agent, key, cancellationToken).ConfigureAwait(false);
         // The session holds the conversation: send only the new message, after the answer to a pending approval.
         var contents = new List<AIContent>();
-        if (PendingToolApproval.Take(stored, context.TaskId) is { } pending && AnswerFor(pending, context) is { } answer)
+        // The request is a record of its own (only an existing task can have one); one an earlier version kept in the
+        // session is taken out of the session either way, so it is never answered later.
+        var inSession = PendingToolApproval.Take(stored, context.TaskId);
+        var pending = context.Task is null
+            ? null
+            : await PendingToolApproval.TakeRecordAsync(_sessions, _agent,
+                SessionKeys.ApprovalFor(context.Call.Tenant, context.Call.Principal, context.ContextId, context.TaskId),
+                cancellationToken).ConfigureAwait(false);
+        if ((pending ?? inSession) is { } found && AnswerFor(found, context) is { } answer)
             contents.Add(answer);
         foreach (var part in context.Message.Parts)
             if (ModelContent.ToModelContent(part, _options.AllowUrlParts) is { } content)
@@ -234,7 +242,7 @@ public sealed class AIAgentExecutor : IAgentExecutor
 
         if (toAsk is not null)
         {
-            await AskApprovalAsync(context, updater, run, session, toAsk, saveBeforeEnding!, cancellationToken)
+            await AskApprovalAsync(context, updater, run, toAsk, saveBeforeEnding!, cancellationToken)
                 .ConfigureAwait(false);
             return;
         }
@@ -269,8 +277,8 @@ public sealed class AIAgentExecutor : IAgentExecutor
     ///     Asks the caller to confirm the exact call: the status text is the canonical description, and the hash binds the
     ///     answer to it (<see cref="TaskUpdater.RequireApprovalAsync" />). The task waits in <c>INPUT_REQUIRED</c>.
     /// </summary>
-    private static async Task AskApprovalAsync(AgentRequestContext context, TaskUpdater updater, ArtifactChunker run,
-        AgentSession session, ToolApprovalRequestContent request, Func<Task> save, CancellationToken cancellationToken)
+    private async Task AskApprovalAsync(AgentRequestContext context, TaskUpdater updater, ArtifactChunker run,
+        ToolApprovalRequestContent request, Func<Task> save, CancellationToken cancellationToken)
     {
         var description = ApprovalDescription.For(request.ToolCall);
         PendingApproval approval;
@@ -285,10 +293,40 @@ public sealed class AIAgentExecutor : IAgentExecutor
 
         // What the agent said before it asked stays with the task; it is not the end of the reply.
         await run.FlushAsync(cancellationToken).ConfigureAwait(false);
-        PendingToolApproval.Write(session, PendingToolApproval.Create(context.TaskId, approval.Hash, request));
-        // Saved before the status, so a caller cannot answer a request the session does not hold yet.
         await save().ConfigureAwait(false);
+        // Saved before the status, so a caller cannot answer a request the store does not hold yet.
+        await SaveApprovalAsync(context, PendingToolApproval.Create(context.TaskId, approval.Hash, request),
+            cancellationToken).ConfigureAwait(false);
         await updater.RequireApprovalAsync(approval, description, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Saves the task's approval request as its own record, within <see cref="SaveTimeout" /> (a failure fails the
+    ///     task), then lists it in the context's <see cref="SessionIndex" /> with the time left, so deleting the context
+    ///     deletes it. A failure there is logged, not thrown: the request itself is saved.
+    /// </summary>
+    private async Task SaveApprovalAsync(AgentRequestContext context, PendingToolApproval value,
+        CancellationToken cancellationToken)
+    {
+        var tenant = context.Call.Tenant;
+        var caller = context.Call.Principal;
+        var key = SessionKeys.ApprovalFor(tenant, caller, context.ContextId, context.TaskId);
+        var deadline = Stopwatch.StartNew();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(SaveTimeout);
+        await PendingToolApproval.SaveRecordAsync(_sessions!, _agent, key, value, timeout.Token).AsTask()
+            .WaitAsync(SaveTimeout, cancellationToken).ConfigureAwait(false);
+        var left = SaveTimeout - deadline.Elapsed;
+        try
+        {
+            if (left <= TimeSpan.Zero) throw new TimeoutException("No time left for the session index.");
+            await SessionIndex.AddApprovalAsync(_sessions!, _agent, tenant, context.ContextId, caller, context.TaskId,
+                timeout.Token).AsTask().WaitAsync(left, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            AgentFrameworkLog.SessionIndexFailed(_logger, ex, context.ContextId);
+        }
     }
 
     /// <summary>
