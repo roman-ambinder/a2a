@@ -1,10 +1,11 @@
 # RomanAmbinder.A2A.Protocol
 
 The A2A (Agent2Agent) protocol v1.0 data model for .NET: types generated from the official `a2a.proto`, ProtoJSON
-serialization, error codes, and Agent Card signing and verification (JWS + RFC 8785).
+serialization, error codes, and Agent Card signing and verification (JWS + RFC 8785). The client and server packages
+bring it; reference it alone for code that only reads or writes A2A messages.
 
 ```csharp
-var json = A2AJson.Serialize(Message.FromUser("hello"));
+var json = A2AJson.Serialize(Message.FromUser("hello"));   // A2AJson is in A2A.Json
 ```
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a),

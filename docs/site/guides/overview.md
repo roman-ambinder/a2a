@@ -6,11 +6,11 @@ This page is the high-level view of the A2A .NET SDK: what it is, what you get, 
 
 A .NET SDK for the [Agent2Agent (A2A) protocol](https://a2a-protocol.org/latest/specification/). A2A is the protocol that lets independent AI agents find each other, send each other work, and get results back, without knowing how the other agent is built.
 
-The SDK has a **server** (host an agent), a **client** (call agents) and three **bindings**: JSON-RPC, HTTP+JSON and gRPC. It also has streaming over SSE, push notifications, and Agent Card signing.
+The SDK has a **server** (host an agent), a **client** (call agents) and three **bindings**: JSON-RPC, HTTP+JSON and gRPC. It also has streaming over SSE (Server-Sent Events), push notifications (webhooks the server calls when a task changes), and Agent Card signing.
 
-It targets .NET 10. `A2A.Protocol` and `A2A.Client` also target netstandard2.0 (.NET Framework 4.7.2+). An app on an older .NET gets that build, which has fewer protections: no default Agent Card endpoint policy, no guarded `jku` fetch and no artifact download or upload helpers.
+It targets .NET 10. `A2A.Protocol` and `A2A.Client` also target netstandard2.0 (.NET Framework 4.7.2+). An app on an older .NET gets that build, which has fewer protections: no default Agent Card endpoint policy, no guarded `jku` fetch (`jku` is the key-set URL in a card signature) and no artifact download or upload helpers.
 
-NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the official `A2A` packages. Assemblies and namespaces are `A2A.*`. The core packages depend only on `Microsoft.Extensions.*`; the gRPC packages add `Google.Protobuf` and `Grpc.*`.
+NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the official `A2A` packages. Assemblies and namespaces are `A2A.*`. On .NET 10 the core packages depend only on `Microsoft.Extensions.*` (the netstandard2.0 build of `A2A.Protocol` and `A2A.Client` adds `System.Text.Json` and `Microsoft.Bcl.*` back-ports); the gRPC packages add `Google.Protobuf` and `Grpc.*`.
 
 ## Who it is for
 
@@ -26,7 +26,7 @@ The SDK ranks its goals in this order: **safe > easy > performant > extendable >
 What that means in practice, with nothing configured (details in [Getting started](getting-started.md#what-the-defaults-give-you)):
 
 - Anonymous callers are refused. The app fails at startup unless every A2A endpoint has authorization, or <xref:A2A.Server.A2AServerOptions.AllowAnonymous> is true.
-- Request size, parts per message, JSON depth, history and page size are capped. Calls are rate limited per tenant and caller.
+- Request size, parts per message, JSON depth, history and page size are capped. Calls are rate limited per tenant and caller (an anonymous caller is counted by its IP address).
 - A task belongs to the caller that created it. Other callers get `TaskNotFound`.
 - Webhook URLs are checked against private and internal networks, at registration and again at connect time.
 - Stores are in memory, which is fine for development and not for production.

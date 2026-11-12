@@ -19,10 +19,13 @@ namespace A2A.Server.AspNetCore;
 ///             <description>800-899: <c>AgentCardEndpoint</c>.</description>
 ///         </item>
 ///         <item>
-///             <description>1200-1299: health checks.</description>
+///             <description>1300-1399: API keys.</description>
+///         </item>
+///         <item>
+///             <description>1400-1499: health checks.</description>
 ///         </item>
 ///     </list>
-///     The other assemblies use 100-199 (A2A.Client), 200-499 (A2A.Server), 900-999 (A2A.Server.Grpc) and 1000-1199 (the
+///     The other assemblies use 100-199 (A2A.Client), 200-499, 680-699 and 1200-1299 (A2A.Server), 900-999 (A2A.Server.Grpc) and 1000-1199 (the
 ///     Postgres, Redis and compat packages).
 /// </summary>
 internal static partial class AspNetCoreLog
@@ -78,8 +81,8 @@ internal static partial class AspNetCoreLog
             "Agent Card signature does not cover these empty values, which a2a-python/a2a-js canonicalization removes: {PrunedPaths}")]
     public static partial void CardSignatureSkipsPrunedValues(ILogger logger, string prunedPaths);
 
-    // Health checks: 1200-1299
-    [LoggerMessage(EventId = 1200, Level = LogLevel.Warning, Message = "Health check {Check} failed")]
+    // Health checks: 1400-1499 (1200-1299 are the security events of A2A.Server)
+    [LoggerMessage(EventId = 1400, Level = LogLevel.Warning, Message = "Health check {Check} failed")]
     public static partial void HealthCheckFailed(ILogger logger, Exception exception, string check);
 
     [LoggerMessage(EventId = 1300, Level = LogLevel.Error,

@@ -1,6 +1,6 @@
 # Getting started
 
-This guide shows how to host an agent and how to call one. It takes about five minutes. The SDK targets .NET 10. The protocol and client packages also target netstandard2.0.
+This guide shows how to host an agent and how to call one. Start here if you are new to the SDK; it takes about five minutes. The SDK targets .NET 10. The protocol and client packages also target netstandard2.0.
 
 ## Install
 
@@ -53,7 +53,7 @@ Call <xref:A2A.Server.TaskUpdater.ReplyAsync*> instead for a stateless reply wit
 
 <xref:A2A.Client.A2AClientFactory.CreateAsync*> fetches the Agent Card and picks the first interface in the card's order that the client supports.
 
-- <xref:A2A.Client.A2AClientTextExtensions.AskAsync*> returns the answer as text: the text of a direct reply, or of the task's artifacts once the task completed. A task that fails, or that needs input or authorization, throws <xref:A2A.Client.TaskNotCompletedException>, which holds the task.
+- <xref:A2A.Client.A2AClientTextExtensions.AskAsync*> returns the answer as text: the text of a direct reply, or of the task's artifacts once the task completed. A task that ends in any state other than completed (failed, rejected, canceled), or that needs input or authorization, throws <xref:A2A.Client.TaskNotCompletedException>, which holds the task. A task that is still running is polled every second until it settles.
 - <xref:A2A.Client.A2AClientTextExtensions.StreamTextAsync*> yields the text as the agent streams it, with the same exception at the end.
 - <xref:A2A.Client.A2AClientFactory.CreateForEndpoint*> makes a client for an endpoint you already know, such as an agent in the same process, without fetching the card. The client then checks no capabilities and verifies no card signature.
 - For everything else use `SendMessageAsync`. It returns a <xref:A2A.SendMessageResponse>: either a direct message or a task. `GetText()` on the response, on an `AgentTask` and on an `Artifact` reads their text parts.
@@ -112,14 +112,14 @@ The same settings, and the card, can come from `appsettings.json` or any other c
 }
 ```
 
-The keys are listed on <xref:A2A.Server.AspNetCore.A2AConfigurationExtensions>: the card, `PublicBaseUrl`, `AgentCardMaxAge`, every limit (`Limits`), the replay buffer (`Streaming`), the rate limit and a few task settings. Durations use the `TimeSpan` format. Two rules keep this safe:
+The keys are listed on <xref:A2A.Server.AspNetCore.A2AConfigurationExtensions>: the card, `PublicBaseUrl`, `AgentCardMaxAge`, every limit (`Limits`), the replay buffer (`Streaming`), the rate limit, API keys (`ApiKeys`) and a few task settings. Durations use the `TimeSpan` format. Two rules keep this safe:
 
 - An unknown key fails the app at startup and names the key, so a typo does not go unnoticed.
 - Settings that weaken a secure default (`AllowAnonymous`, `TreatMissingVersionAsCurrent`, `IncludeExceptionDetails`, `ClientContextIdPolicy`, `RateLimit:Enabled`) are refused there. Set them in code, where a reviewer sees them.
 
 Configuration is applied first. `AddAgentCard` and `Configure` calls in code override it. For the two-step form, call `services.ConfigureA2A(section)` before `AddA2AServer`.
 
-The Agent Card needs a name, a description and a version. `AgentCard.Create(name, description, version)` makes one, and `.AddSkill(id, name, description, tags, examples)` adds skills; an object initializer works too. If `SupportedInterfaces` is empty, the card is completed once, at first serve, from the bindings you mapped. Each URL is <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl> (or the first listen address) plus the mapped pattern. Set `PublicBaseUrl` behind a proxy or load balancer. Patterns with `{tenant}` are not listed.
+The Agent Card needs a name, a description and a version. `AgentCard.Create(name, description, version)` makes one (the version defaults to `1.0.0`), and `.AddSkill(id, name, description, tags, examples)` adds skills; an object initializer works too. If `SupportedInterfaces` is empty, the card is completed once, at first serve, from the bindings you mapped. Each URL is <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl> (or the first listen address) plus the mapped pattern. Set `PublicBaseUrl` behind a proxy or load balancer. Patterns with `{tenant}` are not listed.
 
 ## Run the samples
 

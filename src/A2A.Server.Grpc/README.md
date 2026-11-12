@@ -14,9 +14,8 @@ read them. Like `MapA2A`, the app fails at startup if the gRPC endpoints have no
 `RESOURCE_EXHAUSTED` with `RetryInfo`.
 
 Extension operations (`AddExtensionOperation`) are served by a second service, `a2a.extensions.v1.A2AExtensionService`,
-which has
-the same definition as the official A2A .NET SDK. Map it with its own call, so `RequireAuthorization()` applies to it on
-its own:
+which has the same definition as the official A2A .NET SDK. Map it with its own call, so `RequireAuthorization()` applies
+to it on its own. `MapA2AGrpcExtensions` is experimental (`A2AEXP004`): add `<NoWarn>A2AEXP004</NoWarn>` to use it.
 
 ```csharp
 app.MapA2AGrpcExtensions().RequireAuthorization();
@@ -27,4 +26,5 @@ The `payload` fields are UTF-8 JSON. Only the unary `InvokeExtensionOperation` i
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a),
 implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 10.
-See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.
+See the [bindings guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/bindings.md) and the
+[repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.

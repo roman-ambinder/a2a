@@ -32,8 +32,8 @@ the delivery guarantee and what "in doubt" means.
 
 ## Table
 
-`PostgresClientOutboxSchema` creates `a2a_client_outbox` in the schema you choose (`PostgresClientOutboxOptions.Schema`,
-default `public`). The script is idempotent and runs under an advisory lock, so many instances can start at once.
+`PostgresClientOutboxSchema` creates `a2a_client_outbox` in the schema you choose (the `schema` argument of
+`EnsureSchemaAsync`, default `public`); give the store the same name in `PostgresClientOutboxOptions.Schema`. The script is idempotent and runs under an advisory lock, so many instances can start at once.
 
 | Column                                                | Holds                                                                                                       |
 |-------------------------------------------------------|-------------------------------------------------------------------------------------------------------------|
@@ -42,6 +42,7 @@ default `public`). The script is idempotent and runs under an advisory lock, so 
 | `request`, `result`                                   | The `SendMessageRequest` and the final `SendMessageResponse`, as JSON bytes.                                |
 | `status`, `attempts`, `in_doubt`                      | Queued 0, tracking 1, finished 2, failed 3. In doubt is set when a queued entry is leased.                  |
 | `remote_task_id`, `remote_context_id`, `remote_state` | What the peer answered.                                                                                     |
+| `last_error`                                          | The last send error, if any.                                                                                |
 | `created_ticks`, `due_ticks`, `collected_ticks`       | UTC ticks (`bigint`).                                                                                       |
 | `lease_ticks`, `lease_token`                          | Who works on the entry now. Writes carry the token, so a holder whose lease was taken over changes nothing. |
 

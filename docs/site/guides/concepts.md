@@ -1,18 +1,18 @@
 # Core concepts
 
-The words this SDK and the A2A protocol use. The definitions here follow the protocol definition the SDK is built against, [`a2a.proto`](https://github.com/roman-ambinder/a2a/blob/main/docs/a2a.proto).
+The words this SDK and the A2A protocol use. Read it before the feature guides, which use these terms without explaining them. The definitions here follow the protocol definition the SDK is built against, [`a2a.proto`](https://github.com/roman-ambinder/a2a/blob/main/docs/a2a.proto).
 
 ## Agent and Agent Card
 
 An **agent** is a service that accepts work over A2A. Its public description is the **Agent Card**, served at `GET /.well-known/agent-card.json`. The card says:
 
 - which **interfaces** the agent offers: a URL and a protocol binding (JSON-RPC, HTTP+JSON or gRPC) for each. A client uses the first interface in the card's order that it supports.
-- which **capabilities** it has, for example streaming and push notifications. A call for a capability the card does not declare is answered with `UnsupportedOperation`.
+- which **capabilities** it has, for example streaming and push notifications. A streaming call, or a `GetExtendedAgentCard` call, that the card does not declare is answered with `UnsupportedOperation`; a push config call is answered with `PushNotificationNotSupported`.
 - its **skills**, the things it says it can do.
 - the **security schemes** a caller must satisfy.
 - optionally a **signature**, so a client can check who published the card. See [Agent Card signing](agent-card-signing.md).
 
-The SDK needs only `Name`, `Description` and `Version` on the card. It completes an empty `SupportedInterfaces` list from the bindings you mapped.
+The server refuses to serve a card without a `Name`. `AgentCard.Create(name, description, version)` fills in the other basics (the version defaults to `1.0.0`). The server completes an empty `SupportedInterfaces` list from the bindings you mapped.
 
 ## Message, part and role
 
@@ -27,7 +27,7 @@ A **part** holds one of four kinds of content:
 | `url` | A URL that points to the file's content |
 | `data` | Structured JSON: an object, array, string, number, boolean or null |
 
-A part can also carry a `filename`, a `media_type` (MIME type) and metadata.
+A part can also carry a `filename`, a `mediaType` (MIME type) and metadata.
 
 ## Task
 
@@ -36,9 +36,9 @@ A **task** is the unit of work. A client sends a message. The agent either answe
 - an `id`, and a `contextId` that groups related tasks and messages;
 - a **status**: a state and an optional message;
 - **artifacts**, the outputs;
-- a record of the interaction (the `history` field, which the protocol marks deprecated, and the newer `timeline`);
+- a record of the interaction: the `history` field and, in A2A 1.1, the newer `timeline` (1.1 marks `history` deprecated);
 - metadata;
-- a `generation` counter that goes up by exactly 1 for every state-changing mutation. Each mutation maps to one event.
+- in A2A 1.1, a `generation` counter that goes up by exactly 1 for every state-changing mutation. Each mutation maps to one event. A 1.0 caller never sees it.
 
 ### Task states
 
@@ -71,7 +71,7 @@ The service in `a2a.proto` has these operations:
 |---|---|
 | `SendMessage` | Send a message. Returns a message or a task |
 | `SendStreamingMessage` | The same, as a stream of events |
-| `SendLiveMessage` | A two-way stream (the proto declares a stream in both directions) |
+| `SendLiveMessage` | A two-way stream (the proto declares a stream in both directions). A2A 1.1 only, experimental |
 | `GetTask`, `ListTasks`, `CancelTask` | Read, list and cancel tasks |
 | `SubscribeToTask` | Follow an existing task as a stream |
 | `Create`, `Get`, `List`, `DeleteTaskPushNotificationConfig` | Manage webhooks for a task |
@@ -81,7 +81,7 @@ The same operations are offered on all three bindings. See [Bindings](bindings.m
 
 ## Events
 
-A stream carries events: a status update, an artifact update, or a message. Each stored event gets a sequence number in the task's event log, so a client can resume a stream after a drop. See [Streaming and resume](streaming.md).
+A stream carries events: a task snapshot, a status update, an artifact update, or a message. A2A 1.1 adds a message update (for example a client's follow-up) and a stream error. Each stored event gets a sequence number in the task's event log, so a client can resume a stream after a drop. See [Streaming and resume](streaming.md).
 
 ## Tenant
 

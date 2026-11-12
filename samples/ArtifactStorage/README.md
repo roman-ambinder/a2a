@@ -1,7 +1,8 @@
 # ArtifactStorage sample
 
 An agent writes a 1 MiB file to an object store, and a client downloads it. The store is S3 on MinIO, or Azure Blob on
-Azurite, picked by the argument. Both run in Docker, with ports bound to `127.0.0.1` only.
+Azurite, picked by the argument. Both run in Docker, with ports bound to `127.0.0.1` only; the agent listens on
+`127.0.0.1:5380`.
 
 | Part | What it shows |
 |---|---|
@@ -12,6 +13,8 @@ Azurite, picked by the argument. Both run in Docker, with ports bound to `127.0.
 
 The sample checks that the downloaded bytes are the bytes the agent wrote, that the agent answered 302 (a presigned
 URL, so the bytes did not pass through the agent), and that the bucket or container holds exactly one object for the run.
+
+Run it with `samples/run-samples.sh storage`, or by hand:
 
 ```bash
 docker compose -f samples/ArtifactStorage/docker-compose.yml up -d --wait
@@ -29,7 +32,7 @@ OK: the file went to S3, and the client downloaded the same bytes through a pres
 ```
 
 Notes:
-- The API key, the MinIO user and password are demo values. Azurite uses its well-known development account.
+- The API key is made for each run (`A2AApiKey.Create()`). The MinIO user and password are demo values. Azurite uses its well-known development account.
 - MinIO and Azurite run on a private address over plain HTTP, so the downloader needs
   `SafeHttpOptions { AllowPrivateNetworks = true, AllowHttp = true }`. A store on a public HTTPS host needs neither.
 - Each run writes under a new key prefix and does not delete its object. `down -v` removes them. A real host runs

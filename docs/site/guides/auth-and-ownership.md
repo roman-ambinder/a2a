@@ -1,6 +1,6 @@
 # Authentication and ownership
 
-The A2A server does not log callers in. Your ASP.NET Core app does that. The server then ties every task to the caller it sees and to the tenant of the request. Read this guide before you put an agent on a network.
+The A2A server does not log callers in. Your ASP.NET Core app does that. The server then ties every task to the caller it sees (the task's owner) and to the tenant of the request. Read this guide before you put an agent on a network.
 
 ## Protect the endpoints
 
@@ -11,7 +11,7 @@ The A2A server does not log callers in. Your ASP.NET Core app does that. The ser
 If A2A endpoints have no authorization, the app does not start. The check is fail closed:
 
 - Every endpoint whose display name starts with `A2A ` (the Agent Card endpoints are skipped) must carry authorization metadata and no `AllowAnonymous` metadata.
-- `MapA2A` throws if `AddA2AServerAspNetCore()` was not called, so the check cannot be skipped by mistake.
+- `MapA2A` throws if `AddA2AServerAspNetCore()` was not called (`AddA2A` calls it for you), so the check cannot be skipped by mistake.
 - If no endpoint exists yet when the host starts, the check runs again on `ApplicationStarted` and stops the app on failure.
 - <xref:A2A.Server.A2ARequestHandler> also refuses unauthenticated callers on its own, as a backstop.
 
@@ -88,7 +88,7 @@ When the endpoints have a policy of their own, the API-key policy is not added: 
 - **Other schemes.** <xref:A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.AddCardAuthentication*> takes any card scheme (OAuth 2.0, OpenID Connect, mutual TLS) and the ASP.NET Core scheme that proves it. Scopes go on OAuth 2.0 and OpenID Connect schemes only, and are not checked: check them in your policies.
 - **Tenant cards.** Cards from a `TenantCardProvider` are not changed for you. Inject <xref:A2A.Server.AspNetCore.A2ACardSecurity> into the provider and call `Apply(card)` on each card it builds: every declared scheme (API keys included) goes on it the same way. Calling it again on the same card changes nothing.
 
-To check which scheme proved the caller against the card's requirements, map them as well:
+To also check that the scheme that proved the caller meets the card's requirements, map the card schemes to your ASP.NET Core schemes.
 
 The spec says an agent must authenticate requests with one of the schemes in its card's `securitySchemes` and `securityRequirements` (7.4, 13.3). Your ASP.NET Core schemes have their own names, so map each card scheme to one: `app.MapA2A("/a2a").RequireAuthorization().RequireAgentCardSchemes(new Dictionary<string, string> { ["bearer"] = "Bearer" })` (<xref:A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.RequireAgentCardSchemes*>). It works on `MapA2AGrpc` too.
 
@@ -136,7 +136,13 @@ To allow one caller a skill and deny another, override `AuthorizeSkillAsync` too
 
 - `Kind` is an <xref:A2A.Server.Authorization.A2AOperation>: the 11 built-in operations, or `Extension`. `Name` is the operation name, or the registered name of an extension operation.
 - A denied call whose request names a task (GetTask, CancelTask, SubscribeToTask, push config calls, and SendMessage with a `taskId`) is reported as `TaskNotFound`.
-- Any other denial (ListTasks, GetExtendedAgentCard, SendMessage without a task, extension operations) is `PermissionDenied`. Its ErrorInfo metadata says what was refused: `permission` is `operation` (your handler said no), `tenant` (the caller's `a2a:tenant` claims do not include the tenant), `skill` (skill authorization said no, or the skill is unknown; both look the same) or `policy` (the ASP.NET Core policy of an extension operation failed), and `operation` is the operation name. Neither repeats anything the caller sent.
+- Any other denial (ListTasks, GetExtendedAgentCard, SendMessage without a task, extension operations) is `PermissionDenied`. Its ErrorInfo metadata says what was refused. `operation` is the operation name, and `permission` is one of:
+  - `operation`: your handler said no.
+  - `tenant`: the caller's `a2a:tenant` claims do not include the tenant.
+  - `skill`: skill authorization said no, or the skill is unknown. Both look the same.
+  - `policy`: the ASP.NET Core policy of an extension operation failed.
+
+  Neither value repeats anything the caller sent.
 - The base class allows every built-in operation and denies extension operations. The handler the server registers by default also allows an extension operation registered with `allow: true`, or whose ASP.NET Core policy succeeded. A handler of your own replaces it, so decide extension operations yourself.
 - Open streams call the handler again every <xref:A2A.Server.A2ALimits.StreamReauthInterval> (default 5 minutes). On denial the stream ends with the error a new request would get: `TaskNotFound` for a task-scoped stream (it does not confirm the task exists), else `PermissionDenied`. See [limits](limits-and-rate-limiting.md).
 

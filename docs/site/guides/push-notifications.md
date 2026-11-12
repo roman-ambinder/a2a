@@ -1,8 +1,8 @@
 # Push notifications
 
-Push notifications let an agent call a client's webhook when a task changes, so the client does not have to keep a stream open or poll. Use them for long tasks.
+Push notifications let an agent call a client's webhook (an HTTPS endpoint the client hosts) when a task changes, so the client does not have to keep a stream open or poll. Use them for long tasks. This guide covers the server side (delivery, retries, the SSRF guard, secrets) and the client side (registering and receiving).
 
-The server writes each delivery to an outbox in the same commit as the event. A hosted service, <xref:A2A.Server.Push.PushDeliveryService>, sends them.
+The server writes each delivery to an outbox (a queue of pending deliveries in the store) in the same commit as the event. A hosted service, <xref:A2A.Server.Push.PushDeliveryService>, sends them.
 
 ## Turn push on
 
@@ -47,7 +47,7 @@ For a new task, put the config inline in `SendMessage`. It is saved before the t
 | 408, 429, 5xx, timeout, connection error | Retried with backoff. |
 | Any other status (other 4xx, and 3xx, because redirects are not followed) | Dead-lettered. |
 | URL refused by the SSRF guard, unusable signing secret, secrets that cannot be unprotected | Dead-lettered. |
-| `MaxAttempts` is set and the last attempt fails | Dead-lettered. |
+| `MaxAttempts` is set and the last attempt fails | Dead-lettered (moved to a dead-letter list and not sent again; see [Dead letters](#dead-letters)). |
 | The delivery is older than `MaxDeliveryAge` | Dead-lettered, without another attempt. |
 
 The wait before retry *n* is `InitialBackoff × 2^(n-1)`, with ±20 % jitter, capped at `MaxBackoff`.
@@ -79,6 +79,7 @@ Set these on <xref:A2A.Server.A2AServerOptions.PushDelivery> (<xref:A2A.Server.P
 | `PushDelivery.Lease` | 1 minute | How long a leased delivery is hidden from other instances. |
 | `PushDelivery.PollInterval` | 1 second | How often the outbox is checked for due deliveries. |
 | `PushDelivery.BatchSize` | 50 | Most deliveries one instance sends at the same time. |
+| `PushDelivery.MaxInFlightPerCaller` | 20 | Most deliveries of one caller (the task owner) in flight at once, so one caller's slow webhooks cannot take every send slot. A soft cap across instances. null: no cap. |
 | `PushNotifications.Timeout` | 15 seconds | Timeout of one POST, and of the DNS check before it. |
 | `PushNotifications.CatchUpOnRegistration` | true | Send the task snapshot to a webhook registered on a final or interrupted task. |
 | `PushNotifications.AllowInsecureUrls` | false | Allow `http://` URLs. |
@@ -87,14 +88,14 @@ Set these on <xref:A2A.Server.A2AServerOptions.PushDelivery> (<xref:A2A.Server.P
 | `PushNotifications.AllowedNetworks` | empty | Networks that bypass the private-range block. |
 | `PushNotifications.Proxy` | null | Proxy for webhook calls. With null, the system proxy is ignored. |
 
-The service checks the options at startup. `Timeout` must be positive and finite, `PollInterval` must be above zero, `MaxDeliveryAge` (when set) must be above zero, `MaxAttempts` (when set) must be at least 1, and `Lease` must be longer than `2 × Timeout + 5 s`. Otherwise startup throws `InvalidOperationException`.
+The service checks the options at startup. `Timeout` must be positive and finite, `PollInterval` must be above zero, `MaxDeliveryAge` (when set) must be above zero, `MaxAttempts` and `MaxInFlightPerCaller` (when set) must be at least 1, and `Lease` must be longer than `2 × Timeout + 5 s`. Otherwise startup throws `InvalidOperationException`.
 
 ### Headers on each POST
 
 | Header | Value |
 |---|---|
 | `Content-Type` | `application/a2a+json` |
-| `A2A-Version` | `1.0` |
+| `A2A-Version` | `1.0`, or `1.1` for a config registered with protocol version 1.1 |
 | `X-A2A-Delivery-Id` | The delivery id. The same on every retry. |
 | `X-A2A-Notification-Sequence` | The event sequence. An SDK extension, not in the spec. |
 | `X-A2A-Notification-Token` | The config `Token`, when set. |
@@ -207,7 +208,7 @@ Report each notification from your handler:
 
 ## The SSRF guard
 
-A webhook URL is chosen by the client, so the server checks it.
+A webhook URL is chosen by the client, so the server checks it. Without a check, a caller could make the server call internal addresses for it (server-side request forgery, SSRF).
 
 - At registration: the URL must be absolute, use `https` (unless `AllowInsecureUrls`), and carry no user info. If `AllowedHosts` is set, the host must be in it. A private IP literal, `localhost`, or an ambiguous numeric host (such as octal) is refused. The host is then resolved and every address is checked. Any DNS-based failure gives the same error, `Push notification URL is not allowed.`, so a caller cannot probe your DNS.
 - Before every attempt: the URL and its addresses are checked again.
@@ -238,7 +239,7 @@ A dead letter keeps the payload and the last error (never secrets). <xref:A2A.Se
 
 ### Delivery age
 
-A delivery that keeps failing used to end only when it ran out of attempts. Now it also ends by age. `MaxDeliveryAge` (default 24 hours) counts from the moment the delivery was queued. The check runs when the delivery is next leased: if it is older, it is dead-lettered without another attempt, and the dead letter keeps the last error. With PostgreSQL the age is measured on the database clock, so instances whose clocks differ agree. A redriven dead letter starts again at age 0. `MaxAttempts` is null by default; set it to also cap the number of attempts.
+A delivery that keeps failing ends by age. `MaxDeliveryAge` (default 24 hours) counts from the moment the delivery was queued. The check runs when the delivery is next leased: if it is older, it is dead-lettered without another attempt, and the dead letter keeps the last error. With PostgreSQL the age is measured on the database clock, so instances whose clocks differ agree. A redriven dead letter starts again at age 0. `MaxAttempts` is null by default; set it to also cap the number of attempts.
 
 ### Dead-letter hook
 

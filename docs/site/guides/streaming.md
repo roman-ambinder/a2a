@@ -30,7 +30,7 @@ To watch a task you did not start on this connection, use <xref:A2A.Client.A2ACl
 
 `ObserveTaskAsync` works like this:
 
-- It reconnects after 0.5, 1, 2, 4 and 8 seconds. After the fifth failed reconnect, the error is thrown.
+- It reconnects after 0.5, 1, 2, 4 and 8 seconds. A longer `Retry-After` from the server wins. After the fifth failed reconnect, the error is thrown.
 - A reconnect that delivers a new event gives the client a fresh set of attempts.
 - It sends the last event id it saw in the `Last-Event-ID` header. The server continues after that event.
 - It drops any event whose sequence it already delivered.
@@ -222,7 +222,7 @@ The API is experimental (`A2AEXP005`).
 
 ### Input for a running agent
 
-By default a message to a `WORKING` task is refused (`FAILED_PRECONDITION`), as a follow-up is. An agent that reads
+By default a message to a `WORKING` task is refused with `UnsupportedOperation` (gRPC `FAILED_PRECONDITION`), as any follow-up to a running task is. An agent that reads
 `AgentRequestContext.LiveInput` takes such messages while it runs instead:
 
 [!code-csharp[](../../../samples/Snippets/Streaming.cs#LiveInput)]

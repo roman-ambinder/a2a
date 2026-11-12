@@ -110,7 +110,7 @@ How it saves files:
 - The file name comes from the agent, so it is not trusted. Folders are cut off (at `/` and `\`), control characters and leading dots are removed, characters that Windows does not allow become `_`, and names are capped at 200 characters. A part without a usable name is saved as `<artifactId>-<index>`. Two files with the same name get `-2`, `-3` before the extension.
 - The file is first written to a temporary file in the output folder. It is moved into place only after the size and `sha256` metadata of the part were checked. On any failure the temporary file is deleted.
 - Parts that are not URLs (text, data, raw bytes) are skipped and counted.
-- If no part can be downloaded, the exit code is 5.
+- If the artifacts have no URL part, or `--artifact` names no artifact of the task, the exit code is 5.
 - The part URL is never printed. Presigned storage URLs are secrets.
 
 ### keys

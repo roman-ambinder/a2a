@@ -4,7 +4,8 @@ Each file here is one migration. Files are embedded in the package and applied i
 
 ## Add a migration
 
-1. Take the next free number. Create `NNNN_short_name.sql` (four digits, lower-case snake_case name).
+1. Take the next free number. Create `NNNN_short_name.sql` (four digits, an underscore, then a name of lower-case
+   letters, digits and underscores).
 2. Write `{s}` where the schema name goes, for example `ALTER TABLE {s}.a2a_tasks ...`.
 3. Use idempotent forms only: `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`,
    `DROP INDEX IF EXISTS`. The exported script may run twice.
@@ -14,7 +15,8 @@ Each file here is one migration. Files are embedded in the package and applied i
 6. Do not touch `a2a_schema_version`. The runner stamps the number after your file.
 7. Never edit a file that is merged. Add a new migration instead.
 
-If two branches use the same number, a test fails. Rename the later one to the next free number.
+Numbers must be contiguous, with no gaps. If two branches use the same number, loading the migrations throws (and the
+tests fail). Rename the later one to the next free number.
 
 ## Why the numbers start at 2
 

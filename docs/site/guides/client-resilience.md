@@ -1,6 +1,6 @@
 # Client resilience
 
-The client retries a failed unary call on its own. This guide also covers waiting for a task that is still running, and the circuit breaker, which stops calls to a peer that keeps failing.
+The client retries a failed unary call (a call with one response, not a stream) on its own. This guide also covers waiting for a task that is still running, and the circuit breaker, which stops calls to a peer that keeps failing.
 
 ## Retries
 
@@ -10,7 +10,11 @@ A runnable version, where the agent answers 503 once and the client retries, is 
 
 ## Tasks that are still running
 
-A blocking `SendMessageAsync` normally returns when the task is finished or needs input. This SDK's server waits that long. Some servers and proxies answer sooner, with a task that is still `SUBMITTED` or `WORKING`. Set <xref:A2A.Client.A2AClientOptions.WaitForTaskCompletion> to `true` and the client then polls the task once a second, as `WaitForTaskAsync` does, until it is terminal or interrupted, and returns that task with the history the request asked for. A request that sets `ReturnImmediately` is returned as it is. `AskAsync` always waits this way.
+A blocking `SendMessageAsync` normally returns when the task is finished or needs input. This SDK's server waits that long. Some servers and proxies answer sooner, with a task that is still `SUBMITTED` or `WORKING`.
+
+- Set <xref:A2A.Client.A2AClientOptions.WaitForTaskCompletion> to `true`. The client then polls the task once a second, as `WaitForTaskAsync` does, until it is terminal or interrupted. It returns that task with the history the request asked for.
+- A request that sets `ReturnImmediately` is returned as it is.
+- `AskAsync` always waits this way.
 
 ## Circuit breaker
 

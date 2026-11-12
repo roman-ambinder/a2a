@@ -18,16 +18,17 @@ It returns a normal `A2AClient`. Selection:
 3. Otherwise the first v0.3 `JSONRPC` or `HTTP+JSON` interface in card order is used.
 
 The v0.3 transports share retries, headers, telemetry and SSE limits with the v1.0 transports. They send
-`A2A-Version: 0.3`
-and `X-A2A-Extensions`. A stream stops on `final: true` or when the connection ends.
+`A2A-Version: 0.3` and `X-A2A-Extensions`. A stream stops on `final: true` or when the connection ends.
 
 Not available on v0.3: `ListTasks` (throws `UnsupportedOperation`). Push config create, get, list and delete work, but
 `PushNotificationReceiver` still reads v1.0 webhook bodies only. A v0.3-only card is read as unsigned, so a client that
 requires card signatures refuses it. gRPC is not supported.
 
 Fields v0.3 cannot carry are counted by the meter `A2A`, counter `a2a.compat.v0_3.dropped` (tag `field`).
-Call `V03CompatClientFactory.UseLogger(logger)` to get a warning (spec A.2) once per v0.3 agent URL the client talks to and once per dropped field.
+Call `V03CompatClientFactory.UseLogger(logger)` to get a warning (spec A.2) once per v0.3 agent URL the client talks to
+and once per dropped field. The first logger set wins.
 
 The package uses internals of the core packages, so all `RomanAmbinder.A2A.*` packages must have the same version.
 
+See the [v0.3 compatibility guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/v03-compatibility.md).
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a). Targets .NET 10.

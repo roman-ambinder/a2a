@@ -1,80 +1,94 @@
-- name: Product overview
-  href: overview.md
-- name: Core concepts
-  href: concepts.md
-- name: Architecture
-  href: architecture.md
-- name: Getting started
-  href: getting-started.md
-- name: Bindings
-  href: bindings.md
-- name: Authentication and ownership
-  href: auth-and-ownership.md
-- name: Client credentials
-  href: client-credentials.md
-- name: Identity providers
-  href: identity-providers.md
-- name: Streaming and resume
-  href: streaming.md
-- name: Push notifications
-  href: push-notifications.md
-- name: Proactive continuation
-  href: proactive-continuation.md
-- name: Client outbox
-  href: client-outbox.md
-- name: Agent card signing
-  href: agent-card-signing.md
-- name: Peer identity and registry
-  href: peer-identity.md
-- name: Skill selection
-  href: skill-selection.md
-- name: Typed skills
-  href: typed-skills.md
-- name: Skill authorization
-  href: skill-authorization.md
-- name: Custom operations
-  href: custom-operations.md
-- name: Microsoft.Extensions.AI
-  href: extensions-ai.md
-- name: Conversation memory
-  href: conversation-memory.md
-- name: MCP bridge
-  href: mcp-bridge.md
-- name: v0.3 compatibility
-  href: v03-compatibility.md
-- name: Multi-tenancy
-  href: multi-tenancy.md
-- name: Durable stores
-  href: durable-stores.md
-- name: Retention
-  href: retention.md
-- name: Observability
-  href: observability.md
-- name: Audit trail
-  href: audit.md
-- name: Limits and rate limiting
-  href: limits-and-rate-limiting.md
-- name: Execution limits and budgets
-  href: execution-limits.md
-- name: Client resilience
-  href: client-resilience.md
-- name: Artifact storage
-  href: artifact-storage.md
-- name: Task safety
-  href: task-safety.md
-- name: Interop and conformance
-  href: interop-and-conformance.md
-- name: Testing your agent
-  href: testing.md
-- name: How a request flows
-  href: request-lifecycle.md
-- name: Production checklist
-  href: production-checklist.md
-- name: Spec decisions
-  href: spec-decisions.md
-- name: Metadata keys
-  href: metadata.md
-- name: Command line tool
-  href: cli.md
-- name: Versioning
-  href: versioning.md
+- name: Start here
+  items:
+  - name: Product overview
+    href: overview.md
+  - name: Core concepts
+    href: concepts.md
+  - name: Architecture
+    href: architecture.md
+  - name: How a request flows
+    href: request-lifecycle.md
+  - name: Getting started
+    href: getting-started.md
+- name: Protocol features
+  items:
+  - name: Bindings
+    href: bindings.md
+  - name: Streaming and resume
+    href: streaming.md
+  - name: Push notifications
+    href: push-notifications.md
+  - name: Proactive continuation
+    href: proactive-continuation.md
+  - name: Client outbox
+    href: client-outbox.md
+  - name: Custom operations
+    href: custom-operations.md
+  - name: Metadata keys
+    href: metadata.md
+- name: Security and identity
+  items:
+  - name: Authentication and ownership
+    href: auth-and-ownership.md
+  - name: Client credentials
+    href: client-credentials.md
+  - name: Identity providers
+    href: identity-providers.md
+  - name: Agent card signing
+    href: agent-card-signing.md
+  - name: Peer identity and registry
+    href: peer-identity.md
+- name: Skills
+  items:
+  - name: Skill selection
+    href: skill-selection.md
+  - name: Typed skills
+    href: typed-skills.md
+  - name: Skill authorization
+    href: skill-authorization.md
+- name: Integrations
+  items:
+  - name: Microsoft.Extensions.AI
+    href: extensions-ai.md
+  - name: Conversation memory
+    href: conversation-memory.md
+  - name: MCP bridge
+    href: mcp-bridge.md
+  - name: v0.3 compatibility
+    href: v03-compatibility.md
+- name: Run in production
+  items:
+  - name: Production checklist
+    href: production-checklist.md
+  - name: Multi-tenancy
+    href: multi-tenancy.md
+  - name: Durable stores
+    href: durable-stores.md
+  - name: Retention
+    href: retention.md
+  - name: Artifact storage
+    href: artifact-storage.md
+  - name: Observability
+    href: observability.md
+  - name: Audit trail
+    href: audit.md
+  - name: Limits and rate limiting
+    href: limits-and-rate-limiting.md
+  - name: Execution limits and budgets
+    href: execution-limits.md
+  - name: Client resilience
+    href: client-resilience.md
+  - name: Task safety
+    href: task-safety.md
+- name: Test and reference
+  items:
+  - name: Testing your agent
+    href: testing.md
+  - name: Interop and conformance
+    href: interop-and-conformance.md
+  - name: Command line tool
+    href: cli.md
+  - name: Spec decisions
+    href: spec-decisions.md
+  - name: Versioning
+    href: versioning.md

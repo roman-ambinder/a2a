@@ -28,6 +28,7 @@ to the client's `AgentUrl`, and the card fetch is signed too.
   sends `UNSIGNED-PAYLOAD`, for services that accept it.
 - Signing adds `Authorization`, `x-amz-date`, `x-amz-content-sha256` and `x-amz-security-token`. The URI is not
   changed. The inner handler must not follow redirects.
+- `AgentOrigin` must be HTTPS unless it is a loopback address (`RequireHttps`, default true).
 - Depends on `AWSSDK.Core` for credentials only; the signer is in this package. Targets .NET 10.
 
 Guide: [Identity providers](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/identity-providers.md#aws-iam-sigv4).

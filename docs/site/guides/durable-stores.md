@@ -1,6 +1,6 @@
 # Durable stores and several instances
 
-The default stores live in memory. That is fine for development and tests. It is not enough when tasks must survive a restart, or when more than one instance serves the same agent. This guide shows the Postgres stores and coordinator, the Redis event bus and coordinator, and what to check at startup.
+The default stores live in memory. That is fine for development and tests. It is not enough when tasks must survive a restart, or when more than one instance serves the same agent. This guide shows the Postgres stores and coordinator, the Redis event bus and coordinator, and what to check at startup. The execution coordinator is the part that tracks which agent runs are live, holds a lease (a claim renewed by heartbeats) for each, and carries CancelTask between instances.
 
 ## When in-memory stops being enough
 
@@ -27,7 +27,7 @@ Each task change, its event and its push deliveries are written in one transacti
 
 | Option | Default | Meaning |
 |---|---|---|
-| `Schema` | `public` | Schema of the `a2a_*` tables. Letters, digits and underscores only. |
+| `Schema` | `public` | Schema of the `a2a_*` tables. Letters, digits and underscores, not starting with a digit, at most 63 characters. |
 | `CreateSchemaOnStartup` | `true` | A hosted service applies the missing schema migrations at startup, in one transaction under an advisory lock, so many instances can start together. When `false`, the app refuses to start unless the database version matches the package. |
 | `CleanupInterval` | 5 minutes | How often expired event logs and finished idempotency entries are deleted. Zero or `Timeout.InfiniteTimeSpan` turns it off. |
 | `IdempotencyClaimTimeout` | 2 minutes | How long a running request holds its idempotency key before another request may take it. `Timeout.InfiniteTimeSpan` means never. |
@@ -110,13 +110,14 @@ Push configs hold tokens and credentials. They are stored protected. The default
 
 ## Startup diagnostics
 
-The server logs these once at startup. Nothing throws, so a host that does not use the feature still starts. The Postgres schema check is separate: with `CreateSchemaOnStartup = false` it does stop startup on a version mismatch (see **Schema** above).
+The server logs these once at startup. They never stop the host, so a host that does not use the feature still starts. Two checks are separate and do stop startup: the Postgres schema check with `CreateSchemaOnStartup = false` on a version mismatch (see **Schema** above), and an artifact object store registered without `ArtifactStorage.PublicBaseUrl` (see [Artifact storage](artifact-storage.md)).
 
 | Event | Level | When |
 |---|---|---|
 | 251 | Error | The push outbox is durable and the push secret protector is the per-process one. |
 | 252 | Warning | The task store is durable and the execution coordinator is the in-memory one. A crash leaves the running tasks unrecovered. |
 | 253 | Warning | The task store is durable and the retention sweep is not registered. |
+| 255 | Warning | The task store is durable and artifact objects are in the in-memory object store. Stored links stop working after a restart. |
 | 257 | Warning | The event bus spans instances (Redis, or your own) and the task, event or idempotency store is the in-memory one. Events cross instances, but the other instances cannot read the tasks and events kept in this process. |
 | 250 | Debug | The checks were skipped because the registrations are broken. |
 
@@ -143,7 +144,7 @@ Replace the parts that belong together: `TaskStore`, `EventStore` and `PushOutbo
 
 Implement:
 
-- <xref:A2A.Server.Storage.TaskStore>: `GetAsync`, `CreateAsync`, `UpdateAsync`, `CommitAsync`, `ListAsync`, `GetContextAsync`, `GetOrCreateContextAsync`, and the maintenance members `DeleteAsync`, `ListExpiredAsync`, `ListInterruptedBeforeAsync`, `GetForMaintenanceAsync`, `DeleteContextAsync`, `ListOrphanContextsAsync`.
+- <xref:A2A.Server.Storage.TaskStore>: `GetAsync`, `CreateAsync`, `UpdateAsync`, `CommitAsync`, `ListAsync`, `GetContextAsync`, `GetOrCreateContextAsync`, and the maintenance members that retention uses: `DeleteAsync`, `ListExpiredAsync`, `ListInterruptedBeforeAsync`, `GetForMaintenanceAsync` (reads a task whoever owns it), `DeleteContextAsync`, `ListOrphanContextsAsync`.
 - <xref:A2A.Server.Storage.EventStore>: `AppendAsync`, `ReadAfterAsync`, `OldestRetainedAsync`, `LastSequenceAsync`, `MarkTerminalAsync`, `DeleteAsync`.
 - `PushConfigStore`, `PushOutbox` and `IdempotencyStore` (including `RenewAsync`).
 - `ExecutionCoordinator` is optional. The in-memory one is the default, but it cannot recover tasks after a crash. Prefer a durable one.
