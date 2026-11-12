@@ -26,7 +26,14 @@ All `RomanAmbinder.A2A.*` packages that you use together must have the same vers
 | Host an agent over JSON-RPC and HTTP+JSON | `A2A.Server.AspNetCore` |
 | Also host over gRPC | add `A2A.Server.Grpc` |
 | Call agents | `A2A.Client` (add `A2A.Client.DependencyInjection` for DI and auth handlers, `A2A.Client.Grpc` for gRPC) |
+| Call agents with Azure managed identity or AWS IAM | add `A2A.Client.Identity.Azure` or `A2A.Client.Identity.Aws`. See [Identity providers](identity-providers.md) |
+| Host an `IChatClient` as an agent, or use an agent as an AI tool | `A2A.Extensions.AI`. See [Microsoft.Extensions.AI](extensions-ai.md) |
+| Bridge to MCP | `A2A.Mcp`. See [MCP bridge](mcp-bridge.md) |
+| Give skills .NET input and output types (experimental) | `A2A.Server.TypedSkills`. See [Typed skills](typed-skills.md) |
 | Run in production | add `A2A.Server.Postgres`, and `A2A.Server.Redis` for several instances. See [Durable stores](durable-stores.md) |
+| Keep large artifacts in object storage | `A2A.Server.Storage.S3` or `A2A.Server.Storage.AzureBlob`. See [Artifact storage](artifact-storage.md) |
+| Keep a durable list of the messages your agent sends to peers | `A2A.Client.Postgres`. See [Client outbox](client-outbox.md) |
+| Talk to v0.3 agents or clients | `A2A.Client.V0_3Compat` or `A2A.Server.V0_3Compat`. See [v0.3 compatibility](v03-compatibility.md) |
 | Test an agent | `A2A.TestKit`. See [Testing your agent](testing.md) |
 | Use the command line | the `RomanAmbinder.A2A.Cli` dotnet tool. See [Command line tool](cli.md) |
 
