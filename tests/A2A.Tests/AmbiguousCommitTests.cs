@@ -134,6 +134,53 @@ public class AmbiguousCommitTests
         Assert.True(task.Status.State == TaskState.Completed, summary);
     }
 
+    private static readonly IEnumerable<string?> ManyChunkParts =
+        Enumerable.Range(0, 21).Select(i => (string?)i.ToString(CultureInfo.InvariantCulture)).ToList();
+
+    [Theory]
+    [InlineData(Failure.Timeout)]
+    [InlineData(Failure.Conflict)]
+    public async Task An_applied_middle_append_whose_answer_is_lost_stores_the_chunk_once(Failure failure)
+    {
+        // "many-chunks": chunk "0" creates the artifact, chunks "1" to "20" append, an empty chunk ends it. Commit 2 is
+        // chunk "1": an append that is not the last chunk, so the artifact is still open and would take the chunk again.
+        var (task, log) = await RunAsync(inner => new LookupStore(inner, failure, failingArtifactCommit: 2), "many-chunks");
+
+        var summary = Describe(task, log);
+        Assert.True(Parts(task).SequenceEqual(ManyChunkParts), summary);
+        Assert.True(log.Count(e => e.Event is ArtifactUpdateEvent) == 22, summary);
+        Assert.True(task.Status.State == TaskState.Completed, summary);
+    }
+
+    [Fact]
+    public async Task Without_the_lookup_a_conflict_on_a_middle_append_stores_the_chunk_twice()
+    {
+        // Known defect, kept visible on purpose (ADR-002). The engine takes the conflict for another writer's change,
+        // reads the task again and applies the chunk again. The artifact is still open, so the append is accepted, and
+        // "1" ends up in the task twice and in the event log twice. The shipped stores never raise this conflict for
+        // their own write. A store that retries a commit internally must implement ITaskCommitLookup. When this is
+        // fixed, this test fails: change it to expect each chunk once.
+        var (task, log) = await RunAsync(inner => new AmbiguousTaskStore(inner, Failure.Conflict, failingArtifactCommit: 2), "many-chunks");
+
+        var summary = Describe(task, log);
+        var twice = ManyChunkParts.Take(2).Append("1").Concat(ManyChunkParts.Skip(2));
+        Assert.True(Parts(task).SequenceEqual(twice), summary);
+        Assert.True(log.Count(e => e.Event is ArtifactUpdateEvent) == 23, summary);
+        Assert.True(task.Status.State == TaskState.Completed, summary);
+    }
+
+    [Fact]
+    public async Task Without_the_lookup_a_lost_answer_on_a_middle_append_fails_the_run()
+    {
+        // As for the first chunk: the engine cannot tell whether the commit was stored, so it fails the run. What was
+        // stored stays: the chunk whose answer was lost is in the task once.
+        var (task, log) = await RunAsync(inner => new AmbiguousTaskStore(inner, Failure.Timeout, failingArtifactCommit: 2), "many-chunks");
+
+        var summary = Describe(task, log);
+        Assert.True(task.Status.State == TaskState.Failed, summary);
+        Assert.True(Parts(task).SequenceEqual(ManyChunkParts.Take(2)), summary);
+    }
+
     [Theory]
     [InlineData(Failure.Timeout)]
     [InlineData(Failure.Conflict)]

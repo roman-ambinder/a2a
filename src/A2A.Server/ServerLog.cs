@@ -358,4 +358,10 @@ internal static partial class ServerLog
             "Security event {SecurityEvent} in {Operation}: tenant '{Tenant}', resource {ResourceId}, principal hash {PrincipalHash}")]
     public static partial void SecurityEventWarning(ILogger logger, string securityEvent, string operation,
         string tenant, string? resourceId, string principalHash);
+
+    [LoggerMessage(EventId = 1202, Level = LogLevel.Warning,
+        Message =
+            "Security event anomaly {AnomalyKind} in {Operation}: {Count} within one minute, over the threshold of {Threshold}; tenant '{Tenant}', principal hash {PrincipalHash}")]
+    public static partial void SecurityAnomaly(ILogger logger, string anomalyKind, string operation, int count,
+        int threshold, string tenant, string principalHash);
 }

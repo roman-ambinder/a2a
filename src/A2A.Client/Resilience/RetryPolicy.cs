@@ -83,7 +83,7 @@ public static class RetryPolicy
     ///     True when the SSRF guard refused the target, thrown directly or wrapped by the handler around its connect
     ///     callback.
     /// </summary>
-    private static bool IsBlockedAddress(HttpRequestException error) =>
+    internal static bool IsBlockedAddress(HttpRequestException error) =>
 #if NETSTANDARD2_0
         false; // the netstandard2.0 build has no SSRF guard
 #else
@@ -97,7 +97,7 @@ public static class RetryPolicy
     ///     retry cannot duplicate work. Everything else (a reset mid-request or mid-response, an early end of the response,
     ///     unknown) may have reached it.
     /// </summary>
-    private static bool NeverReachedServer(HttpRequestException error) =>
+    internal static bool NeverReachedServer(HttpRequestException error) =>
 #if NETSTANDARD2_0
         // netstandard2.0 has no HttpRequestError, so it cannot tell. Not retrying is the safe answer.
         false;
@@ -105,6 +105,27 @@ public static class RetryPolicy
         error.HttpRequestError is HttpRequestError.ConnectionError or HttpRequestError.NameResolutionError
             or HttpRequestError.ProxyTunnelError or HttpRequestError.SecureConnectionError;
 #endif
+
+    /// <summary>
+    ///     True when <paramref name="error" /> proves that no request reached the server: the first
+    ///     <see cref="HttpRequestException" /> in its <see cref="Exception.InnerException" /> chain is one that
+    ///     <see cref="NeverReachedServer(HttpRequestException)" /> accepts and the SSRF guard did not refuse. The chain is walked
+    ///     because a transport may wrap the failure, as the gRPC transport does (an <see cref="A2AException" /> over the
+    ///     <c>RpcException</c>, whose inner exception is the <see cref="HttpRequestException" />). A cancellation or timeout
+    ///     is never such a proof. Used by interface fallback (<see cref="A2AClientOptions.InterfaceFallback" />).
+    /// </summary>
+    internal static bool ProvablyUnsent(Exception error)
+    {
+        if (error is OperationCanceledException) return false;
+        var depth = 0;
+        for (var e = error; e is not null && depth < 8; e = e.InnerException, depth++)
+        {
+            if (e is OperationCanceledException) return false;
+            if (e is HttpRequestException transport) return !IsBlockedAddress(transport) && NeverReachedServer(transport);
+        }
+
+        return false;
+    }
 
     /// <summary>
     ///     Wait before attempt <paramref name="nextAttempt" /> (2 or later): the server's value, else 200 ms * 2^(n-2) +-20 %,

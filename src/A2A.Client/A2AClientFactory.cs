@@ -39,20 +39,60 @@ public static class A2AClientFactory
         return Build(card, httpClient, options);
     }
 
-    private static A2AClient Build(AgentCard card, HttpClient httpClient, A2AClientOptions options)
+    /// <param name="card">The card.</param>
+    /// <param name="httpClient">The HTTP client of every transport.</param>
+    /// <param name="options">The client's copy of the options; set to the selected interface's tenant and version.</param>
+    /// <param name="fallbackAllowed">
+    ///     With <see cref="A2AClientOptions.InterfaceFallback" />: which other interfaces may be fallback candidates (the
+    ///     credentialed client keeps only those its credentials may go to). Null: all of them.
+    /// </param>
+    private static A2AClient Build(AgentCard card, HttpClient httpClient, A2AClientOptions options,
+        Func<AgentInterface, bool>? fallbackAllowed = null)
     {
-        var selected = SelectInterface(card, options)
-                       ?? throw NoInterface(card, options);
+        // Without fallback only the selected interface is looked at, as before fallback existed.
+        var acceptable = options.InterfaceFallback
+            ? AcceptableInterfaces(card, options).ToList()
+            : SelectInterface(card, options) is { } only ? [only] : [];
+        var selected = acceptable.FirstOrDefault() ?? throw NoInterface(card, options);
+        // Each fallback transport gets its own copy, set up for its interface from the caller's options as for the selected one.
+        var unconfigured = acceptable.Count > 1 ? options.Clone() : null;
 
+        ConfigureFor(selected, options);
+        var primary = CreateTransport(selected, httpClient, options);
+        if (unconfigured is null) return new A2AClient(primary, options, card);
+
+        // A2AClient fills request.Tenant from its options, so a fallback must have the same tenant (null and empty are equal).
+        var tenant = NullIfEmpty(selected.Tenant);
+        var candidates = new List<(AgentInterface, Func<IA2AClient>)> { (selected, () => primary) };
+        foreach (var itf in acceptable.Skip(1))
+        {
+            if (!string.Equals(NullIfEmpty(itf.Tenant), tenant, StringComparison.Ordinal)) continue;
+            if (fallbackAllowed is not null && !fallbackAllowed(itf)) continue;
+            candidates.Add((itf, () =>
+            {
+                var copy = unconfigured.Clone();
+                ConfigureFor(itf, copy);
+                return CreateTransport(itf, httpClient, copy);
+            }));
+        }
+
+        return candidates.Count == 1
+            ? new A2AClient(primary, options, card)
+            : new A2AClient(new FallbackTransport(candidates, primary), options, card);
+    }
+
+    /// <summary>Sets the tenant and protocol version of <paramref name="options" /> from the interface.</summary>
+    private static void ConfigureFor(AgentInterface selected, A2AClientOptions options)
+    {
         if (!string.IsNullOrEmpty(selected.Tenant)) options.Tenant = selected.Tenant;
         // Major.Minor only: a card that lists "1.0.2" is called with A2A-Version 1.0 (spec §3.6).
         options.ProtocolVersion = A2AProtocol.ToMajorMinor(
             selected.ProtocolVersion is { Length: > 0 } v && Major(v) == Major(options.ProtocolVersion)
                 ? v
                 : options.ProtocolVersion)!;
-
-        return new A2AClient(CreateTransport(selected, httpClient, options), options, card);
     }
+
+    private static string? NullIfEmpty(string? value) => string.IsNullOrEmpty(value) ? null : value;
 
     private static IA2AClient CreateTransport(AgentInterface selected, HttpClient httpClient,
         A2AClientOptions options)
@@ -198,13 +238,39 @@ public static class A2AClientFactory
         await EnsureEndpointsAllowedAsync(resolved.Card, resolved.Source, copy, cancellationToken)
             .ConfigureAwait(false);
         var selected = SelectInterface(resolved.Card, copy) ?? throw NoInterface(resolved.Card, copy);
-        var binding = A2ACredentialBinding.Create(resolved, selected, providers, resolverOptions?.RequireHttps ?? true);
+        var requireHttps = resolverOptions?.RequireHttps ?? true;
+        var binding = A2ACredentialBinding.Create(resolved, selected, providers, requireHttps);
         var client = new HttpClient(new A2ACredentialHandler(binding, primary))
         {
             Timeout = Timeout.InfiniteTimeSpan,
             MaxResponseContentBufferSize = MaxResponseBytes
         };
-        return Build(resolved.Card, client, copy);
+        // A fallback interface must pass the checks the selected one passed when credentials are sent.
+        return Build(resolved.Card, client, copy, CredentialFallbackFilter(resolved, binding, providers, requireHttps));
+    }
+
+    /// <summary>
+    ///     Which fallback interfaces credentials bound by <paramref name="binding" /> may go to: those that pass the checks
+    ///     <see cref="A2ACredentialBinding.Create" /> made for the selected one (the card's origin, HTTPS, no gRPC through the
+    ///     <see cref="HttpClient" />). Null (all of them) when the binding applies no credentials: nothing can leak.
+    /// </summary>
+    private static Func<AgentInterface, bool>? CredentialFallbackFilter(ResolvedAgentCard card,
+        A2ACredentialBinding binding, IEnumerable<IA2ACredentialProvider> providers, bool requireHttps)
+    {
+        if (binding.Pairs.Count == 0) return null;
+        var list = providers.ToList();
+        return itf =>
+        {
+            try
+            {
+                A2ACredentialBinding.Create(card, itf, list, requireHttps);
+                return true;
+            }
+            catch (Exception ex) when (ex is A2AException or NotSupportedException)
+            {
+                return false;
+            }
+        };
     }
 
     /// <summary>
@@ -372,6 +438,16 @@ public static class A2AClientFactory
     /// </summary>
     public static AgentInterface? SelectInterface(AgentCard card, A2AClientOptions options)
     {
+        return AcceptableInterfaces(card, options).FirstOrDefault();
+    }
+
+    /// <summary>
+    ///     Every interface <see cref="SelectInterface" /> would accept, in the card's order: its binding is supported, its
+    ///     major version matches, and a transport can be built for it. The first one is the selected interface; the others
+    ///     are the fallback candidates of <see cref="A2AClientOptions.InterfaceFallback" />.
+    /// </summary>
+    internal static IEnumerable<AgentInterface> AcceptableInterfaces(AgentCard card, A2AClientOptions options)
+    {
         var major = Major(options.ProtocolVersion);
         foreach (var itf in card.SupportedInterfaces ?? [])
         {
@@ -379,16 +455,14 @@ public static class A2AClientFactory
             if (Major(itf.ProtocolVersion) != major) continue;
             if (FactoryFor(options, itf.ProtocolBinding) is { } factory)
             {
-                if (factory.CanCreate(itf)) return itf;
+                if (factory.CanCreate(itf)) yield return itf;
                 continue;
             }
 
             if (itf.ProtocolBinding is not (ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson)) continue;
             if (!Uri.TryCreate(itf.Url, UriKind.Absolute, out _)) continue;
-            return itf;
+            yield return itf;
         }
-
-        return null;
     }
 
     private static IA2ATransportFactory? FactoryFor(A2AClientOptions options, string binding)

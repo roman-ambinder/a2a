@@ -29,6 +29,9 @@ internal static class ServerTelemetry
     /// <summary>Tag of <see cref="ExecutionsRejected" />: why the start was refused.</summary>
     public const string RejectionReasonTag = "a2a.rejection.reason";
 
+    /// <summary>Tag of <see cref="Anomalies" />: <see cref="AnomalyDetector.TaskCreation" /> or <see cref="AnomalyDetector.Cancellation" />.</summary>
+    public const string AnomalyKindTag = "a2a.anomaly.kind";
+
     private static readonly string? Version = typeof(ServerTelemetry).Assembly.GetName().Version?.ToString();
 
     public static readonly ActivitySource Source = new(A2ATelemetry.ServerSourceName, Version);
@@ -57,6 +60,11 @@ internal static class ServerTelemetry
         Meter.CreateCounter<long>(A2ATelemetry.Metrics.SecurityEvents,
             description:
             "Security events: unauthenticated and denied calls, refused contexts and webhooks, reused idempotency keys.");
+
+    public static readonly Counter<long> Anomalies =
+        Meter.CreateCounter<long>("a2a.server.anomalies",
+            description:
+            "Callers that created tasks or canceled them faster than the anomaly detector allows, by a2a.anomaly.kind: task_creation or cancellation. Once per caller and window.");
 
     public static readonly Counter<long> ObjectsWritten =
         Meter.CreateCounter<long>("a2a.server.artifact.objects.written",

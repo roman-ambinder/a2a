@@ -80,8 +80,9 @@ public sealed class LogEventIdTests
     [Fact]
     public void Security_events_keep_their_documented_ids()
     {
-        var ids = EventIds().Where(e => e.Where.Contains(".SecurityEvent", StringComparison.Ordinal)).Select(e => e.Id);
+        // 1200 information, 1201 warning, 1202 anomaly (observability guide, spec decisions).
+        var ids = EventIds().Where(e => e.Where.Contains("ServerLog.Security", StringComparison.Ordinal)).Select(e => e.Id);
 
-        Assert.Equal([1200, 1201], ids.Order());
+        Assert.Equal([1200, 1201, 1202], ids.Order());
     }
 }
