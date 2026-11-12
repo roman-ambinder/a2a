@@ -92,6 +92,30 @@ public class ClientFactoryTests
     }
 
     [Fact]
+    public void RequireExactProtocolVersion_never_falls_back_to_v03_from_a_v1_card()
+    {
+        // The card offers v1.0 and v0.3; a 1.1 client that requires its exact minor may not fall back to an older minor
+        // (spec 3.6.3), so it may not fall back to an older major either.
+        var card = CardWith(Itf(Rpc, "http://agent.test/new", "1.0"), Itf(Rpc, "http://agent.test/old", "0.3"));
+        var options = new A2AClientOptions { ProtocolVersion = "1.1", RequireExactProtocolVersion = true };
+
+        var ex = Assert.Throws<A2AException>(() => V03CompatClientFactory.Create(card, new HttpClient(), options));
+
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
+    }
+
+    [Fact]
+    public async Task Without_RequireExactProtocolVersion_a_newer_v1_card_still_falls_back_to_its_v03_interface()
+    {
+        // A 1.0 client and a card with 1.1 and 0.3: the client cannot speak 1.1, and the agent offers 0.3.
+        var server = Server();
+        var card = CardWith(Itf(Rpc, "http://agent.test/new", "1.1"), Itf(Rpc, "http://agent.test/old", "0.3"));
+        await V03CompatClientFactory.Create(card, server.Client()).SendMessageAsync("hi");
+        Assert.Equal("/old", server.Last.PathAndQuery);
+        Assert.Equal("0.3", server.Last.Header("A2A-Version"));
+    }
+
+    [Fact]
     public void A_card_with_no_usable_interface_is_refused()
     {
         var grpcOnly = CardWith(Itf(ProtocolBindings.Grpc, "http://agent.test:50051", "0.3"));

@@ -333,4 +333,18 @@ public class GrpcCompatTests
         Assert.Equal("why", back.Message);
         Assert.Equal(A2AErrorCode.TaskNotFound, V03GrpcErrors.FromStatus(5, "no prefix").Code); // a peer without the prefix
     }
+
+    [Fact]
+    public void An_unavailable_status_is_a_connection_failure_the_stream_retries()
+    {
+        // UNAVAILABLE (14) is how a dropped connection or a restarting server reaches a gRPC client. As on the v1 path
+        // (GrpcErrors), it carries HTTP 503, which ResumableStream treats as a connection failure and reconnects after.
+        var dropped = V03GrpcErrors.FromStatus(14, "Error starting gRPC call. HttpRequestException: connection refused");
+        Assert.Equal(503, dropped.HttpStatus);
+
+        // A named error keeps its own meaning, whatever the status.
+        var named = V03GrpcErrors.FromStatus(14, "TaskNotFoundError: gone");
+        Assert.Equal(A2AErrorCode.TaskNotFound, named.Code);
+        Assert.Null(named.HttpStatus);
+    }
 }

@@ -158,6 +158,11 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- v0.3 gRPC client: an `UNAVAILABLE` status (a dropped connection, a restarting server) carries HTTP 503, as on the v1
+  gRPC path. A v0.3 gRPC stream now reconnects with backoff instead of ending with Internal.
+- `V03CompatClientFactory`: with `RequireExactProtocolVersion`, a card whose v1.x interfaces the exact-version rule
+  refuses is no longer downgraded to its v0.3 interface. It is refused as `A2AClientFactory` refuses it, naming those
+  interfaces (spec 3.6.3). Without the option, a v0.3 interface is still the fallback.
 - Agent Framework: deleting a shared context deletes every caller's stored session, not only the owner's. Sessions are
   saved per caller, so the sessions of callers that `ContextAccess` let into another owner's context stayed in the store
   for good, with their whole conversation. A per-context index session (owner partition `i:`) now records the callers.
