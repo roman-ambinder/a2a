@@ -20,7 +20,7 @@ namespace A2A.Server.Postgres;
 ///     same
 ///     data source, <see cref="StreamingOptions" /> and schema.
 /// </summary>
-public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchTaskCommit
+public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchTaskCommit, ITaskCommitLookup
 {
     // state is stored as the TaskState number; these are the SQL lists of the two groups.
     private static readonly string TerminalStates =
@@ -114,7 +114,7 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         {
             var eventBytes = EventEncoder.EnsureEncoded(e.Event).Json;
             var seq = await AppendEventAsync(conn, tx, _eventTables, key, Encoding.UTF8.GetString(eventBytes.Span),
-                    capacity, now, cancellationToken)
+                    capacity, now, cancellationToken, first == 0 ? commit.MutationId : null)
                 .ConfigureAwait(false);
             if (first == 0) first = seq;
             if (e.Deliveries.Count == 0) continue;
@@ -127,6 +127,22 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
             await deliveries.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         await tx.CommitAsync(CancellationToken.None).ConfigureAwait(false);
         return new BatchCommitResult(stored, first);
+    }
+
+    /// <summary>
+    ///     Reads the sequence of the retained event whose commit had <paramref name="mutationId" /> (column
+    ///     <c>mutation_id</c> of <c>a2a_events</c>, migration 0006). Only the task's retained events are searched.
+    /// </summary>
+    /// <inheritdoc />
+    public async ValueTask<long?> FindCommitAsync(TaskKey task, string mutationId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutationId);
+        await using var cmd = _db.CreateCommand(
+            $"SELECT seq FROM {_eventTables.Events} WHERE tenant = $1 AND owner = $2 AND task_id = $3 AND mutation_id = $4 LIMIT 1");
+        AddKey(cmd.Parameters, task);
+        cmd.Parameters.Add(TextParam(mutationId));
+        return await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is long seq ? seq : null;
     }
 
     /// <inheritdoc />
@@ -233,7 +249,7 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
 
         var now = _clock.NowTicks; // log and outbox deadlines; null = the database clock
         var seq = await AppendEventAsync(conn, tx, _eventTables, key, eventJson,
-            Math.Max(1, _streaming.ReplayBufferSize), now, cancellationToken).ConfigureAwait(false);
+            Math.Max(1, _streaming.ReplayBufferSize), now, cancellationToken, commit.MutationId).ConfigureAwait(false);
         if (commit.Deliveries.Count > 0)
         {
             var payload = eventBytes.ToArray(); // the webhook body, stored with the event
