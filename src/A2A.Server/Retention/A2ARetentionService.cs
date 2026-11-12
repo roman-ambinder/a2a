@@ -3,6 +3,7 @@ using A2A.Server.Execution;
 using A2A.Server.Storage;
 using A2A.Server.Telemetry;
 using A2A.Server.Uploads;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -42,7 +43,7 @@ namespace A2A.Server.Retention;
 ///         </item>
 ///         <item>
 ///             deletes the contexts older than <see cref="A2ARetentionOptions.OrphanContextRetention" /> that no task
-///             uses;
+///             uses, and tells every <see cref="IA2AContextLifecycle" /> about each one;
 ///         </item>
 ///         <item>
 ///             when an <see cref="ArtifactObjectStore" /> is registered, deletes the artifact objects older than
@@ -87,6 +88,7 @@ public sealed class A2ARetentionService : BackgroundService
     private readonly TaskExecutionEngine _engine;
     private readonly TimeSpan? _interruptedTimeout;
     private readonly TimeSpan _leaseTtl;
+    private readonly IA2AContextLifecycle[] _lifecycles;
     private readonly ILogger _logger;
     private readonly ArtifactObjectStore? _objects;
 
@@ -112,10 +114,39 @@ public sealed class A2ARetentionService : BackgroundService
     /// <param name="logger">Optional logger.</param>
     /// <param name="time">The clock for the cut-offs and the sweep interval. Default <see cref="TimeProvider.System" />.</param>
     /// <param name="objects">The artifact object store. Without it there is no orphan object step.</param>
+    /// <remarks>
+    ///     Kept for code built against an earlier version. New code uses the constructor that also takes the context
+    ///     lifecycle hooks; its last four parameters are optional.
+    /// </remarks>
     public A2ARetentionService(IOptions<A2ARetentionOptions> options, A2AServerOptions serverOptions, TaskStore tasks,
         ExecutionCoordinator coordinator, TaskExecutionEngine engine, A2ATaskAdmin admin,
-        ILogger<A2ARetentionService>? logger = null,
-        TimeProvider? time = null, ArtifactObjectStore? objects = null)
+        ILogger<A2ARetentionService>? logger, TimeProvider? time, ArtifactObjectStore? objects)
+        : this(options, serverOptions, tasks, coordinator, engine, admin, logger, time, objects, null)
+    {
+    }
+
+    /// <summary>
+    ///     Creates the sweep with hooks that hear of every context it deletes. In an app the DI container does this
+    ///     (<c>AddA2ARetention</c>), with every registered <see cref="IA2AContextLifecycle" />.
+    /// </summary>
+    /// <param name="options">The sweep settings.</param>
+    /// <param name="serverOptions">
+    ///     Server options (<see cref="A2AServerOptions.InterruptedTimeout" />,
+    ///     <see cref="A2AServerOptions.Coordination" />).
+    /// </param>
+    /// <param name="tasks">The task store.</param>
+    /// <param name="coordinator">The execution coordinator (expired leases, the sweep lease).</param>
+    /// <param name="engine">Commits status changes through the normal path and cancels executions.</param>
+    /// <param name="admin">Deletes expired tasks with their data.</param>
+    /// <param name="logger">Optional logger.</param>
+    /// <param name="time">The clock for the cut-offs and the sweep interval. Default <see cref="TimeProvider.System" />.</param>
+    /// <param name="objects">The artifact object store. Without it there is no orphan object step.</param>
+    /// <param name="lifecycles">Called for each context the sweep deletes, in order. Null or empty for none.</param>
+    /// <exception cref="ArgumentException"><paramref name="lifecycles" /> contains null.</exception>
+    public A2ARetentionService(IOptions<A2ARetentionOptions> options, A2AServerOptions serverOptions, TaskStore tasks,
+        ExecutionCoordinator coordinator, TaskExecutionEngine engine, A2ATaskAdmin admin,
+        ILogger<A2ARetentionService>? logger = null, TimeProvider? time = null, ArtifactObjectStore? objects = null,
+        IEnumerable<IA2AContextLifecycle>? lifecycles = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(serverOptions);
@@ -129,11 +160,36 @@ public sealed class A2ARetentionService : BackgroundService
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _time = time ?? TimeProvider.System;
         _objects = objects;
+        _lifecycles = lifecycles?.ToArray() ?? [];
+        if (Array.IndexOf(_lifecycles, null) >= 0)
+            throw new ArgumentException("A context lifecycle hook is null.", nameof(lifecycles));
         _orphanGracePeriod = serverOptions.ArtifactStorage.OrphanGracePeriod;
         _orphanSweepInterval = serverOptions.ArtifactStorage.OrphanSweepInterval;
         // Built here, not injected: the sweep only needs the store, the options and the clock.
         if (objects is not null && serverOptions.ArtifactStorage.Uploads.Enabled)
             _uploads = new InboundFiles(objects, serverOptions.ArtifactStorage, _time, logger);
+    }
+
+    /// <summary>
+    ///     Creates the sweep from <paramref name="services" />, as <c>AddA2ARetention</c> registers it: the required
+    ///     services, the optional logger, clock and artifact object store when registered, and every
+    ///     <see cref="IA2AContextLifecycle" />. <paramref name="options" /> replaces the registered
+    ///     <see cref="A2ARetentionOptions" /> when given.
+    /// </summary>
+    internal static A2ARetentionService FromServices(IServiceProvider services,
+        IOptions<A2ARetentionOptions>? options = null)
+    {
+        return new A2ARetentionService(
+            options ?? services.GetRequiredService<IOptions<A2ARetentionOptions>>(),
+            services.GetRequiredService<A2AServerOptions>(),
+            services.GetRequiredService<TaskStore>(),
+            services.GetRequiredService<ExecutionCoordinator>(),
+            services.GetRequiredService<TaskExecutionEngine>(),
+            services.GetRequiredService<A2ATaskAdmin>(),
+            services.GetService<ILogger<A2ARetentionService>>(),
+            services.GetService<TimeProvider>(),
+            services.GetService<ArtifactObjectStore>(),
+            services.GetServices<IA2AContextLifecycle>());
     }
 
     /// <summary>Checks the options (<see cref="ValidateOptions" />), then starts sweeping.</summary>
@@ -445,8 +501,34 @@ public sealed class A2ARetentionService : BackgroundService
         // False: a task uses it again, or it is gone already. Either way it is not an orphan to delete now.
         return BatchesAsync("orphan context", (max, c) => _tasks.ListOrphanContextsAsync(cutoff, max, c),
             async (context, c) =>
-                await _tasks.DeleteContextAsync(context.Tenant, context.ContextId, c).ConfigureAwait(false),
+            {
+                if (!await _tasks.DeleteContextAsync(context.Tenant, context.ContextId, c).ConfigureAwait(false))
+                    return false;
+                await NotifyContextDeletedAsync(context, c).ConfigureAwait(false);
+                return true;
+            },
             context => context.ContextId, cancellationToken);
+    }
+
+    /// <summary>
+    ///     Tells every hook. Each one is isolated: a failure is logged, and the next hook still hears of the context. The
+    ///     context is deleted already, so the item counts as done either way.
+    /// </summary>
+    private async Task NotifyContextDeletedAsync(ContextRecord context, CancellationToken cancellationToken)
+    {
+        foreach (var lifecycle in _lifecycles)
+            try
+            {
+                await lifecycle.OnContextDeletedAsync(context, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                ServerLog.ContextLifecycleHookFailed(_logger, ex, lifecycle.GetType().Name, context.ContextId);
+            }
     }
 
     /// <summary>

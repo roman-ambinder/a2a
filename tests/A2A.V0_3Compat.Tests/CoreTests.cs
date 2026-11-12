@@ -112,7 +112,7 @@ public class SharedTests
         V03LossReporter.LegacyAgent("Old agent", "https://old.example/" + id, log);
 
         Assert.All(log.Entries, e => Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Warning, e.Level));
-        Assert.Equal([1002, 1002, 1000, 1003], log.Entries.Select(e => e.Id));
+        Assert.Equal([1602, 1602, 1600, 1603], log.Entries.Select(e => e.Id));
         Assert.Contains("op-" + id, log.Entries[0].Message, StringComparison.Ordinal);
         Assert.Contains("HTTP+JSON", log.Entries[1].Message, StringComparison.Ordinal);
         Assert.Contains("field-" + id, log.Entries[2].Message, StringComparison.Ordinal);

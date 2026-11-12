@@ -5,8 +5,8 @@
 #   samples/run-samples.sh echo mcp         # only the named ones
 #   samples/run-samples.sh --with-docker    # also the Docker samples: multi, storage, outbox
 #
-# Names: chat, elicitation, typed, echo, mcp, testing, grpc, v03, cli, tenant, observed, memory, client,
-#        multi, storage, outbox.
+# Names: chat, agentframework, elicitation, typed, echo, mcp, testing, grpc, v03, cli, tenant, observed, memory,
+#        client, multi, storage, outbox.
 # Each sample listens on 127.0.0.1 only. EchoAgent gets the hash of a throwaway API key made here.
 set -u
 
@@ -211,6 +211,7 @@ run_storage() { run_compose storage samples/ArtifactStorage/docker-compose.yml s
 run_outbox() { run_compose outbox samples/ClientOutbox/docker-compose.yml samples/ClientOutbox; }
 
 wanted chat        && run_self_contained chat samples/ChatAgent
+wanted agentframework && run_self_contained agentframework samples/AgentFrameworkAgent
 wanted elicitation && run_self_contained elicitation samples/ElicitationAgent
 wanted typed       && run_self_contained typed samples/TypedSkillAgent
 wanted echo        && run_echo

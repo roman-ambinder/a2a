@@ -298,6 +298,11 @@ public sealed class AnomalyDetectionTests
         // one thread scans, and callers that arrive while it removes entries are not tracked (the clock is frozen, so no
         // second scan runs). The scanning thread then adds its own caller, so at least one is tracked.
         clock.Advance(TimeSpan.FromMinutes(1));
+        // One caller first, alone: it runs the one scan that is due and frees the 100 ended entries. In parallel, that scan
+        // can still be running while most of the other calls find the table full and are not tracked (they do not wait
+        // for it), so how many of them then fit depended on thread timing.
+        detector.TaskCreated(Call("new-first"), "SendMessage");
+        Assert.Equal(1, detector.TrackedCallers);
         Parallel.For(0, 10_000, i => detector.TaskCreated(Call($"new-{i}"), "SendMessage"));
         Assert.InRange(detector.TrackedCallers, 1, 100);
     }

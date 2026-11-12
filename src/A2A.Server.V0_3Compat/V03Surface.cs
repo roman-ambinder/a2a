@@ -614,7 +614,8 @@ internal sealed partial class V03Surface
         return v03;
     }
 
-    [LoggerMessage(EventId = 1100, Level = LogLevel.Warning, Message = "Error after v0.3 JSON-RPC response started")]
+    // Event ids 1700-1799: the v0.3 server surface (A2A.Server.V0_3Compat).
+    [LoggerMessage(EventId = 1700, Level = LogLevel.Warning, Message = "Error after v0.3 JSON-RPC response started")]
     private static partial void ErrorAfterResponseStarted(ILogger logger, Exception exception);
 
     /// <summary>A body stream that throws <paramref name="error" /> on the first read.</summary>
