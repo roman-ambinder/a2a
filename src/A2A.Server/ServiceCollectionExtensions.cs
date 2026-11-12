@@ -122,7 +122,8 @@ public static class A2AServerServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         var options = services.AddOptions<A2ARetentionOptions>();
         if (configure is not null) options.Configure(configure);
-        services.TryAddSingleton<A2ARetentionService>();
+        // A factory: the service has two public constructors, and the hooks only reach the one that takes them.
+        services.TryAddSingleton(sp => A2ARetentionService.FromServices(sp));
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IHostedService, A2ARetentionService>(sp =>
                 sp.GetRequiredService<A2ARetentionService>()));

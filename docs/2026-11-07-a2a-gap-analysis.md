@@ -228,7 +228,7 @@ its Status line says.
 
 | # | What is still missing | Decision |
 |---|---|---|
-| D33 | No context lifecycle policy hook. | Open, on demand: added when there is a concrete use case. |
+| D33 | No context lifecycle policy hook. | Done: `IA2AContextLifecycle`, used by `A2A.Extensions.AgentFramework` (scoped agent per execution, `ReferenceTaskIds` in run options, every execution is a task); design: `docs/superpowers/specs/2026-11-12-agent-framework-adapter-design.md`. |
 
 Closed as not planned in this repository, with the extension points documented ("Write your own backend" in
 `docs/site/guides/durable-stores.md`):

@@ -29,6 +29,7 @@ Some APIs follow a contract that is not settled yet. They carry `[Experimental]`
 | `A2AEXP003` | Artifact integrity hash | Open issue: [A2A#1140](https://github.com/a2aproject/A2A/issues/1140) |
 | `A2AEXP004` | gRPC extension service | The wire shape is not in the A2A spec |
 | `A2AEXP005` | A2A 1.1 | The 1.1 spec is a release candidate (`v1.1.0-rc`) |
+| `A2AEXP006` | Agent Framework adapter | Agent Framework hosting and sessions are preview upstream |
 
 To opt in, add the ID to your project file:
 
@@ -89,6 +90,13 @@ several instances share must override it with an atomic check.
 
 The reasoning is in
 [ADR-001](https://github.com/roman-ambinder/a2a/blob/main/docs/adr/0001-store-contract-evolution.md).
+
+### A2AEXP006
+
+Every public type of `A2A.Extensions.AgentFramework`, starting with `A2AAgentKeys`. Agent Framework's session store
+(`AgentSessionStore`, `AgentSessionStoreKey`) is marked evaluation-only upstream (`MAAI001`), and so are its continuation
+tokens (`AgentRunOptions.ContinuationToken`, `AgentResponse.ContinuationToken`, `MEAI001`). Code that uses the
+adapter's stored sessions or background responses opts in to those IDs too.
 
 ## How a release works
 

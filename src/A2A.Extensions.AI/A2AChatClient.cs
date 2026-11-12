@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using A2A.Client;
+using A2A.Extensions.AI.Shared;
 using Microsoft.Extensions.AI;
 
 namespace A2A.Extensions.AI;
@@ -243,33 +244,11 @@ public sealed class A2AChatClient : IChatClient
 
     private static void ThrowIfFailed(TaskState state)
     {
-        if (state is TaskState.Failed or TaskState.Rejected or TaskState.Canceled)
-            throw new InvalidOperationException(
-                $"The remote agent ended the task in state '{RemoteAgentSupport.StateName(state)}'.");
+        RemoteAgentSupport.ThrowIfFailed(state);
     }
 
     private static Message BuildMessage(IEnumerable<ChatMessage> messages, ChatOptions? options)
     {
-        ArgumentNullException.ThrowIfNull(messages);
-        var list = messages as IList<ChatMessage> ?? messages.ToList();
-        var start = list.Count;
-        while (start > 0 && list[start - 1].Role == ChatRole.User) start--;
-        if (start == list.Count)
-            throw new ArgumentException("The messages must end with at least one user message.", nameof(messages));
-
-        var result = new Message { MessageId = Message.NewId(), Role = Role.User, Parts = [] };
-        // Message and content properties are caller side data (they can hold anything). They are never sent to the remote agent.
-        for (var i = start; i < list.Count; i++)
-            foreach (var content in list[i].Contents)
-                if (A2AContentExtensions.ConvertToPart(content, false) is { } part)
-                    result.Parts.Add(part);
-        if (result.Parts.Count == 0)
-            throw new ArgumentException("The user messages have no content that A2A can carry.", nameof(messages));
-
-        result.ContextId = string.IsNullOrEmpty(options?.ConversationId) ? null : options.ConversationId;
-        if (options?.AdditionalProperties is { } extra && extra.TryGetValue(A2AChatKeys.TaskId, out var taskId) &&
-            taskId is string id && id.Length > 0)
-            result.TaskId = id;
-        return result;
+        return RemoteAgentSupport.BuildMessage(messages, options);
     }
 }

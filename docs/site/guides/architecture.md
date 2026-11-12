@@ -13,7 +13,7 @@ How the SDK is split into packages, and what the server is made of. Read it to c
 | Client | `A2A.Client`, `A2A.Client.DependencyInjection`, `A2A.Client.Grpc`, `A2A.Client.Identity.Azure`, `A2A.Client.Identity.Aws` | `A2AClient`, the JSON-RPC and REST transports, the SSE reader, the card resolver, DI and auth handlers, the gRPC transport, and Azure and AWS caller identities. See [Identity providers](identity-providers.md) |
 | Persistence and scale-out | `A2A.Server.Postgres`, `A2A.Server.Redis`, `A2A.Client.Postgres` | Durable stores, a Redis event bus and execution coordinator, and a durable client outbox |
 | Artifact storage | `A2A.Server.Storage.S3`, `A2A.Server.Storage.AzureBlob` | Keep large artifact bytes outside the task store |
-| Integrations | `A2A.Extensions.AI`, `A2A.Mcp`, `A2A.Server.TypedSkills` | `Microsoft.Extensions.AI`, Model Context Protocol, and typed skills (experimental) |
+| Integrations | `A2A.Extensions.AI`, `A2A.Extensions.AgentFramework`, `A2A.Mcp`, `A2A.Server.TypedSkills` | `Microsoft.Extensions.AI`, Microsoft Agent Framework (experimental), Model Context Protocol, and typed skills (experimental) |
 | Compatibility | `A2A.V0_3Compat`, `A2A.Server.V0_3Compat`, `A2A.Client.V0_3Compat` | Let v0.3 clients call a v1.0 agent, and let a client call v0.3 agents |
 | Tooling | `A2A.Cli`, `A2A.TestKit`, `A2A.Templates` | The `a2a` command line tool, test tools, and the `dotnet new` templates |
 
@@ -28,6 +28,7 @@ All `RomanAmbinder.A2A.*` packages that you use together must have the same vers
 | Call agents | `A2A.Client` (add `A2A.Client.DependencyInjection` for DI and auth handlers, `A2A.Client.Grpc` for gRPC) |
 | Call agents with Azure managed identity or AWS IAM | add `A2A.Client.Identity.Azure` or `A2A.Client.Identity.Aws`. See [Identity providers](identity-providers.md) |
 | Host an `IChatClient` as an agent, or use an agent as an AI tool | `A2A.Extensions.AI`. See [Microsoft.Extensions.AI](extensions-ai.md) |
+| Host a Microsoft Agent Framework `AIAgent`, or use an agent as an `AIAgent` (experimental) | `A2A.Extensions.AgentFramework`. See [Microsoft Agent Framework](agent-framework.md) |
 | Bridge to MCP | `A2A.Mcp`. See [MCP bridge](mcp-bridge.md) |
 | Give skills .NET input and output types (experimental) | `A2A.Server.TypedSkills`. See [Typed skills](typed-skills.md) |
 | Run in production | add `A2A.Server.Postgres`, and `A2A.Server.Redis` for several instances. See [Durable stores](durable-stores.md) |

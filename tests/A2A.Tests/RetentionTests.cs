@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Runtime.CompilerServices;
 using System.Security.Claims;
@@ -732,6 +733,195 @@ public sealed class RetentionTests
         var next = Message.FromUser("hello");
         next.ContextId = "old-ctx";
         await host.Handler.SendMessageAsync(new SendMessageRequest { Message = next }, Call()); // the owner can use it again
+    }
+
+    /// <summary>A sweeper built as <c>AddA2ARetention</c> builds it: with every registered context lifecycle hook.</summary>
+    private static A2ARetentionService HookedSweeper(TestAgentHost host) =>
+        A2ARetentionService.FromServices(host.App.Services, Options.Create(new A2ARetentionOptions()));
+
+    /// <summary>Three contexts: two orphans old enough to delete, and one too young.</summary>
+    private static async Task<TaskStore> SeedOrphanContextsAsync(TestAgentHost host, FakeTimeProvider clock)
+    {
+        var store = host.App.Services.GetRequiredService<TaskStore>();
+        await store.GetOrCreateContextAsync(new ContextRecord("", "alice", "old-a", clock.GetUtcNow()));
+        await store.GetOrCreateContextAsync(new ContextRecord("t2", "bob", "old-b", clock.GetUtcNow()));
+        clock.Advance(TimeSpan.FromDays(8));
+        await store.GetOrCreateContextAsync(new ContextRecord("", "alice", "young", clock.GetUtcNow()));
+        return store;
+    }
+
+    [Fact]
+    public async Task Context_lifecycle_hooks_hear_of_every_context_the_sweep_deletes()
+    {
+        var clock = NewClock();
+        var hook = new RecordingLifecycle();
+        await using var host = await StartAsync(clock, o => o.InterruptedTimeout = null,
+            s => s.AddSingleton<IA2AContextLifecycle>(hook));
+        var store = await SeedOrphanContextsAsync(host, clock);
+
+        await HookedSweeper(host).RunOnceAsync(CancellationToken.None);
+
+        Assert.Null(await store.GetContextAsync("", "old-a"));
+        Assert.Null(await store.GetContextAsync("t2", "old-b"));
+        Assert.Equal(
+            [("", "alice", "old-a"), ("t2", "bob", "old-b")],
+            hook.Seen.Select(c => (c.Tenant, c.Owner, c.ContextId)).Order().ToArray());
+        Assert.NotNull(await store.GetContextAsync("", "young")); // not deleted, so not reported
+
+        await HookedSweeper(host).RunOnceAsync(CancellationToken.None);
+        Assert.Equal(2, hook.Seen.Count); // a deleted context is reported once
+    }
+
+    [Fact]
+    public async Task A_context_the_store_refuses_to_delete_is_not_reported()
+    {
+        var clock = NewClock();
+        var hook = new RecordingLifecycle();
+        var events = new InMemoryEventStore(new StreamingOptions { TerminalRetention = TimeSpan.FromDays(30) }, clock);
+        var outbox = new InMemoryPushOutbox(clock);
+        var refusing = new RefusingContextDeleteStore(new InMemoryTaskStore(events, outbox), "old-a");
+        await using var host = await StartAsync(clock, o => o.InterruptedTimeout = null, s =>
+        {
+            s.AddSingleton<TaskStore>(refusing);
+            s.AddSingleton<EventStore>(events);
+            s.AddSingleton<PushOutbox>(outbox);
+            s.AddSingleton<IA2AContextLifecycle>(hook);
+        });
+        await SeedOrphanContextsAsync(host, clock);
+
+        await HookedSweeper(host).RunOnceAsync(CancellationToken.None);
+
+        Assert.NotNull(await refusing.GetContextAsync("", "old-a")); // refused: as if a task used it again
+        Assert.Equal(["old-b"], hook.Seen.Select(c => c.ContextId).ToArray());
+    }
+
+    [Fact]
+    public async Task A_failing_context_lifecycle_hook_stops_neither_the_other_hooks_nor_the_sweep()
+    {
+        var clock = NewClock();
+        var failing = new RecordingLifecycle(fail: true);
+        var cancelling = new RecordingLifecycle(cancel: true); // its own cancellation, not the sweep's: a failure like any other
+        var after = new RecordingLifecycle();
+        await using var host = await StartAsync(clock, o => o.InterruptedTimeout = null, s =>
+        {
+            s.AddSingleton<IA2AContextLifecycle>(failing);
+            s.AddSingleton<IA2AContextLifecycle>(cancelling);
+            s.AddSingleton<IA2AContextLifecycle>(after);
+        });
+        var store = await SeedOrphanContextsAsync(host, clock);
+
+        await HookedSweeper(host).RunOnceAsync(CancellationToken.None);
+
+        Assert.Equal(2, failing.Seen.Count);
+        Assert.Equal(2, cancelling.Seen.Count);
+        Assert.Equal(["old-a", "old-b"], after.Seen.Select(c => c.ContextId).Order().ToArray());
+        Assert.Null(await store.GetContextAsync("", "old-a"));
+        Assert.Null(await store.GetContextAsync("t2", "old-b"));
+    }
+
+    [Fact]
+    public async Task The_sweeps_cancellation_reaches_a_context_lifecycle_hook_and_stops_the_sweep()
+    {
+        var clock = NewClock();
+        using var stop = new CancellationTokenSource();
+        var hook = new RecordingLifecycle(onCall: stop.Cancel);
+        await using var host = await StartAsync(clock, o => o.InterruptedTimeout = null,
+            s => s.AddSingleton<IA2AContextLifecycle>(hook));
+        await SeedOrphanContextsAsync(host, clock);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => HookedSweeper(host).RunOnceAsync(stop.Token));
+        Assert.Single(hook.Seen); // the second orphan is not reached
+    }
+
+    [Fact]
+    public async Task AddA2ARetention_passes_the_registered_hooks_to_the_sweep()
+    {
+        var clock = NewClock();
+        var hook = new RecordingLifecycle();
+        await using var host = await StartAsync(clock, o => o.InterruptedTimeout = null, s =>
+        {
+            s.AddA2ARetention();
+            s.AddSingleton<IA2AContextLifecycle>(hook);
+        });
+        await SeedOrphanContextsAsync(host, clock);
+
+        var sweeper = host.App.Services.GetRequiredService<A2ARetentionService>();
+        Assert.Same(sweeper, host.App.Services.GetServices<IHostedService>().OfType<A2ARetentionService>().Single());
+        await sweeper.RunOnceAsync(CancellationToken.None);
+
+        // The hosted sweep may run on the fake clock as well and report a context itself; either way each is reported once.
+        await EventuallyAsync(() => Task.FromResult(hook.Seen.Count >= 2), "both contexts were reported");
+        Assert.Equal(["old-a", "old-b"], hook.Seen.Select(c => c.ContextId).Order().ToArray());
+    }
+
+    [Fact]
+    public async Task The_constructor_without_hooks_still_works()
+    {
+        var clock = NewClock();
+        var hook = new RecordingLifecycle();
+        await using var host = await StartAsync(clock, o => o.InterruptedTimeout = null,
+            s => s.AddSingleton<IA2AContextLifecycle>(hook));
+        var store = await SeedOrphanContextsAsync(host, clock);
+        var sp = host.App.Services;
+
+        // The nine-parameter constructor of earlier versions: it takes no hooks, so the registered one is not called.
+        var sweeper = new A2ARetentionService(Options.Create(new A2ARetentionOptions()),
+            sp.GetRequiredService<A2AServerOptions>(), store, sp.GetRequiredService<ExecutionCoordinator>(),
+            sp.GetRequiredService<A2A.Server.Execution.TaskExecutionEngine>(), sp.GetRequiredService<A2ATaskAdmin>(),
+            null, clock, null);
+        await sweeper.RunOnceAsync(CancellationToken.None);
+
+        Assert.Null(await store.GetContextAsync("", "old-a"));
+        Assert.Empty(hook.Seen);
+    }
+
+    [Fact]
+    public void A_null_context_lifecycle_hook_is_refused()
+    {
+        var sp = new ServiceCollection().AddA2AServer().Services.BuildServiceProvider();
+        Assert.Throws<ArgumentException>(() => new A2ARetentionService(Options.Create(new A2ARetentionOptions()),
+            sp.GetRequiredService<A2AServerOptions>(), sp.GetRequiredService<TaskStore>(),
+            sp.GetRequiredService<ExecutionCoordinator>(), sp.GetRequiredService<A2A.Server.Execution.TaskExecutionEngine>(),
+            sp.GetRequiredService<A2ATaskAdmin>(), lifecycles: [null!]));
+    }
+
+    /// <summary>Records each deleted context. Can throw, throw its own cancellation, or run a callback first.</summary>
+    private sealed class RecordingLifecycle(bool fail = false, bool cancel = false, Action? onCall = null)
+        : IA2AContextLifecycle
+    {
+        private readonly ConcurrentQueue<ContextRecord> _seen = new();
+
+        public IReadOnlyCollection<ContextRecord> Seen => _seen;
+
+        public ValueTask OnContextDeletedAsync(ContextRecord context, CancellationToken cancellationToken)
+        {
+            _seen.Enqueue(context);
+            onCall?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (fail) throw new InvalidOperationException("hook failed");
+            if (cancel) throw new OperationCanceledException("the hook's own timeout");
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>Refuses to delete one context, as a store does when a task starts using it between list and delete.</summary>
+    private sealed class RefusingContextDeleteStore(TaskStore inner, string refusedContextId) : TaskStore
+    {
+        public override ValueTask<bool> DeleteContextAsync(string tenant, string contextId, CancellationToken ct = default) =>
+            contextId == refusedContextId ? ValueTask.FromResult(false) : inner.DeleteContextAsync(tenant, contextId, ct);
+
+        public override ValueTask<bool> DeleteAsync(TaskKey key, CancellationToken ct = default) => inner.DeleteAsync(key, ct);
+        public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) => inner.GetAsync(key, ct);
+        public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => inner.CreateAsync(record, ct);
+        public override ValueTask<TaskRecord> UpdateAsync(TaskRecord record, long expectedVersion, CancellationToken ct = default) => inner.UpdateAsync(record, expectedVersion, ct);
+        public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default) => inner.CommitAsync(commit, ct);
+        public override ValueTask<TaskPage> ListAsync(TaskQuery query, CancellationToken ct = default) => inner.ListAsync(query, ct);
+        public override ValueTask<ContextRecord?> GetContextAsync(string tenant, string contextId, CancellationToken ct = default) => inner.GetContextAsync(tenant, contextId, ct);
+        public override ValueTask<ContextRecord> GetOrCreateContextAsync(ContextRecord record, CancellationToken ct = default) => inner.GetOrCreateContextAsync(record, ct);
+        public override ValueTask<IReadOnlyList<TaskKey>> ListExpiredAsync(DateTimeOffset terminalBefore, int max, CancellationToken ct = default) => inner.ListExpiredAsync(terminalBefore, max, ct);
+        public override ValueTask<IReadOnlyList<TaskKey>> ListInterruptedBeforeAsync(DateTimeOffset before, int max, CancellationToken ct = default) => inner.ListInterruptedBeforeAsync(before, max, ct);
+        public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default) => inner.ListOrphanContextsAsync(createdBefore, max, ct);
+        public override ValueTask<TaskRecord?> GetForMaintenanceAsync(string tenant, string taskId, CancellationToken ct = default) => inner.GetForMaintenanceAsync(tenant, taskId, ct);
     }
 
     [Fact]

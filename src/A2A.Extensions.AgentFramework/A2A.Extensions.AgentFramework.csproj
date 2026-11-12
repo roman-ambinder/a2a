@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <RootNamespace>A2A.Extensions.AgentFramework</RootNamespace>
+        <Description>Microsoft Agent Framework integration for A2A (Agent2Agent): host an AIAgent as an A2A agent, or use a remote A2A agent as an AIAgent.</Description>
+        <!-- The shared sources in src/Shared/AI pick this package's namespace with this symbol. -->
+        <DefineConstants>$(DefineConstants);A2A_AGENT_FRAMEWORK</DefineConstants>
+        <!-- MAAI001: Agent Framework marks AgentSessionStore evaluation-only; AIAgentExecutor takes one (spec open
+             question 5). Scoped to this project. -->
+        <!-- MEAI001: AgentRunOptions.ContinuationToken and AgentResponse.ContinuationToken are evaluation-only; the remote
+             agent's background responses use them (spec open question 5). -->
+        <NoWarn>$(NoWarn);MAAI001;MEAI001</NoWarn>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.Extensions.AI\A2A.Extensions.AI.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <Compile Include="..\Shared\AI\*.cs" Link="Shared\AI\%(Filename)%(Extension)"/>
+    </ItemGroup>
+    <ItemGroup>
+        <!-- Only the Agent Framework abstractions. Never Microsoft.Agents.AI.A2A, Microsoft.Agents.AI.Hosting* or the
+             NuGet package A2A: the official A2A assembly defines the same type names as A2A.Protocol (PackageRulesTests). -->
+        <PackageReference Include="Microsoft.Agents.AI.Abstractions"/>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions"/>
+    </ItemGroup>
+</Project>
