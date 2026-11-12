@@ -127,3 +127,59 @@ public sealed class CliReviewTests
         Assert.True(run.Code == ExitCodes.NotFound, run.Shown);
     }
 }
+
+/// <summary>Ctrl+C while the tool waits on standard input.</summary>
+public sealed class CliStdinCancelTests
+{
+    /// <summary>Standard input that never ends, like a console nobody types into. Neither read observes a token.</summary>
+    private sealed class EndlessReader : TextReader
+    {
+        private readonly ManualResetEventSlim _never = new();
+        public TaskCompletionSource Reading { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Ends the blocked read, so the test leaves no thread behind.</summary>
+        public void Release() => _never.Set();
+
+        public override string ReadToEnd()
+        {
+            Reading.TrySetResult();
+            _never.Wait();
+            return "";
+        }
+
+        // As Console.In does: the async read runs the blocking read and ignores the token.
+        public override Task<string> ReadToEndAsync(CancellationToken cancellationToken) => Task.FromResult(ReadToEnd());
+
+        public override Task<string> ReadToEndAsync() => Task.FromResult(ReadToEnd());
+    }
+
+    private static async Task<int> RunCancelledAsync(string[] args, HttpMessageHandler? handler = null)
+    {
+        var reader = new EndlessReader();
+        var env = new CliEnvironment(new StringWriter(), new StringWriter(), reader, _ => null) { Handler = handler };
+        using var cts = new CancellationTokenSource();
+        try
+        {
+            var running = Task.Run(() => CliApp.RunAsync(args, env, cts.Token));
+            await reader.Reading.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            cts.Cancel();
+            return await running.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            reader.Release();
+        }
+    }
+
+    [Fact]
+    public async Task Ctrl_c_while_keys_hash_reads_stdin_exits_130() =>
+        Assert.Equal(ExitCodes.Cancelled, await RunCancelledAsync(["keys", "hash"]));
+
+    [Fact]
+    public async Task Ctrl_c_while_send_reads_stdin_exits_130()
+    {
+        await using var host = await StartAsync();
+        Assert.Equal(ExitCodes.Cancelled,
+            await RunCancelledAsync(["send", "--agent", Agent, "-"], host.App.GetTestServer().CreateHandler()));
+    }
+}

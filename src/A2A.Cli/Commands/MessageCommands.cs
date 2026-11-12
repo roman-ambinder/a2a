@@ -57,7 +57,7 @@ internal static class MessageCommands
         CancellationToken cancellationToken)
     {
         var text = c.Args.Positionals[0];
-        if (text == "-") text = await c.Env.In.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        if (text == "-") text = await StandardInput.ReadToEndAsync(c.Env.In, cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(text)) throw CliException.Usage("The message text is empty.");
 
         var history = c.Args.Int("history-length", 0);

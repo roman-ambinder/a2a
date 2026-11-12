@@ -55,7 +55,8 @@ internal static class CliApp
         }
 
         // Offline: no agent, no connection options.
-        if (first == "keys") return Commands.KeysCommand.Run(args[1..], env, output);
+        if (first == "keys")
+            return await Commands.KeysCommand.RunAsync(args[1..], env, output, cancellationToken).ConfigureAwait(false);
 
         var spec = CommandTable.Find(first) ??
                    throw CliException.Usage(
