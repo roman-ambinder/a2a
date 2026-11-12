@@ -54,7 +54,24 @@ Both cloud providers upload 8 MiB at a time, so a stream of unknown length never
 
 Presigned S3 URLs are built from `ServiceUrl`. With an internal endpoint (for example `http://minio:9000`), clients cannot reach the URL. Use `Delivery = Proxy`, or give a `ServiceUrl` that clients can reach.
 
-The S3 credentials need `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucket`, `s3:AbortMultipartUpload`, and `s3:PutObjectTagging` / `s3:GetObjectTagging`. The tagging permissions are required: the provider stamps the completion time of a multipart object as a tag, because S3 dates it from the start of the upload and the orphan sweep ages objects by that date. The Azure credentials need to read, write, list and delete blobs in the container.
+The S3 credentials need `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucket`, `s3:AbortMultipartUpload`, and `s3:PutObjectTagging` / `s3:GetObjectTagging`. The tagging permissions are required: S3 dates a multipart object from the start of its upload, and the orphan sweep ages objects by that date, so the provider tags the object with how long its upload took and dates it at the S3 date plus that time. A multipart object listed before its tag is written (its upload completed a moment ago) is taken to be 7 days younger than its S3 date, so the sweep never judges a just-finished upload by when it started; an object that never got its tag is still collected after that. The Azure credentials need to read, write, list and delete blobs in the container.
+
+Give the S3 bucket a lifecycle rule that aborts incomplete multipart uploads. The provider aborts an upload that fails, but a process that crashes mid-upload leaves its parts behind: S3 bills them, they never show as objects, and neither the provider nor the sweep removes them. For example, applied with `aws s3api put-bucket-lifecycle-configuration` (it replaces the bucket's lifecycle configuration, so merge it with any rules you have):
+
+```json
+{
+  "Rules": [
+    {
+      "ID": "abort-incomplete-multipart-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}
+```
+
+Set `Prefix` to the store's `KeyPrefix` to limit the rule to its objects, and keep `DaysAfterInitiation` longer than the largest upload takes. Azure needs no such rule: uncommitted blocks are discarded after 7 days.
 
 Startup logs a warning (event 255) when a durable task store is combined with `InMemoryArtifactObjectStore`: stored tasks would keep links that no longer download.
 
