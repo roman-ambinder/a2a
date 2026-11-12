@@ -452,6 +452,12 @@ public static class A2ATelemetry
 
         /// <summary>An idempotency key was reused with a different request.</summary>
         public const string IdempotencyKeyMismatch = "idempotency_key_mismatch";
+
+        /// <summary>
+        ///     A caller created tasks or canceled them faster than the opt-in anomaly detector allows (spec 13.4). Reported
+        ///     once per caller and window; the call itself is not refused.
+        /// </summary>
+        public const string Anomaly = "anomaly";
     }
 
     /// <summary>Values of <see cref="Tags.Outcome" />.</summary>

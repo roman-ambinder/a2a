@@ -4,6 +4,15 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Security
+
+- Opt-in anomaly monitoring (spec §13.4): `A2AServerOptions.Anomalies` (`A2AAnomalyOptions`: `Enabled`, default false;
+  `TaskCreationsPerMinute`, default 60; `CancellationsPerMinute`, default 20; `MaxTrackedCallers`, default 10 000). A
+  caller (principal and tenant) that creates more tasks or makes more CancelTask calls in one minute is reported once
+  per window: a new `anomaly` security event (`A2ATelemetry.SecurityEventNames.Anomaly`, log 1202) and the counter
+  `a2a.server.anomalies` (tag `a2a.anomaly.kind`: `task_creation` or `cancellation`). It reports only; no call is
+  refused or delayed. The settings can be read from configuration (`A2A:Anomalies`).
+
 ### Documentation
 
 - Spec decisions: blocking and non-blocking SendMessage. The SDK follows §3.2.2 where it disagrees with §3.1.1 ("MUST

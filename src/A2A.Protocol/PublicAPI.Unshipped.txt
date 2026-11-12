@@ -1,1 +1,2 @@
 #nullable enable
+const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.Anomaly = "anomaly" -> string!

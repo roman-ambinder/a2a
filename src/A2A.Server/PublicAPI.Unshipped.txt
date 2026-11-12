@@ -1,1 +1,12 @@
 #nullable enable
+A2A.Server.A2AAnomalyOptions
+A2A.Server.A2AAnomalyOptions.A2AAnomalyOptions() -> void
+A2A.Server.A2AAnomalyOptions.CancellationsPerMinute.get -> int
+A2A.Server.A2AAnomalyOptions.CancellationsPerMinute.set -> void
+A2A.Server.A2AAnomalyOptions.Enabled.get -> bool
+A2A.Server.A2AAnomalyOptions.Enabled.set -> void
+A2A.Server.A2AAnomalyOptions.MaxTrackedCallers.get -> int
+A2A.Server.A2AAnomalyOptions.MaxTrackedCallers.set -> void
+A2A.Server.A2AAnomalyOptions.TaskCreationsPerMinute.get -> int
+A2A.Server.A2AAnomalyOptions.TaskCreationsPerMinute.set -> void
+A2A.Server.A2AServerOptions.Anomalies.get -> A2A.Server.A2AAnomalyOptions!

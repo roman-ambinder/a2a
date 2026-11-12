@@ -64,6 +64,9 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private static readonly A2AOperationDescriptor SendStreamingOperation =
         A2AOperationDescriptor.For(A2AOperation.SendStreamingMessage);
 
+    private static readonly string SendMessageOperationName = A2AOperationDescriptor.For(A2AOperation.SendMessage).Name;
+    private static readonly string CancelOperationName = A2AOperationDescriptor.For(A2AOperation.CancelTask).Name;
+
     private static readonly A2AOperationDescriptor SubscribeOperation =
         A2AOperationDescriptor.For(A2AOperation.SubscribeToTask);
 
@@ -75,6 +78,7 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
 
     private static readonly JsonElement TrueElement = JsonDocument.Parse("true").RootElement.Clone();
     private readonly AcceptMessage _accept;
+    private readonly AnomalyDetector? _anomalies; // null unless A2AServerOptions.Anomalies.Enabled
     private readonly A2AAuditor _audit;
     private readonly A2AAuthorizationHandler _authorization;
     private readonly TaskEventBus _bus;
@@ -199,7 +203,8 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
         _skills = new SkillAuthorizer(authorization, options.SkillAuthorization, cards, _requestCards, options, _audit);
         _streamer = new TaskStreamer(tasks, events, engine, idempotency, authorization, options, cards, _skills,
             _audit);
-        _accept = AcceptAsync; // one delegate for every stream
+        _anomalies = AnomalyDetector.Create(options, engine.Clock);
+        _accept = (r, c, claim, id, agent, ct) => AcceptAsync(r, c, claim, id, agent, true, ct); // one delegate for every stream
         _pipeline = new OperationPipeline(new AuthorizationFilter(authorization, options, _skills, _audit), filters);
         _sendMessage = SendMessageCoreAsync;
         _sendStreaming = (r, c, ct) =>
@@ -551,7 +556,7 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
         // Subscribe before the agent starts, so no event of another execution is missed.
         using var sub = _bus.Subscribe(scope);
         var (accepted, afterSequence, acceptedStatusTimestamp) =
-            await AcceptAsync(request, call, claim, taskId, agent, cancellationToken)
+            await AcceptAsync(request, call, claim, taskId, agent, false, cancellationToken)
                 .ConfigureAwait(false);
         if (accepted is not { } exec)
         {
@@ -592,13 +597,14 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private async Task<(Execution.Execution? Execution, long AfterSequence, DateTimeOffset? AcceptedStatusTimestamp)>
         AcceptAsync(
             SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string? newTaskId,
-            RentedAgent agent, CancellationToken ct)
+            RentedAgent agent, bool streaming, CancellationToken ct)
     {
         var ticket = new AuditTicket();
         (Execution.Execution? Execution, long AfterSequence, DateTimeOffset? AcceptedStatusTimestamp) result;
         try
         {
-            result = await AcceptCoreAsync(request, call, claim, newTaskId, agent, ticket, ct).ConfigureAwait(false);
+            result = await AcceptCoreAsync(request, call, claim, newTaskId, agent, ticket, streaming, ct)
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -635,7 +641,7 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private async Task<(Execution.Execution? Execution, long AfterSequence, DateTimeOffset? AcceptedStatusTimestamp)>
         AcceptCoreAsync(
             SendMessageRequest request, ServerCallContext call, IdempotencyClaim claim, string? newTaskId,
-            RentedAgent agent, AuditTicket ticket, CancellationToken ct)
+            RentedAgent agent, AuditTicket ticket, bool streaming, CancellationToken ct)
     {
         try
         {
@@ -649,9 +655,13 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
                 // provider call happens per event (or under a task lock).
                 var pushEnabled = call.ResolvedCard?.Card?.Capabilities.PushNotifications == true;
                 if (prepared.Context.IsNewTask)
-                    return (
-                        await _engine.StartAsync(prepared.Context, prepared.PushConfig, claim, agent, pushEnabled)
-                            .ConfigureAwait(false), 0, null);
+                {
+                    var started = await _engine.StartAsync(prepared.Context, prepared.PushConfig, claim, agent,
+                        pushEnabled).ConfigureAwait(false);
+                    // Counted once the task exists: a refused or failed start, a follow-up and a replay are not creations.
+                    _anomalies?.TaskCreated(call, streaming ? SendStreamingOperation.Name : SendMessageOperationName);
+                    return (started, 0, null);
+                }
                 if (prepared.Duplicate)
                 {
                     // The message is already in the history (an earlier request of it failed after the commit): its outcome is
@@ -1530,6 +1540,8 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
     private async ValueTask<AgentTask> CancelTaskCoreAsync(CancelTaskRequest request, ServerCallContext call,
         CancellationToken cancellationToken)
     {
+        // Every authorized CancelTask counts, whether or not the task exists or can still be canceled.
+        _anomalies?.CancelRequested(call, CancelOperationName);
         var card = await _requestCards.RequireAgentForTaskAsync(call, request.Id, cancellationToken)
             .ConfigureAwait(false);
         A2AValidator.RequireId(request.Id, "id");

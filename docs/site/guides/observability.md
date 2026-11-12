@@ -117,7 +117,8 @@ All counters are `Counter<long>`.
 | `A2A.Server` | `a2a.server.executions.queued` | none | requests waiting for an execution slot (up-down counter) |
 | `A2A.Server` | `a2a.server.executions.rejected` | `a2a.rejection.reason` (`queue_full`, `queue_timeout`, `shutdown`) | requests refused for lack of an execution slot |
 | `A2A.Server` | `a2a.server.tasks.budget_exceeded` | none | tasks failed for going past their budget |
-| `A2A.Server` | `a2a.server.security.events` | `a2a.security.event` (`unauthenticated`, `permission_denied`, `context_denied`, `webhook_refused`, `idempotency_key_mismatch`), `a2a.method.name` when known | security events (spec 13.4). See [Security events](#security-events) |
+| `A2A.Server` | `a2a.server.security.events` | `a2a.security.event` (`unauthenticated`, `permission_denied`, `context_denied`, `webhook_refused`, `idempotency_key_mismatch`, `anomaly`), `a2a.method.name` when known | security events (spec 13.4). See [Security events](#security-events) |
+| `A2A.Server` | `a2a.server.anomalies` | `a2a.anomaly.kind` (`task_creation`, `cancellation`) | callers over an anomaly threshold, once per caller and window. See [Anomaly detection](#anomaly-detection) |
 | `A2A.Server` | `a2a.server.artifact.objects.written` | none | objects written to the artifact object store |
 | `A2A.Server` | `a2a.server.artifact.bytes.written` | none | bytes written to the artifact object store |
 | `A2A.Server` | `a2a.server.artifact.bytes.served` | none | artifact bytes the server streamed to callers (redirects are not counted) |
@@ -149,7 +150,7 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | 250-253, 255 | server: startup diagnostics (254 is not one: it is a task past its size cap) |
 | 300-313 | server: push delivery |
 | 400-402 | server: idempotency |
-| 1200-1201 | server: security events (1200 information, 1201 warning) |
+| 1200-1202 | server: security events (1200 information, 1201 warning, 1202 anomaly warning) |
 | 500-501, 600 | ASP.NET Core: unhandled errors, stream errors |
 | 700-701, 800 | ASP.NET Core: startup validation, card signing warning |
 | 900 | gRPC: unhandled errors |
@@ -167,8 +168,31 @@ Each security event counts `a2a.server.security.events` and writes one log line 
 | `context_denied` | The caller named a context of another principal (and `ContextAccess` did not allow it). |
 | `webhook_refused` | A webhook URL was refused when its config was created, or when a delivery was attempted. |
 | `idempotency_key_mismatch` | An idempotency key was reused with a different request. |
+| `anomaly` | A caller created tasks or called CancelTask faster than the anomaly thresholds. Only when the detector is on; see below. |
 
 **What is not counted.** A caller who reads another caller's task gets `TaskNotFound`. The store lookup is scoped by owner, so the server cannot tell that case from a task that does not exist, and the SDK does not add a lookup to find out. A denial by your own authorization handler is counted.
+
+### Anomaly detection
+
+The spec asks agents to watch for unusual patterns such as rapid task creation and excessive cancellations (§13.4). The server can do this for you. It is off by default:
+
+```csharp
+services.AddA2AServer(o =>
+{
+    o.Anomalies.Enabled = true;
+    o.Anomalies.TaskCreationsPerMinute = 60; // the defaults
+    o.Anomalies.CancellationsPerMinute = 20;
+    o.Anomalies.MaxTrackedCallers = 10_000;
+});
+```
+
+or, from configuration, `"A2A": { "Anomalies": { "Enabled": true } }`.
+
+- **What is counted.** A caller is a principal in a tenant. A task creation is a `SendMessage` or `SendStreamingMessage` that starts a new task; a follow-up to an existing task, an idempotent retry and a start that was refused are not. A cancellation is every authorized `CancelTask` call, also one for a task that does not exist or is already final.
+- **When it reports.** Each caller has a one-minute window per kind, which starts at its first counted call. The call that goes over the threshold writes one Warning (id 1202, category `A2A.Server.Security`) with the kind, the operation, the count, the threshold, the tenant and the principal hash, counts an `anomaly` security event and adds 1 to `a2a.server.anomalies`. Later calls in the same window are not reported again, so a flood writes one line. The next window can report again.
+- **Reports only.** No call is refused, delayed or changed. To slow a caller down, use rate limiting (`AddA2ARateLimiting`, see [Limits and rate limiting](limits-and-rate-limiting.md)) and alert on the counter.
+- **Memory.** At most `MaxTrackedCallers` callers are tracked. When the table is full, callers whose windows have ended are dropped first; if every tracked caller is still active, a new caller is not tracked until one ends. A flood of new identities therefore cannot push out a caller already being counted, but it can hide new callers for up to a minute: alert on `a2a.server.security.events` as a whole too.
+- **Per instance.** The counts live in memory on each instance, so behind a load balancer each instance sees only its share of a caller's calls. The window uses the `TimeProvider` registered in DI.
 
 ### Startup diagnostics
 

@@ -129,6 +129,7 @@ public class ConfigurationKeyCoverageTests
     private static (string Text, object Value) Sample(Type type, int seed) =>
         (Nullable.GetUnderlyingType(type) ?? type) switch
         {
+            var t when t == typeof(bool) => ("true", true),
             var t when t == typeof(int) => ((7000 + seed).ToString(System.Globalization.CultureInfo.InvariantCulture), 7000 + seed),
             var t when t == typeof(long) => ((9_000_000L + seed).ToString(System.Globalization.CultureInfo.InvariantCulture), 9_000_000L + seed),
             var t when t == typeof(decimal) => ($"{seed}.5", decimal.Parse($"{seed}.5", System.Globalization.CultureInfo.InvariantCulture)),
@@ -157,6 +158,9 @@ public class ConfigurationKeyCoverageTests
 
     [Fact]
     public void Every_streaming_option_has_a_key() => EveryPropertyIsRead("Streaming", o => o.Streaming);
+
+    [Fact]
+    public void Every_anomaly_option_has_a_key() => EveryPropertyIsRead("Anomalies", o => o.Anomalies);
 
     [Fact]
     public void Server_card_api_key_and_rate_limit_keys_are_read()
