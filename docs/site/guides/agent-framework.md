@@ -82,7 +82,7 @@ With `ToolApprovals = ToolApprovalMode.Bound` (stored mode only), a tool approva
 - The run stops. What the agent said before stays with the task. The task waits in `INPUT_REQUIRED` with the call's canonical description as its status text, for example `delete_file({"path":"/tmp/x"})` (the arguments as RFC 8785 JSON, so key order does not matter), and its hash in the status metadata (`a2a.approval.hash`).
 - A follow-up that echoes the hash approves that call: the agent gets an approval response and runs again. A follow-up without it declines, with the reason "The caller did not approve this action.". A wrong hash is refused before the agent runs. The caller's own words follow the response.
 - If the agent then asks for a different call, the caller is asked again: an approval answers one exact call. Only the first request of a run is asked.
-- The pending request is kept in the session with the task id and the hash. It is answered only for the task that asked and the hash that task shows. A new task in the context, or an older copy of the session from the store, drops it unanswered.
+- The pending request is kept in the session store with the task id and the hash, as a record of its own per task, not in the caller's session. It is answered only for the task that asked and the hash that task shows; an older copy of the record from the store is dropped unanswered. Another task in the context, even one that runs at the same time and saves the session last, cannot remove it. Deleting the context deletes it.
 
 ## Use a remote agent as an AIAgent
 
