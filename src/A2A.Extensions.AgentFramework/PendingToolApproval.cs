@@ -6,10 +6,16 @@ using Microsoft.Extensions.AI;
 namespace A2A.Extensions.AgentFramework;
 
 /// <summary>
-///     An approval request the agent made, kept in the session until the caller answers. Bound to the task and to the
-///     approval hash the caller was shown: sessions are per context, approvals per task, so a later request of another task
-///     in the context must never be answered with this task's approval.
+///     An approval request the agent made, kept until the caller answers. Bound to the task and to the approval hash the
+///     caller was shown: sessions are per context, approvals per task, so a later request of another task in the context
+///     must never be answered with this task's approval.
 /// </summary>
+/// <remarks>
+///     Each request is a record of its own in the session store (<see cref="SessionKeys.ApprovalFor" />), not part of the
+///     caller's session: two tasks of one context can run at the same time, and the one that saves the session last would
+///     otherwise drop the other's request. Requests that earlier versions kept in the session (<see cref="ListKey" />,
+///     <see cref="StateKey" />) are still read by <see cref="Take" />.
+/// </remarks>
 /// <param name="TaskId">The task that asked.</param>
 /// <param name="Hash">The <see cref="A2A.Server.PendingApproval.Hash" /> the caller was shown.</param>
 /// <param name="Request">The <see cref="ToolApprovalRequestContent" />, as M.E.AI JSON.</param>
@@ -37,28 +43,16 @@ internal sealed record PendingToolApproval(string TaskId, string Hash, JsonEleme
     }
 
     /// <summary>
-    ///     The session's pending requests, one per task, newest last. Each task keeps its own: another task in the context
-    ///     neither answers nor removes it.
+    ///     Where the previous version kept a session's pending requests, one per task. Only read now (<see cref="Take" />):
+    ///     new requests are records of their own.
     /// </summary>
     internal const string ListKey = "a2a.pendingApprovals";
 
-    /// <summary>Most pending requests one session keeps. A task that is never answered falls out once this many are newer.</summary>
-    internal const int MaxPending = 16;
-
-    /// <summary>Stores <paramref name="value" /> as its task's pending request, replacing an older one of the same task.</summary>
-    internal static void Write(AgentSession session, PendingToolApproval value)
-    {
-        var list = ReadList(session);
-        list.RemoveAll(p => string.Equals(p.TaskId, value.TaskId, StringComparison.Ordinal));
-        list.Add(value);
-        if (list.Count > MaxPending) list.RemoveRange(0, list.Count - MaxPending);
-        session.StateBag.SetValue(ListKey, list, PendingApprovalJson.Default.Options);
-    }
-
     /// <summary>
-    ///     Takes the pending request of <paramref name="taskId" /> out of the session: it is answered or stale either way.
-    ///     Other tasks' requests stay. Null when the task has none, or its entry is unreadable. An entry in the single slot
-    ///     of earlier versions (<see cref="StateKey" />) is taken too when it is this task's, and kept otherwise.
+    ///     Takes the pending request of <paramref name="taskId" /> that an earlier version kept in the session out of it:
+    ///     it is answered or stale either way. Other tasks' requests stay. Null when the task has none, or its entry is
+    ///     unreadable. Reads the list of the previous version (<see cref="ListKey" />) and the single slot of the one
+    ///     before (<see cref="StateKey" />), which is taken when it is this task's and kept otherwise.
     /// </summary>
     internal static PendingToolApproval? Take(AgentSession session, string taskId)
     {
@@ -91,6 +85,41 @@ internal sealed record PendingToolApproval(string TaskId, string Hash, JsonEleme
         }
 
         return found;
+    }
+
+    /// <summary>The state key of the request in its own record (<see cref="SaveRecordAsync" />).</summary>
+    internal const string RecordKey = "a2a.approvalRequest";
+
+    /// <summary>Saves <paramref name="value" /> as the record under <paramref name="key" />, replacing an older one.</summary>
+    internal static async ValueTask SaveRecordAsync(AgentSessionStore store, AIAgent agent, AgentSessionStoreKey key,
+        PendingToolApproval value, CancellationToken cancellationToken)
+    {
+        var record = await agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+        record.StateBag.SetValue(RecordKey, value, PendingApprovalJson.Default.Options);
+        await store.SaveSessionAsync(agent, key, record, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Takes the record under <paramref name="key" /> out of the store: it is answered or stale either way. Null when
+    ///     there is none, or it is unreadable (it is deleted then too).
+    /// </summary>
+    internal static async ValueTask<PendingToolApproval?> TakeRecordAsync(AgentSessionStore store, AIAgent agent,
+        AgentSessionStoreKey key, CancellationToken cancellationToken)
+    {
+        if (await store.GetSessionAsync(agent, key, cancellationToken).ConfigureAwait(false) is not { } record)
+            return null;
+        PendingToolApproval? value = null;
+        try
+        {
+            record.StateBag.TryGetValue(RecordKey, out value, PendingApprovalJson.Default.Options);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            value = null; // unreadable, or a value of another type: stale, like no record
+        }
+
+        await store.DeleteSessionAsync(agent, key, cancellationToken).ConfigureAwait(false);
+        return value;
     }
 
     private static List<PendingToolApproval> ReadList(AgentSession session)

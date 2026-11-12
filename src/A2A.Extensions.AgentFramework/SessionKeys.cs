@@ -7,6 +7,7 @@ internal static class SessionKeys
 {
     internal const string TenantPartition = "a2a.tenant";
     internal const string OwnerPartition = "a2a.owner";
+    internal const string TaskPartition = "a2a.task";
 
     /// <summary>
     ///     The key of the session for one context of one caller. Tenant and owner are partitions, so the same context id
@@ -21,6 +22,23 @@ internal static class SessionKeys
         return new AgentSessionStoreKey(contextId)
             .WithPartition(TenantPartition, "t:" + tenant)
             .WithPartition(OwnerPartition, "o:" + owner);
+    }
+
+    /// <summary>
+    ///     The key of the pending approval request of one task (<see cref="PendingToolApproval" />), apart from the caller's
+    ///     session, so a run of another task that saves the session cannot overwrite it. Its owner partition is <c>a:</c>
+    ///     and the principal, which no session key (<c>o:</c>) or index key (<c>i:</c>) has.
+    /// </summary>
+    internal static AgentSessionStoreKey ApprovalFor(string tenant, string owner, string contextId, string taskId)
+    {
+        ArgumentNullException.ThrowIfNull(tenant);
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentException.ThrowIfNullOrEmpty(contextId);
+        ArgumentException.ThrowIfNullOrEmpty(taskId);
+        return new AgentSessionStoreKey(contextId)
+            .WithPartition(TenantPartition, "t:" + tenant)
+            .WithPartition(OwnerPartition, "a:" + owner)
+            .WithPartition(TaskPartition, "k:" + taskId);
     }
 
     /// <summary>
