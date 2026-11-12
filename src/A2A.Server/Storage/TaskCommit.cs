@@ -49,6 +49,13 @@ public sealed record TaskCommit(
 
     /// <summary>True when the commit creates the task (<see cref="ExpectedVersion" /> is 0).</summary>
     public bool IsCreate => ExpectedVersion == 0;
+
+    /// <summary>
+    ///     A unique id of this commit, or null. A store that implements <see cref="ITaskCommitLookup" /> keeps it with the
+    ///     event, so the engine can find out whether a commit whose call failed was stored after all (for example when the
+    ///     database committed and the answer was then lost). Any other store ignores it.
+    /// </summary>
+    public string? MutationId { get; init; }
 }
 
 /// <summary>The outcome of a <see cref="TaskCommit" />.</summary>
@@ -109,7 +116,31 @@ public interface IBatchTaskCommit
 ///     a task.
 /// </param>
 /// <param name="Events">The events, in order, each with its push deliveries. At least one.</param>
-public sealed record TaskBatchCommit(TaskRecord Record, long ExpectedVersion, IReadOnlyList<BatchedEvent> Events);
+public sealed record TaskBatchCommit(TaskRecord Record, long ExpectedVersion, IReadOnlyList<BatchedEvent> Events)
+{
+    /// <summary>
+    ///     A unique id of this batch, or null. A store that implements <see cref="ITaskCommitLookup" /> keeps it with the
+    ///     first event of the batch (see <see cref="TaskCommit.MutationId" />).
+    /// </summary>
+    public string? MutationId { get; init; }
+}
+
+/// <summary>
+///     Optional capability of a <see cref="TaskStore" />: tells whether a commit was stored, by its
+///     <see cref="TaskCommit.MutationId" /> (or <see cref="TaskBatchCommit.MutationId" />). The engine asks after a commit
+///     call failed, or reported a version conflict, so a commit that was stored is not applied a second time and a task
+///     whose write landed is not failed. A store without it gets the old behaviour: a failed call fails the run, and a
+///     conflict reloads the task and applies the event again.
+/// </summary>
+public interface ITaskCommitLookup
+{
+    /// <summary>
+    ///     The sequence of the event stored by the commit with <paramref name="mutationId" /> (the first event, for a batch),
+    ///     or null when no such commit is stored for <paramref name="task" />. A store may forget an id once its event left
+    ///     the replay buffer; the engine asks right after the commit, so the event is still there.
+    /// </summary>
+    ValueTask<long?> FindCommitAsync(TaskKey task, string mutationId, CancellationToken cancellationToken = default);
+}
 
 /// <summary>One event of a <see cref="TaskBatchCommit" />.</summary>
 /// <param name="Event">

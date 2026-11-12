@@ -21,8 +21,12 @@ namespace A2A.Server.Storage;
 ///     used.
 /// </param>
 public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOutbox? outbox = null)
-    : TaskStore, IContextSummaryStore, IBatchTaskCommit
+    : TaskStore, IContextSummaryStore, IBatchTaskCommit, ITaskCommitLookup
 {
+    /// <summary>How many recent mutation ids are kept per task for <see cref="FindCommitAsync" />.</summary>
+    internal const int RecentMutationCount = 16;
+
+    private readonly ConcurrentDictionary<(string Tenant, string TaskId), RecentMutations> _mutations = new();
     private readonly object _contextLock = new(); // DeleteContextAsync checks for tasks and removes under it
     private readonly ConcurrentDictionary<(string Tenant, string ContextId), ContextRecord> _contexts = new();
     private readonly InMemoryEventStore _events = events ?? throw new ArgumentNullException(nameof(events));
@@ -59,6 +63,7 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
         TaskRecord? stored = null;
         var firstSeq = _events.AppendManyAfter(commit.Record.Key, events,
             () => stored = Replace(commit.Record, commit.ExpectedVersion), enqueue);
+        Remember(commit.Record.Key, commit.MutationId, firstSeq);
         return ValueTask.FromResult(new BatchCommitResult(stored!, firstSeq));
     }
 
@@ -147,7 +152,53 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
             seq = _events.AppendAfter(record.Key, evt, () => stored = Replace(record, commit.ExpectedVersion), enqueue);
         }
 
+        Remember(record.Key, commit.MutationId, seq);
         return ValueTask.FromResult(new CommitResult(stored!, seq));
+    }
+
+    /// <inheritdoc />
+    public ValueTask<long?> FindCommitAsync(TaskKey task, string mutationId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutationId);
+        return ValueTask.FromResult(
+            _tasks.TryGetValue((task.Tenant, task.TaskId), out var r) &&
+            string.Equals(r.Owner, task.Owner, StringComparison.Ordinal) &&
+            _mutations.TryGetValue((task.Tenant, task.TaskId), out var recent)
+                ? recent.Find(mutationId)
+                : null);
+    }
+
+    private void Remember(TaskKey task, string? mutationId, long sequence)
+    {
+        if (mutationId is null) return;
+        _mutations.GetOrAdd((task.Tenant, task.TaskId), _ => new RecentMutations()).Add(mutationId, sequence);
+    }
+
+    /// <summary>The last <see cref="RecentMutationCount" /> mutation ids of one task, with their sequences.</summary>
+    private sealed class RecentMutations
+    {
+        private readonly (string Id, long Sequence)[] _ring = new (string, long)[RecentMutationCount];
+        private int _next;
+
+        public void Add(string id, long sequence)
+        {
+            lock (_ring)
+            {
+                _ring[_next] = (id, sequence);
+                _next = (_next + 1) % _ring.Length;
+            }
+        }
+
+        public long? Find(string id)
+        {
+            lock (_ring)
+            {
+                foreach (var (stored, sequence) in _ring)
+                    if (string.Equals(stored, id, StringComparison.Ordinal)) return sequence;
+                return null;
+            }
+        }
     }
 
     /// <summary>Compare-and-set: stores <paramref name="record" /> as version expected + 1.</summary>
@@ -234,7 +285,10 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
         {
             if (!string.Equals(current.Owner, key.Owner, StringComparison.Ordinal)) break;
             if (_tasks.TryRemove(new KeyValuePair<(string, string), TaskRecord>((key.Tenant, key.TaskId), current)))
+            {
+                _mutations.TryRemove((key.Tenant, key.TaskId), out _);
                 return ValueTask.FromResult(true);
+            }
         }
 
         return ValueTask.FromResult(false);

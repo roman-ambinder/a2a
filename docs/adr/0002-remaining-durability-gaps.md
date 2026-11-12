@@ -123,7 +123,15 @@ The main risk of Option C is the D2 investigation itself. If the failure exists,
    - The shipped stores never produce the conflict case themselves: `PostgresTaskStore` has no internal retry, and there is no Redis task store. It can happen with a store that retries internally.
    - The timeout case applies to any store whose commit answer can be lost after the transaction committed.
    - Not tested yet: a conflict on an append that is not the last chunk, which could duplicate parts in the task itself.
-2. [ ] If the event is stored twice: add an optional mutation id to `TaskCommit`, a capability interface for stores that keep it, and implementations in the in-memory, Postgres and Redis stores. Follow ADR-001 rule 2, and add the startup check from ADR-001 action item 3.
+2. [x] If the event is stored twice: add an optional mutation id to `TaskCommit`, a capability interface for stores that keep it, and implementations in the in-memory, Postgres and Redis stores. Follow ADR-001 rule 2, and add the startup check from ADR-001 action item 3.
+
+   Done:
+   - `TaskCommit.MutationId` and `TaskBatchCommit.MutationId`.
+   - The capability `ITaskCommitLookup.FindCommitAsync`, implemented by `InMemoryTaskStore` and `PostgresTaskStore` (migration 0006: `a2a_events.mutation_id`). There is no Redis task store, so there is nothing to implement there.
+   - After a failed commit call, the engine looks up the ids of every attempt of that change. When one is stored, it carries on with the task as stored now.
+   - No startup check was added. No feature requires the capability, and a store without it keeps the old behaviour, so there is nothing to refuse at startup.
+   - The tests in `AmbiguousCommitTests` (single and batch commits) pass, and the store contract test `A_stored_commit_is_found_by_its_mutation_id` covers both stores.
+   - Still not covered: the commit that creates a task. A create whose answer is lost is reported as before.
 3. [x] ~~If the event is not stored twice: record why in the gap analysis, and close D2 there.~~ Not applicable: item 1 shows the failure.
 4. [ ] Finish ADR-001 before tagging the release:
    - make `GetForMaintenanceAsync` virtual, or move it to a capability interface;

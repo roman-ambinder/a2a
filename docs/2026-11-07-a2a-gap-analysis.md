@@ -110,7 +110,7 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 | D10 | Client has no timeout/retry/backoff. | Med | source | Built on `Microsoft.Extensions.Http.Resilience`; retry only when `ErrorInfo.metadata.retryable` or transport failure; idempotency key on every `SendMessage` (S21). |
 | D11 | Auto-delete push configs after terminal delivery broke conformance tests. | Low | #592 open | Retention policy opt-in, default off; purge via sweeper (S32). |
 
-Status: D4, D6, D7, D9, D10 and D11 are done (`TaskStateMachine` and version checks, shared `TaskStreamer` with `Parity/RegressionTests`, `PushOutbox` and `PushDeliveryService`, `RetryPolicy` instead of `Http.Resilience`, opt-in `AddA2ARetention`). D5 is done (heartbeat, ids and resume; `StreamingOptions.KeepAliveInterval`, `A2ALimits.MaxStreamDuration`, and `A2ALimits.StreamIdleTimeout`, off by default). Still partial: D1 (Postgres and Redis ship, Cosmos does not), D2 (no mutation id per write), D3 (no Azure Service Bus provider).
+Status: D4, D6, D7, D9, D10 and D11 are done (`TaskStateMachine` and version checks, shared `TaskStreamer` with `Parity/RegressionTests`, `PushOutbox` and `PushDeliveryService`, `RetryPolicy` instead of `Http.Resilience`, opt-in `AddA2ARetention`). D5 is done (heartbeat, ids and resume; `StreamingOptions.KeepAliveInterval`, `A2ALimits.MaxStreamDuration`, and `A2ALimits.StreamIdleTimeout`, off by default). D2 is done: `TaskCommit.MutationId` with the optional `ITaskCommitLookup` (in-memory and Postgres stores), so a commit whose answer was lost is neither applied twice nor treated as failed (see ADR-002). Still partial: D1 (Postgres and Redis ship, Cosmos does not), D3 (no Azure Service Bus provider).
 
 ### 2.2 Security
 
@@ -227,6 +227,5 @@ Checked against the code on 2026-11-11. Everything else in Parts 1 to 3 is done,
 | # | What is still missing |
 |---|---|
 | D1 | No Cosmos store. |
-| D2 | No mutation id per store write. |
 | D3 | No Azure Service Bus event bus. |
 | D33 | No context lifecycle policy hook. |

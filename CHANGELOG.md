@@ -262,6 +262,18 @@ The first version published to NuGet: 0.1.0 was prepared but never published. Ch
 
 ### Fixes
 
+- Server: a commit that the store wrote, but whose call failed, is no longer applied twice or treated as lost (D2 in
+  the gap analysis, ADR-002). Two cases:
+  - A database can commit and then lose the answer (a timeout or a reset connection). The run used to fail, although
+    the event was stored.
+  - A store that retries on its own can report a version conflict for its own write. The server then stored the event
+    a second time.
+
+  Each commit now carries a `TaskCommit.MutationId` (and `TaskBatchCommit.MutationId`). A store that implements the new
+  `ITaskCommitLookup` finds a stored commit by it, and the server carries on as if the call had succeeded (log event
+  226; event 227 when the lookup itself fails). The in-memory and Postgres task stores implement it. Postgres gets
+  migration 0006, which adds the nullable column `a2a_events.mutation_id`. A store without the interface behaves as
+  before.
 - Server: new `PushDelivery.RetryPolicy` (default null: the backoff as before). After a webhook attempt fails in a way
   worth retrying, it gets a `PushRetryContext` (the attempt, the error, the HTTP status, the receiver's `Retry-After` and
   the default wait) and returns the wait before the next attempt, or null to dead-letter now. `MaxAttempts` and

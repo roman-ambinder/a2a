@@ -42,7 +42,7 @@ internal static class Sql
     /// </summary>
     public static async ValueTask<long> AppendEventAsync(NpgsqlConnection conn, NpgsqlTransaction tx,
         EventTables tables, TaskKey task,
-        string eventJson, int capacity, long? nowTicks, CancellationToken cancellationToken)
+        string eventJson, int capacity, long? nowTicks, CancellationToken cancellationToken, string? mutationId = null)
     {
         long seq;
         await using (var upsert = new NpgsqlCommand(
@@ -68,10 +68,13 @@ internal static class Sql
         trim.Parameters.Add(Long(capacity));
         var insert =
             new NpgsqlBatchCommand(
-                $"INSERT INTO {tables.Events} (tenant, owner, task_id, seq, event) VALUES ($1, $2, $3, $4, $5)");
+                mutationId is null
+                    ? $"INSERT INTO {tables.Events} (tenant, owner, task_id, seq, event) VALUES ($1, $2, $3, $4, $5)"
+                    : $"INSERT INTO {tables.Events} (tenant, owner, task_id, seq, event, mutation_id) VALUES ($1, $2, $3, $4, $5, $6)");
         AddKey(insert.Parameters, task);
         insert.Parameters.Add(Long(seq));
         insert.Parameters.Add(TextParam(eventJson));
+        if (mutationId is not null) insert.Parameters.Add(TextParam(mutationId));
         batch.BatchCommands.Add(trim);
         batch.BatchCommands.Add(insert);
         await batch.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
