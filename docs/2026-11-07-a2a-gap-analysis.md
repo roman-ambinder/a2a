@@ -229,4 +229,4 @@ Checked against the code on 2026-11-11. Everything else in Parts 1 to 3 is done,
 | D1 | No Cosmos store. |
 | D2 | No mutation id per store write. |
 | D3 | No Azure Service Bus event bus. |
-| D33 | No context lifecycle policy hook. |
+| D33 | Done: `A2A.Extensions.AgentFramework` (scoped agent per execution, `ReferenceTaskIds` in run options, every execution is a task) and `IA2AContextLifecycle`; design: `docs/superpowers/specs/2026-11-12-agent-framework-adapter-design.md`. |

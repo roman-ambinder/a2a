@@ -120,6 +120,9 @@ public sealed class FakeSessionStore : AgentSessionStore
     /// <summary>When true, a save never completes and ignores its token, like a store that hangs.</summary>
     public bool HangOnSave { get; set; }
 
+    /// <summary>When true, a delete throws, like a store that is down.</summary>
+    public bool FailOnDelete { get; set; }
+
     /// <summary>
     /// When true, sessions are kept as the JSON of <see cref="AIAgent.SerializeSessionAsync"/> and read back with
     /// <see cref="AIAgent.DeserializeSessionAsync"/>, as a real store does. Each get then returns a new session object.
@@ -161,6 +164,7 @@ public sealed class FakeSessionStore : AgentSessionStore
         CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _deletes);
+        if (FailOnDelete) throw new IOException("store down");
         _deleted.Enqueue(key);
         _sessions.TryRemove(key, out _);
         _json.TryRemove(key, out _);

@@ -125,9 +125,10 @@ while (response.ContinuationToken is { } token)
   the response has no messages and a `ContinuationToken`. Pass it back, with no messages, to poll: the agent reads the
   task (`GetTask`) and never sends again. A finished, interrupted or failed task answers as without background responses,
   and the token is then null.
-- A streamed run gives a token on every update but the last. If the stream drops, pass the latest token to
-  `RunStreamingAsync` (no messages) to resume: the agent follows the task (`ObserveTaskAsync`) and continues after the last
-  artifact part the caller had, so nothing is repeated.
+- A streamed run gives a token on every update but the last. The A2A client reconnects a dropped connection by itself;
+  the token is for a caller that stops reading (for example a restart). Pass the latest token to `RunStreamingAsync` (no
+  messages) to continue: the agent follows the task (`ObserveTaskAsync`) and continues after the last artifact part the
+  caller had, so nothing is repeated.
 - The token is JSON: the remote task id, how many parts of each artifact the caller had, and the status message it had. It
   is not a secret: it names a task the caller can read anyway. A token from anywhere else is refused (`ArgumentException`).
 - `AgentRunOptions.ContinuationToken` and `AgentResponse.ContinuationToken` are evaluation-only upstream (`MEAI001`).

@@ -12,6 +12,7 @@
     "A2A.Client.Postgres": 98.5,
     "A2A.Client.V0_3Compat": 97.2,
     "A2A.Extensions.AI": 96.2,
+    "A2A.Extensions.AgentFramework": 82.5,
     "A2A.Grpc": 88.9,
     "A2A.Mcp": 95.4,
     "A2A.Protocol": 86.4,

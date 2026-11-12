@@ -269,6 +269,14 @@ Commit: `feat(agent-framework): background responses with continuation tokens`.
 
 **Files:** create `tests/A2A.Extensions.AgentFramework.Tests/EndToEndTests.cs`; create `samples/AgentFrameworkAgent/` (csproj, `Program.cs`); edit `samples/run-samples.sh`, `samples/README.md`, `A2A.slnx`; create `docs/site/guides/agent-framework.md`; edit `docs/site/guides/toc.yml`, `docs/site/guides/metadata.md`, `README.md`, `CHANGELOG.md`, `docs/2026-11-07-a2a-gap-analysis.md`.
 
+Done in Task 9, with these notes:
+- End-to-end case 1 is `RemoteAgentTests.A_hosted_agent_answers_a_remote_agent_over_unary_and_streaming` (Task 7); `EndToEndTests` has cases 2-4. Case 4 cancels through A2A and then polls the canceled task through the remote agent's continuation token.
+- Sample: a small rule-based `AIAgent` written in the sample (no `Microsoft.Agents.AI` reference at all), with a comment that shows `new ChatClientAgent(chatClient, instructions:, name:)` for a real model (parameter names from the 1.28.0 XML docs). It opts in to `MEAI001` for its background response.
+- Guide code comes from `samples/Snippets/AgentFramework.cs` regions (the guide checker refuses fenced C#), compiled with the other snippets; type names are inline code, not `xref` links.
+- The guide also went into `docs/site/index.md` and `guides/overview.md`, which list every guide.
+- The resume text says what the token is for: the A2A client already reconnects a dropped connection itself; the token serves a caller that stops reading (a restart) and continues later.
+- Coverage baseline: `A2A.Extensions.AgentFramework` 82.5. The shared sources this assembly compiles but uses little of (`ModelContent`'s metadata conversions, `RemoteAgentSupport.LookupKnownAsync`) and generated code count against it; the package's own files are 73-100% covered (lowest: PendingToolApproval.cs, its unreadable-JSON branches).
+
 **End to end (all `Bindings.All`, ASP.NET test host):**
 1. `AddAIAgent` with `FakeAIAgent`, called with `AsAIAgent`: unary and streaming answers match.
 2. Stored session over two turns from one `A2ARemoteAgentSession`.

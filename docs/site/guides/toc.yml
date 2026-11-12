@@ -36,6 +36,8 @@
   href: custom-operations.md
 - name: Microsoft.Extensions.AI
   href: extensions-ai.md
+- name: Microsoft Agent Framework
+  href: agent-framework.md
 - name: Conversation memory
   href: conversation-memory.md
 - name: MCP bridge

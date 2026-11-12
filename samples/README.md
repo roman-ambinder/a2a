@@ -25,6 +25,7 @@ README, or `dotnet run --project samples/<Name>`.
 |---|---|---|---|---|
 | `echo` | [EchoAgent](EchoAgent/Program.cs) + [EchoClient](EchoClient/Program.cs) | A small agent with API key auth, streaming, push and optional card signing; a DI client that calls it | `Server.AspNetCore`, `Client`, `Client.DependencyInjection` | [Getting started](../docs/site/guides/getting-started.md) |
 | `chat` | [ChatAgent](ChatAgent/Program.cs) | An `IChatClient` hosted as an agent, and a remote agent called as an AI tool | `Extensions.AI` | [Extensions.AI](../docs/site/guides/extensions-ai.md) |
+| `agentframework` | [AgentFrameworkAgent](AgentFrameworkAgent/Program.cs) | A Microsoft Agent Framework `AIAgent` hosted as an agent, then used as an `AIAgent` again: a session, streaming, a background response | `Extensions.AgentFramework` | [Agent Framework](../docs/site/guides/agent-framework.md) |
 | `elicitation` | [ElicitationAgent](ElicitationAgent/Program.cs) | An agent that asks for a typed form; accept, decline, cancel and a plain-text answer | `Server.AspNetCore`, `Client` | [Task safety](../docs/site/guides/task-safety.md) |
 | `typed` | [TypedSkillAgent](TypedSkillAgent/Program.cs) | A skill with .NET input and output types, schemas on the card, bad input refused | `Server.TypedSkills` | [Typed skills](../docs/site/guides/typed-skills.md) |
 | `mcp` | [McpBridge](McpBridge/README.md) | An agent's skills served as MCP tools, and MCP tools run by an agent | `Mcp` | [MCP bridge](../docs/site/guides/mcp-bridge.md) |

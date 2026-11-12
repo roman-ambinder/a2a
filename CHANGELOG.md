@@ -4,7 +4,38 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Agent Framework
+
+- New package `RomanAmbinder.A2A.Extensions.AgentFramework` (experimental, `A2AEXP006`): Microsoft Agent Framework
+  integration. It depends on `Microsoft.Agents.AI.Abstractions` 1.28.0 only and must not be mixed with
+  `Microsoft.Agents.AI.A2A` in one project (the official `A2A` package has the same type names as `A2A.Protocol`).
+  See the [guide](docs/site/guides/agent-framework.md).
+- Host an `AIAgent` as an A2A agent with `AddAIAgent`: the agent is resolved from each execution's scope, every execution
+  is a task (cancel and follow-ups work), and the A2A ids, including `referenceTaskIds`, reach the agent in
+  `AgentRunOptions.AdditionalProperties` (`A2AAgentKeys`). Stateless by default (the prompt comes from the task history,
+  as for `AddChatClientAgent`); `SessionMode = Stored` keeps sessions in an `AgentSessionStore`, per context, tenant and
+  owner, deleted when retention deletes the context. `ToolApprovals = Bound` turns tool approval requests into approvals
+  bound to the exact call and to the task that asked.
+- Use a remote A2A agent as an `AIAgent` with `A2AClient.AsAIAgent`: sessions that continue the context or an interrupted
+  task, and background responses with continuation tokens to poll or to continue a stream after the last part read.
+- Sample `samples/AgentFrameworkAgent` (`run-samples.sh agentframework`).
+
+### Server
+
+- New `IA2AContextLifecycle`: the retention sweep calls every registered hook for each context it deletes. A failing hook
+  is logged (event 244) and stops neither the other hooks nor the sweep. `A2ARetentionService` has a new constructor that
+  takes the hooks; the earlier one keeps its signature, without its default values (`AddA2ARetention` passes the hooks).
+
+### Extensions.AI
+
+- No behaviour change: the executor's chunking, prompt building and the client facade's send rules moved to shared source
+  that `A2A.Extensions.AgentFramework` compiles too.
+
 ### Documentation
+
+- Observability guide: the server's log ids are 200-244 (the table said 200-242), and 1400-1401 are the Agent Framework
+  adapter's.
+- Metadata keys: the local `AdditionalProperties` keys of the M.E.AI and Agent Framework integrations.
 
 - Spec decisions: blocking and non-blocking SendMessage. The SDK follows §3.2.2 where it disagrees with §3.1.1 ("MUST
   return immediately"), and a blocking send also returns when no execution of the task is running any more, so an agent

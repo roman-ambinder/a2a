@@ -59,6 +59,7 @@ dotnet add package RomanAmbinder.A2A.TestKit
 - [Skill authorization](guides/skill-authorization.md)
 - [Custom operations](guides/custom-operations.md)
 - [Microsoft.Extensions.AI](guides/extensions-ai.md)
+- [Microsoft Agent Framework](guides/agent-framework.md)
 - [Conversation memory](guides/conversation-memory.md)
 - [MCP bridge](guides/mcp-bridge.md)
 - [v0.3 compatibility](guides/v03-compatibility.md)

@@ -16,7 +16,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 
 - **You want to expose an agent to other agents or apps.** You write one class that implements <xref:A2A.Server.IAgentExecutor> and register it. The SDK serves the Agent Card, the endpoints, task state, streaming and push. See [Getting started](getting-started.md).
 - **You want to call remote agents.** You use `A2AClient`. It picks a binding from the Agent Card, retries safely and keeps credentials on the card's origin. See [Getting started](getting-started.md) and [Client credentials](client-credentials.md).
-- **You want to put a model behind an agent, or an agent behind a model.** See [Microsoft.Extensions.AI](extensions-ai.md) and the [MCP bridge](mcp-bridge.md).
+- **You want to put a model behind an agent, or an agent behind a model.** See [Microsoft.Extensions.AI](extensions-ai.md), [Microsoft Agent Framework](agent-framework.md) and the [MCP bridge](mcp-bridge.md).
 - **You run agents in production.** Read [Production checklist](production-checklist.md) first.
 
 ## Design priorities
@@ -43,7 +43,7 @@ What that means in practice, with nothing configured (details in [Getting starte
 | Let an agent keep working after the request ends | [Proactive continuation](proactive-continuation.md) |
 | Prove who published an Agent Card, and who a peer is | [Agent Card signing](agent-card-signing.md), [Peer identity and registry](peer-identity.md) |
 | Route to, type and authorize skills | [Skill selection](skill-selection.md), [Typed skills](typed-skills.md), [Skill authorization](skill-authorization.md) |
-| Add your own operations or integrate with AI libraries | [Custom operations](custom-operations.md), [Microsoft.Extensions.AI](extensions-ai.md), [MCP bridge](mcp-bridge.md) |
+| Add your own operations or integrate with AI libraries | [Custom operations](custom-operations.md), [Microsoft.Extensions.AI](extensions-ai.md), [Microsoft Agent Framework](agent-framework.md), [MCP bridge](mcp-bridge.md) |
 | Serve many agents from one host | [Multi-tenancy](multi-tenancy.md) |
 | Survive restarts and run several instances | [Durable stores](durable-stores.md), [Retention](retention.md), [Artifact storage](artifact-storage.md) |
 | See what the system is doing | [Observability](observability.md), [Audit trail](audit.md) |

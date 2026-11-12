@@ -21,6 +21,19 @@ A2A messages, tasks, artifacts and events carry a free-form `metadata` object. T
 
 The server owns the keys it writes on tasks. An agent cannot set `a2a.approval.consumed`, `a2a.elicitation.answered`, `actorChain` or `a2a.usage` through event metadata, and the server removes an `a2a.artifact.sealed` that an agent sets on a chunk that is not the last one. How event metadata merges into the task (shallow, last write wins) is in [Spec decisions](spec-decisions.md).
 
+## Local keys (never on the wire)
+
+These keys live in `AdditionalProperties` of Microsoft.Extensions.AI and Agent Framework objects. They are local data: the SDK never sends them to a peer, and it never copies caller metadata into them.
+
+| Key | Where | Meaning |
+|---|---|---|
+| `a2a.taskId` | `ChatOptions` (in), responses and updates (out) of `A2AChatClient`; responses and updates of `A2ARemoteAIAgent`; `AgentRunOptions` of an agent hosted with `AddAIAgent` | The A2A task id. Constants `A2AChatKeys.TaskId`, `A2AAgentKeys.TaskId`. |
+| `a2a.taskState` | Responses and updates of `A2AChatClient` and `A2ARemoteAIAgent` | The task state as a string, for example `input-required`. Constants `A2AChatKeys.TaskState`, `A2AAgentKeys.TaskState`. |
+| `a2a.contextId` | `AgentRunOptions` of an agent hosted with `AddAIAgent` | The A2A context id. Constant `A2AAgentKeys.ContextId`. |
+| `a2a.referenceTaskIds` | `AgentRunOptions` of an agent hosted with `AddAIAgent` | The message's `referenceTaskIds`, as a `string[]`, when it has some. The caller chose them. Constant `A2AAgentKeys.ReferenceTaskIds`. |
+
+See [Microsoft.Extensions.AI](extensions-ai.md) and [Microsoft Agent Framework](agent-framework.md).
+
 ## Cost, progress, priority and batches
 
 - **Cost.** Report usage with `ReportUsageAsync`. The total is stored in the task's `a2a.usage`, and `A2ALimits.MaxTaskTokens` and `A2ALimits.MaxTaskCostUnits` can stop a task that goes over. See [Execution limits](execution-limits.md).

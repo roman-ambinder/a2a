@@ -243,6 +243,23 @@ public class ApprovalTests
         Assert.DoesNotContain(agent.Calls[2].Messages.SelectMany(m => m.Contents), c => c is ToolApprovalResponseContent);
     }
 
+    [Fact]
+    public async Task An_unreadable_pending_entry_is_dropped_and_never_answered()
+    {
+        var agent = Asking();
+        var store = new FakeSessionStore();
+        await using var host = await StartAsync(agent, store);
+        var client = host.Client();
+        var asked = Task_(await client.SendMessageAsync("clean up"));
+        // Damage the stored entry, as a store with a bad copy would.
+        var session = (await store.GetSessionAsync(agent, Assert.Single(store.Keys)))!;
+        session.StateBag.SetValue("a2a.pendingApproval", "not an approval", AIJsonUtilities.DefaultOptions);
+
+        await client.SendMessageAsync(new SendMessageRequest { Message = FollowUp(asked, "yes", HashOf(asked)) });
+
+        Assert.DoesNotContain(agent.Calls[1].Messages.SelectMany(m => m.Contents), c => c is ToolApprovalResponseContent);
+    }
+
     // ---- 6. canonical description ----
 
     [Fact]

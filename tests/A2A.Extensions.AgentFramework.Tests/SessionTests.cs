@@ -271,6 +271,18 @@ public class SessionTests
     }
 
     [Fact]
+    public async Task A_failed_session_delete_is_logged_not_thrown()
+    {
+        var store = new FakeSessionStore { FailOnDelete = true };
+        await using var host = await StartAsync(FakeAIAgent.Replying("ok"), store);
+        var hook = host.App.Services.GetServices<IA2AContextLifecycle>().Single();
+
+        await hook.OnContextDeletedAsync(new ContextRecord("", "bob", "ctx-1", DateTimeOffset.UtcNow), CancellationToken.None);
+
+        Assert.Equal(1, store.Deletes);
+    }
+
+    [Fact]
     public async Task In_stateless_mode_the_hook_deletes_nothing()
     {
         var store = new FakeSessionStore();

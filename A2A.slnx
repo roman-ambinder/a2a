@@ -14,6 +14,7 @@
     <Project Path="interop/v03/dotnet/InteropV03Client/InteropV03Client.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/AgentFrameworkAgent/AgentFrameworkAgent.csproj" />
     <Project Path="samples/ChatAgent/ChatAgent.csproj" />
     <Project Path="samples/ElicitationAgent/ElicitationAgent.csproj" />
     <Project Path="samples/McpBridge/McpBridge.csproj" />

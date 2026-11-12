@@ -190,6 +190,26 @@ public class ExecutorTests
         Assert.False(agent.Calls[1].Options!.AdditionalProperties!.ContainsKey(A2AAgentKeys.ReferenceTaskIds));
     }
 
+    [Fact]
+    public async Task Code_inside_the_run_reads_the_A2A_ids_through_the_current_run_context()
+    {
+        object? seen = null;
+        var agent = new FakeAIAgent((_, _) => Reading());
+        await using var host = await AgentHost.StartAsync(agent);
+
+        var task = Task_(await host.Client().SendMessageAsync("go"));
+
+        Assert.Equal(task.Id, seen);
+
+        async IAsyncEnumerable<AgentResponseUpdate> Reading()
+        {
+            // What a tool called during the run would do: Agent Framework flows the run context across async calls.
+            seen = AIAgent.CurrentRunContext?.RunOptions?.AdditionalProperties?[A2AAgentKeys.TaskId];
+            yield return new AgentResponseUpdate(ChatRole.Assistant, "ok");
+            await Task.CompletedTask;
+        }
+    }
+
     // ---- 5. failures ----
 
     private static async Task<AgentTask> RunAsync(FakeAIAgent agent)

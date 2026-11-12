@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <!-- The adapter is experimental (A2AEXP006). Background responses use Agent Framework's continuation tokens,
+             which are evaluation-only upstream (MEAI001). -->
+        <NoWarn>$(NoWarn);A2AEXP006;MEAI001</NoWarn>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\A2A.Extensions.AgentFramework\A2A.Extensions.AgentFramework.csproj"/>
+        <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj"/>
+    </ItemGroup>
+</Project>

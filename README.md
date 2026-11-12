@@ -22,6 +22,7 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | Call an agent with Azure managed identity or AWS IAM | `A2A.Client.Identity.Azure` or `A2A.Client.Identity.Aws` |
 | Use gRPC | `A2A.Server.Grpc` (host) or `A2A.Client.Grpc` (call) |
 | Host an `IChatClient` as an agent, or use an agent as an AI tool | `A2A.Extensions.AI` |
+| Host a Microsoft Agent Framework `AIAgent`, or use an agent as an `AIAgent` | `A2A.Extensions.AgentFramework` (experimental) |
 | Bridge to MCP | `A2A.Mcp` |
 | Keep tasks across restarts | `A2A.Server.Postgres` |
 | Run several server instances | `A2A.Server.Redis` (plus `A2A.Server.Postgres`) |
@@ -50,6 +51,7 @@ The other packages (`A2A.Protocol`, `A2A.Security.Http`, `A2A.Grpc`, `A2A.V0_3Co
 | `A2A.Server.V0_3Compat` | `EnableV03Compat()`: lets v0.3 clients call a v1.0 agent |
 | `A2A.Client.V0_3Compat` | `V03CompatClientFactory`: lets a client call v0.3 agents |
 | `A2A.Extensions.AI` | `Microsoft.Extensions.AI` integration: host an `IChatClient` as an agent (`AddChatClientAgent`), call a remote agent as an AI tool (`AsAIFunction`) or as an `IChatClient` (`AsChatClient`) |
+| `A2A.Extensions.AgentFramework` | Microsoft Agent Framework integration (experimental): host an `AIAgent` as an agent (`AddAIAgent`, with stored sessions and bound tool approvals), use a remote agent as an `AIAgent` (`AsAIAgent`, with background responses). Depends on `Microsoft.Agents.AI.Abstractions` only; do not mix with `Microsoft.Agents.AI.A2A` in one project ([guide](docs/site/guides/agent-framework.md)) |
 | `A2A.Client.Postgres` | PostgreSQL store for the client outbox (`A2A.Client.Outbox`): a durable list of the messages an agent sends to peers, written in your own transaction |
 | `A2A.Mcp` | Model Context Protocol bridge: serve the skills of a remote agent as MCP tools (`AsMcpTools`), or let an agent run MCP tools (`AddMcpToolAgent`) |
 | `A2A.Server.Postgres` | PostgreSQL stores (tasks, events, push configs, push outbox, idempotency) via Npgsql |
@@ -63,7 +65,7 @@ The other packages (`A2A.Protocol`, `A2A.Security.Http`, `A2A.Grpc`, `A2A.V0_3Co
 
 Guides and API reference are published at [roman-ambinder.github.io/a2a](https://roman-ambinder.github.io/a2a/). They are built with DocFX from [docs/site](docs/site/README.md) and published from `main` on every green CI run. The guides pull their C# code from [samples/](samples/README.md) (runnable samples, and compile-only snippets in `samples/Snippets`), so read them on the published site to see the code.
 
-Start with [Getting started](docs/site/guides/getting-started.md). Then: [bindings](docs/site/guides/bindings.md), [authentication and ownership](docs/site/guides/auth-and-ownership.md), [identity providers](docs/site/guides/identity-providers.md), [streaming](docs/site/guides/streaming.md), [push notifications](docs/site/guides/push-notifications.md), [proactive continuation](docs/site/guides/proactive-continuation.md), [Agent Card signing](docs/site/guides/agent-card-signing.md), [multi-tenancy](docs/site/guides/multi-tenancy.md), [durable stores](docs/site/guides/durable-stores.md), [retention](docs/site/guides/retention.md), [artifact storage](docs/site/guides/artifact-storage.md), [observability](docs/site/guides/observability.md), [limits](docs/site/guides/limits-and-rate-limiting.md), [task safety](docs/site/guides/task-safety.md), [interop](docs/site/guides/interop-and-conformance.md), [testing](docs/site/guides/testing.md), [spec decisions](docs/site/guides/spec-decisions.md), [client outbox](docs/site/guides/client-outbox.md).
+Start with [Getting started](docs/site/guides/getting-started.md). Then: [bindings](docs/site/guides/bindings.md), [authentication and ownership](docs/site/guides/auth-and-ownership.md), [identity providers](docs/site/guides/identity-providers.md), [streaming](docs/site/guides/streaming.md), [push notifications](docs/site/guides/push-notifications.md), [proactive continuation](docs/site/guides/proactive-continuation.md), [Agent Card signing](docs/site/guides/agent-card-signing.md), [multi-tenancy](docs/site/guides/multi-tenancy.md), [durable stores](docs/site/guides/durable-stores.md), [retention](docs/site/guides/retention.md), [artifact storage](docs/site/guides/artifact-storage.md), [observability](docs/site/guides/observability.md), [limits](docs/site/guides/limits-and-rate-limiting.md), [task safety](docs/site/guides/task-safety.md), [interop](docs/site/guides/interop-and-conformance.md), [testing](docs/site/guides/testing.md), [spec decisions](docs/site/guides/spec-decisions.md), [client outbox](docs/site/guides/client-outbox.md), [Microsoft Agent Framework](docs/site/guides/agent-framework.md).
 
 ## Server in 20 lines
 
