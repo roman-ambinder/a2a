@@ -107,6 +107,63 @@ public class GrpcDelegationTests
         Assert.Empty(exchanger.Requests);
     }
 
+    /// <summary>
+    ///     One call whose caller the host's test scheme (<c>Test</c>, not a bearer scheme) authenticates, with
+    ///     <paramref name="trusted" /> in <see cref="A2AHttpOptions.TrustedBearerSchemes" />.
+    /// </summary>
+    private static async Task<(bool? Can, List<TokenExchangeRequest> Requests)> ExchangeWithTrustedAsync(params string[] trusted)
+    {
+        var exchanger = new RecordingExchanger();
+        bool? can = null;
+        await using var host = await GrpcHost.StartAsync(
+            services: s => s.AddAuthentication().AddScheme<AuthenticationSchemeOptions, NoResultHandler>(NoResultHandler.SchemeName, null),
+            server: b => b
+                .AddTokenExchanger(exchanger)
+                .ConfigureHttp(o => o.TrustedBearerSchemes.UnionWith(trusted))
+                .AddAgentExecutor(async (ctx, updater, ct) =>
+                {
+                    can = ctx.CanExchangeToken;
+                    if (can == true) await ctx.ExchangeTokenAsync("api://b", null, ct);
+                    await updater.CompleteAsync("done", ct);
+                }));
+        var options = new A2ARequestOptions { Headers = { ["Authorization"] = "Bearer gateway-checked-token" } };
+        await host.Client().SendMessageAsync(Message.FromUser("hi"), options: options);
+        return (can, exchanger.Requests);
+    }
+
+    [Fact]
+    public async Task A_trusted_scheme_that_authenticated_the_caller_has_its_bearer_header_exchanged()
+    {
+        var (can, requests) = await ExchangeWithTrustedAsync("Test");
+        Assert.True(can);
+        Assert.Equal("gateway-checked-token", Assert.Single(requests).SubjectToken);
+    }
+
+    [Fact]
+    public async Task Without_trusted_schemes_a_non_bearer_scheme_does_not_forward()
+    {
+        var (can, requests) = await ExchangeWithTrustedAsync();
+        Assert.False(can);
+        Assert.Empty(requests);
+    }
+
+    [Fact]
+    public async Task A_trusted_scheme_that_did_not_authenticate_the_caller_does_not_forward()
+    {
+        var (can, requests) = await ExchangeWithTrustedAsync(NoResultHandler.SchemeName);
+        Assert.False(can);
+        Assert.Empty(requests);
+    }
+
+    /// <summary>A scheme that never authenticates anyone.</summary>
+    private sealed class NoResultHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        public const string SchemeName = "Other";
+
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync() => Task.FromResult(AuthenticateResult.NoResult());
+    }
+
     /// <summary>A bearer scheme: any <c>Authorization: Bearer</c> token is valid, its subject is <c>x-test-user</c>.</summary>
     private sealed class HeaderBearerHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
         : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)

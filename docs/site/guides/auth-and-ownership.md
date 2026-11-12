@@ -249,6 +249,16 @@ The exchanger needs an HTTPS token endpoint (loopback may use HTTP) and reads at
 
 A caller authenticated by another scheme (an API key, a cookie, mTLS) has no token to exchange, even when it sends an `Authorization: Bearer` header: nothing validated that header. Neither has a caller whose token the bearer scheme rejected, or whose token belongs to another user (its owner id differs from the caller's).
 
+#### When another scheme already validated the token
+
+Some hosts authenticate callers with a scheme that is not a bearer scheme, yet the bearer header is the caller's real token. For example, a gateway checks the token and the app trusts the gateway's scheme. List that ASP.NET Core scheme name in <xref:A2A.Server.AspNetCore.A2AHttpOptions.TrustedBearerSchemes>: `ConfigureHttp(o => o.TrustedBearerSchemes.Add("Gateway"))`. A caller that scheme authenticated then keeps its `Authorization: Bearer` token for the exchanger. The list is empty by default.
+
+- The listed scheme must have authenticated this caller. A caller authenticated by a scheme that is not listed still has no token.
+- The token is still the request's own header. It must be one `Authorization: Bearer <token>` value.
+- The app does not start when a listed scheme is not registered.
+
+Only list a scheme that validates the bearer header, or that runs behind something that does. The SDK does not check the token for a listed scheme. It trusts that scheme. If the scheme did not check the header, the agent exchanges a token nobody checked. A caller with a valid API key could then send someone else's bearer token and the agent would act with it.
+
 ### Call the next agent
 
 [!code-csharp[](../../../samples/Snippets/AuthAndOwnership.cs#Delegate)]

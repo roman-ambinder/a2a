@@ -166,6 +166,7 @@ internal sealed class A2AStartupValidator(
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         CheckCardName();
+        await CheckTrustedBearerSchemesAsync().ConfigureAwait(false);
         await CheckExtensionPoliciesAsync().ConfigureAwait(false);
         // Listen addresses, and so the completed card, are known only once the server has started.
         lifetime.ApplicationStarted.Register(CheckCardInterfaces);
@@ -213,6 +214,21 @@ internal sealed class A2AStartupValidator(
         if (services.GetService<TenantCardProvider>() is not null) return;
         if (string.IsNullOrWhiteSpace(options.Value.AgentCard?.Name))
             throw new InvalidOperationException(NoCardNameMessage);
+    }
+
+    /// <summary>
+    ///     Fails when <see cref="A2AHttpOptions.TrustedBearerSchemes" /> names a scheme that is not registered: a typo
+    ///     would otherwise silently keep no token.
+    /// </summary>
+    private async Task CheckTrustedBearerSchemesAsync()
+    {
+        if (http?.Value.TrustedBearerSchemes is not { Count: > 0 } trusted) return;
+        // Without AddAuthentication() there is no scheme provider at all: the same answer as a missing scheme.
+        var provider = services.GetService<Microsoft.AspNetCore.Authentication.IAuthenticationSchemeProvider>();
+        foreach (var name in trusted.Order(StringComparer.Ordinal))
+            if (provider is null || await provider.GetSchemeAsync(name).ConfigureAwait(false) is null)
+                throw new InvalidOperationException(
+                    $"A2AHttpOptions.TrustedBearerSchemes lists the authentication scheme '{name}', but no such scheme is registered. Register it with builder.Services.AddAuthentication().AddScheme(...), or remove it from the list.");
     }
 
     /// <summary>Fails when an extension operation names an authorization policy the app cannot evaluate (fail closed).</summary>
