@@ -267,6 +267,86 @@ public class AmbiguousCommitTests
         Assert.True(task.Status.State == TaskState.Completed, summary);
     }
 
+    /// <summary>
+    /// Applies the commit that creates the task, then fails: a timeout (the answer is lost), or a duplicate task (the
+    /// store's own retry met its first attempt). Remembers the key of the task it created.
+    /// </summary>
+    public class CreateFailingStore(InMemoryTaskStore inner, bool duplicate)
+        : AmbiguousTaskStore(inner, Failure.Timeout, failingArtifactCommit: 0)
+    {
+        public TaskKey? Created { get; private set; }
+
+        public override async ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
+        {
+            var result = await Inner.CommitAsync(commit, ct);
+            if (commit.ExpectedVersion != 0 || Created is not null) return result;
+            Created = commit.Record.Key;
+            throw duplicate
+                ? new DuplicateTaskException(commit.Record.Key)
+                : new TimeoutException("The create was applied, but its answer was lost.");
+        }
+    }
+
+    /// <summary>The same, able to tell whether a commit was stored.</summary>
+    public sealed class CreateFailingLookupStore(InMemoryTaskStore inner, bool duplicate)
+        : CreateFailingStore(inner, duplicate), ITaskCommitLookup
+    {
+        public ValueTask<long?> FindCommitAsync(TaskKey task, string mutationId, CancellationToken ct = default) =>
+            Inner.FindCommitAsync(task, mutationId, ct);
+    }
+
+    /// <summary>Sends "task" through a store that fails the create; returns the reply's task, the store's tasks and the created task's log.</summary>
+    private static async Task<(AgentTask Reply, string? Created, IReadOnlyList<TaskRecord> Tasks, List<SequencedEvent> Log)> RunCreateAsync(
+        Func<InMemoryTaskStore, CreateFailingStore> store)
+    {
+        CreateFailingStore? made = null;
+        await using var host = await TestAgentHost.StartAsync(services: s =>
+            s.AddSingleton<TaskStore>(sp => made = store(A2AServerServiceCollectionExtensions.InMemoryTaskStore(sp))));
+        var reply = (await host.Client(ProtocolBindings.JsonRpc).SendMessageAsync("task")).RequireTask();
+        await host.WaitIdleAsync();
+
+        var tasks = host.App.Services.GetRequiredService<TaskStore>();
+        var all = (await tasks.ListAsync(new TaskQuery("", "alice", null, null, null, 100, null))).Records;
+        var log = new List<SequencedEvent>();
+        if (made?.Created is { } key)
+            await foreach (var e in host.App.Services.GetRequiredService<EventStore>().ReadAfterAsync(key, 0)) log.Add(e);
+        return (reply, made?.Created?.TaskId, all, log);
+    }
+
+    private static string DescribeCreate(AgentTask reply, string? created, IReadOnlyList<TaskRecord> tasks, List<SequencedEvent> log) =>
+        $"reply {reply.Id} {reply.Status.State}; created {created}; tasks: " +
+        string.Join(", ", tasks.Select(t => $"{t.Task.Id}={t.Task.Status.State}")) + "; log: " + Kinds(log);
+
+    [Theory]
+    [InlineData(false, true)]  // the answer is lost, the store has the lookup
+    [InlineData(true, true)]   // the store's own retry met the create, with the lookup
+    [InlineData(true, false)]  // the same, without the lookup
+    public async Task A_create_whose_answer_is_lost_makes_one_task(bool duplicate, bool lookup)
+    {
+        var (reply, created, tasks, log) = await RunCreateAsync(inner =>
+            lookup ? new CreateFailingLookupStore(inner, duplicate) : new CreateFailingStore(inner, duplicate));
+
+        var summary = DescribeCreate(reply, created, tasks, log);
+        Assert.True(tasks.Count == 1 && reply.Id == created, summary);
+        Assert.True(reply.Status.State == TaskState.Completed && Parts(reply).SequenceEqual(["part1", "part2"]), summary);
+        Assert.True(Kinds(log) == "TaskEvent,StatusUpdateEvent,ArtifactUpdateEvent,ArtifactUpdateEvent,StatusUpdateEvent", summary);
+        Assert.True(log.Select(e => e.Sequence).SequenceEqual(Enumerable.Range(1, log.Count).Select(i => (long)i)), summary);
+    }
+
+    [Fact]
+    public async Task Without_the_lookup_a_create_whose_answer_is_lost_still_leaves_a_failed_task_behind()
+    {
+        // Known limit, kept visible (ADR-002). A timeout cannot be told from a failed write without ITaskCommitLookup, so
+        // the run fails; the client's retry creates a second task, and the first one stays, failed, with only its
+        // creation. A store whose commit answer can be lost should implement the lookup.
+        var (reply, created, tasks, log) = await RunCreateAsync(inner => new CreateFailingStore(inner, duplicate: false));
+
+        var summary = DescribeCreate(reply, created, tasks, log);
+        Assert.True(tasks.Count == 2 && reply.Id != created, summary);
+        Assert.True(reply.Status.State == TaskState.Completed, summary);
+        Assert.True(tasks.Single(t => t.Task.Id == created).Task.Status.State == TaskState.Failed, summary);
+    }
+
     [Theory]
     [InlineData(Failure.Timeout)]
     [InlineData(Failure.Conflict)]

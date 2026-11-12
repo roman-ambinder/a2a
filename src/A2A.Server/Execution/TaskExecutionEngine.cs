@@ -840,19 +840,34 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         if (push is not null)
                             await _pushConfigs.SaveInlineAsync(key, push, CancellationToken.None).ConfigureAwait(false);
                         CommitResult committed;
+                        List<string>? createIds = null;
+                        var createId = NewMutationId(ref createIds);
                         try
                         {
                             committed = await _tasks.CommitAsync(new TaskCommit(initial, 0, snapshot, deliveries)
                             {
                                 // A store that shares a transaction with the idempotency store writes the outcome with the task.
-                                Idempotency = claim.ForCommit(new IdempotencyOutcome.TaskCreated(taskId))
+                                Idempotency = claim.ForCommit(new IdempotencyOutcome.TaskCreated(taskId)),
+                                MutationId = createId
                             }).ConfigureAwait(false);
                         }
-                        catch when (push is not null)
+                        catch (Exception ex)
                         {
-                            await _pushConfigs.TryDeleteAsync(key, push.Id!)
-                                .ConfigureAwait(false); // no task, so no config
-                            throw;
+                            // The call failed, but the task may be stored: its answer was lost, or a store's own retry met its
+                            // first attempt. Then carry on with it; failing here would leave it behind while a retry of the
+                            // request creates a second task.
+                            var found = ex is OperationCanceledException
+                                ? null
+                                : await FindStoredCreateAsync(key, initial.Task, createIds, ex).ConfigureAwait(false);
+                            if (found is null)
+                            {
+                                if (push is not null)
+                                    await _pushConfigs.TryDeleteAsync(key, push.Id!)
+                                        .ConfigureAwait(false); // no task, so no config
+                                throw;
+                            }
+
+                            committed = found;
                         }
 
                         if (deliveries.Count > 0) _outbox.NotifyPending();
@@ -1274,6 +1289,39 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         }
 
         return null;
+    }
+
+    /// <summary>
+    ///     After the commit that creates a task failed with <paramref name="failure" />: whether the task is stored all the
+    ///     same. With <see cref="ITaskCommitLookup" />, by the mutation ids. Without it, only after a
+    ///     <see cref="DuplicateTaskException" /> (a store's own retry that met its first attempt; task ids are random, so
+    ///     another writer does not create the same one): when the stored task is at version 1 and serializes to the same
+    ///     bytes as <paramref name="initial" />. Null otherwise; a lost answer without the lookup cannot be told from a
+    ///     failed write, and fails as before.
+    /// </summary>
+    private async ValueTask<CommitResult?> FindStoredCreateAsync(TaskKey key, AgentTask initial,
+        List<string>? mutationIds, Exception failure)
+    {
+        if (mutationIds is not null) return await FindStoredCommitAsync(key, mutationIds, failure).ConfigureAwait(false);
+        if (failure is not DuplicateTaskException) return null;
+        try
+        {
+            // The sequence first, as in FindOwnWriteAsync: a task still at version 1 has had no commit after this one.
+            var sequence = await _events.LastSequenceAsync(key, CancellationToken.None).ConfigureAwait(false);
+            if (await _tasks.GetAsync(key, CancellationToken.None).ConfigureAwait(false) is not { } stored ||
+                stored.Version != 1 ||
+                !A2AJson.SerializeToUtf8Bytes(initial).AsSpan()
+                    .SequenceEqual(A2AJson.SerializeToUtf8Bytes(stored.Task)))
+                return null;
+
+            ServerLog.CommitFoundAfterFailure(Logger, failure, key.TaskId, sequence);
+            return new CommitResult(stored, sequence);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ServerLog.CommitLookupFailed(Logger, ex, key.TaskId);
+            return null;
+        }
     }
 
     /// <summary>

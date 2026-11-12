@@ -66,6 +66,13 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- A task whose creating commit was stored, but whose answer was lost, is no longer left behind as a second, failed
+  task. The run failed, the client's retry created another task, and the first one stayed in the caller's list. The
+  create commit now carries a mutation id, so a store with `ITaskCommitLookup` (the in-memory and Postgres stores)
+  finds it and the run goes on with it, its inline push config kept. A store without the lookup gets the same after a
+  `DuplicateTaskException` (its own retry met the create), when the stored task equals the one written. A lost answer
+  without the lookup still fails the run as before.
+
 - A version conflict caused by the engine's own write no longer stores the event twice when the task store has no
   `ITaskCommitLookup`. When a store applied a commit and then reported a conflict for its own write (a store that
   retries commits internally), the engine applied the event again: an artifact append put its parts in the task
