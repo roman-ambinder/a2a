@@ -71,7 +71,11 @@ When the [retention](retention.md) sweep deletes a context, it tells every regis
 - **Shared contexts:** each caller has its own session. That includes callers that `A2AServerOptions.ContextAccess` lets into another owner's context.
 - **The index:** the store cannot list its keys, so the adapter keeps a small index session per context with the callers who saved one. Its owner partition is `i:`, where callers have `o:` and their principal. Deleting the context deletes every listed caller's session, then the index.
 - **Cost:** each process records a caller once per context, right after that caller's session is saved, within the same save timeout. A failure there is logged (event 1802), and the session itself stays saved.
-- **Limit:** the store has no compare-and-set, so two callers saving the index at the same moment can lose one entry. That caller's session then outlives the context until the store's own expiry removes it. The hook is general: any agent that keeps per-context state outside the task store can use it.
+- **Concurrent callers:** the store has no compare-and-set, so the adapter updates the index under an exclusive claim of the server's `ExecutionCoordinator`. The Postgres and Redis coordinators take it atomically across instances, so two callers saving at the same moment both stay listed, and so do pending approval records (one per task) listed at the same moment. A caller that cannot get the claim within the save timeout is logged (event 1802) and recorded by its next run.
+- **A context created again:** session keys carry the context's creation time (partition `a2a.context`). If a new message brings back a context id that the sweep has just deleted, the new context has its own keys, and deleting the old context's sessions never reaches them.
+- **Built by hand:** an `AIAgentExecutor` created with its public constructor has neither the task store nor the coordinator. Its keys have no creation time, and two first saves at the same moment can lose an index entry. That caller's session then stays until the store's own expiry. `AddAIAgent` passes both.
+
+The hook is general: any agent that keeps per-context state outside the task store can use it. Key that state by the context's `CreatedAt` as well as its id, so a context created again under the same id is told apart.
 
 [!code-csharp[](../../../samples/Snippets/AgentFramework.cs#Lifecycle)]
 

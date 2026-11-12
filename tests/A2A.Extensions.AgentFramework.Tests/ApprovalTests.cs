@@ -320,10 +320,11 @@ public class ApprovalTests
         var waiting = Task_(await client.SendMessageAsync("clean up"));
         var record = Assert.Single(store.ApprovalKeys);
         Assert.Equal("k:" + waiting.Id, record.Partitions!["a2a.task"]);
-        var owner = Assert.Single(store.Keys, k => k.SessionId == waiting.ContextId).Partitions!["a2a.owner"][2..];
+        // The record the sweep passes: its creation time picks the generation of the context's keys.
+        var context = await host.App.Services.GetRequiredService<A2A.Server.Storage.TaskStore>()
+            .GetContextAsync("", waiting.ContextId);
         var hook = host.App.Services.GetServices<A2A.Server.Retention.IA2AContextLifecycle>().Single();
-        await hook.OnContextDeletedAsync(new A2A.Server.Storage.ContextRecord("", owner, waiting.ContextId, DateTimeOffset.UtcNow),
-            CancellationToken.None);
+        await hook.OnContextDeletedAsync(context!, CancellationToken.None);
 
         Assert.Empty(store.ApprovalKeys);
         Assert.DoesNotContain(store.IndexKeys, k => k.SessionId == waiting.ContextId);

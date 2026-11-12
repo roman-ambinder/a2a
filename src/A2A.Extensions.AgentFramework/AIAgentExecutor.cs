@@ -3,6 +3,8 @@ using System.Diagnostics.CodeAnalysis;
 using A2A.Extensions.AgentFramework.Shared;
 using System.Text.Json;
 using A2A.Server;
+using A2A.Server.Coordination;
+using A2A.Server.Storage;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -49,11 +51,19 @@ public sealed class AIAgentExecutor : IAgentExecutor
     private readonly ILogger _logger;
     private readonly AIAgentExecutorOptions _options;
     private readonly AgentSessionStore? _sessions;
+    private readonly TaskStore? _tasks; // the context's creation time: SessionKeys.Generation
+    private readonly ExecutionCoordinator? _coordinator; // the claim around the session index
+    private readonly TimeProvider _time;
 
     /// <summary>
     ///     Creates an executor over <paramref name="agent" />. <paramref name="options" /> defaults to a new
     ///     <see cref="AIAgentExecutorOptions" />.
     /// </summary>
+    /// <remarks>
+    ///     <c>AddAIAgent</c> also gives the executor the server's task store and coordinator. One built here has neither:
+    ///     its session keys do not carry the context's creation time, and two callers that first save in one shared context
+    ///     at the same moment can lose an entry of the context's session index (see the Agent Framework guide).
+    /// </remarks>
     /// <param name="agent">The agent to run.</param>
     /// <param name="options">The options, or null for the defaults.</param>
     /// <param name="sessions">
@@ -67,7 +77,22 @@ public sealed class AIAgentExecutor : IAgentExecutor
     /// </exception>
     public AIAgentExecutor(AIAgent agent, AIAgentExecutorOptions? options = null, AgentSessionStore? sessions = null,
         ILogger<AIAgentExecutor>? logger = null)
+        : this(agent, options, sessions, logger, null, null, null)
     {
+    }
+
+    /// <summary>
+    ///     The executor <c>AddAIAgent</c> registers. With <paramref name="tasks" />, session keys carry the context's creation
+    ///     time, so a context the retention sweep deleted and a new message created again never gets the old sessions, and
+    ///     deleting the old ones never reaches the new. With <paramref name="coordinator" />, the session index is updated
+    ///     under the coordinator's exclusive claim.
+    /// </summary>
+    internal AIAgentExecutor(AIAgent agent, AIAgentExecutorOptions? options, AgentSessionStore? sessions,
+        ILogger<AIAgentExecutor>? logger, TaskStore? tasks, ExecutionCoordinator? coordinator, TimeProvider? time)
+    {
+        _tasks = tasks;
+        _coordinator = coordinator;
+        _time = time ?? TimeProvider.System;
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
         _options = options ?? new AIAgentExecutorOptions();
         _options.ThrowIfUnsupported();
@@ -106,7 +131,8 @@ public sealed class AIAgentExecutor : IAgentExecutor
             return;
         }
 
-        var key = SessionKeys.For(context.Call.Tenant, context.Call.Principal, context.ContextId);
+        var generation = await GenerationAsync(context, cancellationToken).ConfigureAwait(false);
+        var key = SessionKeys.For(context.Call.Tenant, context.Call.Principal, context.ContextId, generation);
         var stored = await _sessions.GetOrCreateSessionAsync(_agent, key, cancellationToken).ConfigureAwait(false);
         // The session holds the conversation: send only the new message, after the answer to a pending approval.
         var contents = new List<AIContent>();
@@ -130,15 +156,30 @@ public sealed class AIAgentExecutor : IAgentExecutor
             await RunAsync(context, updater, newMessage, stored, () =>
             {
                 saveAttempted = true;
-                return SaveAsync(key, stored, context, cancellationToken);
+                return SaveAsync(key, generation, stored, context, cancellationToken);
             }, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception) when (!saveAttempted)
         {
             // A failed or canceled run keeps what the session learned. Best effort: the run's own error is what counts.
-            await SaveAfterFailureAsync(key, stored, context).ConfigureAwait(false);
+            await SaveAfterFailureAsync(key, generation, stored, context).ConfigureAwait(false);
             throw;
         }
+    }
+
+    /// <summary>
+    ///     The <see cref="SessionKeys.Generation" /> of the task's context, or null without the task store. The server
+    ///     creates the context before the agent runs; one that is gone (deleted right then) is created as the server does.
+    /// </summary>
+    private async ValueTask<string?> GenerationAsync(AgentRequestContext context, CancellationToken cancellationToken)
+    {
+        if (_tasks is null) return null;
+        var tenant = context.Call.Tenant;
+        var record = await _tasks.GetContextAsync(tenant, context.ContextId, cancellationToken).ConfigureAwait(false)
+                     ?? await _tasks.GetOrCreateContextAsync(
+                         new ContextRecord(tenant, context.Call.Principal, context.ContextId, _time.GetUtcNow()),
+                         cancellationToken).ConfigureAwait(false);
+        return SessionKeys.Generation(record.CreatedAt);
     }
 
     /// <summary>
@@ -169,8 +210,8 @@ public sealed class AIAgentExecutor : IAgentExecutor
     ///     context finds this caller's session also when the context is shared. A failure there is logged, not thrown: the
     ///     session itself is saved.
     /// </summary>
-    private async Task SaveAsync(AgentSessionStoreKey key, AgentSession session, AgentRequestContext context,
-        CancellationToken cancellationToken)
+    private async Task SaveAsync(AgentSessionStoreKey key, string? generation, AgentSession session,
+        AgentRequestContext context, CancellationToken cancellationToken)
     {
         var deadline = Stopwatch.StartNew();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -181,8 +222,9 @@ public sealed class AIAgentExecutor : IAgentExecutor
         try
         {
             if (left <= TimeSpan.Zero) throw new TimeoutException("No time left for the session index.");
-            await SessionIndex.AddAsync(_sessions, _agent, context.Call.Tenant, context.ContextId,
-                context.Call.Principal, timeout.Token).AsTask().WaitAsync(left, cancellationToken).ConfigureAwait(false);
+            await SessionIndex.AddAsync(_sessions, _agent, context.Call.Tenant, context.ContextId, generation,
+                    context.Call.Principal, _coordinator, left, timeout.Token).AsTask()
+                .WaitAsync(left, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -190,12 +232,13 @@ public sealed class AIAgentExecutor : IAgentExecutor
         }
     }
 
-    private async Task SaveAfterFailureAsync(AgentSessionStoreKey key, AgentSession session, AgentRequestContext context)
+    private async Task SaveAfterFailureAsync(AgentSessionStoreKey key, string? generation, AgentSession session,
+        AgentRequestContext context)
     {
         try
         {
             // Not the execution's token: after a cancel it is cancelled already, and the session is still worth keeping.
-            await SaveAsync(key, session, context, CancellationToken.None).ConfigureAwait(false);
+            await SaveAsync(key, generation, session, context, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -320,8 +363,12 @@ public sealed class AIAgentExecutor : IAgentExecutor
         try
         {
             if (left <= TimeSpan.Zero) throw new TimeoutException("No time left for the session index.");
-            await SessionIndex.AddApprovalAsync(_sessions!, _agent, tenant, context.ContextId, caller, context.TaskId,
-                timeout.Token).AsTask().WaitAsync(left, cancellationToken).ConfigureAwait(false);
+            var generation = await GenerationAsync(context, timeout.Token).ConfigureAwait(false);
+            left = SaveTimeout - deadline.Elapsed;
+            if (left <= TimeSpan.Zero) throw new TimeoutException("No time left for the session index.");
+            await SessionIndex.AddApprovalAsync(_sessions!, _agent, tenant, context.ContextId, generation, caller,
+                    context.TaskId, _coordinator, left, timeout.Token).AsTask()
+                .WaitAsync(left, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {

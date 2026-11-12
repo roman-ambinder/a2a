@@ -1,5 +1,7 @@
+using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using A2A.Server;
+using A2A.Server.Coordination;
 using A2A.Server.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -64,7 +66,9 @@ public sealed class FollowUpRecoveryTests
         public ValueTask DisposeAsync() => Host.DisposeAsync();
 
         /// <param name="followUp">What the agent does for a follow-up.</param>
-        public static async Task<Fixture> StartAsync(Func<Fixture, TaskUpdater, CancellationToken, Task> followUp)
+        /// <param name="coordinator">Wraps the coordinator, or null for the default one.</param>
+        public static async Task<Fixture> StartAsync(Func<Fixture, TaskUpdater, CancellationToken, Task> followUp,
+            Func<ExecutionCoordinator, ExecutionCoordinator>? coordinator = null)
         {
             Fixture? self = null;
             FaultyTaskStore? store = null;
@@ -72,6 +76,8 @@ public sealed class FollowUpRecoveryTests
             var host = await TestAgentHost.StartAsync(services: s =>
             {
                 s.AddSingleton<TimeProvider>(clock);
+                if (coordinator is not null)
+                    s.AddSingleton(coordinator(new InMemoryExecutionCoordinator(null, clock)));
                 s.Replace(ServiceDescriptor.Singleton<TaskStore>(sp => store = new FaultyTaskStore(A2AServerServiceCollectionExtensions.InMemoryTaskStore(sp))));
                 s.AddSingleton<IAgentExecutor>(new DelegateAgentExecutor(async (context, u, ct) =>
                 {
@@ -85,6 +91,36 @@ public sealed class FollowUpRecoveryTests
             self = new Fixture { Host = host, Clock = clock, Store = store! };
             return self;
         }
+    }
+
+    /// <summary>
+    /// Holds the unregister of the first execution registered until <see cref="Release"/>: that execution stays registered
+    /// while it ends. Other executions are not held.
+    /// </summary>
+    private sealed class SlowFirstUnregister(ExecutionCoordinator inner) : ExecutionCoordinator
+    {
+        private string? _first;
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override ValueTask RegisterAsync(TaskKey task, string executionId, CancellationToken ct = default)
+        {
+            Interlocked.CompareExchange(ref _first, executionId, null);
+            return inner.RegisterAsync(task, executionId, ct);
+        }
+        public override ValueTask<bool> HeartbeatAsync(TaskKey task, string executionId, CancellationToken ct = default) => inner.HeartbeatAsync(task, executionId, ct);
+        public override async ValueTask UnregisterAsync(TaskKey task, string executionId, CancellationToken ct = default)
+        {
+            if (executionId == Volatile.Read(ref _first)) await Release.Task.WaitAsync(ct);
+            await inner.UnregisterAsync(task, executionId, ct);
+        }
+        public override ValueTask<bool> IsRunningAsync(TaskKey task, CancellationToken ct = default) => inner.IsRunningAsync(task, ct);
+        public override ValueTask RequestCancelAsync(TaskKey task, CancellationToken ct = default) => inner.RequestCancelAsync(task, ct);
+        public override async IAsyncEnumerable<TaskKey> CancelRequestsAsync([EnumeratorCancellation] CancellationToken ct)
+        {
+            await foreach (var key in inner.CancelRequestsAsync(ct)) yield return key;
+        }
+        public override ValueTask<IReadOnlyList<(TaskKey Task, string ExecutionId)>> ListExpiredAsync(int max, CancellationToken ct = default) => inner.ListExpiredAsync(max, ct);
+        public override ValueTask<bool> TryAcquireSweepLeaseAsync(string name, TimeSpan duration, CancellationToken ct = default) => inner.TryAcquireSweepLeaseAsync(name, duration, ct);
     }
 
     private static Task<Fixture> StartCompletingAsync() => Fixture.StartAsync((_, u, ct) => u.CompleteAsync("done", ct).AsTask());
@@ -133,6 +169,29 @@ public sealed class FollowUpRecoveryTests
         var retry = (await SendAsync(f, followUp)).RequireTask();
 
         Assert.Equal(TaskState.Completed, retry.Status.State);
+        await f.Host.WaitIdleAsync();
+        Assert.Equal(1, Volatile.Read(ref f.FollowUpsRun));
+    }
+
+    [Fact]
+    public async Task Retry_while_the_earlier_run_is_still_ending_waits_for_it_and_runs_the_agent_once()
+    {
+        // The run that asked for input has returned, but has not ended yet (its lease is still registered, as under load).
+        // It cannot take the committed message: the retry waits for it to end, then starts the message. It used to count it
+        // as the recovered run, so the retry was a duplicate and the task stayed INPUT_REQUIRED with the message unanswered.
+        SlowFirstUnregister? slow = null;
+        await using var f = await Fixture.StartAsync((_, u, ct) => u.CompleteAsync("done", ct).AsTask(),
+            inner => slow = new SlowFirstUnregister(inner));
+        var first = await NewTaskAsync(f);
+        var followUp = Message.FromUser("more", taskId: first.Id);
+        await CrashAfterCommitAsync(f, followUp);
+        Assert.True(f.Host.Engine.RunningCompletions(new TaskKey("", "alice", first.Id)).Count == 1); // still ending
+
+        var retry = SendAsync(f, followUp);
+        _ = await Task.WhenAny(retry, Task.Delay(300));
+        slow!.Release.SetResult();
+
+        Assert.Equal(TaskState.Completed, (await retry).RequireTask().Status.State);
         await f.Host.WaitIdleAsync();
         Assert.Equal(1, Volatile.Read(ref f.FollowUpsRun));
     }
