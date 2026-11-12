@@ -270,6 +270,22 @@ public class ClientHttpJsonTests
 
         var after = await transport.ListTasksAsync(new ListTasksRequest { StatusTimestampAfter = DateTimeOffset.Parse("2026-01-02T12:00:00Z"), PageSize = 1 });
         Assert.Equal("t2", Assert.Single(after.Tasks).Id);
+        Assert.False(string.IsNullOrEmpty(after.NextPageToken)); // t3 is after it too
+
+        // pageSize pages the filtered array: paging on reaches every task.
+        var seen = new List<string>();
+        string? token = null;
+        do
+        {
+            var page = await transport.ListTasksAsync(new ListTasksRequest { PageSize = 2, PageToken = token });
+            Assert.True(page.Tasks.Count <= 2);
+            seen.AddRange(page.Tasks.Select(t => t.Id));
+            token = page.NextPageToken;
+        } while (!string.IsNullOrEmpty(token));
+        Assert.Equal(["t1", "t2", "t3"], seen);
+
+        var bad = await Assert.ThrowsAsync<A2AException>(() => transport.ListTasksAsync(new ListTasksRequest { PageToken = "elsewhere" }));
+        Assert.Equal(A2AErrorCode.InvalidParams, bad.Code);
     }
 
     // ---- push config ----

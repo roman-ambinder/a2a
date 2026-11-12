@@ -58,7 +58,11 @@ internal sealed class V03GrpcTransport : IA2AClient
         var proto = new V03Pb.GetTaskRequest { Name = $"tasks/{request.Id}", HistoryLength = request.HistoryLength ?? 0 };
         var result = await UnaryAsync(true, options, o => _client.GetTaskAsync(proto, o), cancellationToken)
             .ConfigureAwait(false);
-        return Read(() => Codec.ReadTask(ToNode(result)), "task");
+        var task = Read(() => Codec.ReadTask(ToNode(result)), "task");
+        // proto3 int32 has no presence, so 0 ("no history") reads as "not set" on the server and the whole history comes
+        // back. Honor the request here.
+        if (request.HistoryLength == 0) task.History = null;
+        return task;
     }
 
     public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null,

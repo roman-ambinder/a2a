@@ -75,7 +75,7 @@ internal sealed class FallbackTransport : IA2AClient, IResumableTransport, IA2AE
 
     public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request,
         A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
-        StreamAsync((t, ct) => t.SubscribeToTaskAsync(request, options, ct), cancellationToken);
+        StreamAsync((t, ct) => t.SubscribeToTaskAsync(For(t, request), options, ct), cancellationToken);
 
     public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config,
         A2ARequestOptions? options = null, CancellationToken cancellationToken = default) =>
@@ -114,8 +114,23 @@ internal sealed class FallbackTransport : IA2AClient, IResumableTransport, IA2AE
     IAsyncEnumerable<StreamFrame> IResumableTransport.SubscribeToTaskAsync(SubscribeToTaskRequest request,
         A2ARequestOptions? options, string? lastEventId, CancellationToken cancellationToken) =>
         StreamAsync((t, ct) => t is IResumableTransport rt
-            ? rt.SubscribeToTaskAsync(request, options, lastEventId, ct)
-            : Frames(t.SubscribeToTaskAsync(request, options, ct), ct), cancellationToken);
+            ? rt.SubscribeToTaskAsync(For(t, request), options, lastEventId, ct)
+            : Frames(t.SubscribeToTaskAsync(For(t, request), options, ct), ct), cancellationToken);
+
+    /// <summary>
+    ///     The request for <paramref name="transport" />: <c>lastSeenGeneration</c> is A2A 1.1, and the client decides it from
+    ///     the primary interface's version. A fallback interface of an older version gets the request without it, so it is
+    ///     never sent with an older <c>A2A-Version</c>.
+    /// </summary>
+    private SubscribeToTaskRequest For(IA2AClient transport, SubscribeToTaskRequest request)
+    {
+        if (request.LastSeenGeneration is null) return request;
+        foreach (var candidate in _candidates)
+            if (ReferenceEquals(candidate.Created, transport) &&
+                !A2AProtocol.IsVersion11OrLater(candidate.Interface.ProtocolVersion))
+                return new SubscribeToTaskRequest { Id = request.Id, Tenant = request.Tenant };
+        return request;
+    }
 
     // ---- Custom operations: unary, so they fall back like the other unary calls ----
 

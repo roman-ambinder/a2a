@@ -455,8 +455,19 @@ public static class A2AClientFactory
 
     private static A2AException NoInterface(AgentCard card, A2AClientOptions options)
     {
-        return new A2AException(A2AErrorCode.UnsupportedOperation,
-            $"No supported interface in Agent Card '{card.Name}'. Client supports: {string.Join(", ", options.SupportedBindings)} (protocol {(options.RequireExactProtocolVersion ? options.ProtocolVersion : $"{Major(options.ProtocolVersion)}.x up to {options.ProtocolVersion}")}).");
+        var message =
+            $"No supported interface in Agent Card '{card.Name}'. Client supports: {string.Join(", ", options.SupportedBindings)} (protocol {(options.RequireExactProtocolVersion ? options.ProtocolVersion : $"{Major(options.ProtocolVersion)}.x up to {options.ProtocolVersion}")}).";
+        // The card may offer only a newer minor version than the client asks for (for example 1.1 to a 1.0 client): say so,
+        // because raising A2AClientOptions.ProtocolVersion is then the fix.
+        var newer = (card.SupportedInterfaces ?? [])
+            .Where(i => options.SupportedBindings.Contains(i.ProtocolBinding) &&
+                        Major(i.ProtocolVersion) == Major(options.ProtocolVersion) && !Speaks(options, i.ProtocolVersion))
+            .Select(i => $"{i.ProtocolBinding} {A2AProtocol.ToMajorMinor(i.ProtocolVersion)}")
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (newer.Count > 0)
+            message += $" The card offers {string.Join(", ", newer)}: set A2AClientOptions.ProtocolVersion to a version this client implements that the card lists.";
+        return new A2AException(A2AErrorCode.UnsupportedOperation, message);
     }
 
     /// <summary>

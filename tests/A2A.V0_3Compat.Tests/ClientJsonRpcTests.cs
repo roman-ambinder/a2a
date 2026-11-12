@@ -226,6 +226,11 @@ public class ClientJsonRpcTests
         await transport.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = "t1", Id = "c1" });
         Assert.Equal("tasks/pushNotificationConfig/delete", (string?)server.Last.Json!["method"]);
 
+        // On an HTTP error the same body is not a null result: the HTTP error is kept (and retried where it may be).
+        var (failing, _) = Make(_ => FakeV03Server.Json("""{"jsonrpc":"2.0","id":"1"}""", HttpStatusCode.ServiceUnavailable));
+        var unavailable = await Assert.ThrowsAsync<A2AException>(() => failing.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = "t1", Id = "c1" }));
+        Assert.Equal(503, unavailable.HttpStatus);
+
         var (bad, _) = Make(_ => FakeV03Server.Json("""{"jsonrpc":"2.0"}"""));
         var ex = await Assert.ThrowsAsync<A2AException>(() => bad.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = "t1", Id = "c1" }));
         Assert.Contains("not a JSON-RPC response", ex.Message, StringComparison.Ordinal);

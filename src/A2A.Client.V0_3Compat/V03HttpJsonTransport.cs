@@ -65,8 +65,9 @@ internal sealed class V03HttpJsonTransport : HttpTransportBase, IA2AClient, IRes
     /// <summary>
     ///     v0.3 REST <c>GET /v1/tasks</c> answers every task of the caller as an array, with no paging or filters. The
     ///     request's filters are applied here, to that array: <c>contextId</c>, <c>status</c>,
-    ///     <c>statusTimestampAfter</c>, <c>historyLength</c>, <c>includeArtifacts</c> and <c>pageSize</c> (the first n). There
-    ///     is never a next page; a <c>pageToken</c> cannot come from this binding and is ignored.
+    ///     <c>statusTimestampAfter</c>, <c>historyLength</c> and <c>includeArtifacts</c>. <c>pageSize</c> pages the filtered
+    ///     array: the next page token is an offset into it (<c>v03-offset:n</c>), so a caller that pages on reaches every
+    ///     task. Each page fetches the list again, so a page may repeat or skip a task that changed in between.
     /// </summary>
     private async Task<ListTasksResponse> ListTasksCoreAsync(ListTasksRequest request, A2ARequestOptions? options,
         CancellationToken cancellationToken)
@@ -84,8 +85,22 @@ internal sealed class V03HttpJsonTransport : HttpTransportBase, IA2AClient, IRes
         if (request.Status is { } status) selected = selected.Where(t => t.Status.State == status);
         if (request.StatusTimestampAfter is { } after)
             selected = selected.Where(t => t.Status.Timestamp is { } at && at > after);
-        if (request.PageSize is > 0 and var size) selected = selected.Take(size);
-        var list = selected.ToList();
+        var filtered = selected.ToList();
+        var offset = 0;
+        if (request.PageToken is { Length: > 0 } token)
+        {
+            if (!token.StartsWith(OffsetTokenPrefix, StringComparison.Ordinal) ||
+                !int.TryParse(token.AsSpan(OffsetTokenPrefix.Length), NumberStyles.None, CultureInfo.InvariantCulture,
+                    out offset))
+                throw new A2AException(A2AErrorCode.InvalidParams,
+                    "pageToken did not come from this v0.3 HTTP+JSON client.");
+        }
+
+        var take = request.PageSize is > 0 and var size ? size : int.MaxValue;
+        var list = filtered.Skip(offset).Take(take).ToList();
+        var next = offset + list.Count < filtered.Count
+            ? OffsetTokenPrefix + (offset + list.Count).ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
         foreach (var task in list)
         {
             if (request.IncludeArtifacts == false) task.Artifacts = null;
@@ -93,8 +108,11 @@ internal sealed class V03HttpJsonTransport : HttpTransportBase, IA2AClient, IRes
                 task.History = length <= 0 ? null : history.GetRange(history.Count - length, length);
         }
 
-        return new ListTasksResponse { Tasks = list, NextPageToken = string.Empty };
+        return new ListTasksResponse { Tasks = list, NextPageToken = next };
     }
+
+    /// <summary>The page tokens of <see cref="ListTasksAsync" />: an offset into the filtered array.</summary>
+    private const string OffsetTokenPrefix = "v03-offset:";
 
     public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null,
         CancellationToken cancellationToken = default)
