@@ -39,7 +39,7 @@ for t in a2a-agent a2a-chat-agent; do
   dotnet build "$WORK/$t-apikey" -c Release --configfile "$WORK/nuget.config" -v quiet -nologo
 done
 
-# The analyzers ship in A2A.Server.AspNetCore: a host without UseA2A() gets A2A0001 at build time.
+# The analyzer ships in A2A.Server.AspNetCore: a host whose endpoints have no authorization gets A2A0002 at build time.
 cp -r "$WORK/a2a-agent" "$WORK/broken-agent"
 rm -rf "$WORK/broken-agent/bin" "$WORK/broken-agent/obj"
 sed -i.bak '/app.UseA2A();/d' "$WORK/broken-agent/Program.cs"

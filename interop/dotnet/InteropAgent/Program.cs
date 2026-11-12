@@ -48,7 +48,6 @@ builder.Services.AddA2ARateLimiting(o =>
 builder.Services.AddA2AGrpc();
 
 var app = builder.Build();
-app.UseA2A();
 app.MapAgentCard();
 app.MapA2A("/a2a");
 app.MapA2AGrpc();

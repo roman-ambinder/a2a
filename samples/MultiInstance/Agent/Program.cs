@@ -57,7 +57,6 @@ app.Use(async (http, next) =>
     await next();
 });
 app.UseAuthentication();
-app.UseA2A();
 app.UseAuthorization();
 app.MapAgentCard();
 app.MapA2A(); // the API key protects the A2A endpoints

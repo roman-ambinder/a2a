@@ -103,7 +103,6 @@ app.Use(async (http, next) =>
     if (http.Request.Path.StartsWithSegments("/a2a/artifacts")) artifactStatus = http.Response.StatusCode;
 });
 app.UseAuthentication();
-app.UseA2A();
 app.UseAuthorization();
 #region Map
 app.MapA2A("/a2a");

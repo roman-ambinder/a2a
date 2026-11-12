@@ -251,7 +251,6 @@ public sealed class AgentHost : IAsyncDisposable
 
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a");
         await app.StartAsync();

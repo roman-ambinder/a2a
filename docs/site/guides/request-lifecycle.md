@@ -6,7 +6,7 @@ A deep dive into what the server does with one `SendMessage` call, from the wire
 
 The binding (JSON-RPC, HTTP+JSON or gRPC) turns the wire format into the same request object and a `ServerCallContext`. It also reads the headers or metadata that matter: `A2A-Version`, `A2A-Extensions`, `Idempotency-Key` and the W3C `traceparent`. All three bindings then call the same `IA2ARequestHandler`.
 
-Before that, the ASP.NET Core layer applies the request body cap (10 MB by default) and the rate limiter that `UseA2A()` adds. See [Limits and rate limiting](limits-and-rate-limiting.md).
+Before that, the ASP.NET Core layer applies the request body cap (10 MB by default) and the per-caller rate limit, which is taken after authentication and before the authorization decision. See [Limits and rate limiting](limits-and-rate-limiting.md).
 
 ## 2. The operation pipeline
 

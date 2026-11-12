@@ -171,7 +171,6 @@ public sealed class A2ATestHost : IAsyncDisposable
         try
         {
             app.UseAuthentication();
-            app.UseA2A();
             app.UseAuthorization();
             app.MapAgentCard();
             var routes = app.MapA2A("/a2a");

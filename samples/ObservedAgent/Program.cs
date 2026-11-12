@@ -55,7 +55,6 @@ builder.Services.AddA2A(a => a.AddAgentExecutor<ModelAgent>().AddAgentCard(card)
     });
 
 var app = builder.Build();
-app.UseA2A();
 app.MapA2A("/a2a");
 await app.StartAsync();
 

@@ -51,7 +51,6 @@ builder.Services.AddA2AServer(o =>
 builder.Services.AddA2AGrpc(); // also adds the ASP.NET Core part of the server
 
 var app = builder.Build();
-app.UseA2A();
 app.MapAgentCard();
 app.MapA2A("/a2a");
 app.MapA2AGrpc(); // lf.a2a.v1.A2AService; no pattern argument

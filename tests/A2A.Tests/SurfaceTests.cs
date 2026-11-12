@@ -31,7 +31,6 @@ public class SurfaceTests
     {
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         map(app);
         await app.StartAsync();
@@ -155,15 +154,6 @@ public class SurfaceTests
     {
         var noAuth = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(NewBuilder(), a => a.MapA2A("/a2a")));
         Assert.Equal("A2A endpoints have no authorization policy. Call app.MapA2A(...).RequireAuthorization() or MapA2A(pattern, o => o.AuthorizationPolicy = \"...\"), or set A2AServerOptions.AllowAnonymous = true.", noAuth.Message);
-
-        var builder = NewBuilder();
-        var app = builder.Build();
-        app.UseAuthentication();
-        app.UseAuthorization(); // no UseA2A()
-        app.MapA2A("/a2a").RequireAuthorization();
-        var noLimiter = await Assert.ThrowsAsync<InvalidOperationException>(() => app.StartAsync());
-        Assert.Equal("Call app.UseA2A() before app.UseAuthorization(), or set A2ARateLimitOptions.Enabled = false (services.AddA2ARateLimiting(o => o.Enabled = false)).", noLimiter.Message);
-        await app.DisposeAsync();
     }
 
     [Fact]

@@ -88,7 +88,6 @@ public class ApiKeyAuthenticationTests
         else builder.Services.AddA2A(configuration, Configure);
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         if (map is null) app.MapA2A("/a2a"); // no RequireAuthorization: the API key protects it
         else map(app);

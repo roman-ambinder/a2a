@@ -45,7 +45,6 @@ builder.Services.AddA2A(builder.Configuration.GetSection("A2A"), a =>
 
 var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A(); // per-caller rate limiting
 app.UseAuthorization();
 #if (AuthApiKey)
 app.MapA2A("/a2a"); // the API key protects the A2A endpoints

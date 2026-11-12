@@ -121,7 +121,6 @@ public sealed class V03Host : IAsyncDisposable
 
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         var group = compat ? app.MapA2A(pattern, o => o.EnableV03Compat()) : app.MapA2A(pattern);
         if (requireAuth) group.RequireAuthorization();

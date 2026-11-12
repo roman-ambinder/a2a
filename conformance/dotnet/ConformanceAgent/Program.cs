@@ -83,7 +83,6 @@ builder.Services.AddAuthentication(ActsAuth.SchemeName)
 
 var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A();
 app.MapAgentCard();
 app.MapA2A("/a2a");
 app.MapA2AGrpc();

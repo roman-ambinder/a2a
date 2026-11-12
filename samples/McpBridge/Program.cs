@@ -94,7 +94,6 @@ else
 }
 
 var app = builder.Build();
-app.UseA2A();
 app.MapMcp("/mcp");
 app.MapA2A("/a2a");
 

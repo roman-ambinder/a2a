@@ -112,7 +112,6 @@ app.Use(async (context, next) =>
     await next(context);
 });
 app.UseAuthentication();
-app.UseA2A();
 app.UseAuthorization();
 // DEMO ONLY. This is not an OAuth server: no client registry, no signed tokens, no revocation. It exists so the sample
 // can run without an identity provider. In production the token endpoint is your identity provider.

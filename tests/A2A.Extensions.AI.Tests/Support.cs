@@ -84,7 +84,6 @@ public sealed class AgentHost : IAsyncDisposable
             .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
 
         var app = builder.Build();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a");
         await app.StartAsync();

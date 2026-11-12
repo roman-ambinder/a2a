@@ -1,1 +1,2 @@
 #nullable enable
+*REMOVED*static A2A.Server.AspNetCore.A2ARateLimitingExtensions.UseA2A(this Microsoft.AspNetCore.Builder.IApplicationBuilder! app) -> Microsoft.AspNetCore.Builder.IApplicationBuilder!

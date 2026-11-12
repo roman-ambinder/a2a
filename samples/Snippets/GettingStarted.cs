@@ -23,7 +23,6 @@ internal static class Samples
 
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a").RequireAuthorization();
         #endregion

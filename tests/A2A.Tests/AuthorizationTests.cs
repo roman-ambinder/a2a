@@ -205,7 +205,6 @@ public class AuthorizationTests
         builder.Services.AddA2AServerAspNetCore();
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/{tenant}/a2a").RequireAuthorization();
         await app.StartAsync();
@@ -314,7 +313,6 @@ public class AuthorizationTests
         builder.Services.AddA2AServerAspNetCore();
         await using var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         var custom = app.MapGet("/custom", () => "ok").WithDisplayName("custom").WithA2AStartupCheck(app, "Custom");
         if (requireAuth) custom.RequireAuthorization();
@@ -330,8 +328,7 @@ public class AuthorizationTests
         {
             var endpoint = Assert.Single(app.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>().Endpoints,
                 e => e.DisplayName == "A2A Custom custom");
-            var limit = endpoint.Metadata.GetMetadata<Microsoft.AspNetCore.RateLimiting.EnableRateLimitingAttribute>();
-            Assert.Equal(A2ARateLimitingExtensions.PolicyName, limit?.PolicyName);
+            Assert.NotNull(endpoint.Metadata.GetMetadata<A2ARateLimitMetadata>());
         }
         finally
         {

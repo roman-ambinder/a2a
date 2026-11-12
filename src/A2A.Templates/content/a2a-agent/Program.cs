@@ -38,7 +38,6 @@ builder.Services.AddA2A(builder.Configuration.GetSection("A2A"), a =>
 
 var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A(); // per-caller rate limiting
 app.UseAuthorization();
 #if (AuthApiKey)
 app.MapA2A("/a2a"); // JSON-RPC at POST /a2a, HTTP+JSON under /a2a, the card at /.well-known/agent-card.json

@@ -60,7 +60,6 @@ builder.Services.AddA2A(a => a.AddAgentExecutor<EchoAgent>().AddAgentCard(card)
 
 var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A(); // per-caller rate limiting (adds UseRateLimiter)
 app.UseAuthorization();
 app.MapA2A("/a2a"); // JSON-RPC, HTTP+JSON and the public Agent Card; the API key protects the A2A endpoints
 app.Run(baseUrl);

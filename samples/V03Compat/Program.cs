@@ -42,7 +42,6 @@ builder.Services.AddA2A(a => a.AddAgentExecutor<EchoAgent>().AddAgentCard(card))
     .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
 
 var app = builder.Build();
-app.UseA2A();
 // EnableV03Compat adds the v0.3 JSON-RPC methods on the same URL, the v0.3 HTTP+JSON routes under /v1/...,
 // and the v0.3 members on the Agent Card. v1.0 calls are unchanged.
 app.MapA2A("/", o => o.EnableV03Compat());

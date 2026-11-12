@@ -21,7 +21,6 @@ public class DevelopmentDefaultsTests
         builder.Services.AddA2A(a => a.AddAgentExecutor<ScenarioAgent>().AddAgentCard(TestAgentHost.DefaultCard())
             .UseDevelopmentDefaults());
         var app = builder.Build();
-        app.UseA2A();
         app.MapA2A("/a2a"); // no RequireAuthorization: development lets anonymous callers in
         return app;
     }

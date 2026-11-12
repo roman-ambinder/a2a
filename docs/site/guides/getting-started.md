@@ -40,7 +40,7 @@ The agent is a class that implements <xref:A2A.Server.IAgentExecutor>:
 What the code does:
 
 - <xref:A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2A*> is `AddA2AServer()`, then `AddA2AServerAspNetCore()`, then your builder calls. Use the two-step form when you need <xref:A2A.Server.A2AServerOptions> at registration.
-- `UseA2A()` adds the rate limiter middleware. The app refuses to start without it, unless you turn rate limiting off.
+- The per-caller rate limit is part of the A2A endpoints. No middleware call is needed.
 - `MapA2A` maps JSON-RPC at `POST /a2a` and the HTTP+JSON routes under `/a2a`. See [Bindings](bindings.md). It also maps the Agent Card at `GET /.well-known/agent-card.json`.
 - The executor is resolved from a new DI scope for each execution, so scoped services are safe in it.
 - Streaming is on unless the card says `Streaming = false`: the served card turns an unset flag into `true`, because every executor can stream. The client checks the flag before it sends a streaming call.
@@ -159,9 +159,8 @@ The client sends a `ping`, streams a reply, follows a task with `ObserveTaskAsyn
 
 ## What can go wrong
 
-`RomanAmbinder.A2A.Server.AspNetCore` brings analyzers that report the first two mistakes below at build time, each with a code fix, and a third one: A2A0001 (endpoints mapped, `UseA2A()` never called), A2A0002 (endpoints mapped without authorization and no anonymous opt-in) and A2A0003 (`UseA2A()` before `UseAuthentication()` or after `UseAuthorization()`). They only report what they can see in your code; the startup checks stay the final word. When one method holds the whole setup, as a usual `Program.cs` does, A2A0001 and A2A0002 show in the editor as you type. When the setup is spread over several methods or files (the app passed to your own `Configure(app)`, options set in another class), they appear when you build.
+`RomanAmbinder.A2A.Server.AspNetCore` brings an analyzer that reports the first mistake below at build time, with a code fix: A2A0002 (endpoints mapped without authorization and no anonymous opt-in). It only reports what it can see in your code; the startup check stays the final word. When one method holds the whole setup, as a usual `Program.cs` does, it shows in the editor as you type. When the setup is spread over several methods or files (the app passed to your own `Configure(app)`, options set in another class), it appears when you build.
 
-- The app does not start and the message mentions `UseA2A()`: add `app.UseA2A()` after `UseAuthentication()` and before `UseAuthorization()`.
 - The app does not start and the message mentions an authorization policy: call `RequireAuthorization()` on the result of `MapA2A`.
 - The client throws `UnsupportedOperation` on a streaming call: the agent's card says `Streaming = false`, or another SDK's agent leaves it unset.
 - A curl call is rejected: add the `A2A-Version: 1.0` header, or use `UseDevelopmentDefaults()` while you develop.

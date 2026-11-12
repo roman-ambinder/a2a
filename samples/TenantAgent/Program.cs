@@ -41,7 +41,6 @@ builder.Services.AddA2AServerAspNetCore();
 
 var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A();
 app.UseAuthorization();
 #region Map
 app.MapAgentCard();   // /.well-known/agent-card.json and /{tenant}/.well-known/agent-card.json

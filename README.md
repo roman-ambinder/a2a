@@ -67,7 +67,6 @@ builder.Services.AddA2A(a => a
 
 var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A();                               // rate limiting; the app refuses to start without it
 app.UseAuthorization();
 app.MapA2A("/a2a").RequireAuthorization();  // JSON-RPC and HTTP+JSON at /a2a, the Agent Card at /.well-known/agent-card.json
 

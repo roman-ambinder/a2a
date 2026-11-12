@@ -6,7 +6,7 @@ The defaults are safe but in memory. This page lists what to decide before you r
 
 - [ ] **Authentication is configured**, and `RequireAuthorization()` (or an authorization policy) is on the result of `MapA2A`, or the A2A builder calls `AddApiKeyAuthentication()` or `AddBearerAuthentication()`. Without one of these, the app refuses to start unless <xref:A2A.Server.A2AServerOptions.AllowAnonymous> is true. Anonymous callers share one owner. See [Authentication and ownership](auth-and-ownership.md).
 - [ ] **Callers have distinct ids.** The default `IPrincipalResolver` reads the `NameIdentifier` claim, then `sub`. Tasks are bound to that id and the tenant.
-- [ ] **Behind a reverse proxy**, call `app.UseForwardedHeaders()` before `UseA2A()`, with the proxy in `KnownProxies` or `KnownNetworks`. Otherwise all anonymous callers share the proxy's rate limit budget. See [Limits and rate limiting](limits-and-rate-limiting.md).
+- [ ] **Behind a reverse proxy**, call `app.UseForwardedHeaders()` before `UseAuthentication()`, with the proxy in `KnownProxies` or `KnownNetworks`. Otherwise all anonymous callers share the proxy's rate limit budget. See [Limits and rate limiting](limits-and-rate-limiting.md).
 - [ ] **`PublicBaseUrl` is set** (`A2AHttpOptions.PublicBaseUrl`) so the Agent Card lists your public URL, not the listen address.
 - [ ] **Agent Card signing** if peers must verify who published your card. See [Agent Card signing](agent-card-signing.md).
 - [ ] **Client credentials** go through `AddA2AClient` or credential providers, not a plain `HttpClient`. See [Client credentials](client-credentials.md).

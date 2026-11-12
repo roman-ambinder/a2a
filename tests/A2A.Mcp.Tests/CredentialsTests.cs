@@ -78,7 +78,6 @@ public sealed class CredentialsTests
             app =>
             {
                 app.Use(async (context, next) => { downstream.Record(context); await next(); });
-                app.UseA2A();
                 app.UseAuthorization();
                 app.MapA2A("/a2a");
             });
@@ -146,7 +145,6 @@ public sealed class CredentialsTests
             },
             app =>
             {
-                app.UseA2A();
                 app.UseAuthorization();
                 app.MapA2A("/a2a");
             });

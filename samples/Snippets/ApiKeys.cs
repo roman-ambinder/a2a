@@ -24,7 +24,6 @@ internal static class Samples
 
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a"); // no RequireAuthorization: the API-key policy goes on every A2A endpoint without one
         #endregion
@@ -51,7 +50,6 @@ internal static class Samples
 
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a").RequireAuthorization("agents"); // an endpoint with its own policy keeps it
         #endregion

@@ -41,7 +41,6 @@ builder.Services.AddA2A(a => a
     .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
 
 var app = builder.Build();
-app.UseA2A();
 app.MapA2A("/a2a");
 await app.StartAsync();
 

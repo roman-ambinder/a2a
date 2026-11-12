@@ -461,7 +461,6 @@ public sealed class MultiInstanceTests(PostgresFixture db, RedisFixture redisFix
         services?.Invoke(builder.Services);
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a").RequireAuthorization();
         await app.StartAsync();

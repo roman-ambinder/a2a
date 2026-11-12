@@ -52,9 +52,8 @@ internal static class Samples
         });
 
         var app = builder.Build();
-        app.UseForwardedHeaders();   // before UseA2A, so the remote address is the client's
+        app.UseForwardedHeaders();   // first, so the remote address is the client's
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         #endregion
     }

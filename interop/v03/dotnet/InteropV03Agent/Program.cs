@@ -42,7 +42,6 @@ builder.Services.AddA2ARateLimiting(o =>
 });
 
 var app = builder.Build();
-app.UseA2A();
 app.MapAgentCard();
 app.MapA2A("/", o => o.EnableV03Compat());
 app.Run();

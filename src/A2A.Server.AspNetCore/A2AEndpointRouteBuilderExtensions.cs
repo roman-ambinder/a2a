@@ -21,8 +21,7 @@ public static class A2AServiceCollectionExtensions
     ///     through, the default <see cref="ITenantResolver" /> (<see cref="RouteTenantResolver" />),
     ///     the startup check that fails the app when A2A endpoints have no authorization policy (see
     ///     <see cref="A2AServerOptions.AllowAnonymous" />), and the default rate limit policy (see
-    ///     <see cref="A2ARateLimitingExtensions.AddA2ARateLimiting" />; the host
-    ///     adds the middleware with <c>app.UseA2A()</c>). Call it once next to <c>AddA2AServer(...)</c>. <c>MapA2A</c> throws
+    ///     <see cref="A2ARateLimitingExtensions.AddA2ARateLimiting" />; no middleware is needed). Call it once next to <c>AddA2AServer(...)</c>. <c>MapA2A</c> throws
     ///     <see cref="InvalidOperationException" /> if it was not called, so the check cannot be skipped by mistake.
     ///     It replaces the <see cref="IAgentCardProvider" /> registration (with the one that completes an empty card):
     ///     register a
@@ -252,8 +251,9 @@ public static partial class A2AEndpointRouteBuilderExtensions
     }
 
     /// <summary>
-    ///     Applies the <c>"a2a"</c> rate limit policy when it is registered and
-    ///     <see cref="A2ARateLimitOptions.Enabled" /> is true.
+    ///     Puts the endpoints under the per-caller rate limit when it is registered and
+    ///     <see cref="A2ARateLimitOptions.Enabled" /> is true: the authorization result handler takes it for endpoints with
+    ///     an authorization policy, and the endpoint itself for the others.
     /// </summary>
     private static void ApplyRateLimiting<TBuilder>(IEndpointRouteBuilder endpoints, TBuilder group)
         where TBuilder : IEndpointConventionBuilder
@@ -263,16 +263,19 @@ public static partial class A2AEndpointRouteBuilderExtensions
         var services = endpoints.ServiceProvider;
         if (services.GetService<A2ARateLimitMarker>() is null) return;
         if (!services.GetRequiredService<IOptions<A2ARateLimitOptions>>().Value.Enabled) return;
-        group.RequireRateLimiting(A2ARateLimitingExtensions.PolicyName);
+        group.WithMetadata(A2ARateLimitMetadata.Instance);
+        group.Add(b =>
+        {
+            if (b.RequestDelegate is { } inner) b.RequestDelegate = A2ARateLimitGate.Wrap(inner);
+        });
     }
 
     /// <summary>
     ///     Puts endpoints of another binding under the same checks as <see cref="MapA2A" />: the fail-closed startup check
     ///     (they
     ///     must carry an authorization policy unless <see cref="A2AServerOptions.AllowAnonymous" /> is true) and the
-    ///     <c>"a2a"</c>
-    ///     rate limit policy (so the host must call <c>app.UseA2A()</c> unless <see cref="A2ARateLimitOptions.Enabled" />
-    ///     is false; register an <see cref="IA2ARejectionWriter" /> to answer its rejections in the binding's own format).
+    ///     per-caller rate limit (register an <see cref="IA2ARejectionWriter" /> to answer its rejections in the binding's own
+    ///     format).
     ///     Their display names get the prefix <c>"A2A {bindingName} "</c>. Requires
     ///     <see cref="A2AServiceCollectionExtensions.AddA2AServerAspNetCore" />. The built-in gRPC binding
     ///     (<c>MapA2AGrpc</c>) is built on it; do not call it again on that binding's endpoints.

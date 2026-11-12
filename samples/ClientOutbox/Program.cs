@@ -38,7 +38,6 @@ builder.Services.AddA2A(a => a.AddAgentExecutor<BillingAgent>().AddAgentCard(new
     }))
     .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
 var app = builder.Build();
-app.UseA2A();
 app.MapA2A("/a2a");
 await app.StartAsync();
 Console.WriteLine("Billing agent listening on http://127.0.0.1:5390/a2a");
