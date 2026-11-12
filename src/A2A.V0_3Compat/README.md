@@ -1,9 +1,11 @@
 # RomanAmbinder.A2A.V0_3Compat
 
-Shared code of the A2A protocol v0.3 compatibility packages: the two v0.3 wire codecs (JSON-RPC and HTTP+JSON) and the
-Agent Card conversion in both directions. It has no public API. Use it through
+Shared code of the A2A protocol v0.3 compatibility packages: the two v0.3 wire codecs (JSON-RPC and HTTP+JSON, whose
+ProtoJSON mapping v0.3 gRPC uses too), the v0.3 gRPC error table and the Agent Card conversion in both directions. It has
+no public API. Use it through
 [`RomanAmbinder.A2A.Server.V0_3Compat`](https://github.com/roman-ambinder/a2a/tree/main/src/A2A.Server.V0_3Compat) (serve v0.3 clients from a v1.0 agent) or
-`RomanAmbinder.A2A.Client.V0_3Compat` (talk to v0.3-only agents).
+`RomanAmbinder.A2A.Client.V0_3Compat` (talk to v0.3-only agents), and for gRPC `RomanAmbinder.A2A.Server.Grpc.V0_3Compat`
+or `RomanAmbinder.A2A.Client.Grpc.V0_3Compat`.
 
 Fields that v0.3 cannot carry are dropped and counted by the meter `A2A`, counter `a2a.compat.v0_3.dropped` (tag
 `field`). Requests are counted by `a2a.compat.v0_3.requests` (tags `binding`, `operation`).

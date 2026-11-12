@@ -8,8 +8,9 @@ namespace A2A.Client.V0_3Compat;
 /// </summary>
 /// <remarks>
 ///     A card that offers a v1.x interface always takes the normal v1.0 path: it is never downgraded. Otherwise the first
-///     v0.3
-///     <c>JSONRPC</c> or <c>HTTP+JSON</c> interface in card order is used. gRPC is not supported on v0.3.
+///     v0.3 <c>JSONRPC</c> or <c>HTTP+JSON</c> interface in card order is used. v0.3 <c>GRPC</c> interfaces are selected too,
+///     in the same card order, when the options carry the v0.3 gRPC transport (<c>UseGrpcV03()</c> from
+///     A2A.Client.Grpc.V0_3Compat).
 /// </remarks>
 public static class V03CompatClientFactory
 {
@@ -71,7 +72,8 @@ public static class V03CompatClientFactory
 
     /// <summary>
     ///     Creates a client for <paramref name="card" />. If the card offers a v1.x interface the normal v1.0 path is used.
-    ///     Otherwise the first v0.3 JSON-RPC or HTTP+JSON interface (marked <c>0.3</c> or <c>0.3.x</c>) in card order is used.
+    ///     Otherwise the first v0.3 JSON-RPC or HTTP+JSON interface (marked <c>0.3</c> or <c>0.3.x</c>) in card order is used,
+    ///     or a v0.3 gRPC one when <c>UseGrpcV03()</c> added its transport.
     ///     Throws <see cref="A2AErrorCode.UnsupportedOperation" /> when neither exists.
     /// </summary>
     public static A2AClient Create(AgentCard card, HttpClient httpClient, A2AClientOptions? options = null)

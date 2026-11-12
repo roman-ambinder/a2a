@@ -1,8 +1,11 @@
 using A2A.Client;
 using A2A.Client.Cards;
+using A2A.Client.Grpc.V0_3Compat;
 using A2A.Client.V0_3Compat;
 using A2A.Signing;
 using A2A.Server.AspNetCore;
+using A2A.Server.Grpc;
+using A2A.Server.Grpc.V0_3Compat;
 using A2A.Server.V0_3Compat;
 using OpenTelemetry.Metrics;
 
@@ -27,6 +30,33 @@ internal static class Snippets
             o.AuthorizationPolicy = "A2A";
             o.EnableV03Compat();
         });
+        #endregion
+    }
+
+    public static void GrpcServices(IServiceCollection services)
+    {
+        #region GrpcServerServices
+        // Registers the v0.3 gRPC service a2a.v1.A2AService, and the v1.0 gRPC services as AddA2AGrpc does.
+        services.AddA2AGrpcV03Compat();
+        #endregion
+    }
+
+    public static void GrpcServer(WebApplication app)
+    {
+        #region GrpcServer
+        // Both services run on the same address. Each needs an authorization policy, or the app does not start.
+        app.MapA2A("/", o => o.EnableV03Compat()).RequireAuthorization();
+        app.MapA2AGrpc().RequireAuthorization();
+        app.MapA2AGrpcV03Compat().RequireAuthorization();
+        #endregion
+    }
+
+    public static Task<A2AClient> GrpcClientAsync(Uri agentUrl, HttpClient httpClient)
+    {
+        #region GrpcClient
+        // Lets the factory also select the v0.3 GRPC interfaces of a card, in card order. Adds GRPC to SupportedBindings.
+        var options = new A2AClientOptions().UseGrpcV03();
+        return V03CompatClientFactory.CreateAsync(agentUrl, httpClient, options);
         #endregion
     }
 
