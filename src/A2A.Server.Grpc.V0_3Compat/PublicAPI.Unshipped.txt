@@ -1,0 +1,4 @@
+#nullable enable
+A2A.Server.Grpc.V0_3Compat.A2AGrpcV03CompatExtensions
+static A2A.Server.Grpc.V0_3Compat.A2AGrpcV03CompatExtensions.AddA2AGrpcV03Compat(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<Grpc.AspNetCore.Server.GrpcServiceOptions!>? configure = null) -> Grpc.AspNetCore.Server.IGrpcServerBuilder!
+static A2A.Server.Grpc.V0_3Compat.A2AGrpcV03CompatExtensions.MapA2AGrpcV03Compat(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints) -> Microsoft.AspNetCore.Builder.GrpcServiceEndpointConventionBuilder!

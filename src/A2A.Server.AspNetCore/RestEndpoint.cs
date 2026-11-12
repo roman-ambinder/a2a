@@ -203,14 +203,21 @@ public sealed class RestEndpoint(
 
     private Task Subscribe(HttpContext http)
     {
-        return RunStream(http, (call, caughtUp, ct) =>
+        return RunStream(http, async (call, caughtUp, ct) =>
         {
             var id = Route(http, "id");
-            // A2A 1.1: GET has no body, so lastSeenGeneration comes as a query parameter (§11.5 query mapping).
+            // A2A 1.1: a POST carries the request in its body (the SDK client sends lastSeenGeneration there); GET has no
+            // body, so lastSeenGeneration comes as a query parameter (§11.5 query mapping). The body wins over the query.
+            // The id comes from the route and the tenant from the call, as on the other routes.
+            var body = HttpMethods.IsGet(http.Request.Method)
+                ? null
+                : await OptionalBody<SubscribeToTaskRequest>(http).ConfigureAwait(false);
             var request = new SubscribeToTaskRequest
-                { Id = id, Tenant = call.Tenant, LastSeenGeneration = QueryLong(http, "lastSeenGeneration") };
-            return Task.FromResult(handler.SubscribeToTaskAsync(request, call, HttpPlumbing.ResumeAfter(http, id),
-                caughtUp, ct));
+            {
+                Id = id, Tenant = call.Tenant,
+                LastSeenGeneration = body?.LastSeenGeneration ?? QueryLong(http, "lastSeenGeneration")
+            };
+            return handler.SubscribeToTaskAsync(request, call, HttpPlumbing.ResumeAfter(http, id), caughtUp, ct);
         });
     }
 

@@ -1,0 +1,3 @@
+#nullable enable
+A2A.Client.Grpc.V0_3Compat.A2AGrpcV03ClientOptionsExtensions
+static A2A.Client.Grpc.V0_3Compat.A2AGrpcV03ClientOptionsExtensions.UseGrpcV03(this A2A.Client.A2AClientOptions! options, Grpc.Net.Client.GrpcChannelOptions? channelOptions = null) -> A2A.Client.A2AClientOptions!

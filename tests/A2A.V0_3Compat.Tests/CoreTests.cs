@@ -34,9 +34,10 @@ public class SharedTests
     [Fact]
     public async Task Resolver_without_the_normalizer_does_not_change_behavior()
     {
-        // The v1.0 reader refuses a v0.3 card (flat security schemes), as it always did.
+        // The v1.0 reader refuses a v0.3 card, as it always did, and names the compat factory.
         var ex = await Assert.ThrowsAsync<A2AException>(() => Resolver(Golden.Text("agent-card.json"), normalize: false).ResolveAsync(new Uri("https://agent.example/")));
         Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
+        Assert.Contains("V03CompatClientFactory", ex.Message, StringComparison.Ordinal); // and says where to go
     }
 
     [Fact]
@@ -56,10 +57,19 @@ public class SharedTests
     }
 
     [Fact]
-    public async Task A_v02_card_is_refused()
+    public async Task A_v02_card_is_read_through_the_normalizer()
     {
         var card = Golden.Object("agent-card.json");
         card["protocolVersion"] = "0.2.6";
+        var resolved = await Resolver(card.ToJsonString()).ResolveAsync(new Uri("https://agent.example/"));
+        Assert.All(resolved.Card.SupportedInterfaces, i => Assert.Equal(ProtocolBindings.JsonRpc, i.ProtocolBinding));
+    }
+
+    [Fact]
+    public async Task A_v01_card_is_refused()
+    {
+        var card = Golden.Object("agent-card.json");
+        card["protocolVersion"] = "0.1.0";
         await Assert.ThrowsAsync<A2AException>(() => Resolver(card.ToJsonString()).ResolveAsync(new Uri("https://agent.example/")));
     }
 

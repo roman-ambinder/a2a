@@ -94,7 +94,8 @@ public sealed class V03Host : IAsyncDisposable
     };
 
     public static async Task<V03Host> StartAsync(bool compat = true, bool requireAuth = true, Action<A2AServerOptions>? configure = null,
-        Action<A2AHttpOptions>? configureHttp = null, string pattern = "/a2a", Action<IServiceCollection>? services = null)
+        Action<A2AHttpOptions>? configureHttp = null, string pattern = "/a2a", Action<IServiceCollection>? services = null,
+        bool grpc = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -116,6 +117,7 @@ public sealed class V03Host : IAsyncDisposable
             configure?.Invoke(o);
         }).AddAgentExecutor<ScenarioAgent>();
         builder.Services.AddA2AServerAspNetCore();
+        if (grpc) A2A.Server.Grpc.V0_3Compat.A2AGrpcV03CompatExtensions.AddA2AGrpcV03Compat(builder.Services);
         services?.Invoke(builder.Services);
         if (configureHttp is not null) builder.Services.ConfigureA2AHttp(configureHttp);
 
@@ -125,8 +127,37 @@ public sealed class V03Host : IAsyncDisposable
         app.UseAuthorization();
         var group = compat ? app.MapA2A(pattern, o => o.EnableV03Compat()) : app.MapA2A(pattern);
         if (requireAuth) group.RequireAuthorization();
+        if (grpc)
+        {
+            var v1 = A2A.Server.Grpc.A2AGrpcExtensions.MapA2AGrpc(app);
+            var v03 = A2A.Server.Grpc.V0_3Compat.A2AGrpcV03CompatExtensions.MapA2AGrpcV03Compat(app);
+            if (requireAuth)
+            {
+                v1.RequireAuthorization();
+                v03.RequireAuthorization();
+            }
+        }
+
         await app.StartAsync();
         return new V03Host(app);
+    }
+
+    /// <summary>A gRPC channel to the test server (start with <c>grpc: true</c>), authenticated as <paramref name="user"/>.</summary>
+    public global::Grpc.Net.Client.GrpcChannel GrpcChannel(string? user = "alice")
+    {
+        HttpMessageHandler handler = App.GetTestServer().CreateHandler();
+        if (user is not null) handler = new UserHandler(user) { InnerHandler = handler };
+        return global::Grpc.Net.Client.GrpcChannel.ForAddress(App.GetTestServer().BaseAddress,
+            new global::Grpc.Net.Client.GrpcChannelOptions { HttpHandler = handler });
+    }
+
+    private sealed class UserHandler(string user) : DelegatingHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            request.Headers.Add("X-Test-User", user);
+            return base.SendAsync(request, cancellationToken);
+        }
     }
 
     /// <summary>A client for the test server, authenticated as <paramref name="user"/> (null: anonymous).</summary>

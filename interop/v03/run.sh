@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# v0.3 compat interop, over JSON-RPC and HTTP+JSON. Exit code = number of failed client runs.
+# v0.3 compat interop, over JSON-RPC, HTTP+JSON and gRPC, with push notifications. Exit code = number of failed client runs.
 #   1. Python a2a-sdk 0.3 client -> .NET agent with EnableV03Compat
 #   2. .NET compat client (V03CompatClientFactory) -> Python a2a-sdk 0.3 agent
 #   3. Python a2a-sdk 1.x client (interop/python/py_client.py) -> the same .NET compat agent
@@ -37,7 +37,8 @@ wait_for "http://127.0.0.1:$PY_PORT" || exit 101
 wait_for "http://127.0.0.1:$NET_PORT" || exit 101
 
 fails=0
-for binding in JSONRPC HTTP+JSON; do
+# gRPC runs on PY_PORT + 1 and NET_PORT + 1 (HTTP/2): the cards list those addresses.
+for binding in JSONRPC HTTP+JSON GRPC; do
   "$PY" "$ROOT/interop/v03/python/py_client_v03.py" "http://127.0.0.1:$NET_PORT" "$binding" || fails=$((fails + 1))
   dotnet run --no-build -c Release --project "$ROOT/interop/v03/dotnet/InteropV03Client" -- "http://127.0.0.1:$PY_PORT/" "$binding" || fails=$((fails + 1))
   # The same agent must still serve v1.0 clients from its blended card.

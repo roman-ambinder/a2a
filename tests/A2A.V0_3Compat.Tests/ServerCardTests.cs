@@ -96,4 +96,45 @@ public class ServerCardTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(JsonNode.Parse(await response.Content.ReadAsStringAsync())!["protocolVersion"]);
     }
+
+    [Fact]
+    public async Task The_card_is_also_served_at_the_v02_path_with_compat()
+    {
+        await using var host = await V03Host.StartAsync();
+        var (current, currentText) = await GetCardAsync(host);
+        using var legacy = await host.Http(null).GetAsync("/.well-known/agent.json");
+        Assert.Equal(HttpStatusCode.OK, legacy.StatusCode);
+        Assert.Equal(currentText, await legacy.Content.ReadAsStringAsync()); // the same blended card
+        Assert.Equal(current.Headers.ETag, legacy.Headers.ETag);
+
+        using var tenant = await host.Http(null).GetAsync("/acme/.well-known/agent.json");
+        Assert.Equal(HttpStatusCode.OK, tenant.StatusCode);
+        Assert.NotNull(JsonNode.Parse(await tenant.Content.ReadAsStringAsync())!["protocolVersion"]);
+    }
+
+    [Fact]
+    public async Task Without_compat_the_v02_path_is_not_found()
+    {
+        await using var host = await V03Host.StartAsync(compat: false);
+        using var legacy = await host.Http(null).GetAsync("/.well-known/agent.json");
+        Assert.Equal(HttpStatusCode.NotFound, legacy.StatusCode);
+        using var tenant = await host.Http(null).GetAsync("/acme/.well-known/agent.json");
+        Assert.Equal(HttpStatusCode.NotFound, tenant.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_v02_client_round_trip_reads_the_legacy_card_and_sends_v03_methods_without_a_version()
+    {
+        // What a v0.2.x client does: card at agent.json, then message/send and tasks/get with no A2A-Version header.
+        await using var host = await V03Host.StartAsync();
+        using var cardResponse = await host.Http(null).GetAsync("/.well-known/agent.json");
+        var url = JsonNode.Parse(await cardResponse.Content.ReadAsStringAsync())!["url"]!.GetValue<string>();
+        var path = new Uri(url).AbsolutePath;
+
+        var (_, sent) = await V03Host.RpcAsync(host.Http(), "message/send", V03Host.SendParams("task"), path);
+        var task = sent["result"]!;
+        Assert.Equal("task", task["kind"]!.GetValue<string>());
+        var (_, got) = await V03Host.RpcAsync(host.Http(), "tasks/get", new JsonObject { ["id"] = task["id"]!.GetValue<string>() }, path);
+        Assert.Equal(task["id"]!.GetValue<string>(), got["result"]!["id"]!.GetValue<string>());
+    }
 }

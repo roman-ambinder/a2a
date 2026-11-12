@@ -125,7 +125,7 @@ public class ServerJsonRpcTests
     }
 
     [Fact]
-    public async Task Extended_card_is_a_pure_v03_card_that_says_no_push()
+    public async Task Extended_card_is_a_pure_v03_card_with_the_push_capability_of_the_v1_card()
     {
         await using var host = await V03Host.StartAsync();
         var (_, body) = await V03Host.RpcAsync(host.Http("bob"), "agent/getAuthenticatedExtendedCard", null);
@@ -133,40 +133,30 @@ public class ServerJsonRpcTests
         Assert.Equal("0.3.0", card["protocolVersion"]!.GetValue<string>());
         Assert.Equal("Extended card for bob", card["description"]!.GetValue<string>());
         Assert.Equal(V03Host.BaseUrl, card["url"]!.GetValue<string>());
-        Assert.False(card["capabilities"]!["pushNotifications"]!.GetValue<bool>());
+        Assert.True(card["capabilities"]!["pushNotifications"]!.GetValue<bool>()); // v0.3 push is served
         Assert.Null(card["supportedInterfaces"]); // pure v0.3: no v1.0 members
         Assert.Equal("http", card["securitySchemes"]!["bearer"]!["type"]!.GetValue<string>());
         Assert.Equal("[{\"bearer\":[]}]", card["security"]!.ToJsonString());
     }
 
-    [Theory]
-    [InlineData("tasks/pushNotificationConfig/set")]
-    [InlineData("tasks/pushNotificationConfig/get")]
-    [InlineData("tasks/pushNotificationConfig/list")]
-    [InlineData("tasks/pushNotificationConfig/delete")]
-    public async Task Push_config_methods_are_refused_with_32003(string method)
-    {
-        await using var host = await V03Host.StartAsync();
-        var (response, body) = await V03Host.RpcAsync(host.Http(), method, new JsonObject { ["id"] = "t", ["taskId"] = "t" });
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(-32003, body["error"]!["code"]!.GetValue<int>());
-    }
-
     [Fact]
-    public async Task A_push_config_in_a_send_is_refused_with_32003_for_send_and_stream()
+    public async Task Extended_card_leaves_out_v1_signatures_that_do_not_cover_the_v03_document()
     {
-        await using var host = await V03Host.StartAsync();
-        var push = new JsonObject
+        // A JWS over the v1.0 extended card cannot verify the v0.3 document served, so a verifying v0.3 client would reject it.
+        await using var host = await V03Host.StartAsync(configure: o =>
         {
-            ["configuration"] = new JsonObject { ["pushNotificationConfig"] = new JsonObject { ["url"] = "https://hooks.example/x" } },
-        };
-        var (_, body) = await V03Host.RpcAsync(host.Http(), "message/send", V03Host.SendParams("hello", extra: push));
-        Assert.Equal(-32003, body["error"]!["code"]!.GetValue<int>());
-
-        using var response = await V03Host.StreamAsync(host.Http(), V03Host.RpcStream("message/stream", V03Host.SendParams("hello", extra: push)));
-        var text = await response.Content.ReadAsStringAsync();
-        Assert.Contains("-32003", text);
-        Assert.NotEqual("text/event-stream", response.Content.Headers.ContentType?.MediaType); // refused before the stream started
+            var inner = o.ExtendedAgentCardProvider!;
+            o.ExtendedAgentCardProvider = async (call, card, ct) =>
+            {
+                var extended = await inner(call, card, ct);
+                extended!.Signatures = [new AgentCardSignature { Protected = "eyJhbGciOiJFUzI1NiJ9", Signature = "c2ln" }];
+                return extended;
+            };
+        });
+        var (_, body) = await V03Host.RpcAsync(host.Http("bob"), "agent/getAuthenticatedExtendedCard", null);
+        var card = body["result"]!;
+        Assert.Equal("Extended card for bob", card["description"]!.GetValue<string>());
+        Assert.Null(card["signatures"]);
     }
 
     [Fact]
