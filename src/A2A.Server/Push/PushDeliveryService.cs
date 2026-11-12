@@ -90,7 +90,9 @@ public sealed class PushDeliveryService : BackgroundService
         _slots = new SemaphoreSlim(Math.Max(1, _options.BatchSize));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _time = time ?? TimeProvider.System;
-        _sender = new PushWebhookSender(http, options.PushNotifications, _logger, _time, options.SecurityLogger);
+        // The encoder is read at send time: the v0.3 compat package sets it while the endpoints are mapped.
+        _sender = new PushWebhookSender(http, options.PushNotifications, _logger, _time, options.SecurityLogger,
+            () => options.PushPayloadEncoder);
     }
 
     /// <summary>Checks the options (<see cref="ValidateOptions" />), then starts sending.</summary>

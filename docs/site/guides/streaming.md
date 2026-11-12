@@ -34,6 +34,8 @@ To watch a task you did not start on this connection, use <xref:A2A.Client.A2ACl
 - A reconnect that delivers a new event gives the client a fresh set of attempts.
 - It sends the last event id it saw in the `Last-Event-ID` header. The server continues after that event.
 - It drops any event whose sequence it already delivered.
+- Without event ids (gRPC, or a peer that sends none), an A2A 1.1 client resumes with `lastSeenGeneration`: the last generation it saw.
+- On A2A 1.1, it follows the events' `generation` (spec 1.1 §3.2.7). A jump says the stream missed a change: after that event the client calls GetTask and yields the task as a `TaskEvent`. An event whose generation is already reflected (a replay, or one that snapshot covers) is dropped. A server that sends generation 0, or one generation on two update events in a row, does not implement it, and the client stops using it for that stream. Turn the GetTask off with <xref:A2A.Client.A2AClientOptions.ReconcileGenerationGaps> = false. A 1.0 wire has no generations, so nothing changes there.
 - If the task is already finished, you get its final snapshot as a `TaskEvent`.
 - The same options (headers, credentials) are used on every reconnect. `SendStreamingMessageAsync` resumes in the same way once the first event has shown the task id.
 

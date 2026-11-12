@@ -60,7 +60,11 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2ATransport, IA2AEx
     public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var q = new Query().Add("historyLength", request.HistoryLength);
+        // GET has no body: every request field goes in the query (§11.5), including the A2A 1.1 ones.
+        var q = new Query()
+            .Add("historyLength", request.HistoryLength)
+            .Add("timelineLength", request.TimelineLength)
+            .Add("currentGeneration", request.CurrentGeneration);
         return SendAsync<AgentTask>(HttpMethod.Get, Path(request.Tenant, $"/tasks/{Esc(request.Id)}") + q, null,
             RetryMode.Idempotent, options, null, cancellationToken);
     }
@@ -75,6 +79,7 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2ATransport, IA2AEx
             .Add("pageSize", request.PageSize)
             .Add("pageToken", request.PageToken)
             .Add("historyLength", request.HistoryLength)
+            .Add("timelineLength", request.TimelineLength)
             .Add("statusTimestampAfter", request.StatusTimestampAfter is { } t ? TimestampConverter.FormatUtc(t) : null)
             .Add("includeArtifacts", request.IncludeArtifacts is { } b ? b ? "true" : "false" : null);
         return SendAsync<ListTasksResponse>(HttpMethod.Get, Path(request.Tenant, "/tasks") + q, null,
@@ -221,7 +226,9 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2ATransport, IA2AEx
         A2ARequestOptions? options, string? lastEventId, CancellationToken cancellationToken)
     {
         var method = Options.RestSubscribeMethod;
-        return StreamAsync(method, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:subscribe"),
+        // A GET has no body, so lastSeenGeneration (A2A 1.1) goes in the query; a POST carries it in the body.
+        var q = method == HttpMethod.Get ? new Query().Add("lastSeenGeneration", request.LastSeenGeneration) : new Query();
+        return StreamAsync(method, Path(request.Tenant, $"/tasks/{Esc(request.Id)}:subscribe") + q,
             method == HttpMethod.Get ? null : request, options, null, lastEventId, cancellationToken);
     }
 
@@ -404,6 +411,11 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2ATransport, IA2AEx
         }
 
         public Query Add(string name, int? value)
+        {
+            return Add(name, value?.ToString(CultureInfo.InvariantCulture));
+        }
+
+        public Query Add(string name, long? value)
         {
             return Add(name, value?.ToString(CultureInfo.InvariantCulture));
         }

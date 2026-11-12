@@ -172,6 +172,8 @@ public static partial class A2AEndpointRouteBuilderExtensions
             adapter.MapRoutes(endpoints.ServiceProvider, group, tenantInPattern);
             if (adapter.CardBodyTransform is { } transform)
                 endpoints.ServiceProvider.GetRequiredService<A2AEndpointRegistry>().CardBodyTransform = transform;
+            if (adapter.ServeLegacyCardPath)
+                endpoints.ServiceProvider.GetRequiredService<A2AEndpointRegistry>().ServeLegacyCardPath = true;
         }
 
         Record(endpoints, ProtocolBindings.JsonRpc, pattern);
@@ -436,6 +438,11 @@ public static partial class A2AEndpointRouteBuilderExtensions
         group.MapGet(jwksPath, card.GetJwksAsync).WithDisplayName("A2A Agent Card JWKS");
         group.MapGet("/{tenant}" + A2AProtocol.WellKnownAgentCardPath, card.GetCardAsync)
             .WithDisplayName("A2A Agent Card (tenant)");
+        // A2A 0.1 to 0.2.x clients read the card here. It answers 404 unless a protocol adapter (v0.3 compat) turns it on,
+        // so the order of MapAgentCard and MapA2A does not matter.
+        group.MapGet(A2AProtocol.LegacyAgentCardPath, card.GetLegacyCardAsync).WithDisplayName("A2A Agent Card (legacy path)");
+        group.MapGet("/{tenant}" + A2AProtocol.LegacyAgentCardPath, card.GetLegacyCardAsync)
+            .WithDisplayName("A2A Agent Card (legacy path, tenant)");
         group.MapGet("/{tenant}/" + jwksPath.TrimStart('/'), card.GetJwksAsync)
             .WithDisplayName("A2A Agent Card JWKS (tenant)");
         group.AllowAnonymous();

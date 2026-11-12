@@ -76,6 +76,17 @@ internal sealed class AgentCardEndpoint(
     ///     else
     ///     <see cref="A2AProtocol.JsonMediaType" />: a client that does not know the card media type keeps getting plain JSON.
     /// </summary>
+    /// <summary>
+    ///     The card at <see cref="A2AProtocol.LegacyAgentCardPath" />, the path of A2A 0.1 to 0.2.x: the same response as
+    ///     <see cref="GetCardAsync" /> when a protocol adapter turned it on (v0.3 compat), otherwise 404.
+    /// </summary>
+    public Task GetLegacyCardAsync(HttpContext http)
+    {
+        if (registry?.ServeLegacyCardPath == true) return GetCardAsync(http);
+        http.Response.StatusCode = StatusCodes.Status404NotFound;
+        return Task.CompletedTask;
+    }
+
     internal static string CardMediaType(HttpRequest request)
     {
         var accept = request.GetTypedHeaders().Accept;

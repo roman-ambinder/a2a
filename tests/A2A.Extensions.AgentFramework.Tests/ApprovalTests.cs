@@ -212,7 +212,8 @@ public class ApprovalTests
     [Fact]
     public async Task Approving_one_task_never_answers_another_tasks_request_in_the_same_context()
     {
-        // Task A asks; task B in the same context asks too and takes the session's slot. Approving A must not approve B's call.
+        // Task A asks (request req-0-0); task B in the same context asks too (req-1-0). Approving A answers A's request,
+        // never B's.
         var agent = Asking();
         await using var host = await StartAsync(agent);
         var client = host.Client();
@@ -222,7 +223,29 @@ public class ApprovalTests
 
         await client.SendMessageAsync(new SendMessageRequest { Message = FollowUp(a, "yes", HashOf(a)) });
 
-        Assert.DoesNotContain(agent.Calls[2].Messages.SelectMany(m => m.Contents), c => c is ToolApprovalResponseContent);
+        var answers = agent.Calls[2].Messages.SelectMany(m => m.Contents).OfType<ToolApprovalResponseContent>().ToList();
+        Assert.Equal(["req-0-0"], answers.Select(r => r.RequestId));
+    }
+
+    [Fact]
+    public async Task Another_task_in_the_context_keeps_this_tasks_pending_approval()
+    {
+        // Task A asks; task B in the same context asks too. Each task keeps its own pending request: approving A answers
+        // A's call, and approving B afterwards answers B's. Before, B's run took A's entry out of the session's one slot.
+        var agent = Asking();
+        await using var host = await StartAsync(agent);
+        var client = host.Client();
+        var a = Task_(await client.SendMessageAsync("clean up"));
+        var b = Task_(await client.SendMessageAsync("clean up too", a.ContextId));
+        Assert.Equal(TaskState.InputRequired, b.Status.State);
+
+        await client.SendMessageAsync(new SendMessageRequest { Message = FollowUp(a, "yes", HashOf(a)) });
+        await client.SendMessageAsync(new SendMessageRequest { Message = FollowUp(b, "yes", HashOf(b)) });
+
+        var answerA = Assert.Single(agent.Calls[2].Messages.SelectMany(m => m.Contents).OfType<ToolApprovalResponseContent>());
+        var answerB = Assert.Single(agent.Calls[3].Messages.SelectMany(m => m.Contents).OfType<ToolApprovalResponseContent>());
+        Assert.True(answerA.Approved);
+        Assert.True(answerB.Approved);
     }
 
     [Fact]
@@ -253,11 +276,32 @@ public class ApprovalTests
         var asked = Task_(await client.SendMessageAsync("clean up"));
         // Damage the stored entry, as a store with a bad copy would.
         var session = (await store.GetSessionAsync(agent, Assert.Single(store.Keys)))!;
-        session.StateBag.SetValue("a2a.pendingApproval", "not an approval", AIJsonUtilities.DefaultOptions);
+        session.StateBag.SetValue("a2a.pendingApprovals", "not a list of approvals", AIJsonUtilities.DefaultOptions);
 
         await client.SendMessageAsync(new SendMessageRequest { Message = FollowUp(asked, "yes", HashOf(asked)) });
 
         Assert.DoesNotContain(agent.Calls[1].Messages.SelectMany(m => m.Contents), c => c is ToolApprovalResponseContent);
+    }
+
+    [Fact]
+    public async Task A_pending_request_in_the_old_single_slot_is_still_answered_for_its_task()
+    {
+        // A session saved by an earlier version holds the request under "a2a.pendingApproval". It is still this task's.
+        var agent = Asking();
+        var store = new FakeSessionStore { SerializeSessions = true };
+        await using var host = await StartAsync(agent, store);
+        var client = host.Client();
+        var asked = Task_(await client.SendMessageAsync("clean up"));
+        var key = Assert.Single(store.Keys);
+        var session = (await store.GetSessionAsync(agent, key))!;
+        var list = session.StateBag.GetValue<List<System.Text.Json.Nodes.JsonObject>>("a2a.pendingApprovals", AIJsonUtilities.DefaultOptions)!;
+        session.StateBag.SetValue("a2a.pendingApproval", Assert.Single(list), AIJsonUtilities.DefaultOptions);
+        session.StateBag.TryRemoveValue("a2a.pendingApprovals");
+        await store.SaveSessionAsync(agent, key, session);
+
+        await client.SendMessageAsync(new SendMessageRequest { Message = FollowUp(asked, "yes", HashOf(asked)) });
+
+        Assert.Equal(["req-0-0"], agent.Calls[1].Messages.SelectMany(m => m.Contents).OfType<ToolApprovalResponseContent>().Select(r => r.RequestId));
     }
 
     // ---- 6. canonical description ----

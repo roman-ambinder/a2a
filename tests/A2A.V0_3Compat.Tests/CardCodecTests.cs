@@ -256,14 +256,55 @@ public class CardCodecTests
     }
 
     [Theory]
-    [InlineData("0.2.5")]
     [InlineData("0.1")]
+    [InlineData("0.1.0")]
+    [InlineData("0.4")]
     [InlineData("0.30.0")]
+    [InlineData("0.20")]
     public void Other_zero_versions_are_refused(string version)
     {
         var card = Golden.Object("agent-card.json");
         card["protocolVersion"] = version;
         Assert.Throws<A2AException>(() => V03CardCodec.NormalizeForResolver(card));
+    }
+
+    [Theory]
+    [InlineData("0.2")]
+    [InlineData("0.2.5")]
+    [InlineData("0.2.6")]
+    public void A_v02_card_is_read_with_its_json_rpc_interfaces_only(string version)
+    {
+        var card = Golden.Object("agent-card.json"); // JSONRPC and HTTP+JSON interfaces
+        card["protocolVersion"] = version;
+        var v1 = V03CardCodec.NormalizeForResolver(card);
+        var interfaces = v1["supportedInterfaces"]!.AsArray();
+        Assert.NotEmpty(interfaces);
+        Assert.All(interfaces, i =>
+        {
+            Assert.Equal("JSONRPC", i!["protocolBinding"]!.GetValue<string>());
+            Assert.Equal("0.3", i["protocolVersion"]!.GetValue<string>()); // the client speaks v0.3 to it
+        });
+        Assert.Null(v1["signatures"]);
+    }
+
+    [Fact]
+    public void A_card_from_before_0_2_5_has_no_protocolVersion_and_is_read_as_v02()
+    {
+        var card = Golden.Object("agent-card.json");
+        card.Remove("protocolVersion");
+        card.Remove("preferredTransport"); // 0.2.0 had neither: the url is JSON-RPC
+        card.Remove("additionalInterfaces");
+        var interfaces = V03CardCodec.NormalizeForResolver(card)["supportedInterfaces"]!.AsArray();
+        var only = Assert.Single(interfaces)!;
+        Assert.Equal("https://agent.example/a2a", only["url"]!.GetValue<string>());
+        Assert.Equal("JSONRPC", only["protocolBinding"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void A_card_without_protocolVersion_or_url_is_left_to_the_v1_reader()
+    {
+        var card = new JsonObject { ["name"] = "n", ["description"] = "d" };
+        Assert.Same(card, V03CardCodec.NormalizeForResolver(card));
     }
 
     [Theory]

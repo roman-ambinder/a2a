@@ -16,5 +16,7 @@
     </ItemGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="A2A.Grpc.Tests"/>
+        <!-- The v0.3 gRPC transport shares the channel pool. Same build, version-checked. -->
+        <InternalsVisibleTo Include="A2A.Client.Grpc.V0_3Compat"/>
     </ItemGroup>
 </Project>

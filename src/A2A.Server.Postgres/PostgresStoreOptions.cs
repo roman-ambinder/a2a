@@ -96,6 +96,39 @@ public sealed partial class PostgresStoreOptions
         }
     }
 
+    /// <summary>
+    ///     Stores the parts of each task's artifacts in their own rows (<c>a2a_artifact_parts</c>, migration 0007), so an
+    ///     append to an artifact writes only its new parts instead of rewriting the whole task. Default false.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         Turn it on only when every instance that shares the database runs a version that has this option. An older
+    ///         version reads such a task with empty parts, and its writes leave the rows stale.
+    ///     </para>
+    ///     <para>
+    ///         Reads handle both forms whatever this says. With the option off, every write stores the parts in the task
+    ///         again. Before downgrading to a version without this option, turn it off and call
+    ///         <see cref="PostgresTaskStore.InlineArtifactPartsAsync" /> until it returns 0.
+    ///     </para>
+    /// </remarks>
+    public bool ArtifactRows { get; set; }
+
+    /// <summary>
+    ///     With <see cref="ArtifactRows" />: once an artifact has this many rows, the next write of that artifact stores all
+    ///     its parts in one row again. This bounds the rows of a long stream. Default 256. Must be at least 2.
+    /// </summary>
+    public int ArtifactRowsCompactAt
+    {
+        get => _artifactRowsCompactAt;
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(value, 2);
+            _artifactRowsCompactAt = value;
+        }
+    }
+
+    private int _artifactRowsCompactAt = 256;
+
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,62}$", RegexOptions.CultureInvariant)]
     private static partial Regex IdentifierPattern();
 }

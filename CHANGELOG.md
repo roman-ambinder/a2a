@@ -88,7 +88,69 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 - No behaviour change: the executor's chunking, prompt building and the client facade's send rules moved to shared source
   that `A2A.Extensions.AgentFramework` compiles too.
 
+### New packages
+
+- `RomanAmbinder.A2A.Server.Grpc.V0_3Compat`: serves the v0.3 gRPC service `a2a.v1.A2AService` (the proto of tag v0.3.0)
+  next to the v1.0 service, on the same address: `services.AddA2AGrpcV03Compat()` and `app.MapA2AGrpcV03Compat()`. All ten
+  v0.3 RPCs, push configs included; errors are the gRPC status and error-name message of the v0.3 Python SDK
+  (`TaskNotFoundError: ...`); `GetAgentCard` answers with the extended v0.3 card when the agent offers one. With it, the
+  v0.3 cards list the card's `GRPC` interfaces.
+- `RomanAmbinder.A2A.Client.Grpc.V0_3Compat`: `A2AClientOptions.UseGrpcV03()` lets `V03CompatClientFactory` select v0.3
+  `GRPC` interfaces and call them.
+
 ### Protocol and bindings
+
+- Fixes from the review of the compatibility changes (roman-ambinder/a2a#159):
+  - **v0.3 HTTP+JSON client.** `ListTasksAsync` returns a next page token when `pageSize` cuts the list, so paging on
+    reaches every task. Before, the tasks past the first page were lost.
+  - **1.1 client streams.** A reconciling GetTask that fails is skipped, so it no longer ends a stream that is still
+    delivering events. A reconnect starts the "repeated generation" check over, so a peer that replays its last update
+    no longer turns generation tracking off. A fallback to an interface older than 1.1 no longer sends
+    `lastSeenGeneration`.
+  - **No supported interface.** The error names the card's interfaces of a newer minor version, and the option to change.
+  - **v0.3 JSON-RPC client.** A body with only an id counts as a null result on a 2xx response only. On an HTTP error the
+    HTTP error is kept, and retried where it may be.
+  - **gRPC channels (v1.0 and v0.3 clients).** The channels of `UseGrpc()`, `A2AGrpcClientFactory` and `UseGrpcV03()`
+    were cached per agent address for the life of the process and never disposed. They now come from a pool: a call
+    leases its channel while it runs, and a channel no call holds is disposed after 5 minutes idle or when more than 64
+    are idle (least recently used first). A client whose channel was disposed gets a new one on its next call.
+  - **v0.3 gRPC.** `GetAgentCard` answers an anonymous caller, or a caller refused the extended card, with the public card.
+    The public v0.3 card is the card of the call's tenant. A client `GetTask` with `historyLength` 0 returns no history
+    (proto3 cannot send 0).
+
+- v0.3 compat: REST `GET /v1/tasks` (spec v0.3.0 §3.5.6) is served, as the caller's tasks in a JSON array (at most
+  1000), and the v0.3 HTTP+JSON client's `ListTasksAsync` calls it and applies the request's filters to the answer. It
+  stays `UnsupportedOperation` on JSON-RPC and gRPC, which have no such method in v0.3.
+- v0.3 compat: the JSON-RPC client sends `tasks/cancel` `metadata` (v0.3 `TaskIdParams`); the HTTP+JSON and gRPC clients,
+  whose proto has no field for it, count the drop as `tasks/cancel.metadata`.
+- v0.3 compat, found by the interop run against a2a-sdk 0.3.26: the REST push config create reads the whole
+  `CreateTaskPushNotificationConfigRequest` body `{parent, configId, config}` (what the Python SDK sends and reads) as
+  well as the bare config, and the client sends the former; the JSON-RPC client reads a success response without
+  `result` (Python drops a null result) as a null result.
+- **Behavior change.** `A2AClientFactory` (and a plain `A2ACardResolver`) refuses a card older than 1.0 with
+  `InvalidAgentResponse` and an error that names `V03CompatClientFactory`. Before, such a card read as a 1.0 card with
+  no interfaces ("No supported interface") or failed with a parse error.
+
+- **Behavior change.** A JSON-RPC request without `"jsonrpc": "2.0"` is `InvalidRequest` (`-32600`). A missing member
+  was read as `"2.0"`. This holds on the v1.0 endpoint and on the v0.3 surface. A member of the wrong JSON type is still
+  a parse error (`-32700`).
+- A2A 1.1 client: streams follow `generation` (spec 1.1 §3.2.7, §3.5.2). A gap is reconciled with GetTask, and the task
+  is yielded as a `TaskEvent` after the event; events whose generation is already reflected are dropped; generation is
+  not used once a server sends 0 or one generation on two consecutive update events; a reconnect without an event id
+  (gRPC, or a peer that sends none) resumes with `lastSeenGeneration`. New `A2AClientOptions.ReconcileGenerationGaps`
+  (default true) turns the GetTask off. A 1.0 client never sends `lastSeenGeneration`.
+
+- **Behavior change.** The client asks only for protocol versions it speaks (spec §3.6.2, §3.6.3). `A2AClientFactory`
+  selects, in the card's order, the first interface of the same major version and no newer minor than
+  `A2AClientOptions.ProtocolVersion`, and sends that interface's version. Before, it took any interface of the same
+  major and sent its version, so a default 1.0 client called a card that lists 1.1 first (this SDK's server after
+  `EnableProtocolV11()`) with `A2A-Version: 1.1`, and a `1.7` interface with `1.7`. A card whose only interfaces are of a
+  newer minor version now fails with "No supported interface". New `A2AClientOptions.RequireExactProtocolVersion`
+  (default false) selects only interfaces of the client's own minor version, with no fallback to an older one.
+- A2A 1.1 over HTTP+JSON: the server reads `lastSeenGeneration` from the JSON body of `POST /tasks/{id}:subscribe` (it
+  read only the query string, so the SDK client's resume got a `Task` snapshot first), and the client sends
+  `timelineLength` and `currentGeneration` on GetTask, `timelineLength` on ListTasks and `lastSeenGeneration` on a GET
+  subscribe in the query string (they were dropped).
 
 - Interface fallback (spec §5.2), opt-in with `A2AClientOptions.InterfaceFallback` (default false). A client made by
   `A2AClientFactory` moves to the next interface of the card (same tenant, card order) when a call fails before any
@@ -99,6 +161,26 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
   (tags `from`, `to`).
 
 ### Security
+
+- The server logs a warning at startup (event 709) when `TreatMissingVersionAsCurrent` is on outside Development: it
+  breaks spec 3.6.2 ("Agents MUST interpret empty value as 0.3 version").
+
+- v0.3 compat, **behavior change**: the v0.3 surface refuses any `A2A-Version` other than `0.3` or `0.3.x` (for
+  example `0.2`, or a value that does not parse) with `VersionNotSupported` (spec v1.0.1 §3.6.2). Before, only versions
+  1.0 and later were refused. No version is still read as 0.3.
+- v0.3 compat: v0.3 push notifications are served. The four `tasks/pushNotificationConfig/*` methods, their HTTP+JSON
+  routes and a `pushNotificationConfig` in a send no longer answer `-32003`. A config created over v0.3 gets the task as
+  a v0.3 JSON-RPC `Task` on each delivery (`Content-Type: application/json`, `A2A-Version: 0.3`), as the v0.3 Python SDK
+  sends; v1.0 configs on the same task are unchanged. The extended v0.3 card now says the v1.0 push capability, not
+  `false`. A stored 0.3 config without the compat package is dead-lettered, never sent a v1.0 body.
+- v0.3 compat: v0.2.x peers over JSON-RPC. The server also serves the blended card at `/.well-known/agent.json` (and
+  `/{tenant}/.well-known/agent.json`), which answers 404 without `EnableV03Compat`. `V03CompatClientFactory` reads cards
+  with `protocolVersion` `0.2.x` or with none but a top-level `url`, keeps their JSON-RPC interfaces only (each other one
+  counts `v0.2.interface`), and when the well-known card answers 404 tries `/.well-known/agent.json`. New constant
+  `A2AProtocol.LegacyAgentCardPath`. v0.1 cards are still refused.
+- v0.3 compat: the pure v0.3 extended card (`/v1/card`, `agent/getAuthenticatedExtendedCard`) no longer carries the
+  v1.0 card's `signatures`. They cover the v1.0 content, not the v0.3 document served, so a v0.3 client that checks
+  signatures rejected the card. The drop is counted as `card.signatures` on `a2a.compat.v0_3.dropped`.
 
 - Opt-in anomaly monitoring (spec §13.4): `A2AServerOptions.Anomalies` (`A2AAnomalyOptions`: `Enabled`, default false;
   `TaskCreationsPerMinute`, default 60; `CancellationsPerMinute`, default 20; `MaxTrackedCallers`, default 10 000). A
@@ -127,8 +209,58 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 - New `DeleteTaskAsync(taskId)` on any `IA2AClient` (`TaskDeletionClientExtensions`): calls the task-deletion extension
   operation of an agent that serves it.
 
+### Postgres artifact rows
+
+- New `PostgresStoreOptions.ArtifactRows` (default false). It stores the parts of each task's artifacts in their own
+  rows (`a2a_artifact_parts`, migration 0007), so an append writes only its new parts instead of rewriting the whole
+  task. `ArtifactRowsCompactAt` (default 256) bounds the rows of one artifact.
+- Turn it on only when every instance sharing the database runs this version. Reads handle both forms either way.
+  Before a downgrade, turn it off and call the new `PostgresTaskStore.InlineArtifactPartsAsync` until it returns 0.
+- The ADR-003 benchmark (`tests/A2A.Benchmarks.Postgres`) measures the write cost. The design is
+  `docs/superpowers/specs/2026-11-12-postgres-artifact-rows-design.md`.
+
 ### Fixes
 
+- v0.3 gRPC: errors carry what the other bindings send. UNAUTHENTICATED names its scheme in a `www-authenticate`
+  trailer, as v1 gRPC does (spec 3.3.2, 7.4). An error with a wait (a rate limit, a full input buffer) carries it in a
+  `retry-after` trailer, in whole seconds. The v0.3 gRPC client reads that trailer as `A2AException.RetryAfter`.
+- Anomaly signals: a CancelTask is counted only after its tenant resolved to an agent. One caller could name a made-up
+  tenant in each call, take a tracked entry each time, and fill `MaxTrackedCallers`, so that no other caller was watched.
+- Retention: a context recreated right after the orphan sweep deleted it (a new message to it) is no longer reported to
+  `IA2AContextLifecycle`. The hooks would have erased stored state, such as an agent's session, of a live conversation.
+  The sweep checks again before notifying. This narrows the window, but does not close it.
+- Agent Framework: a resumed or polled background run no longer repeats the reply as the status message. After a dropped
+  stream, the status message was judged against only the content since the token, so a completed task's status message
+  that repeats its artifacts was shown again.
+- v0.3 gRPC client: an `UNAVAILABLE` status (a dropped connection, a restarting server) carries HTTP 503, as on the v1
+  gRPC path. A v0.3 gRPC stream now reconnects with backoff instead of ending with Internal.
+- `V03CompatClientFactory`: with `RequireExactProtocolVersion`, a card whose v1.x interfaces the exact-version rule
+  refuses is no longer downgraded to its v0.3 interface. It is refused as `A2AClientFactory` refuses it, naming those
+  interfaces (spec 3.6.3). Without the option, a v0.3 interface is still the fallback.
+- Agent Framework: deleting a shared context deletes every caller's stored session, not only the owner's. Sessions are
+  saved per caller, so the sessions of callers that `ContextAccess` let into another owner's context stayed in the store
+  for good, with their whole conversation. A per-context index session (owner partition `i:`) now records the callers.
+  Each process adds a caller once, after that caller's session is saved. The delete hook removes every listed session and
+  then the index. A failed index write is logged (event 1802).
+- Agent Framework: each task keeps its own pending tool approval in the session. A session had one slot per context,
+  so any other run in the context (another task) took a waiting task's request out. The approved tool then never ran,
+  although the server accepted the approval. Pending requests are now kept per task (at most 16 per session). A request
+  saved by an earlier version, in the old single slot, is still answered for its own task.
+- Server: a batch commit is no longer stored twice after a version conflict caused by the store's own write (a store
+  that retries a commit and meets its first attempt). With a store that has batch commits but no `ITaskCommitLookup`,
+  the engine handed the batch to the single-event path, which appended every chunk again. Now it checks whether the
+  stored task is exactly one version on and holds the batch's artifacts, as #153 does for single commits.
+- Security: `RequireAgentCardSchemes` checked the card of the route tenant only. A request to `/a2a` with
+  `"tenant": "acme"` in its body was checked against the default tenant's card, or against no card, and then ran in
+  tenant acme without proving acme's schemes. It also checked artifact and upload routes against the default card.
+  Now it checks the card of the artifact or upload route's tenant too. The call is then bound to the tenant that was
+  checked, so a different body tenant is refused with InvalidParams.
+- Server: the commit that creates a task also finds a stored commit by its mutation id (with `ITaskCommitLookup`).
+  Before, a create that the store wrote but whose call failed (a lost answer, or a `DuplicateTaskException` from the
+  store's own retry) left the task `FAILED`, deleted the request's inline push config, and the retried request created a
+  second task. Now the task is kept and the run carries on. A store without the lookup gets the same after a
+  `DuplicateTaskException`, when the stored task is at version 1 and equals the one written; a lost answer without the
+  lookup still fails as before.
 - A version conflict caused by the engine's own write no longer stores the event twice when the task store has no
   `ITaskCommitLookup`. When a store applied a commit and then reported a conflict for its own write (a store that
   retries commits internally), the engine applied the event again: an artifact append put its parts in the task

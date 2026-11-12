@@ -363,7 +363,9 @@ public sealed class InterfaceFallbackTests
         var a = new FakeTransport("a").FailAlways(Unsent);
         var b = new FakeTransport("b");
         var c = new FakeTransport("c");
-        var (client, _) = Make(true, [a, b, c], [Itf("a", "t-1"), Itf("b", "t-2"), Itf("c", "t-1", "1.1")]);
+        // A 1.1 client: it speaks the 1.0 interface a with 1.0 and the 1.1 interface c with 1.1.
+        var (client, _) = Make(true, [a, b, c], [Itf("a", "t-1"), Itf("b", "t-2"), Itf("c", "t-1", "1.1")],
+            o => o.ProtocolVersion = "1.1");
 
         Assert.Equal("c", (await client.GetTaskAsync("t1")).ContextId);
         Assert.Equal(0, b.Calls);

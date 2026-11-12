@@ -39,6 +39,7 @@
     <Project Path="src/A2A.Analyzers/A2A.Analyzers.csproj" />
     <Project Path="src/A2A.Analyzers.CodeFixes/A2A.Analyzers.CodeFixes.csproj" />
     <Project Path="src/A2A.Client.Grpc/A2A.Client.Grpc.csproj" />
+    <Project Path="src/A2A.Client.Grpc.V0_3Compat/A2A.Client.Grpc.V0_3Compat.csproj" />
     <Project Path="src/A2A.Templates/A2A.Templates.csproj" />
     <Project Path="src/A2A.Client.Postgres/A2A.Client.Postgres.csproj" />
     <Project Path="src/A2A.Client.DependencyInjection/A2A.Client.DependencyInjection.csproj" />
@@ -55,6 +56,7 @@
     <Project Path="src/A2A.Security.Http/A2A.Security.Http.csproj" />
     <Project Path="src/A2A.Server.AspNetCore/A2A.Server.AspNetCore.csproj" />
     <Project Path="src/A2A.Server.Grpc/A2A.Server.Grpc.csproj" />
+    <Project Path="src/A2A.Server.Grpc.V0_3Compat/A2A.Server.Grpc.V0_3Compat.csproj" />
     <Project Path="src/A2A.Server.Postgres/A2A.Server.Postgres.csproj" />
     <Project Path="src/A2A.Server.Redis/A2A.Server.Redis.csproj" />
     <Project Path="src/A2A.Server.Storage.S3/A2A.Server.Storage.S3.csproj" />
@@ -67,6 +69,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/A2A.Benchmarks/A2A.Benchmarks.csproj" />
+    <Project Path="tests/A2A.Benchmarks.Postgres/A2A.Benchmarks.Postgres.csproj" />
     <Project Path="tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj" />
     <Project Path="tests/A2A.Extensions.AgentFramework.Tests/A2A.Extensions.AgentFramework.Tests.csproj" />
     <Project Path="tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj" />

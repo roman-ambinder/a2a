@@ -9,6 +9,11 @@ public sealed class FakeTimeProvider(DateTimeOffset? start = null) : TimeProvide
 
     public override DateTimeOffset GetUtcNow() { lock (_gate) return _now; }
 
+    // Timestamps follow the manual time too (the base class would read Stopwatch), so elapsed-time code runs on this clock.
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+    public override long GetTimestamp() { lock (_gate) return _now.UtcTicks; }
+
     /// <summary>Timers that are set to fire (created or changed, and not yet fired, stopped or disposed).</summary>
     public int PendingTimers
     {

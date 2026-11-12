@@ -45,6 +45,8 @@ Counts come from `check.py`: one per requirement (TCK) or test (ACTS), per bindi
 | TCK | gRPC | 55 | 3 | 2 | 2 |
 | TCK | Agent card | 8 | 0 | 1 | 0 |
 
+Last run: 2026-11-12, at the pinned commits above, against `main` at `dbf82b4` (after the v0.3 gRPC and push changes, the streaming idle-timeout fix and the gRPC channel pool). `check.py` reported no unexpected failures, and every count matched the table. ACTS rated each binding CONFORMANT (MUST, SHOULD and MAY all passed). Every TCK failure in the table is in [expected-failures.txt](expected-failures.txt).
+
 Every TCK failure is explained below. None is an open SDK bug.
 
 Skips are capability tests that need an agent without the capability, or optional features. The TCK also lists requirements as `NOT TESTED` or manual (for example in-task auth and client behavior); those have no automated check.

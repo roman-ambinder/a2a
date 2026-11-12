@@ -59,12 +59,66 @@ internal sealed class V03HttpJsonTransport : HttpTransportBase, IA2ATransport, I
     public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromException<ListTasksResponse>(V03ClientSupport.Unsupported("ListTasks"));
+        return ListTasksCoreAsync(request, options, cancellationToken);
     }
+
+    /// <summary>
+    ///     v0.3 REST <c>GET /v1/tasks</c> answers every task of the caller as an array, with no paging or filters. The
+    ///     request's filters are applied here, to that array: <c>contextId</c>, <c>status</c>,
+    ///     <c>statusTimestampAfter</c>, <c>historyLength</c> and <c>includeArtifacts</c>. <c>pageSize</c> pages the filtered
+    ///     array: the next page token is an offset into it (<c>v03-offset:n</c>), so a caller that pages on reaches every
+    ///     task. Each page fetches the list again, so a page may repeat or skip a task that changed in between.
+    /// </summary>
+    private async Task<ListTasksResponse> ListTasksCoreAsync(ListTasksRequest request, A2ARequestOptions? options,
+        CancellationToken cancellationToken)
+    {
+        var result = await SendAsync(HttpMethod.Get, Url(request.Tenant, "/tasks"), null, RetryMode.Idempotent, options,
+            null, cancellationToken).ConfigureAwait(false);
+        var tasks = V03ClientSupport.Read(() =>
+        {
+            var array = result as JsonArray ?? throw new JsonException("tasks/list result must be an array");
+            return array.Select(t => Codec.ReadTask(t)).ToList();
+        }, "tasks/list result");
+
+        IEnumerable<AgentTask> selected = tasks;
+        if (request.ContextId is { Length: > 0 } contextId) selected = selected.Where(t => t.ContextId == contextId);
+        if (request.Status is { } status) selected = selected.Where(t => t.Status.State == status);
+        if (request.StatusTimestampAfter is { } after)
+            selected = selected.Where(t => t.Status.Timestamp is { } at && at > after);
+        var filtered = selected.ToList();
+        var offset = 0;
+        if (request.PageToken is { Length: > 0 } token)
+        {
+            if (!token.StartsWith(OffsetTokenPrefix, StringComparison.Ordinal) ||
+                !int.TryParse(token.AsSpan(OffsetTokenPrefix.Length), NumberStyles.None, CultureInfo.InvariantCulture,
+                    out offset))
+                throw new A2AException(A2AErrorCode.InvalidParams,
+                    "pageToken did not come from this v0.3 HTTP+JSON client.");
+        }
+
+        var take = request.PageSize is > 0 and var size ? size : int.MaxValue;
+        var list = filtered.Skip(offset).Take(take).ToList();
+        var next = offset + list.Count < filtered.Count
+            ? OffsetTokenPrefix + (offset + list.Count).ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
+        foreach (var task in list)
+        {
+            if (request.IncludeArtifacts == false) task.Artifacts = null;
+            if (request.HistoryLength is { } length && task.History is { } history && history.Count > length)
+                task.History = length <= 0 ? null : history.GetRange(history.Count - length, length);
+        }
+
+        return new ListTasksResponse { Tasks = list, NextPageToken = next };
+    }
+
+    /// <summary>The page tokens of <see cref="ListTasksAsync" />: an offset into the filtered array.</summary>
+    private const string OffsetTokenPrefix = "v03-offset:";
 
     public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        // The v0.3 proto CancelTaskRequest has only the task name: request metadata cannot be sent.
+        if (request.Metadata is { Count: > 0 }) V03LossReporter.Drop("tasks/cancel.metadata");
         var body = new JsonObject { ["name"] = $"tasks/{request.Id}" };
         var result = await SendAsync(HttpMethod.Post, Url(request.Tenant, $"/tasks/{Esc(request.Id)}:cancel"), body,
             RetryMode.Idempotent, options, null, cancellationToken).ConfigureAwait(false);
@@ -84,8 +138,13 @@ internal sealed class V03HttpJsonTransport : HttpTransportBase, IA2ATransport, I
     {
         var taskId = config.TaskId ?? string.Empty;
         var query = config.Id is { } id ? "?configId=" + Esc(id) : "";
+        // The whole CreateTaskPushNotificationConfigRequest, as the a2a-sdk 0.3 Python client sends it and its server reads
+        // it (the proto's http rule says the body is only the config). configId also goes in the query, for a server that
+        // follows the http rule.
+        var body = new JsonObject { ["parent"] = $"tasks/{taskId}", ["config"] = Codec.WritePushConfig(config) };
+        if (config.Id is { Length: > 0 }) body["configId"] = config.Id;
         var result = await SendAsync(HttpMethod.Post,
-            Url(config.Tenant, $"/tasks/{Esc(taskId)}/pushNotificationConfigs") + query, Codec.WritePushConfig(config),
+            Url(config.Tenant, $"/tasks/{Esc(taskId)}/pushNotificationConfigs") + query, body,
             RetryMode.None, options, null, cancellationToken).ConfigureAwait(false);
         return V03ClientSupport.Read(() => Codec.ReadPushConfig(result), "push config");
     }

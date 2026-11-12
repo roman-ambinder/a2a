@@ -88,3 +88,7 @@ A2A.Client.Credentials.BearerTokenCredentialProvider
 A2A.Client.Credentials.BearerTokenCredentialProvider.ApplyAsync(System.Net.Http.HttpRequestMessage! request, A2A.Client.Credentials.A2ACredentialContext! context, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 A2A.Client.Credentials.BearerTokenCredentialProvider.BearerTokenCredentialProvider(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<string!>>! getToken) -> void
 A2A.Client.Credentials.BearerTokenCredentialProvider.CanHandle(A2A.Client.Credentials.A2ACredentialContext! context) -> bool
+A2A.Client.A2AClientOptions.RequireExactProtocolVersion.get -> bool
+A2A.Client.A2AClientOptions.RequireExactProtocolVersion.set -> void
+A2A.Client.A2AClientOptions.ReconcileGenerationGaps.get -> bool
+A2A.Client.A2AClientOptions.ReconcileGenerationGaps.set -> void

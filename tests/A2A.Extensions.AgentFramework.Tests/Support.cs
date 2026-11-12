@@ -109,7 +109,14 @@ public sealed class FakeSessionStore : AgentSessionStore
 
     public int Deletes => _deletes;
 
-    public IReadOnlyCollection<AgentSessionStoreKey> Keys => [.. _sessions.Keys];
+    /// <summary>The keys of callers' sessions. The context indexes (owner partition <c>i:</c>) are in <see cref="IndexKeys"/>.</summary>
+    public IReadOnlyCollection<AgentSessionStoreKey> Keys => [.. _sessions.Keys.Where(k => !IsIndex(k))];
+
+    /// <summary>The keys of the context indexes the executor keeps (which callers have a session in a context).</summary>
+    public IReadOnlyCollection<AgentSessionStoreKey> IndexKeys => [.. _sessions.Keys.Where(IsIndex)];
+
+    private static bool IsIndex(AgentSessionStoreKey key) =>
+        key.Partitions is { } partitions && partitions.TryGetValue("a2a.owner", out var owner) && owner == "i:";
 
     /// <summary>Every key saved, in order.</summary>
     public IReadOnlyList<AgentSessionStoreKey> SavedKeys => [.. _saved];
@@ -146,9 +153,9 @@ public sealed class FakeSessionStore : AgentSessionStore
     public override async ValueTask SaveSessionAsync(AIAgent agent, AgentSessionStoreKey key, AgentSession session,
         CancellationToken cancellationToken = default)
     {
-        Interlocked.Increment(ref _saves);
+        if (!IsIndex(key)) Interlocked.Increment(ref _saves);
         if (HangOnSave) await new TaskCompletionSource().Task;
-        _saved.Enqueue(key);
+        if (!IsIndex(key)) _saved.Enqueue(key);
         _sessions[key] = session;
         if (SerializeSessions)
         {
@@ -163,9 +170,9 @@ public sealed class FakeSessionStore : AgentSessionStore
     public override ValueTask DeleteSessionAsync(AIAgent agent, AgentSessionStoreKey key,
         CancellationToken cancellationToken = default)
     {
-        Interlocked.Increment(ref _deletes);
+        if (!IsIndex(key)) Interlocked.Increment(ref _deletes);
         if (FailOnDelete) throw new IOException("store down");
-        _deleted.Enqueue(key);
+        if (!IsIndex(key)) _deleted.Enqueue(key);
         _sessions.TryRemove(key, out _);
         _json.TryRemove(key, out _);
         return ValueTask.CompletedTask;

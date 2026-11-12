@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A one-shot measurement, not a BenchmarkDotNet suite: it needs a PostgreSQL server, so it stays out of the CI benchmark
+       gate (which runs every benchmark in A2A.Benchmarks without Docker). CI only builds it. See README.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\A2A.Protocol\A2A.Protocol.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client\A2A.Client.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server\A2A.Server.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.Postgres\A2A.Server.Postgres.csproj" />
+  </ItemGroup>
+</Project>

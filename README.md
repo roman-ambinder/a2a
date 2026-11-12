@@ -45,7 +45,7 @@ Every NuGet ID is `RomanAmbinder.` + the package name, so it never clashes with 
 | Run several server instances | `A2A.Server.Redis` (plus `A2A.Server.Postgres`) |
 | Keep large artifacts in object storage | `A2A.Server.Storage.S3` or `A2A.Server.Storage.AzureBlob` |
 | Keep a durable list of messages my agent sends to peers | `A2A.Client.Postgres` |
-| Talk to v0.3 agents or clients | `A2A.Client.V0_3Compat` or `A2A.Server.V0_3Compat` |
+| Talk to v0.3 agents or clients | `A2A.Client.V0_3Compat` or `A2A.Server.V0_3Compat` (over gRPC too: `A2A.Client.Grpc.V0_3Compat`, `A2A.Server.Grpc.V0_3Compat`) |
 | Test an agent | `A2A.TestKit` |
 | Try an agent from the command line | `A2A.Cli` (`dotnet tool install -g`) |
 

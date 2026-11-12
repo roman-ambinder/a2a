@@ -117,25 +117,30 @@ public class ClientEndToEndTests
             : r.Body.Contains("agent/getAuthenticatedExtendedCard", StringComparison.Ordinal));
     }
 
-    [Theory, MemberData(nameof(Bindings))]
-    public async Task Push_config_is_refused_by_the_v03_server_as_push_not_supported(string binding)
+    [Fact]
+    public async Task List_tasks_is_unavailable_over_json_rpc()
     {
+        // v0.3 has tasks/list on gRPC and REST only (spec v0.3.0 §3.5.6).
         await using var host = await V03Host.StartAsync();
-        var client = ClientFor(binding, Recorded(host).Http);
-        var ex = await Assert.ThrowsAsync<A2AException>(() => client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig
-        {
-            TaskId = "t1", Url = "https://hook.example/x",
-        }));
-        Assert.Equal(A2AErrorCode.PushNotificationNotSupported, ex.Code);
-    }
-
-    [Theory, MemberData(nameof(Bindings))]
-    public async Task List_tasks_is_unavailable(string binding)
-    {
-        await using var host = await V03Host.StartAsync();
-        var client = ClientFor(binding, Recorded(host).Http);
+        var client = ClientFor(ProtocolBindings.JsonRpc, Recorded(host).Http);
         var ex = await Assert.ThrowsAsync<A2AException>(() => client.ListTasksAsync(new ListTasksRequest()));
         Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
+    }
+
+    [Fact]
+    public async Task List_tasks_over_http_json_returns_the_callers_tasks_only()
+    {
+        await using var host = await V03Host.StartAsync();
+        var alice = ClientFor(ProtocolBindings.HttpJson, Recorded(host).Http);
+        var bob = ClientFor(ProtocolBindings.HttpJson, Recorded(host, user: "bob").Http);
+        var first = Assert.IsType<TaskResponse>(await alice.SendMessageAsync("task")).Task;
+        var second = Assert.IsType<TaskResponse>(await alice.SendMessageAsync("input")).Task;
+        await bob.SendMessageAsync("task");
+
+        var listed = await alice.ListTasksAsync(new ListTasksRequest());
+        Assert.Equal(new[] { first.Id, second.Id }.Order(), listed.Tasks.Select(t => t.Id).Order());
+        var working = await alice.ListTasksAsync(new ListTasksRequest { Status = TaskState.InputRequired });
+        Assert.Equal(second.Id, Assert.Single(working.Tasks).Id);
     }
 
     [Theory, MemberData(nameof(Bindings))]

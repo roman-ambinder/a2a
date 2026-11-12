@@ -32,6 +32,12 @@ internal interface IA2AProtocolAdapter
     Func<ReadOnlyMemory<byte>, byte[]>? CardBodyTransform { get; }
 
     /// <summary>
+    ///     True: the card is also served at <see cref="A2AProtocol.LegacyAgentCardPath" /> (A2A 0.1 to 0.2.x), for clients
+    ///     older than v0.3.
+    /// </summary>
+    bool ServeLegacyCardPath { get; }
+
+    /// <summary>
     ///     Wraps the JSON-RPC endpoint delegate. The wrapper either handles the request or calls <paramref name="core" />
     ///     .
     /// </summary>

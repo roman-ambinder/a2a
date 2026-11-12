@@ -55,7 +55,7 @@ internal sealed class V03JsonRpcTransport : HttpTransportBase, IA2ATransport, IR
     public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await InvokeAsync(V03Compat.Methods.CancelTask, V03JsonCodec.WriteTaskIdParams(request.Id),
+        var result = await InvokeAsync(V03Compat.Methods.CancelTask, V03JsonCodec.WriteCancelParams(request),
             RetryMode.Idempotent, options, null, cancellationToken).ConfigureAwait(false);
         return V03ClientSupport.Read(() => Codec.ReadTask(result), "tasks/cancel result");
     }
@@ -157,7 +157,7 @@ internal sealed class V03JsonRpcTransport : HttpTransportBase, IA2ATransport, IR
             JsonObject? envelope;
             using (var body = await ResponseBody.ReadUtf8Async(response.Content, attemptCt).ConfigureAwait(false))
             {
-                envelope = TryParseEnvelope(body.Span);
+                envelope = TryParseEnvelope(body.Span, response.IsSuccessStatusCode);
             }
 
             if (envelope is null)
@@ -246,11 +246,19 @@ internal sealed class V03JsonRpcTransport : HttpTransportBase, IA2ATransport, IR
     ///     The JSON-RPC response in <paramref name="body" />, or null when it is not one (not an object, wrong version,
     ///     no result or error).
     /// </summary>
-    private static JsonObject? TryParseEnvelope(ReadOnlySpan<byte> body)
+    /// <param name="body">The response body.</param>
+    /// <param name="idOnlyIsNullResult">
+    ///     True for a successful (2xx) unary response: a2a-sdk 0.3 (Python) serializes with exclude_none, so a null result
+    ///     (tasks/pushNotificationConfig/delete) has no "result" member at all, and an envelope with an id and no error is a
+    ///     null result. On any other status, or on a stream event, such a body is not an envelope, so the HTTP error is kept.
+    /// </param>
+    private static JsonObject? TryParseEnvelope(ReadOnlySpan<byte> body, bool idOnlyIsNullResult = false)
     {
         if (V03ClientSupport.TryParse(body) is not JsonObject root) return null;
         if (V03ClientSupport.Text(root["jsonrpc"]) != "2.0") return null;
-        return root.ContainsKey("result") || root.ContainsKey("error") ? root : null;
+        return root.ContainsKey("result") || root.ContainsKey("error") || (idOnlyIsNullResult && root.ContainsKey("id"))
+            ? root
+            : null;
     }
 
     private static A2AException ErrorOf(JsonNode error, HttpResponseMessage? response)

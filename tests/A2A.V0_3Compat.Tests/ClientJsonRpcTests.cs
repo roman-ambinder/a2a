@@ -219,6 +219,24 @@ public class ClientJsonRpcTests
     // ---- tasks ----
 
     [Fact]
+    public async Task A_response_without_result_is_a_null_result()
+    {
+        // a2a-sdk 0.3 (Python) drops a null result (exclude_none): the delete answer is {"jsonrpc":"2.0","id":...}.
+        var (transport, server) = Make(_ => FakeV03Server.Json("""{"jsonrpc":"2.0","id":"1"}"""));
+        await transport.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = "t1", Id = "c1" });
+        Assert.Equal("tasks/pushNotificationConfig/delete", (string?)server.Last.Json!["method"]);
+
+        // On an HTTP error the same body is not a null result: the HTTP error is kept (and retried where it may be).
+        var (failing, _) = Make(_ => FakeV03Server.Json("""{"jsonrpc":"2.0","id":"1"}""", HttpStatusCode.ServiceUnavailable));
+        var unavailable = await Assert.ThrowsAsync<A2AException>(() => failing.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = "t1", Id = "c1" }));
+        Assert.Equal(503, unavailable.HttpStatus);
+
+        var (bad, _) = Make(_ => FakeV03Server.Json("""{"jsonrpc":"2.0"}"""));
+        var ex = await Assert.ThrowsAsync<A2AException>(() => bad.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = "t1", Id = "c1" }));
+        Assert.Contains("not a JSON-RPC response", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Get_and_cancel_task_use_v03_params()
     {
         var (transport, server) = Make(_ => FakeV03Server.Rpc(JsonNode.Parse(TaskJson("canceled"))));
@@ -231,6 +249,22 @@ public class ClientJsonRpcTests
         await transport.CancelTaskAsync(new CancelTaskRequest { Id = "t1" });
         Assert.Equal("tasks/cancel", (string?)server.Last.Json!["method"]);
         Assert.Equal("t1", (string?)server.Last.Json!["params"]!["id"]);
+        Assert.Null(server.Last.Json!["params"]!["metadata"]);
+    }
+
+    [Fact]
+    public async Task Cancel_sends_its_metadata_in_the_v03_TaskIdParams()
+    {
+        using var meters = new MeterRecorder();
+        var (transport, server) = Make(_ => FakeV03Server.Rpc(JsonNode.Parse(TaskJson("canceled"))));
+        var metadata = new Dictionary<string, System.Text.Json.JsonElement>
+        {
+            ["reason"] = System.Text.Json.JsonDocument.Parse("\"user asked\"").RootElement.Clone(),
+        };
+        await transport.CancelTaskAsync(new CancelTaskRequest { Id = "t1", Metadata = metadata });
+
+        Assert.Equal("user asked", (string?)server.Last.Json!["params"]!["metadata"]!["reason"]);
+        Assert.DoesNotContain("tasks/cancel.metadata", meters.DroppedFields());
     }
 
     [Fact]

@@ -36,26 +36,80 @@ internal sealed record PendingToolApproval(string TaskId, string Hash, JsonEleme
         }
     }
 
-    internal static void Write(AgentSession session, PendingToolApproval value) =>
-        session.StateBag.SetValue(StateKey, value, PendingApprovalJson.Default.Options);
+    /// <summary>
+    ///     The session's pending requests, one per task, newest last. Each task keeps its own: another task in the context
+    ///     neither answers nor removes it.
+    /// </summary>
+    internal const string ListKey = "a2a.pendingApprovals";
 
-    /// <summary>Takes the entry out of the session: it is answered or stale either way. Null when there is none or it is unreadable.</summary>
-    internal static PendingToolApproval? Take(AgentSession session)
+    /// <summary>Most pending requests one session keeps. A task that is never answered falls out once this many are newer.</summary>
+    internal const int MaxPending = 16;
+
+    /// <summary>Stores <paramref name="value" /> as its task's pending request, replacing an older one of the same task.</summary>
+    internal static void Write(AgentSession session, PendingToolApproval value)
     {
-        PendingToolApproval? value = null;
+        var list = ReadList(session);
+        list.RemoveAll(p => string.Equals(p.TaskId, value.TaskId, StringComparison.Ordinal));
+        list.Add(value);
+        if (list.Count > MaxPending) list.RemoveRange(0, list.Count - MaxPending);
+        session.StateBag.SetValue(ListKey, list, PendingApprovalJson.Default.Options);
+    }
+
+    /// <summary>
+    ///     Takes the pending request of <paramref name="taskId" /> out of the session: it is answered or stale either way.
+    ///     Other tasks' requests stay. Null when the task has none, or its entry is unreadable. An entry in the single slot
+    ///     of earlier versions (<see cref="StateKey" />) is taken too when it is this task's, and kept otherwise.
+    /// </summary>
+    internal static PendingToolApproval? Take(AgentSession session, string taskId)
+    {
+        PendingToolApproval? found = null;
+        var list = ReadList(session);
+        var index = list.FindIndex(p => string.Equals(p.TaskId, taskId, StringComparison.Ordinal));
+        if (index >= 0)
+        {
+            found = list[index];
+            list.RemoveAt(index);
+            if (list.Count == 0) session.StateBag.TryRemoveValue(ListKey);
+            else session.StateBag.SetValue(ListKey, list, PendingApprovalJson.Default.Options);
+        }
+
+        PendingToolApproval? legacy = null;
+        var readable = true;
         try
         {
-            session.StateBag.TryGetValue(StateKey, out value, PendingApprovalJson.Default.Options);
+            session.StateBag.TryGetValue(StateKey, out legacy, PendingApprovalJson.Default.Options);
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
-            // Unreadable: treated as stale, like no entry.
+            readable = false; // unreadable, or a value of another type: stale, like no entry
         }
 
-        session.StateBag.TryRemoveValue(StateKey);
-        return value;
+        if (!readable || (legacy is not null && string.Equals(legacy.TaskId, taskId, StringComparison.Ordinal)))
+        {
+            session.StateBag.TryRemoveValue(StateKey);
+            found ??= readable ? legacy : null;
+        }
+
+        return found;
+    }
+
+    private static List<PendingToolApproval> ReadList(AgentSession session)
+    {
+        try
+        {
+            if (session.StateBag.TryGetValue(ListKey, out List<PendingToolApproval>? list, PendingApprovalJson.Default.Options) &&
+                list is not null)
+                return list.Where(p => p is not null).ToList();
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            // Unreadable, or a value of another type: treated as stale, like no entries.
+        }
+
+        return [];
     }
 }
 
 [JsonSerializable(typeof(PendingToolApproval))]
+[JsonSerializable(typeof(List<PendingToolApproval>))]
 internal sealed partial class PendingApprovalJson : JsonSerializerContext;

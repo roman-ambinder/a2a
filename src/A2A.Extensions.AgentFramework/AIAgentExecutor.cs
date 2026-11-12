@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using A2A.Extensions.AgentFramework.Shared;
 using System.Text.Json;
@@ -109,7 +110,7 @@ public sealed class AIAgentExecutor : IAgentExecutor
         var stored = await _sessions.GetOrCreateSessionAsync(_agent, key, cancellationToken).ConfigureAwait(false);
         // The session holds the conversation: send only the new message, after the answer to a pending approval.
         var contents = new List<AIContent>();
-        if (PendingToolApproval.Take(stored) is { } pending && AnswerFor(pending, context) is { } answer)
+        if (PendingToolApproval.Take(stored, context.TaskId) is { } pending && AnswerFor(pending, context) is { } answer)
             contents.Add(answer);
         foreach (var part in context.Message.Parts)
             if (ModelContent.ToModelContent(part, _options.AllowUrlParts) is { } content)
@@ -121,13 +122,13 @@ public sealed class AIAgentExecutor : IAgentExecutor
             await RunAsync(context, updater, newMessage, stored, () =>
             {
                 saveAttempted = true;
-                return SaveAsync(key, stored, cancellationToken);
+                return SaveAsync(key, stored, context, cancellationToken);
             }, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception) when (!saveAttempted)
         {
             // A failed or canceled run keeps what the session learned. Best effort: the run's own error is what counts.
-            await SaveAfterFailureAsync(key, stored, context.TaskId).ConfigureAwait(false);
+            await SaveAfterFailureAsync(key, stored, context).ConfigureAwait(false);
             throw;
         }
     }
@@ -154,25 +155,43 @@ public sealed class AIAgentExecutor : IAgentExecutor
             : null;
     }
 
-    /// <summary>Saves within <see cref="SaveTimeout" />, also when the store ignores the token.</summary>
-    private async Task SaveAsync(AgentSessionStoreKey key, AgentSession session, CancellationToken cancellationToken)
+    /// <summary>
+    ///     Saves within <see cref="SaveTimeout" />, also when the store ignores the token. After a save, and within the
+    ///     same time, records the caller in the context's <see cref="SessionIndex" /> (once per process), so deleting the
+    ///     context finds this caller's session also when the context is shared. A failure there is logged, not thrown: the
+    ///     session itself is saved.
+    /// </summary>
+    private async Task SaveAsync(AgentSessionStoreKey key, AgentSession session, AgentRequestContext context,
+        CancellationToken cancellationToken)
     {
+        var deadline = Stopwatch.StartNew();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(SaveTimeout);
         await _sessions!.SaveSessionAsync(_agent, key, session, timeout.Token).AsTask()
             .WaitAsync(SaveTimeout, cancellationToken).ConfigureAwait(false);
+        var left = SaveTimeout - deadline.Elapsed;
+        try
+        {
+            if (left <= TimeSpan.Zero) throw new TimeoutException("No time left for the session index.");
+            await SessionIndex.AddAsync(_sessions, _agent, context.Call.Tenant, context.ContextId,
+                context.Call.Principal, timeout.Token).AsTask().WaitAsync(left, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            AgentFrameworkLog.SessionIndexFailed(_logger, ex, context.ContextId);
+        }
     }
 
-    private async Task SaveAfterFailureAsync(AgentSessionStoreKey key, AgentSession session, string taskId)
+    private async Task SaveAfterFailureAsync(AgentSessionStoreKey key, AgentSession session, AgentRequestContext context)
     {
         try
         {
             // Not the execution's token: after a cancel it is cancelled already, and the session is still worth keeping.
-            await SaveAsync(key, session, CancellationToken.None).ConfigureAwait(false);
+            await SaveAsync(key, session, context, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            AgentFrameworkLog.SessionSaveFailed(_logger, ex, taskId);
+            AgentFrameworkLog.SessionSaveFailed(_logger, ex, context.TaskId);
         }
     }
 

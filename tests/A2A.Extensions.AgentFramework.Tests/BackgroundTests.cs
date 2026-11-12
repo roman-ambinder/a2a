@@ -237,6 +237,53 @@ public class BackgroundTests
     }
 
     [Fact]
+    public async Task A_resumed_stream_does_not_repeat_the_reply_as_a_status_message()
+    {
+        // The stream dropped right after the last chunk. The completed status message repeats the artifact text (as the
+        // SDK's own executors write it with context memory): the resumed stream must not show it again.
+        var transport = new FakeTransport
+        {
+            Stream = (_, _) => Events(Chunk("the answer", false, last: true)),
+            Subscribe = (_, _) => Events(new TaskEvent(FakeTransport.TaskIn(TaskState.Completed,
+                message: AgentMsg("the answer"), artifacts: [Art("a1", "the answer")]))),
+        };
+        var agent = transport.AsClient().AsAIAgent();
+        ResponseContinuationToken? token = null;
+        await foreach (var u in agent.RunStreamingAsync("hi", options: Background))
+        {
+            token = u.ContinuationToken;
+            break; // the connection dropped
+        }
+
+        var rest = new List<AgentResponseUpdate>();
+        await foreach (var u in agent.RunStreamingAsync([], options: Resume(token!))) rest.Add(u);
+
+        Assert.Equal("", string.Concat(rest.Select(u => u.Text)));
+    }
+
+    [Fact]
+    public async Task Polling_after_a_dropped_stream_does_not_repeat_the_reply_as_a_status_message()
+    {
+        var transport = new FakeTransport
+        {
+            Stream = (_, _) => Events(Chunk("the answer", false, last: true)),
+            Get = (_, _) => Task.FromResult(FakeTransport.TaskIn(TaskState.Completed,
+                message: AgentMsg("the answer"), artifacts: [Art("a1", "the answer")])),
+        };
+        var agent = transport.AsClient().AsAIAgent();
+        ResponseContinuationToken? token = null;
+        await foreach (var u in agent.RunStreamingAsync("hi", options: Background))
+        {
+            token = u.ContinuationToken;
+            break;
+        }
+
+        var done = await agent.RunAsync([], options: Resume(token!));
+
+        Assert.Equal("", done.Text);
+    }
+
+    [Fact]
     public async Task A_resumed_stream_ends_at_the_terminal_state_over_the_real_server()
     {
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -19,5 +19,9 @@
         <InternalsVisibleTo Include="A2A.Extensions.AgentFramework.Tests"/>
         <InternalsVisibleTo Include="A2A.Benchmarks"/>
         <InternalsVisibleTo Include="A2A.Stores.Tests"/>
+        <!-- v0.3 compat: the v0.3 webhook body (IPushPayloadEncoder). The package checks it comes from the same build. -->
+        <InternalsVisibleTo Include="A2A.Server.V0_3Compat"/>
+        <InternalsVisibleTo Include="A2A.Server.Grpc.V0_3Compat"/>
+        <InternalsVisibleTo Include="A2A.V0_3Compat.Tests"/>
     </ItemGroup>
 </Project>

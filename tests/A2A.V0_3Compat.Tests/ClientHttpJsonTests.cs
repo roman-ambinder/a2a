@@ -2,6 +2,8 @@ using System.Net;
 using System.Text.Json.Nodes;
 using A2A.Client;
 using A2A.Client.V0_3Compat;
+using Google.Protobuf;
+using P = A2a.V1;
 using static A2A.V0_3Compat.Tests.ClientData;
 
 namespace A2A.V0_3Compat.Tests;
@@ -9,6 +11,8 @@ namespace A2A.V0_3Compat.Tests;
 /// <summary>The v0.3 HTTP+JSON transport against a fake v0.3 agent. Every operation, the stream rules, and error mapping.</summary>
 public class ClientHttpJsonTests
 {
+    private static readonly JsonParser Strict = new(JsonParser.Settings.Default); // unknown fields are an error
+
     private static readonly Uri Base = new("http://agent.test/api");
 
     private static (V03HttpJsonTransport Transport, FakeV03Server Server) Make(Func<SeenRequest, HttpResponseMessage> respond, Action<A2AClientOptions>? configure = null)
@@ -215,12 +219,73 @@ public class ClientHttpJsonTests
     }
 
     [Fact]
-    public async Task List_tasks_is_unsupported_and_sends_nothing()
+    public async Task Cancel_metadata_cannot_be_sent_and_its_drop_is_counted()
     {
-        var (transport, server) = Make(_ => FakeV03Server.Json("{}"));
-        var ex = await Assert.ThrowsAsync<A2AException>(() => transport.ListTasksAsync(new ListTasksRequest()));
-        Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
-        Assert.Empty(server.Requests);
+        using var meters = new MeterRecorder();
+        var (transport, server) = Make(_ => FakeV03Server.Json(RestTaskJson("TASK_STATE_CANCELLED")));
+        var metadata = new Dictionary<string, System.Text.Json.JsonElement>
+        {
+            ["reason"] = System.Text.Json.JsonDocument.Parse("1").RootElement.Clone(),
+        };
+        await transport.CancelTaskAsync(new CancelTaskRequest { Id = "t1", Metadata = metadata });
+
+        Assert.Null(server.Last.Json!["metadata"]); // the proto CancelTaskRequest has only the name
+        Assert.Contains("tasks/cancel.metadata", meters.DroppedFields());
+    }
+
+    private static string RestTask(string id, string context, string state, string timestamp, int historyCount) =>
+        new JsonObject
+        {
+            ["id"] = id, ["contextId"] = context,
+            ["status"] = new JsonObject { ["state"] = state, ["timestamp"] = timestamp },
+            ["history"] = new JsonArray(Enumerable.Range(0, historyCount).Select(i => (JsonNode)new JsonObject
+            {
+                ["messageId"] = $"m{i}", ["role"] = "ROLE_USER", ["content"] = new JsonArray(new JsonObject { ["text"] = $"h{i}" }),
+            }).ToArray()),
+            ["artifacts"] = new JsonArray(new JsonObject { ["artifactId"] = "a", ["parts"] = new JsonArray(new JsonObject { ["text"] = "x" }) }),
+        }.ToJsonString();
+
+    [Fact]
+    public async Task List_tasks_gets_the_v03_array_and_applies_the_filters_here()
+    {
+        var array = $"[{RestTask("t1", "c1", "TASK_STATE_COMPLETED", "2026-01-02T00:00:00Z", 3)},"
+                    + $"{RestTask("t2", "c2", "TASK_STATE_COMPLETED", "2026-01-03T00:00:00Z", 1)},"
+                    + $"{RestTask("t3", "c1", "TASK_STATE_WORKING", "2026-01-04T00:00:00Z", 2)}]";
+        var (transport, server) = Make(_ => FakeV03Server.Json(array));
+
+        var all = await transport.ListTasksAsync(new ListTasksRequest());
+        Assert.Equal(HttpMethod.Get, server.Last.Method);
+        Assert.Equal("/api/v1/tasks", server.Last.PathAndQuery); // v0.3 defines no query parameters
+        Assert.Equal(["t1", "t2", "t3"], all.Tasks.Select(t => t.Id));
+        Assert.True(string.IsNullOrEmpty(all.NextPageToken));
+
+        var filtered = await transport.ListTasksAsync(new ListTasksRequest
+        {
+            ContextId = "c1", Status = TaskState.Completed, HistoryLength = 1, IncludeArtifacts = false,
+        });
+        var only = Assert.Single(filtered.Tasks);
+        Assert.Equal("t1", only.Id);
+        Assert.Equal("m2", Assert.Single(only.History!).MessageId); // the newest one
+        Assert.Null(only.Artifacts);
+
+        var after = await transport.ListTasksAsync(new ListTasksRequest { StatusTimestampAfter = DateTimeOffset.Parse("2026-01-02T12:00:00Z"), PageSize = 1 });
+        Assert.Equal("t2", Assert.Single(after.Tasks).Id);
+        Assert.False(string.IsNullOrEmpty(after.NextPageToken)); // t3 is after it too
+
+        // pageSize pages the filtered array: paging on reaches every task.
+        var seen = new List<string>();
+        string? token = null;
+        do
+        {
+            var page = await transport.ListTasksAsync(new ListTasksRequest { PageSize = 2, PageToken = token });
+            Assert.True(page.Tasks.Count <= 2);
+            seen.AddRange(page.Tasks.Select(t => t.Id));
+            token = page.NextPageToken;
+        } while (!string.IsNullOrEmpty(token));
+        Assert.Equal(["t1", "t2", "t3"], seen);
+
+        var bad = await Assert.ThrowsAsync<A2AException>(() => transport.ListTasksAsync(new ListTasksRequest { PageToken = "elsewhere" }));
+        Assert.Equal(A2AErrorCode.InvalidParams, bad.Code);
     }
 
     // ---- push config ----
@@ -255,8 +320,12 @@ public class ClientHttpJsonTests
         Assert.Equal("t1", created.TaskId);
         Assert.Equal(HttpMethod.Post, server.Last.Method);
         Assert.Equal("/api/v1/tasks/t1/pushNotificationConfigs?configId=c1", server.Last.PathAndQuery);
-        Assert.Equal("tasks/t1/pushNotificationConfigs/c1", (string?)server.Last.Json!["name"]);
-        Assert.Equal("https://hook.example/x", (string?)server.Last.Json!["pushNotificationConfig"]!["url"]);
+        // The whole CreateTaskPushNotificationConfigRequest, as the a2a-sdk 0.3 Python client sends it and its server reads it.
+        Strict.Parse<P.CreateTaskPushNotificationConfigRequest>(server.Last.Body);
+        Assert.Equal("tasks/t1", (string?)server.Last.Json!["parent"]);
+        Assert.Equal("c1", (string?)server.Last.Json!["configId"]);
+        Assert.Equal("tasks/t1/pushNotificationConfigs/c1", (string?)server.Last.Json!["config"]!["name"]);
+        Assert.Equal("https://hook.example/x", (string?)server.Last.Json!["config"]!["pushNotificationConfig"]!["url"]);
 
         var got = await transport.GetTaskPushNotificationConfigAsync(new GetTaskPushNotificationConfigRequest { TaskId = "t1", Id = "c1" });
         Assert.Equal("tok", got.Token);

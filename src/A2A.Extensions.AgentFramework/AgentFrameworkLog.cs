@@ -12,4 +12,8 @@ internal static partial class AgentFrameworkLog
     [LoggerMessage(EventId = 1801, Level = LogLevel.Warning,
         Message = "Could not delete the agent session of deleted context {ContextId}")]
     public static partial void SessionDeleteFailed(ILogger logger, Exception exception, string contextId);
+
+    [LoggerMessage(EventId = 1802, Level = LogLevel.Warning,
+        Message = "Could not record the caller's session in the index of context {ContextId}; it may outlive the context")]
+    public static partial void SessionIndexFailed(ILogger logger, Exception exception, string contextId);
 }

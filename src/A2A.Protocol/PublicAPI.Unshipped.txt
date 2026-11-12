@@ -8,3 +8,4 @@ A2A.SendMessageResponse.ContextId.get -> string?
 A2A.SendMessageResponse.State.get -> A2A.TaskState?
 A2A.SendMessageResponse.TaskId.get -> string?
 A2A.StreamResponse.ContextId.get -> string?
+const A2A.A2AProtocol.LegacyAgentCardPath = "/.well-known/agent.json" -> string!

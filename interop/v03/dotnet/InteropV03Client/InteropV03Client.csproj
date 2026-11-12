@@ -7,5 +7,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\src\A2A.Client\A2A.Client.csproj" />
     <ProjectReference Include="..\..\..\..\src\A2A.Client.V0_3Compat\A2A.Client.V0_3Compat.csproj" />
+    <ProjectReference Include="..\..\..\..\src\A2A.Client.Grpc.V0_3Compat\A2A.Client.Grpc.V0_3Compat.csproj" />
   </ItemGroup>
 </Project>

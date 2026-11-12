@@ -2,11 +2,16 @@ using System.Diagnostics.Metrics;
 using System.Text;
 using System.Text.Json;
 using A2A;
+using System.Net;
 using A2A.Client;
+using A2A.Client.Grpc.V0_3Compat;
 using A2A.Client.V0_3Compat;
 using A2A.Server;
 using A2A.Server.AspNetCore;
+using A2A.Server.Grpc;
+using A2A.Server.Grpc.V0_3Compat;
 using A2A.Server.V0_3Compat;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 
 // A v1.0 agent that also answers v0.3 clients, and the client side that calls v0.3 agents.
 // The server counts each request it serves on the v0.3 surface (counter a2a.compat.v0_3.requests on the "A2A" meter);
@@ -14,9 +19,15 @@ using A2A.Server.V0_3Compat;
 // No API keys, no external calls: the server listens on 127.0.0.1 only.
 
 const string url = "http://127.0.0.1:5320/";
+// gRPC without TLS needs an HTTP/2-only endpoint (prior knowledge): a second port.
+const string grpcUrl = "http://127.0.0.1:5321";
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls(url);
+builder.WebHost.ConfigureKestrel(k =>
+{
+    k.Listen(IPAddress.Loopback, 5320, o => o.Protocols = HttpProtocols.Http1);
+    k.Listen(IPAddress.Loopback, 5321, o => o.Protocols = HttpProtocols.Http2);
+});
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
 var card = new AgentCard
@@ -24,11 +35,13 @@ var card = new AgentCard
     Name = "Two-version Agent",
     Description = "A v1.0 agent that older clients can reach too.",
     Version = "1.0.0",
-    // The blended card lists the v0.3 members (url, preferredTransport, ...) from these interfaces. gRPC is never listed for v0.3.
+    // The blended card lists the v0.3 members (url, preferredTransport, additionalInterfaces) from these interfaces.
+    // GRPC is listed for v0.3 too, because AddA2AGrpcV03Compat() serves v0.3 gRPC next to v1.0 gRPC.
     SupportedInterfaces =
     [
         new AgentInterface { Url = url, ProtocolBinding = ProtocolBindings.JsonRpc },
-        new AgentInterface { Url = url, ProtocolBinding = ProtocolBindings.HttpJson }
+        new AgentInterface { Url = url, ProtocolBinding = ProtocolBindings.HttpJson },
+        new AgentInterface { Url = grpcUrl, ProtocolBinding = ProtocolBindings.Grpc }
     ],
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
@@ -39,11 +52,15 @@ var card = new AgentCard
 // (see samples/EchoAgent) and RequireAuthorization() on MapA2A; that covers the v0.3 routes too.
 builder.Services.AddA2A(a => a.AddAgentExecutor<EchoAgent>().AddAgentCard(card))
     .Configure(o => o.AllowAnonymous = true);
+// v0.3 gRPC (service a2a.v1.A2AService), next to the v1.0 gRPC service.
+builder.Services.AddA2AGrpcV03Compat();
 
 var app = builder.Build();
 // EnableV03Compat adds the v0.3 JSON-RPC methods on the same URL, the v0.3 HTTP+JSON routes under /v1/...,
 // and the v0.3 members on the Agent Card. v1.0 calls are unchanged.
 app.MapA2A("/", o => o.EnableV03Compat());
+app.MapA2AGrpc();
+app.MapA2AGrpcV03Compat();
 await app.StartAsync();
 Console.WriteLine($"Agent listening on {url}");
 
@@ -98,6 +115,20 @@ var notDowngraded = await V03CompatClientFactory.CreateAsync(new Uri(url), http)
 before = v03Requests.Count;
 reply = TextOf(await notDowngraded.SendMessageAsync("hello"));
 Expect("V03CompatClientFactory, blended card", v03Requests.Count - before, 0, reply);
+
+// 5. The same over v0.3 gRPC: a card whose only interface is v0.3 GRPC. UseGrpcV03() adds the v0.3 gRPC transport.
+var v03GrpcCard = new AgentCard
+{
+    Name = "Old gRPC Agent",
+    Description = "Speaks v0.3 over gRPC only.",
+    Version = "1.0.0",
+    SupportedInterfaces =
+        [new AgentInterface { Url = grpcUrl, ProtocolBinding = ProtocolBindings.Grpc, ProtocolVersion = "0.3" }]
+};
+var v03Grpc = V03CompatClientFactory.Create(v03GrpcCard, http, new A2AClientOptions().UseGrpcV03());
+before = v03Requests.Count;
+reply = TextOf(await v03Grpc.SendMessageAsync("hello"));
+Expect("V03CompatClientFactory, v0.3 gRPC card", v03Requests.Count - before, 1, reply);
 
 await app.StopAsync();
 
