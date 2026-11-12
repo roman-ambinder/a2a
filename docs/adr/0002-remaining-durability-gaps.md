@@ -162,7 +162,7 @@ The main risk of Option C is the D2 investigation itself. If the failure exists,
    - After a failed commit call, the engine looks up the ids of every attempt of that change. When one is stored, it carries on with the task as stored now.
    - No startup check was added. No feature requires the capability, and a store without it keeps the old behaviour, so there is nothing to refuse at startup.
    - The tests in `AmbiguousCommitTests` (single and batch commits) pass, and the store contract test `A_stored_commit_is_found_by_its_mutation_id` covers both stores.
-   - Still not covered: the commit that creates a task. A create whose answer is lost is reported as before.
+   - The commit that creates a task was not covered at first. It is since 2026-11-12 (`CreateCommitLostAnswerTests`). Before, a create whose answer was lost left the task `FAILED` with its inline push config deleted, and the client's retry created a second task.
 3. [x] ~~If the event is not stored twice: record why in the gap analysis, and close D2 there.~~ Not applicable: item 1 shows the failure.
 4. [x] Finish ADR-001 before tagging the release:
    - make `GetForMaintenanceAsync` virtual, or move it to a capability interface;

@@ -130,6 +130,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- Server: the commit that creates a task also finds a stored commit by its mutation id (with `ITaskCommitLookup`).
+  Before, a create that the store wrote but whose call failed (a lost answer, or a `DuplicateTaskException` from the
+  store's own retry) left the task `FAILED`, deleted the request's inline push config, and the retried request created a
+  second task. Now the task is kept and the run carries on.
 - A version conflict caused by the engine's own write no longer stores the event twice when the task store has no
   `ITaskCommitLookup`. When a store applied a commit and then reported a conflict for its own write (a store that
   retries commits internally), the engine applied the event again: an artifact append put its parts in the task
