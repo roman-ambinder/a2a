@@ -1490,7 +1490,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
             else
             {
-                next.Artifacts![index].Parts.AddRange(au.Artifact.Parts);
+                next.Artifacts![index].AppendParts(au.Artifact.Parts); // the batch's own copy; O(1) per part
             }
 
             size += added;
@@ -1832,7 +1832,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             var next = current.CopyForUpdate();
             next.Status = new AgentTaskStatus
                 { State = su.Status.State, Message = su.Status.Message, Timestamp = su.Status.Timestamp };
-            if (su.Status.Message is { } m) (next.History ??= []).Add(m);
+            if (su.Status.Message is { } m) next.AppendToHistory(m); // O(1): the history list is not built
             TaskTimeline.Append(next, TimelineEntry.FromStatus(next.Status, generation), maxTimelineEntries);
             next.Generation = generation;
             MergeMetadata(next, su.Metadata);

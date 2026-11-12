@@ -11,12 +11,20 @@ namespace A2A.Tests.Storage;
 /// A <see cref="TaskStore"/> that checks the ownership contract: once a task is written to the store or returned by it, nobody
 /// may change it. It hashes every task it was given or returned, and on every call re-hashes all of them. A changed task is
 /// recorded in <see cref="Violations"/> and the call throws.
+/// ADR-004: by default it hashes a deep copy, which does not read (build) the task's lists, so the engine's shared lists stay
+/// shared as with the plain in-memory store. With <c>readLists</c> it hashes the task itself, which reads every list of every
+/// version, as a store that serializes on each commit does.
 /// </summary>
 internal sealed class OwnershipCheckingTaskStore : TaskStore
 {
     private readonly InMemoryTaskStore _inner;
+    private readonly bool _readLists;
 
-    public OwnershipCheckingTaskStore() => _inner = new InMemoryTaskStore(Events, Outbox);
+    public OwnershipCheckingTaskStore(bool readLists = false)
+    {
+        _inner = new InMemoryTaskStore(Events, Outbox);
+        _readLists = readLists;
+    }
 
     /// <summary>The event store the inner store commits to.</summary>
     public InMemoryEventStore Events { get; } = new(new StreamingOptions());
@@ -122,5 +130,5 @@ internal sealed class OwnershipCheckingTaskStore : TaskStore
         return r;
     }
 
-    private static byte[] Hash(AgentTask task) => SHA256.HashData(A2AJson.SerializeToUtf8Bytes(task));
+    private byte[] Hash(AgentTask task) => SHA256.HashData(A2AJson.SerializeToUtf8Bytes(_readLists ? task : task.DeepCopy()));
 }

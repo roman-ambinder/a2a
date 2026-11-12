@@ -1,26 +1,42 @@
 {
   "CardVerifyBenchmark.Verify": {
-    "allocatedBytes": 33169,
-    "meanNs": 166361.09619140625
+    "allocatedBytes": 20408,
+    "meanNs": 71657.98754882812
   },
   "ConcurrentLoadBenchmark.ConcurrentSendMessage": {
-    "allocatedBytes": 40241,
-    "meanNs": 133579.46940104166
+    "allocatedBytes": 39028,
+    "meanNs": 80439.21362304688
   },
   "ConcurrentLoadBenchmark.ConcurrentStreams": {
-    "allocatedBytes": 600916,
-    "meanNs": 1180861.0065104167
+    "allocatedBytes": 339668,
+    "meanNs": 979122.0143229166
   },
   "JsonRpcEnvelopeBenchmark.Encode": {
     "allocatedBytes": 480,
-    "meanNs": 179.57231509685516
+    "meanNs": 116.15049356222153
   },
   "SendMessageBenchmark.RoundTrip": {
-    "allocatedBytes": 40015,
-    "meanNs": 477096.0849609375
+    "allocatedBytes": 38433,
+    "meanNs": 260259.5388997396
   },
   "StreamingTaskBenchmark.ThousandEvents": {
-    "allocatedBytes": 5668262,
-    "meanNs": 10542836.03125
+    "allocatedBytes": 2915732,
+    "meanNs": 5772559.890625
+  },
+  "TaskCopyBenchmark.Appends1000": {
+    "allocatedBytes": 2918629,
+    "meanNs": 6623910.859375
+  },
+  "TaskCopyBenchmark.Appends2000": {
+    "allocatedBytes": 6080248,
+    "meanNs": 11811503.354166666
+  },
+  "TaskCopyBenchmark.StatusMessages2000": {
+    "allocatedBytes": 7245948,
+    "meanNs": 15376380.864583334
+  },
+  "TaskCopyBenchmark.StatusMessages4000": {
+    "allocatedBytes": 14454405,
+    "meanNs": 61401878.05555555
   }
 }

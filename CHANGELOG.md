@@ -245,6 +245,12 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Fixes
 
+- Task updates no longer copy the history, timeline and artifact parts lists on each event (ADR-004, accepted).
+  Versions of a task share one append-only buffer per list, and the public `List<T>` properties are built on first read
+  and published once, so concurrent readers get the same list. 4,000 status messages: 101.5 MB to 13.7 MB allocated, and
+  doubling the events now about doubles the allocation instead of tripling it. A store that serializes the task on each
+  commit builds the lists every time and pays about what it did before. New additive copy methods for store and engine
+  code: `ModelCopies.AppendToHistory`, `AppendToTimeline` (`A2AEXP005`) and `AppendParts`. JSON output is unchanged.
 - Follow-up recovery: a retry right after the previous run asked for input (that run had returned but had not ended yet,
   for example under load) counted that run as the recovered one and did nothing. The task stayed `INPUT_REQUIRED` with
   the message unanswered. The retry now waits up to two seconds for a run whose agent has returned to end, then starts

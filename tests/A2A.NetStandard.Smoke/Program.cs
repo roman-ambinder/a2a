@@ -85,6 +85,11 @@ internal static class Program
                 return Task.FromResult(0);
             }),
             ("9. client assertions: FromFile and CertificateJwt", ClientAssertions),
+            ("10. shared task lists: copies, forks, first reads, JSON", _ =>
+            {
+                SharedTaskLists();
+                return Task.FromResult(0);
+            }),
             ("assembly guard: the SSRF guard is not present", _ =>
             {
                 AssertNoSecurityHttp();
@@ -480,6 +485,67 @@ internal static class Program
         Console.WriteLine("     numbers hash " + hash);
         Check(hash == ExpectedNumbersHash,
             "numbers hash '" + hash + "' differs from net10.0 '" + ExpectedNumbersHash + "'");
+    }
+
+    // ADR-004: History, Timeline and Artifact.Parts share one buffer between copies until they are read. The
+    // netstandard2.0 build has the same lazy properties (Volatile, Interlocked.CompareExchange, ArraySegment copies).
+    private static void SharedTaskLists()
+    {
+        static Message M(string id) => new Message { MessageId = id, Role = Role.Agent, Parts = new List<Part> { Part.FromText(id) } };
+        var root = new AgentTask { Id = "t", ContextId = "c", Status = new AgentTaskStatus { State = TaskState.Working } };
+        var plain = new AgentTask { Id = "t", ContextId = "c", Status = new AgentTaskStatus { State = TaskState.Working } };
+        var shared = root;
+        plain.History = new List<Message>();
+        plain.Timeline = new List<TimelineEntry>();
+        for (var i = 0; i < 50; i++)
+        {
+            var m = M("m" + i);
+            var e = TimelineEntry.FromMessage(m, i + 1);
+            shared = shared.CopyForUpdate();
+            shared.AppendToHistory(m);
+            shared.AppendToTimeline(e, 20);
+            plain.History.Add(m);
+            plain.Timeline.Add(e);
+            if (plain.Timeline.Count > 20) plain.Timeline.RemoveAt(0);
+        }
+
+        Check(A2AJson.Serialize(shared) == A2AJson.Serialize(plain), "shared lists serialize differently from plain lists");
+        var fork = shared.CopyForUpdate();
+        fork.AppendToHistory(M("fork"));
+        var other = shared.CopyForUpdate();
+        other.AppendToHistory(M("other"));
+        Check(shared.History!.Count == 50 && fork.History![50].MessageId == "fork" && other.History![50].MessageId == "other",
+            "a fork changed another version");
+        Check(root.History is null && root.Timeline is null, "the first version changed");
+
+        var next = other.CopyForUpdate();
+        var lists = new List<Message>?[4];
+        var threads = new Thread[lists.Length];
+        using (var start = new Barrier(lists.Length))
+        {
+            for (var t = 0; t < threads.Length; t++)
+            {
+                var slot = t;
+                threads[t] = new Thread(() =>
+                {
+                    start.SignalAndWait();
+                    lists[slot] = next.History;
+                });
+                threads[t].Start();
+            }
+
+            foreach (var thread in threads) thread.Join();
+        }
+
+        Check(lists.All(l => ReferenceEquals(l, lists[0])) && lists[0]!.Count == 51, "first readers got different lists");
+
+        var artifact = new Artifact { ArtifactId = "a", Parts = new List<Part> { Part.FromText("a") } };
+        var longer = artifact.CopyWithParts(new[] { Part.FromText("b") });
+        longer.AppendParts(new[] { Part.FromText("c") });
+        var branch = artifact.CopyWithParts(new[] { Part.FromText("x") });
+        Check(artifact.GetText() == "a" && longer.GetText() == "abc" && branch.GetText() == "ax", "artifact parts were shared wrongly");
+        var back = A2AJson.Deserialize<AgentTask>(A2AJson.Serialize(shared))!;
+        Check(A2AJson.Serialize(back) == A2AJson.Serialize(plain), "a round trip changed the task");
     }
 
     // The netstandard2.0 branches of OAuth2ClientAssertions: FromFile reads with ReadAsync(byte[], int, int) and

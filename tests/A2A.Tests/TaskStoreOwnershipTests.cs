@@ -132,10 +132,12 @@ public class TaskStoreOwnershipTests
         Assert.Contains(task.History!, m => m.Role == Role.User && m.GetText() == "next");
     }
 
-    [Fact]
-    public async Task Handler_never_mutates_returned_record()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Handler_never_mutates_returned_record(bool readLists)
     {
-        var store = new OwnershipCheckingTaskStore();
+        var store = new OwnershipCheckingTaskStore(readLists);
         await using var host = await StartAsync(store);
         var id = await StartFollowUpAsync(host);
 
@@ -173,10 +175,12 @@ public class TaskStoreOwnershipTests
         Assert.Empty(store.Violations);
     }
 
-    [Fact]
-    public async Task Executor_view_is_detached()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Executor_view_is_detached(bool readLists)
     {
-        var store = new OwnershipCheckingTaskStore();
+        var store = new OwnershipCheckingTaskStore(readLists);
         await using var host = await StartAsync(store);
         var id = await StartFollowUpAsync(host);
 
@@ -226,6 +230,67 @@ public class TaskStoreOwnershipTests
         Assert.Equal(2, stored.Artifacts!.Count);
         Assert.Equal(1, stored.Artifacts[0].Metadata!["v"].GetInt32());
         Assert.Equal(2, stored.Artifacts[1].Metadata!["v"].GetInt32());
+    }
+
+    /// <summary>
+    /// ADR-004: the versions of a task share their list buffers. Readers poll the task (building the lists of whatever
+    /// version they get) while the agent appends status messages and parts, one commit each; every version the store gave
+    /// out or was given keeps its content, and the final task has every message and part in order.
+    /// </summary>
+    [Fact]
+    public async Task Readers_during_a_long_task_do_not_change_any_version()
+    {
+        const int steps = 60; // under the default MaxHistoryLengthReturned (100), so the final read has every message
+        var store = new OwnershipCheckingTaskStore();
+        await using var host = await TestAgentHost.StartAsync(services: s =>
+        {
+            s.AddSingleton<TaskStore>(store).AddSingleton<EventStore>(store.Events).AddSingleton<A2A.Server.Push.PushOutbox>(store.Outbox);
+            s.AddSingleton<IAgentExecutor>(new DelegateAgentExecutor(async (_, updater, ct) =>
+            {
+                await updater.StartWorkAsync(cancellationToken: ct);
+                var id = await updater.AddArtifactAsync([Part.FromText("p0,")], name: "out", cancellationToken: ct);
+                for (var i = 1; i < steps; i++)
+                {
+                    await updater.StartWorkAsync($"s{i}", ct);
+                    await updater.AddArtifactAsync([Part.FromText($"p{i},")], artifactId: id, append: true, cancellationToken: ct);
+                }
+
+                await updater.CompleteAsync(cancellationToken: ct);
+            }));
+        });
+
+        var started = (await host.Handler.SendMessageAsync(new SendMessageRequest
+        {
+            Message = Message.FromUser("go"),
+            Configuration = new SendMessageConfiguration { ReturnImmediately = true },
+        }, Call())).RequireTask();
+        using var stop = new CancellationTokenSource();
+        var readers = Enumerable.Range(0, 2).Select(_ => Task.Run(async () =>
+        {
+            var reads = 0;
+            while (!stop.IsCancellationRequested)
+            {
+                var seen = await host.Handler.GetTaskAsync(new GetTaskRequest { Id = started.Id, HistoryLength = 1000 }, Call());
+                // Whatever version this is, its status messages are a gapless prefix of the run's.
+                var texts = (seen.History ?? []).Where(m => m.Role == Role.Agent).Select(m => m.GetText()).ToList();
+                Assert.Equal(Enumerable.Range(1, texts.Count).Select(i => $"s{i}"), texts);
+                reads++;
+                if (seen.Status.State.IsTerminal()) break;
+            }
+
+            return reads;
+        })).ToList();
+        await host.WaitIdleAsync();
+        await stop.CancelAsync();
+        await Task.WhenAll(readers);
+
+        var final = await host.Handler.GetTaskAsync(new GetTaskRequest { Id = started.Id, HistoryLength = 1000 }, Call());
+        Assert.Equal(TaskState.Completed, final.Status.State);
+        Assert.Equal(string.Concat(Enumerable.Range(0, steps).Select(i => $"p{i},")), final.Artifacts!.Single().GetText());
+        var statusTexts = final.History!.Where(m => m.Role == Role.Agent).Select(m => m.GetText()).ToList();
+        Assert.Equal(Enumerable.Range(1, steps - 1).Select(i => $"s{i}"), statusTexts);
+        store.Verify();
+        Assert.Empty(store.Violations);
     }
 
     [Fact]
