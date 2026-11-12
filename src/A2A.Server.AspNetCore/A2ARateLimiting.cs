@@ -41,29 +41,9 @@ public static class A2ARateLimitingExtensions
     ///     (<c>HttpContext.Connection.RemoteIpAddress</c>). <c>MapA2A</c> applies it unless
     ///     <see cref="A2ARateLimitOptions.Enabled" /> is false; no middleware is needed. A rejected request gets HTTP 429 with
     ///     a <c>Retry-After</c> header and the <c>RATE_LIMITED</c> error, in the format of the binding. <c>AddA2A</c> calls
-    ///     this with the defaults; change them with <c>ConfigureRateLimiting</c> on the A2A builder.
+    ///     this with the defaults; change them with <c>ConfigureRateLimiting</c> on the A2A builder, which calls this.
     /// </summary>
-    /// <remarks>
-    ///     <para>
-    ///         The limit is taken after authentication and before the authorization decision, so a request with wrong
-    ///         credentials counts too: it is checked by the authorization middleware's result handler. An endpoint that has
-    ///         no authorization policy (anonymous callers allowed) is checked when the endpoint runs. A request is counted
-    ///         once. A host that replaces <see cref="IAuthorizationMiddlewareResultHandler" /> after this call keeps the
-    ///         limit, but requests that fail authorization are then not counted.
-    ///     </para>
-    ///     <para>
-    ///         Behind a reverse proxy or load balancer every connection comes from the proxy, so all anonymous callers would
-    ///         share the proxy's bucket. Enable the ForwardedHeaders middleware (<c>app.UseForwardedHeaders()</c> with the
-    ///         proxy listed in <c>ForwardedHeadersOptions.KnownProxies</c> or <c>KnownNetworks</c>), so the remote address is
-    ///         the client's.
-    ///     </para>
-    ///     To replace the policy, register your own as a keyed service:
-    ///     <c>services.AddKeyedSingleton&lt;IRateLimiterPolicy&lt;string&gt;, MyPolicy&gt;(A2ARateLimitingExtensions.PolicyName)</c>.
-    ///     This is separate from the ASP.NET Core rate limiter middleware: a host that uses <c>UseRateLimiter()</c> for its
-    ///     own endpoints does not count A2A requests twice. To drop rate limiting, set
-    ///     <see cref="A2ARateLimitOptions.Enabled" /> to false.
-    /// </remarks>
-    public static IServiceCollection AddA2ARateLimiting(this IServiceCollection services,
+    internal static IServiceCollection AddA2ARateLimiting(this IServiceCollection services,
         Action<A2ARateLimitOptions>? configure = null)
     {
         if (configure is not null) services.Configure(configure);

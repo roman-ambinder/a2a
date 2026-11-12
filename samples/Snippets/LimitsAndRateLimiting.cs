@@ -24,12 +24,12 @@ internal static class Samples
     {
         var services = new ServiceCollection();
         #region RateLimit
-        services.AddA2ARateLimiting(o =>
+        services.AddA2A(a => a.ConfigureRateLimiting(o =>
         {
             o.TokenLimit = 10;
             o.TokensPerPeriod = 30;
             o.ReplenishmentPeriod = TimeSpan.FromMinutes(1);
-        });
+        }));
         #endregion
     }
 
@@ -37,7 +37,7 @@ internal static class Samples
     {
         var services = new ServiceCollection();
         #region RateLimitOff
-        services.AddA2ARateLimiting(o => o.Enabled = false);
+        services.AddA2A(a => a.ConfigureRateLimiting(o => o.Enabled = false));
         #endregion
     }
 

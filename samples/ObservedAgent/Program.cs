@@ -47,7 +47,7 @@ var card = new AgentCard
 // AllowAnonymous is fine for a sample that only listens on loopback. A real agent needs authentication
 // (see samples/EchoAgent) and MapA2A(...).RequireAuthorization().
 builder.Services.AddA2A(a => a.AddAgentExecutor<ModelAgent>().AddAgentCard(card))
-    .Configure<A2AServerOptions>(o =>
+    .Configure(o =>
     {
         o.Limits.MaxTaskTokens = 2_000;
         o.Limits.MaxTaskCostUnits = 0.50m;

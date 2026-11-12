@@ -81,7 +81,7 @@ public sealed class AgentHost : IAsyncDisposable
         else builder.Services.AddKeyedSingleton(serviceKey, chat);
         builder.Services.AddAuthorization();
         builder.Services.AddA2A(a => (before?.Invoke(a) ?? a).AddAgentCard(Card()).AddChatClientAgent(configure, serviceKey))
-            .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+            .Configure(o => o.AllowAnonymous = true);
 
         var app = builder.Build();
         app.UseAuthorization();

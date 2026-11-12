@@ -44,9 +44,8 @@ builder.Services.AddA2AServer(o =>
     }).AddAgentExecutor<SlowAgent>()
     .AddApiKeyAuthentication(o => o.Add("demo-client", apiKeyHash)) // every caller with the key is "demo-client"
     .AddPostgresStores(postgres) // tasks, event log, push configs, push outbox, idempotency
-    .AddRedisEventBus(redis); // live events and cancel requests across instances (also the execution coordinator)
-builder.Services
-    .AddA2ARetention(); // opt-in: purges, interrupted-state timeout and recovery of tasks whose instance died
+    .AddRedisEventBus(redis) // live events and cancel requests across instances (also the execution coordinator)
+    .AddRetention(); // opt-in: purges, interrupted-state timeout and recovery of tasks whose instance died
 builder.Services.AddA2AServerAspNetCore();
 
 var app = builder.Build();

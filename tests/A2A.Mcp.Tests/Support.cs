@@ -175,7 +175,7 @@ public sealed class AgentHost : IAsyncDisposable
         var card = Cards.With();
         card.Skills = skills.ToList();
         builder.Services.AddA2A(a => a.AddAgentCard(card).AddMcpToolAgent(configure, serviceKey))
-            .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+            .Configure(o => o.AllowAnonymous = true);
         var app = builder.Build();
         app.UseAuthorization();
         app.MapA2A("/a2a");

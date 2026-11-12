@@ -13,7 +13,7 @@ var baseUrl = $"http://127.0.0.1:{port}";
 var builder = WebApplication.CreateBuilder();
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 builder.WebHost.ConfigureKestrel(k => k.ListenLocalhost(port, o => o.Protocols = HttpProtocols.Http1));
-builder.Services.AddA2AServer(o =>
+var a2a = builder.Services.AddA2AServer(o =>
 {
     // The interop clients are anonymous; production agents call RequireAuthorization() instead.
     o.AllowAnonymous = true;
@@ -35,7 +35,7 @@ builder.Services.AddA2AServer(o =>
 }).AddAgentExecutor<ScenarioAgent>();
 builder.Services.AddA2AServerAspNetCore();
 // All interop clients share one address, so the default per-caller budget is too small for a full run.
-builder.Services.AddA2ARateLimiting(o =>
+a2a.ConfigureRateLimiting(o =>
 {
     o.TokenLimit = 10_000;
     o.TokensPerPeriod = 10_000;

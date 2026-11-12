@@ -39,7 +39,7 @@ The agent is a class that implements <xref:A2A.Server.IAgentExecutor>:
 
 What the code does:
 
-- <xref:A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2A*> is `AddA2AServer()`, then `AddA2AServerAspNetCore()`, then your builder calls. Use the two-step form when you need <xref:A2A.Server.A2AServerOptions> at registration.
+- <xref:A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2A*> registers the server and its endpoints and returns the <xref:A2A.Server.A2AServerBuilder>. Every setting goes on the builder: `Configure` (<xref:A2A.Server.A2AServerOptions>), `ConfigureHttp`, `ConfigureRateLimiting`, `AddRetention`, stores, filters and authentication.
 - The per-caller rate limit is part of the A2A endpoints. No middleware call is needed.
 - `MapA2A` maps JSON-RPC at `POST /a2a` and the HTTP+JSON routes under `/a2a`. See [Bindings](bindings.md). It also maps the Agent Card at `GET /.well-known/agent-card.json`.
 - The executor is resolved from a new DI scope for each execution, so scoped services are safe in it.
@@ -131,7 +131,7 @@ The keys are listed on <xref:A2A.Server.AspNetCore.A2AConfigurationExtensions>: 
 - An unknown key fails the app at startup and names the key, so a typo does not go unnoticed.
 - Settings that weaken a secure default (`AllowAnonymous`, `TreatMissingVersionAsCurrent`, `IncludeExceptionDetails`, `ClientContextIdPolicy`, `RateLimit:Enabled`) are refused there. Set them in code, where a reviewer sees them.
 
-Configuration is applied first. `AddAgentCard` and `Configure` calls in code override it. For the two-step form, call `services.ConfigureA2A(section)` before `AddA2AServer`.
+Configuration is applied first. `AddAgentCard` and `Configure` calls in code override it. Hosts without ASP.NET Core use `AddA2AServer()`, which registers the core alone; call `services.ConfigureA2A(section)` before it.
 
 The Agent Card needs a name, a description and a version. `AgentCard.Create(name, description, version)` makes one (the version defaults to `1.0.0`), and `.AddSkill(id, name, description, tags, examples)` adds skills; an object initializer works too. If `SupportedInterfaces` is empty, the card is completed once, at first serve, from the bindings you mapped. Each URL is <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl> (or the first listen address) plus the mapped pattern. Set `PublicBaseUrl` behind a proxy or load balancer. Patterns with `{tenant}` are not listed.
 

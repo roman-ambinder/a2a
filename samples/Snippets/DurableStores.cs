@@ -19,10 +19,9 @@ public static class Samples
         services.AddA2AServer(o => o.AgentCard = card)
             .AddAgentExecutor<MyAgent>()
             .AddPostgresStores(postgres)
-            .AddRedisEventBus(redis);          // also registers the Redis execution coordinator
-        services.AddA2ARetention();            // opt-in, see the retention guide
-        services.AddDataProtection();          // persist and share the key ring across instances
-        services.AddA2ADataProtectionPushSecrets();
+            .AddRedisEventBus(redis)           // also registers the Redis execution coordinator
+            .AddRetention()                    // opt-in, see the retention guide
+            .AddDataProtectionPushSecrets();   // with a key ring that is persisted and shared by every instance
         #endregion
     }
 

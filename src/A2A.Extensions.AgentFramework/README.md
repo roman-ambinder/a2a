@@ -49,7 +49,7 @@ builder.Services.AddSingleton<AgentSessionStore>(myStore);   // any Agent Framew
 builder.Services.AddA2A(a => a
     .AddAgentCard(card)
     .AddAIAgent(o => o.SessionMode = AgentSessionMode.Stored));
-builder.Services.AddA2ARetention();   // deletes a context's session with the context
+// on the A2A builder: .AddRetention() deletes a context's session with the context
 ```
 
 - One session per context and caller: the key is the context id, with the tenant and the owner as partitions, so one caller

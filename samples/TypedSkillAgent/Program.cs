@@ -49,7 +49,7 @@ builder.Services.AddA2A(a => a
                         : [];
                 })
             .UseFallback<ChatAgent>()))
-    .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+    .Configure(o => o.AllowAnonymous = true);
 
 var app = builder.Build();
 app.MapA2A("/a2a");

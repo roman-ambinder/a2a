@@ -164,7 +164,7 @@ public sealed class A2ATestHost : IAsyncDisposable
         configureAgent(agent);
         builder.Services.AddA2AServerAspNetCore();
         builder.Services.AddKeyedSingleton(PushDeliveryService.InvokerServiceKey, push.CreateInvoker());
-        if (options.ConfigureHttp is { } http) builder.Services.ConfigureA2AHttp(http);
+        if (options.ConfigureHttp is { } http) agent.ConfigureHttp(http);
         options.ConfigureServices?.Invoke(builder.Services);
 
         var app = builder.Build();

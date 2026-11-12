@@ -38,7 +38,7 @@ var card = new AgentCard
 builder.Services.AddA2A(a => a
         .AddAgentCard(card)
         .AddChatClientAgent(o => o.Instructions = "You are a helpful, short-spoken agent."))
-    .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+    .Configure(o => o.AllowAnonymous = true);
 
 var app = builder.Build();
 app.MapA2A("/a2a");

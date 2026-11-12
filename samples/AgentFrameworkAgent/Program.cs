@@ -45,7 +45,7 @@ builder.Services.AddA2A(a => a
             o.UseContextMemory = true; // a new task in the same context sees the earlier ones
             o.StreamChunkSize = 16;
         }))
-    .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+    .Configure(o => o.AllowAnonymous = true);
 
 var app = builder.Build();
 app.MapA2A("/a2a");

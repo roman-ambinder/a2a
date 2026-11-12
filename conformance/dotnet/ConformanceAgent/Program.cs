@@ -57,7 +57,7 @@ var card = new AgentCard
 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SUT_DISABLE_MESSAGE_DEDUPE")))
     builder.Services.AddSingleton<A2A.Server.Idempotency.IdempotencyStore, NoDedupeStore>();
 
-builder.Services.AddA2AServer(o =>
+var a2a = builder.Services.AddA2AServer(o =>
 {
     // Default pass: the suites call anonymously. Auth pass: ScopeAuthorizationHandler refuses anonymous callers,
     // so the 401 comes from the SDK with a normal error body, on every binding.
@@ -72,7 +72,7 @@ builder.Services.AddA2AServer(o =>
 .AddAuthorizationHandler<ActsAuth.ScopeAuthorizationHandler>();
 builder.Services.AddA2AServerAspNetCore();
 // All suite calls come from one address; the default per-caller budget is too small for a full run.
-builder.Services.AddA2ARateLimiting(o =>
+a2a.ConfigureRateLimiting(o =>
 {
     o.TokenLimit = 100_000;
     o.TokensPerPeriod = 100_000;

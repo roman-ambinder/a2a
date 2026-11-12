@@ -54,7 +54,7 @@ var card = new AgentCard
 
 builder.Services.AddA2A(a => a.AddAgentExecutor<FileAgent>().AddAgentCard(card)
         .AddApiKeyAuthentication(o => o.Add("file-client", apiKey.Hash)))
-    .Configure<A2AServerOptions>(o =>
+    .Configure(o =>
     {
         // The base of every artifact link: the origin clients send their credentials to (the agent's).
         o.ArtifactStorage.PublicBaseUrl = new Uri($"{agentUrl}/a2a");

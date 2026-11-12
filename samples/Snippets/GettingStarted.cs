@@ -82,13 +82,15 @@ internal static class Samples
     public static void ChangeDefaults(IServiceCollection services)
     {
         #region Defaults
-        services.AddA2AServer(o => o.Limits.MaxRequestBodyBytes = 1024 * 1024);
-        services.AddA2ARateLimiting(o =>
-        {
-            o.TokenLimit = 10;
-            o.TokensPerPeriod = 30;
-        });
-        services.ConfigureA2AHttp(h => h.PublicBaseUrl = new Uri("https://agent.example.com"));
+        services.AddA2A(a => a
+            .AddAgentExecutor<MyAgent>()
+            .Configure(o => o.Limits.MaxRequestBodyBytes = 1024 * 1024)
+            .ConfigureRateLimiting(r =>
+            {
+                r.TokenLimit = 10;
+                r.TokensPerPeriod = 30;
+            })
+            .ConfigureHttp(h => h.PublicBaseUrl = new Uri("https://agent.example.com")));
         #endregion
     }
 }

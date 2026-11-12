@@ -15,6 +15,9 @@
     </ItemGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="A2A.Tests"/>
+        <InternalsVisibleTo Include="A2A.Grpc.Tests"/>
+        <InternalsVisibleTo Include="A2A.Extensions.AgentFramework.Tests"/>
+        <InternalsVisibleTo Include="A2A.Benchmarks"/>
         <InternalsVisibleTo Include="A2A.Stores.Tests"/>
     </ItemGroup>
 </Project>

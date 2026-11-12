@@ -51,8 +51,8 @@ if (builder.Configuration["EchoAgent:SigningKeyFile"] is { Length: > 0 } keyFile
 builder.Services.AddA2A(a => a.AddAgentExecutor<EchoAgent>().AddAgentCard(card)
         .AddApiKeyAuthentication(o => o.Add("echo-client", apiKeyHash)))
     // Development convenience: accept requests without the A2A-Version header (e.g. curl).
-    .Configure<A2AServerOptions>(o => o.TreatMissingVersionAsCurrent = builder.Environment.IsDevelopment())
-    .ConfigureA2AHttp(h =>
+    .Configure(o => o.TreatMissingVersionAsCurrent = builder.Environment.IsDevelopment())
+    .ConfigureHttp(h =>
     {
         h.PublicBaseUrl = new Uri(baseUrl);
         h.SigningKey = signingKey;

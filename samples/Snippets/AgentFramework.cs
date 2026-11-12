@@ -57,8 +57,8 @@ internal static class Snippets
             {
                 o.SessionMode = AgentSessionMode.Stored;
                 o.ToolApprovals = ToolApprovalMode.Bound;
-            }));
-        services.AddA2ARetention();   // deletes a context's session with the context
+            })
+            .AddRetention());   // deletes a context's session with the context
         #endregion
     }
 

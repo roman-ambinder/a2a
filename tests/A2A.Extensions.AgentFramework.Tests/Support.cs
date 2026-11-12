@@ -247,7 +247,7 @@ public sealed class AgentHost : IAsyncDisposable
             .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, null);
         builder.Services.AddAuthorization();
         builder.Services.AddA2A(a => addAgent(a.AddAgentCard(Card())))
-            .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+            .Configure(o => o.AllowAnonymous = true);
 
         var app = builder.Build();
         app.UseAuthentication();

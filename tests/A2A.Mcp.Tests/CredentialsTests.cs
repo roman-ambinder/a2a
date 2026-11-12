@@ -73,7 +73,7 @@ public sealed class CredentialsTests
             {
                 b.Services.AddAuthorization();
                 b.Services.AddA2A(a => a.AddAgentCard(Cards.With("echo")).AddAgentExecutor((ctx, updater, ct) => updater.ReplyAsync("echo: " + ctx.UserText, ct).AsTask()))
-                    .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+                    .Configure(o => o.AllowAnonymous = true);
             },
             app =>
             {
@@ -141,7 +141,7 @@ public sealed class CredentialsTests
                 b.Services.AddSingleton(mcp);
                 b.Services.AddAuthorization();
                 b.Services.AddA2A(a => a.AddAgentCard(card).AddMcpToolAgent(o => o.AllowTool("echo")))
-                    .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+                    .Configure(o => o.AllowAnonymous = true);
             },
             app =>
             {

@@ -181,25 +181,24 @@ public static class A2AConfigurationExtensions
     };
 
     /// <summary>
-    ///     Registers the A2A server and its ASP.NET Core endpoints like <see cref="A2AServiceCollectionExtensions.AddA2A(IServiceCollection, Action{A2AServerBuilder})" />,
+    ///     Registers the A2A server and its ASP.NET Core endpoints like <see cref="A2AServiceCollectionExtensions.AddA2A(IServiceCollection, Action{A2AServerBuilder}?)" />,
     ///     with the settings in <paramref name="configuration" /> (for example <c>builder.Configuration.GetSection("A2A")</c>)
-    ///     applied first. See <see cref="A2AConfigurationExtensions" /> for the keys.
+    ///     applied first. See <see cref="A2AConfigurationExtensions" /> for the keys. Returns the builder.
     /// </summary>
-    /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public static IServiceCollection AddA2A(this IServiceCollection services, IConfiguration configuration,
-        Action<A2AServerBuilder> configure)
+    /// <exception cref="ArgumentNullException"><paramref name="services" /> or <paramref name="configuration" /> is null.</exception>
+    public static A2AServerBuilder AddA2A(this IServiceCollection services, IConfiguration configuration,
+        Action<A2AServerBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
-        ArgumentNullException.ThrowIfNull(configure);
         services.ConfigureA2A(configuration);
         return services.AddA2A(configure);
     }
 
     /// <summary>
     ///     Applies the settings in <paramref name="configuration" /> to <see cref="A2AServerOptions" />,
-    ///     <see cref="A2AHttpOptions" /> and <see cref="A2ARateLimitOptions" />. For the two-step form
-    ///     (<c>AddA2AServer</c> and <c>AddA2AServerAspNetCore</c>): call it before them, so their code overrides it. See
+    ///     <see cref="A2AHttpOptions" /> and <see cref="A2ARateLimitOptions" />. <c>AddA2A(configuration, ...)</c> calls it;
+    ///     without that overload, call it before <c>AddA2AServer</c> or <c>AddA2A</c>, so their code overrides it. See
     ///     <see cref="A2AConfigurationExtensions" /> for the keys.
     /// </summary>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>

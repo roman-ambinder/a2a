@@ -39,7 +39,7 @@ var card = new AgentCard
 // AllowAnonymous is fine for a sample that only listens on loopback. A real agent needs authentication
 // (see samples/EchoAgent) and RequireAuthorization() on MapA2A; that covers the v0.3 routes too.
 builder.Services.AddA2A(a => a.AddAgentExecutor<EchoAgent>().AddAgentCard(card))
-    .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+    .Configure(o => o.AllowAnonymous = true);
 
 var app = builder.Build();
 // EnableV03Compat adds the v0.3 JSON-RPC methods on the same URL, the v0.3 HTTP+JSON routes under /v1/...,

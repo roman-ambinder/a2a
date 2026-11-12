@@ -54,6 +54,41 @@ public class SurfaceTests
     }
 
     [Fact]
+    public async Task AddA2A_returns_the_builder_and_every_setting_goes_on_it()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var a2a = services.AddA2A()
+            .AddAgentExecutor<ScenarioAgent>()
+            .Configure(o => o.Limits.MaxRequestBodyBytes = 1234)
+            .Configure(o => o.AllowAnonymous = true) // several calls add up
+            .ConfigureHttp(h => h.PublicBaseUrl = new Uri("https://agent.example.com"))
+            .ConfigureRateLimiting(r => r.TokenLimit = 7)
+            .AddRetention(r => r.BatchSize = 42)
+            .AddDataProtectionPushSecrets();
+        Assert.Same(services, a2a.Services);
+        await using var provider = services.BuildServiceProvider();
+        var server = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<A2AServerOptions>>().Value;
+        Assert.Equal(1234, server.Limits.MaxRequestBodyBytes);
+        Assert.True(server.AllowAnonymous);
+        Assert.Equal(new Uri("https://agent.example.com"),
+            provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<A2AHttpOptions>>().Value.PublicBaseUrl);
+        Assert.Equal(7, provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<A2ARateLimitOptions>>().Value.TokenLimit);
+        Assert.Equal(42, provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<A2A.Server.Retention.A2ARetentionOptions>>().Value.BatchSize);
+        Assert.NotNull(provider.GetRequiredService<A2A.Server.Retention.A2ARetentionService>());
+        Assert.IsType<DataProtectionPushSecretProtector>(provider.GetRequiredService<A2A.Server.Push.IPushSecretProtector>());
+    }
+
+    [Fact]
+    public void Builder_methods_reject_null()
+    {
+        var a2a = new ServiceCollection().AddA2A();
+        Assert.Throws<ArgumentNullException>(() => a2a.Configure(null!));
+        Assert.Throws<ArgumentNullException>(() => a2a.ConfigureHttp(null!));
+        Assert.Throws<ArgumentNullException>(() => a2a.ConfigureRateLimiting(null!));
+    }
+
+    [Fact]
     public async Task MapA2A_maps_card_by_default()
     {
         await using var app = await StartAsync(NewBuilder(), a => a.MapA2A("/a2a").RequireAuthorization());

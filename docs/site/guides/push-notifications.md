@@ -229,7 +229,7 @@ Use ASP.NET Core Data Protection with a key ring that is saved and shared by eve
 
 [!code-csharp[](../../../samples/Snippets/PushNotifications.cs#DataProtection)]
 
-<xref:A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddA2ADataProtectionPushSecrets*> replaces the protector. The Data Protection purpose is `A2A.PushSecrets.v1`. You can also write your own `IPushSecretProtector`.
+<xref:A2A.Server.AspNetCore.A2AServiceCollectionExtensions.AddDataProtectionPushSecrets*> (on the A2A builder) replaces the protector. The Data Protection purpose is `A2A.PushSecrets.v1`. You can also write your own `IPushSecretProtector`.
 
 ## Dead letters
 

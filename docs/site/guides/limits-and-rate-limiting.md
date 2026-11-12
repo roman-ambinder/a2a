@@ -50,7 +50,7 @@ The 429 body has the error `RATE_LIMITED`. `Retry-After` is in whole seconds (at
 
 ## Rate limit
 
-The server adds a token bucket per caller. A token bucket holds up to `TokenLimit` tokens and gets `TokensPerPeriod` tokens back every `ReplenishmentPeriod`. Each request takes one token. Change it with <xref:A2A.Server.AspNetCore.A2ARateLimitingExtensions.AddA2ARateLimiting*>:
+The server adds a token bucket per caller. A token bucket holds up to `TokenLimit` tokens and gets `TokensPerPeriod` tokens back every `ReplenishmentPeriod`. Each request takes one token. Change it with <xref:A2A.Server.AspNetCore.A2AServiceCollectionExtensions.ConfigureRateLimiting*> on the A2A builder:
 
 [!code-csharp[](../../../samples/Snippets/LimitsAndRateLimiting.cs#RateLimit)]
 
