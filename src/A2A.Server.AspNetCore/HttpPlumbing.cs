@@ -38,6 +38,22 @@ internal static partial class HttpPlumbing
     private static ReadOnlySpan<byte> DataPrefix => "data: "u8;
     private static ReadOnlySpan<byte> EventSuffix => "\n\n"u8;
 
+    /// <summary>
+    ///     <see cref="HttpContext.Items" /> key: the tenant whose card <c>RequireAgentCardSchemes</c> checked for this
+    ///     request.
+    /// </summary>
+    internal const string CardCheckedTenantKey = "A2A.CardCheckedTenant";
+
+    /// <summary>
+    ///     The tenant of an artifact download or upload route (<c>{artifactTenant}</c>, <c>{uploadTenant}</c>; <c>_</c> is
+    ///     the default tenant), or <c>""</c> on any other route.
+    /// </summary>
+    internal static string ObjectRouteTenant(HttpContext http)
+    {
+        var value = http.GetRouteValue("artifactTenant") as string ?? http.GetRouteValue("uploadTenant") as string;
+        return value is null or "_" ? "" : value;
+    }
+
     /// <param name="http">The request.</param>
     /// <param name="binding">The binding for traces.</param>
     /// <param name="versionOverride">
@@ -72,6 +88,10 @@ internal static partial class HttpPlumbing
         string? idempotencyKey = http.Request.Headers[A2AProtocol.Headers.IdempotencyKey];
 
         var tenant = tenantResolver.Resolve(http) ?? "";
+        // RequireAgentCardSchemes checked the card of one tenant: the call runs in that tenant, and a body tenant that
+        // differs is refused (BindTenant), instead of running in a tenant whose card was never checked.
+        var checkedTenant = http.Items.TryGetValue(CardCheckedTenantKey, out var checkedValue) ? checkedValue as string : null;
+        if (tenant.Length == 0 && checkedTenant is { Length: > 0 }) tenant = checkedTenant;
         var user = http.User;
         var principal = ServerCallContext.AnonymousPrincipal;
         if (user.Identity?.IsAuthenticated == true)
@@ -101,7 +121,7 @@ internal static partial class HttpPlumbing
             SkipRequiredExtensions = skipRequiredExtensions,
             IdempotencyKey = string.IsNullOrEmpty(idempotencyKey) ? null : idempotencyKey,
             Tenant = tenant,
-            TenantFromRoute = http.GetRouteValue("tenant") is string { Length: > 0 },
+            TenantFromRoute = http.GetRouteValue("tenant") is string { Length: > 0 } || checkedTenant is not null,
             RouteValues = RouteValues(http),
             Binding = binding,
             TraceParent = A2ATelemetry.TryExtractTraceContext(

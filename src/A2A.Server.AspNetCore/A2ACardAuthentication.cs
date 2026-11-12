@@ -248,10 +248,17 @@ internal sealed class AgentCardSchemeRequirement(IReadOnlyDictionary<string, str
         }
     }
 
+    /// <summary>
+    ///     The card of the tenant this request runs in: the tenant resolver's, or else the tenant of an artifact or upload
+    ///     route. The tenant checked is recorded on the request (<see cref="HttpPlumbing.CardCheckedTenantKey" />), and the
+    ///     call is then bound to it, so a different tenant in the request body is refused instead of running unchecked.
+    /// </summary>
     private static async Task<AgentCard?> CardAsync(HttpContext http)
     {
-        if (http.RequestServices.GetService<IAgentCardProvider>() is not { } cards) return null;
         var tenant = http.RequestServices.GetService<ITenantResolver>()?.Resolve(http) ?? "";
+        if (tenant.Length == 0) tenant = HttpPlumbing.ObjectRouteTenant(http);
+        http.Items[HttpPlumbing.CardCheckedTenantKey] = tenant;
+        if (http.RequestServices.GetService<IAgentCardProvider>() is not { } cards) return null;
         return await cards.GetAsync(new AgentRequestScope(tenant, HttpPlumbing.RouteValues(http)), http.RequestAborted)
             .ConfigureAwait(false);
     }
