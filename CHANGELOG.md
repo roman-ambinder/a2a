@@ -162,6 +162,9 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Security
 
+- CLI: `a2a` checks the card's endpoints as `A2AClient.ConnectAsync` does. Before, a public Agent Card that named a
+  private or link-local interface (for example `http://10.1.2.3:8080/internal`) made the CLI call it and print the reply.
+  Such a card now exits 6 with the endpoint policy's message.
 - Token exchange: `A2AHttpOptions.TrustedBearerSchemes` (empty by default) names ASP.NET Core schemes, other than a
   bearer scheme, whose callers may have their `Authorization: Bearer` header exchanged, for a gateway or API-key scheme
   that already checked the token. The SDK then trusts that scheme to have validated it. The scheme must have
@@ -245,6 +248,24 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Fixes
 
+- Postgres with `ArtifactRows`: `InlineArtifactPartsAsync` now bumps the task version, and a task is read with its
+  artifact rows in one statement. Before, a commit that raced the documented downgrade could store the task with every
+  artifact empty, and a read could return one version's status with the next version's parts.
+- Client: a named client (`IA2AClientFactory.GetClientAsync`) whose Agent Card fetch timed out is created again on the
+  next call. Before, the cancelled creation stayed cached and every call failed until the process restarted. A card
+  fetch timeout now carries a `TimeoutException`, as the transports' timeouts do.
+- Client outbox: a server error the peer did not mark retryable (a bare HTTP 500, JSON-RPC `-32603`) is "retry, in
+  doubt", as the guide says. Before, it was retried as not in doubt, so `RetryInDoubt = false` did not stop it.
+- `ListAllTasksAsync` sends `TimelineLength` on every page, not only the first.
+- CLI: a missing or failing Agent Card exits 3 (connection error), not 5 (task not found). The first Ctrl+C ends
+  `send -` and `keys hash` while they read standard input (exit 130). A TLS failure shows its cause. The `--allow-http`
+  help and the native AOT publish command in the guide are corrected.
+- Templates: the client template uses `A2AClient.ConnectAsync` and reports a refused call or an unreachable agent in one
+  line instead of a stack trace. Both agent templates list `PublicBaseUrl` in the `A2A` section.
+- Analyzer A2A0002: it follows the endpoint builder through locals and route groups. It now warns on
+  `MapGroup(...).MapA2A(...)` and on `AllowAnonymous()`, which the startup check refuses. It no longer warns on
+  `WithMetadata(new AuthorizeAttribute())`, or when the endpoints go to code it cannot see. Its code fix adds
+  `using Microsoft.AspNetCore.Builder;` when that is missing.
 - Task updates no longer copy the history, timeline and artifact parts lists on each event (ADR-004, accepted).
   Versions of a task share one append-only buffer per list, and the public `List<T>` properties are built on first read
   and published once, so concurrent readers get the same list. 4,000 status messages: 101.5 MB to 13.7 MB allocated, and
