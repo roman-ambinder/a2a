@@ -143,7 +143,14 @@ public class SetupAnalyzerTests
             "app.MapA2A(\"/a2a\").WithMetadata(new Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute());",
             "var a2a = app.MapA2A(\"/a2a\");\na2a.AllowAnonymous();",
             "var a2a = app.MapA2A(\"/a2a\").AllowAnonymous();\na2a.WithName(\"a2a\");",
-            "app.MapGroup(\"/agents\").MapA2A(\"/a2a\").AllowAnonymous();"
+            "app.MapGroup(\"/agents\").MapA2A(\"/a2a\").AllowAnonymous();",
+            // on an outer group: the endpoints are served with its metadata, so the policy is kept off them too
+            "app.MapGroup(\"/agents\").AllowAnonymous().MapA2A(\"/a2a\");",
+            "app.MapGroup(\"/agents\").RequireAuthorization().AllowAnonymous().MapA2A(\"/a2a\");",
+            "app.MapGroup(\"/a\").AllowAnonymous().MapGroup(\"/b\").MapA2A(\"/a2a\");",
+            "var agents = app.MapGroup(\"/agents\").AllowAnonymous();\nagents.MapA2A(\"/a2a\");",
+            "var agents = app.MapGroup(\"/agents\");\nagents.AllowAnonymous();\nagents.MapA2A(\"/a2a\");",
+            "var a2a = app.MapGroup(\"/agents\").AllowAnonymous().MapA2A(\"/a2a\");\na2a.WithName(\"a2a\");"
         ];
         var data = new TheoryData<string, string>();
         foreach (var policy in policies)
@@ -152,8 +159,9 @@ public class SetupAnalyzerTests
         return data;
     }
 
-    // The builder's policy goes only on endpoints without authorization metadata: AllowAnonymous() on the endpoints keeps
-    // it off, and the startup check refuses the IAllowAnonymous metadata, so the app does not start.
+    // The builder's policy goes only on endpoints without authorization metadata: AllowAnonymous() on the endpoints, or on
+    // an outer group (the startup check reads the endpoints as served, with the group's metadata), keeps it off, and the
+    // startup check refuses the IAllowAnonymous metadata, so the app does not start.
     [Theory]
     [MemberData(nameof(AnonymousEndpointsWithBuilderPolicy))]
     public async Task AllowAnonymous_on_the_endpoints_is_A2A0002_even_with_a_builder_policy(string policy, string mapping)
@@ -164,14 +172,14 @@ public class SetupAnalyzerTests
         Assert.Contains("AllowAnonymous()", d.GetMessage(), StringComparison.Ordinal);
     }
 
-    // On an outer group, AllowAnonymous() is not on the endpoints the startup check reads (those MapA2A builds inside the
-    // group), and the builder's policy goes on them: the app starts, and the A2A handler still refuses anonymous callers.
+    // AllowAnonymous() on a group the A2A endpoints are not in, or on a group made by code the analyzer does not follow, is
+    // not reported.
     [Theory]
-    [InlineData("app.MapGroup(\"/agents\").AllowAnonymous().MapA2A(\"/a2a\");")]
-    [InlineData("var agents = app.MapGroup(\"/agents\").AllowAnonymous();\nagents.MapA2A(\"/a2a\");")]
-    [InlineData("var a2a = app.MapGroup(\"/agents\").AllowAnonymous().MapA2A(\"/a2a\");\na2a.WithName(\"a2a\");")]
-    public async Task AllowAnonymous_on_an_outer_group_with_a_builder_policy_is_not_reported(string mapping) =>
-        Assert.Empty(await Ids(WithBuilderPolicy(ApiKeys, mapping)));
+    [InlineData("app.MapGroup(\"/public\").AllowAnonymous().MapGet(\"/health\", () => \"ok\");\napp.MapA2A(\"/a2a\");")]
+    [InlineData("var g = Groups.Make(app);\ng.MapA2A(\"/a2a\");")]
+    public async Task AllowAnonymous_elsewhere_with_a_builder_policy_is_not_reported(string mapping) =>
+        Assert.Empty(await Ids(WithBuilderPolicy(ApiKeys, mapping),
+            Usings + "static class Groups { public static RouteGroupBuilder Make(WebApplication app) => app.MapGroup(\"/g\").AllowAnonymous(); }"));
 
     [Theory]
     [InlineData("builder.Services.Configure<A2AServerOptions>(o => o.AllowAnonymous = true);")]

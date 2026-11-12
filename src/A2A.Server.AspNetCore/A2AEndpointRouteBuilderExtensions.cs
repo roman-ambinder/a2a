@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using A2A.Server.AspNetCore.Operations;
 using A2A.Server.Push;
@@ -316,6 +317,8 @@ public static partial class A2AEndpointRouteBuilderExtensions
     {
         // Every Map* method passes here, so this is also where declared card schemes protect endpoints by default.
         A2ACardAuthenticationExtensions.ApplyDefault(endpoints, group);
+        // And where the endpoints are marked as A2A endpoints, for the startup check.
+        group.WithMetadata(A2AEndpointMetadata.Instance);
         var services = endpoints.ServiceProvider;
         if (services.GetService<A2ARateLimitMarker>() is null) return;
         if (!services.GetRequiredService<IOptions<A2ARateLimitOptions>>().Value.Enabled) return;
@@ -390,17 +393,50 @@ public static partial class A2AEndpointRouteBuilderExtensions
     private static partial Regex TenantSegment();
 
     /// <summary>
-    ///     Records the route builder's data sources for the startup check. Throws when <c>AddA2AServerAspNetCore()</c> was not
-    ///     called.
-    ///     Every A2A mapping method (also the gRPC binding's) calls it.
+    ///     Records the data sources of the application's route builder for the startup check. Throws when
+    ///     <c>AddA2AServerAspNetCore()</c> was not called. Every A2A mapping method (also the gRPC binding's) calls it.
+    ///     On a <see cref="RouteGroupBuilder" /> it records the data sources of the root the group was made on, not the
+    ///     group's own: only the root's give the endpoints as the app serves them, with the conventions of every outer
+    ///     group (<c>RequireAuthorization()</c>, <c>AllowAnonymous()</c>) applied.
     /// </summary>
     internal static void RequireRegistration(IEndpointRouteBuilder endpoints)
     {
         var registry = endpoints.ServiceProvider.GetService<A2AEndpointRegistry>()
                        ?? throw new InvalidOperationException(
                            "Call services.AddA2AServerAspNetCore() before MapA2A(...). It registers the startup check that refuses to run A2A endpoints without an authorization policy.");
-        registry.Add(endpoints.DataSources);
+        registry.Add(Root(endpoints).DataSources);
     }
+
+    /// <summary>
+    ///     The route builder <paramref name="endpoints" /> was made on, through every group: the app (or the builder of
+    ///     <c>UseEndpoints</c>) for <c>app.MapGroup(...)</c>. ASP.NET Core does not expose a group's outer builder, so it is
+    ///     read from the group's field; should that field ever be missing, the group itself is returned, and the check then
+    ///     sees the endpoints without the outer groups' conventions (it refuses a group-level <c>RequireAuthorization()</c>
+    ///     without a builder policy: fail closed). <c>Root_of_a_group_is_the_app</c> in the tests guards the field.
+    /// </summary>
+    internal static IEndpointRouteBuilder Root(IEndpointRouteBuilder endpoints)
+    {
+        for (var depth = 0; endpoints is RouteGroupBuilder group && depth < 256; depth++)
+        {
+            IEndpointRouteBuilder? outer;
+            try
+            {
+                outer = OuterBuilder(group);
+            }
+            catch (MissingFieldException)
+            {
+                return endpoints;
+            }
+
+            if (outer is null) return endpoints;
+            endpoints = outer;
+        }
+
+        return endpoints;
+    }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_outerEndpointRouteBuilder")]
+    private static extern ref readonly IEndpointRouteBuilder? OuterBuilder(RouteGroupBuilder group);
 
     /// <summary>
     ///     Serves the public Agent Card at <c>/.well-known/agent-card.json</c> and each tenant's card at

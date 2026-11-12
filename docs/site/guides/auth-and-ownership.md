@@ -16,7 +16,7 @@ Who may call is set in one place, on the A2A builder. Each of these applies to e
 
 If A2A endpoints have no authorization, the app does not start. The check is fail closed:
 
-- Every endpoint whose display name starts with `A2A ` (the Agent Card endpoints are skipped) must carry authorization metadata and no `AllowAnonymous` metadata.
+- Every endpoint an A2A `Map*` method maps (display name starting with `A2A `; the Agent Card endpoints are skipped) must carry authorization metadata and no `AllowAnonymous` metadata. The check reads the endpoints as the app serves them, with the metadata of every outer route group: `app.MapGroup("/api").RequireAuthorization().MapA2A("/a2a")` starts without a policy on the A2A builder, and `app.MapGroup("/api").AllowAnonymous().MapA2A("/a2a")` is refused even with one, because `AllowAnonymous()` keeps the builder's policy off the endpoints, as it does on `MapA2A(...)` itself. Your own endpoints are not checked.
 - `MapA2A` throws if `AddA2AServerAspNetCore()` was not called (`AddA2A` calls it for you), so the check cannot be skipped by mistake.
 - If no endpoint exists yet when the host starts, the check runs again on `ApplicationStarted` and stops the app on failure.
 - <xref:A2A.Server.A2ARequestHandler> also refuses unauthenticated callers on its own, as a backstop.

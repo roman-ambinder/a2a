@@ -15,7 +15,8 @@ namespace A2A.Server.AspNetCore;
 
 /// <summary>
 ///     Registration marker and endpoint registry. <c>MapA2A</c> throws when it is missing, so the startup check cannot be
-///     skipped by mistake. Each <c>Map*</c> call records the route builder's data sources here. The validator reads them
+///     skipped by mistake. Each <c>Map*</c> call records the data sources of the application's route builder here (the
+///     root, also when it is called on a group). The validator reads them
 ///     directly: the <c>EndpointDataSource</c> in DI is only filled when the web host builds its pipeline, which happens
 ///     after hosted services start.
 /// </summary>
@@ -119,9 +120,15 @@ internal sealed class A2AEndpointRegistry
     }
 }
 
+/// <summary>Endpoint metadata: an A2A <c>Map*</c> method (or <c>WithA2AStartupCheck</c>) made this endpoint.</summary>
+internal sealed class A2AEndpointMetadata
+{
+    public static readonly A2AEndpointMetadata Instance = new();
+}
+
 /// <summary>
-///     Fail-closed startup check. Every A2A endpoint (display name starting <c>"A2A "</c>, except the Agent Card
-///     endpoints)
+///     Fail-closed startup check. Every A2A endpoint (made by an A2A <c>Map*</c> method, display name starting
+///     <c>"A2A "</c>, except the Agent Card endpoints), as the app serves it with the conventions of outer groups,
 ///     must carry authorization metadata and no <see cref="IAllowAnonymous" /> metadata, unless
 ///     <see cref="A2AServerOptions.AllowAnonymous" /> is true. When no endpoint is registered yet at start (Startup-style
 ///     hosting
@@ -331,8 +338,11 @@ internal sealed class A2AStartupValidator(
 
     private void Check()
     {
+        // The registry holds the application's data sources, so these are the endpoints as served, with the conventions
+        // of every outer group. Only those an A2A Map* method made (marked, and named "A2A ...") are A2A endpoints.
         foreach (var endpoint in registry.Endpoints())
         {
+            if (endpoint.Metadata.GetMetadata<A2AEndpointMetadata>() is null) continue;
             var name = endpoint.DisplayName;
             if (name is null || !name.StartsWith(Prefix, StringComparison.Ordinal)) continue;
             if (name.StartsWith(AgentCard, StringComparison.Ordinal)) continue; // card and JWKS stay anonymous

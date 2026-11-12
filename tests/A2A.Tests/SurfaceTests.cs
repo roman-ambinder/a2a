@@ -221,6 +221,123 @@ public class SurfaceTests
         Assert.Contains("RequirePolicy", noAuth.Message, StringComparison.Ordinal);
     }
 
+    // ---- The startup check reads the endpoints as the app serves them, with the conventions of outer groups ----
+
+    private static async Task<HttpStatusCode> GetTasksAsync(WebApplication app, string path, string? user = null)
+    {
+        var http = app.GetTestClient();
+        http.DefaultRequestHeaders.Add("A2A-Version", "1.0");
+        if (user is not null) http.DefaultRequestHeaders.Add("X-Test-User", user);
+        return (await http.GetAsync(path)).StatusCode;
+    }
+
+    [Theory]
+    [InlineData("/g/a2a/tasks")]
+    [InlineData("/a/b/a2a/tasks")]
+    public async Task RequireAuthorization_on_an_outer_group_without_a_builder_policy_starts(string tasks)
+    {
+        await using var app = await StartAsync(NewBuilder(), a =>
+        {
+            if (tasks.StartsWith("/g/", StringComparison.Ordinal))
+                a.MapGroup("/g").RequireAuthorization("agents").MapA2A("/a2a");
+            else
+                a.MapGroup("/a").RequireAuthorization("agents").MapGroup("/b").MapA2A("/a2a");
+        });
+        Assert.Equal(HttpStatusCode.Unauthorized, await GetTasksAsync(app, tasks));
+        Assert.Equal(HttpStatusCode.OK, await GetTasksAsync(app, tasks, "alice"));
+    }
+
+    [Fact]
+    public async Task RequireAuthorization_on_an_outer_group_covers_every_A2A_mapping_on_it()
+    {
+        await using var app = await StartAsync(NewBuilder(), a =>
+        {
+            var group = a.MapGroup("/g").RequireAuthorization("agents");
+            group.MapA2AJsonRpc("/rpc");
+            group.MapA2AHttpJson("/rest");
+        });
+        Assert.Equal(HttpStatusCode.Unauthorized, await GetTasksAsync(app, "/g/rest/tasks"));
+        Assert.Equal(HttpStatusCode.OK, await GetTasksAsync(app, "/g/rest/tasks", "alice"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_group_without_authorization_still_fails_startup(bool nested)
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(NewBuilder(), a =>
+        {
+            var group = a.MapGroup("/a");
+            if (nested) group = group.MapGroup("/b");
+            group.MapA2A("/a2a");
+        }));
+        Assert.Equal(A2AStartupValidator.NoPolicyMessage, ex.Message);
+    }
+
+    // AllowAnonymous() on an outer group keeps the builder's policy off the endpoints (it goes only on endpoints without
+    // authorization metadata), so they serve with IAllowAnonymous and no policy: refused, as on the endpoints.
+    [Theory]
+    [InlineData("group")]
+    [InlineData("outer group")]
+    [InlineData("group with RequireAuthorization")]
+    [InlineData("endpoints")]
+    public async Task AllowAnonymous_fails_startup_even_with_a_builder_policy(string where)
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            StartAsync(NewBuilder(a2a: b => b.RequirePolicy("agents")), a =>
+            {
+                switch (where)
+                {
+                    case "group": a.MapGroup("/g").AllowAnonymous().MapA2A("/a2a"); break;
+                    case "outer group": a.MapGroup("/a").AllowAnonymous().MapGroup("/b").MapA2A("/a2a"); break;
+                    case "group with RequireAuthorization":
+                        a.MapGroup("/g").RequireAuthorization("agents").AllowAnonymous().MapA2A("/a2a"); break;
+                    default: a.MapA2A("/a2a").AllowAnonymous(); break;
+                }
+            }));
+        Assert.Equal(A2AStartupValidator.NoPolicyMessage, ex.Message);
+    }
+
+    [Fact]
+    public async Task AllowAnonymous_on_an_outer_group_starts_with_the_anonymous_opt_in()
+    {
+        await using var app = await StartAsync(NewBuilder(a2a: b => b.Configure(o => o.AllowAnonymous = true)),
+            a => a.MapGroup("/g").AllowAnonymous().MapA2A("/a2a"));
+        Assert.Equal(HttpStatusCode.OK, await GetTasksAsync(app, "/g/a2a/tasks"));
+    }
+
+    [Fact]
+    public async Task A_group_of_the_builder_policy_gets_the_policy()
+    {
+        await using var app = await StartAsync(NewBuilder(a2a: b => b.RequirePolicy("agents")),
+            a => a.MapGroup("/a").MapGroup("/b").MapA2A("/a2a"));
+        Assert.Equal(HttpStatusCode.Unauthorized, await GetTasksAsync(app, "/a/b/a2a/tasks"));
+        Assert.Equal(HttpStatusCode.OK, await GetTasksAsync(app, "/a/b/a2a/tasks", "alice"));
+    }
+
+    // Guards the read of RouteGroupBuilder's outer builder: should ASP.NET Core rename the field, this fails.
+    [Fact]
+    public async Task Root_of_a_group_is_the_app()
+    {
+        await using var app = NewBuilder().Build();
+        IEndpointRouteBuilder root = app;
+        Assert.Same(root, A2AEndpointRouteBuilderExtensions.Root(app.MapGroup("/a").MapGroup("/b")));
+        Assert.Same(root, A2AEndpointRouteBuilderExtensions.Root(app));
+    }
+
+    // Only endpoints an A2A Map* method made are checked: the app's own endpoints, anonymous or named "A2A ...", are not.
+    [Fact]
+    public async Task Endpoints_of_the_app_are_not_checked()
+    {
+        await using var app = await StartAsync(NewBuilder(), a =>
+        {
+            a.MapGroup("/public").AllowAnonymous().MapGet("/health", () => "ok");
+            a.MapGet("/mine", () => "ok").WithDisplayName("A2A my own endpoint");
+            a.MapGroup("/g").RequireAuthorization("agents").MapA2A("/a2a");
+        });
+        Assert.Equal(HttpStatusCode.OK, (await app.GetTestClient().GetAsync("/public/health")).StatusCode);
+    }
+
     [Fact]
     public async Task Extension_policy_that_is_not_registered_fails_startup()
     {

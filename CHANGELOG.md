@@ -259,6 +259,14 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 - Analyzer A2A0002: `MapA2A(...).AllowAnonymous()` next to a builder-level policy (`AddApiKeyAuthentication`,
   `RequirePolicy` and the like) is reported, because the policy is then not put on the endpoints and the app refuses to
   start. No `RequireAuthorization()` fix is offered for it.
+- The startup authorization check reads the A2A endpoints as the app serves them, with the metadata of outer route
+  groups. It used to read the endpoints inside the group `MapA2A` was called on, without the group's own conventions:
+  `app.MapGroup("/g").RequireAuthorization().MapA2A("/a2a")` without a builder-level policy was refused at startup
+  although the endpoints are protected, and `app.MapGroup("/g").AllowAnonymous().MapA2A("/a2a")` next to a builder-level
+  policy started with endpoints that carried `AllowAnonymous` and no policy (only the A2A handler's own check kept
+  anonymous callers out). The first now starts; the second is refused, like `MapA2A(...).AllowAnonymous()`, and
+  analyzer A2A0002 reports it. Only endpoints made by an A2A `Map*` method are checked: an endpoint of your own whose
+  display name starts with `A2A ` no longer fails the start.
 - Postgres with `ArtifactRows`: `InlineArtifactPartsAsync` now bumps the task version, and a task is read with its
   artifact rows in one statement. Before, a commit that raced the documented downgrade could store the task with every
   artifact empty, and a read could return one version's status with the next version's parts.
