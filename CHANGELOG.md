@@ -99,6 +99,21 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Security
 
+- Fixes from the security review:
+  - `RequireAgentCardSchemes` now checks the card of the tenant the call runs in. Before, it used the route tenant only,
+    so a call to `/a2a` with a `tenant` in the body (and every gRPC call) was checked against the default tenant's card.
+    New hook `ServerCallContext.TenantAuthentication`.
+  - Live exchange: a refused uplink call reaches only the caller's own downlinks. Before, another caller of the same
+    tenant who knew the task id could put an error frame with a reference id of their choice on the owner's stream.
+  - Rate limiting: each request after the first on a gRPC `SendLiveMessage` stream takes a token from the caller's
+    buckets and is refused with `RESOURCE_EXHAUSTED` when none is left; the stream stays open. New hook
+    `ServerCallContext.LiveRequestAdmission` (`A2AEXP005`). A host's own `"a2a"` policy does not count these requests.
+  - Behaviour change: the inbound bearer token (for `ITokenExchanger`) is kept only when a bearer scheme validated it as
+    the caller's. A token sent next to an API key, or one the JWT handler rejected, is no longer exchanged.
+  - Owner ids starting with `apikey:` are reserved for the API-key scheme: another identity with such an id is refused
+    as unauthenticated, so it cannot share an API-key caller's tasks.
+  - Push through `PushNotifications.Proxy`: documented that the proxy resolves the webhook host itself, so DNS
+    rebinding through it is not blocked by the SDK; the proxy must refuse internal addresses.
 - The server logs a warning at startup (event 709) when `TreatMissingVersionAsCurrent` is on outside Development: it
   breaks spec 3.6.2 ("Agents MUST interpret empty value as 0.3 version").
 
@@ -148,6 +163,15 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- Performance, from the review of the hot paths:
+  - A status update no longer doubles the copied history and timeline lists, and one with a message no longer
+    re-measures the whole task (4000 updates with a message: 392 MB to 143 MB allocated). The copy per event remains.
+  - gRPC: tasks with a timeline and client `SendMessage` requests are mapped directly instead of through ProtoJSON
+    (a task with a timeline: 33 µs and 41.5 KB to 1.9 µs and 5.3 KB).
+  - v0.3 streams encode each stored event once for all subscribers.
+  - The client SSE reader searches a partial line only once (one 16 MiB event: 491 ms to 20 ms).
+  - The gRPC channel pool evicts in O(1) with an idle LRU list (65 channels: 2.1 µs to 160 ns per call).
+  - The task store counts message bytes without building strings; the in-memory store sorts only one page.
 - Server: the commit that creates a task also finds a stored commit by its mutation id (with `ITaskCommitLookup`).
   Before, a create that the store wrote but whose call failed (a lost answer, or a `DuplicateTaskException` from the
   store's own retry) left the task `FAILED`, deleted the request's inline push config, and the retried request created a
@@ -175,6 +199,9 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Documentation
 
+- The v0.3 compatibility guide, emptied by mistake in roman-ambinder/a2a#159, is restored and covers v0.3 gRPC and REST
+  `GET /v1/tasks`. The v0.3 package READMEs no longer say ListTasks and gRPC are unavailable, and the streaming guide,
+  bindings table and gRPC docs say that an A2A 1.1 client resumes over gRPC by generation.
 - Durable stores: "Write your own store" is now "Write your own backend". It lists every backend base class, adds the
   rules for a custom event bus, execution coordinator and artifact object store, and names the contract test for each.
   `GetForMaintenanceAsync` is in the list of `TaskStore` members to implement. A store that retries commits on its own
