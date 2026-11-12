@@ -110,8 +110,8 @@ public sealed class AIAgentExecutorOptions
     /// <summary>Throws for a mode this version cannot run yet.</summary>
     internal void ThrowIfUnsupported()
     {
-        if (SessionMode != AgentSessionMode.Stateless)
-            throw new NotSupportedException($"SessionMode {SessionMode} is not available yet. Use AgentSessionMode.Stateless.");
+        if (SessionMode is not (AgentSessionMode.Stateless or AgentSessionMode.Stored))
+            throw new ArgumentOutOfRangeException(nameof(SessionMode), SessionMode, "Unknown session mode.");
         if (ToolApprovals != ToolApprovalMode.Off)
             throw new NotSupportedException($"ToolApprovals {ToolApprovals} is not available yet. Use ToolApprovalMode.Off.");
     }

@@ -2,7 +2,7 @@
 [A2AEXP006]A2A.Extensions.AgentFramework.A2AAIAgentBuilderExtensions
 [A2AEXP006]A2A.Extensions.AgentFramework.A2AAgentKeys
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutor
-[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutor.AIAgentExecutor(Microsoft.Agents.AI.AIAgent! agent, A2A.Extensions.AgentFramework.AIAgentExecutorOptions? options = null, Microsoft.Agents.AI.AgentSessionStore? sessions = null) -> void
+[A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutor.AIAgentExecutor(Microsoft.Agents.AI.AIAgent! agent, A2A.Extensions.AgentFramework.AIAgentExecutorOptions? options = null, Microsoft.Agents.AI.AgentSessionStore? sessions = null, Microsoft.Extensions.Logging.ILogger<A2A.Extensions.AgentFramework.AIAgentExecutor!>? logger = null) -> void
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutor.ExecuteAsync(A2A.Server.AgentRequestContext! context, A2A.Server.TaskUpdater! updater, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions
 [A2AEXP006]A2A.Extensions.AgentFramework.AIAgentExecutorOptions.AIAgentExecutorOptions() -> void

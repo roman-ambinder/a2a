@@ -3,6 +3,8 @@ using A2A.Extensions.AgentFramework.Shared;
 using A2A.Server;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace A2A.Extensions.AgentFramework;
 
@@ -25,14 +27,26 @@ namespace A2A.Extensions.AgentFramework;
 ///         <see cref="InvalidOperationException" />. The server then marks the task failed with a generic message and logs
 ///         the real error. Reasoning, usage and tool details are never sent to the caller.
 ///     </para>
+///     <para>
+///         In <see cref="AgentSessionMode.Stored" /> mode the session of each context and caller is loaded from the
+///         <see cref="AgentSessionStore" />, only the new message is sent, and the session is saved after the run: before
+///         the task's final status when the run succeeds (a failed save then fails the task), and on a best-effort basis
+///         after a failure or a cancel. Two tasks of one context that run at the same time race on the session: the last
+///         save wins.
+///     </para>
 /// </remarks>
 [Experimental("A2AEXP006", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public sealed class AIAgentExecutor : IAgentExecutor
 {
     private const string UnresolvedText = "The agent asked for a tool call or an approval that nothing resolved.";
 
+    /// <summary>How long a session save may take. A store that hangs cannot hold the execution longer.</summary>
+    internal static readonly TimeSpan SaveTimeout = TimeSpan.FromSeconds(5);
+
     private readonly AIAgent _agent;
+    private readonly ILogger _logger;
     private readonly AIAgentExecutorOptions _options;
+    private readonly AgentSessionStore? _sessions;
 
     /// <summary>
     ///     Creates an executor over <paramref name="agent" />. <paramref name="options" /> defaults to a new
@@ -41,17 +55,28 @@ public sealed class AIAgentExecutor : IAgentExecutor
     /// <param name="agent">The agent to run.</param>
     /// <param name="options">The options, or null for the defaults.</param>
     /// <param name="sessions">
-    ///     Where sessions are kept in <see cref="AgentSessionMode.Stored" /> mode. Not used in
+    ///     Where sessions are kept in <see cref="AgentSessionMode.Stored" /> mode; required there. Not used in
     ///     <see cref="AgentSessionMode.Stateless" /> mode.
     /// </param>
+    /// <param name="logger">Logs session saves that failed after a failed or canceled run. Null for none.</param>
     /// <exception cref="NotSupportedException">The options choose a mode this version cannot run yet.</exception>
-    public AIAgentExecutor(AIAgent agent, AIAgentExecutorOptions? options = null, AgentSessionStore? sessions = null)
+    /// <exception cref="InvalidOperationException">
+    ///     <see cref="AgentSessionMode.Stored" /> without <paramref name="sessions" />.
+    /// </exception>
+    public AIAgentExecutor(AIAgent agent, AIAgentExecutorOptions? options = null, AgentSessionStore? sessions = null,
+        ILogger<AIAgentExecutor>? logger = null)
     {
         _agent = agent ?? throw new ArgumentNullException(nameof(agent));
         _options = options ?? new AIAgentExecutorOptions();
         _options.ThrowIfUnsupported();
-        _ = sessions; // AgentSessionMode.Stored uses it.
+        if (_options.SessionMode == AgentSessionMode.Stored && sessions is null)
+            throw new InvalidOperationException(StoreMissingText);
+        _sessions = sessions;
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
     }
+
+    /// <summary>The error for <see cref="AgentSessionMode.Stored" /> without a store.</summary>
+    internal const string StoreMissingText = "SessionMode.Stored needs an AgentSessionStore registered in DI.";
 
     /// <inheritdoc />
     public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater,
@@ -66,10 +91,66 @@ public sealed class AIAgentExecutor : IAgentExecutor
             return;
         }
 
-        var messages = await HistoryPrompt.BuildAsync(context, new HistoryPromptOptions(null,
-            _options.MaxHistoryMessages, _options.AllowUrlParts, _options.UseContextMemory,
-            _options.ContextMemoryMaxTasks, _options.ContextMemoryMaxBytes), cancellationToken).ConfigureAwait(false);
-        var session = await _agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+        if (_sessions is null)
+        {
+            var messages = await HistoryPrompt.BuildAsync(context, new HistoryPromptOptions(null,
+                _options.MaxHistoryMessages, _options.AllowUrlParts, _options.UseContextMemory,
+                _options.ContextMemoryMaxTasks, _options.ContextMemoryMaxBytes), cancellationToken).ConfigureAwait(false);
+            var session = await _agent.CreateSessionAsync(cancellationToken).ConfigureAwait(false);
+            await RunAsync(context, updater, messages, session, null, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var key = SessionKeys.For(context.Call.Tenant, context.Call.Principal, context.ContextId);
+        var stored = await _sessions.GetOrCreateSessionAsync(_agent, key, cancellationToken).ConfigureAwait(false);
+        // The session holds the conversation: send only the new message.
+        var contents = new List<AIContent>();
+        foreach (var part in context.Message.Parts)
+            if (ModelContent.ToModelContent(part, _options.AllowUrlParts) is { } content)
+                contents.Add(content);
+        List<ChatMessage> newMessage = contents.Count == 0 ? [] : [new ChatMessage(ChatRole.User, contents)];
+        var saveAttempted = false;
+        try
+        {
+            await RunAsync(context, updater, newMessage, stored, () =>
+            {
+                saveAttempted = true;
+                return SaveAsync(key, stored, cancellationToken);
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (!saveAttempted)
+        {
+            // A failed or canceled run keeps what the session learned. Best effort: the run's own error is what counts.
+            await SaveAfterFailureAsync(key, stored, context.TaskId).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>Saves within <see cref="SaveTimeout" />, also when the store ignores the token.</summary>
+    private async Task SaveAsync(AgentSessionStoreKey key, AgentSession session, CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(SaveTimeout);
+        await _sessions!.SaveSessionAsync(_agent, key, session, timeout.Token).AsTask()
+            .WaitAsync(SaveTimeout, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task SaveAfterFailureAsync(AgentSessionStoreKey key, AgentSession session, string taskId)
+    {
+        try
+        {
+            // Not the execution's token: after a cancel it is cancelled already, and the session is still worth keeping.
+            await SaveAsync(key, session, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            AgentFrameworkLog.SessionSaveFailed(_logger, ex, taskId);
+        }
+    }
+
+    private async Task RunAsync(AgentRequestContext context, TaskUpdater updater, List<ChatMessage> messages,
+        AgentSession session, Func<Task>? saveBeforeEnding, CancellationToken cancellationToken)
+    {
         var runOptions = CreateRunOptions(context);
 
         await updater.StartWorkAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -98,6 +179,8 @@ public sealed class AIAgentExecutor : IAgentExecutor
             throw new InvalidOperationException(UnresolvedText);
 
         await run.FinishAsync(cancellationToken).ConfigureAwait(false);
+        // Before the final status: a session that could not be saved fails the task instead of losing the turn quietly.
+        if (saveBeforeEnding is not null) await saveBeforeEnding().ConfigureAwait(false);
 
         if (_options.KeepConversationOpen)
         {

@@ -145,7 +145,7 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 |---|---|
 | 100-101 | client: card signing and pinning |
 | 150-152 | client: agent registry (lookalike name, mixed-script name, identity change) |
-| 200-242 | server: agent runs, coordination, push-config cleanup, retention |
+| 200-244 | server: agent runs, coordination, push-config cleanup, retention (244: a context lifecycle hook failed) |
 | 250-253, 255 | server: startup diagnostics (254 is not one: it is a task past its size cap) |
 | 300-313 | server: push delivery |
 | 400-402 | server: idempotency |
@@ -155,6 +155,7 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | 900 | gRPC: unhandled errors |
 | 1000-1001 | Postgres cleanup; v0.3 compatibility (field dropped, card conversion problem) |
 | 1100-1104 | Redis event bus and coordinator; 1100 is also used by the v0.3 server surface (error after a response started) |
+| 1400-1401 | Agent Framework adapter: a session save after a failed run, a session delete for a deleted context |
 
 ### Security events
 

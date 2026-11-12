@@ -147,6 +147,12 @@ Commit: `feat(agent-framework): host an AIAgent as an A2A agent`.
 - `AddAIAgent` with `SessionMode.Stored`: at first resolution throw `InvalidOperationException("SessionMode.Stored needs an AgentSessionStore registered in DI.")` when none is registered. (A startup check, if the builder has a validation hook; look for how `A2AStartupDiagnostics` reports similar problems and use that if it fits.) Also register `IA2AContextLifecycle` → `AgentSessionContextLifecycle`, which calls `store.DeleteSessionAsync(agent, SessionKeys.For(record.Tenant, record.Owner, record.ContextId), ct)`. It needs the agent: resolve it from a new scope in the hook (`IServiceScopeFactory`), keyed the same way.
 - XML docs and README: two tasks of one context at the same time race on the session; the last save wins.
 
+Done in Task 5, with these differences:
+- Save timing: on success the save comes **before** the final status, and a failed save fails the task, instead of a save in a `finally` after the ending (a save error after `CompleteAsync` would have nowhere to go). After a failure or a cancel the save is best effort with `CancellationToken.None`, logged as event 1400, and the run's own error is rethrown. A save that was already attempted (for example one that timed out) is not retried, so a hung store holds the execution for 5 s, not 10. The bound uses `WaitAsync`, so it holds also for a store that ignores its token.
+- Startup check: an internal `IHostedService` (`StoredSessionCheck`), as `DefaultSchemeCheck` does for card authentication, plus a constructor check (`InvalidOperationException` with the same text).
+- `AIAgentExecutor` takes an optional `ILogger<AIAgentExecutor>` (unshipped API, so changed in place). `AddAIAgent` records an internal `AIAgentRegistration` (mode, service key) that the hook and the check read, so a later `AddAIAgent` call wins for them as for the executor; both are registered once (`TryAddEnumerable`). In stateless mode the hook does nothing and no store is used even when one is registered.
+- Two owners cannot share a context id through the server (it answers `context_denied`), so owner isolation is checked through the owner partition of each caller's key; the shared-id case is two tenants, with the contexts created in the store first (a client may only name a context that exists).
+
 **Tests (`SessionTests`, `FakeSessionStore`):**
 1. Second turn in the same context sends only the new message, and the session holds both turns.
 2. Two owners with the same context id get two sessions; two tenants likewise.

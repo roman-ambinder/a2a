@@ -13,8 +13,11 @@ public enum AgentSessionMode
     Stateless,
 
     /// <summary>
-    ///     Sessions are kept in an <c>AgentSessionStore</c>, one per context and caller, and only the new message is sent.
-    ///     Not available yet: choosing it throws <see cref="NotSupportedException" />.
+    ///     Sessions are kept in an <c>AgentSessionStore</c>, one per context and caller (tenant and owner), and only the
+    ///     new message is sent. <see cref="AIAgentExecutorOptions.MaxHistoryMessages" /> and
+    ///     <see cref="AIAgentExecutorOptions.UseContextMemory" /> do not shape the prompt in this mode. Register an
+    ///     <c>AgentSessionStore</c> in DI. Two tasks of one context that run at the same time race on the session: the last
+    ///     save wins.
     /// </summary>
     Stored
 }

@@ -2,8 +2,8 @@
 
 Microsoft Agent Framework support for A2A. NuGet ID: `RomanAmbinder.A2A.Extensions.AgentFramework`.
 
-**Status: in development, experimental (`A2AEXP006`).** Hosting an `AIAgent` works in stateless mode. Stored
-sessions, tool approvals and the client side (a remote A2A agent as an `AIAgent`) are not done yet. The design is in
+**Status: in development, experimental (`A2AEXP006`).** Hosting an `AIAgent` works, stateless or with stored
+sessions. Tool approvals and the client side (a remote A2A agent as an `AIAgent`) are not done yet. The design is in
 [docs/superpowers/specs/2026-11-12-agent-framework-adapter-design.md](../../docs/superpowers/specs/2026-11-12-agent-framework-adapter-design.md).
 
 ## Host an AIAgent as an A2A agent
@@ -34,13 +34,42 @@ Options (`AIAgentExecutorOptions`), with the same meaning as in `ChatClientAgent
 | `UseContextMemory`      | false       | Earlier tasks of the context and its summary, as user messages  |
 | `ContextMemoryMaxTasks` | 20          | With `UseContextMemory`: earlier tasks to read                  |
 | `ContextMemoryMaxBytes` | 262144      | With `UseContextMemory`: size limit of earlier messages         |
-| `SessionMode`           | `Stateless` | `Stored` is not available yet (throws `NotSupportedException`)  |
+| `SessionMode`           | `Stateless` | `Stored`: keep sessions in an `AgentSessionStore` (below)       |
 | `ToolApprovals`         | `Off`       | `Bound` is not available yet (throws `NotSupportedException`)   |
 | `ConfigureRunOptions`   | none        | Called on each run's `AgentRunOptions`                          |
 
 The agent's instructions and chat options are the agent's own, so they are not options here. A content filter stop, error
 content, or a tool call or approval request that nothing resolved fails the task with a generic message; the real error is
 logged. With `ToolApprovals = Off`, an approval request next to other output is ignored.
+
+## Stored sessions
+
+```csharp
+builder.Services.AddSingleton<AgentSessionStore>(myStore);   // any Agent Framework session store
+builder.Services.AddA2A(a => a
+    .AddAgentCard(card)
+    .AddAIAgent(o => o.SessionMode = AgentSessionMode.Stored));
+builder.Services.AddA2ARetention();   // deletes a context's session with the context
+```
+
+- One session per context and caller: the key is the context id, with the tenant and the owner as partitions, so one caller
+  never loads another caller's session for the same context id.
+- Only the new message is sent; the session holds the conversation. `MaxHistoryMessages` and `UseContextMemory` do not shape
+  the prompt in this mode.
+- The session is saved after each run. When the run succeeds, the save comes before the task's final status, and a failed
+  save fails the task (the turn is not lost quietly). After a failure or a cancel the save is best effort and logged
+  (event 1400, see Logs). A save may take at most 5 seconds, so a store that hangs cannot hold the execution.
+- Two tasks of one context that run at the same time race on the session: the last save wins.
+- The host refuses to start in this mode without an `AgentSessionStore`.
+- When the retention sweep deletes a context, the context's session is deleted from the store too.
+- `AgentSessionStore` is evaluation-only upstream (`MAAI001`): code that registers one opts in to that ID.
+
+## Logs
+
+| Id | Level | When |
+|---|---|---|
+| 1400 | Warning | A session save after a failed or canceled run failed. |
+| 1401 | Warning | Deleting the session of a deleted context failed. |
 
 ## Do not mix with Microsoft's A2A packages
 

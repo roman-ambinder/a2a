@@ -385,10 +385,11 @@ public class ExecutorTests
     public void Modes_that_are_not_available_yet_fail_at_registration_and_in_the_constructor()
     {
         var builder = new ServiceCollection().AddA2AServer();
-        Assert.Throws<NotSupportedException>(() => builder.AddAIAgent(o => o.SessionMode = AgentSessionMode.Stored));
         Assert.Throws<NotSupportedException>(() => builder.AddAIAgent(o => o.ToolApprovals = ToolApprovalMode.Bound));
-        Assert.Throws<NotSupportedException>(() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => builder.AddAIAgent(o => o.SessionMode = (AgentSessionMode)7));
+        var stored = Assert.Throws<InvalidOperationException>(() =>
             new AIAgentExecutor(FakeAIAgent.Replying("x"), new AIAgentExecutorOptions { SessionMode = AgentSessionMode.Stored }));
+        Assert.Equal("SessionMode.Stored needs an AgentSessionStore registered in DI.", stored.Message);
         Assert.Throws<ArgumentNullException>(() => new AIAgentExecutor(null!));
     }
 }

@@ -3,6 +3,9 @@ using A2A.Server;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using A2A.Server.Retention;
 
 namespace A2A.Extensions.AgentFramework;
 
@@ -19,6 +22,11 @@ public static class A2AAIAgentBuilderExtensions
     /// <param name="builder">The A2A server builder.</param>
     /// <param name="configure">Sets the options. Called once, here.</param>
     /// <param name="serviceKey">The key of a keyed <see cref="AIAgent" /> registration, or null for the unkeyed one.</param>
+    /// <remarks>
+    ///     With <see cref="AgentSessionMode.Stored" />, register an <see cref="AgentSessionStore" /> as well: the host
+    ///     refuses to start without one. The stored session of a context is deleted when the retention sweep
+    ///     (<c>AddA2ARetention</c>) deletes the context.
+    /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">An option is out of range.</exception>
     /// <exception cref="NotSupportedException">The options choose a mode this version cannot run yet.</exception>
     public static A2AServerBuilder AddAIAgent(this A2AServerBuilder builder,
@@ -34,7 +42,12 @@ public static class A2AAIAgentBuilderExtensions
                     ? sp.GetRequiredService<AIAgent>()
                     : sp.GetRequiredKeyedService<AIAgent>(serviceKey),
                 options,
-                sp.GetService<AgentSessionStore>())));
+                options.SessionMode == AgentSessionMode.Stored ? sp.GetService<AgentSessionStore>() : null,
+                sp.GetService<ILogger<AIAgentExecutor>>())));
+        // The last call wins, as for the executor. The hook and the check read it, so they follow a later call too.
+        builder.Services.Replace(ServiceDescriptor.Singleton(new AIAgentRegistration(options.SessionMode, serviceKey)));
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IA2AContextLifecycle, AgentSessionContextLifecycle>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, StoredSessionCheck>());
         return builder;
     }
 }

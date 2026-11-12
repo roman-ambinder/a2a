@@ -6,11 +6,15 @@ using A2A.Client.Transports;
 using A2A.Server;
 using A2A.Server.AspNetCore;
 using Microsoft.Agents.AI;
+using System.Security.Claims;
+using System.Text.Encodings.Web;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace A2A.Extensions.AgentFramework.Tests;
 
@@ -92,10 +96,12 @@ public sealed class FakeSession : AgentSession
     public List<ChatMessage> Received { get; } = [];
 }
 
-/// <summary>An in-memory <see cref="AgentSessionStore"/> that counts its calls.</summary>
+/// <summary>An in-memory <see cref="AgentSessionStore"/> that counts its calls and records the keys.</summary>
 public sealed class FakeSessionStore : AgentSessionStore
 {
     private readonly ConcurrentDictionary<AgentSessionStoreKey, AgentSession> _sessions = new();
+    private readonly ConcurrentQueue<AgentSessionStoreKey> _saved = new();
+    private readonly ConcurrentQueue<AgentSessionStoreKey> _deleted = new();
     private int _saves;
     private int _deletes;
 
@@ -105,6 +111,15 @@ public sealed class FakeSessionStore : AgentSessionStore
 
     public IReadOnlyCollection<AgentSessionStoreKey> Keys => [.. _sessions.Keys];
 
+    /// <summary>Every key saved, in order.</summary>
+    public IReadOnlyList<AgentSessionStoreKey> SavedKeys => [.. _saved];
+
+    /// <summary>Every key deleted, in order.</summary>
+    public IReadOnlyList<AgentSessionStoreKey> DeletedKeys => [.. _deleted];
+
+    /// <summary>When true, a save never completes and ignores its token, like a store that hangs.</summary>
+    public bool HangOnSave { get; set; }
+
     public override ValueTask<AgentSession?> GetSessionAsync(AIAgent agent, AgentSessionStoreKey key,
         CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(_sessions.TryGetValue(key, out var session) ? session : null);
@@ -113,6 +128,8 @@ public sealed class FakeSessionStore : AgentSessionStore
         CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _saves);
+        if (HangOnSave) return new ValueTask(new TaskCompletionSource().Task);
+        _saved.Enqueue(key);
         _sessions[key] = session;
         return ValueTask.CompletedTask;
     }
@@ -121,6 +138,7 @@ public sealed class FakeSessionStore : AgentSessionStore
         CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _deletes);
+        _deleted.Enqueue(key);
         _sessions.TryRemove(key, out _);
         return ValueTask.CompletedTask;
     }
@@ -197,11 +215,14 @@ public sealed class AgentHost : IAsyncDisposable
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         services?.Invoke(builder.Services);
+        builder.Services.AddAuthentication(TestAuthHandler.SchemeName)
+            .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, null);
         builder.Services.AddAuthorization();
         builder.Services.AddA2A(a => addAgent(a.AddAgentCard(Card())))
             .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
 
         var app = builder.Build();
+        app.UseAuthentication();
         app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a");
@@ -209,14 +230,20 @@ public sealed class AgentHost : IAsyncDisposable
         return new AgentHost(app);
     }
 
-    public A2AClient Client(string binding = ProtocolBindings.JsonRpc)
+    /// <summary>
+    /// A client. <paramref name="user"/> authenticates as that principal (anonymous when null); <paramref name="tenant"/>
+    /// calls the <c>/a2a/{tenant}</c> routes.
+    /// </summary>
+    public A2AClient Client(string binding = ProtocolBindings.JsonRpc, string? user = null, string? tenant = null)
     {
         var options = new A2AClientOptions();
         var http = App.GetTestClient();
+        if (user is not null) http.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, user);
+        var url = new Uri(tenant is null ? BaseUrl : $"{BaseUrl}/{tenant}");
         IA2AClient transport = binding switch
         {
-            ProtocolBindings.JsonRpc => new JsonRpcTransport(http, new Uri(BaseUrl), options),
-            ProtocolBindings.HttpJson => new HttpJsonTransport(http, new Uri(BaseUrl), options),
+            ProtocolBindings.JsonRpc => new JsonRpcTransport(http, url, options),
+            ProtocolBindings.HttpJson => new HttpJsonTransport(http, url, options),
             _ => throw new ArgumentOutOfRangeException(nameof(binding), binding, null),
         };
         return new A2AClient(transport, options, Card());
@@ -226,5 +253,21 @@ public sealed class AgentHost : IAsyncDisposable
     {
         await App.StopAsync();
         await App.DisposeAsync();
+    }
+}
+
+/// <summary>Authenticates requests that carry <see cref="UserHeader"/>, as that user (<c>sub</c> claim).</summary>
+public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+{
+    public const string SchemeName = "Test";
+    public const string UserHeader = "X-Test-User";
+
+    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        var user = Request.Headers[UserHeader].ToString();
+        if (string.IsNullOrEmpty(user)) return Task.FromResult(AuthenticateResult.NoResult());
+        var identity = new ClaimsIdentity([new Claim("sub", user), new Claim(ClaimTypes.Name, user)], SchemeName);
+        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
     }
 }
