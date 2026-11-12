@@ -19,7 +19,7 @@ The defaults are high, so a normal host does not reach them. Set them from what 
 
 ### What counts
 
-- One running agent holds one slot, from the start of the run until the agent has returned and its events are stored.
+- A slot is a permit to run one agent. One running agent holds one slot, from the start of the run until the agent has returned and its events are stored.
 - A task waiting in `INPUT_REQUIRED` or `AUTH_REQUIRED` has no agent running, so it holds no slot.
 - `SendMessage`, `SendStreamingMessage` and <xref:A2A.Server.Execution.TaskExecutionEngine.ContinueTaskAsync*> need a slot.
 - `CancelTask` never needs a slot and is never counted. You can always cancel, also when the server is full.

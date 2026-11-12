@@ -23,7 +23,13 @@ A runnable version, with two tenants and a client for each, is in [samples/Tenan
 
 The tenant is part of every storage key. A task is addressed by tenant, owner and task id, so one tenant never reads another tenant's tasks, even with the same owner. Contexts and idempotency keys are scoped by tenant too. See [Authentication and ownership](auth-and-ownership.md) for owners.
 
-A tenant in the URL is routing, not authorization. To limit a caller to some tenants, give it <xref:A2A.Server.A2AClaimTypes.Tenant> (`a2a:tenant`) claims, one per tenant: a caller with such claims may call only those tenants. A call to another tenant is refused before your authorization handler runs, like any other denial (a task-scoped call looks like a missing task, the rest is `PermissionDenied` with `permission` `tenant`), and written to the audit trail with the reason `TenantNotAllowed`. API keys registered with tenants get these claims (`o.Add("alice", hash, "sales")`, see [API keys](auth-and-ownership.md#api-keys)); for another scheme, add them in a claims transformation. Each tenant's card should list how to authenticate: inject <xref:A2A.Server.AspNetCore.A2ACardSecurity> into your `TenantCardProvider` and return `security.Apply(card)`, as the `TenantAgent` sample does. For other rules, your authorization handler receives the `ServerCallContext`, so it can check who may use which tenant.
+A tenant in the URL is routing, not authorization. To limit a caller to some tenants, give it <xref:A2A.Server.A2AClaimTypes.Tenant> (`a2a:tenant`) claims, one per tenant:
+
+- A caller with such claims may call only those tenants. A caller without any may call every tenant.
+- A call to another tenant is refused before your authorization handler runs, like any other denial: a task-scoped call looks like a missing task, the rest is `PermissionDenied` with `permission` `tenant`. It is written to the [audit trail](audit.md) with the reason `TenantNotAllowed`.
+- API keys registered with tenants get these claims (`o.Add("alice", hash, "sales")`, see [API keys](auth-and-ownership.md#api-keys)). For another scheme, add them in a claims transformation.
+- Each tenant's card should list how to authenticate: inject <xref:A2A.Server.AspNetCore.A2ACardSecurity> into your `TenantCardProvider` and return `security.Apply(card)`, as the `TenantAgent` sample does.
+- For other rules, your authorization handler receives the `ServerCallContext`, so it can check who may use which tenant.
 
 ## Several agents in one host
 
@@ -72,6 +78,7 @@ A resolver that returns null for a tenant whose card is not null refuses message
 - **Card with no interfaces.** Cards for `{tenant}` routes must list `SupportedInterfaces`. See above.
 - **Provider and resolver disagree.** The card says an agent exists, the resolver returns null. Messages are refused.
 - **Expensive card building.** Without caching in the provider, every request builds and encodes a card.
+- **Per-tenant agents with the default authorization handler.** Every caller reaches every tenant's agent, and on a route without `{tenant}` a `tenant` field in the body can pick another tenant. Startup logs warning 259. Register an authorization handler (`AddAuthorizationHandler<T>()`) that checks `call.Tenant` against the caller, or limit callers with `a2a:tenant` claims.
 
 ## See also
 

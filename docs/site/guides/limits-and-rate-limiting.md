@@ -50,7 +50,7 @@ The 429 body has the error `RATE_LIMITED`. `Retry-After` is in whole seconds (at
 
 ## Rate limit
 
-The server adds a token bucket per caller. Change it with <xref:A2A.Server.AspNetCore.A2ARateLimitingExtensions.AddA2ARateLimiting*>:
+The server adds a token bucket per caller. A token bucket holds up to `TokenLimit` tokens and gets `TokensPerPeriod` tokens back every `ReplenishmentPeriod`. Each request takes one token. Change it with <xref:A2A.Server.AspNetCore.A2ARateLimitingExtensions.AddA2ARateLimiting*>:
 
 [!code-csharp[](../../../samples/Snippets/LimitsAndRateLimiting.cs#RateLimit)]
 
@@ -64,7 +64,8 @@ The server adds a token bucket per caller. Change it with <xref:A2A.Server.AspNe
 Details:
 
 - `MapA2A` applies the policy named `a2a`. The policy has no queue: a request without a token is rejected at once.
-- Each tenant and caller pair has its own bucket. Every request also draws from a bucket per caller across all tenants, with the same settings, so spreading requests over tenants gives no extra budget. An anonymous caller has no tenant in its key: the limit runs before authorization and the tenant is text from the URL, so random tenant names would otherwise create buckets without end. Anonymous callers from one address share one bucket across all tenants.
+- Each tenant and caller pair has its own bucket. Every request also draws from a bucket per caller across all tenants, with the same settings, so spreading requests over tenants gives no extra budget.
+- An anonymous caller has no tenant in its key. The limit runs before authorization and the tenant is text from the URL, so random tenant names would otherwise create buckets without end. Anonymous callers from one address share one bucket across all tenants.
 - To use your own policy, register one named `a2a` with `AddRateLimiter`. The default is then skipped.
 - The rejection is written in the format of the binding (JSON-RPC or HTTP+JSON). A binding package such as gRPC registers an <xref:A2A.Server.AspNetCore.IA2ARejectionWriter> for its own format, or puts one in the metadata of its endpoints (`.WithMetadata(writer)`), which is asked first. The v0.3 HTTP+JSON routes of `EnableV03Compat` answer in the v0.3 error format this way. v0.3 JSON-RPC calls share the v1.0 JSON-RPC endpoint, so they get a v1.0 JSON-RPC error.
 
@@ -93,7 +94,7 @@ Behind a reverse proxy or load balancer, every connection comes from the proxy. 
 
 ## Open streams
 
-`MaxConcurrentStreamsPerTask` and `MaxConcurrentStreamsPerPrincipal` count open `SendStreamingMessage` and `SubscribeToTask` streams. The per-task count is kept per owner, so another caller's streams never affect your task. The per-caller count uses the tenant and `LimitPartition`. A stream over budget is refused with `RATE_LIMITED` and `Retry-After: 1`. The counts live in memory, per server instance.
+`MaxConcurrentStreamsPerTask` and `MaxConcurrentStreamsPerPrincipal` count open `SendStreamingMessage` and `SubscribeToTask` streams. The per-task count is kept per owner, so another caller's streams never affect your task. The per-caller count uses `LimitPartition` alone, across all tenants, so more tenant names give no extra streams. A stream over budget is refused with `RATE_LIMITED` and `Retry-After: 1`. The counts live in memory, per server instance.
 
 ## What can go wrong
 

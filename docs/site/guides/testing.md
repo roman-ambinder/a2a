@@ -26,7 +26,7 @@ Dispose the host at the end of the test. The host serves its card at `A2ATestHos
 
 [!code-csharp[](../../../samples/Snippets/Testing.cs#Options)]
 
-<xref:A2A.TestKit.A2ATestHostOptions> lets you change the card, the server options, the HTTP options and the services. Your changes run after the defaults of the host: webhook URLs may be insecure and private, and push retries start after 10 ms. `ConfigureServices` runs after the SDK registrations, so it can replace a store or the push invoker. Set `TimeProvider` to use a [fake clock](#fake-clock).
+<xref:A2A.TestKit.A2ATestHostOptions> lets you change the card, the server options, the HTTP options and the services. Your changes run after the defaults of the host: webhook URLs may be insecure and private, push retries start after 10 ms, `CancelGracePeriod` is 2 seconds, and `ShutdownDrainTimeout` is zero, so disposing the host stops running agents at once. `ConfigureServices` runs after the SDK registrations, so it can replace a store or the push invoker. Set `TimeProvider` to use a [fake clock](#fake-clock).
 
 Callers are anonymous unless they send the `X-Test-User` header. `CreateClient(user: "alice")` and `CreateHttpClient("alice")` set it. With `RequireAuthentication` the A2A routes refuse anonymous callers. The Agent Card stays public.
 
@@ -115,4 +115,4 @@ Each <xref:A2A.TestKit.ReceivedPush> has the URL, the method, the headers (names
 
 [!code-csharp[](../../../samples/Snippets/Testing.cs#Idle)]
 
-`WaitIdleAsync` waits until no agent runs. With the default in-memory push outbox, it also waits until every push delivery was sent or dropped. It checks every 5 ms in real time and throws after 30 seconds by default.
+`WaitIdleAsync` waits until no agent runs. With the default in-memory push outbox, it also waits until every push delivery was sent or dropped; it checks the outbox every 5 ms in real time. It throws after 30 seconds by default.
