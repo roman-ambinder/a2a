@@ -222,6 +222,10 @@ public class SetupAnalyzerTests
     }
 
     [Fact]
+    public void Fix_all_uses_the_batch_fixer() =>
+        Assert.Same(WellKnownFixAllProviders.BatchFixer, new A2ASetupCodeFixProvider().GetFixAllProvider());
+
+    [Fact]
     public async Task Fix_adds_RequireAuthorization()
     {
         var fixedProgram = await Fix(Good.Replace(".RequireAuthorization()", "", StringComparison.Ordinal));
