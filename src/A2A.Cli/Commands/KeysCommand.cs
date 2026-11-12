@@ -20,7 +20,8 @@ internal static class KeysCommand
               process lists and shell history.
         """;
 
-    public static int Run(string[] args, CliEnvironment env, Output output)
+    public static async Task<int> RunAsync(string[] args, CliEnvironment env, Output output,
+        CancellationToken cancellationToken)
     {
         var json = args.Contains("--json");
         var rest = args.Where(a => a != "--json").ToArray();
@@ -39,7 +40,7 @@ internal static class KeysCommand
                 hash = created.Hash;
                 break;
             case ["hash"]:
-                var key = env.In.ReadToEnd().Trim();
+                var key = (await StandardInput.ReadToEndAsync(env.In, cancellationToken).ConfigureAwait(false)).Trim();
                 if (!A2AApiKey.IsWellFormed(key))
                     throw CliException.Usage("Standard input is not an A2A API key (a2a_ and 43 base64url characters).");
                 hash = A2AApiKey.ComputeHash(key);

@@ -9,7 +9,13 @@ dotnet tool install -g RomanAmbinder.A2A.Cli
 a2a --version
 ```
 
-The package ID has the `RomanAmbinder.` prefix like every package of this SDK. The command is `a2a`. The tool needs the .NET 10 runtime. Without the runtime, publish it as a native AOT binary (`dotnet publish src/A2A.Cli -c Release -r <rid> -p:PublishAot=true`).
+The package ID has the `RomanAmbinder.` prefix like every package of this SDK. The command is `a2a`. The tool needs the .NET 10 runtime. Without the runtime, publish it from a clone of the repository as a native AOT binary:
+
+```bash
+dotnet publish src/A2A.Cli -c Release -f net10.0 -r linux-x64 -p:A2APublishAot=true
+```
+
+Use your platform's runtime identifier for `-r` (for example `win-x64` or `osx-arm64`). The binary is `src/A2A.Cli/bin/Release/net10.0/<rid>/publish/A2A.Cli` (`A2A.Cli.exe` on Windows); rename it to `a2a` if you like. Pass `-p:A2APublishAot=true`, not `-p:PublishAot=true`: a global `PublishAot` also reaches the netstandard2.0 build of `A2A.Client`, which cannot be compiled ahead of time (`NETSDK1207`).
 
 A script that runs each command against a sample agent and checks its exit code is in [samples/Cli](https://github.com/roman-ambinder/a2a/blob/main/samples/Cli/README.md).
 
@@ -135,7 +141,7 @@ Give the key to the caller: it is shown once. Store only the hash on the agent, 
 | `--retries <n>` | Retries after the first attempt of a call. |
 | `--tenant <name>` | Tenant for the request. |
 | `--transport jsonrpc\|rest` | Use only this binding. |
-| `--allow-http` | Allow an `http://` agent URL. Credentials are still sent only over HTTPS, or to a loopback address. |
+| `--allow-http` | Allow an `http://` agent URL on a host that is not loopback. A loopback URL such as `http://localhost:5000/` or `http://127.0.0.1:5000/` works without it. Credentials are still sent only over HTTPS, or to a loopback address. |
 
 ## Authentication
 
@@ -188,7 +194,7 @@ With `--json`, the tool prints protocol objects as the agent sent them, in the A
 | 0 | Success. |
 | 1 | Unexpected or local error, for example a file that already exists. |
 | 2 | Usage error: unknown option, missing value, bad number, wrong number of arguments. |
-| 3 | Network or connection error, or `--timeout` ran out. |
+| 3 | Network or connection error, the Agent Card could not be fetched (for example HTTP 404), or `--timeout` ran out. |
 | 4 | Authentication or authorization error (HTTP 401 or 403, or a missing credential). |
 | 5 | Not found: the task does not exist, or no artifact matches. |
 | 6 | Another A2A or protocol error from the agent. |
@@ -205,7 +211,8 @@ Errors go to standard error. A stack trace is never printed.
 - Secret values (token, API key, client secret) are replaced with `***` in everything the tool prints, also when the agent echoes them. The tool never prints its own options. OAuth2 access tokens that the tool gets from a token endpoint are not known in advance and are not replaced.
 - Text from the agent is cleaned before it is shown in the terminal: control characters (such as escape sequences), bidi controls and invisible characters are removed. This includes error messages from the server.
 - In error messages, the query string and user info of every URL are removed, because presigned URLs are secrets.
-- Credentials go only to the card's origin, never follow a redirect, and never go over plain HTTP to a host that is not loopback. `--allow-http` only lets you fetch an HTTP card.
+- The card chooses the URLs the tool calls. A card fetched from a public address that names a private, loopback or link-local endpoint is refused before any call (exit 6), as `A2AClient.ConnectAsync` does. A card from a private address may name private endpoints.
+- Credentials go only to the card's origin, never follow a redirect, and never go over plain HTTP to a host that is not loopback. `--allow-http` only lets you fetch an HTTP card from a host that is not loopback.
 - Downloads go to the agent's origin with your credentials. When the agent answers with a redirect to a storage URL, that URL is fetched once, without credentials, and only if it is HTTPS and not a private address (unless you give `--allow-private-storage`).
 
 ## Not covered

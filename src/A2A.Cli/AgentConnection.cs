@@ -58,8 +58,8 @@ internal sealed class AgentConnection : IDisposable
                        MaxResponseContentBufferSize = MaxResponseBytes
                    })
             {
-                resolved = await new A2ACardResolver(cardHttp, resolverOptions).ResolveAsync(s.Agent, cancellationToken)
-                    .ConfigureAwait(false);
+                resolved = await ResolveCardAsync(new A2ACardResolver(cardHttp, resolverOptions), s.Agent,
+                    cancellationToken).ConfigureAwait(false);
             }
 
             var connection = new AgentConnection(resolved);
@@ -67,7 +67,8 @@ internal sealed class AgentConnection : IDisposable
             owned.Clear();
             try
             {
-                if (!cardOnly) connection.BuildClient(s, env, output, primary);
+                if (!cardOnly)
+                    await connection.BuildClientAsync(s, env, output, primary, cancellationToken).ConfigureAwait(false);
             }
             catch
             {
@@ -80,6 +81,24 @@ internal sealed class AgentConnection : IDisposable
         finally
         {
             foreach (var d in owned) d.Dispose();
+        }
+    }
+
+    /// <summary>
+    ///     Fetches the card. An HTTP error status on the card means no agent answers at that URL: a connection error (exit 3),
+    ///     not "task not found" (exit 5). It is not an A2A error, so no A2A error code is reported. 401 and 403 stay auth errors.
+    /// </summary>
+    private static async Task<ResolvedAgentCard> ResolveCardAsync(A2ACardResolver resolver, Uri agent,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await resolver.ResolveAsync(agent, cancellationToken).ConfigureAwait(false);
+        }
+        catch (A2AException ex) when (ex is not AgentCardVerificationException and not AgentCardPinException
+                                      && ex.HttpStatus is not (null or 401 or 403))
+        {
+            throw new CliException(ExitCodes.Network, ex.Message);
         }
     }
 
@@ -116,13 +135,20 @@ internal sealed class AgentConnection : IDisposable
         };
     }
 
-    private void BuildClient(ConnectionSettings s, CliEnvironment env, Output output, HttpMessageHandler primary)
+    private async Task BuildClientAsync(ConnectionSettings s, CliEnvironment env, Output output,
+        HttpMessageHandler primary, CancellationToken cancellationToken)
     {
         var options = new A2AClientOptions { Tenant = s.Tenant };
         if (s.Retries is { } retries) options.MaxRetries = retries;
         if (s.Transport is not null)
             options.SupportedBindings = new List<string>
                 { s.Transport == "rest" ? ProtocolBindings.HttpJson : ProtocolBindings.JsonRpc };
+
+        // The check A2AClient.ConnectAsync makes: the card chooses the URL the tool calls, so a card fetched from a public
+        // address must not point the tool at a private one (SSRF). The default policy (MatchCardNetwork) needs the card's
+        // source; A2AClientFactory.Create alone treats the card as caller-supplied and allows every endpoint.
+        await A2AClientFactory.EnsureEndpointsAllowedAsync(Card.Card, Card.Source, options, cancellationToken)
+            .ConfigureAwait(false);
 
         var selected = A2AClientFactory.SelectInterface(Card.Card, options)
                        ?? throw new A2AException(A2AErrorCode.UnsupportedOperation,
