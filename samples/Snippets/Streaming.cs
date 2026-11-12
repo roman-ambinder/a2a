@@ -21,15 +21,13 @@ internal static class Samples
     public static async Task StreamText(A2AClient client)
     {
         #region StreamText
-        try
+        var chat = client.StartConversation();
+        await foreach (var chunk in chat.StreamTextAsync("write a poem"))
+            Console.Write(chunk);
+        if (chat.LastReply!.NeedsInput)
         {
-            await foreach (var chunk in client.StreamTextAsync("write a poem"))
-                Console.Write(chunk);
-        }
-        catch (TaskNotCompletedException e) when (e.State == TaskState.InputRequired)
-        {
-            // Answer with the same context and task: client.SendMessageAsync(answer, e.Task.ContextId, e.Task.Id).
-            Console.WriteLine($"The agent asks: {e.Task.Status.Message?.GetText()}");
+            // The next send answers the same task: await chat.SendAsync(answer).
+            Console.WriteLine($"The agent asks: {chat.LastReply.StatusText}");
         }
         #endregion
     }

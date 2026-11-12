@@ -18,7 +18,7 @@ Streaming is on by default. The served card turns an unset `Capabilities.Streami
 
 The first event is the task, or a direct message. A direct message is the only event, and the stream ends. Events of other executions of the same task, such as the `CANCELED` event of a `CancelTask`, arrive on the same stream.
 
-When you only need the text, <xref:A2A.Client.A2AClientTextExtensions.StreamTextAsync*> yields it chunk by chunk. It stops when the task ends or needs input or authorization, and throws <xref:A2A.Client.TaskNotCompletedException> if the task did not complete:
+When you only need the text, <xref:A2A.Client.A2AClientTextExtensions.StreamTextAsync*> yields it chunk by chunk. It stops when the task ends or needs input or authorization, and throws <xref:A2A.Client.TaskNotCompletedException> if the task did not complete. On a conversation (<xref:A2A.Client.A2AConversation>), `StreamTextAsync` throws nothing for a task state: it sets `LastReply`, and the next send answers a task that waits for input:
 
 [!code-csharp[](../../../samples/Snippets/Streaming.cs#StreamText)]
 

@@ -94,7 +94,7 @@ public static class A2AClientTextExtensions
                 : new AgentTask
                 {
                     Id = evt.TaskId ?? string.Empty,
-                    ContextId = ((StatusUpdateEvent)evt).StatusUpdate.ContextId,
+                    ContextId = evt.ContextId ?? string.Empty,
                     Status = ((StatusUpdateEvent)evt).StatusUpdate.Status
                 };
             break;
@@ -104,7 +104,7 @@ public static class A2AClientTextExtensions
     }
 
     /// <summary>Polls the task until it is terminal or interrupted, like <see cref="A2AClient.WaitForTaskAsync" />.</summary>
-    private static async Task<AgentTask> WaitAsync(IA2AClient client, string taskId, A2ARequestOptions? options,
+    internal static async Task<AgentTask> WaitAsync(IA2AClient client, string taskId, A2ARequestOptions? options,
         CancellationToken cancellationToken)
     {
         while (true)

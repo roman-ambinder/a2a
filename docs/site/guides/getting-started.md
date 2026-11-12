@@ -55,13 +55,27 @@ Call <xref:A2A.Server.TaskUpdater.ReplyAsync*> instead for a stateless reply wit
 
 - <xref:A2A.Client.A2AClientTextExtensions.AskAsync*> returns the answer as text: the text of a direct reply, or of the task's artifacts once the task completed. A task that ends in any state other than completed (failed, rejected, canceled), or that needs input or authorization, throws <xref:A2A.Client.TaskNotCompletedException>, which holds the task. A task that is still running is polled every second until it settles.
 - <xref:A2A.Client.A2AClientTextExtensions.StreamTextAsync*> yields the text as the agent streams it, with the same exception at the end.
+- For more than one turn, start a conversation (next section).
 - <xref:A2A.Client.A2AClientFactory.CreateForEndpoint*> makes a client for an endpoint you already know, such as an agent in the same process, without fetching the card. The client then checks no capabilities and verifies no card signature.
-- For everything else use `SendMessageAsync`. It returns a <xref:A2A.SendMessageResponse>: either a direct message or a task. `GetText()` on the response, on an `AgentTask` and on an `Artifact` reads their text parts.
+- For everything else use `SendMessageAsync`. It returns a <xref:A2A.SendMessageResponse>: either a direct message or a task. `State`, `TaskId` and `ContextId` on the response read the same values from both cases. `GetText()` on the response, on an `AgentTask` and on an `Artifact` reads their text parts.
 
 Every client method takes optional <xref:A2A.Client.A2ARequestOptions>: headers, timeout, idempotency key, extensions and `ConfigureRequest`. Two things happen without any setup:
 
 - `SendMessage` and `SendStreamingMessage` always send an `Idempotency-Key`. The default is the message id.
 - Unary calls are retried up to `MaxRetries` times. The default is 2, so 3 attempts. Set it on <xref:A2A.Client.A2AClientOptions> or per call. 0 turns retries off. A `SendMessage` is retried after a transport error only when the request never reached the server.
+
+### A conversation
+
+[!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Conversation)]
+
+<xref:A2A.Client.A2AConversationExtensions.StartConversation*> returns an <xref:A2A.Client.A2AConversation>, which keeps the ids between turns:
+
+- `ContextId` takes the context id of each reply, so every turn continues the same context.
+- `TaskId` is the task that waits for input or authorization. The next send answers it. Once a task has ended, the next send starts a new task in the same context.
+
+`SendAsync` returns an <xref:A2A.Client.AgentReply> for every state and throws nothing for a task state. It has the `Text` (a direct reply's text, or the task's artifact text) and the `StatusText` (the agent's question, or why it failed). It also has the `State`, the ids, `IsCompleted`, `NeedsInput` and `NeedsAuth`. `EnsureCompleted()` throws <xref:A2A.Client.TaskNotCompletedException> when the turn did not complete. `StreamTextAsync` on the conversation yields text chunks and then sets `LastReply`. A conversation runs one turn at a time; a send while another is running throws `InvalidOperationException`.
+
+`StartConversation(contextId)` continues a context that the agent issued earlier. The server refuses a context id that it did not issue.
 
 To use dependency injection, add the `RomanAmbinder.A2A.Client.DependencyInjection` package. Register a named client with `services.AddA2AClient("weather", o => o.AgentUrl = ...)`. Then call <xref:A2A.Client.IA2AClientFactory.GetClientAsync*> with the name. Clients are cached per name. `AddA2AClient` returns an `IHttpClientBuilder`, so you can add handlers such as `AddBearerToken`.
 

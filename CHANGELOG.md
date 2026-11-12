@@ -4,6 +4,16 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Client
+
+- Multi-turn without handling ids: `client.StartConversation()` returns an `A2AConversation`. `SendAsync` and
+  `StreamTextAsync` keep the context id and the id of a task that waits for input, and return an `AgentReply` (`Text`,
+  `StatusText`, `State`, ids, `IsCompleted`, `NeedsInput`, `NeedsAuth`, `EnsureCompleted()`) without throwing for a task
+  state. See [Getting started](docs/site/guides/getting-started.md#a-conversation). Design:
+  `docs/superpowers/specs/2026-11-12-simpler-sdk-surface-design.md`.
+- `SendMessageResponse.State`, `.TaskId` and `.ContextId`, and `StreamResponse.ContextId`, so a result can be read
+  without a type switch.
+
 ### Agent Framework
 
 - New package `RomanAmbinder.A2A.Extensions.AgentFramework` (experimental, `A2AEXP006`): Microsoft Agent Framework

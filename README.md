@@ -96,6 +96,10 @@ string answer = await client.AskAsync("hello"); // the reply's text; throws if t
 
 await foreach (var chunk in client.StreamTextAsync("stream this"))
     Console.Write(chunk);
+
+var chat = client.StartConversation();               // multi-turn: the ids are kept for you
+var reply = await chat.SendAsync("book a flight");
+while (reply.NeedsInput) reply = await chat.SendAsync(Console.ReadLine() ?? "");
 ```
 
 The client reads the agent's card, picks a binding the card offers, and retries safe failures. For credentials (OAuth2, API keys, mutual TLS, Azure, AWS), see [Client credentials](docs/site/guides/client-credentials.md). For DI and named clients, see [samples/EchoClient](samples/EchoClient/Program.cs).

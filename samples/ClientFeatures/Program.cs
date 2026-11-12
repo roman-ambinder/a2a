@@ -288,7 +288,7 @@ return 0;
 static async Task<string?> AskAsync(A2AClient client)
 {
     var reply = await client.SendMessageAsync("who am I?");
-    return (reply as MessageResponse)?.Message.GetText();
+    return reply.GetText(); // a direct reply's text, or the task's artifact text
 }
 
 /// <summary>Replies with the caller's principal and how it signed in.</summary>

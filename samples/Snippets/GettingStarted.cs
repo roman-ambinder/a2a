@@ -44,6 +44,21 @@ internal static class Samples
         _ = answer;
     }
 
+    public static async Task ConversationAsync(A2AClient client)
+    {
+        #region Conversation
+        var chat = client.StartConversation();         // keeps the context id and the waiting task's id
+        var reply = await chat.SendAsync("book a flight to Paris");
+        while (reply.NeedsInput)
+        {
+            Console.WriteLine(reply.StatusText);          // the agent's question
+            reply = await chat.SendAsync(Console.ReadLine() ?? "");
+        }
+
+        Console.WriteLine(reply.EnsureCompleted().Text); // throws if the task failed, was rejected or canceled
+        #endregion
+    }
+
     public static void FromConfiguration(WebApplicationBuilder builder)
     {
         #region FromConfiguration
