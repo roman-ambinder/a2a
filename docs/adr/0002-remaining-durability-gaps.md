@@ -1,6 +1,6 @@
 # ADR-002: What to do with the last open gap items before the first published release
 
-**Status:** Proposed
+**Status:** Accepted (2026-11-12)
 **Date:** 2026-11-12
 **Deciders:** Repository owner
 
@@ -158,4 +158,7 @@ The main risk of Option C is the D2 investigation itself. If the failure exists,
    every base class with its default, and the guarantees of the event bus, the coordinator and the artifact object
    store. It also says that a store which retries commits on its own needs `ITaskCommitLookup`, because without it a
    chunk can end up in the task twice (item 1).
-6. [ ] In the gap analysis, mark D1 and D3 as "not planned in this repository; extension points documented". Leave D33 open, with "on demand".
+6. [x] In the gap analysis, mark D1 and D3 as "not planned in this repository; extension points documented". Leave D33 open, with "on demand".
+
+   Done on 2026-11-12: the D1 and D3 Status line and the open items table say so, and point to "Write your own
+   backend". D33 is the one open item, marked "on demand".
