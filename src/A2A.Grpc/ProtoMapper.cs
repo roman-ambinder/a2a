@@ -15,7 +15,8 @@ namespace A2A.Grpc;
 ///     exercised by the JSON-RPC/REST bindings and the cross-SDK interop tests, so one well-tested mapping serves all
 ///     three bindings
 ///     and cannot drift from the proto. Both directions stay in UTF-8 bytes; no whole-message UTF-16 string is built.
-///     The per-message types (stream events and SendMessage responses) are mapped field by field instead when they have a
+///     The per-message types (stream events, SendMessage responses and, client side, SendMessage requests) are mapped
+///     field by field instead when they have a
 ///     common
 ///     shape, about ten times faster; anything else, and every error, takes the ProtoJSON path. Tests check on a random
 ///     corpus
@@ -130,6 +131,9 @@ public static class ProtoMapper
         if (typeof(TProto) == typeof(Lf.A2a.V1.SendMessageResponse) && model is SendMessageResponse send &&
             DirectMapper.ToProto(send) is { } response)
             return (TProto)(object)response;
+        if (typeof(TProto) == typeof(Lf.A2a.V1.SendMessageRequest) && model is SendMessageRequest sendRequest &&
+            DirectMapper.ToProto(sendRequest) is { } request)
+            return (TProto)(object)request;
         return ToProtoViaJson<TProto, TModel>(model);
     }
 

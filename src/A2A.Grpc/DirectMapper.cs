@@ -11,11 +11,11 @@ using Enum = System.Enum;
 namespace A2A.Grpc;
 
 /// <summary>
-///     Maps the per-message types (stream events and SendMessage responses, with the tasks, messages, artifacts and parts
-///     in them)
+///     Maps the per-message types (stream events and SendMessage responses, with the tasks, timelines, messages, artifacts
+///     and parts in them, and, model to proto only, the SendMessage request a client sends)
 ///     field by field, without going through ProtoJSON. It must give exactly what <see cref="ProtoMapper" />'s ProtoJSON
 ///     path gives,
-///     so it handles only the common shapes and returns null for anything else (an empty required field, a timeline, an
+///     so it handles only the common shapes and returns null for anything else (an empty required field, an
 ///     event kind
 ///     or enum value it does not know, a timestamp finer than the model keeps, ...): the caller then takes the ProtoJSON
 ///     path, which
@@ -74,8 +74,8 @@ internal static class DirectMapper
 
     private static AgentTask? ToTask(A2aPb.Task p)
     {
-        // Required by the model: missing ones fail on the ProtoJSON path. A timeline is left to that path too.
-        if (p.Id.Length == 0 || p.Status is null || p.Timeline.Count > 0) return null;
+        // Required by the model: missing ones fail on the ProtoJSON path.
+        if (p.Id.Length == 0 || p.Status is null) return null;
         if (ToStatus(p.Status) is not { } status) return null;
         List<Artifact>? artifacts = null;
         if (p.Artifacts.Count > 0)
@@ -99,6 +99,17 @@ internal static class DirectMapper
             }
         }
 
+        List<TimelineEntry>? timeline = null;
+        if (p.Timeline.Count > 0)
+        {
+            timeline = new List<TimelineEntry>(p.Timeline.Count);
+            foreach (var e in p.Timeline)
+            {
+                if (ToTimelineEntry(e) is not { } entry) return null;
+                timeline.Add(entry);
+            }
+        }
+
         if (!TryMetadata(p.Metadata, out var metadata)) return null;
         return new AgentTask
         {
@@ -108,8 +119,29 @@ internal static class DirectMapper
             Artifacts = artifacts,
             History = history,
             Metadata = metadata,
-            Generation = Optional(p.Generation)
+            Generation = Optional(p.Generation),
+            Timeline = timeline
         };
+    }
+
+    private static TimelineEntry? ToTimelineEntry(A2aPb.TimelineEntry p)
+    {
+        switch (p.EntryCase)
+        {
+            case A2aPb.TimelineEntry.EntryOneofCase.Message:
+                return ToMessage(p.Message) is { } message
+                    ? new TimelineEntry { Message = message, Generation = p.Generation }
+                    : null;
+            case A2aPb.TimelineEntry.EntryOneofCase.Status:
+                return ToStatus(p.Status) is { } status
+                    ? new TimelineEntry { Status = status, Generation = p.Generation }
+                    : null;
+            case A2aPb.TimelineEntry.EntryOneofCase.None:
+                // No entry kind (or one this SDK's proto does not know): an entry with neither, as on the text path.
+                return new TimelineEntry { Generation = p.Generation };
+            default:
+                return null;
+        }
     }
 
     private static AgentTaskStatus? ToStatus(A2aPb.TaskStatus p)
@@ -294,9 +326,59 @@ internal static class DirectMapper
         }
     }
 
+    /// <summary>A SendMessage request as a client sends it (the server reads requests through ProtoJSON, with its depth limit).</summary>
+    public static A2aPb.SendMessageRequest? ToProto(SendMessageRequest r)
+    {
+        var p = new A2aPb.SendMessageRequest { Tenant = r.Tenant ?? "" };
+        if (r.Message is not null)
+        {
+            if (FromMessage(r.Message) is not { } message) return null;
+            p.Message = message;
+        }
+
+        if (r.Configuration is not null)
+        {
+            if (FromConfiguration(r.Configuration) is not { } configuration) return null;
+            p.Configuration = configuration;
+        }
+
+        if (r.ArtifactUpdates is not null)
+            foreach (var u in r.ArtifactUpdates)
+            {
+                if (u is null || FromArtifactUpdate(u) is not { } update) return null;
+                p.ArtifactUpdates.Add(update);
+            }
+
+        if (!TryStruct(r.Metadata, out var metadata)) return null;
+        p.Metadata = metadata;
+        return p;
+    }
+
+    private static A2aPb.SendMessageConfiguration? FromConfiguration(SendMessageConfiguration c)
+    {
+        var p = new A2aPb.SendMessageConfiguration { ReturnImmediately = c.ReturnImmediately };
+        if (!AddStrings(p.AcceptedOutputModes, c.AcceptedOutputModes)) return null;
+        // The optional fields: null is unset, any value (0 too) is set, as ProtoJSON reads a member that is there.
+        if (c.HistoryLength is { } history) p.HistoryLength = history;
+        if (c.TimelineLength is { } timeline) p.TimelineLength = timeline;
+        if (c.IfGenerationMatch is { } generation) p.IfGenerationMatch = generation;
+        if (c.TaskPushNotificationConfig is { } push)
+        {
+            p.TaskPushNotificationConfig = new A2aPb.TaskPushNotificationConfig
+            {
+                Tenant = push.Tenant ?? "", Id = push.Id ?? "", TaskId = push.TaskId ?? "", Url = push.Url ?? "",
+                Token = push.Token ?? "", ProtocolVersion = push.ProtocolVersion ?? ""
+            };
+            if (push.Authentication is { } auth)
+                p.TaskPushNotificationConfig.Authentication = new A2aPb.AuthenticationInfo
+                    { Scheme = auth.Scheme ?? "", Credentials = auth.Credentials ?? "" };
+        }
+
+        return p;
+    }
+
     private static A2aPb.Task? FromTask(AgentTask t)
     {
-        if (t.Timeline is { Count: > 0 }) return null;
         var p = new A2aPb.Task { Id = t.Id ?? "", ContextId = t.ContextId ?? "", Generation = t.Generation ?? 0 };
         if (t.Status is not null)
         {
@@ -318,8 +400,36 @@ internal static class DirectMapper
                 p.History.Add(message);
             }
 
+        if (t.Timeline is not null)
+            foreach (var e in t.Timeline)
+            {
+                if (e is null || FromTimelineEntry(e) is not { } entry) return null;
+                p.Timeline.Add(entry);
+            }
+
         if (!TryStruct(t.Metadata, out var metadata)) return null;
         p.Metadata = metadata;
+        return p;
+    }
+
+    private static A2aPb.TimelineEntry? FromTimelineEntry(TimelineEntry e)
+    {
+        var p = new A2aPb.TimelineEntry { Generation = e.Generation };
+        switch (e)
+        {
+            // Both set is two members of the oneof: the text path decides (it refuses).
+            case { Message: not null, Status: not null }:
+                return null;
+            case { Message: { } m }:
+                if (FromMessage(m) is not { } message) return null;
+                p.Message = message;
+                break;
+            case { Status: { } s }:
+                if (FromStatus(s) is not { } status) return null;
+                p.Status = status;
+                break;
+        }
+
         return p;
     }
 
