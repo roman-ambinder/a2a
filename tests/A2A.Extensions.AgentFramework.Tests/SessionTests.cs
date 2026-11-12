@@ -49,7 +49,9 @@ public class SessionTests
         Assert.Equal(["q2"], agent.Calls[1].Messages.Select(m => m.Text));
         Assert.Same(agent.Calls[0].Session, agent.Calls[1].Session);
         Assert.Equal(["q1", "q2"], Assert.IsType<FakeSession>(agent.Calls[1].Session).Received.Select(m => m.Text));
-        Assert.Equal(1, agent.SessionsCreated);
+        // One session for the conversation, and one for the context's index of callers (SessionIndex).
+        Assert.Equal(2, agent.SessionsCreated);
+        Assert.Single(store.IndexKeys);
         Assert.Equal(2, store.Saves);
     }
 
@@ -268,6 +270,24 @@ public class SessionTests
         Assert.Equal("ctx-1", key.SessionId);
         Assert.Equal("t:t9", Partition(key, "a2a.tenant"));
         Assert.Equal("o:bob", Partition(key, "a2a.owner"));
+    }
+
+    [Fact]
+    public async Task Deleting_a_shared_context_deletes_every_callers_session()
+    {
+        // Bob may use Alice's context (ContextAccess). Each caller has its own session; when retention deletes the context,
+        // both go. Before, only the owner's session was deleted, and Bob's (his whole conversation) stayed for good.
+        var store = new FakeSessionStore();
+        await using var host = await StartAsync(FakeAIAgent.Replying("ok"), store,
+            services: s => s.Configure<A2AServerOptions>(o => o.ContextAccess = (_, _, _) => ValueTask.FromResult(true)));
+        var a = Task_(await host.Client(user: "alice").SendMessageAsync("hi"));
+        Task_(await host.Client(user: "bob").SendMessageAsync("hi too", a.ContextId));
+        Assert.Contains(store.Keys, k => Partition(k, "a2a.owner") == "o:bob");
+        var hook = host.App.Services.GetServices<IA2AContextLifecycle>().Single();
+
+        await hook.OnContextDeletedAsync(new ContextRecord("", "alice", a.ContextId, DateTimeOffset.UtcNow), CancellationToken.None);
+
+        Assert.DoesNotContain(store.Keys, k => k.SessionId == a.ContextId);
     }
 
     [Fact]

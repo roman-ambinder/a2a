@@ -66,7 +66,12 @@ In `Stored` mode the session of each context and caller is kept in an `AgentSess
 
 ### Deleted with the context
 
-When the [retention](retention.md) sweep deletes a context, it tells every registered `IA2AContextLifecycle` (package `A2A.Server`). In stored mode the adapter registers one that deletes the context's session, so sessions live as long as their context. A failed delete is logged (event 1801). The hook is general: any agent that keeps per-context state outside the task store can use it.
+When the [retention](retention.md) sweep deletes a context, it tells every registered `IA2AContextLifecycle` (package `A2A.Server`). In stored mode the adapter registers one that deletes the context's sessions, so sessions live as long as their context. A failed delete is logged (event 1801).
+
+- **Shared contexts:** each caller has its own session. That includes callers that `A2AServerOptions.ContextAccess` lets into another owner's context.
+- **The index:** the store cannot list its keys, so the adapter keeps a small index session per context with the callers who saved one. Its owner partition is `i:`, where callers have `o:` and their principal. Deleting the context deletes every listed caller's session, then the index.
+- **Cost:** each process records a caller once per context, right after that caller's session is saved, within the same save timeout. A failure there is logged (event 1802), and the session itself stays saved.
+- **Limit:** the store has no compare-and-set, so two callers saving the index at the same moment can lose one entry. That caller's session then outlives the context until the store's own expiry removes it. The hook is general: any agent that keeps per-context state outside the task store can use it.
 
 [!code-csharp[](../../../samples/Snippets/AgentFramework.cs#Lifecycle)]
 

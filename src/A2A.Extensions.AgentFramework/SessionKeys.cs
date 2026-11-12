@@ -22,4 +22,17 @@ internal static class SessionKeys
             .WithPartition(TenantPartition, "t:" + tenant)
             .WithPartition(OwnerPartition, "o:" + owner);
     }
+
+    /// <summary>
+    ///     The key of a context's <see cref="SessionIndex" />. Its owner partition is <c>i:</c>, which no caller's key can
+    ///     have: those are <c>o:</c> and the principal.
+    /// </summary>
+    internal static AgentSessionStoreKey IndexFor(string tenant, string contextId)
+    {
+        ArgumentNullException.ThrowIfNull(tenant);
+        ArgumentException.ThrowIfNullOrEmpty(contextId);
+        return new AgentSessionStoreKey(contextId)
+            .WithPartition(TenantPartition, "t:" + tenant)
+            .WithPartition(OwnerPartition, "i:");
+    }
 }

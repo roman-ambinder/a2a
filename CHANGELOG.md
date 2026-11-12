@@ -158,6 +158,11 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- Agent Framework: deleting a shared context deletes every caller's stored session, not only the owner's. Sessions are
+  saved per caller, so the sessions of callers that `ContextAccess` let into another owner's context stayed in the store
+  for good, with their whole conversation. A per-context index session (owner partition `i:`) now records the callers.
+  Each process adds a caller once, after that caller's session is saved. The delete hook removes every listed session and
+  then the index. A failed index write is logged (event 1802).
 - Agent Framework: each task keeps its own pending tool approval in the session. A session had one slot per context,
   so any other run in the context (another task) took a waiting task's request out. The approved tool then never ran,
   although the server accepted the approval. Pending requests are now kept per task (at most 16 per session). A request
