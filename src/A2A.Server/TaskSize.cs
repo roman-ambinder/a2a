@@ -31,26 +31,28 @@ internal static class TaskSize
     }
 
     /// <summary>
-    ///     The bytes a stored event adds to the measured size of the task, when that is exactly the size of the parts it
-    ///     carries: an
-    ///     append to an artifact that changes nothing else (no artifact name, description or metadata, no event metadata).
-    ///     Then
-    ///     <c>Measure(after) == Measure(before) + AppendedBytes(event)</c>, and the caller need not walk the whole task again.
-    ///     Null
-    ///     for every other event (the caller measures the task).
+    ///     The bytes a stored event adds to the measured size of the task, when that is exactly the size of the content it
+    ///     carries: an append to an artifact that changes nothing else (no artifact name, description or metadata, no event
+    ///     metadata), or a status update with a message and no event metadata (the message goes into the history; the status
+    ///     and the timeline are not measured). Then <c>Measure(after) == Measure(before) + AppendedBytes(event)</c>, and the
+    ///     caller need not walk the whole task again. Null for every other event (the caller measures the task).
     /// </summary>
     public static long? AppendedBytes(StreamResponse evt)
     {
-        return evt is ArtifactUpdateEvent
+        return evt switch
         {
-            ArtifactUpdate:
+            ArtifactUpdateEvent
             {
-                Append: true, Metadata: null or { Count: 0 },
-                Artifact: { Name: null, Description: null, Metadata: null or { Count: 0 } } artifact
-            }
-        }
-            ? Measure(artifact.Parts)
-            : null;
+                ArtifactUpdate:
+                {
+                    Append: true, Metadata: null or { Count: 0 },
+                    Artifact: { Name: null, Description: null, Metadata: null or { Count: 0 } } artifact
+                }
+            } => Measure(artifact.Parts),
+            StatusUpdateEvent { StatusUpdate: { Status.Message: { } message, Metadata: null or { Count: 0 } } } =>
+                Measure(message.Metadata, Level.Message) + Measure(message.Parts),
+            _ => null
+        };
     }
 
     /// <summary>
