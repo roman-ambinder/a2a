@@ -24,3 +24,4 @@ A2A.Server.Storage.ITaskCommitLookup
 A2A.Server.Storage.ITaskCommitLookup.FindCommitAsync(A2A.Server.Storage.TaskKey task, string! mutationId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long?>
 A2A.Server.Storage.TaskCommit.MutationId.get -> string?
 A2A.Server.Storage.TaskCommit.MutationId.init -> void
+A2A.Server.ServerCallContext.TenantAuthentication.init -> void

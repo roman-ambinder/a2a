@@ -45,6 +45,14 @@ public sealed class ServerCallContext
     /// </summary>
     public string? InboundBearerToken { internal get; init; }
 
+    /// <summary>
+    ///     Set by a binding whose authentication depends on the tenant and ran before the request body was read (ASP.NET
+    ///     Core: <c>RequireAgentCardSchemes</c>), so a <c>tenant</c> the body carries was not seen by it. The server calls it
+    ///     with the call's bound tenant before it authorizes the operation; false refuses the call as
+    ///     <see cref="A2AErrorCode.Unauthenticated" />. Readable only by the server core.
+    /// </summary>
+    public Func<ServerCallContext, CancellationToken, ValueTask<bool>>? TenantAuthentication { internal get; init; }
+
     /// <summary>True when <see cref="User" /> is set and authenticated.</summary>
     public bool IsAuthenticated => User?.Identity?.IsAuthenticated == true;
 

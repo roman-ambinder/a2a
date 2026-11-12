@@ -92,10 +92,10 @@ To also check that the scheme that proved the caller meets the card's requiremen
 
 The spec says an agent must authenticate requests with one of the schemes in its card's `securitySchemes` and `securityRequirements` (7.4, 13.3). Your ASP.NET Core schemes have their own names, so map each card scheme to one: `app.MapA2A("/a2a").RequireAuthorization().RequireAgentCardSchemes(new Dictionary<string, string> { ["bearer"] = "Bearer" })` (<xref:A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.RequireAgentCardSchemes*>). It works on `MapA2AGrpc` too.
 
-- A request passes when every scheme of one of the card's requirements authenticated it. It uses the card of the request's tenant.
+- A request passes when every scheme of one of the card's requirements authenticated it. It uses the card of the tenant the call runs in: the route's tenant is checked before the A2A layer runs, and when the route has none and the body names a `tenant` (JSON-RPC, HTTP+JSON, gRPC), the call is checked again against that tenant's card and refused with `Unauthenticated` if it fails. A tenant no agent serves has no card, so there is nothing to check; the A2A layer answers it.
 - A card without requirements, or with an empty requirement, allows anonymous callers, as the client reads the card. A card scheme you did not map can never be met.
 - It adds to `RequireAuthorization()`; it does not replace it. Scopes are not checked: check them in your policies.
-- A request that fails gets the ASP.NET Core answer (401 challenge or 403) before the A2A layer runs.
+- A request that fails for the route's tenant gets the ASP.NET Core answer (401 challenge or 403) before the A2A layer runs.
 
 Without it, the SDK does not check which scheme authenticated the caller.
 

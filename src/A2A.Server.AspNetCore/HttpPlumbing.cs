@@ -92,6 +92,7 @@ internal static partial class HttpPlumbing
         return new ServerCallContext
         {
             InboundBearerToken = bearer,
+            TenantAuthentication = AgentCardSchemeRequirement.Recheck(http),
             User = user,
             Principal = principal,
             RemoteAddress = http.Connection.RemoteIpAddress?.ToString(),
