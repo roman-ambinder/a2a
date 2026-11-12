@@ -26,3 +26,4 @@ A2A.Server.Storage.TaskCommit.MutationId.get -> string?
 A2A.Server.Storage.TaskCommit.MutationId.init -> void
 [A2AEXP005]A2A.Server.ServerCallContext.LiveRequestAdmission.get -> System.Action?
 [A2AEXP005]A2A.Server.ServerCallContext.LiveRequestAdmission.init -> void
+A2A.Server.ServerCallContext.TenantAuthentication.init -> void

@@ -24,7 +24,7 @@ If A2A endpoints have no authorization, the app does not start. The check is fai
 What it does:
 
 - **Authentication.** An ASP.NET Core scheme (`A2AApiKey`) reads the key from the `X-Api-Key` header (<xref:A2A.Server.AspNetCore.A2AApiKeyOptions.HeaderName>). Keys in the query string are never read. A missing, malformed or unknown key is unauthenticated (401).
-- **One owner per caller.** Each key is registered under a caller id. The task owner is `apikey:` and the id, so callers never see each other's tasks, and an API-key caller never shares tasks with a JWT user whose `sub` happens to be the same. Several keys may share a caller id, for rotation.
+- **One owner per caller.** Each key is registered under a caller id. The task owner is `apikey:` and the id, so callers never see each other's tasks, and an API-key caller never shares tasks with a JWT user whose `sub` happens to be the same. Owner ids that start with `apikey:` are reserved for API-key callers: a caller from any other scheme that resolves to one (a `sub` of `apikey:billing`, say) is refused as unauthenticated. Several keys may share a caller id, for rotation.
 - **The card.** The scheme is added to the card's `securitySchemes` and `securityRequirements`, so `AddApiKey` on the client and the `a2a` tool know to send the key, and in which header.
 - **Tenants.** A key registered with tenants may only call those tenants, on every binding. The key's caller gets one <xref:A2A.Server.A2AClaimTypes.Tenant> claim per tenant, and the server refuses a call to any other tenant like every other denial: a task-scoped call looks like a missing task, the rest is `PermissionDenied` (`permission`: `tenant`), and the audit trail records `TenantNotAllowed`. See [Multi-tenancy](multi-tenancy.md).
 - **Protection by default.** Every A2A endpoint that has no authorization of its own gets the policy `A2ACardSchemes` (a caller authenticated by any declared scheme, API keys among them), so `MapA2A` needs no `RequireAuthorization()`. To take only API keys on an endpoint, write a policy with `p.AddAuthenticationSchemes(A2AApiKeyOptions.SchemeName).RequireAuthenticatedUser()`. An endpoint with its own authorization (`RequireAuthorization(...)`, `AuthorizationPolicy`, also on an outer group) keeps it unchanged.
@@ -92,10 +92,10 @@ To also check that the scheme that proved the caller meets the card's requiremen
 
 The spec says an agent must authenticate requests with one of the schemes in its card's `securitySchemes` and `securityRequirements` (7.4, 13.3). Your ASP.NET Core schemes have their own names, so map each card scheme to one: `app.MapA2A("/a2a").RequireAuthorization().RequireAgentCardSchemes(new Dictionary<string, string> { ["bearer"] = "Bearer" })` (<xref:A2A.Server.AspNetCore.A2ACardAuthenticationExtensions.RequireAgentCardSchemes*>). It works on `MapA2AGrpc` too.
 
-- A request passes when every scheme of one of the card's requirements authenticated it. It uses the card of the request's tenant.
+- A request passes when every scheme of one of the card's requirements authenticated it. It uses the card of the tenant the call runs in: the route's tenant is checked before the A2A layer runs, and when the route has none and the body names a `tenant` (JSON-RPC, HTTP+JSON, gRPC), the call is checked again against that tenant's card and refused with `Unauthenticated` if it fails. A tenant no agent serves has no card, so there is nothing to check; the A2A layer answers it.
 - A card without requirements, or with an empty requirement, allows anonymous callers, as the client reads the card. A card scheme you did not map can never be met.
 - It adds to `RequireAuthorization()`; it does not replace it. Scopes are not checked: check them in your policies.
-- A request that fails gets the ASP.NET Core answer (401 challenge or 403) before the A2A layer runs.
+- A request that fails for the route's tenant gets the ASP.NET Core answer (401 challenge or 403) before the A2A layer runs.
 
 Without it, the SDK does not check which scheme authenticated the caller.
 
@@ -105,7 +105,7 @@ Without it, the SDK does not check which scheme authenticated the caller.
 
 Set <xref:A2A.Server.A2AServerOptions.AllowAnonymous> to skip the check. A warning is logged once at startup. All anonymous callers share one owner, `anonymous`, so they can read each other's tasks. Do not use this in production.
 
-The id `anonymous` is reserved. If an authenticated user resolves to it, the request is refused as unauthenticated.
+The id `anonymous` is reserved. If an authenticated user resolves to it, the request is refused as unauthenticated. So are ids that start with `apikey:`, unless the API-key scheme issued them.
 
 ## How a task is bound to a caller
 
@@ -226,7 +226,7 @@ Read it with `GetActorChain()`. It returns `null` when there is no chain or the 
 
 ### The inbound token
 
-Agent code never gets the caller's token. `ServerCallContext.InboundBearerToken` can be read only inside `A2A.Server`. The server keeps the token only when an <xref:A2A.Delegation.ITokenExchanger> is registered, the caller is authenticated and the header is `Authorization: Bearer <token>`.
+Agent code never gets the caller's token. `ServerCallContext.InboundBearerToken` can be read only inside `A2A.Server`. The server keeps the token only when an <xref:A2A.Delegation.ITokenExchanger> is registered, the caller is authenticated, the header is `Authorization: Bearer <token>`, and a bearer scheme validated that token as the caller's: an `AddJwtBearer()` scheme, or the scheme you named in `AddBearerAuthentication` (or `AddCardAuthentication` for a bearer, OAuth 2.0 or OpenID Connect card scheme).
 
 - The token lives in memory for the agent run. It is not stored or logged. The run can outlive the HTTP request, and the token can expire before the run ends. A run recovered on another instance has no token.
 - To call the next agent, exchange the token and use the result. `ExchangeTokenAsync(audience, scopes)` on the agent context does this. The audience is required. `CanExchangeToken` tells you if it can run. When it is false, the call throws `InvalidOperationException`.
@@ -240,7 +240,7 @@ Agent code never gets the caller's token. `ServerCallContext.InboundBearerToken`
 
 The exchanger needs an HTTPS token endpoint (loopback may use HTTP) and reads at most 64 KiB of response. A refused exchange throws `TokenExchangeException`. Its message and its `Error` property (the RFC 6749 `error` code) never contain a token or the server's text.
 
-Warning: the server sends the caller's `Authorization: Bearer` value to the exchanger whenever any scheme authenticated the caller. Register an exchanger only when a Bearer handler validates that header on these endpoints. On a host that authenticates with cookies, API keys or mTLS, that header is not checked.
+A caller authenticated by another scheme (an API key, a cookie, mTLS) has no token to exchange, even when it sends an `Authorization: Bearer` header: nothing validated that header. Neither has a caller whose token the bearer scheme rejected, or whose token belongs to another user (its owner id differs from the caller's).
 
 ### Call the next agent
 

@@ -231,6 +231,27 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
     }
 }
 
+/// <summary>
+///     A bearer scheme for tests: validates <c>Authorization: Bearer &lt;token&gt;</c> (a token starting with
+///     <c>rejected</c> fails), and the token's subject is the <c>X-Token-Sub</c> header, else <c>X-Test-User</c>.
+/// </summary>
+public sealed class TestBearerHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+{
+    public const string SchemeName = "TestBearer";
+
+    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        var header = Request.Headers.Authorization.ToString();
+        if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return Task.FromResult(AuthenticateResult.NoResult());
+        if (header[7..].Trim().StartsWith("rejected", StringComparison.Ordinal)) return Task.FromResult(AuthenticateResult.Fail("rejected"));
+        var sub = Request.Headers["X-Token-Sub"].ToString();
+        if (string.IsNullOrEmpty(sub)) sub = Request.Headers["X-Test-User"].ToString();
+        var identity = new ClaimsIdentity([new Claim("sub", sub)], SchemeName);
+        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
+    }
+}
+
 /// <summary>Records webhook calls.</summary>
 public sealed class RecordingHandler : HttpMessageHandler
 {
@@ -290,7 +311,7 @@ public sealed class TestAgentHost : IAsyncDisposable
     public static async Task<TestAgentHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<A2AHttpOptions>? configureHttp = null,
         Action<IServiceCollection>? services = null, bool requireAuth = true,
         Action<RouteGroupBuilder>? configureRoutes = null, bool useA2A = true, Action<WebApplication>? configurePipeline = null,
-        bool grpc = false)
+        bool grpc = false, Action<IEndpointConventionBuilder>? configureGrpcRoutes = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -337,6 +358,7 @@ public sealed class TestAgentHost : IAsyncDisposable
         {
             var g = app.MapA2AGrpc();
             if (requireAuth) g.RequireAuthorization();
+            configureGrpcRoutes?.Invoke(g);
         }
         await app.StartAsync();
         return new TestAgentHost(app, webhooks);
