@@ -233,6 +233,10 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Fixes
 
+- Follow-up recovery: a retry right after the previous run asked for input (that run had returned but had not ended yet,
+  for example under load) counted that run as the recovered one and did nothing. The task stayed `INPUT_REQUIRED` with
+  the message unanswered. The retry now waits up to two seconds for a run whose agent has returned to end, then starts
+  the message once. A run whose agent still runs still counts as running.
 - v0.3 gRPC: errors carry what the other bindings send. UNAUTHENTICATED names its scheme in a `www-authenticate`
   trailer, as v1 gRPC does (spec 3.3.2, 7.4). An error with a wait (a rate limit, a full input buffer) carries it in a
   `retry-after` trailer, in whole seconds. The v0.3 gRPC client reads that trailer as `A2AException.RetryAfter`.
@@ -240,7 +244,15 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
   tenant in each call, take a tracked entry each time, and fill `MaxTrackedCallers`, so that no other caller was watched.
 - Retention: a context recreated right after the orphan sweep deleted it (a new message to it) is no longer reported to
   `IA2AContextLifecycle`. The hooks would have erased stored state, such as an agent's session, of a live conversation.
-  The sweep checks again before notifying. This narrows the window, but does not close it.
+  The sweep checks again before notifying. This narrows the window, but does not close it for hooks in general. The
+  Agent Framework hook is no longer affected: see below.
+- Agent Framework: stored session keys carry the context's creation time (partition `a2a.context`). A context the
+  sweep deleted and a new message created again under the same id has other keys, so the delete hook, which deletes the
+  deleted context's sessions, never reaches the new conversation's. The hook also deletes the keys without a creation
+  time, which an executor built with the public constructor uses.
+- Agent Framework: the session index is updated under an exclusive claim of the `ExecutionCoordinator`, atomic across
+  instances with the Postgres and Redis coordinators. Two callers that first saved in one context at the same moment
+  could each overwrite the other's entry, and that caller's session then outlived the context.
 - Agent Framework: a resumed or polled background run no longer repeats the reply as the status message. After a dropped
   stream, the status message was judged against only the content since the token, so a completed task's status message
   that repeats its artifacts was shown again.

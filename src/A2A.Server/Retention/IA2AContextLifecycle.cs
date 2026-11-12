@@ -12,6 +12,9 @@ namespace A2A.Server.Retention;
 ///     delete, on the instance that holds the sweep lease. The context is already gone, so an exception cannot undo it: it
 ///     is logged, and the other hooks and the rest of the sweep go on. The sweep does not call the hook again for that
 ///     context. Contexts that a store deletes by other means (an admin delete, a store's own cleanup) are not reported.
+///     A new message can create the context again under the same id right after the delete. The sweep then skips the
+///     hooks if it sees the context back, but that check can come too early. Key state by the context's
+///     <see cref="ContextRecord.CreatedAt" /> as well as its id: the context created again has a later one.
 /// </remarks>
 public interface IA2AContextLifecycle
 {

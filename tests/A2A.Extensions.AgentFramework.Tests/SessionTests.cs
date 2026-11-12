@@ -253,7 +253,7 @@ public class SessionTests
         while (store.Deletes == 0 && DateTime.UtcNow < deadline) await Task.Delay(50);
 
         Assert.Null(await host.App.Services.GetRequiredService<TaskStore>().GetContextAsync("", task.ContextId));
-        Assert.Equal(saved, Assert.Single(store.DeletedKeys));
+        Assert.Contains(saved, store.DeletedKeys);
         Assert.Empty(store.Keys);
     }
 
@@ -264,12 +264,69 @@ public class SessionTests
         await using var host = await StartAsync(FakeAIAgent.Replying("ok"), store);
         var hook = host.App.Services.GetServices<IA2AContextLifecycle>().Single();
 
-        await hook.OnContextDeletedAsync(new ContextRecord("t9", "bob", "ctx-1", DateTimeOffset.UtcNow), CancellationToken.None);
+        var created = new DateTimeOffset(2026, 11, 12, 10, 0, 0, TimeSpan.Zero).AddTicks(1234567);
 
-        var key = Assert.Single(store.DeletedKeys);
-        Assert.Equal("ctx-1", key.SessionId);
-        Assert.Equal("t:t9", Partition(key, "a2a.tenant"));
-        Assert.Equal("o:bob", Partition(key, "a2a.owner"));
+        await hook.OnContextDeletedAsync(new ContextRecord("t9", "bob", "ctx-1", created), CancellationToken.None);
+
+        // The key of the deleted context's generation (its creation time, in microseconds), then the one without a generation
+        // (an executor built without the task store).
+        Assert.Equal(2, store.DeletedKeys.Count);
+        Assert.All(store.DeletedKeys, key =>
+        {
+            Assert.Equal("ctx-1", key.SessionId);
+            Assert.Equal("t:t9", Partition(key, "a2a.tenant"));
+            Assert.Equal("o:bob", Partition(key, "a2a.owner"));
+        });
+        Assert.Equal("g:" + created.UtcTicks / 10, Partition(store.DeletedKeys[0], "a2a.context"));
+        Assert.False(store.DeletedKeys[1].Partitions!.ContainsKey("a2a.context"));
+    }
+
+    [Fact]
+    public async Task Deleting_a_context_does_not_reach_the_sessions_of_the_context_created_again_under_its_id()
+    {
+        // The sweep deleted the context; a new message to the same id created it again before the hook ran. The hook is told
+        // of the deleted context: it deletes that context's sessions, never the new conversation's.
+        var store = new FakeSessionStore();
+        await using var host = await StartAsync(FakeAIAgent.Replying("ok"), store);
+        var tasks = host.App.Services.GetRequiredService<TaskStore>();
+        var first = Task_(await host.Client(user: "alice").SendMessageAsync("hi"));
+        var old = (await tasks.GetContextAsync("", first.ContextId))!;
+        Assert.True(await tasks.DeleteAsync(new TaskKey("", "alice", first.Id)));
+        Assert.True(await tasks.DeleteContextAsync("", first.ContextId));
+        await Task.Delay(5); // a later creation time, also on a coarse clock
+        // As the engine does when a message it accepted reaches a context the sweep has just deleted.
+        await tasks.GetOrCreateContextAsync(new ContextRecord("", "alice", first.ContextId, DateTimeOffset.UtcNow));
+
+        Task_(await host.Client(user: "alice").SendMessageAsync("hello again", first.ContextId));
+        var recreated = (await tasks.GetContextAsync("", first.ContextId))!;
+        Assert.NotEqual(old.CreatedAt, recreated.CreatedAt);
+        Assert.Equal(2, store.Keys.Count); // one session per generation
+        var hook = host.App.Services.GetServices<IA2AContextLifecycle>().Single();
+
+        await hook.OnContextDeletedAsync(old, CancellationToken.None);
+
+        var left = Assert.Single(store.Keys);
+        Assert.Equal("g:" + recreated.CreatedAt.UtcTicks / 10, Partition(left, "a2a.context"));
+    }
+
+    [Fact]
+    public async Task Callers_that_first_save_in_a_shared_context_at_the_same_time_are_all_in_its_index()
+    {
+        // Each first save reads the index, adds its caller and saves it. The reads overlap (a slow store), so without the
+        // coordinator's claim every save but the last was overwritten, and those callers' sessions outlived the context.
+        var store = new FakeSessionStore { IndexReadDelay = TimeSpan.FromMilliseconds(50) };
+        await using var host = await StartAsync(FakeAIAgent.Replying("ok"), store,
+            services: s => s.Configure<A2AServerOptions>(o => o.ContextAccess = (_, _, _) => ValueTask.FromResult(true)));
+        var a = Task_(await host.Client(user: "alice").SendMessageAsync("hi"));
+        string[] others = ["bob", "carol", "dave", "erin", "frank"];
+
+        await Task.WhenAll(others.Select(u => host.Client(user: u).SendMessageAsync("me too", a.ContextId)));
+
+        var index = Assert.Single(store.IndexKeys);
+        Assert.Equal(["alice", .. others], store.IndexCallers(index)!.Order(StringComparer.Ordinal));
+        var context = (await host.App.Services.GetRequiredService<TaskStore>().GetContextAsync("", a.ContextId))!;
+        await host.App.Services.GetServices<IA2AContextLifecycle>().Single().OnContextDeletedAsync(context, CancellationToken.None);
+        Assert.Empty(store.Keys);
     }
 
     [Fact]
@@ -285,7 +342,9 @@ public class SessionTests
         Assert.Contains(store.Keys, k => Partition(k, "a2a.owner") == "o:bob");
         var hook = host.App.Services.GetServices<IA2AContextLifecycle>().Single();
 
-        await hook.OnContextDeletedAsync(new ContextRecord("", "alice", a.ContextId, DateTimeOffset.UtcNow), CancellationToken.None);
+        var context = (await host.App.Services.GetRequiredService<TaskStore>().GetContextAsync("", a.ContextId))!;
+
+        await hook.OnContextDeletedAsync(context, CancellationToken.None);
 
         Assert.DoesNotContain(store.Keys, k => k.SessionId == a.ContextId);
     }

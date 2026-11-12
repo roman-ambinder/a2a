@@ -221,4 +221,104 @@ public sealed class GrpcChannelPoolTests
         Assert.Same(GrpcChannelPool.For(null), GrpcChannelPool.For(null));
         Assert.NotSame(GrpcChannelPool.For(options), GrpcChannelPool.For(new GrpcChannelOptions()));
     }
+
+    // ---- every kind of call releases its lease ----
+
+    private static readonly global::Grpc.Core.Metadata V10 = new() { { "a2a-version", "1.0" } };
+
+    /// <summary>A client-streaming method the server does not have: the call starts, and ends with Unimplemented.</summary>
+    private static readonly global::Grpc.Core.Method<byte[], byte[]> UnknownClientStreaming = new(
+        global::Grpc.Core.MethodType.ClientStreaming, "test.Unknown", "Upload",
+        global::Grpc.Core.Marshallers.Create(b => b, b => b), global::Grpc.Core.Marshallers.Create(b => b, b => b));
+
+    [Fact]
+    public async Task A_blocking_unary_call_releases_its_channel()
+    {
+        await using var host = await GrpcHost.StartAsync();
+        var (pool, _, disposed) = Pool(host, 0, TimeSpan.Zero, new Clock());
+        var raw = new Lf.A2a.V1.A2AService.A2AServiceClient(pool.CallInvoker(host.BaseAddress));
+
+        var ex = Assert.Throws<global::Grpc.Core.RpcException>(() =>
+            raw.GetTask(new Lf.A2a.V1.GetTaskRequest { Id = "nope" }, V10));
+        Assert.Equal(global::Grpc.Core.StatusCode.NotFound, ex.StatusCode);
+        Assert.Single(disposed);
+        Assert.Equal(0, pool.Count);
+    }
+
+    [Fact]
+    public async Task A_duplex_call_holds_its_channel_until_it_is_disposed()
+    {
+        await using var host = await GrpcHost.StartAsync();
+        var (pool, _, disposed) = Pool(host, 0, TimeSpan.Zero, new Clock());
+        var raw = new Lf.A2a.V1.A2AService.A2AServiceClient(pool.CallInvoker(host.BaseAddress));
+
+        var call = raw.SendLiveMessage(new global::Grpc.Core.Metadata { { "a2a-version", "1.1" } });
+        Assert.Empty(disposed); // in use while the call is open
+        call.Dispose();
+        Assert.Single(disposed);
+        Assert.Equal(0, pool.Count);
+    }
+
+    [Fact]
+    public async Task A_client_streaming_call_releases_its_channel_when_the_response_arrives()
+    {
+        await using var host = await GrpcHost.StartAsync();
+        var (pool, _, disposed) = Pool(host, 0, TimeSpan.Zero, new Clock());
+        var invoker = pool.CallInvoker(host.BaseAddress);
+
+        var call = invoker.AsyncClientStreamingCall(UnknownClientStreaming, null, new global::Grpc.Core.CallOptions());
+        var ex = await Assert.ThrowsAsync<global::Grpc.Core.RpcException>(() => call.ResponseAsync);
+        Assert.Equal(global::Grpc.Core.StatusCode.Unimplemented, ex.StatusCode);
+        Assert.Single(disposed); // released by the response, before the call is disposed
+        call.Dispose();
+        Assert.Single(disposed); // and only once
+    }
+
+    [Fact]
+    public void A_call_that_cannot_start_releases_its_lease()
+    {
+        // The pool hands out a channel that is already disposed, so every kind of call fails to start.
+        var created = 0;
+        var pool = new GrpcChannelPool(address =>
+        {
+            created++;
+            var channel = GrpcChannel.ForAddress(address);
+            channel.Dispose();
+            return channel;
+        }, _ => { }, 4, TimeSpan.FromHours(1), new Clock());
+        var invoker = pool.CallInvoker(Agent(1));
+        var raw = new Lf.A2a.V1.A2AService.A2AServiceClient(invoker);
+
+        Assert.Throws<ObjectDisposedException>(() => raw.GetTaskAsync(new Lf.A2a.V1.GetTaskRequest { Id = "t" }));
+        Assert.Throws<ObjectDisposedException>(() => raw.SendStreamingMessage(new Lf.A2a.V1.SendMessageRequest()));
+        Assert.Throws<ObjectDisposedException>(() => raw.SendLiveMessage());
+        Assert.Throws<ObjectDisposedException>(() =>
+            invoker.AsyncClientStreamingCall(UnknownClientStreaming, null, new global::Grpc.Core.CallOptions()));
+
+        // Every failed start gave its lease back: the channel is idle, so a lease count of zero lets it be evicted.
+        using (var lease = pool.Acquire(Agent(1))) Assert.Equal(1, created);
+        Assert.Equal(1, pool.Count);
+    }
+
+    [Fact]
+    public void A_transport_made_from_an_address_owns_and_disposes_its_channel()
+    {
+        var transport = new GrpcTransport(new Uri("http://localhost:1/"));
+        transport.Dispose();
+        transport.Dispose(); // a second dispose is harmless
+    }
+
+    [Theory]
+    [InlineData("agent.example:443", "https://agent.example/")]
+    [InlineData("//agent.example:8443", "https://agent.example:8443/")]
+    [InlineData("http://agent.example:8080/", "http://agent.example:8080/")]
+    public void A_card_url_without_a_scheme_is_read_as_https(string url, string expected) =>
+        Assert.Equal(new Uri(expected), GrpcTransport.ParseAddress(url));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("agent example")]
+    public void The_factory_refuses_a_url_it_cannot_read(string url) =>
+        Assert.False(new GrpcTransportFactory().CanCreate(new AgentInterface { Url = url, ProtocolBinding = ProtocolBindings.Grpc }));
 }
