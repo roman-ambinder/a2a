@@ -1,6 +1,6 @@
 # ADR-004: The list copies made for each task event
 
-**Status:** Proposed (2026-11-12)
+**Status:** Accepted (2026-11-12)
 **Date:** 2026-11-12
 **Deciders:** Repository owner
 
@@ -55,8 +55,8 @@ The list copy explains most of what the server allocates. A status update with a
 
 1. **Adopt option B.** History, timeline and artifact parts share one buffer per list inside the model types. The public property types stay `List<T>`.
 2. **Do not change the public types (option A)** in the 0.x line. Look at it again before 1.0, with what option B taught.
-3. **Do not coalesce parts, and do not cap the stored lists by count (option C).** A count cap can come later as an opt-in limit if a user asks for one.
-4. Until option B ships, the durable-stores guide says a long task costs O(n) per event in memory (part of option D).
+3. **Do not coalesce parts, and do not cap the stored lists by count to fix the copies (option C).** The history stays uncapped. The timeline does have a count cap, `A2ALimits.MaxTimelineEntries` (default 1000), but it was added separately, in the same release as this ADR, to stop status updates without a message from growing the stored task forever (`MaxTaskBytes` does not count them). It is a storage limit, not a fix for the copy cost, and option B supports it: dropping the oldest entries only moves the start of the shared buffer. A cap on the history can come later as an opt-in limit if a user asks for one.
+4. Until option B ships, the durable-stores guide says a long task costs O(n) per event in memory (part of option D). Option B shipped with this ADR, so the guide describes the shipped cost instead (see "Results").
 
 ## Options considered
 
@@ -136,17 +136,38 @@ Today 4,000 status messages cost about 150 MB of short-lived allocation and 0.18
   - Option A before 1.0.
   - History and timeline rows for Postgres (the same idea as ADR-003 option C), if status-heavy tasks show up in WAL.
 
+## Results
+
+Built as decided. What differs from the sketch in option B:
+
+- **The additive methods append in place on a copy the caller owns**, instead of a `CopyForUpdate` overload that takes the new history message and timeline entry: `ModelCopies.AppendToHistory(this AgentTask, Message)`, `AppendToTimeline(this AgentTask, TimelineEntry, int maxEntries = 0)` (experimental, like `TimelineEntry`) and `AppendParts(this Artifact, IEnumerable<Part>)`. Each does what `(task.History ??= []).Add(m)`, the timeline trim and `Parts.AddRange` did, without building the list. The follow-up commit (`A2ARequestHandler`) adds the history message first and the timeline entry later, once it knows the generation, and the batch path adds more parts to the artifact copy it already owns, so one method per list fits every call site. `CopyForUpdate` and `CopyWithParts` keep their signatures and become O(1) in the list lengths.
+- **The timeline trim keeps a start offset.** A version of the shared buffer is (array, start, count); `MaxTimelineEntries` moves the start. A growth copies only the kept entries into an array twice their count, so with the 1000-entry cap the dropped prefix costs one 1000-entry copy per 1000 appends. Building a new list on each trim would have cost a 1000-entry copy per event (about 32 MB for 4,000 events), more than the whole target.
+- **Thread safety.** A slot of the shared array is written once, by the appender that claimed it with a compare-and-swap on the array's high-water mark, before the version that sees it exists. Only a version that ends at the mark can claim; a fork from an older version, a second append from the same version, or an append that does not fit, copies its own items. A version never reads past its own count, so it never sees a slot it did not have when it was made. The first read of a property builds a `List<T>` and publishes it with `Interlocked.CompareExchange`: concurrent first readers get the same list, and from then on that list is the instance's content (a copy copies it once, O(n)). The setter replaces both.
+- **Serializing stores** read every list of every version, so they build each one: O(n) per commit, as before. Measured with an in-process store that serializes the task on each commit (a scratch run, not in the suite): 1,000 status messages 292.50 MB before, 300.54 MB after; 2,000: 981.33 MB before, 1,008.60 MB after (+3%, about the same time). The serializer's own output dominates.
+
+`TaskCopyBenchmark`, `--job short`, the same 4-core dev machine (not the CI runner), before (`88b2a55`, the benchmark alone) and after:
+
+| Benchmark | Before | After | Change |
+|---|---:|---:|---:|
+| `StatusMessages2000` | 33.69 MB, 30.9 ms | 6.74 MB, 19.8 ms | −80% |
+| `StatusMessages4000` | 101.53 MB, 90.5 ms | 13.70 MB, 40.4 ms | −87% |
+| `Appends1000` | 6.72 MB, 12.1 ms | 2.69 MB, 8.4 ms | −60% |
+| `Appends2000` | 21.08 MB, 20.0 ms | 5.61 MB, 14.2 ms | −73% |
+| `StreamingTaskBenchmark.ThousandEvents` | 2.80 MB, 6.1 ms | 2.70 MB, 6.4 ms | −3.5% |
+
+Doubling the events now multiplies the allocation by 2.03 (status) and 2.09 (appends), against 3.0 and 3.1 before. 4,000 status messages allocate 13.70 MB, under the 20 MB target. The status case allocates less than the review's 143 MB before the change too, because `MaxTimelineEntries` already bounded the timeline copy at 1000 entries.
+
 ## Action items
 
-1. [ ] **Benchmark first.** Add `TaskCopyBenchmark` to `tests/A2A.Benchmarks`, with two cases: 4,000 status updates with a message, and 2,000 single-commit appends. For the appends, wrap the store without `IBatchTaskCommit`, as `tests/A2A.Benchmarks.Postgres/Program.cs:92-97` does, so no timer is needed. Regenerate `baseline.json` from the CI runner, as `tests/A2A.Benchmarks/README.md` says.
-2. [ ] **Build option B.**
+1. [x] **Benchmark first.** Add `TaskCopyBenchmark` to `tests/A2A.Benchmarks`, with two cases: 4,000 status updates with a message, and 2,000 single-commit appends. For the appends, wrap the store without `IBatchTaskCommit`, as `tests/A2A.Benchmarks.Postgres/Program.cs:92-97` does, so no timer is needed. Regenerate `baseline.json` from the CI runner, as `tests/A2A.Benchmarks/README.md` says. (Added with a twin at half the size for each case. The baseline still has to be regenerated from a CI run of this branch: until then the benchmarks job fails on the four new entries.)
+2. [x] **Build option B.**
    - Add the internal `AppendList<T>` to `A2A.Protocol`, with the lazy properties on `AgentTask` and `Artifact`.
    - Add the additive copy methods and record them in `PublicAPI.Unshipped.txt`.
    - Switch the engine call sites listed above.
    - Add tests next to `tests/A2A.Tests/ModelCopyTests.cs` and `TaskStoreOwnershipTests.cs`, and run `tests/A2A.NetStandard.Smoke`.
-3. [ ] **Measure success.** Compare with `python3 tests/A2A.Benchmarks/compare.py … --threshold 0.10`.
+3. [x] **Measure success.** See "Results". `tests/A2A.Benchmarks.Postgres` needs Docker and was not re-run; the in-process serializing store above stands in for it. Compare with `python3 tests/A2A.Benchmarks/compare.py … --threshold 0.10`.
    - `TaskCopyBenchmark` should allocate O(n). Doubling n should about double the allocation, against about 3.5 times today. Target: under 20 MB for 4,000 status messages, against about 150 MB.
    - `StreamingTaskBenchmark.ThousandEvents` (baseline 5,668,262 bytes) must not regress.
    - Re-run `tests/A2A.Benchmarks.Postgres` to confirm the serializing path is no worse.
-4. [ ] **Versioning.** Option B is additive: a minor version, a `CHANGELOG.md` entry at release, and no analyzer. An analyzer and code fix in `src/A2A.Analyzers` / `A2A.Analyzers.CodeFixes` would only help option A, by rewriting `.Add` calls. It is not needed here.
-5. [ ] **Docs.** Until item 2 ships, say in the durable-stores guide that a long task costs O(n) per event in memory.
+4. [x] **Versioning.** Option B is additive: a minor version, a `CHANGELOG.md` entry at release, and no analyzer. An analyzer and code fix in `src/A2A.Analyzers` / `A2A.Analyzers.CodeFixes` would only help option A, by rewriting `.Add` calls. It is not needed here.
+5. [x] **Docs.** Item 2 shipped, so the durable-stores guide describes the shipped cost: O(1) per event in the engine, O(n) once per version whose lists are read.
