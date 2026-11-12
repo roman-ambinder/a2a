@@ -7,6 +7,7 @@
     "A2A.Client": 96.8,
     "A2A.Client.DependencyInjection": 98.5,
     "A2A.Client.Grpc": 92.5,
+    "A2A.Client.Grpc.V0_3Compat": 89.7,
     "A2A.Client.Identity.Aws": 97.5,
     "A2A.Client.Identity.Azure": 99.1,
     "A2A.Client.Postgres": 98.5,
@@ -20,12 +21,13 @@
     "A2A.Server": 92.9,
     "A2A.Server.AspNetCore": 95.4,
     "A2A.Server.Grpc": 94.1,
+    "A2A.Server.Grpc.V0_3Compat": 93.0,
     "A2A.Server.Postgres": 94.9,
     "A2A.Server.Redis": 87.8,
     "A2A.Server.Storage.AzureBlob": 94.8,
     "A2A.Server.Storage.S3": 95.2,
     "A2A.Server.TypedSkills": 94.5,
-    "A2A.Server.V0_3Compat": 88.1,
+    "A2A.Server.V0_3Compat": 91.4,
     "A2A.TestKit": 98.8,
     "A2A.V0_3Compat": 96.1
   }
