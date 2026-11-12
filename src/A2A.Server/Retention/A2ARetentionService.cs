@@ -504,6 +504,12 @@ public sealed class A2ARetentionService : BackgroundService
             {
                 if (!await _tasks.DeleteContextAsync(context.Tenant, context.ContextId, c).ConfigureAwait(false))
                     return false;
+                // A new message may have put the context back right after the delete (the engine recreates a context this
+                // sweep removed). Then its stored state belongs to a live conversation again: the hooks are not told. This
+                // narrows the window to this check; it does not close it.
+                if (_lifecycles.Length > 0 &&
+                    await _tasks.GetContextAsync(context.Tenant, context.ContextId, c).ConfigureAwait(false) is not null)
+                    return true;
                 await NotifyContextDeletedAsync(context, c).ConfigureAwait(false);
                 return true;
             },

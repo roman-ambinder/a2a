@@ -158,6 +158,14 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- Anomaly signals: a CancelTask is counted only after its tenant resolved to an agent. One caller could name a made-up
+  tenant in each call, take a tracked entry each time, and fill `MaxTrackedCallers`, so that no other caller was watched.
+- Retention: a context recreated right after the orphan sweep deleted it (a new message to it) is no longer reported to
+  `IA2AContextLifecycle`. The hooks would have erased stored state, such as an agent's session, of a live conversation.
+  The sweep checks again before notifying. This narrows the window, but does not close it.
+- Agent Framework: a resumed or polled background run no longer repeats the reply as the status message. After a dropped
+  stream, the status message was judged against only the content since the token, so a completed task's status message
+  that repeats its artifacts was shown again.
 - v0.3 gRPC client: an `UNAVAILABLE` status (a dropped connection, a restarting server) carries HTTP 503, as on the v1
   gRPC path. A v0.3 gRPC stream now reconnects with backoff instead of ending with Internal.
 - `V03CompatClientFactory`: with `RequireExactProtocolVersion`, a card whose v1.x interfaces the exact-version rule
