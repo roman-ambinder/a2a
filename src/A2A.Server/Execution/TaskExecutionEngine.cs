@@ -853,12 +853,15 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                                     MutationId = createId
                                 }).ConfigureAwait(false);
                             }
-                            catch (Exception ex) when (createIds is not null && ex is not OperationCanceledException)
+                            catch (Exception ex) when (ex is not OperationCanceledException &&
+                                                       (createIds is not null || ex is DuplicateTaskException))
                             {
                                 // As for later commits: the create may be stored although the call failed (the answer was
                                 // lost, or a store's own retry met its first attempt and reported a duplicate task). Then the
                                 // task exists and the run carries on; otherwise the failure is handled below, as before.
-                                if (await FindStoredCommitAsync(key, createIds, ex).ConfigureAwait(false) is not { } found)
+                                // Without the lookup only the duplicate can be checked, by comparing the stored task.
+                                if (await FindStoredCreateAsync(key, initial.Task, createIds, ex).ConfigureAwait(false) is not
+                                    { } found)
                                     throw;
                                 committed = found;
                             }
@@ -1289,6 +1292,39 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         }
 
         return null;
+    }
+
+    /// <summary>
+    ///     After the commit that creates a task failed with <paramref name="failure" />: whether the task is stored all the
+    ///     same. With <see cref="ITaskCommitLookup" />, by the mutation ids. Without it, only after a
+    ///     <see cref="DuplicateTaskException" /> (a store's own retry that met its first attempt; new task ids are random,
+    ///     so another writer does not create the same one): when the stored task is at version 1 and serializes to the
+    ///     same bytes as <paramref name="initial" />. Null otherwise; a lost answer without the lookup cannot be told from a
+    ///     failed write, and fails as before.
+    /// </summary>
+    private async ValueTask<CommitResult?> FindStoredCreateAsync(TaskKey key, AgentTask initial,
+        List<string>? mutationIds, Exception failure)
+    {
+        if (mutationIds is not null) return await FindStoredCommitAsync(key, mutationIds, failure).ConfigureAwait(false);
+        if (failure is not DuplicateTaskException) return null;
+        try
+        {
+            // The sequence first, as in FindOwnWriteAsync: a task still at version 1 has had no commit after this one.
+            var sequence = await _events.LastSequenceAsync(key, CancellationToken.None).ConfigureAwait(false);
+            if (await _tasks.GetAsync(key, CancellationToken.None).ConfigureAwait(false) is not { } stored ||
+                stored.Version != 1 ||
+                !A2AJson.SerializeToUtf8Bytes(initial).AsSpan()
+                    .SequenceEqual(A2AJson.SerializeToUtf8Bytes(stored.Task)))
+                return null;
+
+            ServerLog.CommitFoundAfterFailure(Logger, failure, key.TaskId, sequence);
+            return new CommitResult(stored, sequence);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ServerLog.CommitLookupFailed(Logger, ex, key.TaskId);
+            return null;
+        }
     }
 
     /// <summary>
