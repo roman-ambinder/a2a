@@ -353,8 +353,10 @@ internal sealed partial class V03Surface
                      ?? throw new A2AException(A2AErrorCode.InvalidAgentResponse, "Empty stream");
         WriteExtensions(http, call);
         HttpPlumbing.StartEventStream(http);
-        await HttpPlumbing.PumpAsync(http, primed,
-            evt => V03Json.ToUtf8(V03JsonCodec.WriteSuccess(id, V03JsonCodec.Instance.WriteStreamEvent(evt.Event))),
+        // Each event's result is encoded once and shared by every subscriber; the envelope (with this caller's id) is
+        // written around it.
+        await HttpPlumbing.PumpAsync(http, primed, V03StreamEncoding.JsonRpcResult, V03StreamEncoding.SuccessPrefix(id),
+            V03StreamEncoding.EnvelopeEnd,
             ex => V03Json.ToUtf8(V03JsonCodec.WriteError(id, HttpPlumbing.Normalize(ex, _logger, _includeDetails))),
             _keepAlive, _logger).ConfigureAwait(false);
     }
@@ -652,7 +654,7 @@ internal sealed partial class V03Surface
             WriteExtensions(http, call);
             HttpPlumbing.StartEventStream(http);
             await HttpPlumbing.PumpAsync(http, primed,
-                evt => V03Json.ToUtf8(V03ProtoJsonCodec.Instance.WriteStreamEvent(evt.Event)),
+                V03StreamEncoding.RestEvent, // encoded once per event, shared by every subscriber
                 ex =>
                 {
                     var a2a = HttpPlumbing.Normalize(ex, _logger, _includeDetails);
