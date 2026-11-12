@@ -121,6 +121,32 @@ public static class ModelCopies
     }
 
     /// <summary>
+    ///     The number of parts of <paramref name="artifact" />, as <c>artifact.Parts.Count</c> (0 when <c>Parts</c> is
+    ///     null), without building the list when it was not read (<see cref="CopyWithParts" />): O(1). For a store that
+    ///     keeps an artifact's parts apart from the task and so need not read them all on each write.
+    /// </summary>
+    public static int CountParts(this Artifact artifact)
+    {
+        ArgumentNullException.ThrowIfNull(artifact);
+        return artifact.PartsStore.Count;
+    }
+
+    /// <summary>
+    ///     A new list with the last <paramref name="count" /> parts of <paramref name="artifact" />, in order, as
+    ///     <c>artifact.Parts.GetRange(artifact.Parts.Count - count, count)</c>, without building the list when it was not
+    ///     read (<see cref="CopyWithParts" />): O(<paramref name="count" />). The <see cref="Part" /> instances are shared.
+    ///     For a store that writes only the parts an append added (see <see cref="CountParts" />).
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    ///     <paramref name="count" /> is negative or more than the artifact has.
+    /// </exception>
+    public static List<Part> CopyLastParts(this Artifact artifact, int count)
+    {
+        ArgumentNullException.ThrowIfNull(artifact);
+        return artifact.PartsStore.GetLast(count);
+    }
+
+    /// <summary>
     ///     Copies everything reachable from a task. Every message, artifact, part, list and dictionary is new,
     ///     <see cref="JsonElement" /> values are cloned, and raw bytes are copied. Only immutable values
     ///     (strings, URIs, enums, numbers) are shared. Serializes to the same JSON as the original.

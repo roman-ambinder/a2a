@@ -433,6 +433,75 @@ public sealed class PostgresArtifactRowsTests(PostgresFixture db)
         Assert.Empty(copy.Parts);
         foreach (var (name, value) in values.Where(v => v.Key != nameof(Artifact.Parts)))
             Assert.Equal(value, typeof(Artifact).GetProperty(name)!.GetValue(copy));
+
+        // CopyParts, the way back: every property but Parts comes from the parsed artifact, the parts from the source.
+        var parsed = PostgresArtifactRows.WithoutParts(artifact);
+        var stored = new AgentTask { Id = "t", ContextId = "c", Status = new() { State = TaskState.Working }, Artifacts = [parsed] };
+        var source = new AgentTask { Id = "t", ContextId = "c", Status = new() { State = TaskState.Working }, Artifacts = [artifact.CopyWithParts([Part.FromText("y")])] };
+        PostgresArtifactRows.CopyParts(source, stored);
+        var back = Assert.Single(stored.Artifacts!);
+        Assert.Equal("xy", back.GetText());
+        foreach (var (name, _) in values.Where(v => v.Key != nameof(Artifact.Parts)))
+        {
+            var want = typeof(Artifact).GetProperty(name)!.GetValue(parsed);
+            var got = typeof(Artifact).GetProperty(name)!.GetValue(back);
+            if (want is null || want.GetType().IsValueType) Assert.Equal(want, got);
+            else Assert.Same(want, got);
+        }
+    }
+
+    /// <summary>ADR-004's internal probe (A2A.Protocol has no InternalsVisibleTo for this assembly): whether the list was built.</summary>
+    private static bool PartsBuilt(Artifact artifact)
+    {
+        var store = typeof(Artifact).GetField("PartsStore", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(artifact)!;
+        return (bool)store.GetType().GetProperty("IsMaterialized")!.GetValue(store)!;
+    }
+
+    [Fact]
+    public async Task Commits_do_not_build_the_part_lists()
+    {
+        // ADR-004: the engine's artifact copies share their parts until someone reads Artifact.Parts. With the parts in
+        // rows the store has no reason to read them all: it counts them and reads only the appended ones. So neither the
+        // task it is given nor the one it returns has its list built, by single commits, a batch and a compaction alike,
+        // and the next copy stays O(1).
+        var (store, schema) = await CreateAsync(o => o.ArtifactRowsCompactAt = 4);
+        var record = await CreateTaskAsync(store);
+        var (next, evt) = Append(record, "a", "p0");
+        record = (await store.CommitAsync(new TaskCommit(record with { Task = next }, record.Version, evt, []))).Record;
+        Assert.False(PartsBuilt(record.Task.Artifacts![0])); // the first artifact's list was set; the returned copy shares it
+
+        var expected = new List<string> { "p0" };
+        for (var i = 1; i <= 9; i++)
+        {
+            (next, evt) = Append(record, "a", $"p{i}", $"q{i}");
+            expected.AddRange([$"p{i}", $"q{i}"]);
+            Assert.False(PartsBuilt(next.Artifacts![0]));
+            var committed = await store.CommitAsync(new TaskCommit(record with { Task = next }, record.Version, evt, []));
+            Assert.False(PartsBuilt(next.Artifacts![0]));
+            Assert.False(PartsBuilt(committed.Record.Task.Artifacts![0]));
+            record = committed.Record;
+            Assert.InRange(await RowsAsync(schema, "a"), 1, 4); // compacted along the way
+        }
+
+        var events = new List<BatchedEvent>();
+        var batched = record;
+        foreach (var t in new[] { "x", "y", "z" })
+        {
+            var (n, e) = Append(batched, "a", t);
+            expected.Add(t);
+            batched = batched with { Task = n };
+            events.Add(new BatchedEvent(EventEncoder.Encode(0, e), []));
+        }
+
+        var result = await store.CommitBatchAsync(new TaskBatchCommit(batched, record.Version, events));
+        Assert.False(PartsBuilt(batched.Task.Artifacts![0]));
+        Assert.False(PartsBuilt(result.Record.Task.Artifacts![0]));
+
+        // Reading them now gives what was committed, and what the database holds.
+        var read = (await store.GetAsync(Key))!.Task;
+        Assert.Equal(expected, read.Artifacts![0].Parts.OfType<TextPart>().Select(p => p.Text));
+        Assert.Equal(Canonical(batched.Task), Canonical(read));
+        Assert.Equal(Canonical(batched.Task), Canonical(result.Record.Task));
     }
 
     /// <summary>The engine end to end: an agent streams one artifact in many chunks onto Postgres with the option on.</summary>

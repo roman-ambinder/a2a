@@ -26,7 +26,12 @@ using Testcontainers.PostgreSql;
 //
 // Run: dotnet run -c Release --project tests/A2A.Benchmarks.Postgres
 // It starts postgres:16-alpine with Testcontainers (Docker), or uses A2A_BENCH_POSTGRES as a connection string.
+//
+// With the argument "paced" it measures memory instead: an agent that waits 1 ms before each append (so chunks do not
+// queue into batches, as with a model streaming tokens), N appends to one artifact, and the bytes the process allocated
+// during the SendMessage (GC.GetTotalAllocatedBytes), per append.
 
+var paced = args.Contains("paced");
 var cases = new (int Chunks, int ChunkBytes)[] { (1000, 100), (1000, 1000), (250, 10_000) };
 var external = Environment.GetEnvironmentVariable("A2A_BENCH_POSTGRES");
 PostgreSqlContainer? container = null;
@@ -39,6 +44,23 @@ if (string.IsNullOrEmpty(external))
 var connectionString = external ?? container!.GetConnectionString();
 try
 {
+    if (paced)
+    {
+        Console.WriteLine("| Appends | Artifact rows | Commits | Allocated MB | KB / append | Total ms |");
+        Console.WriteLine("|---:|---|---:|---:|---:|---:|");
+        await Bench.RunAsync(connectionString, 50, 100, batching: true, rows: true, warmUp: true, paced: true);
+        foreach (var n in new[] { 500, 2000 })
+            foreach (var rows in new[] { true, false })
+            {
+                var r = await Bench.RunAsync(connectionString, n, 100, batching: true, rows, warmUp: false, paced: true);
+                Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"| {n} | {(rows ? "on" : "off")} | {r.Commits} | {r.Allocated / 1048576.0:F2} | {r.Allocated / 1024.0 / n:F1} | " +
+                    $"{r.Elapsed.TotalMilliseconds:F0} |"));
+            }
+
+        return;
+    }
+
     Console.WriteLine("| Chunks | Chunk bytes | Batch commits | Artifact rows | Commits | Total ms | ms / chunk | WAL MB | WAL / payload |");
     Console.WriteLine("|---:|---:|---|---|---:|---:|---:|---:|---:|");
     await Bench.RunAsync(connectionString, 50, 100, batching: true, rows: false, warmUp: true); // JIT, pool, schema
@@ -61,8 +83,8 @@ internal static class Bench
 {
     private const string BaseUrl = "http://localhost/a2a";
 
-    public static async Task<(int Commits, TimeSpan Elapsed, long WalBytes)> RunAsync(string connectionString, int chunks,
-        int chunkBytes, bool batching, bool rows, bool warmUp)
+    public static async Task<(int Commits, TimeSpan Elapsed, long WalBytes, long Allocated)> RunAsync(
+        string connectionString, int chunks, int chunkBytes, bool batching, bool rows, bool warmUp, bool paced = false)
     {
         var schema = "bench_" + Guid.NewGuid().ToString("N")[..12];
         await using var db = NpgsqlDataSource.Create(connectionString);
@@ -79,7 +101,7 @@ internal static class Bench
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
-        builder.Services.AddSingleton(new ChunkPlan(chunks, chunkBytes));
+        builder.Services.AddSingleton(new ChunkPlan(chunks, chunkBytes, paced));
         var a2a = builder.Services.AddA2AServer(o =>
         {
             o.AgentCard = card;
@@ -106,9 +128,11 @@ internal static class Bench
         var client = new A2AClient(new JsonRpcTransport(app.GetTestClient(), new Uri(BaseUrl), options), options, card);
 
         var before = await WalLsnAsync(db);
+        var allocatedBefore = GC.GetTotalAllocatedBytes(true);
         var watch = Stopwatch.StartNew();
         var task = ((TaskResponse)await client.SendMessageAsync("go")).Task;
         watch.Stop();
+        var allocated = GC.GetTotalAllocatedBytes(true) - allocatedBefore;
         var after = await WalLsnAsync(db);
         if (task.Status.State != TaskState.Completed)
             throw new InvalidOperationException($"The task ended {task.Status.State}.");
@@ -120,7 +144,7 @@ internal static class Bench
 
         await app.StopAsync();
         await using (var drop = db.CreateCommand($"DROP SCHEMA \"{schema}\" CASCADE")) await drop.ExecuteNonQueryAsync();
-        return (counter.Commits, watch.Elapsed, await WalDiffAsync(db, after, before));
+        return (counter.Commits, watch.Elapsed, await WalDiffAsync(db, after, before), allocated);
     }
 
     private static async Task<string> WalLsnAsync(NpgsqlDataSource db)
@@ -138,9 +162,12 @@ internal static class Bench
     }
 }
 
-internal sealed record ChunkPlan(int Chunks, int ChunkBytes);
+internal sealed record ChunkPlan(int Chunks, int ChunkBytes, bool Paced);
 
-/// <summary>Streams one artifact in <see cref="ChunkPlan.Chunks"/> chunks as fast as it can, then completes.</summary>
+/// <summary>
+/// Streams one artifact in <see cref="ChunkPlan.Chunks"/> chunks as fast as it can (or 1 ms apart when
+/// <see cref="ChunkPlan.Paced"/>), then completes.
+/// </summary>
 internal sealed class ChunkAgent(ChunkPlan plan) : IAgentExecutor
 {
     public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct)
@@ -155,8 +182,12 @@ internal sealed class ChunkAgent(ChunkPlan plan) : IAgentExecutor
         await updater.StartWorkAsync(cancellationToken: ct);
         var id = await updater.AddArtifactAsync([Part.FromText(Chunk())], name: "out", cancellationToken: ct);
         for (var i = 1; i < plan.Chunks; i++)
+        {
+            if (plan.Paced) await Task.Delay(1, ct);
             await updater.AddArtifactAsync([Part.FromText(Chunk())], artifactId: id, append: true,
                 lastChunk: i == plan.Chunks - 1, cancellationToken: ct);
+        }
+
         await updater.CompleteAsync(cancellationToken: ct);
     }
 }
