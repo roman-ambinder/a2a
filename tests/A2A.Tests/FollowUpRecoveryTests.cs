@@ -89,8 +89,16 @@ public sealed class FollowUpRecoveryTests
 
     private static Task<Fixture> StartCompletingAsync() => Fixture.StartAsync((_, u, ct) => u.CompleteAsync("done", ct).AsTask());
 
-    private static async Task<AgentTask> NewTaskAsync(Fixture f) =>
-        (await f.Host.Handler.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, Call()).WaitAsync(Wait)).RequireTask();
+    /// <summary>
+    /// A new task that asks for input. The send returns once the task is input-required, which can be before its execution
+    /// has ended; a retry in that window finds it running and is taken for a duplicate, so wait until it has ended.
+    /// </summary>
+    private static async Task<AgentTask> NewTaskAsync(Fixture f)
+    {
+        var task = (await f.Host.Handler.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, Call()).WaitAsync(Wait)).RequireTask();
+        await f.Host.WaitIdleAsync().WaitAsync(Wait);
+        return task;
+    }
 
     private static Task<SendMessageResponse> SendAsync(Fixture f, Message message, bool returnImmediately = false) =>
         f.Host.Handler.SendMessageAsync(new SendMessageRequest
