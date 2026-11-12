@@ -29,11 +29,14 @@ public class AmbiguousCommitTests
         : new ConcurrencyException(key, expected);
 
     /// <summary>
-    /// Wraps the in-memory store. The <paramref name="failingArtifactCommit"/>th single commit of an artifact event is
-    /// applied, and then the call fails as <paramref name="failure"/> says. Every other call goes straight through.
+    /// Wraps the in-memory store. The <paramref name="failingArtifactCommit"/>th single commit of an event that
+    /// <paramref name="counted"/> picks (default: artifact events) is applied, and then the call fails as
+    /// <paramref name="failure"/> says. Every other call goes straight through.
     /// </summary>
-    public class AmbiguousTaskStore(InMemoryTaskStore inner, Failure failure, int failingArtifactCommit) : TaskStore
+    public class AmbiguousTaskStore(InMemoryTaskStore inner, Failure failure, int failingArtifactCommit,
+        Func<StreamResponse, bool>? counted = null) : TaskStore
     {
+        private readonly Func<StreamResponse, bool> _counted = counted ?? IsArtifact;
         private int _artifactCommits;
         protected InMemoryTaskStore Inner => inner;
         protected Failure Mode => failure;
@@ -41,7 +44,7 @@ public class AmbiguousCommitTests
         public override async ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
         {
             var result = await inner.CommitAsync(commit, ct);
-            if (commit.Event.Event is ArtifactUpdateEvent && Interlocked.Increment(ref _artifactCommits) == failingArtifactCommit)
+            if (_counted(commit.Event.Event) && Interlocked.Increment(ref _artifactCommits) == failingArtifactCommit)
                 throw Make(failure, commit.Record.Key, commit.ExpectedVersion);
             return result;
         }
@@ -59,6 +62,9 @@ public class AmbiguousCommitTests
         public override ValueTask<IReadOnlyList<ContextRecord>> ListOrphanContextsAsync(DateTimeOffset createdBefore, int max, CancellationToken ct = default) => inner.ListOrphanContextsAsync(createdBefore, max, ct);
         public override ValueTask<TaskRecord?> GetForMaintenanceAsync(string tenant, string taskId, CancellationToken ct = default) => inner.GetForMaintenanceAsync(tenant, taskId, ct);
     }
+
+    private static bool IsArtifact(StreamResponse e) => e is ArtifactUpdateEvent;
+    private static bool IsStatus(StreamResponse e) => e is StatusUpdateEvent;
 
     /// <summary>The same store, able to tell whether a commit was stored (it asks the in-memory store).</summary>
     public sealed class LookupStore(InMemoryTaskStore inner, Failure failure, int failingArtifactCommit)
@@ -171,14 +177,16 @@ public class AmbiguousCommitTests
     /// Without the lookup: at the <paramref name="failingArtifactCommit"/>th artifact commit, another writer changes the task
     /// first (it adds task metadata), so the commit meets a real version conflict and is not stored.
     /// </summary>
-    public sealed class OtherWriterStore(InMemoryTaskStore inner, int failingArtifactCommit)
+    public sealed class OtherWriterStore(InMemoryTaskStore inner, int failingArtifactCommit,
+        Func<StreamResponse, bool>? counted = null)
         : AmbiguousTaskStore(inner, Failure.Conflict, failingArtifactCommit: 0)
     {
+        private readonly Func<StreamResponse, bool> _counted = counted ?? IsArtifact;
         private int _artifactCommits;
 
         public override async ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
         {
-            if (commit.Event.Event is ArtifactUpdateEvent && Interlocked.Increment(ref _artifactCommits) == failingArtifactCommit)
+            if (_counted(commit.Event.Event) && Interlocked.Increment(ref _artifactCommits) == failingArtifactCommit)
             {
                 var current = (await Inner.GetAsync(commit.Record.Key, ct))!;
                 var changed = current.Task.CopyForUpdate();
@@ -215,6 +223,48 @@ public class AmbiguousCommitTests
         var summary = Describe(task, log);
         Assert.True(task.Status.State == TaskState.Failed, summary);
         Assert.True(Parts(task).SequenceEqual(ManyChunkParts.Take(2)), summary);
+    }
+
+    private static string Kinds(List<SequencedEvent> log) => string.Join(",", log.Select(e => e.Event.GetType().Name));
+
+    [Fact]
+    public async Task Without_the_lookup_a_conflict_on_the_chunk_that_creates_the_artifact_stores_it_once()
+    {
+        // "task", commit 1 is chunk "part1" (append false): not an append, but its event was stored twice before.
+        var (task, log) = await RunAsync(inner => new AmbiguousTaskStore(inner, Failure.Conflict, failingArtifactCommit: 1), "task");
+
+        var summary = Describe(task, log);
+        Assert.True(Parts(task).SequenceEqual(["part1", "part2"]), summary);
+        Assert.True(Kinds(log) == "TaskEvent,StatusUpdateEvent,ArtifactUpdateEvent,ArtifactUpdateEvent,StatusUpdateEvent", summary);
+        Assert.True(log.Select(e => e.Sequence).SequenceEqual(Enumerable.Range(1, log.Count).Select(i => (long)i)), summary);
+        Assert.True(task.Status.State == TaskState.Completed, summary);
+    }
+
+    [Theory]
+    [InlineData(1)] // "working"
+    [InlineData(2)] // "done": the terminal state
+    public async Task Without_the_lookup_a_conflict_on_a_status_update_stores_it_once(int failingStatusCommit)
+    {
+        var (task, log) = await RunAsync(inner => new AmbiguousTaskStore(inner, Failure.Conflict, failingStatusCommit, IsStatus), "task");
+
+        var summary = Describe(task, log);
+        Assert.True(Kinds(log) == "TaskEvent,StatusUpdateEvent,ArtifactUpdateEvent,ArtifactUpdateEvent,StatusUpdateEvent", summary);
+        Assert.True(log.Select(e => e.Sequence).SequenceEqual(Enumerable.Range(1, log.Count).Select(i => (long)i)), summary);
+        Assert.True(Parts(task).SequenceEqual(["part1", "part2"]), summary);
+        Assert.True(task.Status.State == TaskState.Completed, summary);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Without_the_lookup_a_real_conflict_on_a_status_update_still_applies_it(int failingStatusCommit)
+    {
+        var (task, log) = await RunAsync(inner => new OtherWriterStore(inner, failingStatusCommit, IsStatus), "task");
+
+        var summary = Describe(task, log);
+        Assert.True(Kinds(log) == "TaskEvent,StatusUpdateEvent,ArtifactUpdateEvent,ArtifactUpdateEvent,StatusUpdateEvent", summary);
+        Assert.True(task.Metadata?.ContainsKey("writer") == true, "the other writer's change was lost: " + summary);
+        Assert.True(task.Status.State == TaskState.Completed, summary);
     }
 
     [Theory]

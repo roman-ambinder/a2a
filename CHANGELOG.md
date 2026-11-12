@@ -41,11 +41,13 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
-- A version conflict on an artifact append no longer puts the parts in the task twice when the task store has no
-  `ITaskCommitLookup`. When a store applied the append and then reported a conflict for its own write (a store that
-  retries commits internally), the engine applied the append again on the still-open artifact. It now keeps the append
-  as stored when the task is one version past the one it wrote and holds exactly its artifact (log event 226), and
-  reloads and applies it again otherwise. The built-in stores have the lookup and are not affected.
+- A version conflict caused by the engine's own write no longer stores the event twice when the task store has no
+  `ITaskCommitLookup`. When a store applied a commit and then reported a conflict for its own write (a store that
+  retries commits internally), the engine applied the event again: an artifact append put its parts in the task
+  twice, and any other event was stored twice in the event log. It now keeps the event as stored when the task is one
+  version past the one it wrote and holds exactly this write (the same artifact for an append, the same task for
+  anything else; log event 226), and reloads and applies it again otherwise. The built-in stores have the lookup and
+  are not affected.
 
 - The ASP.NET Core health check failure log line has event id 1400 (was 1200). 1200 is the security event
   information line of `A2A.Server`, so filtering logs by 1200 also matched failed health checks. A test now checks that
@@ -56,8 +58,7 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Durable stores: "Write your own store" is now "Write your own backend". It lists every backend base class, adds the
   rules for a custom event bus, execution coordinator and artifact object store, and names the contract test for each.
   `GetForMaintenanceAsync` is in the list of `TaskStore` members to implement. A store that retries commits on its own
-  needs `ITaskCommitLookup`: without it, a lost answer fails the run, and a version conflict can store an event twice in
-  the log.
+  needs `ITaskCommitLookup`: without it, a lost answer fails the run.
 
 - Versioning: new section "Store contracts". The abstract members of the store base classes are the ones 0.2.0
   shipped, and the set does not grow. A later member is virtual with a fallback that is safe with several instances,
