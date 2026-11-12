@@ -133,9 +133,13 @@ The main risk of Option C is the D2 investigation itself. If the failure exists,
    - The tests in `AmbiguousCommitTests` (single and batch commits) pass, and the store contract test `A_stored_commit_is_found_by_its_mutation_id` covers both stores.
    - Still not covered: the commit that creates a task. A create whose answer is lost is reported as before.
 3. [x] ~~If the event is not stored twice: record why in the gap analysis, and close D2 there.~~ Not applicable: item 1 shows the failure.
-4. [ ] Finish ADR-001 before tagging the release:
+4. [x] Finish ADR-001 before tagging the release:
    - make `GetForMaintenanceAsync` virtual, or move it to a capability interface;
    - add the rule to `docs/site/guides/versioning.md`;
    - set ADR-001's status.
+
+   Done on 2026-11-12, after 0.2.0 had already shipped. ADR-001 is Accepted. `GetForMaintenanceAsync` stays
+   abstract: it has no safe fallback, and moving it now would break the stores built against 0.2.0. The rule is in
+   the versioning guide under "Store contracts".
 5. [ ] Add a "Writing your own backend" section to `docs/site/guides/durable-stores.md`. It should list the base classes for stores, the event bus and the coordinator, and which guarantees each must give (for example the atomic `TryRegisterExclusiveAsync`, and the shared `EventStore` that a cross-instance bus needs).
 6. [ ] In the gap analysis, mark D1 and D3 as "not planned in this repository; extension points documented". Leave D33 open, with "on demand".

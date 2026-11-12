@@ -6,6 +6,11 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Documentation
 
+- Versioning: new section "Store contracts". The abstract members of the store base classes are the ones 0.2.0
+  shipped, and the set does not grow. A later member is virtual with a fallback that is safe with several instances,
+  or goes on an optional capability interface. ADR-001 is accepted. `TaskStore.GetForMaintenanceAsync` stays
+  abstract, because it has no safe fallback.
+
 - Spec decisions: blocking and non-blocking SendMessage. The SDK follows §3.2.2 where it disagrees with §3.1.1 ("MUST
   return immediately"), and a blocking send also returns when no execution of the task is running any more, so an agent
   that leaves its task `WORKING` answers the caller with a `WORKING` task.
