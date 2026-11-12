@@ -72,6 +72,15 @@ internal sealed class ArtifactChunker(string artifactName, int streamChunkSize, 
         return EmitAsync(true, ct);
     }
 
+    /// <summary>
+    ///     Emits what is held back without marking it the last chunk, for a run that stops to wait for the caller. Emits
+    ///     nothing when there is nothing held back.
+    /// </summary>
+    public ValueTask FlushAsync(CancellationToken ct)
+    {
+        return EmitAsync(false, ct);
+    }
+
     private ValueTask FlushIfDueAsync(CancellationToken ct)
     {
         return _pendingNonText || _text.Length >= streamChunkSize

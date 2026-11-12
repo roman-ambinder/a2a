@@ -107,12 +107,16 @@ public sealed class AIAgentExecutorOptions
     /// </remarks>
     public Action<AgentRunOptions, AgentRequestContext>? ConfigureRunOptions { get; set; }
 
-    /// <summary>Throws for a mode this version cannot run yet.</summary>
+    /// <summary>Throws for an unknown mode or a combination that cannot work.</summary>
     internal void ThrowIfUnsupported()
     {
         if (SessionMode is not (AgentSessionMode.Stateless or AgentSessionMode.Stored))
             throw new ArgumentOutOfRangeException(nameof(SessionMode), SessionMode, "Unknown session mode.");
-        if (ToolApprovals != ToolApprovalMode.Off)
-            throw new NotSupportedException($"ToolApprovals {ToolApprovals} is not available yet. Use ToolApprovalMode.Off.");
+        if (ToolApprovals is not (ToolApprovalMode.Off or ToolApprovalMode.Bound))
+            throw new ArgumentOutOfRangeException(nameof(ToolApprovals), ToolApprovals, "Unknown tool approval mode.");
+        // The request must survive until the caller answers, in a later execution.
+        if (ToolApprovals == ToolApprovalMode.Bound && SessionMode != AgentSessionMode.Stored)
+            throw new InvalidOperationException(
+                "ToolApprovals = ToolApprovalMode.Bound needs SessionMode = AgentSessionMode.Stored: the approval request is kept in the session until the caller answers.");
     }
 }

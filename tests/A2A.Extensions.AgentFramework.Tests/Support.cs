@@ -120,18 +120,41 @@ public sealed class FakeSessionStore : AgentSessionStore
     /// <summary>When true, a save never completes and ignores its token, like a store that hangs.</summary>
     public bool HangOnSave { get; set; }
 
-    public override ValueTask<AgentSession?> GetSessionAsync(AIAgent agent, AgentSessionStoreKey key,
-        CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(_sessions.TryGetValue(key, out var session) ? session : null);
+    /// <summary>
+    /// When true, sessions are kept as the JSON of <see cref="AIAgent.SerializeSessionAsync"/> and read back with
+    /// <see cref="AIAgent.DeserializeSessionAsync"/>, as a real store does. Each get then returns a new session object.
+    /// </summary>
+    public bool SerializeSessions { get; set; }
 
-    public override ValueTask SaveSessionAsync(AIAgent agent, AgentSessionStoreKey key, AgentSession session,
+    private readonly ConcurrentDictionary<AgentSessionStoreKey, JsonElement> _json = new();
+
+    /// <summary>
+    /// With <see cref="SerializeSessions"/>: every get returns the first copy saved for the key, like a lagging replica.
+    /// </summary>
+    public bool ServeFirstSave { get; set; }
+
+    public override async ValueTask<AgentSession?> GetSessionAsync(AIAgent agent, AgentSessionStoreKey key,
+        CancellationToken cancellationToken = default)
+    {
+        if (!SerializeSessions) return _sessions.TryGetValue(key, out var session) ? session : null;
+        return _json.TryGetValue(key, out var json) ? await agent.DeserializeSessionAsync(json, cancellationToken: cancellationToken) : null;
+    }
+
+    public override async ValueTask SaveSessionAsync(AIAgent agent, AgentSessionStoreKey key, AgentSession session,
         CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _saves);
-        if (HangOnSave) return new ValueTask(new TaskCompletionSource().Task);
+        if (HangOnSave) await new TaskCompletionSource().Task;
         _saved.Enqueue(key);
         _sessions[key] = session;
-        return ValueTask.CompletedTask;
+        if (SerializeSessions)
+        {
+            // A round trip through text, as a database would keep it.
+            var json = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken);
+            var copy = JsonDocument.Parse(json.GetRawText()).RootElement.Clone();
+            if (ServeFirstSave) _json.TryAdd(key, copy);
+            else _json[key] = copy;
+        }
     }
 
     public override ValueTask DeleteSessionAsync(AIAgent agent, AgentSessionStoreKey key,
@@ -140,6 +163,7 @@ public sealed class FakeSessionStore : AgentSessionStore
         Interlocked.Increment(ref _deletes);
         _deleted.Enqueue(key);
         _sessions.TryRemove(key, out _);
+        _json.TryRemove(key, out _);
         return ValueTask.CompletedTask;
     }
 }

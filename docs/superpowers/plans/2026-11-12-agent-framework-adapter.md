@@ -177,6 +177,14 @@ Commit: `feat(agent-framework): stored sessions, deleted with their context`.
   - `None`: the stored request is stale; clear it and handle the message as a new turn.
 - Several approval requests in one stream: only the first is asked (the rest are never read, by the break above).
 
+Done in Task 6, with these differences:
+- **Security fix found while building it:** the stored entry is `PendingToolApproval(TaskId, Hash, Request)`, not the bare request. Without the task id, task A asking and then task B (same context) asking would let A's approval answer B's call. Without the hash check, a store that serves an older session copy would let a newer approval answer an earlier call of the same task. Both have tests that fail when the check is removed. `ApprovalState.None` is also covered by the hash check (no pending hash on the task) and is kept as an explicit early return.
+- StateBag: `AIJsonUtilities.DefaultOptions` round-trips the request (probe on 1.28.0 / 10.11.0), so the request is stored as its M.E.AI JSON inside a small record serialized by an own source-generated context. No fallback was needed.
+- The caller's message content follows the approval response in the same user message.
+- `ArtifactChunker.FlushAsync` (shared) emits held-back output without `lastChunk`.
+- `ToolApprovals = Bound` with `Stateless` throws `InvalidOperationException` from the same check as unknown modes, at registration and in the constructor.
+- A streaming test must stop reading at `INPUT_REQUIRED`: the client resumes a stream that ends before a terminal state (streaming guide), so `await foreach` would never end.
+
 **Tests (`ApprovalTests`):**
 1. Request → task `INPUT_REQUIRED`; the status metadata hash equals `new PendingApproval(callId, description).Hash`; status text equals `description`.
 2. Follow-up echoing the hash → the agent receives an approved response for that call id, and the task completes.

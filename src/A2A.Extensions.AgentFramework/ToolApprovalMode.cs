@@ -13,8 +13,11 @@ public enum ToolApprovalMode
     Off,
 
     /// <summary>
-    ///     The caller is asked to confirm the exact tool call, bound by a hash. Not available yet: choosing it throws
-    ///     <see cref="NotSupportedException" />.
+    ///     The caller is asked to confirm the exact tool call. The task waits in <c>INPUT_REQUIRED</c> with the call's
+    ///     canonical description as its status text, and a hash of it in the status metadata
+    ///     (<c>TaskUpdater.RequireApprovalAsync</c>); a follow-up that echoes the hash approves that call and nothing else.
+    ///     A follow-up without it declines. Needs <see cref="AgentSessionMode.Stored" />. Only the first request of a run
+    ///     is asked; the run stops there.
     /// </summary>
     Bound
 }

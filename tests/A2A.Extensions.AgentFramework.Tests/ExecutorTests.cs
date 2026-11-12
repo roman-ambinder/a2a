@@ -382,10 +382,10 @@ public class ExecutorTests
     }
 
     [Fact]
-    public void Modes_that_are_not_available_yet_fail_at_registration_and_in_the_constructor()
+    public void Unknown_modes_and_a_missing_store_fail_at_registration_and_in_the_constructor()
     {
         var builder = new ServiceCollection().AddA2AServer();
-        Assert.Throws<NotSupportedException>(() => builder.AddAIAgent(o => o.ToolApprovals = ToolApprovalMode.Bound));
+        Assert.Throws<ArgumentOutOfRangeException>(() => builder.AddAIAgent(o => o.ToolApprovals = (ToolApprovalMode)7));
         Assert.Throws<ArgumentOutOfRangeException>(() => builder.AddAIAgent(o => o.SessionMode = (AgentSessionMode)7));
         var stored = Assert.Throws<InvalidOperationException>(() =>
             new AIAgentExecutor(FakeAIAgent.Replying("x"), new AIAgentExecutorOptions { SessionMode = AgentSessionMode.Stored }));

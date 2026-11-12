@@ -2,8 +2,8 @@
 
 Microsoft Agent Framework support for A2A. NuGet ID: `RomanAmbinder.A2A.Extensions.AgentFramework`.
 
-**Status: in development, experimental (`A2AEXP006`).** Hosting an `AIAgent` works, stateless or with stored
-sessions. Tool approvals and the client side (a remote A2A agent as an `AIAgent`) are not done yet. The design is in
+**Status: in development, experimental (`A2AEXP006`).** Hosting an `AIAgent` works: stateless, with stored sessions, and
+with bound tool approvals. The client side (a remote A2A agent as an `AIAgent`) is not done yet. The design is in
 [docs/superpowers/specs/2026-11-12-agent-framework-adapter-design.md](../../docs/superpowers/specs/2026-11-12-agent-framework-adapter-design.md).
 
 ## Host an AIAgent as an A2A agent
@@ -35,7 +35,7 @@ Options (`AIAgentExecutorOptions`), with the same meaning as in `ChatClientAgent
 | `ContextMemoryMaxTasks` | 20          | With `UseContextMemory`: earlier tasks to read                  |
 | `ContextMemoryMaxBytes` | 262144      | With `UseContextMemory`: size limit of earlier messages         |
 | `SessionMode`           | `Stateless` | `Stored`: keep sessions in an `AgentSessionStore` (below)       |
-| `ToolApprovals`         | `Off`       | `Bound` is not available yet (throws `NotSupportedException`)   |
+| `ToolApprovals`         | `Off`       | `Bound`: ask the caller to confirm each tool call (below)       |
 | `ConfigureRunOptions`   | none        | Called on each run's `AgentRunOptions`                          |
 
 The agent's instructions and chat options are the agent's own, so they are not options here. A content filter stop, error
@@ -63,6 +63,29 @@ builder.Services.AddA2ARetention();   // deletes a context's session with the co
 - The host refuses to start in this mode without an `AgentSessionStore`.
 - When the retention sweep deletes a context, the context's session is deleted from the store too.
 - `AgentSessionStore` is evaluation-only upstream (`MAAI001`): code that registers one opts in to that ID.
+
+## Tool approvals
+
+```csharp
+.AddAIAgent(o =>
+{
+    o.SessionMode = AgentSessionMode.Stored;   // needed: the request waits in the session
+    o.ToolApprovals = ToolApprovalMode.Bound;
+})
+```
+
+When the agent asks to approve a tool call (it streams a `ToolApprovalRequestContent`):
+
+- The run stops. What the agent said before stays with the task. The task waits in `INPUT_REQUIRED` with the call's
+  canonical description as its status text, for example `delete_file({"n":2,"path":"/x"})` (arguments as RFC 8785 JSON),
+  and a hash of it in the status metadata (`a2a.approval.hash`).
+- A follow-up that echoes the hash in its metadata approves that call: the agent gets an approval response and runs again.
+  A follow-up without it declines, with the reason "The caller did not approve this action.". A wrong hash is refused by the
+  server before the agent runs. The caller's own words follow the response.
+- If the agent then asks for a different call, the caller is asked again: an approval answers one exact call.
+- Only the first request of a run is asked.
+- The request is answered only for the task that asked and the hash it showed. A new task in the context, or an older copy
+  of the session from the store, drops the request without answering it.
 
 ## Logs
 

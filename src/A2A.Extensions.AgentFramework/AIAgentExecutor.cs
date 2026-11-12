@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using A2A.Extensions.AgentFramework.Shared;
+using System.Text.Json;
 using A2A.Server;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -78,6 +79,9 @@ public sealed class AIAgentExecutor : IAgentExecutor
     /// <summary>The error for <see cref="AgentSessionMode.Stored" /> without a store.</summary>
     internal const string StoreMissingText = "SessionMode.Stored needs an AgentSessionStore registered in DI.";
 
+    /// <summary>The reason the agent gets when the caller did not approve.</summary>
+    internal const string NotApprovedReason = "The caller did not approve this action.";
+
     /// <inheritdoc />
     public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater,
         CancellationToken cancellationToken)
@@ -103,8 +107,10 @@ public sealed class AIAgentExecutor : IAgentExecutor
 
         var key = SessionKeys.For(context.Call.Tenant, context.Call.Principal, context.ContextId);
         var stored = await _sessions.GetOrCreateSessionAsync(_agent, key, cancellationToken).ConfigureAwait(false);
-        // The session holds the conversation: send only the new message.
+        // The session holds the conversation: send only the new message, after the answer to a pending approval.
         var contents = new List<AIContent>();
+        if (PendingToolApproval.Take(stored) is { } pending && AnswerFor(pending, context) is { } answer)
+            contents.Add(answer);
         foreach (var part in context.Message.Parts)
             if (ModelContent.ToModelContent(part, _options.AllowUrlParts) is { } content)
                 contents.Add(content);
@@ -124,6 +130,28 @@ public sealed class AIAgentExecutor : IAgentExecutor
             await SaveAfterFailureAsync(key, stored, context.TaskId).ConfigureAwait(false);
             throw;
         }
+    }
+
+    /// <summary>
+    ///     The answer to the stored approval request, or null when it is stale: approvals are off, the message does not
+    ///     answer an approval (<see cref="ApprovalState.None" />), or the entry belongs to another task or another hash
+    ///     than the one this task waits for. A stale entry is dropped, never answered: it may be another action.
+    /// </summary>
+    private ToolApprovalResponseContent? AnswerFor(PendingToolApproval pending, AgentRequestContext context)
+    {
+        // ApprovalState.None also fails the hash check below (no pending hash on the task); checked first to say so plainly.
+        if (_options.ToolApprovals != ToolApprovalMode.Bound || context.Approval == ApprovalState.None) return null;
+        if (!string.Equals(pending.TaskId, context.TaskId, StringComparison.Ordinal)) return null;
+        // The hash the server holds for this task (it checked the caller's echo against it for Approved). This catches a
+        // store that returns an older copy of the session, whose entry is for an earlier call of the same task.
+        if (context.Task?.Status.Message?.Metadata is not { } metadata
+            || !metadata.TryGetValue(A2AProtocol.ApprovalHashKey, out var hash) || hash.ValueKind != JsonValueKind.String
+            || !string.Equals(hash.GetString(), pending.Hash, StringComparison.Ordinal)) return null;
+        return pending.ReadRequest() is { } request
+            ? context.Approval == ApprovalState.Approved
+                ? request.CreateResponse(true, null)
+                : request.CreateResponse(false, NotApprovedReason)
+            : null;
     }
 
     /// <summary>Saves within <see cref="SaveTimeout" />, also when the store ignores the token.</summary>
@@ -157,6 +185,7 @@ public sealed class AIAgentExecutor : IAgentExecutor
 
         var run = new ArtifactChunker(_options.ArtifactName, _options.StreamChunkSize, updater);
         var approvalRequested = false;
+        ToolApprovalRequestContent? toAsk = null;
         await foreach (var update in _agent.RunStreamingAsync(messages, session, runOptions, cancellationToken)
                            .ConfigureAwait(false))
         {
@@ -164,15 +193,31 @@ public sealed class AIAgentExecutor : IAgentExecutor
                 throw new InvalidOperationException(ExecutorTexts.ContentFilter);
             foreach (var content in update.Contents)
             {
-                // ToolApprovalMode.Off: an approval request is treated like a tool call that nothing ran.
-                if (content is ToolApprovalRequestContent)
+                if (content is ToolApprovalRequestContent request)
                 {
+                    if (_options.ToolApprovals == ToolApprovalMode.Bound)
+                    {
+                        toAsk = request;
+                        break;
+                    }
+
+                    // ToolApprovalMode.Off: an approval request is treated like a tool call that nothing ran.
                     approvalRequested = true;
                     continue;
                 }
 
                 await run.AddAsync(content, cancellationToken).ConfigureAwait(false);
             }
+
+            // Only the first request is asked; leaving the loop stops the run (the enumerator is disposed).
+            if (toAsk is not null) break;
+        }
+
+        if (toAsk is not null)
+        {
+            await AskApprovalAsync(context, updater, run, session, toAsk, saveBeforeEnding!, cancellationToken)
+                .ConfigureAwait(false);
+            return;
         }
 
         if ((run.HasUnresolvedToolCall || approvalRequested) && !run.HasOutput)
@@ -199,6 +244,32 @@ public sealed class AIAgentExecutor : IAgentExecutor
         {
             await updater.CompleteAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    ///     Asks the caller to confirm the exact call: the status text is the canonical description, and the hash binds the
+    ///     answer to it (<see cref="TaskUpdater.RequireApprovalAsync" />). The task waits in <c>INPUT_REQUIRED</c>.
+    /// </summary>
+    private static async Task AskApprovalAsync(AgentRequestContext context, TaskUpdater updater, ArtifactChunker run,
+        AgentSession session, ToolApprovalRequestContent request, Func<Task> save, CancellationToken cancellationToken)
+    {
+        var description = ApprovalDescription.For(request.ToolCall);
+        PendingApproval approval;
+        try
+        {
+            approval = new PendingApproval(request.ToolCall.CallId, description);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidOperationException("The agent asked to approve a tool call whose id cannot be bound.", ex);
+        }
+
+        // What the agent said before it asked stays with the task; it is not the end of the reply.
+        await run.FlushAsync(cancellationToken).ConfigureAwait(false);
+        PendingToolApproval.Write(session, PendingToolApproval.Create(context.TaskId, approval.Hash, request));
+        // Saved before the status, so a caller cannot answer a request the session does not hold yet.
+        await save().ConfigureAwait(false);
+        await updater.RequireApprovalAsync(approval, description, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
