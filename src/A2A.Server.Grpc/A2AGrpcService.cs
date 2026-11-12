@@ -28,10 +28,10 @@ namespace A2A.Server.Grpc;
 ///         request metadata.
 ///     </para>
 ///     <para>
-///         Stream resume is not supported over gRPC in this version: gRPC has no per-message metadata to carry an event
-///         cursor, so a
-///         client that loses a stream calls <c>SubscribeToTask</c> again (a task snapshot, then live events). The
-///         server-side stream
+///         gRPC has no per-message metadata to carry an event cursor, so there is no <c>Last-Event-ID</c> resume. An
+///         A2A 1.1 client resumes with <c>lastSeenGeneration</c> on <c>SubscribeToTask</c> (the stream continues after
+///         that generation, without a snapshot); a 1.0 client calls <c>SubscribeToTask</c> again and gets a task snapshot,
+///         then live events. The server-side stream
 ///         limits (admission, re-authorization, maximum duration) apply as on the other bindings.
 ///     </para>
 /// </remarks>

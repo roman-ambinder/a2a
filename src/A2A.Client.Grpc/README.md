@@ -18,7 +18,9 @@ var client2 = A2AGrpcClientFactory.Create(agentCard);                        // 
 
 Per-call `A2ARequestOptions` headers, extensions, idempotency key, timeout (as the per-attempt gRPC deadline) and
 `MaxRetries` apply, with the same retry rules as the HTTP transports. `ConfigureRequest` is HTTP-only: a call that sets
-it fails with `NotSupportedException`. Stream resume is not supported on gRPC.
+it fails with `NotSupportedException`. There is no `Last-Event-ID` resume on gRPC; on A2A 1.1 a reconnect resumes by
+generation (`lastSeenGeneration`), and on 1.0 it subscribes again and gets a task snapshot first. See the
+[streaming guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/streaming.md#grpc).
 
 Clients made by `UseGrpc()` or `A2AGrpcClientFactory` share one channel per agent address and channel options. A call
 holds its channel while it runs. A channel no call holds is disposed after 5 minutes idle, or when more than 64 are idle,
