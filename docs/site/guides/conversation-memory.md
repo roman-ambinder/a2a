@@ -1,6 +1,6 @@
 # Conversation memory
 
-A `contextId` groups tasks. By default a new task in a context sees nothing of the earlier ones. Conversation memory lets an agent read the earlier messages of its context, and keep a short summary of it. It also lets a host list the conversations of a caller.
+A `contextId` groups tasks. By default a new task in a context sees nothing of the earlier ones. Conversation memory lets an agent read the earlier messages of its context, and keep a short summary of it. It also lets a host list the conversations of a caller. Read this guide when an agent should remember earlier tasks of the same conversation.
 
 There is no new storage. The messages are already in the task rows. A read finds the newest tasks of the context and returns their messages.
 
@@ -62,7 +62,7 @@ A long chat will outgrow the limits. A summary keeps the main facts in a small t
 - **Last write wins.** Tasks that run at the same time do not merge their summaries.
 - **Why it is a user message.** The summary is made from text the caller sent. If it were a system message, caller text could gain system rights. So `ChatClientAgentExecutor` adds it as a user message with a fixed prefix: `Summary of the earlier conversation:`. Do the same in your own agent.
 - **Capability.** Writing needs a store that implements <xref:A2A.Server.Storage.IContextSummaryStore>. The in-memory and Postgres stores do. Check `CanStoreSummary` first. `SetSummaryAsync` throws `NotSupportedException` when it is false. `GetSummaryAsync` works with every store and returns null when there is none.
-- `SetSummaryAsync(null)` clears it. A context that belongs to another caller looks like a missing one.
+- `SetSummaryAsync(null)` clears it. A context that belongs to another caller looks like a missing one: `GetSummaryAsync` returns null, and `SetSummaryAsync` throws `InvalidOperationException`.
 
 ## List the conversations of a caller
 

@@ -1,6 +1,6 @@
 # Client outbox
 
-An agent that calls a peer has nothing durable by default. A crash between "save my state" and "call the peer" loses the call. Nothing records "sent, task id X, result not collected". The client outbox fixes this. It keeps one row per outgoing message, and the row survives a restart.
+An agent that calls a peer has nothing durable by default. A crash between "save my state" and "call the peer" loses the call. Nothing records "sent, task id X, result not collected". The client outbox fixes this. It keeps one row per outgoing message, and the row survives a restart. Use it when your app must not lose a call to a peer agent across a crash or a deploy.
 
 ## The life of an entry
 
@@ -43,7 +43,7 @@ With Postgres you can write the message in the same database transaction as your
 
 ## Harvest and acknowledge
 
-Results are not pushed to you. Lease them, handle them, then acknowledge. A result you do not acknowledge comes back after its lease runs out, so harvest is at least once. When you acknowledge in the same transaction as your own change, your data sees each result exactly once.
+Harvesting means collecting the finished results. Results are not pushed to you. Lease them (take them for a while, hidden from other workers), handle them, then acknowledge. A result you do not acknowledge comes back after its lease runs out, so harvest is at least once. When you acknowledge in the same transaction as your own change, your data sees each result exactly once.
 
 [!code-csharp[](../../../samples/ClientOutbox/Program.cs#Harvest)]
 

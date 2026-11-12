@@ -1,6 +1,7 @@
 # RomanAmbinder.A2A.Cli
 
-`a2a` is a command line tool for A2A (Agent2Agent) agents. It is built on `A2A.Client`.
+`a2a` is a command line tool for A2A (Agent2Agent) agents: use it to inspect an agent's card, send messages and manage
+tasks from a shell or a script. It is built on `A2A.Client`.
 
 ```bash
 dotnet tool install -g RomanAmbinder.A2A.Cli
@@ -8,13 +9,16 @@ export A2A_AGENT_URL=https://agent.example.com/
 a2a card                       # fetch and verify the Agent Card
 a2a send "hello"               # send a message and wait
 a2a stream "write a report"    # print events as they arrive
+a2a subscribe <taskId>         # print the events of a running task
 a2a get <taskId>               # show a task
 a2a list --status working
 a2a cancel <taskId>
 a2a download <taskId> -o ./files
+a2a keys                       # make an API key and its hash (offline)
 ```
 
-- `--agent <url>` (or `A2A_AGENT_URL`) is required. Options can come anywhere after the command.
+- `--agent <url>` (or `A2A_AGENT_URL`) is required by every command except `keys`. Options can come anywhere after the
+  command. `a2a <command> --help` lists a command's options.
 - `--json` prints protocol objects as JSON (NDJSON for streams). Errors are one JSON line on standard error.
 - Credentials: `--token` / `A2A_TOKEN`, `--api-key` / `A2A_API_KEY`, `--client-id` and `--client-secret` /
   `A2A_CLIENT_ID` and `A2A_CLIENT_SECRET`.
@@ -22,13 +26,11 @@ a2a download <taskId> -o ./files
   card's origin.
 - Card trust: `--trust-jwks <file>`, `--trust-jku-host <host>`, `--require-signature`.
 - Secrets are never printed. Text from the agent is cleaned of terminal escape and bidi characters. Downloads check size
-  and `sha256`,
-  and agent-chosen file names cannot leave the output folder.
+  and `sha256`, and agent-chosen file names cannot leave the output folder.
 
 Exit codes: 0 success, 1 local error, 2 usage, 3 network or timeout, 4 auth, 5 not found, 6 other A2A error,
 7 card verification failed, 8 artifact integrity failed, 9 task failed, rejected or canceled, 10 task needs input or
-auth,
-130 cancelled with Ctrl+C.
+auth, 130 cancelled with Ctrl+C.
 
 Not covered: mutual TLS and gRPC.
 

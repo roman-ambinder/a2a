@@ -1,10 +1,11 @@
 # RomanAmbinder.A2A.Server
 
 Transport-agnostic A2A (Agent2Agent) server core: the agent executor model, task lifecycle, per-caller task scoping,
-stores, event streaming, and push notifications with an SSRF guard. Host it with `RomanAmbinder.A2A.Server.AspNetCore`.
+stores, event streaming, and push notifications with an SSRF guard. Reference it directly when you write a custom host,
+store or executor; to serve an agent over HTTP, add `RomanAmbinder.A2A.Server.AspNetCore` (it brings this package).
 
 ```csharp
-services.AddA2AServer<MyAgent>(o => o.AgentCard = card);
+services.AddA2AServer(o => o.AgentCard = card).AddAgentExecutor<MyAgent>();
 ```
 
 Retention is **opt-in**: without `services.AddA2ARetention()` nothing is purged, `InterruptedTimeout` does nothing and
@@ -43,8 +44,9 @@ new constructors, and webhooks go through the keyed `HttpMessageInvoker` `PushDe
 value as before). See the repository README, "Upgrading from 0.x / P0".
 
 Tracing: spans on the `A2A.Server` `ActivitySource` (one per operation, agent run and webhook delivery);
-see [Observability](https://github.com/roman-ambinder/a2a#observability).
+see [Observability](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/observability.md).
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a),
 implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 10.
-See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.
+Start with the [getting started guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/getting-started.md); see the
+[repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.
