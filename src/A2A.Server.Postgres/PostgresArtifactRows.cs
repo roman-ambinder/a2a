@@ -59,28 +59,39 @@ internal sealed class PostgresArtifactRows(string parts, string tasks, int compa
     public sealed record Stored(short Layout, Dictionary<string, (int Parts, int Rows, int MaxOrdinal)> Artifacts);
 
     /// <summary>
-    ///     Reads the task's layout and its rows per artifact, in the commit's transaction, before its compare-and-set. A
-    ///     concurrent write in between changes the version, so the compare-and-set that follows fails and this is unused.
+    ///     Reads the task's layout and its rows per artifact, in the commit's transaction, before its compare-and-set. One
+    ///     statement, so the layout and the rows come from the same snapshot. Every write that changes the layout or the
+    ///     rows also changes the version (the commits, <see cref="PostgresTaskStore.UpdateAsync" /> and
+    ///     <see cref="PostgresTaskStore.InlineArtifactPartsAsync" />). So when a write commits after the read the commit is
+    ///     based on, the compare-and-set fails and this result is unused; when it succeeds, this is the state it replaces.
     /// </summary>
     public async ValueTask<Stored> ReadAsync(NpgsqlConnection conn, NpgsqlTransaction tx, TaskKey key,
         CancellationToken cancellationToken)
     {
-        await using var batch = new NpgsqlBatch(conn, tx);
-        var layout = new NpgsqlBatchCommand($"SELECT parts_layout FROM {tasks} WHERE tenant = $1 AND task_id = $2");
-        layout.Parameters.Add(TextParam(key.Tenant));
-        layout.Parameters.Add(TextParam(key.TaskId));
-        var rows = new NpgsqlBatchCommand(
-            $"SELECT artifact_id, sum(part_count)::int, count(*)::int, max(ordinal) FROM {parts} WHERE tenant = $1 AND task_id = $2 GROUP BY artifact_id");
-        rows.Parameters.Add(TextParam(key.Tenant));
-        rows.Parameters.Add(TextParam(key.TaskId));
-        batch.BatchCommands.Add(layout);
-        batch.BatchCommands.Add(rows);
-        await using var reader = await batch.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        var found = await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? reader.GetInt16(0) : InlineLayout;
-        await reader.NextResultAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = new NpgsqlCommand(
+            $"""
+             SELECT t.parts_layout, p.artifact_id, p.part_count, p.row_count, p.max_ordinal
+               FROM {tasks} t
+               LEFT JOIN LATERAL (
+                   SELECT artifact_id, sum(part_count)::int AS part_count, count(*)::int AS row_count, max(ordinal) AS max_ordinal
+                     FROM {parts}
+                    WHERE tenant = t.tenant AND task_id = t.task_id AND t.parts_layout = {RowsLayout}
+                    GROUP BY artifact_id
+               ) p ON true
+              WHERE t.tenant = $1 AND t.task_id = $2
+             """, conn, tx);
+        cmd.Parameters.Add(TextParam(key.Tenant));
+        cmd.Parameters.Add(TextParam(key.TaskId));
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        var found = InlineLayout;
         var artifacts = new Dictionary<string, (int, int, int)>(StringComparer.Ordinal);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            artifacts[reader.GetString(0)] = (reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3));
+        {
+            found = reader.GetInt16(0);
+            if (!reader.IsDBNull(1))
+                artifacts[reader.GetString(1)] = (reader.GetInt32(2), reader.GetInt32(3), reader.GetInt32(4));
+        }
+
         return new Stored(found, artifacts);
     }
 
@@ -134,32 +145,49 @@ internal sealed class PostgresArtifactRows(string parts, string tasks, int compa
     }
 
     /// <summary>
-    ///     Puts the parts in rows back into the artifacts of each task in <paramref name="byTask" /> (task id → task), all of
-    ///     one tenant, with one query.
+    ///     A select-list expression for a task row aliased <paramref name="alias" />: null for a task stored inline, else
+    ///     the <c>parts</c> of its rows as a <c>text[]</c>, in <c>artifact_id, ordinal</c> order. It is part of the
+    ///     statement that reads the task row, so it reads the rows from the same snapshot: the parts always belong to the
+    ///     version read. Pass the value to <see cref="Fill" />.
     /// </summary>
-    public async ValueTask FillAsync(NpgsqlConnection? conn, NpgsqlTransaction? tx, NpgsqlDataSource db, string tenant,
-        IReadOnlyDictionary<string, AgentTask> byTask, CancellationToken cancellationToken)
+    public string PartsColumn(string alias) =>
+        $"CASE WHEN {alias}.parts_layout = {RowsLayout} THEN ARRAY(SELECT p.parts FROM {parts} p WHERE p.tenant = {alias}.tenant AND p.task_id = {alias}.task_id ORDER BY p.artifact_id, p.ordinal) END";
+
+    /// <summary>
+    ///     Puts the parts of <paramref name="rows" /> (the value of <see cref="PartsColumn" />) back into the artifacts of
+    ///     <paramref name="task" />. Null, for a task stored inline, leaves it as it is. Each row names its artifact.
+    /// </summary>
+    public static void Fill(AgentTask task, string[]? rows)
     {
-        if (byTask.Count == 0) return;
-        var sql =
-            $"SELECT task_id, artifact_id, parts FROM {parts} WHERE tenant = $1 AND task_id = ANY($2) ORDER BY task_id, artifact_id, ordinal";
-        await using var cmd = conn is null ? db.CreateCommand(sql) : new NpgsqlCommand(sql, conn, tx);
-        cmd.Parameters.Add(TextParam(tenant));
-        cmd.Parameters.Add(new NpgsqlParameter<string[]> { TypedValue = byTask.Keys.ToArray() });
-        var found = new Dictionary<(string Task, string Artifact), List<Part>>();
-        await using (var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        if (rows is null) return;
+        var found = new Dictionary<string, List<Part>>(StringComparer.Ordinal);
+        foreach (var json in rows)
         {
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                var k = (reader.GetString(0), reader.GetString(1));
-                if (!found.TryGetValue(k, out var list)) found[k] = list = [];
-                list.AddRange(A2AJson.Deserialize<Artifact>(reader.GetString(2))!.Parts);
-            }
+            var row = A2AJson.Deserialize<Artifact>(json)!;
+            if (!found.TryGetValue(row.ArtifactId, out var list)) found[row.ArtifactId] = list = [];
+            list.AddRange(row.Parts);
         }
 
-        foreach (var (taskId, task) in byTask)
         foreach (var artifact in task.Artifacts ?? [])
-            artifact.Parts = found.TryGetValue((taskId, artifact.ArtifactId), out var list) ? list : [];
+            artifact.Parts = found.TryGetValue(artifact.ArtifactId, out var list) ? list : [];
+    }
+
+    /// <summary>
+    ///     The parts of the task's rows, read in <paramref name="tx" />, as for <see cref="Fill" />. The caller holds the
+    ///     task row lock (<c>FOR UPDATE</c>), which every write of the rows takes first, and this statement starts after it,
+    ///     so the rows are those of the locked version.
+    /// </summary>
+    public async ValueTask<string[]> ReadPartsAsync(NpgsqlConnection conn, NpgsqlTransaction tx, string tenant,
+        string taskId, CancellationToken cancellationToken)
+    {
+        await using var cmd = new NpgsqlCommand(
+            $"SELECT parts FROM {parts} WHERE tenant = $1 AND task_id = $2 ORDER BY artifact_id, ordinal", conn, tx);
+        cmd.Parameters.Add(TextParam(tenant));
+        cmd.Parameters.Add(TextParam(taskId));
+        var list = new List<string>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) list.Add(reader.GetString(0));
+        return list.ToArray();
     }
 
     private NpgsqlBatchCommand Insert(TaskKey key, string artifactId, int ordinal, List<Part> list)

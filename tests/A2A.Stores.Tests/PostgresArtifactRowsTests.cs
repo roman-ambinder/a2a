@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace A2A.Stores.Tests;
 
@@ -217,7 +218,179 @@ public sealed class PostgresArtifactRowsTests(PostgresFixture db)
         Assert.Equal(0, await RowsAsync(schema));
         var read = (await store.GetAsync(Key))!;
         Assert.Equal(Canonical(record.Task), Canonical(read.Task));
-        Assert.Equal(record.Version, read.Version); // the content did not change, so neither does the version
+        // The content did not change, nor did the update time, but the version did: a commit based on an older read must
+        // fail its compare-and-set.
+        Assert.Equal(record.Version + 1, read.Version);
+        Assert.Equal(record.UpdatedAt, read.UpdatedAt);
+    }
+
+    /// <summary>A task with artifact "a" in two rows (p0, then p1) and artifact "b" in one (b0).</summary>
+    private static async Task<TaskRecord> TwoArtifactsAsync(TaskStore store)
+    {
+        var record = await CreateTaskAsync(store);
+        var (next, evt) = Append(record, "a", "p0");
+        record = await CommitAsync(store, record, next, evt);
+        (next, evt) = Append(record, "a", "p1");
+        record = await CommitAsync(store, record, next, evt);
+        (next, evt) = Append(record, "b", "b0");
+        return await CommitAsync(store, record, next, evt);
+    }
+
+    /// <summary>
+    /// Race found in review: a read of a task in rows, then InlineArtifactPartsAsync, then a commit of what that read
+    /// returned. Before the fix, the conversion kept the version, and a read torn by it (the task row in rows, then no
+    /// rows) returned every artifact with no parts; the commit's compare-and-set matched and stored them inline for good.
+    /// Now the conversion moves the version, so such a commit fails and the engine reads the task again.
+    /// </summary>
+    [Fact]
+    public async Task A_commit_based_on_a_read_from_before_InlineArtifactPartsAsync_fails_and_no_part_is_lost()
+    {
+        var (store, schema) = await CreateAsync();
+        var record = await TwoArtifactsAsync(store);
+        var off = Reopen(new NpgsqlDataSourceHolder(db.DataSource), schema, rows: false); // the documented downgrade
+        var stale = (await off.GetAsync(Key))!;
+        Assert.Equal(Canonical(record.Task), Canonical(stale.Task));
+
+        Assert.Equal(1, await off.InlineArtifactPartsAsync());
+
+        // What a torn read returned before the fix (the version read with the layout in rows, and no rows), and what an
+        // untorn read from before the conversion returns: neither may be committed now.
+        var torn = TaskStoreContract.WithState(stale with { Task = PostgresArtifactRows.WithoutParts(stale.Task) }, TaskState.Working);
+        var whole = TaskStoreContract.WithState(stale, TaskState.Working);
+        var working = TaskStoreContract.StatusEvent(Key.TaskId, TaskState.Working);
+        foreach (var target in new TaskStore[] { off, store })
+        {
+            await Assert.ThrowsAsync<ConcurrencyException>(() => target.CommitAsync(new TaskCommit(torn, stale.Version, working, [])).AsTask());
+            await Assert.ThrowsAsync<ConcurrencyException>(() => target.CommitAsync(new TaskCommit(whole, stale.Version, working, [])).AsTask());
+        }
+
+        var read = (await off.GetAsync(Key))!;
+        Assert.Equal(stale.Version + 1, read.Version);
+        Assert.Equal(Canonical(record.Task), Canonical(read.Task));
+        Assert.Equal(["p0", "p1"], read.Task.Artifacts![0].Parts.OfType<TextPart>().Select(p => p.Text));
+        Assert.Equal(["b0"], read.Task.Artifacts![1].Parts.OfType<TextPart>().Select(p => p.Text));
+    }
+
+    /// <summary>
+    /// Race found in review, with the interleaving forced by a hook: an instance with the option on reads the layout and
+    /// rows before its compare-and-set, and InlineArtifactPartsAsync converts the task right then. Before the fix, the
+    /// compare-and-set matched, set the layout back to rows and wrote only the appended part, so "b" and the older parts of
+    /// "a" read back empty. Now the commit fails, and its retry from a new read keeps every part.
+    /// </summary>
+    [Fact]
+    public async Task InlineArtifactPartsAsync_between_a_commits_read_and_its_compare_and_set_fails_that_commit()
+    {
+        var (store, schema) = await CreateAsync();
+        var record = await TwoArtifactsAsync(store);
+        var other = Reopen(new NpgsqlDataSourceHolder(db.DataSource), schema, rows: false);
+        var converted = -1;
+        store.BeforeCompareAndSet = async () =>
+        {
+            store.BeforeCompareAndSet = null;
+            converted = await other.InlineArtifactPartsAsync();
+        };
+
+        var (next, evt) = Append(record, "a", "p2");
+        await Assert.ThrowsAsync<ConcurrencyException>(() => store.CommitAsync(new TaskCommit(record with { Task = next }, record.Version, evt, [])).AsTask());
+        Assert.Equal(1, converted);
+        Assert.Equal(PostgresArtifactRows.InlineLayout, await LayoutAsync(schema));
+
+        // The engine reads the task again and applies the event to it.
+        var current = (await store.GetAsync(Key))!;
+        Assert.Equal(record.Version + 1, current.Version);
+        Assert.Equal(Canonical(record.Task), Canonical(current.Task));
+        (next, evt) = Append(current, "a", "p2");
+        await CommitAsync(store, current, next, evt); // reads back as committed
+        Assert.Equal(PostgresArtifactRows.RowsLayout, await LayoutAsync(schema));
+        var read = (await other.GetAsync(Key))!;
+        Assert.Equal(["p0", "p1", "p2"], read.Task.Artifacts![0].Parts.OfType<TextPart>().Select(p => p.Text));
+        Assert.Equal(["b0"], read.Task.Artifacts![1].Parts.OfType<TextPart>().Select(p => p.Text));
+    }
+
+    /// <summary>
+    /// A read is never torn: the task row and its parts come from one snapshot. The interleaving is forced with a lock.
+    /// Another transaction holds an exclusive lock on the parts table, so the read waits there. While it waits, that
+    /// transaction writes a new version of the task (an append, or the conversion of InlineArtifactPartsAsync) and commits.
+    /// A read in two statements returned the old task row (version N) with the new rows (N + 1): the append's part under
+    /// the old version, or no parts at all after the conversion. One statement waits for the lock before it takes its
+    /// snapshot, so it returns version N + 1 whole.
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task A_read_returns_the_parts_of_the_version_it_returns(bool inline, bool list)
+    {
+        var (store, schema) = await CreateAsync();
+        var record = await TwoArtifactsAsync(store);
+        var s = $"\"{schema.Schema}\"";
+        var expected = inline ? record.Task : Append(record, "a", "late").Next;
+
+        await using var writer = await db.DataSource.OpenConnectionAsync();
+        await using var tx = await writer.BeginTransactionAsync();
+        await using (var lockParts = new NpgsqlCommand($"LOCK TABLE {s}.a2a_artifact_parts IN ACCESS EXCLUSIVE MODE", writer, tx))
+            await lockParts.ExecuteNonQueryAsync();
+
+        var reading = Task.Run(async () => list
+            ? Assert.Single((await store.ListAsync(new TaskQuery("t", "alice", null, null, null, 10, null))).Records)
+            : (await store.GetAsync(Key))!);
+        await WaitForLockWaitAsync($"{s}.a2a_artifact_parts", reading);
+
+        await using (var change = new NpgsqlBatch(writer, tx))
+        {
+            if (inline)
+            {
+                // What InlineArtifactPartsAsync writes.
+                change.BatchCommands.Add(Command($"UPDATE {s}.a2a_tasks SET task = $1, parts_layout = 0, version = version + 1 WHERE task_id = 'id1'",
+                    A2AJson.Serialize(record.Task)));
+                change.BatchCommands.Add(Command($"DELETE FROM {s}.a2a_artifact_parts WHERE task_id = 'id1'"));
+            }
+            else
+            {
+                // What an append writes with the option on: one row with the new part, and the next version.
+                change.BatchCommands.Add(Command(
+                    $"INSERT INTO {s}.a2a_artifact_parts (tenant, task_id, artifact_id, ordinal, part_count, parts) VALUES ('t', 'id1', 'a', 2, 1, $1)",
+                    A2AJson.Serialize(new Artifact { ArtifactId = "a", Parts = [Part.FromText("late")] })));
+                change.BatchCommands.Add(Command($"UPDATE {s}.a2a_tasks SET task = $1, version = version + 1 WHERE task_id = 'id1'",
+                    A2AJson.Serialize(PostgresArtifactRows.WithoutParts(expected))));
+            }
+
+            await change.ExecuteNonQueryAsync();
+        }
+
+        Assert.False(reading.IsCompleted); // still waiting for the lock
+        await tx.CommitAsync();
+        var read = await reading.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(record.Version + 1, read.Version);
+        Assert.Equal(Canonical(expected), Canonical(read.Task));
+    }
+
+    private static NpgsqlBatchCommand Command(string sql, params string[] args)
+    {
+        var cmd = new NpgsqlBatchCommand(sql);
+        foreach (var a in args) cmd.Parameters.Add(new NpgsqlParameter<string> { TypedValue = a });
+        return cmd;
+    }
+
+    /// <summary>Waits until a query waits for a lock on <paramref name="table" />. Fails if <paramref name="reading" /> ends first.</summary>
+    private async Task WaitForLockWaitAsync(string table, Task reading)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        await using var cmd = db.DataSource.CreateCommand("SELECT count(*) FROM pg_locks WHERE NOT granted AND relation = to_regclass($1)");
+        cmd.Parameters.Add(new NpgsqlParameter<string> { TypedValue = table });
+        while ((long)(await cmd.ExecuteScalarAsync())! == 0)
+        {
+            if (reading.IsCompleted)
+            {
+                await reading; // its exception, if any
+                Assert.Fail("The read finished without waiting for the lock on the parts table.");
+            }
+
+            if (DateTime.UtcNow > deadline) Assert.Fail("The read never waited for the lock on the parts table.");
+            await Task.Delay(10);
+        }
     }
 
     [Fact]
