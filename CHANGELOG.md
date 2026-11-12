@@ -158,6 +158,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- Server: a batch commit is no longer stored twice after a version conflict caused by the store's own write (a store
+  that retries a commit and meets its first attempt). With a store that has batch commits but no `ITaskCommitLookup`,
+  the engine handed the batch to the single-event path, which appended every chunk again. Now it checks whether the
+  stored task is exactly one version on and holds the batch's artifacts, as #153 does for single commits.
 - Security: `RequireAgentCardSchemes` checked the card of the route tenant only. A request to `/a2a` with
   `"tenant": "acme"` in its body was checked against the default tenant's card, or against no card, and then ran in
   tenant acme without proving acme's schemes. It also checked artifact and upload routes against the default card.

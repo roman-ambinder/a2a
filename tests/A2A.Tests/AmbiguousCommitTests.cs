@@ -103,6 +103,46 @@ public class AmbiguousCommitTests
             Inner.FindCommitAsync(task, mutationId, ct);
     }
 
+    /// <summary>
+    /// A store with batch commits but no <see cref="ITaskCommitLookup"/>. The first batch either is applied and then
+    /// reported as a version conflict (<paramref name="ownWrite"/>: the store's own retry met its first attempt), or meets
+    /// a real conflict: another writer changes the task's status first, and the batch is not applied.
+    /// </summary>
+    public sealed class NoLookupBatchStore(InMemoryTaskStore inner, bool ownWrite)
+        : AmbiguousTaskStore(inner, Failure.Conflict, failingArtifactCommit: 0), IBatchTaskCommit
+    {
+        private int _held;
+        private int _batches;
+        public int Batches => _batches;
+
+        public override async ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
+        {
+            if (commit.Event.Event is ArtifactUpdateEvent && Interlocked.Exchange(ref _held, 1) == 0)
+                await Task.Delay(300, ct);
+            return await base.CommitAsync(commit, ct);
+        }
+
+        public async ValueTask<BatchCommitResult> CommitBatchAsync(TaskBatchCommit commit, CancellationToken ct = default)
+        {
+            if (Interlocked.Increment(ref _batches) != 1) return await Inner.CommitBatchAsync(commit, ct);
+            if (ownWrite)
+            {
+                await Inner.CommitBatchAsync(commit, ct);
+            }
+            else
+            {
+                // Another writer: a status message on the same task, committed first.
+                var current = (await Inner.GetAsync(commit.Record.Key, ct))!;
+                var task = current.Task.CopyForUpdate();
+                task.Status = new AgentTaskStatus { State = TaskState.Working, Message = Message.FromAgent("other writer") };
+                await Inner.CommitAsync(new TaskCommit(current with { Task = task }, current.Version,
+                    StreamResponse.Of(new TaskStatusUpdateEvent { TaskId = task.Id, ContextId = task.ContextId, Status = task.Status }), []), ct);
+            }
+
+            throw new ConcurrencyException(commit.Record.Key, commit.ExpectedVersion);
+        }
+    }
+
     private static async Task<(AgentTask Task, List<SequencedEvent> Log)> RunAsync(Func<InMemoryTaskStore, TaskStore> store, string scenario)
     {
         await using var host = await TestAgentHost.StartAsync(services: s =>
@@ -274,6 +314,34 @@ public class AmbiguousCommitTests
     {
         BatchStore? store = null;
         var (task, log) = await RunAsync(inner => store = new BatchStore(inner, failure), "many-chunks");
+
+        var summary = Describe(task, log);
+        Assert.True(store!.Batches >= 1, "no batch commit happened: " + summary);
+        var expected = Enumerable.Range(0, 21).Select(i => (string?)i.ToString(CultureInfo.InvariantCulture));
+        Assert.True(Parts(task).SequenceEqual(expected), summary);
+        Assert.True(log.Count(e => e.Event is ArtifactUpdateEvent) == 22, summary);
+        Assert.True(task.Status.State == TaskState.Completed, summary);
+    }
+
+    [Fact]
+    public async Task Without_the_lookup_a_batch_conflict_caused_by_the_stores_own_write_stores_each_chunk_once()
+    {
+        NoLookupBatchStore? store = null;
+        var (task, log) = await RunAsync(inner => store = new NoLookupBatchStore(inner, ownWrite: true), "many-chunks");
+
+        var summary = Describe(task, log);
+        Assert.True(store!.Batches >= 1, "no batch commit happened: " + summary);
+        var expected = Enumerable.Range(0, 21).Select(i => (string?)i.ToString(CultureInfo.InvariantCulture));
+        Assert.True(Parts(task).SequenceEqual(expected), summary);
+        Assert.True(log.Count(e => e.Event is ArtifactUpdateEvent) == 22, summary);
+        Assert.True(task.Status.State == TaskState.Completed, summary);
+    }
+
+    [Fact]
+    public async Task Without_the_lookup_a_real_batch_conflict_still_stores_every_chunk()
+    {
+        NoLookupBatchStore? store = null;
+        var (task, log) = await RunAsync(inner => store = new NoLookupBatchStore(inner, ownWrite: false), "many-chunks");
 
         var summary = Describe(task, log);
         Assert.True(store!.Batches >= 1, "no batch commit happened: " + summary);
