@@ -132,13 +132,13 @@ A failure is a tool result with `isError` set, not a protocol error. The text is
 
 | Case | Text or state |
 |---|---|
-| `message` is missing or blank | The `message` argument is required |
+| `message` is missing or blank | `The 'message' argument is required and must be text.` |
 | Unknown task id, someone else's id, or the remote agent says `TaskNotFound` | `Unknown or expired task.` The text is the same in all three cases |
-| The remote agent returns an A2A error | The error name only, for example `InvalidParams`. The remote message is not included |
+| The remote agent returns an A2A error | The error name only, for example `The remote agent returned an error: InvalidParams.` The remote message is not included |
 | The send timed out before a task id was known | State `unknown` |
-| The wait for a `get_task` or `cancel_task` answer ran out | The remote agent did not answer in time |
-| Network error | The remote agent could not be reached |
-| Anything else | The call failed |
+| The wait for a `get_task` or `cancel_task` answer ran out | `The remote agent did not answer in time.` |
+| Network error | `The remote agent could not be reached.` |
+| Anything else | `The call failed.` |
 
 A remote task that ends `failed`, `rejected` or `canceled` is also an error result, with its state. See [State mapping](#state-mapping).
 
