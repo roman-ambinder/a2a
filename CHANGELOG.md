@@ -4,6 +4,16 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Protocol and bindings
+
+- Interface fallback (spec §5.2), opt-in with `A2AClientOptions.InterfaceFallback` (default false). A client made by
+  `A2AClientFactory` moves to the next interface of the card (same tenant, card order) when a call fails before any
+  request reached the agent: a connection, name lookup, proxy tunnel or TLS handshake failure, after the transport's
+  retries, and for a stream only before its first event. HTTP statuses, A2A errors, timeouts and failures during the
+  request never fall back. The interface that worked is kept; when all fail, the first error is thrown. With credential
+  providers, only interfaces the credentials may be sent to are candidates. New counter `a2a.client.interface.fallback`
+  (tags `from`, `to`).
+
 ### Security
 
 - Opt-in anomaly monitoring (spec §13.4): `A2AServerOptions.Anomalies` (`A2AAnomalyOptions`: `Enabled`, default false;

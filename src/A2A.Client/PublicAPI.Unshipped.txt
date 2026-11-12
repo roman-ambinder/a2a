@@ -1,1 +1,3 @@
 #nullable enable
+A2A.Client.A2AClientOptions.InterfaceFallback.get -> bool
+A2A.Client.A2AClientOptions.InterfaceFallback.set -> void
