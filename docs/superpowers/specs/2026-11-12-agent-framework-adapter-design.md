@@ -54,7 +54,7 @@ Registration: `A2AServerBuilder.AddAIAgent(Action<AIAgentExecutorOptions>? confi
 
 ### Options (`AIAgentExecutorOptions`)
 
-The first six match `ChatClientAgentOptions`, with the same defaults and the same meaning.
+The first eight match `ChatClientAgentOptions`, with the same defaults and the same meaning.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -64,6 +64,8 @@ The first six match `ChatClientAgentOptions`, with the same defaults and the sam
 | `AllowUrlParts` | false | As in Extensions.AI: URL parts are refused. |
 | `KeepConversationOpen` | false | End each turn in `INPUT_REQUIRED`. |
 | `UseContextMemory` | false | Stateless mode only: earlier tasks of the context in the prompt. |
+| `ContextMemoryMaxTasks` | 20 | With `UseContextMemory`, as in `ChatClientAgentOptions` (added in Task 4: the shared prompt builder needs them). |
+| `ContextMemoryMaxBytes` | 262144 | With `UseContextMemory`, as in `ChatClientAgentOptions`. |
 | `SessionMode` | `Stateless` | `Stateless` or `Stored`. See below. |
 | `ConfigureRunOptions` | null | `Action<AgentRunOptions, AgentRequestContext>`, called on a fresh `AgentRunOptions` for each run. |
 | `ToolApprovals` | `Off` | `Off` or `Bound`. See below. |

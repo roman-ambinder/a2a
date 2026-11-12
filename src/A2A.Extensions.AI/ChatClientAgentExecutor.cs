@@ -27,8 +27,6 @@ namespace A2A.Extensions.AI;
 /// </remarks>
 public sealed class ChatClientAgentExecutor : IAgentExecutor
 {
-    private const string UrlRejectedText = "URL parts are not accepted by this agent.";
-
     private readonly IChatClient _chatClient;
     private readonly ChatClientAgentOptions _options;
 
@@ -51,7 +49,7 @@ public sealed class ChatClientAgentExecutor : IAgentExecutor
 
         if (!_options.AllowUrlParts && context.Message.Parts.Any(p => p is UrlPart))
         {
-            await updater.RejectAsync(UrlRejectedText, cancellationToken).ConfigureAwait(false);
+            await updater.RejectAsync(ExecutorTexts.UrlRejected, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -66,7 +64,7 @@ public sealed class ChatClientAgentExecutor : IAgentExecutor
                            .ConfigureAwait(false))
         {
             if (update.FinishReason == ChatFinishReason.ContentFilter)
-                throw new InvalidOperationException("The model stopped because of its content filter.");
+                throw new InvalidOperationException(ExecutorTexts.ContentFilter);
             foreach (var content in update.Contents)
                 await run.AddAsync(content, cancellationToken).ConfigureAwait(false);
         }

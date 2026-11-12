@@ -123,7 +123,9 @@ Flow (stateless only in this task; `SessionMode.Stored` and `ToolApprovals.Bound
 
 `AddAIAgent`: `builder.Services.Replace(ServiceDescriptor.Scoped<IAgentExecutor>(sp => new AIAgentExecutor(agent, options, sp.GetService<AgentSessionStore>())))`, with the agent from `GetRequiredService<AIAgent>()` or `GetRequiredKeyedService<AIAgent>(serviceKey)`, resolved from `sp`, which is the execution's scope. Validate options at registration.
 
-**Tests (`ExecutorTests`, a fake `TaskUpdater` sink as in `tests/A2A.Extensions.AI.Tests/ExecutorTests.cs`):**
+Done in Task 4, with these differences: the options also have `ContextMemoryMaxTasks` and `ContextMemoryMaxBytes` (the shared prompt builder needs them); the URL and content-filter texts moved to `src/Shared/AI/ExecutorTexts.cs`; the package's csproj has `NoWarn` `MAAI001` because the constructor takes an `AgentSessionStore` (a consumer that does not pass one sees no `MAAI001`, checked); the tests run over the real server (`AgentHost`), as `tests/A2A.Extensions.AI.Tests/ExecutorTests.cs` does, not over a fake `TaskUpdater` sink.
+
+**Tests (`ExecutorTests`):**
 1. Same updates into `ChatClientAgentExecutor` (through a fake `IChatClient`) and `AIAgentExecutor` (through `FakeAIAgent`) give equal artifact chunks, the same `append` and `lastChunk` flags, and the same final state. Do this for text only, text then data, and an empty reply.
 2. Prompt equals the Extensions.AI prompt for the same history, minus the system message; with `UseContextMemory` the summary is a user message.
 3. A fresh session per execution (two executions, two `CreateSessionAsync` calls).

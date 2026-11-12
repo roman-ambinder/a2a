@@ -4,6 +4,9 @@
         <Description>Microsoft Agent Framework integration for A2A (Agent2Agent): host an AIAgent as an A2A agent, or use a remote A2A agent as an AIAgent.</Description>
         <!-- The shared sources in src/Shared/AI pick this package's namespace with this symbol. -->
         <DefineConstants>$(DefineConstants);A2A_AGENT_FRAMEWORK</DefineConstants>
+        <!-- MAAI001: Agent Framework marks AgentSessionStore evaluation-only; AIAgentExecutor takes one (spec open
+             question 5). Scoped to this project. -->
+        <NoWarn>$(NoWarn);MAAI001</NoWarn>
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="..\A2A.Extensions.AI\A2A.Extensions.AI.csproj"/>

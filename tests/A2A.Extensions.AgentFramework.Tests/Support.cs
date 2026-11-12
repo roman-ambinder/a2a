@@ -1,8 +1,16 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using A2A.Client;
+using A2A.Client.Transports;
+using A2A.Server;
+using A2A.Server.AspNetCore;
 using Microsoft.Agents.AI;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace A2A.Extensions.AgentFramework.Tests;
 
@@ -121,4 +129,102 @@ public sealed class FakeSessionStore : AgentSessionStore
 public static class Bindings
 {
     public static TheoryData<string> All => new() { ProtocolBindings.JsonRpc, ProtocolBindings.HttpJson };
+}
+
+/// <summary>A scripted <see cref="IChatClient"/>, to run <c>ChatClientAgentExecutor</c> side by side with the adapter.</summary>
+public sealed class ScriptedChatClient(Func<List<ChatMessage>, IEnumerable<ChatResponseUpdate>> script) : IChatClient
+{
+    private readonly ConcurrentQueue<List<ChatMessage>> _calls = new();
+
+    public IReadOnlyList<List<ChatMessage>> Calls => [.. _calls];
+
+    public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        var updates = new List<ChatResponseUpdate>();
+        await foreach (var u in GetStreamingResponseAsync(messages, options, cancellationToken)) updates.Add(u);
+        return updates.ToChatResponse();
+    }
+
+    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+        ChatOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var call = messages.ToList();
+        _calls.Enqueue(call);
+        foreach (var u in script(call)) yield return u;
+        await Task.CompletedTask;
+    }
+
+    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+    public void Dispose() { }
+}
+
+/// <summary>A server hosting an agent over the ASP.NET test server. No network.</summary>
+public sealed class AgentHost : IAsyncDisposable
+{
+    public const string BaseUrl = "http://localhost/a2a";
+
+    private AgentHost(WebApplication app) => App = app;
+
+    public WebApplication App { get; }
+
+    public static AgentCard Card() => new()
+    {
+        Name = "Agent Framework Agent",
+        Description = "Test agent",
+        Version = "1.0.0",
+        SupportedInterfaces =
+        [
+            new AgentInterface { Url = BaseUrl, ProtocolBinding = ProtocolBindings.JsonRpc },
+            new AgentInterface { Url = BaseUrl, ProtocolBinding = ProtocolBindings.HttpJson },
+        ],
+        Capabilities = new AgentCapabilities { Streaming = true },
+        DefaultInputModes = ["text/plain", "application/json"],
+        DefaultOutputModes = ["text/plain"],
+        Skills = [new AgentSkill { Id = "chat", Name = "Chat", Description = "Chats", Tags = ["test"] }],
+    };
+
+    /// <summary>Hosts <paramref name="agent"/> with <c>AddAIAgent</c>.</summary>
+    public static Task<AgentHost> StartAsync(AIAgent agent, Action<AIAgentExecutorOptions>? configure = null) =>
+        StartAsync(a => a.AddAIAgent(configure), s => s.AddSingleton(agent));
+
+    /// <summary>Hosts whatever <paramref name="addAgent"/> registers, with <paramref name="services"/> added first.</summary>
+    public static async Task<AgentHost> StartAsync(Func<A2AServerBuilder, A2AServerBuilder> addAgent,
+        Action<IServiceCollection>? services = null)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+        services?.Invoke(builder.Services);
+        builder.Services.AddAuthorization();
+        builder.Services.AddA2A(a => addAgent(a.AddAgentCard(Card())))
+            .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+
+        var app = builder.Build();
+        app.UseA2A();
+        app.UseAuthorization();
+        app.MapA2A("/a2a");
+        await app.StartAsync();
+        return new AgentHost(app);
+    }
+
+    public A2AClient Client(string binding = ProtocolBindings.JsonRpc)
+    {
+        var options = new A2AClientOptions();
+        var http = App.GetTestClient();
+        IA2AClient transport = binding switch
+        {
+            ProtocolBindings.JsonRpc => new JsonRpcTransport(http, new Uri(BaseUrl), options),
+            ProtocolBindings.HttpJson => new HttpJsonTransport(http, new Uri(BaseUrl), options),
+            _ => throw new ArgumentOutOfRangeException(nameof(binding), binding, null),
+        };
+        return new A2AClient(transport, options, Card());
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await App.StopAsync();
+        await App.DisposeAsync();
+    }
 }
