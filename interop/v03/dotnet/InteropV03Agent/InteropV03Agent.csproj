@@ -6,5 +6,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />
     <ProjectReference Include="..\..\..\..\src\A2A.Server.V0_3Compat\A2A.Server.V0_3Compat.csproj" />
+    <ProjectReference Include="..\..\..\..\src\A2A.Server.Grpc.V0_3Compat\A2A.Server.Grpc.V0_3Compat.csproj" />
   </ItemGroup>
 </Project>

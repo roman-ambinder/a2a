@@ -1,21 +1,30 @@
 """Official a2a-sdk 0.3.26 (protocol v0.3) agent with the same scenarios as the .NET interop agent.
 
 Usage: python py_server_v03.py <port>
-Serves JSON-RPC at POST / and HTTP+JSON under /v1, card at /.well-known/agent-card.json.
+Serves JSON-RPC at POST / and HTTP+JSON under /v1, card at /.well-known/agent-card.json, and gRPC (a2a.v1.A2AService)
+on <port + 1>. Push notifications are on: the SDK's sender POSTs the task to each webhook.
 """
 
 import asyncio
 import os
 import sys
 
+import grpc
+import httpx
 import uvicorn
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.apps.rest import A2ARESTFastAPIApplication
 from a2a.server.events import EventQueue
-from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
+from a2a.grpc import a2a_pb2_grpc
+from a2a.server.request_handlers import DefaultRequestHandler, GrpcHandler
+from a2a.server.tasks import (
+    BasePushNotificationSender,
+    InMemoryPushNotificationConfigStore,
+    InMemoryTaskStore,
+    TaskUpdater,
+)
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
@@ -77,6 +86,7 @@ class ScenarioExecutor(AgentExecutor):
 
 def build(port: int):
     base = f'http://127.0.0.1:{port}'
+    grpc_url = f'http://127.0.0.1:{port + 1}'
     card = AgentCard(
         name='Python v0.3 Scenario Agent',
         description='Official a2a-sdk 0.3 agent for interop tests',
@@ -87,23 +97,44 @@ def build(port: int):
         additional_interfaces=[
             AgentInterface(url=base, transport='JSONRPC'),
             AgentInterface(url=base, transport='HTTP+JSON'),
+            AgentInterface(url=grpc_url, transport='GRPC'),
         ],
-        capabilities=AgentCapabilities(streaming=True, push_notifications=False),
+        capabilities=AgentCapabilities(streaming=True, push_notifications=True),
         default_input_modes=['text/plain'],
         default_output_modes=['text/plain'],
         skills=[AgentSkill(id='scenario', name='Scenario', description='Interop scenarios', tags=['test'])],
         supports_authenticated_extended_card=True,
     )
     extended = card.model_copy(update={'name': 'Python v0.3 Scenario Agent (extended)'})
-    handler = DefaultRequestHandler(agent_executor=ScenarioExecutor(), task_store=InMemoryTaskStore())
+    push_store = InMemoryPushNotificationConfigStore()
+    handler = DefaultRequestHandler(
+        agent_executor=ScenarioExecutor(),
+        task_store=InMemoryTaskStore(),
+        push_config_store=push_store,
+        push_sender=BasePushNotificationSender(httpx.AsyncClient(timeout=10), push_store),
+    )
 
     # REST (FastAPI) at /v1/..., and the JSON-RPC route at / added to the same app.
     app = A2ARESTFastAPIApplication(agent_card=card, http_handler=handler, extended_agent_card=extended).build()
     rpc = A2AStarletteApplication(agent_card=card, http_handler=handler, extended_agent_card=extended)
     app.router.routes.extend(rpc.routes(rpc_url='/'))
-    return app
+    # gRPC: GetAgentCard is the card call the 0.3 gRPC client uses for the extended card.
+    grpc_handler = GrpcHandler(agent_card=card, request_handler=handler, card_modifier=lambda _: extended)
+    return app, grpc_handler
+
+
+async def serve(port: int) -> None:
+    app, grpc_handler = build(port)
+    grpc_server = grpc.aio.server()
+    a2a_pb2_grpc.add_A2AServiceServicer_to_server(grpc_handler, grpc_server)
+    grpc_server.add_insecure_port(f'127.0.0.1:{port + 1}')
+    await grpc_server.start()
+    config = uvicorn.Config(app, host='127.0.0.1', port=port, log_level=os.environ.get('LOG', 'warning'))
+    try:
+        await uvicorn.Server(config).serve()
+    finally:
+        await grpc_server.stop(None)
 
 
 if __name__ == '__main__':
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 5400
-    uvicorn.run(build(port), host='127.0.0.1', port=port, log_level=os.environ.get('LOG', 'warning'))
+    asyncio.run(serve(int(sys.argv[1]) if len(sys.argv) > 1 else 5400))

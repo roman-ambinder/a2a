@@ -293,6 +293,14 @@ internal sealed class V03JsonCodec : V03Codec
         return new JsonObject { ["id"] = id };
     }
 
+    /// <summary><c>tasks/cancel</c> params: the task id and, when set, the request <c>metadata</c> (v0.3 <c>TaskIdParams</c>).</summary>
+    public static JsonObject WriteCancelParams(CancelTaskRequest request)
+    {
+        var o = new JsonObject { ["id"] = request.Id };
+        V03Json.SetMetadata(o, request.Metadata);
+        return o;
+    }
+
     /// <summary>Reads <c>tasks/cancel</c> params.</summary>
     public static CancelTaskRequest ReadCancelParams(JsonNode? node)
     {

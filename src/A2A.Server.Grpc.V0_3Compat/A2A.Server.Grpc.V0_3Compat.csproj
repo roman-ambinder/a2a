@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <RootNamespace>A2A.Server.Grpc.V0_3Compat</RootNamespace>
+        <!-- CA1707: the assembly name is fixed by the package plan. RS0041: generated protobuf code is nullable-oblivious. -->
+        <NoWarn>$(NoWarn);CA1707;RS0041</NoWarn>
+        <IncludeGoogleApiCommonProtos>true</IncludeGoogleApiCommonProtos>
+        <Description>Serve A2A protocol v0.3 gRPC clients (service a2a.v1.A2AService) from an A2A v1.0 agent on ASP.NET Core.</Description>
+    </PropertyGroup>
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\A2A.Server.Grpc\A2A.Server.Grpc.csproj"/>
+        <ProjectReference Include="..\A2A.Server.V0_3Compat\A2A.Server.V0_3Compat.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Grpc.AspNetCore.Server"/>
+        <PackageReference Include="Google.Protobuf"/>
+        <PackageReference Include="Google.Api.CommonProtos"/>
+        <PackageReference Include="Grpc.Tools" PrivateAssets="all"/>
+    </ItemGroup>
+    <ItemGroup>
+        <!-- The v0.3 proto as published (a2aproject/A2A tag v0.3.0). Internal: the wire types are not part of the API. -->
+        <Protobuf Include="..\Shared\Protos\a2a_v03.proto" ProtoRoot="..\Shared\Protos" GrpcServices="Server" Access="Internal"/>
+    </ItemGroup>
+    <!-- No InternalsVisibleTo for the tests: they generate the same v0.3 wire types (namespace A2a.V1) from the golden proto. -->
+</Project>

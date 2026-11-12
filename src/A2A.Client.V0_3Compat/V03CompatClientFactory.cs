@@ -92,10 +92,14 @@ public static class V03CompatClientFactory
         V03LossReporter.LegacyAgent(card.Name, selected.Url);
         var v03Options = V03ClientSupport.CopyForV03(options, selected.Tenant);
         EnsureAllowedNoDns(card, v03Options);
-        var uri = new Uri(selected.Url, UriKind.Absolute);
-        IA2AClient transport = selected.ProtocolBinding == ProtocolBindings.JsonRpc
-            ? new V03JsonRpcTransport(httpClient, uri, v03Options)
-            : new V03HttpJsonTransport(httpClient, uri, v03Options);
+        IA2AClient transport = selected.ProtocolBinding switch
+        {
+            ProtocolBindings.JsonRpc => new V03JsonRpcTransport(httpClient, new Uri(selected.Url, UriKind.Absolute),
+                v03Options),
+            ProtocolBindings.HttpJson => new V03HttpJsonTransport(httpClient, new Uri(selected.Url, UriKind.Absolute),
+                v03Options),
+            _ => V03FactoryFor(options, selected)!.Create(selected, httpClient, v03Options)
+        };
         return new A2AClient(transport, v03Options, card);
     }
 
@@ -129,13 +133,26 @@ public static class V03CompatClientFactory
         foreach (var itf in card.SupportedInterfaces ?? [])
         {
             if (!V03Compat.IsV03Version(itf.ProtocolVersion)) continue;
-            if (itf.ProtocolBinding is not (ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson)) continue;
             if (!options.SupportedBindings.Contains(itf.ProtocolBinding)) continue;
+            // Other bindings (v0.3 gRPC) need a v0.3 transport factory, such as UseGrpcV03() adds.
+            if (itf.ProtocolBinding is not (ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson))
+            {
+                if (V03FactoryFor(options, itf) is not null) return itf;
+                continue;
+            }
+
             if (!Uri.TryCreate(itf.Url, UriKind.Absolute, out _)) continue;
             return itf;
         }
 
         return null;
+    }
+
+    /// <summary>The last v0.3 transport factory that can build a transport for <paramref name="itf" />, or null.</summary>
+    private static IV03TransportFactory? V03FactoryFor(A2AClientOptions options, AgentInterface itf)
+    {
+        return options.TransportFactories.OfType<IV03TransportFactory>().LastOrDefault(f =>
+            string.Equals(f.ProtocolBinding, itf.ProtocolBinding, StringComparison.OrdinalIgnoreCase) && f.CanCreate(itf));
     }
 
     private static void RequireSameVersion()
@@ -144,3 +161,10 @@ public static class V03CompatClientFactory
             typeof(V03Compat).Assembly, typeof(AgentCard).Assembly);
     }
 }
+
+/// <summary>
+///     A transport factory for a v0.3 binding other than JSON-RPC and HTTP+JSON (v0.3 gRPC, A2A.Client.Grpc.V0_3Compat).
+///     <see cref="V03CompatClientFactory" /> uses it for the v0.3 interfaces it can create. The v1.0 path never does: it
+///     selects v1.x interfaces only.
+/// </summary>
+internal interface IV03TransportFactory : IA2ATransportFactory;

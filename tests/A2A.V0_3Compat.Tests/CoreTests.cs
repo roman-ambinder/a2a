@@ -34,9 +34,10 @@ public class SharedTests
     [Fact]
     public async Task Resolver_without_the_normalizer_does_not_change_behavior()
     {
-        // The v1.0 reader refuses a v0.3 card (flat security schemes), as it always did.
+        // The v1.0 reader refuses a v0.3 card, as it always did, and names the compat factory.
         var ex = await Assert.ThrowsAsync<A2AException>(() => Resolver(Golden.Text("agent-card.json"), normalize: false).ResolveAsync(new Uri("https://agent.example/")));
         Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
+        Assert.Contains("V03CompatClientFactory", ex.Message, StringComparison.Ordinal); // and says where to go
     }
 
     [Fact]

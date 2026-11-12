@@ -168,6 +168,10 @@ internal sealed class A2AStartupValidator(
         // Listen addresses, and so the completed card, are known only once the server has started.
         lifetime.ApplicationStarted.Register(CheckCardInterfaces);
         if (options.Value.AllowAnonymous) AspNetCoreLog.AnonymousCallersAllowed(logger);
+        // Spec 3.6.2: "Agents MUST interpret empty value as 0.3 version". The setting breaks that MUST on purpose, for curl
+        // in Development; elsewhere a 0.3 client's call without the header would be served as 1.0.
+        if (options.Value.TreatMissingVersionAsCurrent && environment?.IsDevelopment() != true)
+            AspNetCoreLog.MissingVersionTreatedAsCurrent(logger);
 
         if (!registry.HasSources)
         {

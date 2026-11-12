@@ -35,10 +35,12 @@ internal static class V03CardCodec
     /// </param>
     /// <param name="v03">The v0.3 card.</param>
     /// <param name="problem">Why no card was built.</param>
-    public static bool TryToV03(JsonObject v1, bool? pushNotifications, out JsonObject v03, out string? problem)
+    /// <param name="includeGrpc">Also list GRPC interfaces (the host serves v0.3 gRPC).</param>
+    public static bool TryToV03(JsonObject v1, bool? pushNotifications, out JsonObject v03, out string? problem,
+        bool includeGrpc = false)
     {
         v03 = new JsonObject();
-        var interfaces = V03Interfaces(v1);
+        var interfaces = V03Interfaces(v1, includeGrpc);
         if (interfaces.Count == 0)
         {
             problem = "the card lists no JSONRPC or HTTP+JSON interface, so no v0.3 fields were added";
@@ -121,9 +123,9 @@ internal static class V03CardCodec
     ///     .
     ///     Without a JSON-RPC or HTTP+JSON interface nothing is added and a warning is logged once.
     /// </summary>
-    public static JsonObject Blend(JsonObject v1)
+    public static JsonObject Blend(JsonObject v1, bool includeGrpc = false)
     {
-        if (!TryToV03(v1, null, out var v03, out var problem))
+        if (!TryToV03(v1, null, out var v03, out var problem, includeGrpc))
         {
             V03LossReporter.CardProblem(problem!);
             return v1;
@@ -160,7 +162,13 @@ internal static class V03CardCodec
         return v1;
     }
 
-    private static List<(string Url, string Transport)> V03Interfaces(JsonObject v1)
+    /// <param name="v1">The v1.0 card.</param>
+    /// <param name="includeGrpc">
+    ///     True when the host serves v0.3 gRPC (the A2A.Server.Grpc.V0_3Compat package): GRPC interfaces are listed too, at
+    ///     their v1.0 address (the v0.3 service <c>a2a.v1.A2AService</c> runs next to <c>lf.a2a.v1.A2AService</c>). One with a
+    ///     tenant is left out: a gRPC address has no path to carry it, and v0.3 has no tenant field.
+    /// </param>
+    private static List<(string Url, string Transport)> V03Interfaces(JsonObject v1, bool includeGrpc = false)
     {
         var list = new List<(string, string)>();
         if (v1["supportedInterfaces"] is not JsonArray interfaces) return list;
@@ -169,8 +177,15 @@ internal static class V03CardCodec
             if (item is not JsonObject itf) continue;
             var binding = V03Json.Str(itf, "protocolBinding");
             var url = V03Json.Str(itf, "url");
-            if (binding is not (ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson) ||
-                string.IsNullOrEmpty(url)) continue;
+            if (string.IsNullOrEmpty(url)) continue;
+            if (includeGrpc && binding == ProtocolBindings.Grpc)
+            {
+                if (string.IsNullOrEmpty(V03Json.Str(itf, "tenant")) && !list.Contains((url, binding)))
+                    list.Add((url, binding));
+                continue;
+            }
+
+            if (binding is not (ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson)) continue;
             var tenant = V03Json.Str(itf, "tenant");
             if (!string.IsNullOrEmpty(tenant)) url = url.TrimEnd('/') + "/" + Uri.EscapeDataString(tenant);
             if (!list.Contains((url, binding))) list.Add((url, binding));
@@ -486,6 +501,75 @@ internal static class V03CardCodec
         }
 
         return result;
+    }
+
+    // ================= v0.3 JSON-RPC card <-> v0.3 proto card =================
+
+    /// <summary>
+    ///     The v0.3 proto <c>AgentCard</c> (ProtoJSON, for gRPC <c>GetAgentCard</c>) of a v0.3 card in the JSON-RPC
+    ///     dialect. Security schemes become the proto wrappers, security lists become <c>{"schemes": {name: {"list": [...]}}}</c>.
+    ///     The proto has no <c>iconUrl</c> and no <c>capabilities.stateTransitionHistory</c>, and its <c>OAuthFlows</c> holds one
+    ///     flow: the others are dropped and counted (<c>card.iconUrl</c>, <c>capabilities.stateTransitionHistory</c>,
+    ///     <c>oauth.flows</c>).
+    /// </summary>
+    public static JsonObject ToProtoCard(JsonObject v03)
+    {
+        var card = (JsonObject)v03.DeepClone();
+        if (card.Remove("iconUrl")) V03LossReporter.Drop("card.iconUrl");
+        if (card["capabilities"] is JsonObject capabilities && capabilities.Remove("stateTransitionHistory"))
+            V03LossReporter.Drop("capabilities.stateTransitionHistory");
+        if (V03Json.OptObj(card, "securitySchemes") is { } schemes)
+        {
+            var converted = new JsonObject();
+            foreach (var (name, scheme) in schemes)
+            {
+                var wrapper = SchemeToV1(name, V03Json.Obj(scheme, "security scheme"));
+                if (wrapper["oauth2SecurityScheme"] is JsonObject { } oauth && oauth["flows"] is JsonObject flows &&
+                    flows.Count > 1)
+                {
+                    // proto OAuthFlows is a oneof: keep the first flow.
+                    var first = flows.First();
+                    oauth["flows"] = new JsonObject { [first.Key] = first.Value!.DeepClone() };
+                    V03LossReporter.Drop("oauth.flows");
+                }
+
+                converted[name] = wrapper;
+            }
+
+            card["securitySchemes"] = converted;
+        }
+
+        if (V03Json.Arr(card, "security") is { } security) card["security"] = RequirementsToV1(security);
+        if (V03Json.Arr(card, "skills") is { } skills)
+            foreach (var item in skills)
+                if (item is JsonObject skill && V03Json.Arr(skill, "security") is { } skillSecurity)
+                    skill["security"] = RequirementsToV1(skillSecurity);
+        return card;
+    }
+
+    /// <summary>
+    ///     The v0.3 card in the JSON-RPC dialect of a v0.3 proto <c>AgentCard</c> (ProtoJSON, from gRPC <c>GetAgentCard</c>):
+    ///     the inverse of <see cref="ToProtoCard" />, so <see cref="ToV1" /> reads it. A security scheme of no known type is
+    ///     refused (<see cref="JsonException" />): dropping it would read as open access.
+    /// </summary>
+    public static JsonObject FromProtoCard(JsonObject proto)
+    {
+        var card = (JsonObject)proto.DeepClone();
+        if (V03Json.OptObj(card, "securitySchemes") is { } schemes)
+        {
+            var flat = new JsonObject();
+            foreach (var (name, scheme) in schemes)
+                flat[name] = SchemeToV03(name, V03Json.Obj(scheme, "security scheme")) ??
+                             throw new JsonException($"security scheme '{name}' has no known type");
+            card["securitySchemes"] = flat;
+        }
+
+        if (V03Json.Arr(card, "security") is { } security) card["security"] = RequirementsToV03(security);
+        if (V03Json.Arr(card, "skills") is { } skills)
+            foreach (var item in skills)
+                if (item is JsonObject skill && V03Json.Arr(skill, "security") is { } skillSecurity)
+                    skill["security"] = RequirementsToV03(skillSecurity);
+        return card;
     }
 
     private static void CopyString(JsonObject from, JsonObject to, string name)

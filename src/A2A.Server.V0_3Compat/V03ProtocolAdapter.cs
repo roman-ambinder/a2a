@@ -10,9 +10,12 @@ namespace A2A.Server.V0_3Compat;
 /// <summary>Plugs the v0.3 surface into <c>MapA2A</c> (see <see cref="IA2AProtocolAdapter" />).</summary>
 internal sealed class V03ProtocolAdapter : IA2AProtocolAdapter
 {
+    private IServiceProvider? _services;
     private V03Surface? _surface;
 
-    public Func<ReadOnlyMemory<byte>, byte[]>? CardBodyTransform { get; } = V03CardBody.Blend;
+    // The v0.3 card lists GRPC interfaces only when the host serves v0.3 gRPC (A2A.Server.Grpc.V0_3Compat).
+    public Func<ReadOnlyMemory<byte>, byte[]>? CardBodyTransform =>
+        body => V03CardBody.Blend(body, V03GrpcRegistration.IsServed(_services));
 
     // v0.2.x clients use the v0.3 JSON-RPC methods (a subset of them) but read the card at /.well-known/agent.json.
     public bool ServeLegacyCardPath => true;
@@ -45,6 +48,7 @@ internal sealed class V03ProtocolAdapter : IA2AProtocolAdapter
 
     private V03Surface Surface(IServiceProvider services)
     {
+        _services = services;
         return _surface ??= ActivatorUtilities.CreateInstance<V03Surface>(services);
     }
 }
@@ -53,9 +57,21 @@ internal sealed class V03ProtocolAdapter : IA2AProtocolAdapter
 internal static class V03CardBody
 {
     /// <summary>The v1.0 card body plus the v0.3 members (see <see cref="V03CardCodec.Blend" />).</summary>
-    public static byte[] Blend(ReadOnlyMemory<byte> v1Card)
+    public static byte[] Blend(ReadOnlyMemory<byte> v1Card, bool includeGrpc = false)
     {
         var node = V03Json.Parse(v1Card.Span);
-        return V03Json.ToUtf8(V03CardCodec.Blend(V03Json.Obj(node, "Agent Card")));
+        return V03Json.ToUtf8(V03CardCodec.Blend(V03Json.Obj(node, "Agent Card"), includeGrpc));
+    }
+}
+
+/// <summary>
+///     Registered by <c>AddA2AGrpcV03Compat()</c> (A2A.Server.Grpc.V0_3Compat): the host serves the v0.3 gRPC service, so
+///     the v0.3 cards list its GRPC interfaces.
+/// </summary>
+internal sealed class V03GrpcRegistration
+{
+    public static bool IsServed(IServiceProvider? services)
+    {
+        return services?.GetService(typeof(V03GrpcRegistration)) is not null;
     }
 }

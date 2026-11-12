@@ -167,6 +167,28 @@ public class ServerPushTests
     }
 
     [Fact]
+    public async Task Rest_create_also_reads_the_whole_request_as_the_v03_python_client_sends_it()
+    {
+        var (host, _) = await StartAsync();
+        await using var _host = host;
+        var taskId = await InputTaskAsync(host);
+        // a2a-sdk 0.3: {parent, configId, config}, the CreateTaskPushNotificationConfigRequest (not only the config).
+        var body = new JsonObject
+        {
+            ["parent"] = $"tasks/{taskId}", ["configId"] = "py1",
+            ["config"] = new JsonObject
+            {
+                ["name"] = $"tasks/{taskId}/pushNotificationConfigs/py1",
+                ["pushNotificationConfig"] = new JsonObject { ["id"] = "py1", ["url"] = Hook, ["token"] = "tok" },
+            },
+        };
+        using var create = await host.Http().PostAsync($"/a2a/v1/tasks/{taskId}/pushNotificationConfigs", V03Host.Json(body.ToJsonString()));
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        Assert.Equal($"tasks/{taskId}/pushNotificationConfigs/py1",
+            JsonNode.Parse(await create.Content.ReadAsStringAsync())!["name"]!.GetValue<string>());
+    }
+
+    [Fact]
     public async Task A_v03_webhook_gets_the_task_as_a_v03_json_rpc_Task()
     {
         var (host, hooks) = await StartAsync();

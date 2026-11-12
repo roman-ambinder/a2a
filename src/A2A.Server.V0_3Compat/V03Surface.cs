@@ -54,6 +54,7 @@ internal sealed partial class V03Surface
         ListTasksMethod
     };
 
+    private readonly bool _grpcServed;
     private readonly IA2ARequestHandler _handler;
     private readonly bool _includeDetails;
     private readonly TimeSpan _keepAlive;
@@ -61,9 +62,10 @@ internal sealed partial class V03Surface
     private readonly ILogger _logger;
 
     public V03Surface(IA2ARequestHandler handler, IOptions<A2AServerOptions> serverOptions,
-        IHostEnvironment environment, ILoggerFactory loggerFactory, TaskStore tasks)
+        IHostEnvironment environment, ILoggerFactory loggerFactory, TaskStore tasks, IServiceProvider services)
     {
         _handler = handler;
+        _grpcServed = V03GrpcRegistration.IsServed(services);
         // Push configs a v0.3 caller creates get v0.3 webhook bodies. Set before the host starts the delivery service.
         serverOptions.Value.PushPayloadEncoder ??= new V03PushPayloadEncoder(tasks, serverOptions.Value.Limits);
         _logger = loggerFactory.CreateLogger("A2A.Server.V0_3Compat");
@@ -363,6 +365,7 @@ internal sealed partial class V03Surface
         {
             Map(group, "POST", tenantPrefix + RoutePrefix + "/message:send", SendMessage);
             Map(group, "POST", tenantPrefix + RoutePrefix + "/message:stream", SendStreamingMessage);
+            Map(group, "GET", tenantPrefix + RoutePrefix + "/tasks", ListTasks);
             Map(group, "GET", tenantPrefix + RoutePrefix + "/tasks/{id}", GetTask);
             Map(group, "POST", tenantPrefix + RoutePrefix + "/tasks/{id}:cancel", CancelTask);
             Map(group, "GET|POST", tenantPrefix + RoutePrefix + "/tasks/{id}:subscribe", Subscribe);
@@ -414,6 +417,38 @@ internal sealed partial class V03Surface
         });
     }
 
+    /// <summary>
+    ///     v0.3 REST <c>GET /v1/tasks</c> (spec v0.3.0 §3.5.6 table: "List tasks (gRPC/REST only)"): the caller's tasks as a
+    ///     JSON array of v0.3 <c>Task</c>s, newest first as ListTasks orders them. v0.3 defines no paging or filters, so at
+    ///     most <see cref="MaxListedTasks" /> are returned.
+    /// </summary>
+    private Task ListTasks(HttpContext http)
+    {
+        return Run(http, "tasks/list", async (call, ct) =>
+        {
+            var list = new JsonArray();
+            var count = 0;
+            string? token = null;
+            do
+            {
+                var page = await _handler.ListTasksAsync(new ListTasksRequest
+                    { Tenant = call.Tenant, PageSize = _limits.MaxListPageSize, PageToken = token }, call, ct)
+                    .ConfigureAwait(false);
+                foreach (var task in page.Tasks)
+                {
+                    if (count++ == MaxListedTasks) return list;
+                    V03Json.Append(list, V03ProtoJsonCodec.Instance.WriteTask(task));
+                }
+
+                token = page.NextPageToken;
+            } while (!string.IsNullOrEmpty(token));
+
+            return list;
+        });
+    }
+
+    private const int MaxListedTasks = 1000;
+
     private Task CancelTask(HttpContext http)
     {
         return Run(http, "tasks/cancel", async (call, ct) =>
@@ -444,14 +479,24 @@ internal sealed partial class V03Surface
     {
         return Run(http, "tasks/pushNotificationConfig", async (call, ct) =>
         {
-            // The body is the proto TaskPushNotificationConfig ("name" may be left out: the route names the task).
+            // The proto's http rule makes the body the TaskPushNotificationConfig ("name" may be left out: the route names
+            // the task), but the a2a-sdk 0.3 Python client sends, and its server reads, the whole
+            // CreateTaskPushNotificationConfigRequest ({parent, configId, config}). Both are read.
             var body = V03Json.Obj(await BodyAsync(http).ConfigureAwait(false), "push config");
+            var bodyConfigId = (string?)null;
+            if (V03Json.OptObj(body, "config") is { } wrapped)
+            {
+                bodyConfigId = V03Json.Str(body, "configId");
+                body = wrapped;
+            }
+
             var taskId = Route(http, "id");
-            body["name"] ??= V03ProtoJsonCodec.PushConfigName(taskId, null);
+            if (string.IsNullOrEmpty(V03Json.Str(body, "name"))) body["name"] = V03ProtoJsonCodec.PushConfigName(taskId, null);
             var config = V03ProtoJsonCodec.Instance.ReadPushConfig(body);
             if (config.TaskId != taskId)
                 throw A2AException.InvalidField("name", "name must be the task of the route");
-            if (http.Request.Query["configId"].ToString() is { Length: > 0 } configId) config.Id = configId;
+            if (bodyConfigId is { Length: > 0 }) config.Id = bodyConfigId;
+            else if (http.Request.Query["configId"].ToString() is { Length: > 0 } configId) config.Id = configId;
             config.Tenant = call.Tenant;
             return V03ProtoJsonCodec.Instance.WritePushConfig(await _handler
                 .CreateTaskPushNotificationConfigAsync(config, call, ct).ConfigureAwait(false));
@@ -688,7 +733,7 @@ internal sealed partial class V03Surface
     // Shared
     // ======================================================================
 
-    private static ServerCallContext CreateCall(HttpContext http, string binding)
+    internal static ServerCallContext CreateCall(HttpContext http, string binding)
     {
         // v0.3 clients send X-A2A-Extensions; the core reads A2A-Extensions.
         var headers = http.Request.Headers;
@@ -712,7 +757,7 @@ internal sealed partial class V03Surface
     ///     an older one such as <c>0.2</c>, or one that does not parse, is <see cref="A2AErrorCode.VersionNotSupported" />:
     ///     agents MUST answer an unsupported version with that error, not with the semantics of another one (§3.6.2).
     /// </summary>
-    private static void RequireV03Header(HttpContext http)
+    internal static void RequireV03Header(HttpContext http)
     {
         string? version = http.Request.Headers[A2AProtocol.Headers.Version];
         if (string.IsNullOrWhiteSpace(version)) version = http.Request.Query[A2AProtocol.Headers.Version];
@@ -729,18 +774,29 @@ internal sealed partial class V03Surface
         };
     }
 
-    /// <summary>The extended card in v0.3 form (a pure v0.3 card; it says no push notifications, as v0.3 push is refused).</summary>
-    private async Task<JsonNode> ExtendedCardAsync(ServerCallContext call, CancellationToken ct)
+    /// <summary>The extended card in v0.3 form (a pure v0.3 card).</summary>
+    private Task<JsonObject> ExtendedCardAsync(ServerCallContext call, CancellationToken ct)
     {
-        var card = await _handler
-            .GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest { Tenant = call.Tenant }, call, ct)
-            .ConfigureAwait(false);
+        return V03CardAsync(_handler, call, extended: true, includeGrpc: _grpcServed, ct);
+    }
+
+    /// <summary>
+    ///     A pure v0.3 card (JSON-RPC dialect): the extended card, or the public card of the call's tenant. A card the host
+    ///     built by hand may not list interfaces: they are taken from the public card. With <paramref name="includeGrpc" />,
+    ///     the GRPC interfaces are listed too (the host serves v0.3 gRPC).
+    /// </summary>
+    internal static async Task<JsonObject> V03CardAsync(IA2ARequestHandler handler, ServerCallContext call, bool extended,
+        bool includeGrpc, CancellationToken ct)
+    {
+        var card = extended
+            ? await handler.GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest { Tenant = call.Tenant }, call, ct)
+                .ConfigureAwait(false)
+            : handler.AgentCard;
         var v1 = AgentCardCanonicalizer.ToNode(card);
-        // An extended card the host built by hand may not list interfaces: take them from the public card.
         if (v1["supportedInterfaces"] is not JsonArray { Count: > 0 })
             v1["supportedInterfaces"] =
-                AgentCardCanonicalizer.ToNode(_handler.AgentCard)["supportedInterfaces"]?.DeepClone();
-        if (!V03CardCodec.TryToV03(v1, null, out var v03, out var problem))
+                AgentCardCanonicalizer.ToNode(handler.AgentCard)["supportedInterfaces"]?.DeepClone();
+        if (!V03CardCodec.TryToV03(v1, null, out var v03, out var problem, includeGrpc))
             throw new A2AException(A2AErrorCode.Internal,
                 $"The extended Agent Card cannot be served to v0.3 clients: {problem}");
         // The v1.0 signatures do not cover the v0.3 document, so TryToV03 leaves them out.

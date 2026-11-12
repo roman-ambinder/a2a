@@ -4,7 +4,30 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### New packages
+
+- `RomanAmbinder.A2A.Server.Grpc.V0_3Compat`: serves the v0.3 gRPC service `a2a.v1.A2AService` (the proto of tag v0.3.0)
+  next to the v1.0 service, on the same address: `services.AddA2AGrpcV03Compat()` and `app.MapA2AGrpcV03Compat()`. All ten
+  v0.3 RPCs, push configs included; errors are the gRPC status and error-name message of the v0.3 Python SDK
+  (`TaskNotFoundError: ...`); `GetAgentCard` answers with the extended v0.3 card when the agent offers one. With it, the
+  v0.3 cards list the card's `GRPC` interfaces.
+- `RomanAmbinder.A2A.Client.Grpc.V0_3Compat`: `A2AClientOptions.UseGrpcV03()` lets `V03CompatClientFactory` select v0.3
+  `GRPC` interfaces and call them.
+
 ### Protocol and bindings
+
+- v0.3 compat: REST `GET /v1/tasks` (spec v0.3.0 §3.5.6) is served, as the caller's tasks in a JSON array (at most
+  1000), and the v0.3 HTTP+JSON client's `ListTasksAsync` calls it and applies the request's filters to the answer. It
+  stays `UnsupportedOperation` on JSON-RPC and gRPC, which have no such method in v0.3.
+- v0.3 compat: the JSON-RPC client sends `tasks/cancel` `metadata` (v0.3 `TaskIdParams`); the HTTP+JSON and gRPC clients,
+  whose proto has no field for it, count the drop as `tasks/cancel.metadata`.
+- v0.3 compat, found by the interop run against a2a-sdk 0.3.26: the REST push config create reads the whole
+  `CreateTaskPushNotificationConfigRequest` body `{parent, configId, config}` (what the Python SDK sends and reads) as
+  well as the bare config, and the client sends the former; the JSON-RPC client reads a success response without
+  `result` (Python drops a null result) as a null result.
+- **Behavior change.** `A2AClientFactory` (and a plain `A2ACardResolver`) refuses a card older than 1.0 with
+  `InvalidAgentResponse` and an error that names `V03CompatClientFactory`. Before, such a card read as a 1.0 card with
+  no interfaces ("No supported interface") or failed with a parse error.
 
 - **Behavior change.** A JSON-RPC request without `"jsonrpc": "2.0"` is `InvalidRequest` (`-32600`). A missing member
   was read as `"2.0"`. This holds on the v1.0 endpoint and on the v0.3 surface. A member of the wrong JSON type is still
@@ -36,6 +59,9 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   (tags `from`, `to`).
 
 ### Security
+
+- The server logs a warning at startup (event 709) when `TreatMissingVersionAsCurrent` is on outside Development: it
+  breaks spec 3.6.2 ("Agents MUST interpret empty value as 0.3 version").
 
 - v0.3 compat, **behavior change**: the v0.3 surface refuses any `A2A-Version` other than `0.3` or `0.3.x` (for
   example `0.2`, or a value that does not parse) with `VersionNotSupported` (spec v1.0.1 §3.6.2). Before, only versions
