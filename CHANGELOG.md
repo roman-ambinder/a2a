@@ -9,6 +9,9 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Spec decisions: blocking and non-blocking SendMessage. The SDK follows §3.2.2 where it disagrees with §3.1.1 ("MUST
   return immediately"), and a blocking send also returns when no execution of the task is running any more, so an agent
   that leaves its task `WORKING` answers the caller with a `WORKING` task.
+- Spec decisions: message and artifact content is not sanitized by the SDK (§14.1.1); the agent escapes it for where it
+  writes it, with `TextSanitizer` and `UntrustedText` for text the SDK hands out. v0.3 names have no alias types (§1.4):
+  the compat packages map v0.3 JSON to the v1.0 model.
 
 ## 0.2.0
 
