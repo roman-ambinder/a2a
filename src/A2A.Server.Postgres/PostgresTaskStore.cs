@@ -42,6 +42,18 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
     private readonly bool _useArtifactRows;
 
     /// <summary>
+    ///     The columns <see cref="ReadRecord" /> reads, of a task row aliased <c>t</c>: the record, and the parts of its rows
+    ///     in the same statement (<see cref="PostgresArtifactRows.PartsColumn" />).
+    /// </summary>
+    private string RecordColumns { get; }
+
+    /// <summary>
+    ///     For tests: runs in a commit with <see cref="PostgresStoreOptions.ArtifactRows" /> on, after the read of the
+    ///     layout and rows and before the compare-and-set, so a test can put another write in between.
+    /// </summary>
+    internal Func<ValueTask>? BeforeCompareAndSet { get; set; }
+
+    /// <summary>
     ///     Creates the store over <paramref name="dataSource" />. Create the tables first (<see cref="PostgresSchema" />
     ///     ).
     /// </summary>
@@ -67,6 +79,8 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         _tasks = $"{s}.a2a_tasks";
         _artifactRows = new PostgresArtifactRows($"{s}.a2a_artifact_parts", _tasks, settings.ArtifactRowsCompactAt);
         _useArtifactRows = settings.ArtifactRows;
+        RecordColumns =
+            $"t.owner, t.version, t.created_ticks, t.updated_ticks, t.task, t.parts_layout, {_artifactRows.PartsColumn("t")}";
         _contexts = $"{s}.a2a_contexts";
         _eventTables = EventTables.For(options);
         _outbox = PostgresPushOutbox.OutboxTable(options);
@@ -106,6 +120,7 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         var rows = _useArtifactRows
             ? await _artifactRows.ReadAsync(conn, tx, key, cancellationToken).ConfigureAwait(false)
             : null;
+        if (rows is not null && BeforeCompareAndSet is { } hook) await hook().ConfigureAwait(false);
         await using (var update = new NpgsqlCommand(_updateSql, conn, tx))
         {
             AddUpdateParameters(update, stored, json, commit.ExpectedVersion, Layout);
@@ -180,7 +195,7 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
     public override async ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken cancellationToken = default)
     {
         await using var cmd = _db.CreateCommand(
-            $"SELECT owner, version, created_ticks, updated_ticks, task, parts_layout FROM {_tasks} WHERE tenant = $1 AND task_id = $2 AND owner = $3");
+            $"SELECT {RecordColumns} FROM {_tasks} t WHERE t.tenant = $1 AND t.task_id = $2 AND t.owner = $3");
         cmd.Parameters.Add(TextParam(key.Tenant));
         cmd.Parameters.Add(TextParam(key.TaskId));
         cmd.Parameters.Add(TextParam(key.Owner));
@@ -194,7 +209,7 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         ArgumentNullException.ThrowIfNull(tenant);
         ArgumentNullException.ThrowIfNull(taskId);
         await using var cmd = _db.CreateCommand(
-            $"SELECT owner, version, created_ticks, updated_ticks, task, parts_layout FROM {_tasks} WHERE tenant = $1 AND task_id = $2");
+            $"SELECT {RecordColumns} FROM {_tasks} t WHERE t.tenant = $1 AND t.task_id = $2");
         cmd.Parameters.Add(TextParam(tenant));
         cmd.Parameters.Add(TextParam(taskId));
         return await ReadOneAsync(cmd, tenant, cancellationToken).ConfigureAwait(false);
@@ -252,6 +267,7 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         var rows = _useArtifactRows && !commit.IsCreate
             ? await _artifactRows.ReadAsync(conn, tx, key, cancellationToken).ConfigureAwait(false)
             : null;
+        if (rows is not null && BeforeCompareAndSet is { } hook) await hook().ConfigureAwait(false);
         if (commit.IsCreate)
         {
             await using var insert = new NpgsqlCommand(_insertSql, conn, tx);
@@ -341,8 +357,15 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         await using var batch = _db.CreateBatch();
         var count = new NpgsqlBatchCommand($"SELECT count(*) FROM {_tasks} WHERE {filter}");
         foreach (var a in countArgs) count.Parameters.Add(a);
+        // The page first, then its parts: the LIMIT in the subquery keeps the parts of rows past the page unread. One
+        // statement, so each task's parts are those of the version read.
         var page = new NpgsqlBatchCommand(
-            $"SELECT owner, version, created_ticks, updated_ticks, task, parts_layout FROM {_tasks} WHERE {pageFilter} ORDER BY status_ticks DESC, task_id LIMIT ${pageArgs.Count}");
+            $"""
+             SELECT {RecordColumns} FROM (
+                 SELECT tenant, task_id, owner, version, created_ticks, updated_ticks, task, parts_layout, status_ticks
+                   FROM {_tasks} WHERE {pageFilter} ORDER BY status_ticks DESC, task_id LIMIT ${pageArgs.Count}
+             ) t ORDER BY t.status_ticks DESC, t.task_id
+             """);
         foreach (var a in pageArgs) page.Parameters.Add(a);
         batch.BatchCommands.Add(count);
         batch.BatchCommands.Add(page);
@@ -352,16 +375,8 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         var total = checked((int)reader.GetInt64(0));
         await reader.NextResultAsync(cancellationToken).ConfigureAwait(false);
         var records = new List<TaskRecord>();
-        var inRows = new Dictionary<string, AgentTask>(StringComparer.Ordinal);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            var record = ReadRecord(reader, query.Tenant);
-            records.Add(record);
-            if (reader.GetInt16(5) == PostgresArtifactRows.RowsLayout) inRows[record.Task.Id] = record.Task;
-        }
-
-        await reader.DisposeAsync().ConfigureAwait(false);
-        await _artifactRows.FillAsync(null, null, _db, query.Tenant, inRows, cancellationToken).ConfigureAwait(false);
+            records.Add(ReadRecord(reader, query.Tenant));
 
         var hasMore = records.Count > query.PageSize;
         if (hasMore) records.RemoveAt(records.Count - 1);
@@ -602,10 +617,18 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
     /// <summary>
     ///     Converts up to <paramref name="batchSize" /> tasks whose artifact parts are in rows
     ///     (<see cref="PostgresStoreOptions.ArtifactRows" />) back to parts in the task, and deletes their rows. Returns how
-    ///     many it converted: call it until it returns 0. The task's version does not change, because its content does not.
-    ///     Turn <see cref="PostgresStoreOptions.ArtifactRows" /> off on every instance first, then run this before
-    ///     downgrading to a version without the option.
+    ///     many it converted: call it until it returns 0. Turn <see cref="PostgresStoreOptions.ArtifactRows" /> off on every
+    ///     instance first, then run this before downgrading to a version without the option. It is safe while instances
+    ///     serve, also ones that still have the option on.
     /// </summary>
+    /// <remarks>
+    ///     The content of a converted task does not change, and neither does its <see cref="TaskRecord.UpdatedAt" />, but
+    ///     its version goes up by one, with no event, as for <see cref="UpdateAsync" />. A commit based on a read from
+    ///     before the conversion then fails its compare-and-set, and the engine reads the task again and retries. Without
+    ///     that, the compare-and-set would succeed: a commit of an instance with the option still on, whose read before the
+    ///     compare-and-set saw the rows just before they were deleted, would set the layout back to rows and write only its
+    ///     new parts, so every other artifact would read back with no parts.
+    /// </remarks>
     public async ValueTask<int> InlineArtifactPartsAsync(int batchSize = 100, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(batchSize, 1);
@@ -635,12 +658,13 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
                 task = A2AJson.Deserialize<AgentTask>(json)!;
             }
 
-            await _artifactRows.FillAsync(conn, tx, _db, tenant,
-                new Dictionary<string, AgentTask>(StringComparer.Ordinal) { [taskId] = task }, cancellationToken)
-                .ConfigureAwait(false);
+            PostgresArtifactRows.Fill(task,
+                await _artifactRows.ReadPartsAsync(conn, tx, tenant, taskId, cancellationToken).ConfigureAwait(false));
             await using var batch = new NpgsqlBatch(conn, tx);
+            // version + 1: a commit based on an earlier read must fail its compare-and-set and read the task again. It
+            // would otherwise write that read's layout and parts over these (see the method's remarks).
             var update = new NpgsqlBatchCommand(
-                $"UPDATE {_tasks} SET task = $3, parts_layout = {PostgresArtifactRows.InlineLayout} WHERE tenant = $1 AND task_id = $2");
+                $"UPDATE {_tasks} SET task = $3, parts_layout = {PostgresArtifactRows.InlineLayout}, version = version + 1 WHERE tenant = $1 AND task_id = $2");
             update.Parameters.Add(TextParam(tenant));
             update.Parameters.Add(TextParam(taskId));
             update.Parameters.Add(TextParam(A2AJson.Serialize(task)));
@@ -679,21 +703,11 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         list.AddRange(update.Artifact.Parts);
     }
 
-    private async ValueTask<TaskRecord?> ReadOneAsync(NpgsqlCommand cmd, string tenant,
+    private static async ValueTask<TaskRecord?> ReadOneAsync(NpgsqlCommand cmd, string tenant,
         CancellationToken cancellationToken)
     {
-        TaskRecord record;
-        await using (var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
-        {
-            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
-            record = ReadRecord(reader, tenant);
-            if (reader.GetInt16(5) != PostgresArtifactRows.RowsLayout) return record;
-        }
-
-        await _artifactRows.FillAsync(null, null, _db, tenant,
-            new Dictionary<string, AgentTask>(StringComparer.Ordinal) { [record.Task.Id] = record.Task },
-            cancellationToken).ConfigureAwait(false);
-        return record;
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadRecord(reader, tenant) : null;
     }
 
     private static void AddInsertParameters(NpgsqlCommand cmd, TaskRecord stored, string json, short layout)
@@ -749,12 +763,15 @@ public sealed class PostgresTaskStore : TaskStore, IContextSummaryStore, IBatchT
         return (json, record with { Task = task });
     }
 
+    /// <summary>A record from the columns of <see cref="RecordColumns" />, with the parts of its rows put back.</summary>
     private static TaskRecord ReadRecord(NpgsqlDataReader reader, string tenant)
     {
+        var task = A2AJson.Deserialize<AgentTask>(reader.GetString(4));
+        PostgresArtifactRows.Fill(task, reader.IsDBNull(6) ? null : reader.GetFieldValue<string[]>(6));
         return new TaskRecord(
             tenant,
             reader.GetString(0),
-            A2AJson.Deserialize<AgentTask>(reader.GetString(4)),
+            task,
             reader.GetInt64(1),
             new DateTimeOffset(reader.GetInt64(2), TimeSpan.Zero),
             new DateTimeOffset(reader.GetInt64(3), TimeSpan.Zero));
