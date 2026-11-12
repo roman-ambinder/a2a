@@ -844,30 +844,33 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         var createId = NewMutationId(ref createIds);
                         try
                         {
-                            committed = await _tasks.CommitAsync(new TaskCommit(initial, 0, snapshot, deliveries)
+                            try
                             {
-                                // A store that shares a transaction with the idempotency store writes the outcome with the task.
-                                Idempotency = claim.ForCommit(new IdempotencyOutcome.TaskCreated(taskId)),
-                                MutationId = createId
-                            }).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            // The call failed, but the task may be stored: its answer was lost, or a store's own retry met its
-                            // first attempt. Then carry on with it; failing here would leave it behind while a retry of the
-                            // request creates a second task.
-                            var found = ex is OperationCanceledException
-                                ? null
-                                : await FindStoredCreateAsync(key, initial.Task, createIds, ex).ConfigureAwait(false);
-                            if (found is null)
-                            {
-                                if (push is not null)
-                                    await _pushConfigs.TryDeleteAsync(key, push.Id!)
-                                        .ConfigureAwait(false); // no task, so no config
-                                throw;
+                                committed = await _tasks.CommitAsync(new TaskCommit(initial, 0, snapshot, deliveries)
+                                {
+                                    // A store that shares a transaction with the idempotency store writes the outcome with the task.
+                                    Idempotency = claim.ForCommit(new IdempotencyOutcome.TaskCreated(taskId)),
+                                    MutationId = createId
+                                }).ConfigureAwait(false);
                             }
-
-                            committed = found;
+                            catch (Exception ex) when (ex is not OperationCanceledException &&
+                                                       (createIds is not null || ex is DuplicateTaskException))
+                            {
+                                // As for later commits: the create may be stored although the call failed (the answer was
+                                // lost, or a store's own retry met its first attempt and reported a duplicate task). Then the
+                                // task exists and the run carries on; otherwise the failure is handled below, as before.
+                                // Without the lookup only the duplicate can be checked, by comparing the stored task.
+                                if (await FindStoredCreateAsync(key, initial.Task, createIds, ex).ConfigureAwait(false) is not
+                                    { } found)
+                                    throw;
+                                committed = found;
+                            }
+                        }
+                        catch when (push is not null)
+                        {
+                            await _pushConfigs.TryDeleteAsync(key, push.Id!)
+                                .ConfigureAwait(false); // no task, so no config
+                            throw;
                         }
 
                         if (deliveries.Count > 0) _outbox.NotifyPending();
@@ -1294,9 +1297,9 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// <summary>
     ///     After the commit that creates a task failed with <paramref name="failure" />: whether the task is stored all the
     ///     same. With <see cref="ITaskCommitLookup" />, by the mutation ids. Without it, only after a
-    ///     <see cref="DuplicateTaskException" /> (a store's own retry that met its first attempt; task ids are random, so
-    ///     another writer does not create the same one): when the stored task is at version 1 and serializes to the same
-    ///     bytes as <paramref name="initial" />. Null otherwise; a lost answer without the lookup cannot be told from a
+    ///     <see cref="DuplicateTaskException" /> (a store's own retry that met its first attempt; new task ids are random,
+    ///     so another writer does not create the same one): when the stored task is at version 1 and serializes to the
+    ///     same bytes as <paramref name="initial" />. Null otherwise; a lost answer without the lookup cannot be told from a
     ///     failed write, and fails as before.
     /// </summary>
     private async ValueTask<CommitResult?> FindStoredCreateAsync(TaskKey key, AgentTask initial,

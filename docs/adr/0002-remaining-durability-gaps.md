@@ -162,14 +162,7 @@ The main risk of Option C is the D2 investigation itself. If the failure exists,
    - After a failed commit call, the engine looks up the ids of every attempt of that change. When one is stored, it carries on with the task as stored now.
    - No startup check was added. No feature requires the capability, and a store without it keeps the old behaviour, so there is nothing to refuse at startup.
    - The tests in `AmbiguousCommitTests` (single and batch commits) pass, and the store contract test `A_stored_commit_is_found_by_its_mutation_id` covers both stores.
-   - The commit that creates a task: covered on 2026-11-12. Tested first, it was worse than "reported as before": in
-     every case (timeout or duplicate, with or without the lookup) the run failed, the client's retry of the request
-     created a second task, and the first one stayed in the caller's list, `FAILED`, with only its creation. The create
-     commit had no mutation id, so the lookup could not help either. Now it carries one, and after a failed create the
-     engine asks the lookup; without it, a `DuplicateTaskException` (the store's own retry) is checked like other
-     events: the stored task at version 1, equal to the one written. Then the run goes on with the stored task and its
-     inline push config is kept. Left: a lost answer (a timeout) without the lookup still fails the run and leaves the
-     first task behind (`Without_the_lookup_a_create_whose_answer_is_lost_still_leaves_a_failed_task_behind`).
+   - The commit that creates a task was not covered at first. It is since 2026-11-12 (`CreateCommitLostAnswerTests`). Before, a create whose answer was lost left the task `FAILED` with its inline push config deleted, and the client's retry created a second task. Without the lookup, a `DuplicateTaskException` is checked like other events since then too (the stored task at version 1, equal to the one written; `CreateCommitLostAnswerTests.Without_the_lookup_a_duplicate_from_the_stores_own_retry_carries_on_and_keeps_the_push_config`); a lost answer without the lookup still fails as before.
 3. [x] ~~If the event is not stored twice: record why in the gap analysis, and close D2 there.~~ Not applicable: item 1 shows the failure.
 4. [x] Finish ADR-001 before tagging the release:
    - make `GetForMaintenanceAsync` virtual, or move it to a capability interface;
