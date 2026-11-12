@@ -514,17 +514,88 @@ public class StreamingResumeTests
     [Fact]
     public async Task A_busy_stream_is_not_ended_by_the_idle_timeout()
     {
+        // Time is a manual clock, so how fast the machine runs the agent does not matter: only the clock's time counts.
+        var clock = new FakeTimeProvider();
         await using var host = await TestAgentHost.StartAsync(
             o => o.Limits.StreamIdleTimeout = TimeSpan.FromMilliseconds(200),
-            services: s => s.AddScoped<IAgentExecutor, FloodAgent>());
+            services: s =>
+            {
+                s.AddScoped<IAgentExecutor, FloodAgent>();
+                s.AddSingleton<TimeProvider>(clock);
+            });
         await using var stream = host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, AliceCall()).GetAsyncEnumerator();
-        Assert.True(await stream.MoveNextAsync());
+        Assert.True(await stream.MoveNextAsync().AsTask().WaitAsync(Timeout));
         var taskId = Assert.IsType<TaskEvent>(stream.Current.Event).Task.Id;
 
-        var watch = Stopwatch.StartNew();
-        while (watch.Elapsed < TimeSpan.FromSeconds(1))
-            Assert.True(await stream.MoveNextAsync().AsTask().WaitAsync(Timeout), $"the stream ended after {watch.Elapsed}");
+        // Five idle timeouts of the clock's time go by while the stream reads, an eighth of the timeout per read (often while
+        // the stream waits for the agent). The agent keeps sending, so the stream never waits a whole timeout.
+        var step = TimeSpan.FromMilliseconds(25);
+        for (var elapsed = step; elapsed <= TimeSpan.FromSeconds(1); elapsed += step)
+        {
+            var move = stream.MoveNextAsync().AsTask();
+            clock.Advance(step);
+            Assert.True(await move.WaitAsync(Timeout), $"the stream ended after {elapsed} of the clock");
+        }
+
         await host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = taskId }, AliceCall()); // stop the flood
+    }
+
+    [Fact]
+    public async Task Time_the_reader_spends_between_reads_does_not_count_as_idle()
+    {
+        // Idle means the source sent nothing while the stream waited for it. Here the reader is busy for twice the idle
+        // timeout between reads (the clock moves on while no read is pending), and the agent emits each event only after the
+        // next read has started. It used to end the stream at once: the deadline started when the previous event was handed
+        // to the reader, so the pause alone used it up. Time is a manual clock, so the outcome does not depend on load.
+        var clock = new FakeTimeProvider();
+        var agent = new LockStepAgent();
+        await using var host = await TestAgentHost.StartAsync(
+            o => o.Limits.StreamIdleTimeout = TimeSpan.FromMilliseconds(200),
+            services: s =>
+            {
+                s.AddSingleton<IAgentExecutor>(agent);
+                s.AddSingleton<TimeProvider>(clock);
+            });
+        await using var stream = host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, AliceCall()).GetAsyncEnumerator();
+        Assert.True(await stream.MoveNextAsync().AsTask().WaitAsync(Timeout));
+        var taskId = Assert.IsType<TaskEvent>(stream.Current.Event).Task.Id;
+        Assert.True(await stream.MoveNextAsync().AsTask().WaitAsync(Timeout)); // Working: the agent then waits for the gate
+        Assert.IsType<StatusUpdateEvent>(stream.Current.Event);
+
+        for (var i = 0; i < 3; i++)
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(400)); // the reader is busy; nothing is pending
+            var move = stream.MoveNextAsync().AsTask(); // the stream now waits for the agent
+            agent.Gate.Release();
+            Assert.True(await move.WaitAsync(Timeout), $"the stream ended at read {i}");
+            Assert.IsType<ArtifactUpdateEvent>(stream.Current.Event);
+        }
+
+        // The timeout itself still applies, on the same clock: a read the agent does not answer ends the stream cleanly once
+        // the clock has passed the timeout, and not before.
+        var last = stream.MoveNextAsync().AsTask();
+        clock.Advance(TimeSpan.FromMilliseconds(150));
+        await Task.WhenAny(last, Task.Delay(100));
+        Assert.False(last.IsCompleted, "the stream ended before the idle timeout");
+        clock.Advance(TimeSpan.FromMilliseconds(50));
+        Assert.False(await last.WaitAsync(Timeout));
+        await host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = taskId }, AliceCall());
+    }
+
+    /// <summary>Emits one artifact on each release of <see cref="Gate" />.</summary>
+    private sealed class LockStepAgent : IAgentExecutor
+    {
+        public SemaphoreSlim Gate { get; } = new(0);
+
+        public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct)
+        {
+            await updater.StartWorkAsync(cancellationToken: ct);
+            while (true)
+            {
+                await Gate.WaitAsync(ct);
+                await updater.AddArtifactAsync([Part.FromText("x")], artifactId: "step", cancellationToken: ct);
+            }
+        }
     }
 
     /// <summary>Emits artifacts without end (about 5 per millisecond at most), faster than a reader that pauses can take them.</summary>
