@@ -285,7 +285,7 @@ public abstract class TaskStore
             if (task.History is not { } history) continue;
             for (var i = history.Count - 1; i >= 0; i--)
             {
-                total += Encoding.UTF8.GetByteCount(A2AJson.Serialize(history[i]));
+                total += Utf8Length.Of(history[i], A2AJson.GetTypeInfo<Message>());
                 if (total > query.MaxBytes) goto done;
                 picked.Add(history[i]);
             }

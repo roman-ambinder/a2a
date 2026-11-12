@@ -229,19 +229,23 @@ public sealed class InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOut
             .Where(r => query.Status is null || r.Task.Status.State == query.Status)
             .Where(r => query.StatusTimestampAfter is null ||
                         (r.Task.Status.Timestamp ?? r.CreatedAt) >= query.StatusTimestampAfter)
-            .OrderByDescending(r => (r.Task.Status.Timestamp ?? r.CreatedAt).UtcTicks)
-            .ThenBy(r => r.Task.Id, StringComparer.Ordinal)
             .ToList();
 
+        // The order is total (ids are unique within a tenant), so the tasks after the cursor are a filter, and only the
+        // page (plus one, to tell whether more follow) is sorted out of them, not every match.
         IEnumerable<TaskRecord> rest = matching;
         if (cursor is { } c)
-            rest = matching.SkipWhile(r =>
+            rest = matching.Where(r =>
             {
                 var ticks = (r.Task.Status.Timestamp ?? r.CreatedAt).UtcTicks;
-                return ticks > c.Ticks || (ticks == c.Ticks && string.CompareOrdinal(r.Task.Id, c.Id) <= 0);
+                return !(ticks > c.Ticks || (ticks == c.Ticks && string.CompareOrdinal(r.Task.Id, c.Id) <= 0));
             });
 
-        var page = rest.Take(query.PageSize + 1).ToList();
+        var page = rest
+            .OrderByDescending(r => (r.Task.Status.Timestamp ?? r.CreatedAt).UtcTicks)
+            .ThenBy(r => r.Task.Id, StringComparer.Ordinal)
+            .Take(query.PageSize + 1)
+            .ToList();
         var hasMore = page.Count > query.PageSize;
         if (hasMore) page.RemoveAt(page.Count - 1);
         var next = hasMore ? PageCursor.Encode(page[^1]) : string.Empty;

@@ -145,6 +145,7 @@ public static class SseReader
             var eof = false;
             var atStart = true; // a BOM is only skipped at the very start of the stream
             var skipLf = false; // the last line ended with CR: a LF right after it belongs to the same line break
+            var scanned = 0; // bytes after start already searched for a line break: a long line is searched once, not per read
             while (true)
             {
                 if (atStart && !eof && end - start < Bom.Length && Bom.StartsWith(buffer.AsSpan(start, end - start)))
@@ -165,9 +166,12 @@ public static class SseReader
                         skipLf = false;
                     }
 
-                    var newline = buffer.AsSpan(start, end - start).IndexOfAny((byte)'\r', (byte)'\n');
+                    var newline = buffer.AsSpan(start + scanned, end - start - scanned)
+                        .IndexOfAny((byte)'\r', (byte)'\n');
                     if (newline >= 0)
                     {
+                        newline += scanned;
+                        scanned = 0;
                         cancellationToken.ThrowIfCancellationRequested();
                         var lineStart = start;
                         var terminator = buffer[start + newline];
@@ -177,6 +181,8 @@ public static class SseReader
                         continue;
                     }
 
+                    // Relative to start, so it holds when the partial line is moved to the front or the buffer grows.
+                    scanned = end - start;
                     // End of stream: per spec, an incomplete line or event is discarded.
                     if (eof) yield break;
                     // A line that is still open and already longer than any allowed line: refuse it before the buffer grows.

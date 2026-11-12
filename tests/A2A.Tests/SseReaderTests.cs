@@ -176,6 +176,96 @@ public class SseReaderTests
         Assert.Equal(2, events.Count); // 120 bytes together, over the limit of 100, but each event is under it
     }
 
+    private static async Task<List<SseEvent>> ReadScripted(byte[] bytes, int[] reads, int maxEventBytes = SseReader.DefaultMaxEventBytes)
+    {
+        var events = new List<SseEvent>();
+        await foreach (var e in SseReader.ReadAsync(new ScriptedStream(bytes, reads), maxEventBytes, CancellationToken.None)) events.Add(e);
+        return events;
+    }
+
+    // The reader remembers how far it searched a partial line; these lines end in all parts of a read, after the
+    // buffer was compacted (a short line before them) and after it grew.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    [InlineData(13)]
+    [InlineData(4095)]
+    [InlineData(4097)]
+    public async Task Line_split_across_many_small_reads(int chunk)
+    {
+        var lines = new[] { "short", new string('a', 5000), "x", new string('b', 4090), new string('c', 9000) };
+        var text = string.Concat(lines.Select((l, i) => $"id: {i}\ndata: {l}\r\n\r\n"));
+        var events = await Read(text, chunk);
+        Assert.Equal(lines, events.Select(e => e.Data));
+        Assert.Equal(["0", "1", "2", "3", "4"], events.Select(e => e.FrameId));
+    }
+
+    // Every split of the stream into two reads, so a CR ends one read and its LF starts the next at each line break.
+    [Fact]
+    public async Task Cr_and_lf_split_across_reads()
+    {
+        var bytes = Encoding.UTF8.GetBytes("data: one\r\ndata: two\r\n\r\ndata: three\r\rdata: four\n\r\n");
+        for (var split = 1; split < bytes.Length; split++)
+        {
+            var events = await ReadScripted(bytes, [split, int.MaxValue]);
+            Assert.Equal(["one\ntwo", "three", "four"], events.Select(e => e.Data));
+        }
+    }
+
+    // A CR as the last byte of a full buffer, its LF in the next read: still one line break, not an empty line.
+    [Theory]
+    [InlineData(4096)]
+    [InlineData(8192)]
+    public async Task Cr_at_the_end_of_a_full_buffer_and_lf_in_the_next_read(int bufferEnd)
+    {
+        var first = "data: " + new string('x', bufferEnd - 7);
+        var bytes = Encoding.UTF8.GetBytes(first + "\r\ndata: y\r\n\r\n");
+        Assert.Equal((byte)'\r', bytes[bufferEnd - 1]);
+        var events = await ReadScripted(bytes, [bufferEnd, 1, int.MaxValue]);
+        Assert.Equal(new string('x', bufferEnd - 7) + "\ny", Assert.Single(events).Data);
+    }
+
+    [Theory]
+    [InlineData(1000)]
+    [InlineData(16 * 1024)]
+    public async Task Very_long_line_up_to_the_limit(int chunk)
+    {
+        const int size = 3 * 1024 * 1024;
+        var body = new string('z', size);
+        var text = $"data: {body}\n\ndata: after\n\n";
+        var events = await Read(text, size, chunk);
+        Assert.Equal(2, events.Count);
+        Assert.Equal(body, events[0].Data);
+        Assert.Equal("after", events[1].Data);
+        await TooLarge(() => Read(text, size - 1, chunk));
+    }
+
+    /// <summary>A read-only stream whose reads return the given sizes in turn (the last size repeats).</summary>
+    private sealed class ScriptedStream(byte[] data, int[] reads) : Stream
+    {
+        private int _position, _read;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+        public override int Read(Span<byte> buffer)
+        {
+            var size = reads[Math.Min(_read++, reads.Length - 1)];
+            var n = Math.Min(Math.Min(buffer.Length, size), data.Length - _position);
+            data.AsSpan(_position, n).CopyTo(buffer);
+            _position += n;
+            return n;
+        }
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(Read(buffer.Span));
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     /// <summary>A stream that returns <c>head</c> and then the same byte forever, <c>chunk</c> bytes at most per read.</summary>
     private sealed class EndlessStream(byte[] head, int chunk) : Stream
     {
