@@ -169,7 +169,15 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   tenant in each call, take a tracked entry each time, and fill `MaxTrackedCallers`, so that no other caller was watched.
 - Retention: a context recreated right after the orphan sweep deleted it (a new message to it) is no longer reported to
   `IA2AContextLifecycle`. The hooks would have erased stored state, such as an agent's session, of a live conversation.
-  The sweep checks again before notifying. This narrows the window, but does not close it.
+  The sweep checks again before notifying. This narrows the window, but does not close it for hooks in general. The
+  Agent Framework hook is no longer affected: see below.
+- Agent Framework: stored session keys carry the context's creation time (partition `a2a.context`). A context the
+  sweep deleted and a new message created again under the same id has other keys, so the delete hook, which deletes the
+  deleted context's sessions, never reaches the new conversation's. The hook also deletes the keys without a creation
+  time, which an executor built with the public constructor uses.
+- Agent Framework: the session index is updated under an exclusive claim of the `ExecutionCoordinator`, atomic across
+  instances with the Postgres and Redis coordinators. Two callers that first saved in one context at the same moment
+  could each overwrite the other's entry, and that caller's session then outlived the context.
 - Agent Framework: a resumed or polled background run no longer repeats the reply as the status message. After a dropped
   stream, the status message was judged against only the content since the token, so a completed task's status message
   that repeats its artifacts was shown again.

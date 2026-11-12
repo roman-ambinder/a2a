@@ -143,9 +143,18 @@ public sealed class FakeSessionStore : AgentSessionStore
     /// </summary>
     public bool ServeFirstSave { get; set; }
 
+    /// <summary>How long a read of a context index takes, so that concurrent updates of one index overlap.</summary>
+    public TimeSpan IndexReadDelay { get; set; }
+
+    /// <summary>The callers listed in the context index under <paramref name="key"/>, or null when there is none.</summary>
+    public IReadOnlyList<string>? IndexCallers(AgentSessionStoreKey key) =>
+        _sessions.TryGetValue(key, out var index)
+        && index.StateBag.TryGetValue("a2a.sessionCallers", out List<string>? callers) ? callers : null;
+
     public override async ValueTask<AgentSession?> GetSessionAsync(AIAgent agent, AgentSessionStoreKey key,
         CancellationToken cancellationToken = default)
     {
+        if (IsIndex(key) && IndexReadDelay > TimeSpan.Zero) await Task.Delay(IndexReadDelay, cancellationToken);
         if (!SerializeSessions) return _sessions.TryGetValue(key, out var session) ? session : null;
         return _json.TryGetValue(key, out var json) ? await agent.DeserializeSessionAsync(json, cancellationToken: cancellationToken) : null;
     }

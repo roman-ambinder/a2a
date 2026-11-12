@@ -32,8 +32,12 @@ internal sealed class AgentSessionContextLifecycle(
                 : scope.ServiceProvider.GetRequiredKeyedService<AIAgent>(registration.ServiceKey);
             try
             {
-                // The owner's session, and the session of every other caller of a shared context (SessionIndex).
-                await SessionIndex.DeleteAllAsync(store, agent, context.Tenant, context.ContextId, context.Owner,
+                // The owner's session, and the session of every other caller of a shared context (SessionIndex): those of
+                // this context's generation, so a context created again under the same id keeps its own. Then the keys
+                // without a generation, which an executor built without the task store uses.
+                await SessionIndex.DeleteAllAsync(store, agent, context.Tenant, context.ContextId,
+                    SessionKeys.Generation(context.CreatedAt), context.Owner, cancellationToken).ConfigureAwait(false);
+                await SessionIndex.DeleteAllAsync(store, agent, context.Tenant, context.ContextId, null, context.Owner,
                     cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)

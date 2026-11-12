@@ -5,7 +5,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using A2A.Server.Coordination;
 using A2A.Server.Retention;
+using A2A.Server.Storage;
 
 namespace A2A.Extensions.AgentFramework;
 
@@ -43,7 +45,8 @@ public static class A2AAIAgentBuilderExtensions
                     : sp.GetRequiredKeyedService<AIAgent>(serviceKey),
                 options,
                 options.SessionMode == AgentSessionMode.Stored ? sp.GetService<AgentSessionStore>() : null,
-                sp.GetService<ILogger<AIAgentExecutor>>())));
+                sp.GetService<ILogger<AIAgentExecutor>>(), sp.GetService<TaskStore>(),
+                sp.GetService<ExecutionCoordinator>(), sp.GetService<TimeProvider>())));
         // The last call wins, as for the executor. The hook and the check read it, so they follow a later call too.
         builder.Services.Replace(ServiceDescriptor.Singleton(new AIAgentRegistration(options.SessionMode, serviceKey)));
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IA2AContextLifecycle, AgentSessionContextLifecycle>());
