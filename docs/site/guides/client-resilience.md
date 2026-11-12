@@ -1,12 +1,26 @@
 # Client resilience
 
-The client retries a failed unary call (a call with one response, not a stream) on its own. This guide also covers waiting for a task that is still running, and the circuit breaker, which stops calls to a peer that keeps failing.
+The client retries a failed unary call (a call with one response, not a stream) on its own. This guide also covers falling back to another interface of the card, waiting for a task that is still running, and the circuit breaker, which stops calls to a peer that keeps failing.
 
 ## Retries
 
 A unary call is retried up to `MaxRetries` times (default 2) on HTTP 503, 429, errors the peer marked retryable, and some transport errors. Streams are not retried, but `SendStreamingMessageAsync` and `ObserveTaskAsync` reconnect. See <xref:A2A.Client.A2AClientOptions.MaxRetries>.
 
 A runnable version, where the agent answers 503 once and the client retries, is in [samples/ClientFeatures](https://github.com/roman-ambinder/a2a/blob/main/samples/ClientFeatures/README.md).
+
+## Interface fallback
+
+An Agent Card can list several interfaces, for example JSON-RPC and HTTP+JSON, or the same binding at two addresses. The client uses the first one it supports (spec §8.3.2). Set <xref:A2A.Client.A2AClientOptions.InterfaceFallback> to `true` and a client made by `A2AClientFactory` moves to the next interface when the one it uses cannot be reached (spec §5.2). It is off by default.
+
+[!code-csharp[](../../../samples/Snippets/ClientResilience.cs#InterfaceFallback)]
+
+- **What falls back.** Only a failure that proves no request reached the agent: the connection, the name lookup, the proxy tunnel or the TLS handshake failed (an `HttpRequestException` with `HttpRequestError` `ConnectionError`, `NameResolutionError`, `ProxyTunnelError` or `SecureConnectionError`, also behind a gRPC status). The transport's own retries (`MaxRetries`) run first.
+- **What never falls back.** An HTTP status, an A2A error, a timeout, a cancellation, a failure during the request or the response, and an address the SSRF guard refused. The agent may have seen those requests: on HTTP+JSON a 404 is `TaskNotFound`, not a missing endpoint. A stream falls back only before its first event.
+- **Which interfaces.** Every interface the client could select, in the card's order, with the same tenant as the selected one (a null and an empty tenant are the same). Each gets its own transport, created on first use, with its own protocol version. All of them pass the `EndpointPolicy` check when the client is built.
+- **Which one is used.** A call that works keeps its interface for later calls. Each call tries every candidate at most once, starting at the current one and wrapping around to the first. When all fail, the error of the first one tried is thrown, as without fallback.
+- **Credentials.** A client built with credential providers falls back only to interfaces on the card's origin that the credentials may be sent to (the same checks as for the selected interface: origin, HTTPS, no gRPC through the `HttpClient`). Interfaces on another origin are left out, so credentials never reach them. gRPC interfaces are left out too, since credentials cannot go on them through the `HttpClient`. A client you build with `A2AClientFactory.Create` over an `HttpClient` with an `A2ACredentialHandler` (as `AddA2AClient` does) skips an interface on another origin when it is tried: the handler refuses to send the request, so nothing leaves. There, a gRPC interface is still a candidate, and the gRPC transport, which does not use the `HttpClient`, sends no credentials. A client without credentials falls back to any candidate.
+- **Metric.** The counter `a2a.client.interface.fallback` (meter `A2A`) counts every move, with the tags `from` and `to` (the two bindings). A span names the binding in use when its call started.
+- **netstandard2.0** cannot tell that a request never left (there is no `HttpRequestError`), so it never falls back.
 
 ## Tasks that are still running
 

@@ -36,6 +36,7 @@ public sealed class ClientOptionsCloneTests
         [nameof(A2AClientOptions.PropagateTraceInMetadata)] = true,
         [nameof(A2AClientOptions.OnMessageReceived)] = new Func<ReceivedMessage, CancellationToken, ValueTask>((_, _) => ValueTask.CompletedTask),
         [nameof(A2AClientOptions.EndpointPolicy)] = AgentEndpointPolicies.AllowAll,
+        [nameof(A2AClientOptions.InterfaceFallback)] = true,
     };
 
     private static PropertyInfo[] Properties => typeof(A2AClientOptions).GetProperties(BindingFlags.Public | BindingFlags.Instance);

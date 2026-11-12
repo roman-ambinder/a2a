@@ -36,4 +36,13 @@ internal static class Samples
         }
         #endregion
     }
+
+    public static async Task<A2AClient> InterfaceFallback(Uri agentUrl, HttpClient http)
+    {
+        #region InterfaceFallback
+        var client = await A2AClientFactory.CreateAsync(agentUrl, http,
+            new A2AClientOptions { InterfaceFallback = true });
+        #endregion
+        return client;
+    }
 }

@@ -1,3 +1,4 @@
+using A2A.Server;
 using A2A.Diagnostics;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -27,6 +28,19 @@ public static class ServerSetup
             .WithTracing(t => t
                 .AddSource(A2ATelemetry.ClientSourceName)
                 .AddOtlpExporter());
+        #endregion
+    }
+
+    public static void AnomalyDetection(IServiceCollection services)
+    {
+        #region AnomalyDetection
+        services.AddA2AServer(o =>
+        {
+            o.Anomalies.Enabled = true;
+            o.Anomalies.TaskCreationsPerMinute = 60; // the defaults
+            o.Anomalies.CancellationsPerMinute = 20;
+            o.Anomalies.MaxTrackedCallers = 10_000;
+        });
         #endregion
     }
 }

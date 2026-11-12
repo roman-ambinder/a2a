@@ -14,7 +14,9 @@ namespace A2A.Server.AspNetCore;
 ///         Keys (case-insensitive): <c>Card</c> (<c>Name</c>, <c>Description</c>, <c>Version</c>, <c>DocumentationUrl</c>,
 ///         <c>IconUrl</c>, <c>Provider</c>, <c>Capabilities</c>, <c>DefaultInputModes</c>, <c>DefaultOutputModes</c>,
 ///         <c>Skills</c>), <c>PublicBaseUrl</c>, <c>AgentCardMaxAge</c>, <c>Limits</c> (every <see cref="A2ALimits" />
-///         property), <c>Streaming</c> (every <see cref="StreamingOptions" /> property), <c>RateLimit</c>
+///         property), <c>Streaming</c> (every <see cref="StreamingOptions" /> property), <c>Anomalies</c> (every
+///         <see cref="A2AAnomalyOptions" /> property; the detector only reports, so turning it on or off here weakens
+///         nothing), <c>RateLimit</c>
 ///         (<c>TokenLimit</c>, <c>TokensPerPeriod</c>, <c>ReplenishmentPeriod</c>), and the server settings
 ///         <c>LongPollTimeout</c>, <c>CancelGracePeriod</c>, <c>IdempotentCancel</c>, <c>ShutdownDrainTimeout</c>,
 ///         <c>MaxTaskDuration</c>, <c>InterruptedTimeout</c>, <c>MaxTurnsPerTask</c> and <c>FollowUpPolicy</c>, and
@@ -85,11 +87,21 @@ public static class A2AConfigurationExtensions
             [nameof(StreamingOptions.ChannelCapacity)] = (o, s) => o.ChannelCapacity = Int(s)
         };
 
+    private static readonly Dictionary<string, Action<A2AAnomalyOptions, IConfigurationSection>> AnomalyKeys =
+        new(Keys)
+        {
+            [nameof(A2AAnomalyOptions.Enabled)] = (o, s) => o.Enabled = Bool(s),
+            [nameof(A2AAnomalyOptions.TaskCreationsPerMinute)] = (o, s) => o.TaskCreationsPerMinute = Int(s),
+            [nameof(A2AAnomalyOptions.CancellationsPerMinute)] = (o, s) => o.CancellationsPerMinute = Int(s),
+            [nameof(A2AAnomalyOptions.MaxTrackedCallers)] = (o, s) => o.MaxTrackedCallers = Int(s)
+        };
+
     private static readonly Dictionary<string, Action<A2AServerOptions, IConfigurationSection>> ServerKeys = new(Keys)
     {
         ["Card"] = (o, s) => ApplyCard(o.AgentCard, s),
         ["Limits"] = (o, s) => Apply(s, o.Limits, LimitKeys),
         ["Streaming"] = (o, s) => Apply(s, o.Streaming, StreamingKeys),
+        ["Anomalies"] = (o, s) => Apply(s, o.Anomalies, AnomalyKeys),
         [nameof(A2AServerOptions.LongPollTimeout)] = (o, s) => o.LongPollTimeout = Duration(s),
         [nameof(A2AServerOptions.CancelGracePeriod)] = (o, s) => o.CancelGracePeriod = Duration(s),
         [nameof(A2AServerOptions.IdempotentCancel)] = (o, s) => o.IdempotentCancel = Bool(s),
