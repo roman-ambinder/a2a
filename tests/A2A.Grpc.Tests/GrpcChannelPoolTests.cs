@@ -100,6 +100,70 @@ public sealed class GrpcChannelPoolTests
     }
 
     [Fact]
+    public void A_channel_used_again_becomes_the_most_recently_used()
+    {
+        var clock = new Clock();
+        var (pool, _, disposed) = Pool(null, 2, TimeSpan.FromHours(1), clock);
+        pool.Acquire(Agent(1)).Dispose();
+        clock.Now += TimeSpan.FromSeconds(1);
+        GrpcChannel second;
+        using (var lease = pool.Acquire(Agent(2))) second = lease.Channel;
+        clock.Now += TimeSpan.FromSeconds(1);
+        pool.Acquire(Agent(1)).Dispose(); // agent 1 is idle again, now after agent 2
+        clock.Now += TimeSpan.FromSeconds(1);
+        pool.Acquire(Agent(3)).Dispose();
+
+        Assert.Same(second, Assert.Single(disposed));
+        Assert.Equal(2, pool.Count);
+    }
+
+    [Fact]
+    public void An_idle_channel_leased_again_is_not_counted_or_disposed_while_held()
+    {
+        var clock = new Clock();
+        var (pool, _, disposed) = Pool(null, 1, TimeSpan.FromMinutes(5), clock);
+        pool.Acquire(Agent(1)).Dispose();
+        var held = pool.Acquire(Agent(1)); // was idle, now held again
+        var second = pool.Acquire(Agent(1)); // a second lease on the same channel
+        clock.Now += TimeSpan.FromHours(1);
+        pool.Acquire(Agent(2)).Dispose(); // the only idle channel: within the limit
+        pool.Acquire(Agent(3)).Dispose(); // over the limit: agent 2 goes, agent 1 is held
+        Assert.Single(disposed);
+        Assert.DoesNotContain(held.Channel, disposed);
+
+        second.Dispose();
+        Assert.DoesNotContain(held.Channel, disposed); // still one lease
+        held.Dispose();
+        held.Dispose();
+        Assert.Equal(1, pool.Count); // agents 3 and 1 idle, one over the limit: agent 3, released earlier, goes
+        Assert.Equal(2, disposed.Count);
+        Assert.DoesNotContain(held.Channel, disposed);
+    }
+
+    [Fact]
+    public void Many_idle_channels_are_evicted_oldest_first_down_to_the_limit()
+    {
+        var clock = new Clock();
+        var (pool, created, disposed) = Pool(null, 64, TimeSpan.FromHours(1), clock);
+        var channels = new List<GrpcChannel>();
+        for (var i = 0; i < 200; i++)
+        {
+            using var lease = pool.Acquire(Agent(i));
+            channels.Add(lease.Channel);
+            clock.Now += TimeSpan.FromSeconds(1);
+        }
+
+        Assert.Equal(200, created.Count);
+        Assert.Equal(64, pool.Count);
+        Assert.Equal(channels.Take(136), disposed);
+
+        clock.Now += TimeSpan.FromHours(2); // all idle past the timeout
+        pool.Acquire(Agent(1000)).Dispose();
+        Assert.Equal(1, pool.Count);
+        Assert.Equal(channels, disposed);
+    }
+
+    [Fact]
     public async Task A_client_whose_channel_was_disposed_gets_a_new_one_on_its_next_call()
     {
         await using var host = await GrpcHost.StartAsync();

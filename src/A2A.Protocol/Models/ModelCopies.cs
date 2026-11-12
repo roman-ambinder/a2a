@@ -14,6 +14,8 @@ public static class ModelCopies
     ///     list and <c>Metadata</c> dictionary. It shares the <see cref="Message" />, <see cref="Artifact" /> and
     ///     <see cref="TimelineEntry" /> instances
     ///     (and the status message) with the original: callers must not mutate them. Null collections stay null.
+    ///     Each copied list has room for one more item, since a write usually appends one (a history message, a timeline
+    ///     entry, an artifact): an exact-size copy would be copied again, at twice its size, by that append.
     /// </summary>
     public static AgentTask CopyForUpdate(this AgentTask task)
     {
@@ -23,12 +25,21 @@ public static class ModelCopies
             Id = task.Id,
             ContextId = task.ContextId,
             Status = CopyStatus(task.Status, false),
-            Artifacts = task.Artifacts is null ? null : new List<Artifact>(task.Artifacts),
-            History = task.History is null ? null : new List<Message>(task.History),
+            Artifacts = CopyList(task.Artifacts),
+            History = CopyList(task.History),
             Metadata = CopyMap(task.Metadata, false),
             Generation = task.Generation,
-            Timeline = task.Timeline is null ? null : new List<TimelineEntry>(task.Timeline)
+            Timeline = CopyList(task.Timeline)
         };
+    }
+
+    /// <summary>A copy of <paramref name="list" /> with room for one more item, or null.</summary>
+    private static List<T>? CopyList<T>(List<T>? list)
+    {
+        if (list is null) return null;
+        var copy = new List<T>(list.Count + 1);
+        copy.AddRange(list);
+        return copy;
     }
 
     /// <summary>

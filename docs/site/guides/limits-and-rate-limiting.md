@@ -50,7 +50,7 @@ The 429 body has the error `RATE_LIMITED`. `Retry-After` is in whole seconds (at
 
 ## Rate limit
 
-The server adds a token bucket per caller. A token bucket holds up to `TokenLimit` tokens and gets `TokensPerPeriod` tokens back every `ReplenishmentPeriod`. Each request takes one token. Change it with <xref:A2A.Server.AspNetCore.A2AServiceCollectionExtensions.ConfigureRateLimiting*> on the A2A builder:
+The server adds a token bucket per caller. A token bucket holds up to `TokenLimit` tokens and gets `TokensPerPeriod` tokens back every `ReplenishmentPeriod`. Each request takes one token. On a gRPC `SendLiveMessage` stream (A2A 1.1), which is one HTTP request, each request after the first takes one token too. Change it with <xref:A2A.Server.AspNetCore.A2AServiceCollectionExtensions.ConfigureRateLimiting*> on the A2A builder:
 
 [!code-csharp[](../../../samples/Snippets/LimitsAndRateLimiting.cs#RateLimit)]
 
@@ -65,6 +65,7 @@ Details:
 
 - `MapA2A` puts its endpoints under the limit. No middleware is needed. The policy has no queue: a request without a token is rejected at once.
 - The limit is taken after authentication and before the authorization decision, so a request with wrong credentials uses a token too. Endpoints that allow anonymous callers take it when the endpoint runs. Each request is counted once.
+- A request on a live stream without a token is refused on its own, as a `StreamError` with code `RESOURCE_EXHAUSTED` and the `referenceId` of its message. The stream stays open. On HTTP each uplink call of a live exchange is its own request, so it is limited as any call is.
 - Each tenant and caller pair has its own bucket. Every request also draws from a bucket per caller across all tenants, with the same settings, so spreading requests over tenants gives no extra budget.
 - An anonymous caller has no tenant in its key. The limit runs before authorization and the tenant is text from the URL, so random tenant names would otherwise create buckets without end. Anonymous callers from one address share one bucket across all tenants.
 - To use your own policy, register an `IRateLimiterPolicy<string>` as a keyed service: `services.AddKeyedSingleton<IRateLimiterPolicy<string>, MyPolicy>(A2ARateLimitingExtensions.PolicyName)`. The default is then skipped.

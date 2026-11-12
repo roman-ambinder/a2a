@@ -100,12 +100,33 @@ internal sealed class A2ARateLimitGate : IDisposable
     private static readonly object CountedKey = new();
     private readonly PartitionedRateLimiter<HttpContext> _limiter;
     private readonly IRateLimiterPolicy<string> _policy;
+    private readonly TimeSpan _replenishmentPeriod;
 
     public A2ARateLimitGate(IServiceProvider services)
     {
         _policy = services.GetKeyedService<IRateLimiterPolicy<string>>(A2ARateLimitingExtensions.PolicyName)
                   ?? services.GetRequiredService<A2ARateLimiterPolicy>();
         _limiter = PartitionedRateLimiter.Create<HttpContext, string>(_policy.GetPartition);
+        _replenishmentPeriod = services.GetRequiredService<IOptions<A2ARateLimitOptions>>().Value.ReplenishmentPeriod;
+    }
+
+    /// <summary>
+    ///     The <see cref="ServerCallContext.LiveRequestAdmission" /> of a request to an endpoint under the rate limit: one
+    ///     call counts as one request, so each later request of an A2A 1.1 live stream (a gRPC SendLiveMessage stream) takes
+    ///     a permit from the same partition, and one refused for want of a permit throws <c>RateLimited</c> with the wait.
+    ///     Null when the endpoint is not under the rate limit.
+    /// </summary>
+    public static Action? LiveAdmission(HttpContext http)
+    {
+        if (http.GetEndpoint()?.Metadata.GetMetadata<A2ARateLimitMetadata>() is null) return null;
+        if (http.RequestServices.GetService<A2ARateLimitGate>() is not { } gate) return null;
+        return () =>
+        {
+            using var lease = gate._limiter.AttemptAcquire(http, 1);
+            if (lease.IsAcquired) return;
+            var wait = lease.TryGetMetadata(MetadataName.RetryAfter, out var after) ? after : gate._replenishmentPeriod;
+            throw A2AException.RateLimited(wait < TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : wait);
+        };
     }
 
     public void Dispose()

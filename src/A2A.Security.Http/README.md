@@ -4,7 +4,8 @@ SSRF-guarded HTTP for the A2A (Agent2Agent) .NET SDK, shared by the client and t
 
 - `PrivateAddressGuard.CreateHandler(...)`: a `SocketsHttpHandler` that refuses loopback, private, link-local (including
   cloud metadata), CGNAT and ULA addresses at connect time, against the resolved IP (blocks DNS rebinding), with
-  redirects off.
+  redirects off. Through a configured proxy, only the proxy's address is checked: the proxy resolves the target itself
+  and must filter egress.
 - `GuardedJwksFetcher`: fetches Agent Card signing keys (`jku`) through that handler, with size and time limits.
 - `SafeHttp`: guarded downloads with redirect refusal and a size cap.
 

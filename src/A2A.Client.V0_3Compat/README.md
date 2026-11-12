@@ -16,14 +16,17 @@ It returns a normal `A2AClient`. Selection:
    `/.well-known/agent.json` is tried.
 2. If the card offers a v1.x interface the client uses the normal v1.0 path. A card that offers v1.0 is never
    downgraded.
-3. Otherwise the first v0.3 `JSONRPC` or `HTTP+JSON` interface in card order is used.
+3. Otherwise the first v0.3 `JSONRPC` or `HTTP+JSON` interface in card order is used. With `UseGrpcV03()` from
+   `RomanAmbinder.A2A.Client.Grpc.V0_3Compat`, v0.3 `GRPC` interfaces are selected too, in the same card order.
 
 The v0.3 transports share retries, headers, telemetry and SSE limits with the v1.0 transports. They send
 `A2A-Version: 0.3` and `X-A2A-Extensions`. A stream stops on `final: true` or when the connection ends.
 
-Not available on v0.3: `ListTasks` (throws `UnsupportedOperation`). Push config create, get, list and delete work, but
-`PushNotificationReceiver` still reads v1.0 webhook bodies only (a v0.3 agent sends the task). A v0.3-only card is read as unsigned, so a client that
-requires card signatures refuses it. gRPC is not supported.
+`ListTasks` works over v0.3 HTTP+JSON: it calls `GET /v1/tasks` and applies the filters and `pageSize` on the client.
+v0.3 JSON-RPC has no `tasks/list`, so there it throws `UnsupportedOperation`. Push config create, get, list and delete
+work, but `PushNotificationReceiver.HandleAsync` still reads v1.0 webhook bodies only (a v0.3 agent sends the task). A
+v0.3-only card is read as unsigned, so a client that requires card signatures refuses it. For v0.3 gRPC, add
+`RomanAmbinder.A2A.Client.Grpc.V0_3Compat` and call `UseGrpcV03()` on the options.
 
 Fields v0.3 cannot carry are counted by the meter `A2A`, counter `a2a.compat.v0_3.dropped` (tag `field`).
 Call `V03CompatClientFactory.UseLogger(logger)` to get a warning (spec A.2) once per v0.3 agent URL the client talks to

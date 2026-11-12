@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using A2A.Server.Agents;
+using A2A.Server.Storage;
 using A2A.Server.Streaming;
 
 namespace A2A.Server;
@@ -12,9 +13,13 @@ public sealed partial class A2ARequestHandler
 {
     private const int LiveDownlinkCapacity = 64;
 
-    /// <summary>The open live downlinks of each task (scope key), so an HTTP uplink call can report a refusal on them too.</summary>
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<long, ChannelWriter<SequencedEvent>>>
-        _liveDownlinks = new(StringComparer.Ordinal);
+    /// <summary>
+    ///     The open live downlinks of each task, by tenant, owner and task id (<see cref="Key" />), so an HTTP uplink call can report a
+    ///     refusal on them too. Keyed by owner, so the refusal of a caller who does not own the task never reaches the owner's
+    ///     downlinks.
+    /// </summary>
+    private readonly ConcurrentDictionary<TaskKey, ConcurrentDictionary<long, ChannelWriter<SequencedEvent>>>
+        _liveDownlinks = new();
 
     private long _nextDownlink;
 
@@ -25,8 +30,9 @@ public sealed partial class A2ARequestHandler
     ///     one),
     ///     <c>subscribe</c> as SubscribeToTask (with <c>lastSeenGeneration</c>). Each later <c>sendMessage</c> is processed as
     ///     a
-    ///     SendMessage that returns at once (authorized as one, with every follow-up rule) and its events reach the downlink
-    ///     with
+    ///     SendMessage that returns at once (authorized as one, with every follow-up rule, and admitted by
+    ///     <see cref="ServerCallContext.LiveRequestAdmission" /> first, such as the caller's rate limit) and its events reach
+    ///     the downlink with
     ///     the task's other events. A later request that cannot be taken (another task, a late <c>subscribe</c>, a kind this
     ///     SDK
     ///     does not know, or any refusal of the SendMessage) becomes a <see cref="StreamErrorEvent" /> on the downlink, and
@@ -98,7 +104,7 @@ public sealed partial class A2ARequestHandler
                 // Bounded (spec D12): the event pump and the request pump wait when the client reads slowly.
                 var output = Channel.CreateBounded<SequencedEvent>(new BoundedChannelOptions(LiveDownlinkCapacity)
                     { SingleReader = true });
-                var scope = ScopeKey(call.Tenant, taskId);
+                var scope = Key(call, taskId);
                 var downlinkId = Interlocked.Increment(ref _nextDownlink);
                 var downlinks = _liveDownlinks.GetOrAdd(scope,
                     static _ => new ConcurrentDictionary<long, ChannelWriter<SequencedEvent>>());
@@ -116,7 +122,7 @@ public sealed partial class A2ARequestHandler
                     downlinks.TryRemove(downlinkId, out _);
                     if (downlinks.IsEmpty)
                         _liveDownlinks.TryRemove(
-                            new KeyValuePair<string, ConcurrentDictionary<long, ChannelWriter<SequencedEvent>>>(scope,
+                            new KeyValuePair<TaskKey, ConcurrentDictionary<long, ChannelWriter<SequencedEvent>>>(scope,
                                 downlinks));
                     await stop.CancelAsync().ConfigureAwait(false);
                     try
@@ -145,7 +151,7 @@ public sealed partial class A2ARequestHandler
     ///     an acknowledgement, the task as it is now; its events go to the downlinks. The request must name its task. A
     ///     refusal is
     ///     thrown to the caller and also sent as a <see cref="StreamErrorEvent" /> on this instance's open downlinks of the
-    ///     task.
+    ///     task that the same caller opened.
     /// </summary>
     /// <param name="request">The request.</param>
     /// <param name="call">The caller.</param>
@@ -182,7 +188,8 @@ public sealed partial class A2ARequestHandler
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            if (_liveDownlinks.TryGetValue(ScopeKey(call.Tenant, taskId), out var downlinks))
+            // Only the caller's own downlinks of the task: another caller's refusal (TaskNotFound) is not the owner's business.
+            if (_liveDownlinks.TryGetValue(Key(call, taskId), out var downlinks))
             {
                 var refused = RefusedEvent(taskId, ex, send);
                 // A full downlink skips the copy: the uplink caller gets the error itself.
@@ -210,7 +217,11 @@ public sealed partial class A2ARequestHandler
         }
     }
 
-    /// <summary>Processes the later requests of a live exchange; a refusal goes to the downlink as a stream error.</summary>
+    /// <summary>
+    ///     Processes the later requests of a live exchange; a refusal goes to the downlink as a stream error. Each request is
+    ///     first admitted by <see cref="ServerCallContext.LiveRequestAdmission" />: the binding's limits counted the call once,
+    ///     not each request on it.
+    /// </summary>
     private async Task PumpRequestsAsync(IAsyncEnumerator<StreamRequest> requests, string taskId,
         ServerCallContext call,
         ChannelWriter<SequencedEvent> output, CancellationToken ct)
@@ -220,6 +231,7 @@ public sealed partial class A2ARequestHandler
             var request = requests.Current;
             try
             {
+                call.LiveRequestAdmission?.Invoke();
                 await ApplyLaterRequestAsync(request, taskId, call, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)

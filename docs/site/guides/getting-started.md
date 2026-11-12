@@ -143,7 +143,7 @@ The Agent Card needs a name, a description and a version. `AgentCard.Create(name
 
 ## Run the samples
 
-The repository has two samples. The agent needs an API key. Make one and its hash with the `a2a` tool, which works offline:
+The repository has many samples, listed in [samples/README.md](https://github.com/roman-ambinder/a2a/blob/main/samples/README.md); `samples/run-samples.sh` runs them. This guide uses two of them: EchoAgent and EchoClient. The agent needs an API key. Make one and its hash with the `a2a` tool, which works offline:
 
 ```bash
 dotnet run --project src/A2A.Cli -- keys new

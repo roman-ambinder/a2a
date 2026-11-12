@@ -212,10 +212,18 @@ A webhook URL is chosen by the client, so the server checks it. Without a check,
 
 - At registration: the URL must be absolute, use `https` (unless `AllowInsecureUrls`), and carry no user info. If `AllowedHosts` is set, the host must be in it. A private IP literal, `localhost`, or an ambiguous numeric host (such as octal) is refused. The host is then resolved and every address is checked. Any DNS-based failure gives the same error, `Push notification URL is not allowed.`, so a caller cannot probe your DNS.
 - Before every attempt: the URL and its addresses are checked again.
-- At connect time: the push HTTP client checks the resolved IP of the connection, which also blocks DNS rebinding.
+- At connect time: the push HTTP client checks the resolved IP of the connection, which also blocks DNS rebinding. This holds for direct connections only (see [Through a proxy](#through-a-proxy)).
 - Redirects are never followed.
 
 Blocked by default: loopback, `0.0.0.0/8`, `10/8`, `100.64/10` (CGNAT), `169.254/16` (link-local, cloud metadata), `172.16/12`, `192.168/16`, `192.0.0/24`, `198.18/15`, multicast and reserved ranges, and for IPv6 the unspecified, link-local, site-local, multicast and `fc00::/7` ranges. An IPv4 address inside an IPv6 one (mapped, NAT64, 6to4, IPv4-compatible) is judged as IPv4.
+
+### Through a proxy
+
+With `PushNotificationOptions.Proxy` set, a delivery that the proxy handles connects to the proxy, not to the webhook host. The connect-time check then sees only the proxy's address, and the proxy resolves the webhook host itself. The SDK checks the webhook host only with its own DNS lookup before each attempt. A host can resolve to a public address for that lookup and to a private one (for example `169.254.169.254` or `10.0.0.5`) when the proxy looks it up (DNS rebinding). The SDK cannot see or control the proxy's lookup, so it does not block that.
+
+So the proxy must enforce egress policy: refuse private, loopback, link-local, CGNAT and other internal ranges by the address it connects to, after its own lookup. Do not set `Proxy` to a proxy that can reach internal networks unless it does this. `AllowedHosts` limits which names can be registered, but it does not stop a listed name from resolving to an internal address later. A request the proxy bypasses (`IWebProxy.IsBypassed`) connects directly and gets the full connect-time check.
+
+The SDK does not send the proxy a pre-checked IP address in place of the host name. The `CONNECT` target is the name the proxy filters on, so pinning it to an address would break proxy rules by host name, and the guard handler cannot rewrite the request before the proxy is chosen.
 
 The webhook client is registered under the service key `PushDeliveryService.InvokerServiceKey` (`"A2A.PushNotifications"`). You can replace it with your own keyed `HttpMessageInvoker`. Then the guard is your job.
 

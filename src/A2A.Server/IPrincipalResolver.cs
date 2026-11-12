@@ -8,7 +8,8 @@ public interface IPrincipalResolver
     /// <summary>
     ///     Returns the principal id for an authenticated <paramref name="user" />, or null when none can be determined
     ///     (the caller is then rejected as unauthenticated). Not called for anonymous callers. The id
-    ///     <see cref="ServerCallContext.AnonymousPrincipal" /> is reserved: the HTTP layer rejects it like null.
+    ///     <see cref="ServerCallContext.AnonymousPrincipal" /> is reserved: the HTTP layer rejects it like null. So is an
+    ///     id that starts with <c>apikey:</c>, unless the ASP.NET Core API-key scheme issued it.
     /// </summary>
     string? Resolve(ClaimsPrincipal user);
 }

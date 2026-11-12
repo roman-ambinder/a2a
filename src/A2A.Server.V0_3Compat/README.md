@@ -11,16 +11,18 @@ What it adds, all inside the group `MapA2A` returns (so authorization, rate limi
 - v0.3 JSON-RPC methods on the same URL: `message/send`, `message/stream`, `tasks/get`, `tasks/cancel`,
   `tasks/resubscribe`, `agent/getAuthenticatedExtendedCard` and the four `tasks/pushNotificationConfig/*` methods.
   v1.0 methods are untouched.
-- v0.3 HTTP+JSON routes under `{pattern}/v1/...` (and `{pattern}/{tenant}/v1/...`). A tenant named `v1` on a path-tenant
-  host is shadowed by these routes.
+- v0.3 HTTP+JSON routes under `{pattern}/v1/...` (and `{pattern}/{tenant}/v1/...`), `GET /v1/tasks` (list tasks)
+  included. A tenant named `v1` on a path-tenant host is shadowed by these routes.
 - One blended Agent Card at `/.well-known/agent-card.json`, also served at `/.well-known/agent.json` (the v0.2.x path):
   the v1.0 card plus the v0.3 members. v1.0 clients and the card signature are not affected. The added v0.3 members are
   not covered by the signature.
 - v0.3 push notifications. A config created over v0.3 gets the task as a v0.3 JSON-RPC `Task` on each webhook delivery,
   as the v0.3 Python SDK sends. v1.0 configs on the same task still get v1.0 events.
 
-v0.2.x clients are served over JSON-RPC (v0.3 is a superset of their methods). `tasks/list` does not exist in v0.3. gRPC
-is not served. A v0.3 call that sends an `A2A-Version` other than `0.3` or `0.3.x` is refused with `VersionNotSupported`;
+v0.2.x clients are served over JSON-RPC (v0.3 is a superset of their methods). JSON-RPC `tasks/list` does not exist in
+v0.3 and gets `MethodNotFound`; the REST route `GET /v1/tasks` is served. v0.3 gRPC is served by
+`RomanAmbinder.A2A.Server.Grpc.V0_3Compat` (`AddA2AGrpcV03Compat`, `MapA2AGrpcV03Compat`); with it, the v0.3 cards
+list the card's `GRPC` interfaces too. A v0.3 call that sends an `A2A-Version` other than `0.3` or `0.3.x` is refused with `VersionNotSupported`;
 a v1.0 method without the header is still refused as before. A JSON-RPC request without `"jsonrpc": "2.0"` is
 `InvalidRequest`.
 

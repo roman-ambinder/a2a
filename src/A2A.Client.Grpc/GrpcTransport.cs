@@ -35,9 +35,9 @@ namespace A2A.Client.Grpc;
 ///         Not supported: <see cref="A2ARequestOptions.ConfigureRequest" /> (there is no <see cref="HttpRequestMessage" />
 ///         ; a call that
 ///         sets it fails with <see cref="NotSupportedException" /> instead of going out without the hook; use
-///         <see cref="A2ARequestOptions.Headers" /> or a gRPC interceptor), and stream resume (gRPC carries no event
-///         cursor; after a
-///         lost stream, call <c>SubscribeToTask</c> again).
+///         <see cref="A2ARequestOptions.Headers" /> or a gRPC interceptor), and <c>Last-Event-ID</c> stream resume (gRPC
+///         carries no event cursor). On A2A 1.1 a reconnect resumes by generation instead
+///         (<c>lastSeenGeneration</c>); on 1.0 it subscribes again and gets a task snapshot first.
 ///     </para>
 ///     <para>
 ///         Streaming calls (<see cref="SendStreamingMessageAsync" />, <see cref="SubscribeToTaskAsync" />) start when the

@@ -1575,7 +1575,8 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     ///     no metadata and
     ///     no artifact adds no content, so it is not measured. With <paramref name="exec" />, the size is carried from one
     ///     stored task
-    ///     to the next: an append of parts is the old size plus the parts, anything else walks the task.
+    ///     to the next: an append of parts is the old size plus the parts, a status message the old size plus the message
+    ///     (<see cref="TaskSize.AppendedBytes" />), anything else walks the task.
     /// </summary>
     private bool IsOverCap(AgentTask previous, AgentTask next, StreamResponse evt, Execution? exec)
     {
