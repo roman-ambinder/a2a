@@ -8,11 +8,11 @@ internal static class TaskTimeline
     ///     <paramref name="maxEntries" /> (<see cref="A2ALimits.MaxTimelineEntries" />; zero or negative keeps them all).
     ///     <paramref name="task" /> must be a copy the caller owns (<see cref="ModelCopies.CopyForUpdate" />): its timeline list
     ///     is changed in place. The kept entries keep their generations, and a dropped entry's message stays in the history.
+    ///     O(1) amortized (ADR-004): the timeline list is not built (<see cref="ModelCopies.AppendToTimeline" />), and dropping
+    ///     the oldest entries only moves the start of the shared version.
     /// </summary>
     public static void Append(AgentTask task, TimelineEntry entry, int maxEntries)
     {
-        var timeline = task.Timeline ??= [];
-        timeline.Add(entry);
-        if (maxEntries > 0 && timeline.Count > maxEntries) timeline.RemoveRange(0, timeline.Count - maxEntries);
+        task.AppendToTimeline(entry, maxEntries);
     }
 }

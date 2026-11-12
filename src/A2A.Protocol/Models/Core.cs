@@ -140,8 +140,18 @@ public sealed class Artifact : IJsonOnDeserialized
     /// <summary>What the artifact is. Null when not set.</summary>
     public string? Description { get; set; }
 
-    /// <summary>Content of the artifact. Empty by default.</summary>
-    public required List<Part> Parts { get; set; } = new();
+    // ADR-004: a shared version until first read, so a copy with more parts (ModelCopies.CopyWithParts) is O(1).
+    internal LazyList<Part> PartsStore = new(new List<Part>());
+
+    /// <summary>
+    ///     Content of the artifact. Empty by default. Every read of one instance returns the same list (it may be built on
+    ///     the first read).
+    /// </summary>
+    public required List<Part> Parts
+    {
+        get => PartsStore.Get()!;
+        set => PartsStore.Set(value);
+    }
 
     /// <summary>Extra data about the artifact. Null when none.</summary>
     public Dictionary<string, JsonElement>? Metadata { get; set; }
@@ -207,9 +217,19 @@ public sealed class AgentTask
 
     /// <summary>
     ///     Messages exchanged in the task, oldest first. Null when none or not requested. Deprecated in A2A 1.1 in favour of
-    ///     <see cref="Timeline" />; servers keep filling it for the whole 1.x line.
+    ///     <see cref="Timeline" />; servers keep filling it for the whole 1.x line. Every read of one instance returns the
+    ///     same list (it may be built on the first read).
     /// </summary>
-    public List<Message>? History { get; set; }
+    public List<Message>? History
+    {
+        get => HistoryStore.Get();
+        set => HistoryStore.Set(value);
+    }
+
+    // ADR-004: History and Timeline are shared versions until first read, so a copy of the task for one more event
+    // (ModelCopies.CopyForUpdate, AddToHistory, AddToTimeline) is O(1). Every read of one instance returns the same list.
+    internal LazyList<Message> HistoryStore;
+    internal LazyList<TimelineEntry> TimelineStore;
 
     /// <summary>Extra data about the task. Null when none.</summary>
     public Dictionary<string, JsonElement>? Metadata { get; set; }
@@ -224,9 +244,13 @@ public sealed class AgentTask
 
     /// <summary>
     ///     A2A 1.1: the interaction in generation order: client messages and agent status entries. Null when none or not
-    ///     requested.
+    ///     requested. Every read of one instance returns the same list (it may be built on the first read).
     /// </summary>
-    public List<TimelineEntry>? Timeline { get; set; }
+    public List<TimelineEntry>? Timeline
+    {
+        get => TimelineStore.Get();
+        set => TimelineStore.Set(value);
+    }
 
     /// <summary>
     ///     Concatenated text of the text parts of all <see cref="Artifacts" />, in order. Empty when there is none. The
