@@ -1,7 +1,8 @@
 # RomanAmbinder.A2A.Grpc
 
 A2A (Agent2Agent) gRPC binding types: generated messages and stubs for `lf.a2a.v1.A2AService`, plus mapping to the A2A
-.NET model and gRPC error mapping. Used by `RomanAmbinder.A2A.Server.Grpc` and `RomanAmbinder.A2A.Client.Grpc`.
+.NET model and gRPC error mapping. Used by `RomanAmbinder.A2A.Server.Grpc` and `RomanAmbinder.A2A.Client.Grpc`; you
+rarely reference it directly.
 
 ```csharp
 var proto = ProtoMapper.ToProto<Lf.A2a.V1.Task, AgentTask>(task);

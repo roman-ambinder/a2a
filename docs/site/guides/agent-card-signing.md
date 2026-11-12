@@ -24,7 +24,7 @@ Create an <xref:A2A.Signing.AgentCardSigningKey> and set it on <xref:A2A.Server.
 
 [!code-csharp[](../../../samples/Snippets/AgentCardSigning.cs#ServerKey)]
 
-The arguments are the key, a key id (`kid`), the algorithm, and an optional `jku` URL. The `jku` goes into the signature header. Clients use it only if they allow its host (see below).
+The arguments are the key, a key id (`kid`, which tells clients which public key to check with), the algorithm, and an optional `jku` URL (where a client can fetch the public key set). The `jku` goes into the signature header. Clients use it only if they allow its host (see below).
 
 What happens:
 

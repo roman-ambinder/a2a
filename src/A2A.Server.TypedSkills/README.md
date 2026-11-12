@@ -20,6 +20,6 @@ builder.Services.AddA2A(a => a
         .UseFallback<ChatAgent>()));
 ```
 
-The API is `[Experimental]` (`A2AEXP001`), like skill selection. See
+The API is `[Experimental]` (`A2AEXP001`), like skill selection: add `<NoWarn>A2AEXP001</NoWarn>` to use it. See
 the [guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/typed-skills.md) for the rules, the routing
 table and the errors.

@@ -88,6 +88,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     internal const int MaxCommitBatch = 64;
 
     private readonly IBatchTaskCommit? _batchCommit; // _tasks, when it commits batches
+    private readonly ITaskCommitLookup? _commitLookup; // _tasks, when it can tell whether a failed commit was stored
     private readonly IAgentCardProvider _cards;
     private readonly ExecutionCoordinator _coordinator;
     private readonly EventStore _events;
@@ -156,6 +157,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         _objects = objects;
         _tasks = tasks;
         _batchCommit = tasks as IBatchTaskCommit;
+        _commitLookup = tasks as ITaskCommitLookup;
         _events = events;
         _executors = executors;
         Bus = bus;
@@ -1105,6 +1107,7 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         if (exec is not null) exec.Committed = null; // set again only by a successful commit
         var evt = encoded.Event;
         var deliveries = await DeliveriesAsync(key, pushEnabled).ConfigureAwait(false);
+        List<string>? mutationIds = null; // one per attempt: an earlier attempt may be the one that was stored
         for (var attempt = 0;; attempt++)
         {
             if (precondition is not null && !precondition(record))
@@ -1151,17 +1154,34 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             // retry this runs again on a fresh record. The usage is marked stored only once the commit succeeded.
             var usage = exec?.Usage.Pending() ?? default;
             TaskUsageMeter.Apply(next, usage);
+            var mutationId = NewMutationId(ref mutationIds);
             try
             {
-                var committed = await _tasks
-                    .CommitAsync(new TaskCommit(record with { Task = next }, record.Version, encoded, deliveries))
-                    .ConfigureAwait(false);
+                CommitResult committed;
+                var recovered = false;
+                try
+                {
+                    committed = await _tasks
+                        .CommitAsync(new TaskCommit(record with { Task = next }, record.Version, encoded, deliveries)
+                            { MutationId = mutationId })
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex) when (mutationIds is not null && ex is not OperationCanceledException)
+                {
+                    // The call failed, but the commit may be stored: the database committed and its answer was lost, or a
+                    // store's own retry met its first attempt (a version conflict caused by this very write).
+                    if (await FindStoredCommitAsync(key, mutationIds, ex).ConfigureAwait(false) is not { } found) throw;
+                    committed = found;
+                    recovered = true;
+                }
+
                 exec?.Usage.MarkStored(usage);
                 if (exec is not null)
                 {
                     exec.Committed = committed.Record;
                     // A store may return its own instance of the task (one it read back): the size carried over still holds for it.
-                    if (ReferenceEquals(exec.MeasuredTask, next)) exec.MeasuredTask = committed.Record.Task;
+                    // A recovered commit comes with the task as read now, which may hold later writes: it is measured again.
+                    if (!recovered && ReferenceEquals(exec.MeasuredTask, next)) exec.MeasuredTask = committed.Record.Task;
                 }
 
                 if (deliveries.Count > 0) _outbox.NotifyPending();
@@ -1201,6 +1221,47 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                 record = fresh;
             }
         }
+    }
+
+    /// <summary>
+    ///     A new mutation id for a commit, added to <paramref name="ids" />; null when the store cannot look commits up
+    ///     (<see cref="ITaskCommitLookup" />), so the ids would be of no use.
+    /// </summary>
+    private string? NewMutationId(ref List<string>? ids)
+    {
+        if (_commitLookup is null) return null;
+        var id = Guid.NewGuid().ToString("N");
+        (ids ??= []).Add(id);
+        return id;
+    }
+
+    /// <summary>
+    ///     After a commit call failed with <paramref name="failure" />: whether the store holds a commit with one of
+    ///     <paramref name="mutationIds" /> (the attempts of this change). If so, the task as stored now and that commit's
+    ///     sequence; null when none is stored, the task is gone, or the store cannot be asked (then the caller handles the
+    ///     failure as before).
+    /// </summary>
+    private async ValueTask<CommitResult?> FindStoredCommitAsync(TaskKey key, List<string> mutationIds,
+        Exception failure)
+    {
+        try
+        {
+            foreach (var id in mutationIds)
+            {
+                if (await _commitLookup!.FindCommitAsync(key, id, CancellationToken.None).ConfigureAwait(false) is not
+                    { } sequence) continue;
+                if (await _tasks.GetAsync(key, CancellationToken.None).ConfigureAwait(false) is not { } stored)
+                    return null;
+                ServerLog.CommitFoundAfterFailure(Logger, failure, key.TaskId, sequence);
+                return new CommitResult(stored, sequence);
+            }
+        }
+        catch (Exception ex)
+        {
+            ServerLog.CommitLookupFailed(Logger, ex, key.TaskId);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1293,22 +1354,41 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         }
 
         BatchCommitResult committed;
+        List<string>? mutationIds = null;
+        var mutationId = NewMutationId(ref mutationIds);
+        var recovered = false;
         try
         {
             committed = await _batchCommit!
-                .CommitBatchAsync(new TaskBatchCommit(record with { Task = next! }, record.Version, events))
+                .CommitBatchAsync(new TaskBatchCommit(record with { Task = next! }, record.Version, events)
+                    { MutationId = mutationId })
                 .ConfigureAwait(false);
         }
-        catch (ConcurrencyException)
+        catch (Exception ex) when (ex is not OperationCanceledException &&
+                                   (ex is ConcurrencyException || mutationIds is not null))
         {
-            exec.Committed = null; // the single path reloads the task
-            return 0;
+            // As in ApplyAndStoreAsync: the batch may be stored although the call failed. Only then is it kept as stored;
+            // otherwise a conflict hands the events to the single path, which reloads the task, and any other failure is
+            // raised as before.
+            if (mutationIds is null ||
+                await FindStoredCommitAsync(key, mutationIds, ex).ConfigureAwait(false) is not { } found)
+            {
+                if (ex is not ConcurrencyException) throw;
+                exec.Committed = null; // the single path reloads the task
+                return 0;
+            }
+
+            committed = new BatchCommitResult(found.Record, found.Sequence);
+            recovered = true;
         }
 
         exec.Usage.MarkStored(usage);
         exec.Committed = committed.Record;
-        exec.MeasuredTask = committed.Record.Task;
-        exec.MeasuredBytes = size;
+        if (!recovered)
+        {
+            exec.MeasuredTask = committed.Record.Task;
+            exec.MeasuredBytes = size;
+        }
         if (configs.Count > 0) _outbox.NotifyPending();
         ServerTelemetry.Events.Add(count);
         // Still under the task lock, so sinks see events in sequence order.

@@ -1,6 +1,6 @@
 # Durable stores and several instances
 
-The default stores live in memory. That is fine for development and tests. It is not enough when tasks must survive a restart, or when more than one instance serves the same agent. This guide shows the Postgres stores and coordinator, the Redis event bus and coordinator, and what to check at startup.
+The default stores live in memory. That is fine for development and tests. It is not enough when tasks must survive a restart, or when more than one instance serves the same agent. This guide shows the Postgres stores and coordinator, the Redis event bus and coordinator, and what to check at startup. The execution coordinator is the part that tracks which agent runs are live, holds a lease (a claim renewed by heartbeats) for each, and carries CancelTask between instances.
 
 ## When in-memory stops being enough
 
@@ -27,7 +27,7 @@ Each task change, its event and its push deliveries are written in one transacti
 
 | Option | Default | Meaning |
 |---|---|---|
-| `Schema` | `public` | Schema of the `a2a_*` tables. Letters, digits and underscores only. |
+| `Schema` | `public` | Schema of the `a2a_*` tables. Letters, digits and underscores, not starting with a digit, at most 63 characters. |
 | `CreateSchemaOnStartup` | `true` | A hosted service applies the missing schema migrations at startup, in one transaction under an advisory lock, so many instances can start together. When `false`, the app refuses to start unless the database version matches the package. |
 | `CleanupInterval` | 5 minutes | How often expired event logs and finished idempotency entries are deleted. Zero or `Timeout.InfiniteTimeSpan` turns it off. |
 | `IdempotencyClaimTimeout` | 2 minutes | How long a running request holds its idempotency key before another request may take it. `Timeout.InfiniteTimeSpan` means never. |
@@ -110,13 +110,14 @@ Push configs hold tokens and credentials. They are stored protected. The default
 
 ## Startup diagnostics
 
-The server logs these once at startup. Nothing throws, so a host that does not use the feature still starts. The Postgres schema check is separate: with `CreateSchemaOnStartup = false` it does stop startup on a version mismatch (see **Schema** above).
+The server logs these once at startup. They never stop the host, so a host that does not use the feature still starts. Two checks are separate and do stop startup: the Postgres schema check with `CreateSchemaOnStartup = false` on a version mismatch (see **Schema** above), and an artifact object store registered without `ArtifactStorage.PublicBaseUrl` (see [Artifact storage](artifact-storage.md)).
 
 | Event | Level | When |
 |---|---|---|
 | 251 | Error | The push outbox is durable and the push secret protector is the per-process one. |
 | 252 | Warning | The task store is durable and the execution coordinator is the in-memory one. A crash leaves the running tasks unrecovered. |
 | 253 | Warning | The task store is durable and the retention sweep is not registered. |
+| 255 | Warning | The task store is durable and artifact objects are in the in-memory object store. Stored links stop working after a restart. |
 | 257 | Warning | The event bus spans instances (Redis, or your own) and the task, event or idempotency store is the in-memory one. Events cross instances, but the other instances cannot read the tasks and events kept in this process. |
 | 250 | Debug | The checks were skipped because the registrations are broken. |
 
@@ -126,17 +127,19 @@ Register your stores before `AddA2AServer` (the defaults are added only when mis
 
 Implement:
 
-- <xref:A2A.Server.Storage.TaskStore>: `GetAsync`, `CreateAsync`, `UpdateAsync`, `CommitAsync`, `ListAsync`, `GetContextAsync`, `GetOrCreateContextAsync`, and the retention members `DeleteAsync`, `ListExpiredAsync`, `ListInterruptedBeforeAsync`, `DeleteContextAsync`, `ListOrphanContextsAsync`.
+- <xref:A2A.Server.Storage.TaskStore>: `GetAsync`, `CreateAsync`, `UpdateAsync`, `CommitAsync`, `ListAsync`, `GetContextAsync`, `GetOrCreateContextAsync`, and the maintenance members that retention uses: `DeleteAsync`, `ListExpiredAsync`, `ListInterruptedBeforeAsync`, `GetForMaintenanceAsync` (reads a task whoever owns it), `DeleteContextAsync`, `ListOrphanContextsAsync`.
 - <xref:A2A.Server.Storage.EventStore>: `AppendAsync`, `ReadAfterAsync`, `OldestRetainedAsync`, `LastSequenceAsync`, `MarkTerminalAsync`, `DeleteAsync`.
 - `PushConfigStore`, `PushOutbox` and `IdempotencyStore` (including `RenewAsync`).
 - `ExecutionCoordinator` is optional. The in-memory one is the default, but it cannot recover tasks after a crash. Prefer a durable one.
 - Optional, for speed: <xref:A2A.Server.Storage.IBatchTaskCommit> on the task store, and an override of `EventStore.ReadRangeAsync`. See below.
+- Optional, for correctness when a commit's answer can be lost: <xref:A2A.Server.Storage.ITaskCommitLookup> on the task store. See below.
 
 Rules that matter:
 
 - **`CommitAsync` is atomic.** It writes the task record (the stored version must equal `ExpectedVersion`; 0 creates the task), appends the event with the next sequence, and stores the push deliveries, all or nothing. A wrong version throws `ConcurrencyException`. A create on an existing task throws `DuplicateTaskException`. Commits to one task must be serialized, so the log order equals the version order.
 - **Idempotency outcome in the commit.** `TaskCommit.Idempotency` is set for the commit that creates a task when the request has an idempotency key. A store that shares a transaction with its idempotency store writes the outcome in the same transaction, only for the claim that still owns the entry. No matching claim is not an error. Any other store ignores it; the server records the outcome right after the commit, so a crash in between can still let a retry create a second task. `IdempotencyStore.CompleteAsync`, `AbandonAsync` and `RenewAsync` take the claim id from `IdempotencyResult.New` and must do nothing when the entry belongs to another claim.
 - **Batch commits are optional.** With `IBatchTaskCommit`, the server stores artifact chunks that queue up as one commit: one task write, one version, and each event with the next sequence, in order, with its own push deliveries. All or nothing, with the same version check as `CommitAsync`. Without it, the server makes one `CommitAsync` per event. Long chunked streams then cost more, because each commit writes the whole task.
+- **Commit lookup is optional, and recommended for a database.** A database can commit a transaction and then lose the answer: the connection times out or resets, and the caller sees an error although the write is stored. A store that retries writes on its own can also meet its first attempt and report a version conflict for its own write. Without help, the server fails the run in the first case, and stores the event a second time in the second. With `ITaskCommitLookup`, keep `TaskCommit.MutationId` (and `TaskBatchCommit.MutationId`, on the batch's first event) with the stored event, and return that event's sequence from `FindCommitAsync`, or null when there is no such commit. After a failed commit call, the server asks, and when the commit is stored it carries on as if the call had succeeded (log event 226). It asks right after the commit, so the id only has to stay findable while its event is in the replay buffer. The Postgres store keeps it in `a2a_events.mutation_id` (migration 0006), and the in-memory store keeps the last 16 ids per task.
 - **`ReadRangeAsync` reads part of the log.** Streams use it to fill a gap. The default reads `ReadAfterAsync` and stops at the bound. Override it to read only the range.
 - **Keep the event bytes.** The server encodes each event once. `SequencedEvent.Json` holds those bytes. Store them and return them unchanged from `ReadAfterAsync`. They go to the wire without validation, so a store that alters, truncates or re-encodes them corrupts the stream.
 - **Scope by tenant and owner.** Reads are owner-scoped. A task owned by someone else looks missing.

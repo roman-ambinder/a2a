@@ -1,7 +1,8 @@
 # RomanAmbinder.A2A.Server.Storage.S3
 
 An Amazon S3 (or S3-compatible, such as MinIO) object store for large A2A artifacts. The task store keeps a small
-reference; the bytes live in your bucket.
+reference; the bytes live in your bucket. Use it when your agent sends or receives files too large to keep in the task
+store.
 
 ```csharp
 builder.Services.AddA2AS3ArtifactStore(o =>
@@ -46,3 +47,6 @@ that aborts incomplete multipart uploads, as a safety net for a crashed process.
 ## Tests
 
 The contract runs against MinIO (`cgr.dev/chainguard/minio`) with Testcontainers.
+
+Artifact storage is opt-in; see the [artifact storage guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/artifact-storage.md) for the server options
+(`A2AServerOptions.ArtifactStorage`) and the download endpoint (`MapA2AArtifacts`).

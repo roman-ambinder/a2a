@@ -5,7 +5,8 @@ Thanks for helping. To report a vulnerability, see [SECURITY.md](SECURITY.md). D
 ## Prerequisites
 
 - .NET SDK 10.0.100 or a later feature band ([global.json](global.json)).
-- The .NET 8 runtime. The libraries target `net8.0` and `net10.0`.
+- Nothing else for the libraries: they target `net10.0`, and `A2A.Protocol` and `A2A.Client` also target
+  `netstandard2.0`.
 - Docker, for the store tests.
 
 ## Build
@@ -21,24 +22,26 @@ In `src/`, warnings are errors and XML docs are required for public API.
 CI runs these suites ([ci.yml](.github/workflows/ci.yml)):
 
 ```bash
-dotnet test tests/A2A.Tests
-dotnet test tests/A2A.Grpc.Tests
-dotnet test tests/A2A.V0_3Compat.Tests
-dotnet test tests/A2A.Extensions.AI.Tests
-dotnet test tests/A2A.Mcp.Tests
-dotnet test tests/A2A.Stores.Tests
-dotnet test tests/A2A.TestKit.Tests
-dotnet test samples/TestingAgent
+dotnet test --project tests/A2A.Tests/A2A.Tests.csproj
+dotnet test --project tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj
+dotnet test --project tests/A2A.V0_3Compat.Tests/A2A.V0_3Compat.Tests.csproj
+dotnet test --project tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj
+dotnet test --project tests/A2A.Mcp.Tests/A2A.Mcp.Tests.csproj
+dotnet test --project tests/A2A.Stores.Tests/A2A.Stores.Tests.csproj
+dotnet test --project tests/A2A.TestKit.Tests/A2A.TestKit.Tests.csproj
+dotnet test --project samples/TestingAgent/TestingAgent.csproj
 ```
+
+The tests run on Microsoft.Testing.Platform ([global.json](global.json)), so `dotnet test` takes the project with
+`--project`. CI also runs the samples (`samples/run-samples.sh`), the interop and conformance suites, the template check
+(`src/A2A.Templates/test-templates.sh`) and a netstandard2.0 smoke test (`tests/A2A.NetStandard.Smoke`).
 
 `tests/A2A.Stores.Tests` needs Docker. It starts Postgres, Redis, MinIO and Azurite with Testcontainers. Without Docker it skips, unless `A2A_REQUIRE_DOCKER=1` is set. Then a missing Docker fails the run. CI sets it.
 
-See also [Build and test](README.md#build-and-test) in the README.
-
 ## Coverage
 
-[coverage.yml](.github/workflows/coverage.yml) runs every suite above with line coverage after each merge to `main`, the
-store tests included. It compares each package with [.github/coverage-baseline.json](.github/coverage-baseline.json) and
+[coverage.yml](.github/workflows/coverage.yml) runs every suite above except `samples/TestingAgent` with line coverage
+after each merge to `main`, the store tests included. It compares each package with [.github/coverage-baseline.json](.github/coverage-baseline.json) and
 fails when a package is more than the file's `tolerance` (in percentage points) below its value, or has no coverage data.
 The check is not part of `all-green` and does not block a release, but a red run on `main` needs a fix.
 
@@ -118,3 +121,18 @@ After the first release, do not add a new abstract member, and do not add a virt
 - Target `main`.
 - CI must pass.
 - Add a [CHANGELOG.md](CHANGELOG.md) entry for user-visible changes.
+
+## Releasing
+
+Push a version tag on a commit that is on `main`:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+[release.yml](.github/workflows/release.yml) first requires a successful `CI` run on `main` for that exact commit, and
+waits if the run is still going. It then builds, packs every `src/` project (with SourceLink and `.snupkg` symbols),
+pushes them to nuget.org and creates a GitHub release. A tag with a suffix (`v0.2.0-preview.1`) publishes a prerelease.
+
+One-time setup: add a nuget.org API key as the repository secret `NUGET_API_KEY`, scoped to push `RomanAmbinder.A2A.*`.

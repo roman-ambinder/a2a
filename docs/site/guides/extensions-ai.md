@@ -71,7 +71,7 @@ The executor throws `InvalidOperationException` in three cases:
 
 The server marks the task `FAILED` with the fixed text `The agent failed to process the request.` It logs the real error. If the caller cancels, the task ends as `CANCELED`.
 
-A message with a URL part is rejected with `URL parts are not accepted by this agent.` unless you set `AllowUrlParts`.
+A message with a URL part is rejected (the task ends as `REJECTED`) with `URL parts are not accepted by this agent.` unless you set `AllowUrlParts`. The model is not called.
 
 ## Call a remote agent as a tool
 
@@ -165,7 +165,7 @@ When the task id is set, the client first looks the task up. Then, for a unary c
 
 A task that ends `failed`, `rejected` or `canceled` throws `InvalidOperationException`. The message has the state only, not the remote text. Both the unary and streaming paths do this.
 
-`GetService` returns a `ChatClientMetadata` with provider name `a2a` and the agent card name, and the client itself. `Dispose` does nothing. The `A2AClient` is yours to dispose.
+`GetService` returns a `ChatClientMetadata` with provider name `a2a` and the agent card name as the default model id, and the client itself. `Dispose` does nothing. The `A2AClient` is yours to dispose.
 
 ## Content conversion
 

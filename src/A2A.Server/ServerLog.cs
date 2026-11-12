@@ -75,6 +75,14 @@ internal static partial class ServerLog
         Message = "Could not mark task {TaskId} as failed after its follow-up could not start")]
     public static partial void MarkUnstartedFailedFailed(ILogger logger, Exception exception, string taskId);
 
+    [LoggerMessage(EventId = 226, Level = LogLevel.Warning,
+        Message = "A commit of task {TaskId} failed, but the store has it (event {Sequence}): it is not applied again")]
+    public static partial void CommitFoundAfterFailure(ILogger logger, Exception exception, string taskId, long sequence);
+
+    [LoggerMessage(EventId = 227, Level = LogLevel.Warning,
+        Message = "Could not check whether the failed commit of task {TaskId} was stored")]
+    public static partial void CommitLookupFailed(ILogger logger, Exception exception, string taskId);
+
     [LoggerMessage(EventId = 205, Level = LogLevel.Debug, Message = "Dropped event for task {TaskId} in state {State}")]
     public static partial void EventDropped(ILogger logger, string taskId, TaskState state);
 

@@ -1,9 +1,25 @@
 # A2A .NET SDK
 
-A .NET SDK for the [Agent2Agent (A2A) protocol](https://a2a-protocol.org/latest/specification/) **v1.0**.
-Client and server. JSON-RPC, HTTP+JSON, and gRPC bindings. SSE streaming. Push notifications. Agent Card signing.
+A .NET SDK for the [Agent2Agent (A2A) protocol](https://a2a-protocol.org/latest/specification/) **v1.0**: host an agent that other agents can call, or call agents from your own code.
 
-Targets **.NET 10**. `A2A.Protocol` and `A2A.Client` also target **netstandard2.0** (.NET Framework 4.7.2+). An app on an older .NET (for example .NET 8) gets that build, which has fewer protections: no default Agent Card endpoint policy, no guarded `jku` fetch and no artifact download or upload helpers.
+- **Server and client**, over three bindings: JSON-RPC, HTTP+JSON and gRPC.
+- **Streaming** (SSE, with resume), **push notifications**, **Agent Card signing**.
+- **Production parts**: durable Postgres stores, Redis for several instances, retention, artifact storage in S3 or Azure Blob, OpenTelemetry tracing and metrics.
+- **Targets .NET 10.** `A2A.Protocol` and `A2A.Client` also target netstandard2.0 (.NET Framework 4.7.2+), with fewer protections. See [Product overview](docs/site/guides/overview.md).
+
+📖 **Docs:** [roman-ambinder.github.io/a2a](https://roman-ambinder.github.io/a2a/). Start with [Getting started](docs/site/guides/getting-started.md).
+
+## Contents
+
+- [Install](#install)
+- [Host an agent](#host-an-agent)
+- [Call an agent](#call-an-agent)
+- [Guides](#guides)
+- [Samples](#samples)
+- [Build and test](#build-and-test)
+- [Contributing and security](#contributing-and-security)
+
+## Install
 
 ```bash
 dotnet add package RomanAmbinder.A2A.Server.AspNetCore   # host an agent
@@ -11,7 +27,7 @@ dotnet add package RomanAmbinder.A2A.Client              # call agents
 dotnet tool install -g RomanAmbinder.A2A.Cli             # the `a2a` command line tool
 ```
 
-NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the official `A2A` packages. Assemblies and namespaces are `A2A.*`. The core packages depend only on `Microsoft.Extensions.*`; the gRPC packages add `Google.Protobuf` and `Grpc.*`.
+Every NuGet ID is `RomanAmbinder.` + the package name, so it never clashes with the official `A2A` packages. Assemblies and namespaces are `A2A.*`. Use the same version for all the `RomanAmbinder.A2A.*` packages you install.
 
 ### Which packages do I need?
 
@@ -22,63 +38,37 @@ NuGet IDs carry the `RomanAmbinder.` prefix so they never clash with the officia
 | Call an agent with Azure managed identity or AWS IAM | `A2A.Client.Identity.Azure` or `A2A.Client.Identity.Aws` |
 | Use gRPC | `A2A.Server.Grpc` (host) or `A2A.Client.Grpc` (call) |
 | Host an `IChatClient` as an agent, or use an agent as an AI tool | `A2A.Extensions.AI` |
-| Bridge to MCP | `A2A.Mcp` |
+| Bridge to MCP (Model Context Protocol) | `A2A.Mcp` |
+| Give skills .NET input and output types (experimental) | `A2A.Server.TypedSkills` |
 | Keep tasks across restarts | `A2A.Server.Postgres` |
 | Run several server instances | `A2A.Server.Redis` (plus `A2A.Server.Postgres`) |
 | Keep large artifacts in object storage | `A2A.Server.Storage.S3` or `A2A.Server.Storage.AzureBlob` |
+| Keep a durable list of messages my agent sends to peers | `A2A.Client.Postgres` |
 | Talk to v0.3 agents or clients | `A2A.Client.V0_3Compat` or `A2A.Server.V0_3Compat` |
 | Test an agent | `A2A.TestKit` |
 | Try an agent from the command line | `A2A.Cli` (`dotnet tool install -g`) |
 
-The other packages (`A2A.Protocol`, `A2A.Security.Http`, `A2A.Grpc`, `A2A.V0_3Compat`, `A2A.Server`) come in as dependencies.
+The other packages (`A2A.Protocol`, `A2A.Security.Http`, `A2A.Grpc`, `A2A.V0_3Compat`, `A2A.Server`) come in as dependencies. What each package contains is in [Architecture](docs/site/guides/architecture.md).
 
-| Package (NuGet ID: `RomanAmbinder.` + name) | What it is |
-|---|---|
-| `A2A.Protocol` | Data model (from `a2a.proto`), ProtoJSON serialization, errors, JCS (RFC 8785), JWS card signing/verification |
-| `A2A.Security.Http` | SSRF-safe outbound HTTP handler (private-address guard), guarded `jku` key-set fetching and `SafeHttp` for peer-chosen URLs, shared by the client and the push sender |
-| `A2A.Client` | `A2AClient`, JSON-RPC + REST transports, SSE reader, card resolver with caching and signature policy |
-| `A2A.Cli` | The `a2a` dotnet tool: show and verify Agent Cards, send and stream messages, manage tasks, download artifacts. See [Command line tool](docs/site/guides/cli.md) |
-| `A2A.Client.DependencyInjection` | `AddA2AClient`, `IA2AClientFactory`, `AddBearerToken`, `AddOAuth2ClientCredentials`, `AddApiKey`, `AddMutualTls` (adds DI, Options, `IHttpClientFactory`) |
-| `A2A.Client.Identity.Aws` | `AwsSigV4Handler` and `AwsSigV4CredentialProvider`: sign requests with AWS Signature Version 4 to call agents behind AWS IAM (API Gateway, Lambda function URLs) |
-| `A2A.Client.Identity.Azure` | `AzureTokenCredentialProvider`: call agents with a managed identity, workload identity or any Azure.Core `TokenCredential`, instead of a client secret |
-| `A2A.Server` | Transport-agnostic server core: executor model, task lifecycle, stores, event bus, durable push delivery (outbox), execution coordination, retention, tracing and metrics |
-| `A2A.Server.AspNetCore` | Endpoints: JSON-RPC, REST, SSE, `/.well-known/agent-card.json`, JWKS |
-| `A2A.Grpc` | Generated types/stubs for `lf.a2a.v1.A2AService` (from `docs/a2a.proto`) and model mapping |
-| `A2A.Server.Grpc` | `MapA2AGrpc()`: the gRPC binding on ASP.NET Core |
-| `A2A.Client.Grpc` | `GrpcTransport` and `A2AGrpcClientFactory` |
-| `A2A.V0_3Compat` | Shared v0.3 JSON codecs and Agent Card conversion (used by the two packages below) |
-| `A2A.Server.V0_3Compat` | `EnableV03Compat()`: lets v0.3 clients call a v1.0 agent |
-| `A2A.Client.V0_3Compat` | `V03CompatClientFactory`: lets a client call v0.3 agents |
-| `A2A.Extensions.AI` | `Microsoft.Extensions.AI` integration: host an `IChatClient` as an agent (`AddChatClientAgent`), call a remote agent as an AI tool (`AsAIFunction`) or as an `IChatClient` (`AsChatClient`) |
-| `A2A.Client.Postgres` | PostgreSQL store for the client outbox (`A2A.Client.Outbox`): a durable list of the messages an agent sends to peers, written in your own transaction |
-| `A2A.Mcp` | Model Context Protocol bridge: serve the skills of a remote agent as MCP tools (`AsMcpTools`), or let an agent run MCP tools (`AddMcpToolAgent`) |
-| `A2A.Server.Postgres` | PostgreSQL stores (tasks, events, push configs, push outbox, idempotency) via Npgsql |
-| `A2A.Server.Redis` | Redis pub/sub `TaskEventBus` and execution coordinator for running several server instances |
-| `A2A.Server.TypedSkills` | Typed skills: .NET input and output types, JSON Schema on the card, bad input refused before the agent runs (`AddTypedSkills`; experimental) |
-| `A2A.Server.Storage.S3` | `AddA2AS3ArtifactStore`: keeps large artifact bytes in Amazon S3 or an S3-compatible service (such as MinIO); downloads use presigned URLs |
-| `A2A.Server.Storage.AzureBlob` | `AddA2AAzureBlobArtifactStore`: keeps large artifact bytes in Azure Blob Storage as block blobs; downloads use SAS URLs when the client holds the account key, otherwise the server proxies them |
-| `A2A.TestKit` | Test tools: an in-process agent host, a scripted fake peer agent, assertions for task states and event order, a fake clock and a push receiver. Works with any test framework ([guide](docs/site/guides/testing.md)) |
+You can also start from a project template: see [src/A2A.Templates](src/A2A.Templates/README.md).
 
-## Documentation
-
-Guides and API reference are published at [roman-ambinder.github.io/a2a](https://roman-ambinder.github.io/a2a/). They are built with DocFX from [docs/site](docs/site/README.md) and published from `main` on every green CI run. The guides pull their C# code from [samples/](samples/README.md) (runnable samples, and compile-only snippets in `samples/Snippets`), so read them on the published site to see the code.
-
-Start with [Getting started](docs/site/guides/getting-started.md). Then: [bindings](docs/site/guides/bindings.md), [authentication and ownership](docs/site/guides/auth-and-ownership.md), [identity providers](docs/site/guides/identity-providers.md), [streaming](docs/site/guides/streaming.md), [push notifications](docs/site/guides/push-notifications.md), [proactive continuation](docs/site/guides/proactive-continuation.md), [Agent Card signing](docs/site/guides/agent-card-signing.md), [multi-tenancy](docs/site/guides/multi-tenancy.md), [durable stores](docs/site/guides/durable-stores.md), [retention](docs/site/guides/retention.md), [artifact storage](docs/site/guides/artifact-storage.md), [observability](docs/site/guides/observability.md), [limits](docs/site/guides/limits-and-rate-limiting.md), [task safety](docs/site/guides/task-safety.md), [interop](docs/site/guides/interop-and-conformance.md), [testing](docs/site/guides/testing.md), [spec decisions](docs/site/guides/spec-decisions.md), [client outbox](docs/site/guides/client-outbox.md).
-
-## Server in 20 lines
+## Host an agent
 
 ```csharp
+var builder = WebApplication.CreateBuilder(args);
+
 builder.Services.AddAuthentication(/* your scheme */);
 builder.Services.AddAuthorization();
 builder.Services.AddA2A(a => a
     .AddAgentExecutor<MyAgent>()
-    .AddAgentCard(AgentCard.Create("My Agent", "Says hello.")));
+    .AddAgentCard(AgentCard.Create("My Agent", "Says hello.")
+        .AddSkill("hello", "Hello", "Says hello back", tags: ["greeting"])));
 
 var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A();                               // rate limiter middleware; the app refuses to start without it
+app.UseA2A();                               // rate limiting; the app refuses to start without it
 app.UseAuthorization();
-app.MapA2A("/a2a").RequireAuthorization();  // JSON-RPC at POST /a2a, REST at /a2a/message:send, ...; and the Agent Card at /.well-known/agent-card.json
+app.MapA2A("/a2a").RequireAuthorization();  // JSON-RPC and HTTP+JSON at /a2a, the Agent Card at /.well-known/agent-card.json
 
 class MyAgent : IAgentExecutor
 {
@@ -91,341 +81,70 @@ class MyAgent : IAgentExecutor
 }
 ```
 
-What this gives you, with nothing else to configure:
+This code is the compiled snippet in [samples/Snippets/GettingStarted.cs](samples/Snippets/GettingStarted.cs). What you get with no other configuration:
 
-- `AddA2A` is `AddA2AServer()` + `AddA2AServerAspNetCore()` + your builder calls. Use the two-step form when you need `A2AServerOptions` at registration.
-- `MapA2A` also maps the public Agent Card (`GET /.well-known/agent-card.json`, anonymous, cacheable; and the JWKS when a signing key is set). On a route group (`app.MapGroup("/api")`) it does not: call `app.MapAgentCard()` on the application root. Turn it off with `o.MapAgentCard = false`.
-- Authorization: `MapA2A("/a2a", o => o.AuthorizationPolicy = "MyPolicy")` or `.RequireAuthorization()`. Without either, the app refuses to start, unless you set `A2AServerOptions.AllowAnonymous = true`. Or call `.AddApiKeyAuthentication(o => o.Add("caller", hash))` on the A2A builder: API keys stored as hashes, one owner per caller, declared on the card, and applied to every A2A endpoint without a policy of its own (`a2a keys new` makes a key and its hash; see [API keys](docs/site/guides/auth-and-ownership.md#api-keys)).
-- The card needs only `Name`, `Description` and `Version` (`AgentCard.Create(name, description, version = "1.0.0")`; chain `.AddSkill(id, name, description)` for skills). Streaming is on unless the card says `Streaming = false`. Empty `SupportedInterfaces` are completed once, at first serve, from the mapped bindings (`MapA2A`, `MapA2AJsonRpc`, `MapA2AHttpJson`, `MapA2AGrpc`) at `A2AHttpOptions.PublicBaseUrl` (else the first listen address) + the mapped pattern. Set `PublicBaseUrl` behind a proxy or load balancer (`services.ConfigureA2AHttp(h => h.PublicBaseUrl = new Uri("https://agent.example.com"))`). Patterns with `{tenant}` are not listed, and a card that ends up with no interface fails at first serve with an `InvalidOperationException`.
-- Limits (`o.Limits`): body 10 MB, 100 parts per message, JSON depth 32, history 100, page size 100, 64 MiB and 1024 artifacts per stored task. Rate limit per tenant and principal (anonymous: per remote IP): 20 burst, 60 per minute (`services.AddA2ARateLimiting(o => ...)` to change; `o.Enabled = false` turns it off and lifts the `UseA2A()` requirement). Both answer 429/413 with the right headers.
-- Tenants: `MapA2A("/{tenant}/a2a")` or the default `/a2a/{tenant}` variants set `ServerCallContext.Tenant`.
-- A full sample with API-key auth, card signing and streaming is in [samples/EchoAgent](samples/EchoAgent/Program.cs).
+- **Secure by default.** Without `.RequireAuthorization()` (or an authorization policy) the app refuses to start. For local experiments, `UseDevelopmentDefaults()` allows anonymous callers in Development only. See [Getting started](docs/site/guides/getting-started.md) and [Authentication and ownership](docs/site/guides/auth-and-ownership.md).
+- **Limits and rate limiting** are on, with defaults you can change. See [Limits and rate limiting](docs/site/guides/limits-and-rate-limiting.md).
+- **In-memory stores.** Tasks are lost on restart. For production, see [Durable stores](docs/site/guides/durable-stores.md) and the [Production checklist](docs/site/guides/production-checklist.md).
 
-The executor is resolved from a **new DI scope per execution**, so scoped services (DbContext etc.) are safe.
-Call `updater.ReplyAsync(...)` instead for a stateless reply with no task.
-
-## Client
+## Call an agent
 
 ```csharp
 var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), httpClient);
-var reply = await client.SendMessageAsync("hello");
+string answer = await client.AskAsync("hello"); // the reply's text; throws if the task does not complete
 
-await foreach (var evt in client.SendStreamingMessageAsync(Message.FromUser("stream this")))
-    if (evt is StatusUpdateEvent { StatusUpdate: var s }) Console.WriteLine(s.Status.State);
+await foreach (var chunk in client.StreamTextAsync("stream this"))
+    Console.Write(chunk);
 ```
 
-Every client method takes optional `A2ARequestOptions` (headers, timeout, idempotency key, extensions, `ConfigureRequest`). `SendMessage` always sends an `Idempotency-Key` (default: the message id). Unary calls retry up to `MaxRetries` times (default 2, so 3 attempts; set it on `A2AClientOptions` or per call, 0 disables) on 503, 429, errors marked retryable, and transport errors. For `SendMessage` a transport error is retried only when the request never reached the server (connect, DNS, proxy tunnel or TLS failure), so a server without `Idempotency-Key` support cannot create the task twice. Creating or deleting a push config and streams are not retried. To stop calls to a peer that keeps failing, set `A2AClientOptions.CircuitBreaker` (off by default); see the [client resilience guide](docs/site/guides/client-resilience.md).
+The client reads the agent's card, picks a binding the card offers, and retries safe failures. For credentials (OAuth2, API keys, mutual TLS, Azure, AWS), see [Client credentials](docs/site/guides/client-credentials.md). For DI and named clients, see [samples/EchoClient](samples/EchoClient/Program.cs).
 
-DI (package `A2A.Client.DependencyInjection`, which adds DI, Options and `IHttpClientFactory`): `services.AddA2AClient("weather", o => o.AgentUrl = ...).AddBearerToken(...)`, then `IA2AClientFactory.GetClientAsync("weather")`. The clients are cached per name; the returned `IHttpClientBuilder` takes auth handlers and resilience. See [samples/EchoClient](samples/EchoClient/Program.cs).
+## Guides
 
-Authentication: pass providers instead of an `HttpClient`. The client picks providers by the schemes the card requires, in the card's order. Creation fails when none of the card's requirement sets can be met by the providers and the card does not allow anonymous access. Credentials go only to the origin the card came from and never across a redirect. Origins are compared by scheme, port and the dialed (IDN) host name. A custom terminal handler of an unknown type cannot be checked, so it must not follow redirects. A card whose interface is on another origin fails client creation, and there is no opt-out. The handler chain must not follow redirects: a `SocketsHttpHandler` or `HttpClientHandler` with `AllowAutoRedirect = true` is refused, which is why credentials are not accepted with a plain `HttpClient`. OAuth2 sends the client secret to the configured `TokenEndpoint`, or to the card's token URL only when it is on the card's origin. Most identity providers are on another origin, so set `TokenEndpoint`. A provider without `TokenEndpoint` binds to the first card origin it accepts and refuses every other origin, so use one provider per agent. When `Scopes` is not set, the card chooses the scopes: set `Scopes` when one client id serves several APIs. API keys go in a header or cookie as the card declares; query strings are refused. For mutual TLS use `A2AMutualTls.CreateHandler` (no DI) or `AddMutualTls` (DI). With mTLS the certificate is also offered to the agent host during the card fetch, because the certificate belongs to the connection. gRPC: when the card requires credentials, `CreateAsync` refuses a gRPC interface, because `GrpcTransport` owns its channel. Wire it yourself: `var binding = A2ACredentialBinding.Create(resolved, grpcInterface, providers, forGrpcChannel: true);` then set `GrpcChannelOptions.HttpHandler = new A2ACredentialHandler(binding, handler)` over a non-redirecting handler. In DI, `AddA2AClient` redacts every logged header value, so keys and tokens stay out of logs. `AddBearerToken` on an `AddA2AClient` builder refuses to send the token off the `AgentUrl` origin.
+The guides are written to be read on the [docs site](https://roman-ambinder.github.io/a2a/), where their code samples are shown. On GitHub, a code sample appears as an include line that points to a file in [samples/](samples/README.md).
 
-```csharp
-// No DI
-var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"),
-    [new OAuth2ClientCredentialsProvider(new OAuth2ClientCredentialsOptions
-    {
-        ClientId = "id", ClientSecret = secret, TokenEndpoint = new Uri("https://idp.example.com/token"),
-        Scopes = ["agent.invoke"]
-    })]);
+**Understand the SDK** (start here)
 
-// No DI, mutual TLS
-var mtls = await A2AClientFactory.CreateAsync(agentUrl, [new MutualTlsCredentialProvider()],
-    handler: A2AMutualTls.CreateHandler(cert, agentUrl));
+1. [Product overview](docs/site/guides/overview.md): what it is, who it is for, a map of the features
+2. [Core concepts](docs/site/guides/concepts.md): agents, cards, messages, tasks, artifacts
+3. [Architecture](docs/site/guides/architecture.md): packages, server parts, extension points
+4. [How a request flows](docs/site/guides/request-lifecycle.md): one call, step by step
+5. [Getting started](docs/site/guides/getting-started.md): host an agent and call it
 
-// DI
-services.AddA2AClient("weather", o => o.AgentUrl = new Uri("https://agent.example.com/"))
-        .AddOAuth2ClientCredentials(o => { o.ClientId = "id"; o.ClientSecret = secret; o.TokenEndpoint = new Uri("https://idp.example.com/token"); o.Scopes = ["agent.invoke"]; });
+**Build an agent or a client**
+
+- Protocol: [Bindings](docs/site/guides/bindings.md) · [Streaming and resume](docs/site/guides/streaming.md) · [Push notifications](docs/site/guides/push-notifications.md) · [Proactive continuation](docs/site/guides/proactive-continuation.md) · [Client outbox](docs/site/guides/client-outbox.md) · [Custom operations](docs/site/guides/custom-operations.md) · [Metadata keys](docs/site/guides/metadata.md)
+- Security: [Authentication and ownership](docs/site/guides/auth-and-ownership.md) · [Client credentials](docs/site/guides/client-credentials.md) · [Identity providers](docs/site/guides/identity-providers.md) · [Agent Card signing](docs/site/guides/agent-card-signing.md) · [Peer identity](docs/site/guides/peer-identity.md)
+- Skills: [Skill selection](docs/site/guides/skill-selection.md) · [Typed skills](docs/site/guides/typed-skills.md) · [Skill authorization](docs/site/guides/skill-authorization.md)
+- Integrations: [Microsoft.Extensions.AI](docs/site/guides/extensions-ai.md) · [Conversation memory](docs/site/guides/conversation-memory.md) · [MCP bridge](docs/site/guides/mcp-bridge.md) · [v0.3 compatibility](docs/site/guides/v03-compatibility.md)
+
+**Run in production**
+
+[Production checklist](docs/site/guides/production-checklist.md) · [Multi-tenancy](docs/site/guides/multi-tenancy.md) · [Durable stores](docs/site/guides/durable-stores.md) · [Retention](docs/site/guides/retention.md) · [Artifact storage](docs/site/guides/artifact-storage.md) · [Observability](docs/site/guides/observability.md) · [Audit trail](docs/site/guides/audit.md) · [Limits and rate limiting](docs/site/guides/limits-and-rate-limiting.md) · [Execution limits](docs/site/guides/execution-limits.md) · [Client resilience](docs/site/guides/client-resilience.md) · [Task safety](docs/site/guides/task-safety.md)
+
+**Test and reference**
+
+[Testing your agent](docs/site/guides/testing.md) · [Interop and conformance](docs/site/guides/interop-and-conformance.md) · [Command line tool](docs/site/guides/cli.md) · [Spec decisions](docs/site/guides/spec-decisions.md) · [Versioning](docs/site/guides/versioning.md) · [Changelog](CHANGELOG.md)
+
+## Samples
+
+Every sample is listed, with what it shows and its guide, in [samples/README.md](samples/README.md). Each one checks its own result. To run them all:
+
+```bash
+samples/run-samples.sh
 ```
 
-The factory picks the first interface **in the card's order** that the client supports (spec §8.3.2), and sets `tenant` from it.
-
-## gRPC
-
-```csharp
-// Server: gRPC needs HTTP/2 (Kestrel: HttpProtocols.Http2, or Http1AndHttp2 over TLS).
-builder.Services.AddA2AGrpc();               // includes AddA2AServerAspNetCore() (startup check, rate limit policy)
-app.UseAuthentication();
-app.UseA2A();
-app.UseAuthorization();
-app.MapA2AGrpc().RequireAuthorization();   // same fail-closed startup check and "a2a" rate limit as MapA2A
-// Card: new AgentInterface { Url = "https://agent.example.com:443", ProtocolBinding = ProtocolBindings.Grpc }
-
-// Client: let the card choose (its interface order wins) ...
-var client = await A2AClientFactory.CreateAsync(agentUrl, httpClient, new A2AClientOptions().UseGrpc());
-// ... or require gRPC
-var grpcClient = await A2AGrpcClientFactory.CreateAsync(agentUrl, httpClient);   // or A2AGrpcClientFactory.Create(card)
-```
-
-The gRPC service runs on the same `IA2ARequestHandler` and call-context plumbing as the HTTP bindings, so ownership, tenants
-(the request's `tenant` field), limits, idempotency and errors behave the same; the parity suite runs every method over all three bindings.
-A binding of your own resolves `IA2ARequestHandler` from DI and gets the same operations.
-Errors are `google.rpc.Status` with an `ErrorInfo` detail (`retryable`/`retryAfter` metadata, plus `RetryInfo` on rate limits, and `BadRequest` when a request field is invalid).
-`A2A-Version`, `A2A-Extensions` and `Idempotency-Key` travel as `a2a-version` / `a2a-extensions` / `idempotency-key` metadata.
-gRPC error responses do not carry the `a2a-extensions` (A2A-Extensions) response header; successful responses do.
-A message larger than `Limits.MaxRequestBodyBytes` is refused by the gRPC layer with `RESOURCE_EXHAUSTED` (the client reports it as `InvalidRequest` / `PAYLOAD_TOO_LARGE`, as over HTTP).
-`GrpcTransport` honours `A2ARequestOptions` (headers as metadata, per-attempt deadline, idempotency key, `MaxRetries` and the same retry rules)
-except `ConfigureRequest`, which throws `NotSupportedException`.
-**Stream resume** (`A2AClient.ObserveTaskAsync`, JSON-RPC and HTTP+JSON) reconnects with `Last-Event-ID` and skips events it already delivered. If the server lost its event log and starts over with a fresh task snapshot (a sequence below the cursor), the client takes the snapshot and continues from there instead of dropping events. **Stream resume is not supported over gRPC yet**: there is no event cursor on the wire, so after a lost stream call `SubscribeToTask` again.
-Proto ↔ model conversion goes through ProtoJSON (the model's JSON form *is* ProtoJSON), so all three bindings share one mapping.
-Without `UseGrpc()`, `A2AClientFactory` chooses between JSON-RPC and HTTP+JSON only. With it, gRPC joins the choice. `A2AGrpcClientFactory` always uses gRPC.
-
-## Design principles
-
-The SDK ranks its goals in this order: **safe > easy > performant > extendable > modular**. When two collide, the higher one wins: secure defaults before a short hello world, a short hello world before speed, and so on. The reasoning, the rules and the non-goals are in [docs/superpowers/specs/2026-11-07-sdk-design-principles-design.md](docs/superpowers/specs/2026-11-07-sdk-design-principles-design.md). CI checks them with gates: a public API snapshot (PublicApiAnalyzers), XML docs as errors, benchmarks with an allocation regression check (non-blocking until the baseline is regenerated on CI hardware), an AOT publish of the samples, and a line budget for the hello-world samples (`HelloWorldGateTests`).
-
-## Extending
-
-Every seam below is a DI registration or a builder call. Defaults are safe and in-memory; replace only what you need.
-
-- `IA2AOperationFilter` (+ `A2AFilterStage`): wrap every operation; `A2AServerBuilder.AddOperationFilter<T>()`.
-- `IA2ARequestHandler`: the operation set every binding calls; resolve it from DI to write a binding of your own.
-- Stores: `TaskStore` (its `CommitAsync` writes the task, the event and its push deliveries as one unit), `EventStore`, `PushConfigStore`, `PushOutbox`, `IdempotencyStore`. A store keeps and returns `SequencedEvent.Json` (the event encoded once) as it is: for the log, and as the push payload. An `EventStore` must return stored `SequencedEvent.Json` bytes unchanged: they are written to the wire unvalidated. `InMemoryEventStore` keeps each retained event as the model plus its UTF-8 bytes, so `StreamingOptions.ReplayBufferSize` costs roughly double the model's memory.
-- `IAgentExecutorFactory`: supplies the executor per execution and tenant (default: a new DI scope, with the `AgentExecutorResolver` when one is registered), so the core can run without a DI container.
-- `IAgentCardProvider` / `AgentCardProvider`: supply the public card, and each tenant's completed card (`GetAsync`, fed by a `TenantCardProvider`). `AddA2AServerAspNetCore` replaces this registration with the completing provider, so register a custom provider after it. `A2AServerOptions.ExtendedAgentCardProvider` has the signature `(call, completedCard, cancellationToken)`.
-- `ExecutionCoordinator`: running executions and cancel requests across instances (default in-memory; `AddPostgresExecutionCoordinator` or `AddRedisExecutionCoordinator`).
-- Push delivery: the hosted `PushDeliveryService` sends the `PushOutbox` through the keyed `HttpMessageInvoker` `PushDeliveryService.InvokerServiceKey` (SSRF-guarded); retries are `A2AServerOptions.PushDelivery`.
-- `IResumableTransport` (client): lets a custom transport support `ObserveTaskAsync` resume with `Last-Event-ID`.
-- Extension operations: `A2AServerBuilder.AddExtensionOperation(...)`. A policy denial happens in the HTTP binding before the pipeline: no span, no counter, and `BeforeAuthorization` filters do not see it. `allow: true` admits every caller the endpoint admits, including anonymous callers when `AllowAnonymous` is set.
-- `A2AAuthorizationHandler`: decides per operation; it receives an `A2AOperationDescriptor`.
-- Telemetry: the `ActivitySource` names `A2A.Server` and `A2A.Client` and the `Meter` `A2A.Server` (constants on `A2ATelemetry`).
-- `IA2ARejectionWriter` (ASP.NET Core): writes the rate limit rejection in a binding's own format (the gRPC binding registers one).
-- `ITokenExchanger` (`A2A.Delegation`): swaps the caller's token for a down-scoped one (RFC 8693) before a delegating agent calls the next agent. `A2AServerBuilder.AddTokenExchanger<T>()` or `AddTokenExchanger(instance)`; `A2A.Client.Delegation.OAuthTokenExchanger` is the ready-made implementation. See [Delegation](docs/site/guides/auth-and-ownership.md).
-- Client: `ITransportBinding` names a custom transport's binding on `A2AClient` spans; `RetryPolicy`/`RetryMode` are the retry rules every transport shares; `A2AClientOptions.OnMessageReceived` sees every agent message.
-
-## Observability
-
-Tracing uses `System.Diagnostics.ActivitySource`, so the core packages need no OpenTelemetry package. With OpenTelemetry:
-
-```csharp
-builder.Services.AddOpenTelemetry().WithTracing(t => t
-    .AddSource("A2A.Server", "A2A.Client")   // A2ATelemetry.ServerSourceName, ClientSourceName
-    .AddAspNetCoreInstrumentation()
-    .AddOtlpExporter());
-```
-
-| Source | Span | Kind | When |
-|---|---|---|---|
-| `A2A.Server` | `{method}` (`SendMessage`, `GetTask`, ...) | Server, or Internal under ASP.NET Core's request span | every `A2ARequestHandler` operation, all bindings |
-| `A2A.Server` | `a2a.agent.execute` | Internal | one agent run (execute or cancel); child of the operation span |
-| `A2A.Server` | `a2a.push.deliver` | Client | one attempt to send one event to one webhook; child of the agent run (also after a retry or on another instance) |
-| `A2A.Client` | `{method}` | Client | every `A2AClient` operation, retries and stream reconnects included |
-
-- **Propagation**: the client transports send the current span as W3C `traceparent`/`tracestate` on JSON-RPC, HTTP+JSON and gRPC (metadata). The server reads them on all three bindings (`ServerCallContext.TraceParent`), so client and server spans share one trace. Webhook POSTs carry the `traceparent` of their delivery span. A `traceparent` in `A2ARequestOptions.Headers` replaces the SDK's.
-- **Streams**: one span covers the whole stream; each event is a span event `a2a.stream.event` (tags `a2a.event.kind`, `a2a.event.sequence` on the server, `a2a.task.state`), not a child span. Client reconnects are `a2a.retry` events.
-- **Tags**: `a2a.method.name`, `a2a.binding` (`JSONRPC`, `HTTP+JSON`, `GRPC`), `a2a.protocol.version`, `a2a.task.id`, `gen_ai.conversation.id`, `a2a.message.id` and `a2a.message.reference_task_ids` (message sends), `gen_ai.agent.name`, `gen_ai.agent.description` and `gen_ai.agent.version` (from the Agent Card), `a2a.tenant` (non-default tenants only), `a2a.task.state` (proto name, such as `TASK_STATE_COMPLETED`), `a2a.stream.event_count`; on agent runs `a2a.execution.kind` and `a2a.execution.timed_out`; on deliveries `a2a.push.config.id`, `a2a.push.sequence`, `a2a.push.attempts`, `server.address` (host only) and `http.response.status_code`.
-- **Errors**: a failed operation gets status `Error`, `error.type` (the A2A reason, e.g. `TASK_NOT_FOUND`) and, for A2A errors, `a2a.error.code` (the `A2AErrorCode` name, e.g. `TaskNotFound`). An agent run that throws, hits `MaxTaskDuration` (`error.type` `TimeLimit`) or leaves the task `FAILED` (`TaskFailed`) is an error too. A cancellation the caller asked for sets `a2a.canceled` and is not an error.
-- **Conventions**: names follow the OpenTelemetry A2A semantic conventions, which are in Development status and may change. See the [observability guide](docs/site/guides/observability.md).
-- **No content**: tags never hold message text, parts, metadata, tokens, credentials, webhook URLs or exception messages. They hold ids, states and versions, and can also hold the public Agent Card's name, description and version.
-
-**Metrics** (meter `A2A.Server`, `AddMeter("A2A.Server")`): `a2a.server.requests` (tags `a2a.method.name`, `a2a.outcome` = `ok`, `canceled` or `error`, and `error.type` on errors), `a2a.server.events` (events stored), `a2a.server.streams.opened` (streams admitted), `a2a.server.push.deliveries` (tag `a2a.outcome` = `sent`, `retried` or `dead_lettered`, one per attempt) and `a2a.server.push.dead_letters`. A stream the reader stops early counts as `canceled`.
-
-The request span is the outermost step of the operation pipeline (around the host filters and authorization), so a refused or unauthenticated call still has a span with its error. Extension operations use their method name too.
-
-All names are constants on `A2A.Diagnostics.A2ATelemetry`.
-
-## Behavior and spec decisions
-
-Where the spec is loose or self-contradictory, the SDK makes a choice. The full list is in [Spec decisions](docs/site/guides/spec-decisions.md).
-
-## Durable stores and several instances
-
-The default stores are in memory: fine for dev and tests, lost on restart, and one instance only. For production:
-
-```csharp
-builder.Services.AddA2AServer(o => o.AgentCard = card)
-    .AddAgentExecutor<MyAgent>()
-    .AddPostgresStores(postgresConnectionString)   // RomanAmbinder.A2A.Server.Postgres
-    .AddRedisEventBus(redisConfiguration);         // RomanAmbinder.A2A.Server.Redis
-builder.Services.AddA2ARetention();                // opt-in, see below
-builder.Services.AddDataProtection();              // persist and share the key ring across instances
-builder.Services.AddA2ADataProtectionPushSecrets();
-```
-
-A runnable two-instance setup (Postgres, Redis, docker compose) is in [samples/MultiInstance](samples/MultiInstance/README.md).
-
-- `A2A.Server.Postgres` stores tasks, event logs, push configs, the push outbox and idempotency keys, and creates its tables at startup ([README](src/A2A.Server.Postgres/README.md)).
-- `A2A.Server.Redis` fans live events out to every instance, and `AddRedisEventBus` also registers its execution coordinator ([README](src/A2A.Server.Redis/README.md)).
-- Push secrets need a protector with persisted, shared keys; the default one (`EphemeralPushSecretProtector`) is per process. With a durable push outbox and the default protector, startup logs an **error**: push configs with a token or credentials would be dead-lettered after a restart or when another instance sends them. Register `AddDataProtection()` with a persisted key ring shared by every instance, then `AddA2ADataProtectionPushSecrets()` (or your own `IPushSecretProtector`). Startup does not fail, so a host that does not use push keeps working.
-- Deadlines in the Postgres stores use the database clock (`statement_timestamp()`), not each instance's clock: push outbox due times and leases, idempotency claim timeouts and retention, and event log retention. Instances whose clocks disagree still agree on what has expired, so skew cannot make two instances own one lease or delay a delivery. `PostgresStoreOptions.UseDatabaseClock = false` switches back to the `TimeProvider` (for tests with a fake clock). Task timestamps (`UpdatedAt`, status times) still come from the instance that wrote them, because they are part of the task; skew shifts when retention and `InterruptedTimeout` act on a task by that much. Skew larger than `Coordination.LeaseTtl` also weakens the sweep's "changed within the last `LeaseTtl`" guard for dead executions, so still keep instance clocks in sync (NTP).
-- The handler's per-task lock is per process. Across instances, each task change, its event and its push deliveries are written in one transaction (`TaskStore.CommitAsync`) with a version check, so the event log follows the order of task versions.
-- Both packages pass the same contract tests as the in-memory versions (`tests/A2A.Stores.Tests`, Docker via Testcontainers).
-
-### Execution coordinator
-
-The coordinator answers "is this task running anywhere?", delivers CancelTask to the instance that runs the agent, and keeps a lease per running execution. **In memory is the default**, but its leases die with the process: after a crash nothing recovers the tasks that were running. `AddPostgresStores` therefore registers the **Postgres coordinator** (leases in the database, so they survive a crash and expire; `RegisterCoordinator = false` opts out). Hosts that also run Redis can use its coordinator instead:
-
-```csharp
-.AddPostgresStores(postgres)                              // registers the Postgres coordinator too
-.AddPostgresExecutionCoordinator(postgres)                // or: the coordinator alone
-.AddRedisEventBus(redis)                                  // registers the Redis coordinator too (replaces the Postgres one); RegisterCoordinator = false opts out
-.AddRedisExecutionCoordinator(redis)                      // or: the coordinator alone
-```
-
-- A coordinator you register yourself (Redis, or your own) is never replaced by the Postgres default, in any registration order. `AddPostgresExecutionCoordinator` and `AddRedisExecutionCoordinator` always replace the earlier one.
-- The Postgres coordinator delivers cancel requests to the other instances by polling a table (`PostgresStoreOptions.CancelPollInterval`, 1 s), so it works through PgBouncer.
-
-- Pass the **same connection string** to both calls (or one `IConnectionMultiplexer`). Two different strings throw at registration, because they would share one connection.
-- On Redis Cluster the key prefix must map to one hash slot, for example `{a2a}:` (the Lua scripts touch several keys).
-- `A2AServerOptions.Coordination` (`CoordinationOptions`): `LeaseTtl` 30 s, `Heartbeat` 10 s, `RunningPollInterval` 1 s. `LeaseTtl` must be longer than 2 x `Heartbeat`. The heartbeat also renews the request's idempotency claim.
-- An execution whose heartbeats lapse past `LeaseTtl` (instance crash, long pause, Redis outage) is treated as **dead**. The retention sweep marks its task `FAILED`, drops its late events, and asks every instance to cancel it. An agent that is in fact still alive also stops at its next heartbeat, which finds its lease lost and the task ended. Exceptions: a lapsed execution on the sweeping instance itself is still seen running and registers again; a task that changed within the last `LeaseTtl` waits for a later sweep (a follow-up on another instance may not have registered yet).
-- A heartbeat that finds its lease lost while the task still runs registers the execution again, under the same id. This includes a new task whose agent has sent no event yet (a new task is stored with its first event, so no stored task there does not mean it was deleted).
-- With a durable task store and the in-memory coordinator, startup logs a **warning**: a crash leaves the running tasks unrecovered (still `WORKING`), and with several instances CancelTask, running checks and dead-execution recovery stay on the instance that runs the agent. A single instance should use the Postgres coordinator too.
-
-### Retention (opt-in)
-
-`services.AddA2ARetention(o => ...)` adds a background sweep. **It is not on by default. Without it nothing is purged (terminal tasks and their data are never deleted), `InterruptedTimeout` does nothing (tasks waiting for input never time out), and executions whose instance died are never recovered** (their tasks stay `WORKING`). With a durable task store and no retention, startup logs a **warning** (event 253) that says so.
-
-| Option (`A2ARetentionOptions`) | Default | Meaning |
-|---|---|---|
-| `TaskRetention` | 7 days | Terminal tasks are deleted after this, with events, push configs, deliveries and dead letters |
-| `OrphanContextRetention` | 7 days | Contexts no task uses |
-| `SweepInterval` | 5 minutes | One instance sweeps per interval (a cluster-wide lease) |
-| `BatchSize` | 500 | New items read per batch. Items a step skips (for example a task whose follow-up still runs) stay listed and do not hold back the items after them |
-
-With an `ArtifactObjectStore` registered, the sweep also deletes artifact objects that no task refers to (older than `ArtifactStorage.OrphanGracePeriod`, 1 hour). See [artifact storage](docs/site/guides/artifact-storage.md).
-
-Also done by the sweep: tasks waiting in `INPUT_REQUIRED`/`AUTH_REQUIRED` longer than `A2AServerOptions.InterruptedTimeout` (24 hours, `null` = never) are cancelled, and tasks of dead executions are failed. `A2ATaskAdmin.DeleteTaskAsync(key)` deletes one task and all its data on demand (a running task is cancelled first). Both `A2ATaskAdmin` and `A2APushAdmin` (dead letters: `ListDeadLettersAsync`, `RedriveAsync`) are plain services for your own admin endpoint: not exposed over A2A, so protect that endpoint.
-
-### Approvals, cancel and follow-ups
-
-- **Approval binding.** An executor that needs the user to confirm an action calls `updater.RequireApprovalAsync(new PendingApproval(operationId, exactDescription), "Delete 3 files?")`. The task goes to `INPUT_REQUIRED` and the status message carries the SHA-256 hash of the operation in metadata `a2a.approval.hash` (over `operationId + "\n" + exactDescription`, so `operationId` must not contain a line feed). The client approves by echoing that hash in the follow-up message's metadata. The executor then sees `context.Approval == ApprovalState.Approved`; `NotApproved` when the hash is missing, `None` when nothing is pending. A wrong hash, or a hash when nothing is pending, is refused with `InvalidParams` before the agent runs. An approval works **once**: after it is used, the same hash is `InvalidParams`. Call `RequireApprovalAsync` again to ask anew.
-- **Cancel requested.** If the agent has not stopped within `CancelGracePeriod`, CancelTask answers with the task still `WORKING` and metadata `a2a.cancelRequested = true` (never stored). The `CANCELED` state arrives later on the stream.
-- **Follow-up de-duplication.** A follow-up whose `messageId` is already in the task's history is not run again: the caller gets the task as it is, with no new turn, push config or execution.
-
-### Structured input (elicitation)
-
-An agent that needs input can ask for a small typed form instead of free text. This is an optional extension (`Elicitation.ExtensionUri`). A client that does not activate it gets the question as plain text and answers in words. Design: [S38](docs/superpowers/specs/2026-11-08-s38-elicitation-design.md). Runnable: [samples/ElicitationAgent](samples/ElicitationAgent/Program.cs).
-
-```csharp
-// Server: declare the extension on the card (Capabilities.Extensions = [Elicitation.CreateExtension()]), then ask.
-var form = new ElicitationForm([ElicitationField.Text("city", required: true), ElicitationField.Integer("nights", minimum: 1)]);
-await updater.RequireInputAsync(context, form, "Which city, and how many nights?");
-// Next turn: context.ElicitationAnswer (Accept, Decline or Cancel). The server checked it against the form.
-
-// Client: activate, read the form, answer.
-var task = ((TaskResponse)await client.SendMessageAsync(Message.FromUser("Book"), options: new A2ARequestOptions().UseElicitation())).Task;
-var answer = ElicitationAnswer.Accept(task.GetElicitationForm()!, new ElicitationValues { { "city", "Oslo" }, { "nights", 2 } });
-await client.AnswerElicitationAsync(task, answer);
-```
-
-Do not collect secrets in a form. Answers are stored in the task history and sent to webhooks. Fields that look like secrets are refused by default. Show the user which agent is asking, and never let a model fill a form alone. See [task safety](docs/site/guides/task-safety.md).
-
-### Several agents in one host
-
-One agent serves one tenant. By default one card and one executor serve every tenant. To host many agents, register a card provider and an executor resolver:
-
-```csharp
-builder.Services.AddA2AServer()
-    .AddTenantCardProvider<MyCards>()         // TenantCardProvider: card per tenant (and optional extended card, signing key)
-    .AddAgentExecutorResolver<MyAgents>();    // AgentExecutorResolver: executor per tenant
-
-app.MapAgentCard();                           // /.well-known/agent-card.json and /{tenant}/.well-known/agent-card.json
-app.MapA2A("/{tenant}/a2a").RequireAuthorization();
-// Keys: /.well-known/jwks.json and /{tenant}/.well-known/jwks.json (TenantCardProvider.GetSigningKeyAsync, else the host key)
-```
-
-- **Cards go through the `IAgentCardProvider`.** It completes each card the `TenantCardProvider` returns (extension entries; an empty `SupportedInterfaces` filled from the mapped bindings) and keeps the completed copy while that card instance lives, so a provider that returns the same instance is completed once and one that builds a new card is completed again. The provider is asked once per request, once per system status commit (retention sweep), never once per event. Cache inside the provider if building a card costs anything.
-- **Unknown tenant** (the provider returns `null`): the public card is 404; SendMessage, SendStreamingMessage, ListTasks and GetExtendedAgentCard fail with `UnsupportedOperation`; every operation on a task (GetTask, CancelTask, SubscribeToTask, push configs) answers `TaskNotFound`, as for a task that does not exist.
-- Capability checks (streaming, push, extensions, extended card) use the card of the request's tenant. Background work (retention, remote cancel, push delivery) knows only the tenant, so the tenant alone must identify the agent.
-
-## Upgrading from 0.x / P0
-
-Breaking changes for code that replaced SDK parts:
-
-- **`IPushNotificationSender` and `HttpPushNotificationSender` are removed.** Push delivery is now a durable outbox sent by the hosted `PushDeliveryService`. Remove your registrations. To change how deliveries are sent, tune `A2AServerOptions.PushDelivery`; to read failures, use `A2APushAdmin`.
-- **`MaxAttempts` and `InitialBackoff` moved** from `A2AServerOptions.PushNotifications` to `A2AServerOptions.PushDelivery` (with new `MaxBackoff` 5 min, `Lease`, `PollInterval`, `BatchSize`).
-- **Custom `TaskStore`:** implement the new abstract `CommitAsync(TaskCommit)`: write the task (version check), append the event to the log your `EventStore` reads, and add the deliveries to the outbox your `PushOutbox` reads, as one atomic unit.
-- **Custom stores must also implement the new members:** `TaskStore.DeleteAsync`, `ListExpiredAsync`, `ListInterruptedBeforeAsync`, `DeleteContextAsync`, `ListOrphanContextsAsync`; `EventStore.DeleteAsync`; `IdempotencyStore.RenewAsync`; `PushConfigStore.DeleteAllAsync` and `SaveIfUnderLimitAsync`; and a `PushOutbox` (`LeaseDueAsync`, `CompleteAsync`, `RescheduleAsync`, `DeadLetterAsync`, `ListDeadLettersAsync`, `RedriveAsync`, `DeleteAllAsync`). A custom `ExecutionCoordinator` is optional (the in-memory one is the default).
-- **Postgres `IdempotencyClaimTimeout` default: 1 hour -> 2 minutes.** Running claims are now renewed by the execution heartbeat, so a live request keeps its key and a crashed instance frees it sooner. Set the old value if you relied on it.
-- **`InMemoryTaskStore` constructor** is now `InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOutbox? outbox = null)`. `new InMemoryTaskStore()` no longer compiles. Use the DI registration (`AddA2AServer`).
-- **`PostgresTaskStore` constructor** now takes `StreamingOptions` second: `PostgresTaskStore(NpgsqlDataSource, StreamingOptions, PostgresStoreOptions?, TimeProvider?)`. Prefer `AddPostgresStores`.
-- **Push transport:** webhooks go through the keyed `HttpMessageInvoker` `PushDeliveryService.InvokerServiceKey` (`"A2A.PushNotifications"`, the old `HttpPushNotificationSender.InvokerServiceKey` value). Register your own keyed singleton under it to replace it.
-- **Retention is opt-in.** If you expected purges, add `services.AddA2ARetention()`.
-- **Postgres schema:** P1 adds the tables `a2a_push_outbox` and `a2a_push_dead_letters` and some indexes (no existing column changes). They are created at startup. If you set `CreateSchemaOnStartup = false`, apply `PostgresSchema.ScriptFor("<schema>")` again before you deploy.
-- **Webhook receivers:** nothing breaks. To use signatures, register push configs with scheme `webhook-signature` and verify with `PushNotificationReceiver.VerifySignature`.
-- **`PushValidationResult` has new members** `InvalidSignature` and `Stale` (from `VerifySignature`). A `switch` over it that must be exhaustive needs cases for them.
-- **`TaskExecutionEngine` public constructor:** the `IPushNotificationSender push` parameter is now `PushOutbox outbox`, and an optional `ExecutionCoordinator? coordinator` follows `timeProvider`. `IAgentExecutorFactory.RentAsync` takes the tenant, and a lease with a null `Executor` means no agent serves it. Prefer resolving the parts from DI (`AddA2AServer`).
-- **Custom `ExecutionCoordinator`: `HeartbeatAsync` returns `ValueTask<bool>`.** Return true when the lease was held (and renew it), false when it is missing or expired (and do not renew it). On false the handler re-reads the task: it cancels the execution when the task has ended, and registers it again otherwise. A coordinator that always returns true turns this off.
-- **Redriven dead letters** (`A2APushAdmin.RedriveAsync`) are sent after the newer events of the same push config that were delivered meanwhile, not in their original place.
-- **`PendingApproval`** throws `ArgumentException` when `OperationId` contains a line feed. The hash format is unchanged.
-- **Startup diagnostics:** `AddA2AServer` logs an error for a durable push outbox with the per-process push secret protector, and a warning for a durable task store with the in-memory execution coordinator (see "Durable stores and several instances"). Nothing throws.
-
-### Public API changes relative to `main`
-
-Code written against the `main` branch needs these changes:
-
-- **Rate limiting switch moved.** `A2AServerOptions.EnableRateLimiting` is removed. Use `A2ARateLimitOptions.Enabled` (default true): `services.AddA2ARateLimiting(o => o.Enabled = false)`. The same options set the bucket (`TokenLimit`, `TokensPerPeriod`, `ReplenishmentPeriod`).
-- **`A2AServerOptions.ExtendedAgentCardProvider` gets the public card.** It is now `Func<ServerCallContext, AgentCard, CancellationToken, ValueTask<AgentCard?>>`; the second argument is the tenant's completed public card. Add the parameter to your delegate.
-- **`A2AAuthorizationHandler.AuthorizeAsync`** takes an `A2AOperationDescriptor` instead of an `A2AOperation`: `AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, CancellationToken cancellationToken)`. Use `operation.Kind` where you compared the `A2AOperation`; an extension operation has `Kind` = `Extension` and its registered `Name`. Every resume of a stream (Last-Event-ID, idempotent retry, duplicate follow-up) is authorized as `SubscribeToTask`.
-- **`IdempotencyClaim` is public** (`A2A.Server.Idempotency`), because the public `IdempotencyCoordinator` methods (`BeginAsync`, `RecordAsync`, `AbandonAsync`) take or return it.
-- **Constructors changed** (prefer the DI registrations, which pass the new arguments):
-  - `RedisTaskEventBus(IConnectionMultiplexer redis, StreamingOptions streaming, RedisEventBusOptions? options = null, ILogger<RedisTaskEventBus>? logger = null)`: `StreamingOptions` is new, second.
-  - `PushDeliveryService(PushOutbox, PushConfigStore, IPushSecretProtector, HttpMessageInvoker http, A2AServerOptions options, ILogger? logger = null, TimeProvider? time = null)`: an `HttpMessageInvoker` replaces `IHttpClientFactory`, and the options are passed directly, not as `IOptions<A2AServerOptions>`.
-  - `A2ARetentionService(IOptions<A2ARetentionOptions>, A2AServerOptions serverOptions, TaskStore, ExecutionCoordinator, TaskExecutionEngine engine, A2ATaskAdmin, ILogger? logger = null, TimeProvider? time = null, ArtifactObjectStore? objects = null)`: `A2AServerOptions` directly, and the `TaskExecutionEngine` replaces the `A2ARequestHandler`.
-- **Push metrics renamed.** The meter is `A2A.Server` (was `A2A`) and the counter is `a2a.server.push.deliveries` (was `a2a.push.deliveries`). It counts each attempt, with `a2a.outcome` = `sent`, `retried` or `dead_lettered` (was: final results, `delivered`/`failed`). `a2a.server.push.dead_letters` counts dead letters. Update dashboards and alerts.
-- **Per-tenant cards: `AgentCardProvider` (`A2A.Server.Agents`) is now `TenantCardProvider`**, and `AddAgentCardProvider<T>()` is now `AddTenantCardProvider<T>()`. The members are the same. Do not confuse it with the new `A2A.Server.AgentCardProvider`, the default `IAgentCardProvider` that completes each tenant's card; register a `TenantCardProvider`, not a replacement `IAgentCardProvider`.
-- **`IAgentExecutorFactory.RentAsync(string tenant, CancellationToken cancellationToken)`** rents the executor of one tenant. A lease with a null `Executor` means no agent serves the tenant. `AgentExecutorResolver` (`AddAgentExecutorResolver<T>()`) still picks the executor per tenant on top of the default factory.
-
-## v0.3 compatibility
-
-Opt in. Nothing changes if you do not.
-
-Server: your v1.0 agent also answers v0.3 clients (JSON-RPC and HTTP+JSON).
-
-```csharp
-// dotnet add package RomanAmbinder.A2A.Server.V0_3Compat
-app.MapA2A("/", o => o.EnableV03Compat()).RequireAuthorization();
-```
-
-Client: call a v0.3 agent. A card that offers v1.x is never downgraded.
-
-```csharp
-// dotnet add package RomanAmbinder.A2A.Client.V0_3Compat
-var client = await V03CompatClientFactory.CreateAsync(new Uri("https://old-agent.example.com/"), httpClient);
-```
-
-Not supported: gRPC on v0.3, push notifications on v0.3 (server and client; answered with an error), and v0.2. Fields v0.3 cannot carry are counted, not sent. All `RomanAmbinder.A2A.*` packages must have the same version.
-
-Tested against the official Python SDK 0.3 in both directions ([interop/v03](interop/v03/README.md)). Details: [design spec](docs/superpowers/specs/2026-11-08-v03-compat-design.md).
-
-## Interop
-
-Tested both ways against the official Python SDK (`a2a-sdk` 1.3.0) over JSON-RPC, HTTP+JSON, and gRPC: .NET client → Python agent and Python client → .NET agent. See [interop/](interop/README.md). CI runs it on every push.
+`--with-docker` adds the samples that need Docker. Names such as `echo mcp` run only those samples.
 
 ## Build and test
 
 ```bash
 dotnet build A2A.slnx
 dotnet test --project tests/A2A.Tests
-dotnet test --project tests/A2A.Stores.Tests   # store contract tests; the Postgres/Redis ones need Docker and skip without it
-A2A_REQUIRE_DOCKER=1 dotnet test --project tests/A2A.Stores.Tests   # fail instead of skipping (CI does this)
-dotnet test --project tests/A2A.TestKit.Tests
-dotnet test --project samples/TestingAgent   # tests of a sample agent, written with A2A.TestKit
 ```
 
-To test your own agent, see [Testing your agent](docs/site/guides/testing.md).
-
-Every sample is listed, with what it shows and its guide, in [samples/README.md](samples/README.md). Run them all and
-check each one (`--with-docker` adds the Docker samples; names such as `echo mcp` pick some):
-
-```bash
-samples/run-samples.sh
-```
-
-`docs/a2a.proto` is the normative proto this SDK was built against.
-
-## Releasing
-
-Push a version tag on a commit that is on `main`. The `Release` workflow first requires a successful `CI` run for that commit on `main`, and waits if the run is still going. It then builds, packs all `src/` projects (with SourceLink and `.snupkg` symbols), pushes them to nuget.org, and creates a GitHub release. A tag with a suffix (`v0.2.0-preview.1`) publishes a prerelease.
-
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-One-time setup: add a nuget.org API key as the repository secret `NUGET_API_KEY`, scoped to push `RomanAmbinder.A2A.*`.
+The store contract tests, coverage, mutation testing and the public API rules are in [CONTRIBUTING.md](CONTRIBUTING.md). `docs/a2a.proto` is the normative proto this SDK was built against. The interop tests against the official Python SDK are in [interop/](interop/README.md).
 
 ## Contributing and security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) to build, test and send a pull request. To report a vulnerability, follow [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) to build, test, release and send a pull request. To report a vulnerability, follow [SECURITY.md](SECURITY.md).

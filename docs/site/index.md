@@ -9,22 +9,7 @@ dotnet add package RomanAmbinder.A2A.Server.AspNetCore
 dotnet add package RomanAmbinder.A2A.Client
 ```
 
-Optional packages:
-
-```shell
-dotnet add package RomanAmbinder.A2A.Server.Grpc
-dotnet add package RomanAmbinder.A2A.Server.Postgres
-dotnet add package RomanAmbinder.A2A.Server.Redis
-dotnet add package RomanAmbinder.A2A.Server.TypedSkills
-dotnet add package RomanAmbinder.A2A.Client.DependencyInjection
-dotnet add package RomanAmbinder.A2A.Client.Grpc
-dotnet add package RomanAmbinder.A2A.Client.Postgres
-dotnet add package RomanAmbinder.A2A.Security.Http
-dotnet add package RomanAmbinder.A2A.Extensions.AI
-dotnet add package RomanAmbinder.A2A.Mcp
-dotnet add package RomanAmbinder.A2A.Server.V0_3Compat
-dotnet add package RomanAmbinder.A2A.Client.V0_3Compat
-```
+The first package hosts an agent, the second calls agents. For gRPC, durable stores, several instances, Azure or AWS identity, object storage, MCP, Microsoft.Extensions.AI and v0.3, see [Which packages do I install](guides/architecture.md#which-packages-do-i-install).
 
 To test your agent:
 
@@ -34,37 +19,50 @@ dotnet add package RomanAmbinder.A2A.TestKit
 
 ## Guides
 
-**Understand the product** (high level to detailed)
+New here? Read the first five in order. The other groups can be read in any order, when you need them. The same groups are in the menu on the left.
+
+**Start here** (high level to detailed)
 
 1. [Product overview](guides/overview.md): what it is, who it is for, a map of the features
 2. [Core concepts](guides/concepts.md): agents, cards, messages, tasks, artifacts
-3. [Architecture](guides/architecture.md): packages, server parts, extension seams
+3. [Architecture](guides/architecture.md): packages, server parts, extension points
 4. [How a request flows](guides/request-lifecycle.md): one call, step by step
-5. [Production checklist](guides/production-checklist.md): what to decide before you go live
+5. [Getting started](guides/getting-started.md): host an agent and call it
 
-**Build**
+**Protocol features**
 
-- [Getting started](guides/getting-started.md)
-- [Bindings](guides/bindings.md)
-- [Authentication and ownership](guides/auth-and-ownership.md)
-- [Client credentials](guides/client-credentials.md)
+- [Bindings](guides/bindings.md): JSON-RPC, HTTP+JSON and gRPC, and how a client picks one
 - [Streaming and resume](guides/streaming.md)
 - [Push notifications](guides/push-notifications.md)
 - [Proactive continuation](guides/proactive-continuation.md)
 - [Client outbox](guides/client-outbox.md)
+- [Custom operations](guides/custom-operations.md)
+- [Metadata keys](guides/metadata.md): every metadata key the SDK reads or writes
+
+**Security and identity**
+
+- [Authentication and ownership](guides/auth-and-ownership.md)
+- [Client credentials](guides/client-credentials.md)
+- [Identity providers](guides/identity-providers.md): Azure managed identity, AWS SigV4
 - [Agent card signing](guides/agent-card-signing.md)
 - [Peer identity and registry](guides/peer-identity.md)
+
+**Skills**
+
 - [Skill selection](guides/skill-selection.md)
 - [Typed skills](guides/typed-skills.md)
 - [Skill authorization](guides/skill-authorization.md)
-- [Custom operations](guides/custom-operations.md)
+
+**Integrations**
+
 - [Microsoft.Extensions.AI](guides/extensions-ai.md)
 - [Conversation memory](guides/conversation-memory.md)
 - [MCP bridge](guides/mcp-bridge.md)
 - [v0.3 compatibility](guides/v03-compatibility.md)
 
-**Operate**
+**Run in production**
 
+- [Production checklist](guides/production-checklist.md): what to decide before you go live
 - [Multi-tenancy](guides/multi-tenancy.md)
 - [Durable stores](guides/durable-stores.md)
 - [Retention](guides/retention.md)
@@ -76,12 +74,12 @@ dotnet add package RomanAmbinder.A2A.TestKit
 - [Client resilience](guides/client-resilience.md)
 - [Task safety](guides/task-safety.md)
 
-**Verify and reference**
+**Test and reference**
 
-- [Interop and conformance](guides/interop-and-conformance.md)
 - [Testing your agent](guides/testing.md)
-- [Spec decisions](guides/spec-decisions.md)
+- [Interop and conformance](guides/interop-and-conformance.md)
 - [Command line tool](guides/cli.md)
+- [Spec decisions](guides/spec-decisions.md)
 - [Versioning](guides/versioning.md)
 
 ## API reference

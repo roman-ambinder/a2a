@@ -150,6 +150,16 @@ public sealed class ScenarioAgent : IAgentExecutor
                 await updater.CompleteAsync(cancellationToken: ct);
                 break;
             }
+            case "many-chunks": // one artifact in 21 chunks sent back to back, so the engine can commit them in batches
+            {
+                await updater.StartWorkAsync(cancellationToken: ct);
+                var manyId = await updater.AddArtifactAsync([Part.FromText("0")], name: "many", cancellationToken: ct);
+                for (var i = 1; i <= 20; i++)
+                    await updater.AddArtifactAsync([Part.FromText(i.ToString(System.Globalization.CultureInfo.InvariantCulture))], artifactId: manyId, append: true, cancellationToken: ct);
+                await updater.AddArtifactAsync([], artifactId: manyId, append: true, lastChunk: true, cancellationToken: ct);
+                await updater.CompleteAsync("done", ct);
+                break;
+            }
             case "big":
                 await updater.StartWorkAsync(cancellationToken: ct);
                 await updater.AddArtifactAsync([Part.FromText(new string('x', 2048))], name: "big", cancellationToken: ct);
