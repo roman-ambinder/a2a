@@ -74,7 +74,7 @@ The first six match `ChatClientAgentOptions`, with the same defaults and the sam
 
 The A2A task store is the source of truth for history. AF sessions are a second, optional copy.
 
-- **`Stateless` (default).** Each execution creates a fresh session (`CreateSessionAsync`). The prompt is built from A2A history exactly as `ChatClientAgentExecutor.BuildPromptAsync` does (system message excluded, since instructions are the agent's): history, the new message if missing, trim, leading agent messages dropped, optional context memory as a user message. That builder moves into an internal shared type in `A2A.Extensions.AI`. Nothing outlives the execution, so nothing needs a lifecycle.
+- **`Stateless` (default).** Each execution creates a fresh session (`CreateSessionAsync`). The prompt is built from A2A history exactly as `ChatClientAgentExecutor.BuildPromptAsync` does (system message excluded, since instructions are the agent's): history, the new message if missing, trim, leading agent messages dropped, optional context memory as a user message. That builder moves to linked source in `src/Shared/AI/`, compiled into both packages (the repo forbids `InternalsVisibleTo` between shipped packages). Nothing outlives the execution, so nothing needs a lifecycle.
 - **`Stored`.** Requires an `AgentSessionStore` (startup fails without one, naming the option). The key is `new AgentSessionStoreKey(contextId).WithPartition("a2a.tenant", call.Tenant).WithPartition("a2a.owner", call.Principal)`. Owner and tenant are partitions, so one caller can never load another caller's session for the same context id. Only the new message is sent; the session holds the rest. The session is saved after every run, including failed and canceled runs, so an approval or an interrupted state can resume.
 - Two tasks of one context that run at the same time in `Stored` mode race on the session: last save wins. This is documented, as `ConversationMemory.SetSummaryAsync` documents it. Serialising them would need a lock across instances; out of scope.
 
@@ -83,7 +83,7 @@ The A2A task store is the source of truth for history. AF sessions are a second,
 1. URL parts refused when `AllowUrlParts` is false (same text as Extensions.AI).
 2. Build the input (per session mode, above).
 3. Run options: a new `AgentRunOptions`; `AdditionalProperties` get `A2AAgentKeys.TaskId`, `A2AAgentKeys.ContextId` and, when the message has them, `A2AAgentKeys.ReferenceTaskIds` (`string[]`, from `Message.ReferenceTaskIds`). This is the "`ReferenceTaskIds` unsupported" part of D33. Then `ConfigureRunOptions`. Caller metadata is **not** copied: it does not reach the model (Extensions.AI rule).
-4. `StartWorkAsync()`, then `RunStreamingAsync(messages, session, runOptions, ct)`. Each `AgentResponseUpdate.Contents` goes through the same chunker as `ChatClientAgentExecutor.Run` (moved to internal shared code), so `lastChunk` and batching behave identically. `FinishReason == ContentFilter`, `ErrorContent`, and an unresolved tool call with no output throw `InvalidOperationException`; the server fails the task with a generic message and logs the real error.
+4. `StartWorkAsync()`, then `RunStreamingAsync(messages, session, runOptions, ct)`. Each `AgentResponseUpdate.Contents` goes through the same chunker as `ChatClientAgentExecutor.Run` (moved to the same linked source), so `lastChunk` and batching behave identically. `FinishReason == ContentFilter`, `ErrorContent`, and an unresolved tool call with no output throw `InvalidOperationException`; the server fails the task with a generic message and logs the real error.
 5. `ToolApprovalRequestContent` in the output: see Tool approvals. With `ToolApprovals = Off` it is treated like an unresolved tool call.
 6. End: `CompleteAsync`, or `INPUT_REQUIRED` with the reply as status message under `KeepConversationOpen`, or the reply in the completed status message under `UseContextMemory` (same as Extensions.AI).
 7. Cancellation: the token passed to `RunStreamingAsync` is the execution's token, so A2A `CancelTask` stops the AF run and the task ends `CANCELED`. Because every execution is a task (never a message-only reply), cancel and resume always work. This is the "message-only mode cannot cancel/resume" part of D33.
@@ -138,7 +138,7 @@ public interface IA2AContextLifecycle
 
 - `A2A.slnx`: the new package, test project and a sample (`samples/AgentFrameworkAgent`).
 - `Directory.Packages.props`: `Microsoft.Agents.AI.Abstractions` 1.28.0.
-- `A2A.Server`: `IA2AContextLifecycle` and the retention call (PublicAPI.Unshipped).
+- `A2A.Server`: `IA2AContextLifecycle` and the retention call (PublicAPI.Unshipped). The shipped `A2ARetentionService` constructor stays; a new overload takes the hooks.
 - README package table, a guide page under `docs/site/guides`, CHANGELOG, and the D33 row of the gap analysis open items.
 
 ## Testing
