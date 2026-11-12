@@ -250,6 +250,13 @@ This path does not go through the facade (it has no `ReturnImmediately`); use `A
 - `runOptions.ContinuationToken` set: `ContinuationTokens.Read(token)` (exactly that shape, else `ArgumentException`); unary → `GetTaskAsync(taskId)`, mapped as above (a new token again while still running); streaming → `ObserveTaskAsync(taskId)`, mapped as the facade's stream rules. The request messages must be empty in this case; otherwise `ArgumentException` (check what AF documents for this; follow it if it says otherwise).
 - `AllowBackgroundResponses` false: the token is never produced.
 
+Done in Task 8, with these differences:
+- Token shape: `{"taskId","artifacts":{id:parts},"status"}`, not only `taskId`. Needed for turn-only content (continuing a task in the background) and for resuming a stream after the last part the caller had (the client's event cursor is internal). Unknown properties, a missing task id or a negative count are refused.
+- Shared code: `RemoteAgentSupport` moved to `src/Shared/AI` whole (not only `StateName`/`NeedsWait`), with the facade's `BuildMessage` and `ThrowIfFailed`, so both packages send and fail the same way. The facade's response and stream mapping stayed in `A2AChatClient` (it tracks whole artifacts; background reads need part counts); the adapter's `BackgroundRun` follows the same content rules, and a test compares the streamed text with the facade's on the same events.
+- Streaming with `AllowBackgroundResponses` (no token) also goes through `BackgroundRun`, so its updates carry tokens, as the Agent Framework docs say for streamed background responses.
+- The package's csproj adds `MEAI001` to its `NoWarn`.
+- Agent Framework does not document messages passed with a token; they are refused (`ArgumentException`), as planned.
+
 **Tests:**
 1. Running remote task: a token comes back; a later run with it returns the result once complete.
 2. Token round trip; a foreign token is refused.

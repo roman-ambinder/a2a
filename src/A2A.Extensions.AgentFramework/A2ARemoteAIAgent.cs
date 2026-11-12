@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using A2A.Client;
+using A2A.Extensions.AgentFramework.Shared;
 using A2A.Extensions.AI;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -28,6 +29,13 @@ namespace A2A.Extensions.AgentFramework;
 ///         A failed, rejected or canceled remote task throws <see cref="InvalidOperationException" /> with the state only,
 ///         not the remote text.
 ///     </para>
+///     <para>
+///         Background responses (<see cref="AgentRunOptions.AllowBackgroundResponses" />): a run sends without waiting
+///         (<c>ReturnImmediately</c>). While the remote task runs, the response has no messages and a
+///         <c>ContinuationToken</c>; pass it back in <see cref="AgentRunOptions.ContinuationToken" />, with no messages, to
+///         poll. A streamed run gives a token on every update but the last; passing the latest one resumes the stream from
+///         the part after it. The token names the remote task and how far the caller has read; it is not a secret.
+///     </para>
 /// </remarks>
 [Experimental("A2AEXP006", UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
 public sealed class A2ARemoteAIAgent : AIAgent
@@ -35,6 +43,7 @@ public sealed class A2ARemoteAIAgent : AIAgent
     private const string ContextIdProperty = "contextId";
     private const string TaskIdProperty = "taskId";
 
+    private readonly BackgroundRun _background;
     private readonly A2AChatClient _chat;
     private readonly A2AClient _client;
     private readonly A2AAIAgentOptions _options;
@@ -48,6 +57,7 @@ public sealed class A2ARemoteAIAgent : AIAgent
             RequestOptions = options.RequestOptions,
             OnArtifactReceived = options.OnArtifactReceived
         });
+        _background = new BackgroundRun(client, options);
     }
 
     /// <inheritdoc />
@@ -134,12 +144,61 @@ public sealed class A2ARemoteAIAgent : AIAgent
         AgentSession? session = null, AgentRunOptions? options = null, CancellationToken cancellationToken = default)
     {
         var remote = session is null ? new A2ARemoteAgentSession() : AsRemote(session);
-        var chatResponse = await _chat.GetResponseAsync(messages, ChatOptionsFor(remote), cancellationToken)
-            .ConfigureAwait(false);
+        ChatResponse chatResponse;
+        if (options?.ContinuationToken is { } token)
+        {
+            var seen = ResumeFrom(token, messages);
+            var task = await _client.GetTaskAsync(seen.TaskId, null, _options.RequestOptions, cancellationToken)
+                .ConfigureAwait(false);
+            chatResponse = await _background.ReadAsync(task, seen, cancellationToken).ConfigureAwait(false);
+        }
+        else if (options?.AllowBackgroundResponses == true)
+        {
+            chatResponse = await SendInBackgroundAsync(messages, remote, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            chatResponse = await _chat.GetResponseAsync(messages, ChatOptionsFor(remote), cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         Track(remote, chatResponse.ConversationId, chatResponse.AdditionalProperties);
-        var response = new AgentResponse(chatResponse) { AgentId = Id };
+        var response = new AgentResponse(chatResponse) { AgentId = Id, ContinuationToken = chatResponse.ContinuationToken };
         CopyIds(chatResponse.AdditionalProperties, response.AdditionalProperties ??= []);
         return response;
+    }
+
+    /// <summary>Sends without waiting. A direct reply is the whole answer; a task is read from what the caller had of it.</summary>
+    private async Task<ChatResponse> SendInBackgroundAsync(IEnumerable<ChatMessage> messages,
+        A2ARemoteAgentSession session, CancellationToken cancellationToken)
+    {
+        var request = RemoteAgentSupport.BuildMessage(messages, ChatOptionsFor(session));
+        var known = await _background.KnownAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
+        var sent = await _client.SendMessageAsync(request, new SendMessageConfiguration { ReturnImmediately = true },
+            _options.RequestOptions, cancellationToken).ConfigureAwait(false);
+        switch (sent)
+        {
+            case MessageResponse { Message: var reply }:
+            {
+                var chatMessage = reply.ToChatMessage();
+                chatMessage.Role = ChatRole.Assistant;
+                return new ChatResponse(chatMessage) { ConversationId = reply.ContextId, ResponseId = reply.MessageId };
+            }
+            case TaskResponse { Task: var task }:
+                return await _background.ReadAsync(task, known ?? ContinuationState.Start(task.Id), cancellationToken)
+                    .ConfigureAwait(false);
+            default:
+                throw new InvalidOperationException("The remote agent sent an unknown response.");
+        }
+    }
+
+    /// <summary>A token from this agent, with no new messages: a poll or a resume reads; it does not send.</summary>
+    private static ContinuationState ResumeFrom(ResponseContinuationToken token, IEnumerable<ChatMessage> messages)
+    {
+        if (messages.Any())
+            throw new ArgumentException(
+                "A run with a continuation token reads the remote task; pass no messages with it.", nameof(messages));
+        return ContinuationTokens.Read(token);
     }
 
     /// <inheritdoc />
@@ -148,13 +207,31 @@ public sealed class A2ARemoteAIAgent : AIAgent
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var remote = session is null ? new A2ARemoteAgentSession() : AsRemote(session);
-        await foreach (var chatUpdate in _chat.GetStreamingResponseAsync(messages, ChatOptionsFor(remote),
-                               cancellationToken)
-                           .ConfigureAwait(false))
+        IAsyncEnumerable<ChatResponseUpdate> updates;
+        if (options?.ContinuationToken is { } token)
+        {
+            var seen = ResumeFrom(token, messages);
+            updates = _background.StreamAsync(_client.ObserveTaskAsync(seen.TaskId, _options.RequestOptions, cancellationToken),
+                seen, cancellationToken);
+        }
+        else if (options?.AllowBackgroundResponses == true)
+        {
+            var request = RemoteAgentSupport.BuildMessage(messages, ChatOptionsFor(remote));
+            var known = await _background.KnownAsync(request.TaskId, cancellationToken).ConfigureAwait(false);
+            updates = _background.StreamAsync(
+                _client.SendStreamingMessageAsync(request, null, _options.RequestOptions, cancellationToken),
+                known ?? ContinuationState.Start(request.TaskId ?? ""), cancellationToken);
+        }
+        else
+        {
+            updates = _chat.GetStreamingResponseAsync(messages, ChatOptionsFor(remote), cancellationToken);
+        }
+
+        await foreach (var chatUpdate in updates.ConfigureAwait(false))
         {
             // Kept up to date on every update, so a caller that stops reading early still has the ids.
             Track(remote, chatUpdate.ConversationId, chatUpdate.AdditionalProperties);
-            var update = new AgentResponseUpdate(chatUpdate) { AgentId = Id };
+            var update = new AgentResponseUpdate(chatUpdate) { AgentId = Id, ContinuationToken = chatUpdate.ContinuationToken };
             if (chatUpdate.AdditionalProperties is { } properties)
                 CopyIds(properties, update.AdditionalProperties ??= []);
             yield return update;

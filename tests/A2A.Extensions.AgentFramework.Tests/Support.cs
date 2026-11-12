@@ -303,7 +303,9 @@ public sealed class FakeTransport : IA2AClient
     public Func<SendMessageRequest, CancellationToken, IAsyncEnumerable<StreamResponse>> Stream { get; set; } = (_, _) => throw new NotSupportedException();
     public Func<GetTaskRequest, CancellationToken, Task<AgentTask>> Get { get; set; } = (_, _) => throw new NotSupportedException();
     public Func<CancelTaskRequest, CancellationToken, Task<AgentTask>> Cancel { get; set; } = (_, _) => throw new NotSupportedException();
+    public Func<SubscribeToTaskRequest, CancellationToken, IAsyncEnumerable<StreamResponse>> Subscribe { get; set; } = (_, _) => throw new NotSupportedException();
     public List<SendMessageRequest> Sent { get; } = [];
+    public List<string> Reads { get; } = [];
 
     public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
     {
@@ -317,11 +319,19 @@ public sealed class FakeTransport : IA2AClient
         return Stream(request, cancellationToken);
     }
 
-    public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => Get(request, cancellationToken);
+    public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        lock (Reads) Reads.Add("get:" + request.Id);
+        return Get(request, cancellationToken);
+    }
     public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => Cancel(request, cancellationToken);
 
     public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        lock (Reads) Reads.Add("subscribe:" + request.Id);
+        return Subscribe(request, cancellationToken);
+    }
     public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig config, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();

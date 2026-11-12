@@ -3,8 +3,7 @@
 Microsoft Agent Framework support for A2A. NuGet ID: `RomanAmbinder.A2A.Extensions.AgentFramework`.
 
 **Status: in development, experimental (`A2AEXP006`).** Hosting an `AIAgent` works (stateless, with stored sessions,
-with bound tool approvals), and so does using a remote A2A agent as an `AIAgent`. Background responses
-(`AllowBackgroundResponses`) are not done yet: a run waits for the remote task, as without them. The design is in
+with bound tool approvals), and so does using a remote A2A agent as an `AIAgent`, with background responses. The design is in
 [docs/superpowers/specs/2026-11-12-agent-framework-adapter-design.md](../../docs/superpowers/specs/2026-11-12-agent-framework-adapter-design.md).
 
 ## Host an AIAgent as an A2A agent
@@ -109,6 +108,29 @@ var reply = await weather.RunAsync("Weather in Paris?", session);
 - `Name`, `Description` and `Id` come only from `A2AAIAgentOptions`, never from the remote card: Agent Framework can put
   them in front of a model, and a card is remote text. `GetService<AgentCard>()` returns the card when the client knows it.
 - The name is not `A2AAgent`, so it is not confused with Agent Framework's own `Microsoft.Agents.AI.A2A.A2AAgent`.
+
+### Background responses
+
+```csharp
+var options = new AgentRunOptions { AllowBackgroundResponses = true };
+var response = await weather.RunAsync("Long forecast", session, options);
+while (response.ContinuationToken is { } token)
+{
+    await Task.Delay(TimeSpan.FromSeconds(2));
+    response = await weather.RunAsync([], session, new AgentRunOptions { ContinuationToken = token });
+}
+```
+
+- With `AllowBackgroundResponses` the message is sent without waiting (`ReturnImmediately`). While the remote task runs,
+  the response has no messages and a `ContinuationToken`. Pass it back, with no messages, to poll: the agent reads the
+  task (`GetTask`) and never sends again. A finished, interrupted or failed task answers as without background responses,
+  and the token is then null.
+- A streamed run gives a token on every update but the last. If the stream drops, pass the latest token to
+  `RunStreamingAsync` (no messages) to resume: the agent follows the task (`ObserveTaskAsync`) and continues after the last
+  artifact part the caller had, so nothing is repeated.
+- The token is JSON: the remote task id, how many parts of each artifact the caller had, and the status message it had. It
+  is not a secret: it names a task the caller can read anyway. A token from anywhere else is refused (`ArgumentException`).
+- `AgentRunOptions.ContinuationToken` and `AgentResponse.ContinuationToken` are evaluation-only upstream (`MEAI001`).
 
 ## Logs
 

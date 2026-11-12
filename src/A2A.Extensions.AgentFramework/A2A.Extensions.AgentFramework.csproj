@@ -6,7 +6,9 @@
         <DefineConstants>$(DefineConstants);A2A_AGENT_FRAMEWORK</DefineConstants>
         <!-- MAAI001: Agent Framework marks AgentSessionStore evaluation-only; AIAgentExecutor takes one (spec open
              question 5). Scoped to this project. -->
-        <NoWarn>$(NoWarn);MAAI001</NoWarn>
+        <!-- MEAI001: AgentRunOptions.ContinuationToken and AgentResponse.ContinuationToken are evaluation-only; the remote
+             agent's background responses use them (spec open question 5). -->
+        <NoWarn>$(NoWarn);MAAI001;MEAI001</NoWarn>
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="..\A2A.Extensions.AI\A2A.Extensions.AI.csproj"/>
