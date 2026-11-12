@@ -152,5 +152,10 @@ The main risk of Option C is the D2 investigation itself. If the failure exists,
    Done on 2026-11-12, after 0.2.0 had already shipped. ADR-001 is Accepted. `GetForMaintenanceAsync` stays
    abstract: it has no safe fallback, and moving it now would break the stores built against 0.2.0. The rule is in
    the versioning guide under "Store contracts".
-5. [ ] Add a "Writing your own backend" section to `docs/site/guides/durable-stores.md`. It should list the base classes for stores, the event bus and the coordinator, and which guarantees each must give (for example the atomic `TryRegisterExclusiveAsync`, and the shared `EventStore` that a cross-instance bus needs).
+5. [x] Add a "Writing your own backend" section to `docs/site/guides/durable-stores.md`. It should list the base classes for stores, the event bus and the coordinator, and which guarantees each must give (for example the atomic `TryRegisterExclusiveAsync`, and the shared `EventStore` that a cross-instance bus needs).
+
+   Done on 2026-11-12: "Write your own backend" in `durable-stores.md` (it replaces "Write your own store"). It lists
+   every base class with its default, and the guarantees of the event bus, the coordinator and the artifact object
+   store. It also says that a store which retries commits on its own needs `ITaskCommitLookup`, because without it a
+   chunk can end up in the task twice (item 1).
 6. [ ] In the gap analysis, mark D1 and D3 as "not planned in this repository; extension points documented". Leave D33 open, with "on demand".

@@ -120,30 +120,82 @@ The server logs these once at startup. Nothing throws, so a host that does not u
 | 257 | Warning | The event bus spans instances (Redis, or your own) and the task, event or idempotency store is the in-memory one. Events cross instances, but the other instances cannot read the tasks and events kept in this process. |
 | 250 | Debug | The checks were skipped because the registrations are broken. |
 
-## Write your own store
+## Write your own backend
 
-Register your stores before `AddA2AServer` (the defaults are added only when missing), or replace them after it. Replace the parts that belong together: `TaskStore`, `EventStore` and `PushOutbox` share one backend, because `TaskStore.CommitAsync` writes to all three.
+Every backend part is a public base class. Register yours before `AddA2AServer` (the defaults are added only when missing), or replace them after it.
+
+| Part | Base class | Default | Needed with several instances |
+|---|---|---|---|
+| Tasks, contexts | <xref:A2A.Server.Storage.TaskStore> | in memory | yes, shared |
+| Event log | <xref:A2A.Server.Storage.EventStore> | in memory | yes, shared |
+| Push deliveries | `PushOutbox` | in memory | yes, shared |
+| Push configs | `PushConfigStore` | in memory | yes, shared |
+| Idempotency keys | `IdempotencyStore` | in memory | yes, shared |
+| Running executions, cancel, sweep lease | <xref:A2A.Server.Coordination.ExecutionCoordinator> | in memory | yes, shared |
+| Live events to subscribers | <xref:A2A.Server.TaskEventBus> | in process | yes, spans instances |
+| Large artifact bytes | <xref:A2A.Server.Storage.ArtifactObjectStore> | none | yes, shared, when you use artifact storage |
+
+New members of these classes follow the rule in [Versioning](versioning.md#store-contracts): your backend keeps building against later versions.
+
+### Stores
+
+Replace the parts that belong together: `TaskStore`, `EventStore` and `PushOutbox` share one backend, because `TaskStore.CommitAsync` writes to all three.
 
 Implement:
 
-- <xref:A2A.Server.Storage.TaskStore>: `GetAsync`, `CreateAsync`, `UpdateAsync`, `CommitAsync`, `ListAsync`, `GetContextAsync`, `GetOrCreateContextAsync`, and the retention members `DeleteAsync`, `ListExpiredAsync`, `ListInterruptedBeforeAsync`, `DeleteContextAsync`, `ListOrphanContextsAsync`.
+- <xref:A2A.Server.Storage.TaskStore>: `GetAsync`, `CreateAsync`, `UpdateAsync`, `CommitAsync`, `ListAsync`, `GetContextAsync`, `GetOrCreateContextAsync`, and the maintenance members `DeleteAsync`, `ListExpiredAsync`, `ListInterruptedBeforeAsync`, `GetForMaintenanceAsync`, `DeleteContextAsync`, `ListOrphanContextsAsync`.
 - <xref:A2A.Server.Storage.EventStore>: `AppendAsync`, `ReadAfterAsync`, `OldestRetainedAsync`, `LastSequenceAsync`, `MarkTerminalAsync`, `DeleteAsync`.
 - `PushConfigStore`, `PushOutbox` and `IdempotencyStore` (including `RenewAsync`).
 - `ExecutionCoordinator` is optional. The in-memory one is the default, but it cannot recover tasks after a crash. Prefer a durable one.
 - Optional, for speed: <xref:A2A.Server.Storage.IBatchTaskCommit> on the task store, and an override of `EventStore.ReadRangeAsync`. See below.
-- Optional, for correctness when a commit's answer can be lost: <xref:A2A.Server.Storage.ITaskCommitLookup> on the task store. See below.
+- <xref:A2A.Server.Storage.ITaskCommitLookup> on the task store, when a commit's answer can be lost or your store retries commits on its own. Optional in the type system, but without it such a store can corrupt tasks. See below.
 
 Rules that matter:
 
 - **`CommitAsync` is atomic.** It writes the task record (the stored version must equal `ExpectedVersion`; 0 creates the task), appends the event with the next sequence, and stores the push deliveries, all or nothing. A wrong version throws `ConcurrencyException`. A create on an existing task throws `DuplicateTaskException`. Commits to one task must be serialized, so the log order equals the version order.
 - **Idempotency outcome in the commit.** `TaskCommit.Idempotency` is set for the commit that creates a task when the request has an idempotency key. A store that shares a transaction with its idempotency store writes the outcome in the same transaction, only for the claim that still owns the entry. No matching claim is not an error. Any other store ignores it; the server records the outcome right after the commit, so a crash in between can still let a retry create a second task. `IdempotencyStore.CompleteAsync`, `AbandonAsync` and `RenewAsync` take the claim id from `IdempotencyResult.New` and must do nothing when the entry belongs to another claim.
 - **Batch commits are optional.** With `IBatchTaskCommit`, the server stores artifact chunks that queue up as one commit: one task write, one version, and each event with the next sequence, in order, with its own push deliveries. All or nothing, with the same version check as `CommitAsync`. Without it, the server makes one `CommitAsync` per event. Long chunked streams then cost more, because each commit writes the whole task.
-- **Commit lookup is optional, and recommended for a database.** A database can commit a transaction and then lose the answer: the connection times out or resets, and the caller sees an error although the write is stored. A store that retries writes on its own can also meet its first attempt and report a version conflict for its own write. Without help, the server fails the run in the first case, and stores the event a second time in the second. With `ITaskCommitLookup`, keep `TaskCommit.MutationId` (and `TaskBatchCommit.MutationId`, on the batch's first event) with the stored event, and return that event's sequence from `FindCommitAsync`, or null when there is no such commit. After a failed commit call, the server asks, and when the commit is stored it carries on as if the call had succeeded (log event 226). It asks right after the commit, so the id only has to stay findable while its event is in the replay buffer. The Postgres store keeps it in `a2a_events.mutation_id` (migration 0006), and the in-memory store keeps the last 16 ids per task.
+- **Commit lookup is optional, and recommended for a database.** A database can commit a transaction and then lose the answer: the connection times out or resets, and the caller sees an error although the write is stored. A store that retries writes on its own can also meet its first attempt and report a version conflict for its own write. Without help, the server fails the run in the first case. In the second it takes the conflict for another writer's change, reads the task again and applies the event again. For a chunk appended to an artifact that is still open, the chunk then ends up in the task twice, and the event log holds it twice. With `ITaskCommitLookup`, keep `TaskCommit.MutationId` (and `TaskBatchCommit.MutationId`, on the batch's first event) with the stored event, and return that event's sequence from `FindCommitAsync`, or null when there is no such commit. After a failed commit call, the server asks, and when the commit is stored it carries on as if the call had succeeded (log event 226). It asks right after the commit, so the id only has to stay findable while its event is in the replay buffer. The Postgres store keeps it in `a2a_events.mutation_id` (migration 0006), and the in-memory store keeps the last 16 ids per task.
 - **`ReadRangeAsync` reads part of the log.** Streams use it to fill a gap. The default reads `ReadAfterAsync` and stops at the bound. Override it to read only the range.
 - **Keep the event bytes.** The server encodes each event once. `SequencedEvent.Json` holds those bytes. Store them and return them unchanged from `ReadAfterAsync`. They go to the wire without validation, so a store that alters, truncates or re-encodes them corrupts the stream.
-- **Scope by tenant and owner.** Reads are owner-scoped. A task owned by someone else looks missing.
+- **Scope by tenant and owner.** Reads are owner-scoped. A task owned by someone else looks missing. The one exception is `GetForMaintenanceAsync`: it reads by tenant and id, whoever owns the task. The orphan sweeps of artifact objects and uploads use it to decide whether a task still links to an object, so a store that hides another owner's task there makes the sweeps delete objects that a live task uses.
 - **Own your records.** Callers never change what the store returns, and the store does not change what it is given.
-- Run the same contract tests as the built-in stores: the `tests/A2A.Stores.Tests` project in the repository.
+
+### Event bus
+
+<xref:A2A.Server.TaskEventBus> hands stored events to the live subscribers of a task (SubscribeToTask and streams). The default is process-local, so a subscriber on another instance sees nothing. Derive from it and override `Publish` and `Complete`, as `RedisTaskEventBus` does.
+
+- **Call the base class for local subscribers.** It keeps the bounded subscriptions and drops a lagging subscriber's oldest events, never the newest. `HasSubscribers(taskId)` tells you whether anyone in this process reads the task.
+- **Never block.** `Publish` and `Complete` run while the engine holds the task's lock, in sequence order. Do not wait on the network there (queue the message), and do not call back into `A2ARequestHandler` for the same task: that deadlocks.
+- **Keep per-task order.** Every subscriber must get a task's events in sequence order.
+- **Delivery may be at most once, if the event store is shared.** The request handler drops duplicates and fills gaps in sequences from the <xref:A2A.Server.Storage.EventStore>. That works across instances only when every instance reads the same event store. Startup warning 257 fires when a bus that spans instances runs with an in-memory task, event or idempotency store.
+- **Pass the bytes on.** Send `SequencedEvent.Json` as it is, and hand the receiving subscribers the same bytes, so no instance encodes an event again.
+- **Scope by tenant.** The handler checks the owner before it subscribes, so the bus topic only needs tenant and task id.
+
+### Execution coordinator
+
+<xref:A2A.Server.Coordination.ExecutionCoordinator> tracks the leases of running executions, carries CancelTask to the instance that runs the task, finds executions whose instance died, and makes sure only one instance runs the retention sweep per period. The in-memory default cannot do any of that across instances, and its leases die with the process (startup warning 252).
+
+- **Override `TryRegisterExclusiveAsync` with an atomic check.** The default checks `IsRunningAsync` and then calls `RegisterAsync`, which is not atomic: two instances can both win. A coordinator that several instances share must override it.
+- **Fence every lease operation by task and execution id.** An operation with another execution's id never touches that execution's lease.
+- **Expire leases by the store's clock,** never the instance's, so instances with skewed clocks agree. An expired lease no longer counts as running, a late `HeartbeatAsync` does not bring it back (it returns false), and `ListExpiredAsync` reports it until it is unregistered.
+- **Cancel requests are fire and forget.** `RequestCancelAsync` reaches the other instances' `CancelRequestsAsync` readers that listen now, at most once. A reader never gets its own instance's requests, and every reader gets every request.
+- **`TryAcquireSweepLeaseAsync` is a named cluster-wide lease.** True when it was free or expired. False while it is held, also by the caller. It is not released early.
+
+### Artifact object store
+
+<xref:A2A.Server.Storage.ArtifactObjectStore> keeps the bytes of large artifacts and uploads. Every provider must:
+
+- read the stream once, and never buffer the whole object;
+- stop with `ArtifactObjectTooLargeException` when the stream is longer than `maxBytes`;
+- leave no object behind when a write fails;
+- replace an existing object with the same key, and do nothing when a delete finds no object.
+
+Override `ExistsAsync` when you have a cheaper check than opening the object, and `TryCreateDownloadUrlAsync` when the backend can make links that callers fetch directly (presigned or SAS URLs). See [Artifact storage](artifact-storage.md).
+
+### Contract tests
+
+Run the same contract tests as the built-in backends: the `tests/A2A.Stores.Tests` project in the repository. It has a contract for each part: `TaskStoreContract`, `EventStoreContract`, `PushOutboxContract`, `PushConfigStoreContract`, `IdempotencyStoreContract`, `ExecutionCoordinatorContract`, `TaskEventBusContract` and `ArtifactObjectStoreContract`.
 
 ## What can go wrong
 
