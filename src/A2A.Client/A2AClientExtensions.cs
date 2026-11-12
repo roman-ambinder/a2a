@@ -95,13 +95,22 @@ public static class A2AClientExtensions
             var page = await client.ListTasksAsync(request, options, cancellationToken).ConfigureAwait(false);
             foreach (var t in page.Tasks) yield return t;
             if (string.IsNullOrEmpty(page.NextPageToken)) yield break;
-            request = new ListTasksRequest
-            {
-                Tenant = request.Tenant, ContextId = request.ContextId, Status = request.Status,
-                PageSize = request.PageSize,
-                PageToken = page.NextPageToken, HistoryLength = request.HistoryLength,
-                StatusTimestampAfter = request.StatusTimestampAfter, IncludeArtifacts = request.IncludeArtifacts
-            };
+            request = NextPage(request, page.NextPageToken);
         }
+    }
+
+    /// <summary>
+    ///     A copy of <paramref name="request" /> for the page at <paramref name="pageToken" />: every other field is kept
+    ///     (a test checks each property of <see cref="ListTasksRequest" />). The caller's request is not changed.
+    /// </summary>
+    private static ListTasksRequest NextPage(ListTasksRequest request, string pageToken)
+    {
+        return new ListTasksRequest
+        {
+            Tenant = request.Tenant, ContextId = request.ContextId, Status = request.Status,
+            PageSize = request.PageSize, PageToken = pageToken, HistoryLength = request.HistoryLength,
+            TimelineLength = request.TimelineLength, StatusTimestampAfter = request.StatusTimestampAfter,
+            IncludeArtifacts = request.IncludeArtifacts
+        };
     }
 }

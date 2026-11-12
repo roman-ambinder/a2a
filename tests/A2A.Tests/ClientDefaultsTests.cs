@@ -653,4 +653,36 @@ public class ClientDefaultsTests
         var cancelled = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => resolver2.ResolveAsync(new Uri("http://localhost/"), cts.Token));
         Assert.IsNotType<TimeoutException>(cancelled.InnerException);
     }
+
+    [Fact]
+    public async Task List_all_tasks_sends_every_filter_on_later_pages()
+    {
+        var first = new ListTasksRequest
+        {
+            Tenant = "t", ContextId = "c", Status = TaskState.Working, PageSize = 7, PageToken = null,
+            HistoryLength = 3, TimelineLength = 4, StatusTimestampAfter = DateTimeOffset.UnixEpoch.AddDays(1), IncludeArtifacts = true,
+        };
+        // Every property but the page token is set, so a field added later and not copied fails here.
+        var properties = typeof(ListTasksRequest).GetProperties().Where(p => p.Name != nameof(ListTasksRequest.PageToken)).ToList();
+        Assert.All(properties, p => Assert.NotNull(p.GetValue(first)));
+        var seen = new List<ListTasksRequest>();
+        var client = new ScriptedA2AClient
+        {
+            OnListTasks = r =>
+            {
+                seen.Add(r);
+                var token = seen.Count < 3 ? "p" + (seen.Count + 1) : "";
+                return Task.FromResult(new ListTasksResponse { Tasks = [ScriptedA2AClient.Make("t" + seen.Count, TaskState.Working)], NextPageToken = token });
+            },
+        };
+
+        var all = new List<AgentTask>();
+        await foreach (var t in client.ListAllTasksAsync(first)) all.Add(t);
+
+        Assert.Equal(3, all.Count);
+        Assert.Equal([null, "p2", "p3"], seen.Select(r => r.PageToken));
+        foreach (var later in seen.Skip(1))
+            foreach (var p in properties)
+                Assert.True(Equals(p.GetValue(first), p.GetValue(later)), $"{p.Name} was not sent on a later page");
+    }
 }
