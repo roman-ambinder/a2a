@@ -47,6 +47,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   - **No supported interface.** The error names the card's interfaces of a newer minor version, and the option to change.
   - **v0.3 JSON-RPC client.** A body with only an id counts as a null result on a 2xx response only. On an HTTP error the
     HTTP error is kept, and retried where it may be.
+  - **gRPC channels (v1.0 and v0.3 clients).** The channels of `UseGrpc()`, `A2AGrpcClientFactory` and `UseGrpcV03()`
+    were cached per agent address for the life of the process and never disposed. They now come from a pool: a call
+    leases its channel while it runs, and a channel no call holds is disposed after 5 minutes idle or when more than 64
+    are idle (least recently used first). A client whose channel was disposed gets a new one on its next call.
   - **v0.3 gRPC.** `GetAgentCard` answers an anonymous caller, or a caller refused the extended card, with the public card.
     The public v0.3 card is the card of the call's tenant. A client `GetTask` with `historyLength` 0 returns no history
     (proto3 cannot send 0).
