@@ -37,6 +37,20 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Protocol and bindings
 
+- Fixes from the review of the compatibility changes (roman-ambinder/a2a#159):
+  - **v0.3 HTTP+JSON client.** `ListTasksAsync` returns a next page token when `pageSize` cuts the list, so paging on
+    reaches every task. Before, the tasks past the first page were lost.
+  - **1.1 client streams.** A reconciling GetTask that fails is skipped, so it no longer ends a stream that is still
+    delivering events. A reconnect starts the "repeated generation" check over, so a peer that replays its last update
+    no longer turns generation tracking off. A fallback to an interface older than 1.1 no longer sends
+    `lastSeenGeneration`.
+  - **No supported interface.** The error names the card's interfaces of a newer minor version, and the option to change.
+  - **v0.3 JSON-RPC client.** A body with only an id counts as a null result on a 2xx response only. On an HTTP error the
+    HTTP error is kept, and retried where it may be.
+  - **v0.3 gRPC.** `GetAgentCard` answers an anonymous caller, or a caller refused the extended card, with the public card.
+    The public v0.3 card is the card of the call's tenant. A client `GetTask` with `historyLength` 0 returns no history
+    (proto3 cannot send 0).
+
 - v0.3 compat: REST `GET /v1/tasks` (spec v0.3.0 §3.5.6) is served, as the caller's tasks in a JSON array (at most
   1000), and the v0.3 HTTP+JSON client's `ListTasksAsync` calls it and applies the request's filters to the answer. It
   stays `UnsupportedOperation` on JSON-RPC and gRPC, which have no such method in v0.3.

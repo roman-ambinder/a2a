@@ -44,6 +44,7 @@ public sealed class ClientGenerationTests
         private int _next;
         public List<SubscribeToTaskRequest> Subscribes { get; } = [];
         public int GetTaskCalls { get; private set; }
+        public Exception? GetTaskFails { get; init; }
 
         public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, A2ARequestOptions? options = null,
             CancellationToken cancellationToken = default)
@@ -55,7 +56,7 @@ public sealed class ClientGenerationTests
         public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
         {
             GetTaskCalls++;
-            return System.Threading.Tasks.Task.FromResult(current);
+            return GetTaskFails is { } fail ? System.Threading.Tasks.Task.FromException<AgentTask>(fail) : System.Threading.Tasks.Task.FromResult(current);
         }
 
         public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -163,6 +164,59 @@ public sealed class ClientGenerationTests
         await ObserveAsync(Client(transport, version: "1.0"));
 
         Assert.All(transport.Subscribes, s => Assert.Null(s.LastSeenGeneration));
+    }
+
+    [Fact]
+    public async Task A_failed_reconcile_does_not_end_the_stream()
+    {
+        var transport = new ScriptedTransport(Task(6),
+            Script(new TaskEvent(Task(1)), Status(2), Artifact(4), Status(5, TaskState.Completed)))
+        {
+            GetTaskFails = new HttpRequestException(HttpRequestError.ConnectionError, "down"),
+        };
+        var events = await ObserveAsync(Client(transport));
+
+        Assert.Equal(1, transport.GetTaskCalls); // it tried
+        Assert.Equal([1, 2, 4, 5], events.Select(Gen)); // and kept streaming without the snapshot
+    }
+
+    [Fact]
+    public async Task A_replayed_update_after_a_reconnect_does_not_turn_generation_off()
+    {
+        // A peer without event ids resends the last update (2) on the new connection, then skips 3.
+        var transport = new ScriptedTransport(Task(4),
+            ScriptThenDrop(new TaskEvent(Task(1)), Status(2)),
+            Script(Status(2), Artifact(4), Status(5, TaskState.Completed)));
+        var events = await ObserveAsync(Client(transport));
+
+        Assert.Equal(1, transport.GetTaskCalls); // the gap 2 -> 4 was still reconciled
+        Assert.Equal([1, 2, 4, 4, 5], events.Select(Gen)); // the replayed 2 is skipped; 4, then the snapshot at 4
+    }
+
+    [Fact]
+    public async Task A_fallback_to_a_1_0_interface_does_not_send_lastSeenGeneration()
+    {
+#pragma warning disable CS1998
+        static async IAsyncEnumerable<StreamResponse> Unreachable()
+        {
+            throw new HttpRequestException(HttpRequestError.ConnectionError, "refused");
+#pragma warning disable CS0162
+            yield break;
+#pragma warning restore CS0162
+        }
+#pragma warning restore CS1998
+        var v11 = new ScriptedTransport(Task(3), Unreachable);
+        var v10 = new ScriptedTransport(Task(3), Script(Status(null, TaskState.Completed)));
+        var fallback = new A2A.Client.Transports.FallbackTransport(
+        [
+            (new AgentInterface { Url = "http://x/a", ProtocolBinding = "a", ProtocolVersion = "1.1" }, () => v11),
+            (new AgentInterface { Url = "http://x/b", ProtocolBinding = "b", ProtocolVersion = "1.0" }, () => v10),
+        ], v11);
+
+        await foreach (var _ in fallback.SubscribeToTaskAsync(new SubscribeToTaskRequest { Id = TaskId, LastSeenGeneration = 2 })) { }
+
+        Assert.Equal(2, Assert.Single(v11.Subscribes).LastSeenGeneration); // the 1.1 interface gets it
+        Assert.Null(Assert.Single(v10.Subscribes).LastSeenGeneration); // the 1.0 fallback does not
     }
 
     [Fact]
