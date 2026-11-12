@@ -47,7 +47,7 @@ internal static partial class ServerLog
     public static partial void AuditDetachedDropped(ILogger logger, A2AAuditAction auditAction, string auditId,
         int limit);
 
-    // TaskExecutionEngine: 200-299
+    // TaskExecutionEngine: 200-299 (228 is TaskExecutionDrainService, which has its own generated message)
     [LoggerMessage(EventId = 200, Level = LogLevel.Error, Message = "Agent executor failed for task {TaskId}")]
     public static partial void ExecutorFailed(ILogger logger, Exception exception, string taskId);
 
