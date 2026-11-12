@@ -412,9 +412,13 @@ public sealed class ExecutionLimitsTests
         await using var host = await StartAsync(agent, Limits(max: 1, queue: 0));
 
         for (var i = 0; i < 3; i++)
+        {
             Assert.Equal(TaskState.Completed, (await host.Handler.SendMessageAsync(Req($"quick {i}"), Call()).WaitAsync(Wait)).RequireTask().Status.State);
+            // A blocking send returns once COMPLETED is stored, but the slot is held until the agent has returned and the run
+            // has finished (FinishAsync), a moment later. With one slot and no queue, the next send would race that release.
+            await WaitUnusedAsync(host);
+        }
 
-        await WaitUnusedAsync(host);
         Assert.Equal(0, host.Engine.Admission.TrackedTenants);
     }
 
