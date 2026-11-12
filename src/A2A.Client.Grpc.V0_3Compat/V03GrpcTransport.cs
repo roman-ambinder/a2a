@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -266,11 +265,8 @@ internal sealed class V03GrpcTransport : IA2AClient
 /// <summary>Creates v0.3 gRPC transports for the v0.3 GRPC interfaces of a card. Added by <see cref="A2AGrpcV03ClientOptionsExtensions.UseGrpcV03" />.</summary>
 internal sealed class V03GrpcTransportFactory(GrpcChannelOptions? channelOptions) : IV03TransportFactory
 {
-    private static readonly ConcurrentDictionary<string, GrpcChannel> DefaultChannels = new(StringComparer.Ordinal);
-
-    private static readonly ConditionalWeakTable<GrpcChannelOptions, ConcurrentDictionary<string, GrpcChannel>>
-        ChannelsByOptions = new();
-
+    // The channel pool of the v1.0 gRPC transport (GrpcChannelPool): one channel per address and channel options, leased
+    // per call, and disposed when no call uses it after an idle timeout or past an idle limit.
     public string ProtocolBinding => ProtocolBindings.Grpc;
 
     public bool CanCreate(AgentInterface agentInterface)
@@ -291,22 +287,8 @@ internal sealed class V03GrpcTransportFactory(GrpcChannelOptions? channelOptions
 
     public IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options)
     {
-        return new V03GrpcTransport(ChannelFor(GrpcTransport.ParseAddress(agentInterface.Url)).CreateCallInvoker(),
-            options);
-    }
-
-    private GrpcChannel ChannelFor(Uri address)
-    {
-        var channels = channelOptions is null
-            ? DefaultChannels
-            : ChannelsByOptions.GetValue(channelOptions,
-                static _ => new ConcurrentDictionary<string, GrpcChannel>(StringComparer.Ordinal));
-        var key = address.AbsoluteUri;
-        if (channels.TryGetValue(key, out var existing)) return existing;
-        var created = GrpcChannel.ForAddress(address, channelOptions ?? new GrpcChannelOptions());
-        var winner = channels.GetOrAdd(key, created);
-        if (!ReferenceEquals(winner, created)) created.Dispose();
-        return winner;
+        return new V03GrpcTransport(
+            GrpcChannelPool.For(channelOptions).CallInvoker(GrpcTransport.ParseAddress(agentInterface.Url)), options);
     }
 }
 
