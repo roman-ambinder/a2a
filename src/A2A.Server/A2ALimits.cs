@@ -63,6 +63,15 @@ public sealed class A2ALimits
     /// </summary>
     public int MaxTimelineLengthReturned { get; set; } = 100;
 
+    /// <summary>
+    ///     A2A 1.1: most timeline entries stored per task. Every status update and every client message adds one, also a
+    ///     status update without a message, which adds nothing to <see cref="MaxTaskBytes" />. Past the limit the oldest
+    ///     entries are dropped: no error, the kept entries keep their generations, and a dropped entry's message stays in
+    ///     the history. Streams resume from the event log, not from the timeline. Zero or negative keeps every entry. Default
+    ///     1000, the default <see cref="StreamingOptions.ReplayBufferSize" />.
+    /// </summary>
+    public int MaxTimelineEntries { get; set; } = 1000;
+
     /// <summary>Upper bound on the ListTasks page size. Default 100.</summary>
     public int MaxListPageSize { get; set; } = 100;
 

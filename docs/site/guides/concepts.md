@@ -36,7 +36,7 @@ A **task** is the unit of work. A client sends a message. The agent either answe
 - an `id`, and a `contextId` that groups related tasks and messages;
 - a **status**: a state and an optional message;
 - **artifacts**, the outputs;
-- a record of the interaction: the `history` field and, in A2A 1.1, the newer `timeline` (1.1 marks `history` deprecated);
+- a record of the interaction: the `history` field and, in A2A 1.1, the newer `timeline` (1.1 marks `history` deprecated). The server stores at most the newest `A2ALimits.MaxTimelineEntries` timeline entries (1000 by default); the history keeps every message;
 - metadata;
 - in A2A 1.1, a `generation` counter that goes up by exactly 1 for every state-changing mutation. Each mutation maps to one event. A 1.0 caller never sees it.
 
