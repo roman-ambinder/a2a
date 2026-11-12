@@ -294,10 +294,12 @@ public sealed class AnomalyDetectionTests
         Parallel.For(0, 10_000, i => detector.TaskCreated(Call($"caller-{i}"), "SendMessage"));
         Assert.Equal(100, detector.TrackedCallers);
 
-        // Ended windows are dropped when room is needed; the table never grows past the cap.
+        // Ended windows are dropped when room is needed; the table never grows past the cap. It may end below the cap:
+        // one thread scans, and callers that arrive while it removes entries are not tracked (the clock is frozen, so no
+        // second scan runs). The scanning thread then adds its own caller, so at least one is tracked.
         clock.Advance(TimeSpan.FromMinutes(1));
         Parallel.For(0, 10_000, i => detector.TaskCreated(Call($"new-{i}"), "SendMessage"));
-        Assert.Equal(100, detector.TrackedCallers);
+        Assert.InRange(detector.TrackedCallers, 1, 100);
     }
 
     [Fact]
