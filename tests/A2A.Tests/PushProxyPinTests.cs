@@ -24,19 +24,29 @@ public partial class PushDeliveryTests
         public List<string> HostHeaders { get; } = [];
         public List<string> TlsServerNames { get; } = [];
         public List<string> TunneledHostHeaders { get; } = [];
+
+        /// <summary>What a connection failed with on the server side (for example a TLS handshake), for the assertion message.</summary>
+        public List<string> ServerErrors { get; } = [];
         public X509Certificate2? Certificate { get; }
 
         public RecordingProxy(string? certName = null)
         {
             if (certName is not null)
             {
-                using var key = ECDsa.Create();
-                var req = new CertificateRequest($"CN={certName}", key, HashAlgorithmName.SHA256);
+                // RSA with server-auth usage, re-imported from a PFX with an exportable key: Windows (SChannel) serves
+                // only a certificate whose private key it can use, which an in-memory ephemeral key is not.
+                using var key = RSA.Create(2048);
+                var req = new CertificateRequest($"CN={certName}", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
                 var san = new SubjectAlternativeNameBuilder();
                 san.AddDnsName(certName);
                 req.CertificateExtensions.Add(san.Build());
+                req.CertificateExtensions.Add(new X509KeyUsageExtension(
+                    X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, critical: false));
+                req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+                    [new Oid("1.3.6.1.5.5.7.3.1", "Server Authentication")], critical: false));
                 using var ephemeral = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(1));
-                Certificate = X509CertificateLoader.LoadPkcs12(ephemeral.Export(X509ContentType.Pfx), null);
+                Certificate = X509CertificateLoader.LoadPkcs12(ephemeral.Export(X509ContentType.Pfx), null,
+                    X509KeyStorageFlags.Exportable);
             }
 
             _l.Start();
@@ -48,7 +58,7 @@ public partial class PushDeliveryTests
                     {
                         using var c = await _l.AcceptTcpClientAsync();
                         try { await ServeAsync(c.GetStream()); }
-                        catch { /* one bad connection */ }
+                        catch (Exception ex) { lock (this) ServerErrors.Add(ex.ToString()); } // one bad connection
                     }
                 }
                 catch { /* closed */ }
@@ -201,6 +211,7 @@ public partial class PushDeliveryTests
             lock (proxy)
             {
                 Assert.Equal(["CONNECT 93.184.216.34:443 HTTP/1.1"], proxy.RequestLines); // tunnel to the checked address
+                Assert.True(proxy.ServerErrors.Count == 0, string.Join("\n", proxy.ServerErrors));
                 Assert.Equal(["rebind.example"], proxy.TlsServerNames); // SNI is the webhook name
                 Assert.Equal(["rebind.example"], proxy.TunneledHostHeaders); // the POST went through the tunnel
             }
@@ -224,7 +235,16 @@ public partial class PushDeliveryTests
             return true;
         };
         using var http = new HttpClient(handler);
-        (await http.GetAsync("https://93.184.216.34/h", TestContext.Current.CancellationToken)).Dispose();
+        try
+        {
+            (await http.GetAsync("https://93.184.216.34/h", TestContext.Current.CancellationToken)).Dispose();
+        }
+        catch (HttpRequestException ex)
+        {
+            lock (proxy) throw new InvalidOperationException("server side: " + string.Join("\n", proxy.ServerErrors), ex);
+        }
+
+        lock (proxy) Assert.True(proxy.ServerErrors.Count == 0, string.Join("\n", proxy.ServerErrors));
         lock (proxy) Assert.Equal([""], proxy.TlsServerNames);
         lock (errors) Assert.True(errors.Single().HasFlag(SslPolicyErrors.RemoteCertificateNameMismatch));
     }
