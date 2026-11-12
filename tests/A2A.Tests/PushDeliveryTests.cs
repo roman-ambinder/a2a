@@ -447,6 +447,32 @@ public class PushDeliveryTests
     }
 
     [Fact]
+    public async Task Proxied_delivery_leaves_dns_rebinding_to_the_proxy()
+    {
+        // Pins the documented limit of PushNotificationOptions.Proxy: through a proxy, the connect-time check sees only the
+        // proxy's address and the proxy resolves the webhook host itself. The pre-delivery lookup is the SDK's only check on
+        // that host, so a name that turns private after it is not blocked here; the proxy must filter egress.
+        using var proxyServer = new LocalServer();
+        var lookups = new List<string>();
+        await WithResolver(h =>
+        {
+            lock (lookups) lookups.Add(h);
+            return lookups.Count(x => x == h) == 1 ? [IPAddress.Parse("93.184.216.34")] : [IPAddress.Parse("169.254.169.254")];
+        }, async () =>
+        {
+            var opts = new PushNotificationOptions { Proxy = new WebProxy($"http://127.0.0.1:{proxyServer.Port}") };
+            using var proxied = PushUrlValidator.CreateHandler(opts);
+            using var sender = await SendWithAsync(proxied, o =>
+            {
+                o.AllowInsecureUrls = true;
+                o.Proxy = opts.Proxy;
+            }, Hook("http://rebind.example/h"));
+            Assert.Equal(1, proxyServer.Accepted); // the request reached the proxy
+            lock (lookups) Assert.Equal(["rebind.example"], lookups); // one lookup, before delivery; none at connect
+        });
+    }
+
+    [Fact]
     public async Task Create_time_dns_is_bounded_by_a_timeout()
     {
         var original = PrivateAddressGuard.Resolve;
