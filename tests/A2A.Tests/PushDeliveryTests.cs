@@ -11,7 +11,7 @@ namespace A2A.Tests;
 public sealed class PushGuardCollection;
 
 [Collection("PushGuard")]
-public class PushDeliveryTests
+public partial class PushDeliveryTests
 {
     private sealed class Scripted(params HttpStatusCode[] codes) : HttpMessageHandler
     {

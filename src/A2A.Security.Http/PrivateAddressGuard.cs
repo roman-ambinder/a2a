@@ -103,6 +103,19 @@ public static class PrivateAddressGuard
         CancellationToken cancellationToken)
     {
         if (allowPrivateNetworks) return;
+        await ResolveAllowedAsync(host, allowedNetworks, hostKind, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Resolves <paramref name="host" /> once and returns its addresses, or throws <see cref="HttpRequestException" />
+    ///     (<see cref="BlockedAddressException" /> when any address is blocked) like
+    ///     <see cref="EnsureHostAllowedAsync" />. An IP literal is returned as is. A caller that connects to one of the
+    ///     returned addresses reaches an address that was checked, whatever the name resolves to later.
+    /// </summary>
+    public static async ValueTask<IPAddress[]> ResolveAllowedAsync(string host,
+        IEnumerable<(IPAddress Network, int PrefixLength)>? allowedNetworks, string hostKind,
+        CancellationToken cancellationToken)
+    {
         IPAddress[] addresses;
         if (IPAddress.TryParse(StripZone(host.Trim('[', ']')), out var literal)) addresses = [literal];
         else
@@ -120,6 +133,7 @@ public static class PrivateAddressGuard
         if (addresses.Length == 0) throw new HttpRequestException($"{hostKind} host '{host}' did not resolve.");
         if (addresses.Any(a => IsBlocked(a, allowedNetworks)))
             throw new BlockedAddressException($"{hostKind} host '{host}' resolves to a private address.");
+        return addresses;
     }
 
     /// <summary>True for addresses that must not be reached by default.</summary>

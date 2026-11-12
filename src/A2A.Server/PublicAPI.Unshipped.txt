@@ -39,3 +39,5 @@ A2A.Server.TaskUpdater.RejectAsync(System.Threading.CancellationToken cancellati
 A2A.Server.TaskUpdater.StartWorkAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
 A2A.Server.A2AServerBuilder.AddAgentCard(string! name, string! description) -> A2A.Server.A2AServerBuilder!
 A2A.Server.ServerCallContext.TenantAuthentication.init -> void
+A2A.Server.Push.PushNotificationOptions.PinProxyTarget.get -> bool
+A2A.Server.Push.PushNotificationOptions.PinProxyTarget.set -> void
