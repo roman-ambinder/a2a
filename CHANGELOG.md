@@ -248,6 +248,17 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Fixes
 
+- Postgres with `ArtifactRows`: a commit no longer builds the artifacts' part lists, so an append costs O(its own
+  parts) in memory instead of O(all parts). 2,000 single appends to one artifact: about 50 KB to 26 KB per append. New
+  additive `ModelCopies.CountParts` and `CopyLastParts` for stores that keep parts apart from the task.
+- S3 artifact store: the orphan sweep no longer deletes a multipart object between its completion and its completion
+  stamp. Such an object was dated by when its upload started, so an upload longer than `OrphanGracePeriod` could be
+  deleted as it finished. An unstamped multipart object now counts as too new to judge (a true orphan is still
+  collected after 7 days plus the grace period), and the stamp records the upload's duration, so the age stays on the S3
+  clock instead of the uploading instance's.
+- Analyzer A2A0002: `MapA2A(...).AllowAnonymous()` next to a builder-level policy (`AddApiKeyAuthentication`,
+  `RequirePolicy` and the like) is reported, because the policy is then not put on the endpoints and the app refuses to
+  start. No `RequireAuthorization()` fix is offered for it.
 - Postgres with `ArtifactRows`: `InlineArtifactPartsAsync` now bumps the task version, and a task is read with its
   artifact rows in one statement. Before, a commit that raced the documented downgrade could store the task with every
   artifact empty, and a read could return one version's status with the next version's parts.
@@ -366,6 +377,7 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Documentation
 
+- Artifact storage: the S3 bucket lifecycle rule that aborts incomplete multipart uploads, with an example.
 - ADR-004 (proposed): how to remove the copy of the history, timeline and parts lists made for each task event, which
   makes the cost grow with the square of the event count.
 - The v0.3 compatibility guide, emptied by mistake in roman-ambinder/a2a#159, is restored and covers v0.3 gRPC and REST
