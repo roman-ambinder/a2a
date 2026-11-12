@@ -840,13 +840,28 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                         if (push is not null)
                             await _pushConfigs.SaveInlineAsync(key, push, CancellationToken.None).ConfigureAwait(false);
                         CommitResult committed;
+                        List<string>? createIds = null;
+                        var createId = NewMutationId(ref createIds);
                         try
                         {
-                            committed = await _tasks.CommitAsync(new TaskCommit(initial, 0, snapshot, deliveries)
+                            try
                             {
-                                // A store that shares a transaction with the idempotency store writes the outcome with the task.
-                                Idempotency = claim.ForCommit(new IdempotencyOutcome.TaskCreated(taskId))
-                            }).ConfigureAwait(false);
+                                committed = await _tasks.CommitAsync(new TaskCommit(initial, 0, snapshot, deliveries)
+                                {
+                                    // A store that shares a transaction with the idempotency store writes the outcome with the task.
+                                    Idempotency = claim.ForCommit(new IdempotencyOutcome.TaskCreated(taskId)),
+                                    MutationId = createId
+                                }).ConfigureAwait(false);
+                            }
+                            catch (Exception ex) when (createIds is not null && ex is not OperationCanceledException)
+                            {
+                                // As for later commits: the create may be stored although the call failed (the answer was
+                                // lost, or a store's own retry met its first attempt and reported a duplicate task). Then the
+                                // task exists and the run carries on; otherwise the failure is handled below, as before.
+                                if (await FindStoredCommitAsync(key, createIds, ex).ConfigureAwait(false) is not { } found)
+                                    throw;
+                                committed = found;
+                            }
                         }
                         catch when (push is not null)
                         {
