@@ -31,8 +31,12 @@ internal static class ClientOutboxFailures
                 retryAfter = a2a.RetryAfter;
                 // JSON-RPC errors arrive with HTTP status 200, so a missing or 2xx status says nothing: use the status of the error code.
                 var status = a2a.HttpStatus is { } h and not (>= 200 and <= 299) ? h : A2AErrors.HttpStatus(a2a.Code);
-                if (status is 503 or 429 or 401 or 403 or 408 || a2a.IsRetryable) return ClientOutboxFailureKind.Retry;
-                // The peer answered with a server error: it may have started the work before it failed.
+                // Only what the peer said makes an error retryable, as for RetryPolicy: not the default of the code
+                // (A2AException.IsRetryable), which is true for every unmarked Internal error.
+                if (status is 503 or 429 or 401 or 403 or 408 || RetryPolicy.IsRetryable(a2a))
+                    return ClientOutboxFailureKind.Retry;
+                // The peer answered with a server error: it may have started the work before it failed. An invalid answer
+                // (InvalidAgentResponse, status 500 by its code) lands here too: the peer may have taken the message.
                 if (status is >= 500 and <= 599) return ClientOutboxFailureKind.RetryInDoubt;
                 return ClientOutboxFailureKind.Fail;
             case HttpRequestException when RetryPolicy.ShouldRetry(RetryMode.UnsentOnly, error, out _):
