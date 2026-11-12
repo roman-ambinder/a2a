@@ -40,13 +40,11 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 
-# The agent URL for every command. --allow-http is needed for an http:// URL; the key still goes only to loopback. It goes
-# right after the command name, so that it stays an option when a command ends its options with "--".
+# The agent URL for every command. It is plain HTTP, but on loopback, so it needs no --allow-http (that option is for a
+# plain-HTTP agent on another host). The key goes only over HTTPS or to loopback, so loopback HTTP may carry it.
 export A2A_AGENT_URL="$URL/"
 a2a() {
-  local command="$1"
-  shift
-  dotnet run --project src/A2A.Cli -c Release --no-build -- "$command" --allow-http "$@"
+  dotnet run --project src/A2A.Cli -c Release --no-build -- "$@"
 }
 
 # check <expected exit code> <what> <command...>: runs the command, prints its output, compares the exit code.

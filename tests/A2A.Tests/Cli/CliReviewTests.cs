@@ -128,6 +128,44 @@ public sealed class CliReviewTests
     }
 }
 
+/// <summary>Network errors show their cause.</summary>
+public sealed class CliNetworkErrorTests
+{
+    private sealed class TlsFailureHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new HttpRequestException("The SSL connection could not be established, see inner exception.",
+                new System.Security.Authentication.AuthenticationException(
+                    "The remote certificate is invalid because of errors in the certificate chain: UntrustedRoot"));
+    }
+
+    [Fact]
+    public async Task A_tls_failure_shows_the_inner_reason()
+    {
+        var stderr = new StringWriter();
+        var env = new CliEnvironment(new StringWriter(), stderr, new StringReader(""), _ => null)
+        {
+            Handler = new TlsFailureHandler(),
+        };
+        var code = await CliApp.RunAsync(["card", "--agent", "https://agent.example.com/"], env, CancellationToken.None);
+        Assert.Equal(ExitCodes.Network, code);
+        var error = stderr.ToString();
+        Assert.Contains("The SSL connection could not be established", error);
+        Assert.Contains("UntrustedRoot", error);
+        Assert.DoesNotContain("see inner exception", error);
+    }
+
+    [Fact]
+    public void A_cause_already_in_the_message_is_not_repeated()
+    {
+        var ex = new HttpRequestException("Connection refused (localhost:1)",
+            new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.ConnectionRefused));
+        var (_, _, message) = CliApp.Classify(ex, CancellationToken.None);
+        Assert.Equal("Connection refused (localhost:1)", message);
+    }
+}
+
 /// <summary>Ctrl+C while the tool waits on standard input.</summary>
 public sealed class CliStdinCancelTests
 {

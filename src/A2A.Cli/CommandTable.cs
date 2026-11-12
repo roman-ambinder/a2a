@@ -17,7 +17,7 @@ internal static class CommandTable
         new("tenant", null, "name", "Tenant to send in each request."),
         new("transport", null, "jsonrpc|rest", "Use only this binding."),
         new("allow-http", null, null,
-            "Allow a plain HTTP agent URL. Credentials still go only over HTTPS or to loopback.")
+            "Allow a plain HTTP agent URL on a host that is not loopback (loopback needs no option). Credentials still go only over HTTPS or to loopback.")
     ];
 
     private static readonly OptionSpec[] Auth =
