@@ -16,7 +16,9 @@ public sealed class SafeHttpOptions
 
     /// <summary>
     ///     Outbound proxy. Default none (the system proxy is ignored). Egress policy for proxied requests is the proxy's
-    ///     job.
+    ///     job: the connect-time check sees only the proxy's address and the proxy resolves the target host itself, so DNS
+    ///     rebinding through the proxy is not blocked here. The proxy must refuse private and internal addresses after its
+    ///     own lookup.
     /// </summary>
     public IWebProxy? Proxy { get; set; }
 }
@@ -25,7 +27,8 @@ public sealed class SafeHttpOptions
 ///     Fetches URLs that a peer chose, such as a <see cref="UrlPart" /> in an incoming message (spec §14.1.1 requires SSRF
 ///     checks). Uses the same guard as push webhooks and <c>jku</c> fetches: private, loopback, link-local, CGNAT,
 ///     multicast and
-///     reserved ranges are blocked by the resolved address at connect time (DNS rebinding included), and redirects and
+///     reserved ranges are blocked by the resolved address at connect time (DNS rebinding included, except through a
+///     <see cref="SafeHttpOptions.Proxy" />), and redirects and
 ///     cookies are off.
 /// </summary>
 /// <example>

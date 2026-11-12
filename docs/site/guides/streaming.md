@@ -220,7 +220,10 @@ The API is experimental (`A2AEXP005`).
 - gRPC uses the bidi `SendLiveMessage` call. JSON-RPC (`SendLiveMessage`) and HTTP+JSON (`POST /message:live`) split it by
   the `Accept` header: the call with `Accept: text/event-stream` is the downlink (the stream); every other call is an
   uplink that must name its task and answers with the task. On HTTP a refused uplink call fails, and the same refusal
-  also shows on the downlink, so `SendAsync` throws and `Events` has the `StreamErrorEvent`.
+  also shows on the caller's own downlinks of the task, so `SendAsync` throws and `Events` has the `StreamErrorEvent`.
+  A refused call of another caller (who gets `TaskNotFound`) never reaches the owner's downlinks.
+- Each later request on a gRPC stream takes a token from the caller's [rate limit](limits-and-rate-limiting.md#rate-limit),
+  as an HTTP uplink call does. Without a token the request is refused with `RESOURCE_EXHAUSTED`, and the stream stays open.
 
 ### Input for a running agent
 
@@ -247,16 +250,19 @@ The response has `Content-Type: text/event-stream`. Each frame has an `id:` line
 
 ## gRPC
 
-gRPC streams carry no event ids, so resume is not supported on gRPC. After a lost stream, call `SubscribeToTask` again. You get a task snapshot, then live events. The server-side stream limits apply as on the other bindings.
+gRPC streams carry no event ids, so there is no `Last-Event-ID` resume on gRPC. The client transport does not implement <xref:A2A.Client.Streaming.IResumableTransport>. What a reconnect gets depends on the protocol version:
 
-The client transport does not implement <xref:A2A.Client.Streaming.IResumableTransport>. `ObserveTaskAsync` still reconnects over gRPC, but each reconnect subscribes again from the start, and events can be delivered again. Design the consumer to tolerate repeats. The same holds for a peer that sends no SSE ids. A custom transport can implement `IResumableTransport` to get resume.
+- **A2A 1.0.** No resume. A new `SubscribeToTask` gives a task snapshot, then live events. `ObserveTaskAsync` still reconnects over gRPC, but each reconnect subscribes again from the start, and events can be delivered again. Design the consumer to tolerate repeats. The same holds for a peer that sends no SSE ids.
+- **A2A 1.1.** `SubscribeToTaskRequest` has `last_seen_generation`. `ObserveTaskAsync` (and `SendStreamingMessageAsync` once it knows the task id) reconnects with the last generation it saw, and the server continues after it without a task snapshot. If the server no longer has the events after it, the stream starts with a snapshot instead. An event whose generation the client already saw is dropped, so nothing repeats. This needs a server that sends generations: one that sends 0, or one generation on two update events in a row, turns it off for that stream, and a reconnect then gets a snapshot as on 1.0. The client sends `lastSeenGeneration` only when its `ProtocolVersion` is 1.1 or later and the interface it calls is 1.1 (a fallback to an older interface sends none), and the server reads it only from a 1.1 caller.
+
+Over gRPC no frame has an event id, so no reconnect counts as progress: the five reconnect attempts are not renewed by new events. The server-side stream limits apply as on the other bindings. A custom transport can implement `IResumableTransport` to get `Last-Event-ID` resume.
 
 ## What can go wrong
 
 - `UnsupportedOperation` on subscribe: the task is terminal. Call `GetTask`, or use `ObserveTaskAsync`, which returns the final snapshot.
 - `RATE_LIMITED` when opening a stream: too many streams for this task or caller. The error carries a retry hint of one second.
 - A resume returns a snapshot, not the missed events: the replay buffer was too small, or the task finished more than `TerminalRetention` ago.
-- Events repeat after a reconnect: the peer sends no event ids, or you use gRPC.
+- Events repeat after a reconnect: the peer sends no event ids, or you use gRPC on A2A 1.0 (on 1.1 the client resumes by generation).
 - A proxy buffers the stream: the server sends `X-Accel-Buffering: no` and `Cache-Control: no-cache`. Check the proxy's own buffering settings and its idle timeout against `KeepAliveInterval`.
 
 ## See also

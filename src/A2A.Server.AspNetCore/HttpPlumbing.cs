@@ -104,6 +104,9 @@ internal static partial class HttpPlumbing
             TenantFromRoute = http.GetRouteValue("tenant") is string { Length: > 0 },
             RouteValues = RouteValues(http),
             Binding = binding,
+#pragma warning disable A2AEXP005 // the live exchange of A2A 1.1
+            LiveRequestAdmission = A2ARateLimiterPolicy.LiveAdmission(http),
+#pragma warning restore A2AEXP005
             TraceParent = A2ATelemetry.TryExtractTraceContext(
                 http.Request.Headers[A2ATelemetry.TraceParentHeader],
                 http.Request.Headers[A2ATelemetry.TraceStateHeader], out var parent)

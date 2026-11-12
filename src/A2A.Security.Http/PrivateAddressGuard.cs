@@ -173,8 +173,9 @@ public static class PrivateAddressGuard
     ///     <paramref name="hostKind" />
     ///     names the target in error messages ("Webhook", "JWKS"). When a proxy handles a request, the connection to the proxy
     ///     itself is
-    ///     not checked: egress policy for proxied requests is the proxy's job. Requests the proxy bypasses are checked like
-    ///     direct ones.
+    ///     not checked: egress policy for proxied requests is the proxy's job. The proxy resolves the target host itself, so
+    ///     DNS rebinding through it is not blocked here: the proxy must refuse internal addresses after its own lookup.
+    ///     Requests the proxy bypasses are checked like direct ones.
     /// </summary>
     public static SocketsHttpHandler CreateHandler(bool allowPrivateNetworks, string hostKind,
         IReadOnlyCollection<(IPAddress Network, int PrefixLength)>? allowedNetworks = null, IWebProxy? proxy = null)

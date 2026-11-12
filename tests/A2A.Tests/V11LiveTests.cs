@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using A2A.Grpc;
+using A2A.Server.AspNetCore;
 using Grpc.Core;
 using A2aPb = Lf.A2a.V1;
 
@@ -39,9 +40,9 @@ public sealed class V11LiveTests
         }
     }
 
-    private static async Task<JsonElement> UplinkAsync(TestAgentHost host, object @params)
+    private static async Task<JsonElement> UplinkAsync(TestAgentHost host, object @params, string user = "alice")
     {
-        using var response = await host.Http("alice").SendAsync(Rpc(@params, "1.1", downlink: false));
+        using var response = await host.Http(user).SendAsync(Rpc(@params, "1.1", downlink: false));
         return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone();
     }
 
@@ -93,6 +94,34 @@ public sealed class V11LiveTests
         Assert.True(await frames.MoveNextAsync()); // the message update
         Assert.True(await frames.MoveNextAsync());
         Assert.Equal("TASK_STATE_COMPLETED", State(frames.Current.GetProperty("statusUpdate")));
+    }
+
+    [Fact]
+    public async Task A_refused_uplink_call_of_another_caller_does_not_reach_the_owners_downlinks()
+    {
+        await using var host = await StartAsync();
+        using var downlink = await host.Http("alice").SendAsync(Rpc(Send("input"), "1.1", downlink: true), HttpCompletionOption.ResponseHeadersRead);
+        var frames = FramesAsync(downlink).GetAsyncEnumerator();
+        Assert.True(await frames.MoveNextAsync());
+        var id = frames.Current.GetProperty("task").GetProperty("id").GetString()!;
+        Assert.True(await frames.MoveNextAsync());
+        // A second downlink of the owner on the same task (opened by subscribing).
+        using var second = await host.Http("alice").SendAsync(Rpc(new { subscribe = new { id } }, "1.1", downlink: true), HttpCompletionOption.ResponseHeadersRead);
+        var secondFrames = FramesAsync(second).GetAsyncEnumerator();
+        Assert.True(await secondFrames.MoveNextAsync());
+        Assert.Equal(id, secondFrames.Current.GetProperty("task").GetProperty("id").GetString());
+
+        // Bob knows the task id but does not own the task: his call fails, and nothing of it reaches Alice's streams.
+        var foreign = await UplinkAsync(host, Send("x", id, "m-bob"), user: "bob");
+        Assert.Equal((int)A2AErrorCode.TaskNotFound, foreign.GetProperty("error").GetProperty("code").GetInt32());
+
+        // The owner's own refusal still reaches each of her downlinks, and it is the next frame on both.
+        var bad = new { sendMessage = new { message = new { messageId = "m-bad", role = "ROLE_USER", parts = Array.Empty<object>(), taskId = id } } };
+        await UplinkAsync(host, bad);
+        Assert.True(await frames.MoveNextAsync());
+        Assert.Equal("m-bad", frames.Current.GetProperty("error").GetProperty("referenceId").GetString());
+        Assert.True(await secondFrames.MoveNextAsync());
+        Assert.Equal("m-bad", secondFrames.Current.GetProperty("error").GetProperty("referenceId").GetString());
     }
 
     [Fact]
@@ -229,6 +258,48 @@ public sealed class V11LiveTests
         ScenarioAgent.Gate("gate live-refused").TrySetResult();
         Assert.True(await events.MoveNext());
         Assert.Equal(A2aPb.TaskState.Completed, events.Current.StatusUpdate.Status.State);
+    }
+
+    [Fact]
+    public async Task Each_later_request_of_a_grpc_live_stream_takes_a_token_from_the_callers_rate_limit()
+    {
+        await using var host = await TestAgentHost.StartAsync(o => o.EnableProtocolV11(), grpc: true,
+            services: s => s.AddA2ARateLimiting(o =>
+            {
+                o.TokenLimit = 3;
+                o.TokensPerPeriod = 1;
+                o.ReplenishmentPeriod = TimeSpan.FromMinutes(10);
+            }));
+        var client = new A2aPb.A2AService.A2AServiceClient(host.GrpcChannel("alice"));
+        using var call = client.SendLiveMessage(new Metadata { { "a2a-version", "1.1" } });
+        await call.RequestStream.WriteAsync(Grpc(Send("listen"))); // the call itself: one token
+        var events = call.ResponseStream;
+        Assert.True(await events.MoveNext()); // the task
+        Assert.True(await events.MoveNext()); // WORKING
+
+        // Two more tokens: two later requests are taken.
+        foreach (var text in new[] { "one", "two" })
+        {
+            await call.RequestStream.WriteAsync(Grpc(Send(text)));
+            Assert.True(await events.MoveNext());
+            Assert.Equal(text, events.Current.MessageUpdate.Message.Parts[0].Text);
+            Assert.True(await events.MoveNext());
+            Assert.StartsWith("heard: " + text, events.Current.StatusUpdate.Status.Message.Parts[0].Text, StringComparison.Ordinal);
+        }
+
+        // The bucket is empty: the next request is refused as a unary call would be, and the stream stays open.
+        await call.RequestStream.WriteAsync(Grpc(Send("three", messageId: "m-three")));
+        Assert.True(await events.MoveNext());
+        Assert.Equal("RESOURCE_EXHAUSTED", events.Current.Error.Code);
+        Assert.Equal("m-three", events.Current.Error.ReferenceId);
+
+        // The stream and the unary calls draw from the same bucket.
+        var unary = await Assert.ThrowsAsync<RpcException>(() => client.GetTaskAsync(new A2aPb.GetTaskRequest { Id = "t" }).ResponseAsync);
+        Assert.Equal(StatusCode.ResourceExhausted, unary.StatusCode);
+        // Another caller has its own bucket.
+        var bob = new A2aPb.A2AService.A2AServiceClient(host.GrpcChannel("bob"));
+        var other = await Assert.ThrowsAsync<RpcException>(() => bob.GetTaskAsync(new A2aPb.GetTaskRequest { Id = "t" }).ResponseAsync);
+        Assert.NotEqual(StatusCode.ResourceExhausted, other.StatusCode);
     }
 
     [Theory]

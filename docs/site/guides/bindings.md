@@ -86,7 +86,7 @@ A runnable version, with a gRPC port, the card order and all three client choice
 | Extensions echo | `A2A-Extensions` response header, also on errors | `a2a-extensions` initial metadata on success; in the trailers when the call fails |
 | Extension operations | `POST /ext/{method}`, or a JSON-RPC method | `a2a.extensions.v1.A2AExtensionService`, unary only. Map it with `MapA2AGrpcExtensions`. |
 | Tenant | Route segment, or the `tenant` field of the request | The `tenant` field of the request |
-| Stream resume | `Last-Event-ID` | Not supported. See [Streaming and resume](streaming.md). |
+| Stream resume | `Last-Event-ID` (on A2A 1.1, `lastSeenGeneration` when the peer sends no event ids) | A2A 1.0: none, a reconnect gets a task snapshot and events can repeat. A2A 1.1: `last_seen_generation` resumes after the last generation seen. See [Streaming and resume](streaming.md#grpc). |
 | `ConfigureRequest` | Supported | Throws `NotSupportedException` |
 | Request size | HTTP 413 above `MaxRequestBodyBytes` | `RESOURCE_EXHAUSTED` from the gRPC layer. The client reports it as `InvalidRequest` with reason `PAYLOAD_TOO_LARGE`. |
 | Protocol | HTTP/1.1 or HTTP/2 | HTTP/2 |

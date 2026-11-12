@@ -25,7 +25,8 @@ public sealed class PushNotificationOptions
     /// <summary>
     ///     Allow webhooks that resolve to loopback, private, link-local, CGNAT, or unique-local addresses. Default false (SSRF
     ///     guard).
-    ///     The check runs at connect time against the resolved IP, which also blocks DNS rebinding.
+    ///     The check runs at connect time against the resolved IP, which also blocks DNS rebinding on direct connections
+    ///     (see <see cref="Proxy" /> for proxied ones).
     /// </summary>
     public bool AllowPrivateNetworks { get; set; }
 
@@ -37,9 +38,12 @@ public sealed class PushNotificationOptions
         new List<(IPAddress Network, int PrefixLength)>();
 
     /// <summary>
-    ///     Proxy for webhook delivery. When null (default) the system proxy is ignored. Requests sent through a proxy rely on
-    ///     the proxy
-    ///     for egress policy (including DNS rebinding at the proxy); requests the proxy bypasses get the normal IP check.
+    ///     Proxy for webhook delivery. When null (default) the system proxy is ignored. Requests the proxy bypasses get the
+    ///     normal connect-time IP check. Requests sent through the proxy do not: the connect-time check sees only the proxy's
+    ///     address, and the proxy resolves the webhook host itself. The only check on the webhook host is then the SDK's DNS
+    ///     lookup before each attempt, so a host that resolves public for that lookup and private (for example
+    ///     169.254.169.254) when the proxy resolves it is reached (DNS rebinding). The proxy must enforce egress filtering:
+    ///     refuse private, loopback, link-local and other internal addresses after its own lookup.
     /// </summary>
     public IWebProxy? Proxy { get; set; }
 
