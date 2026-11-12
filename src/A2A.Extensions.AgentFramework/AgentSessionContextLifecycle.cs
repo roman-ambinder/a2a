@@ -32,8 +32,9 @@ internal sealed class AgentSessionContextLifecycle(
                 : scope.ServiceProvider.GetRequiredKeyedService<AIAgent>(registration.ServiceKey);
             try
             {
-                await store.DeleteSessionAsync(agent,
-                    SessionKeys.For(context.Tenant, context.Owner, context.ContextId), cancellationToken).ConfigureAwait(false);
+                // The owner's session, and the session of every other caller of a shared context (SessionIndex).
+                await SessionIndex.DeleteAllAsync(store, agent, context.Tenant, context.ContextId, context.Owner,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
