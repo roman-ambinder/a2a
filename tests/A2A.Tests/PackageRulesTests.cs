@@ -94,6 +94,26 @@ public sealed class PackageRulesTests
         AssertOnlyAbstractions("A2A.Server.Redis", r => r == "StackExchange.Redis" || IsExtensionsAbstraction(r));
 
     [Fact]
+    public void AgentFramework_references_only_agent_framework_abstractions() =>
+        AssertOnlyAbstractions("A2A.Extensions.AgentFramework",
+            r => r == "Microsoft.Agents.AI.Abstractions" || IsExtensionsAbstraction(r));
+
+    [Fact]
+    public void AgentFramework_does_not_reference_the_official_A2A_stack()
+    {
+        // The NuGet package A2A defines A2A.AgentCard, A2A.Message, A2A.Part, A2A.Artifact and A2A.AgentTask, the same full
+        // names as A2A.Protocol, and Microsoft.Agents.AI.A2A and Microsoft.Agents.AI.Hosting.A2A depend on it.
+        var doc = SrcProjects().Single(p => p.Name == "A2A.Extensions.AgentFramework").Doc;
+        var offenders = doc.Descendants("PackageReference")
+            .Select(e => (string?)e.Attribute("Include") ?? "")
+            .Where(r => r == "A2A"
+                || r.StartsWith("Microsoft.Agents.AI.A2A", StringComparison.Ordinal)
+                || r.StartsWith("Microsoft.Agents.AI.Hosting", StringComparison.Ordinal)
+                || r == "Microsoft.Agents.AI");
+        Assert.Empty(offenders);
+    }
+
+    [Fact]
     public void TypedSkills_references_only_system_text_json_and_extensions_abstractions() =>
         AssertOnlyAbstractions("A2A.Server.TypedSkills", r => r == "System.Text.Json" || IsExtensionsAbstraction(r));
 

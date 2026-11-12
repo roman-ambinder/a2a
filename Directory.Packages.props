@@ -8,6 +8,8 @@
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="8.0.2" />
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
+    <!-- Abstractions only (stable). A2A.Extensions.AgentFramework must not use the preview A2A hosting packages. -->
+    <PackageVersion Include="Microsoft.Agents.AI.Abstractions" Version="1.28.0" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="8.0.1" />
     <PackageVersion Include="ModelContextProtocol.Core" Version="2.4.0" />
     <PackageVersion Include="ModelContextProtocol" Version="2.4.0" />

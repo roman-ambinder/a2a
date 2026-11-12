@@ -67,6 +67,10 @@ jobs:
       - name: Test Extensions.AI (net10.0)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test --project tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
+
+      - name: Test Extensions.AgentFramework (net10.0)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet test --project tests/A2A.Extensions.AgentFramework.Tests/A2A.Extensions.AgentFramework.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
       - name: Test Mcp (net10.0)
         run: dotnet test --project tests/A2A.Mcp.Tests/A2A.Mcp.Tests.csproj -c Release --no-build --report-xunit-trx --results-directory TestResults
 

@@ -75,7 +75,7 @@ The first six match `ChatClientAgentOptions`, with the same defaults and the sam
 The A2A task store is the source of truth for history. AF sessions are a second, optional copy.
 
 - **`Stateless` (default).** Each execution creates a fresh session (`CreateSessionAsync`). The prompt is built from A2A history exactly as `ChatClientAgentExecutor.BuildPromptAsync` does (system message excluded, since instructions are the agent's): history, the new message if missing, trim, leading agent messages dropped, optional context memory as a user message. That builder moves to linked source in `src/Shared/AI/`, compiled into both packages (the repo forbids `InternalsVisibleTo` between shipped packages). Nothing outlives the execution, so nothing needs a lifecycle.
-- **`Stored`.** Requires an `AgentSessionStore` (startup fails without one, naming the option). The key is `new AgentSessionStoreKey(contextId).WithPartition("a2a.tenant", call.Tenant).WithPartition("a2a.owner", call.Principal)`. Owner and tenant are partitions, so one caller can never load another caller's session for the same context id. Only the new message is sent; the session holds the rest. The session is saved after every run, including failed and canceled runs, so an approval or an interrupted state can resume.
+- **`Stored`.** Requires an `AgentSessionStore` (startup fails without one, naming the option). The key is `new AgentSessionStoreKey(contextId).WithPartition("a2a.tenant", "t:" + call.Tenant).WithPartition("a2a.owner", "o:" + call.Principal)`. The prefixes are needed: `WithPartition` throws `ArgumentException` ("Argument is whitespace") for an empty value, and this SDK's default tenant is `""` (found in Task 3 by running it). Owner and tenant are partitions, so one caller can never load another caller's session for the same context id. Only the new message is sent; the session holds the rest. The session is saved after every run, including failed and canceled runs, so an approval or an interrupted state can resume.
 - Two tasks of one context that run at the same time in `Stored` mode race on the session: last save wins. This is documented, as `ConversationMemory.SetSummaryAsync` documents it. Serialising them would need a lock across instances; out of scope.
 
 ### Flow
@@ -153,10 +153,11 @@ Fake `AIAgent` subclass and fake `AgentSessionStore`, no network:
 
 ## Open questions
 
-1. AOT and trimming: is `Microsoft.Agents.AI.Abstractions` free of trim warnings on net10.0? `A2A.Extensions.AI` is `IsAotCompatible`; if AF is not, this package sets it off and says so. Not checked (no `dotnet` was available when this was written).
+1. AOT and trimming: **answered in Task 3.** `Microsoft.Agents.AI.Abstractions` 1.28.0 carries `AssemblyMetadata("IsTrimmable", "True")` and `("IsAotCompatible", "True")`, and a native AOT publish of a probe that calls the APIs this design uses (subclassed `AIAgent` runs, sessions, `StateBag` with a source-generated context, `AgentSessionStoreKey`, `ResponseContinuationToken`, `ToolApprovalRequestContent.CreateResponse`, `AgentResponse(ChatResponse)`) gave 0 warnings and ran. The package stays `IsAotCompatible`.
 2. `AIAgent.CurrentRunContext` could carry the A2A context instead of `AdditionalProperties`. Its setter semantics (static, async-local or per instance) were not checked.
 3. Should `ToolApprovals = Bound` be the default when an `AgentSessionStore` is registered? Off by default is the safer start.
 4. AF hosting is still preview, and its session API may change before 1.0 of `Microsoft.Agents.AI.Hosting`. This package depends only on the stable Abstractions to limit that, and is experimental until reviewed against the next AF release.
+5. **Upstream experimental APIs (found in Task 3).** `AgentSessionStore` and `AgentSessionStoreKey` are `[Experimental("MAAI001")]`, and `AgentRunOptions.ContinuationToken` and `AgentResponse.ContinuationToken` are `[Experimental("MEAI001")]`. `Stored` sessions, the context lifecycle hook and background responses therefore rest on evaluation-only upstream APIs, and `AIAgentExecutor`'s constructor exposes `AgentSessionStore`, so its callers see `MAAI001` too. Plain stateless hosting and the client agent without background responses do not. The adapter stays experimental (`A2AEXP006`) at least until these are stable upstream.
 
 ## Out of scope
 

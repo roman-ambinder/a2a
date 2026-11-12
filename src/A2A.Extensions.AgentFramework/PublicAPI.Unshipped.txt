@@ -1,0 +1,6 @@
+#nullable enable
+[A2AEXP006]A2A.Extensions.AgentFramework.A2AAgentKeys
+[A2AEXP006]const A2A.Extensions.AgentFramework.A2AAgentKeys.ContextId = "a2a.contextId" -> string!
+[A2AEXP006]const A2A.Extensions.AgentFramework.A2AAgentKeys.ReferenceTaskIds = "a2a.referenceTaskIds" -> string!
+[A2AEXP006]const A2A.Extensions.AgentFramework.A2AAgentKeys.TaskId = "a2a.taskId" -> string!
+[A2AEXP006]const A2A.Extensions.AgentFramework.A2AAgentKeys.TaskState = "a2a.taskState" -> string!

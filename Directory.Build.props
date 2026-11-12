@@ -13,7 +13,7 @@
         <Deterministic>true</Deterministic>
 
         <!-- [Experimental] APIs (see docs/site/guides/versioning.md). The repo's own code, tests, samples and snippets opt in here. -->
-        <NoWarn>$(NoWarn);A2AEXP001;A2AEXP002;A2AEXP003;A2AEXP004;A2AEXP005</NoWarn>
+        <NoWarn>$(NoWarn);A2AEXP001;A2AEXP002;A2AEXP003;A2AEXP004;A2AEXP005;A2AEXP006</NoWarn>
         <!-- Native AOT publish: pass -p:A2APublishAot=true, not -p:PublishAot=true. A global PublishAot reaches the
              netstandard2.0 builds of referenced multi-target projects and fails with NETSDK1207. This sets it per project. -->
         <PublishAot Condition="'$(A2APublishAot)' == 'true' And '$(TargetFramework)' != 'netstandard2.0'">true</PublishAot>
