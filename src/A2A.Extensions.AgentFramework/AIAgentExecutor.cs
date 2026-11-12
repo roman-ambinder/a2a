@@ -109,7 +109,7 @@ public sealed class AIAgentExecutor : IAgentExecutor
         var stored = await _sessions.GetOrCreateSessionAsync(_agent, key, cancellationToken).ConfigureAwait(false);
         // The session holds the conversation: send only the new message, after the answer to a pending approval.
         var contents = new List<AIContent>();
-        if (PendingToolApproval.Take(stored) is { } pending && AnswerFor(pending, context) is { } answer)
+        if (PendingToolApproval.Take(stored, context.TaskId) is { } pending && AnswerFor(pending, context) is { } answer)
             contents.Add(answer);
         foreach (var part in context.Message.Parts)
             if (ModelContent.ToModelContent(part, _options.AllowUrlParts) is { } content)

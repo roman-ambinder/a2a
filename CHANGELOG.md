@@ -158,6 +158,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- Agent Framework: each task keeps its own pending tool approval in the session. A session had one slot per context,
+  so any other run in the context (another task) took a waiting task's request out. The approved tool then never ran,
+  although the server accepted the approval. Pending requests are now kept per task (at most 16 per session). A request
+  saved by an earlier version, in the old single slot, is still answered for its own task.
 - Server: a batch commit is no longer stored twice after a version conflict caused by the store's own write (a store
   that retries a commit and meets its first attempt). With a store that has batch commits but no `ITaskCommitLookup`,
   the engine handed the batch to the single-event path, which appended every chunk again. Now it checks whether the
