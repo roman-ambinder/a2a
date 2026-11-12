@@ -126,5 +126,5 @@ The task row would hold a snapshot taken every so often. A read would apply the 
    - **Limits of this measurement:**
      - It is a single run on one machine, so the times are rough. The WAL figures depend less on timing.
      - Real model text compresses differently from these random letters, and TOAST compresses the `task` column.
-2. [ ] Decide from the numbers (owner). The "off" row is the slow-producer case, and it costs 140–640 times the payload in WAL, against 6–20 times with batching. That is the factor Option C would remove for appends. If a long chunk stream costs more than its batched equivalent by a factor worth fixing, design Option C in its own short spec: the table, the migration, and a round-trip test.
+2. [ ] Decide from the numbers (owner). Design for Option C: `docs/superpowers/specs/2026-11-12-postgres-artifact-rows-design.md`. The "off" row is the slow-producer case, and it costs 140–640 times the payload in WAL, against 6–20 times with batching. That is the factor Option C would remove for appends. If a long chunk stream costs more than its batched equivalent by a factor worth fixing, design Option C in its own short spec: the table, the migration, and a round-trip test.
 3. [ ] Until then, say in `docs/site/guides/durable-stores.md` that each commit rewrites the whole task, and that long artifacts should be offloaded.
