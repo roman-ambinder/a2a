@@ -15,7 +15,7 @@ How a task changes today:
 - **Why the copies exist.** A stored task is a snapshot that readers share. `TaskStore` says the store owns what it returns and *"callers never mutate it"* (`src/A2A.Server/Storage/TaskStore.cs:110`). The in-memory store keeps and returns those instances without copying (`InMemoryTaskStore.cs:8-10`). `TaskShaper.Shape` hands the stored lists to responses as they are (`src/A2A.Server/Pipeline/TaskShaper.cs:28-33`, `41-46`). So a new version must not change a list that an old version holds. Two `List<T>` objects cannot share one backing array, so the only safe way to append is to copy.
 - **Batching helps only when events queue.** Chunks are merged only when the next one is already waiting in the channel (`reader.TryPeek`, `TaskExecutionEngine.cs:911-916`), up to `MaxCommitBatch` = 64 (line 89). Status updates are never batched (`IsBatchable`, line 1437). A producer slower than a commit, such as a model streaming tokens, gets one copy per chunk.
 - **Stores that serialize pay O(n) anyway.** Postgres writes the whole task JSON on each commit (ADR-003). With `PostgresStoreOptions.ArtifactRows` the parts move to their own rows, and an append writes only the new parts (ADR-003, "Results with Option C"). History and timeline still sit in the task JSON, so a status update with a message still rewrites them. `PostgresArtifactRows.WithoutParts` also calls `CopyForUpdate` on each write (`src/A2A.Server.Postgres/PostgresArtifactRows.cs:26-31`).
-- **Nothing caps the stored lists by count.** `MaxHistoryLengthReturned` and `MaxTimelineLengthReturned` (default 100, `A2ALimits.cs:43`, `64`) cap only what a response returns. The task itself grows until `MaxTaskBytes` (64 MiB, `A2ALimits.cs:122`).
+- **Only the timeline is capped by count.** `MaxHistoryLengthReturned` and `MaxTimelineLengthReturned` (default 100) cap only what a response returns. `MaxTimelineEntries` (default 1000, `A2ALimits.cs:73`) keeps the newest stored timeline entries, which bounds the timeline copy at 1000 entries. History has no count cap: it grows until `MaxTaskBytes` (64 MiB).
 
 ### Measurements
 
@@ -114,7 +114,7 @@ The list copy explains most of what the server allocates. A status update with a
 
 ### Option C: Caps and coalescing only
 
-- **A stored count cap** (keep the newest N history messages and timeline entries in the task) would bound each copy at N. But agents get the stored history (`AgentExecutor.cs:51-56`), so they would see less. A host that raises `MaxHistoryLengthReturned` could no longer return older entries. The timeline's generation numbering would also need checking against the 1.1 spec.
+- **A stored count cap** (keep the newest N history messages and timeline entries in the task) would bound each copy at N. But agents get the stored history (`AgentExecutor.cs:51-56`), so they would see less. A host that raises `MaxHistoryLengthReturned` could no longer return older entries. For the timeline this is now done (`MaxTimelineEntries`): resume reads the event store, not the stored timeline, so trimming it does not change resume. History stays uncapped.
 - **Coalescing consecutive text parts** keeps the part count at 1. But the text string must then be copied on each append. The prototype's `string.Concat` row allocates more than the list copy: 80.120 MB against 64.240 MB at n=4000. It also changes what clients see: part boundaries, and per-part metadata that cannot be merged.
 
 ### Option D: Change nothing, document it
