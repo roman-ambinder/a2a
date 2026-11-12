@@ -106,7 +106,6 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
         {
             bool createsApp = false, callsOwnHostingCode = false, anonymousOptIn = false, authorizedByDefault = false;
             var maps = new List<IInvocationOperation>();
-            var requireAuthorizationReceivers = new HashSet<ILocalSymbol>(SymbolEqualityComparer.Default);
             foreach (var op in root.DescendantsAndSelf())
             {
                 if (op is ISimpleAssignmentOperation assignment)
@@ -133,10 +132,6 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
                         when method.ContainingType?.ToDisplayString() == "Microsoft.AspNetCore.Builder.WebApplication":
                         createsApp = true;
                         break;
-                    case "RequireAuthorization":
-                        if (Receiver(invocation) is ILocalReferenceOperation { Local: var local })
-                            requireAuthorizationReceivers.Add(local);
-                        break;
                     case var name when MapMethods.Contains(name) && ns is "A2A.Server.AspNetCore" or "A2A.Server.Grpc":
                         maps.Add(invocation);
                         break;
@@ -149,7 +144,7 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
                 // The whole setup is here: report now, so the IDE shows it while you type. The end-of-build check
                 // never sees these maps, so nothing is reported twice.
                 foreach (var map in maps)
-                    if (!anonymousOptIn && !authorizedByDefault && !IsAuthorized(map, requireAuthorizationReceivers))
+                    if (!anonymousOptIn && !authorizedByDefault && !IsAuthorized(map, root))
                         context.ReportDiagnostic(Diagnostic.Create(NoAuthorizationLive, map.Syntax.GetLocation(),
                             map.TargetMethod.Name));
 
@@ -157,43 +152,218 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
             }
 
             foreach (var map in maps)
-                if (!IsAuthorized(map, requireAuthorizationReceivers))
+                if (!IsAuthorized(map, root))
                     state.Unauthorized.Add((map.Syntax.GetLocation(), map.TargetMethod.Name));
         }
     }
 
     /// <summary>
-    ///     True when the mapped endpoints get authorization that can be seen here: a chained <c>RequireAuthorization()</c>,
-    ///     a call on the local that holds the result, or a receiver that is itself a route group (which may carry the
-    ///     policy).
+    ///     False when the mapped endpoints are provably without authorization, as the startup check sees them: it wants
+    ///     <c>IAuthorizeData</c> metadata (<c>RequireAuthorization(...)</c>, <c>WithMetadata(new AuthorizeAttribute())</c>,
+    ///     on the endpoints or on an outer group) and no <c>IAllowAnonymous</c> metadata. When the result, or the group it is
+    ///     mapped on, goes to code this method does not follow (your own method, a field, a return), that code may add
+    ///     authorization, so nothing is reported and the startup check decides.
     /// </summary>
-    private static bool IsAuthorized(IInvocationOperation map, HashSet<ILocalSymbol> requireAuthorizationReceivers)
+    private static bool IsAuthorized(IInvocationOperation map, IOperation root)
     {
-        if (Receiver(map)?.Type?.Name == "RouteGroupBuilder") return true;
+        var walk = new BuilderWalk(root);
+        var auth = walk.Uses(map, 0) | walk.Origin(Receiver(map), 0);
+        return (auth & Auth.Anonymous) == 0 && (auth & (Auth.Authorized | Auth.Unknown)) != 0;
+    }
 
-        IOperation current = map;
-        while (current.Parent is { } parent)
+    /// <summary>What code applies to an endpoint builder. Flags, since several paths can apply several things.</summary>
+    [Flags]
+    private enum Auth
+    {
+        None = 0,
+
+        /// <summary><c>IAuthorizeData</c> metadata.</summary>
+        Authorized = 1,
+
+        /// <summary><c>IAllowAnonymous</c> metadata, which fails the startup check whatever else is there.</summary>
+        Anonymous = 2,
+
+        /// <summary>Code that is not followed, which may add either.</summary>
+        Unknown = 4
+    }
+
+    /// <summary>Follows an endpoint builder through one method body: the calls on it and the locals that hold it.</summary>
+    private sealed class BuilderWalk
+    {
+        private const int MaxDepth = 4;
+        private const string AuthorizeData = "Microsoft.AspNetCore.Authorization.IAuthorizeData";
+        private const string AllowAnonymous = "Microsoft.AspNetCore.Authorization.IAllowAnonymous";
+        private readonly IOperation root;
+
+        public BuilderWalk(IOperation root)
         {
-            switch (parent)
-            {
-                case IConversionOperation or IArgumentOperation or IParenthesizedOperation:
-                    current = parent;
-                    continue;
-                case IInvocationOperation { TargetMethod.Name: "RequireAuthorization" }:
-                    return true;
-                case IInvocationOperation chained when ReferenceEquals(Receiver(chained), Unwrap(current)):
-                    current = chained; // another convention (WithName, ...) first: keep looking up the chain
-                    continue;
-                case IVariableInitializerOperation { Parent: IVariableDeclaratorOperation { Symbol: var local } }:
-                    return requireAuthorizationReceivers.Contains(local);
-                case ISimpleAssignmentOperation { Target: ILocalReferenceOperation { Local: var assigned } }:
-                    return requireAuthorizationReceivers.Contains(assigned);
-            }
-
-            return false;
+            this.root = root;
         }
 
-        return false;
+        /// <summary>What the uses of the builder that <paramref name="value" /> produces apply to it.</summary>
+        public Auth Uses(IOperation value, int depth)
+        {
+            var auth = Auth.None;
+            var current = value;
+            while (true)
+            {
+                var parent = current.Parent;
+                while (parent is IConversionOperation or IParenthesizedOperation)
+                {
+                    current = parent;
+                    parent = parent.Parent;
+                }
+
+                if (parent is IArgumentOperation { Parent: IInvocationOperation outer } argument &&
+                    ReferenceEquals(Receiver(outer), value))
+                {
+                    current = argument; // an extension method called in reduced form: the builder is its receiver
+                    parent = outer;
+                }
+
+                switch (parent)
+                {
+                    case IInvocationOperation call when ReferenceEquals(Receiver(call), value):
+                        var (applied, fluent) = Convention(call);
+                        auth |= applied;
+                        if (!fluent) return auth;
+                        current = value = call; // the convention returns the builder: keep looking up the chain
+                        continue;
+                    case IExpressionStatementOperation:
+                        return auth; // the result is dropped
+                    case IVariableInitializerOperation { Parent: IVariableDeclaratorOperation { Symbol: var local } }:
+                        return auth | Local(local, depth);
+                    case ISimpleAssignmentOperation { Target: ILocalReferenceOperation { Local: var assigned } } assignment
+                        when ReferenceEquals(assignment.Value, current):
+                        return auth | Local(assigned, depth);
+                    default:
+                        return auth | Auth.Unknown; // an argument, a field, a return, ...: code that is not followed
+                }
+            }
+        }
+
+        /// <summary>What is applied to the group <paramref name="receiver" /> evaluates to, through the calls that made it.</summary>
+        public Auth Origin(IOperation? receiver, int depth)
+        {
+            if (receiver?.Type?.Name != "RouteGroupBuilder") return Auth.None; // the app, or a plain route builder
+            if (depth > MaxDepth) return Auth.Unknown;
+            switch (receiver)
+            {
+                case IInvocationOperation call when IsFramework(call.TargetMethod) &&
+                                                    call.TargetMethod.Name.StartsWith("Map", StringComparison.Ordinal):
+                    return Origin(Receiver(call), depth + 1); // a new group (MapGroup, MapA2A): outer groups apply to it
+                case IInvocationOperation call:
+                    var (applied, fluent) = Convention(call);
+                    return fluent ? applied | Origin(Receiver(call), depth + 1) : applied | Auth.Unknown;
+                case ILocalReferenceOperation { Local: var local }:
+                    return Local(local, depth);
+                default:
+                    return Auth.Unknown; // a parameter, a field, ...: made by code that is not followed
+            }
+        }
+
+        /// <summary>What is applied to the builder a local holds: by the values assigned to it and by its uses.</summary>
+        private Auth Local(ILocalSymbol local, int depth)
+        {
+            if (depth > MaxDepth) return Auth.Unknown;
+            var auth = Auth.None;
+            foreach (var op in root.Descendants())
+                switch (op)
+                {
+                    case IVariableDeclaratorOperation { Initializer.Value: var value } declarator
+                        when SymbolEqualityComparer.Default.Equals(declarator.Symbol, local):
+                        auth |= Origin(Strip(value), depth + 1);
+                        break;
+                    case ISimpleAssignmentOperation { Target: ILocalReferenceOperation target } assignment
+                        when SymbolEqualityComparer.Default.Equals(target.Local, local):
+                        auth |= Origin(Strip(assignment.Value), depth + 1);
+                        break;
+                    case ILocalReferenceOperation reference
+                        when SymbolEqualityComparer.Default.Equals(reference.Local, local) &&
+                             !(reference.Parent is ISimpleAssignmentOperation a && ReferenceEquals(a.Target, reference)):
+                        auth |= Uses(reference, depth + 1);
+                        break;
+                }
+
+            return auth;
+        }
+
+        /// <summary>
+        ///     What a call on an endpoint builder applies to it, and whether it returns that builder. Calls that create
+        ///     endpoints on it (<c>MapGet</c>, <c>MapGroup</c>, <c>MapA2A</c>, ...) apply nothing to it.
+        /// </summary>
+        private static (Auth Applied, bool Fluent) Convention(IInvocationOperation call)
+        {
+            var method = call.TargetMethod;
+            if (method.Name == "RequireAuthorization") return (Auth.Authorized, true);
+            if (!IsFramework(method)) return (Auth.Unknown, false); // your own method: it may do anything
+            switch (method.Name)
+            {
+                case "AllowAnonymous":
+                    return (Auth.Anonymous, true);
+                case "WithMetadata":
+                    return (Metadata(call), true);
+                case "Add" or "Finally":
+                    return (Auth.Unknown, false); // a convention delegate, which may add any metadata
+                case var name when name.StartsWith("Map", StringComparison.Ordinal):
+                    return (Auth.None, false);
+            }
+
+            var receiverType = Receiver(call)?.Type;
+            return (Auth.None, receiverType is not null && SymbolEqualityComparer.Default.Equals(call.Type, receiverType));
+        }
+
+        /// <summary>What the items given to <c>WithMetadata</c> are, as far as their types show.</summary>
+        private static Auth Metadata(IInvocationOperation call)
+        {
+            var auth = Auth.None;
+            var receiver = Receiver(call);
+            foreach (var argument in call.Arguments)
+            {
+                if (ReferenceEquals(Strip(argument.Value), receiver)) continue;
+                var items = argument is
+                    { ArgumentKind: ArgumentKind.ParamArray, Value: IArrayCreationOperation { Initializer: { } init } }
+                    ? init.ElementValues
+                    : ImmutableArray.Create(argument.Value);
+                foreach (var item in items)
+                {
+                    var value = Strip(item);
+                    if (value.Type is not { } type)
+                    {
+                        auth |= Auth.Unknown;
+                        continue;
+                    }
+
+                    if (Implements(type, AuthorizeData)) auth |= Auth.Authorized;
+                    if (Implements(type, AllowAnonymous)) auth |= Auth.Anonymous;
+                    // a value of an open type (object, an interface, a class that is not sealed) may be either
+                    if (value is not IObjectCreationOperation && !type.IsSealed && !type.IsValueType)
+                        auth |= Auth.Unknown;
+                }
+            }
+
+            return auth;
+        }
+
+        private static bool Implements(ITypeSymbol type, string name)
+        {
+            return type.ToDisplayString() == name || type.AllInterfaces.Any(i => i.ToDisplayString() == name);
+        }
+
+        /// <summary>ASP.NET Core and A2A methods, whose effect on authorization is known.</summary>
+        private static bool IsFramework(IMethodSymbol method)
+        {
+            if (method.Locations.Any(l => l.IsInSource)) return false;
+            var ns = method.ContainingNamespace?.ToDisplayString() ?? "";
+            return ns.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal) ||
+                   ns.StartsWith("A2A.", StringComparison.Ordinal);
+        }
+
+        private static IOperation Strip(IOperation op)
+        {
+            while (op is IConversionOperation { Operand: var operand }) op = operand;
+            return op;
+        }
     }
 
     /// <summary>
@@ -255,11 +425,6 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
             if (HostingTypes.Contains(i.OriginalDefinition.ToDisplayString()))
                 return true;
         return false;
-    }
-
-    private static IOperation Unwrap(IOperation op)
-    {
-        return op is IArgumentOperation { Value: var v } ? v : op;
     }
 
     /// <summary>The receiver of a call, also for an extension method called in reduced form.</summary>
