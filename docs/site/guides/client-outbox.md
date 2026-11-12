@@ -90,9 +90,10 @@ Failures are sorted like this:
 
 | Failure | What happens |
 |---|---|
-| 503, 429, 401, 403, 408, or an error marked retryable | Retry, not in doubt. A `Retry-After` from the peer is used, up to `RetryMaxDelay`. |
-| Another peer error with HTTP status 5xx | Retry, in doubt. |
-| Any other error from the peer (4xx, protocol error, key mismatch) | `Failed`. |
+| 503, 429, 401, 403, 408, or an error the peer marked retryable (`metadata.retryable` = "true") | Retry, not in doubt. A `Retry-After` from the peer is used, up to `RetryMaxDelay`. |
+| Another peer error with HTTP status 5xx, including an unmarked `Internal` error (JSON-RPC -32603) | Retry, in doubt. |
+| An answer the client cannot use (`InvalidAgentResponse`) | Retry, in doubt. The peer answered, so it may have the message. |
+| Any other error from the peer (4xx, a refusal such as `InvalidParams` or `VersionNotSupported`, key mismatch) | `Failed`. |
 | A connection that never reached the peer | Retry, not in doubt. |
 | Anything else, including a timeout | Retry, in doubt. |
 | Your client resolver throws | Retry, not in doubt. |
