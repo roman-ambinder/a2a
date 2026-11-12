@@ -62,6 +62,9 @@ public sealed class A2ACardResolverOptions
     /// <summary>
     ///     Time limit for one card resolution (fetch, signature check, pin check). Default 100 seconds. Needed because the
     ///     HttpClient of <c>AddA2AClient</c> has an infinite timeout. <see cref="Timeout.InfiniteTimeSpan" /> disables it.
+    ///     When it passes, the resolution throws a <see cref="TaskCanceledException" /> whose
+    ///     <see cref="Exception.InnerException" /> is a <see cref="TimeoutException" />, like the call timeout of the
+    ///     client; a cancellation of the caller's token has none.
     /// </summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(100);
 
@@ -209,12 +212,32 @@ public sealed class A2ACardResolver
         if (_options.RequireHttps && uri.Scheme != Uri.UriSchemeHttps && !uri.IsLoopback)
             throw new A2AException(A2AErrorCode.InvalidRequest, $"Agent Card URL must use HTTPS: {uri}");
 
+        var timeout = _options.Timeout;
+        if (timeout == Timeout.InfiniteTimeSpan) return await ResolveCoreAsync(uri, callerToken).ConfigureAwait(false);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
+        timeoutCts.CancelAfter(timeout);
+        try
+        {
+            return await ResolveCoreAsync(uri, timeoutCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (timeoutCts.IsCancellationRequested &&
+                                                    !callerToken.IsCancellationRequested)
+        {
+            // Same shape as the call timeout of the transports (and HttpClient.Timeout): a TaskCanceledException with a
+            // TimeoutException inside, so it can be told from the caller's own cancellation.
+            var message = $"The Agent Card request for {uri} timed out after {timeout.TotalSeconds:0.###} s.";
+#if NETSTANDARD2_0
+            throw new TaskCanceledException(message, new TimeoutException(null, ex));
+#else
+            throw new TaskCanceledException(message, new TimeoutException(null, ex), timeoutCts.Token);
+#endif
+        }
+    }
+
+    private async Task<ResolvedAgentCard> ResolveCoreAsync(Uri uri, CancellationToken cancellationToken)
+    {
         var key = uri.AbsoluteUri;
         _cache.TryGetValue(key, out var cached);
-
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
-        if (_options.Timeout != Timeout.InfiniteTimeSpan) timeoutCts.CancelAfter(_options.Timeout);
-        var cancellationToken = timeoutCts.Token;
 
         // The trust policy is mutable. A cached card is checked against it again, so a removed key stops working at once.
         if (cached is not null && !await StillAcceptedAsync(cached, uri, cancellationToken).ConfigureAwait(false))
