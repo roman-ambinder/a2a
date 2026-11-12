@@ -40,5 +40,11 @@ public enum A2AAuditAction
     AdminDeadLettersListed,
 
     /// <summary>A call was refused: not authenticated, or not allowed.</summary>
-    AccessDenied
+    AccessDenied,
+
+    /// <summary>
+    ///     A caller deleted its own task with the task-deletion extension operation (<c>AddTaskDeletion</c>,
+    ///     <see cref="A2A.Deletion.TaskDeletion" />).
+    /// </summary>
+    TaskDeleted
 }

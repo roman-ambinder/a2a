@@ -54,6 +54,24 @@ internal static class SecurityEventLog
         else ServerLog.SecurityEventWarning(logger, securityEvent, operation ?? "-", safeTenant, safeResource, hash);
     }
 
+    /// <summary>
+    ///     Records an anomaly (<see cref="AnomalyDetector" />): counts an <see cref="A2ATelemetry.SecurityEventNames.Anomaly" />
+    ///     security event and <see cref="ServerTelemetry.Anomalies" /> (tagged with <paramref name="kind" />), and writes one
+    ///     warning (1202) with the kind, the count, the threshold, the tenant and the principal hash.
+    /// </summary>
+    public static void RecordAnomaly(ILogger? logger, string kind, string operation, string tenant, string principal,
+        int count, int threshold)
+    {
+        ServerTelemetry.SecurityEvents.Add(1,
+            new KeyValuePair<string, object?>(A2ATelemetry.Tags.SecurityEvent, A2ATelemetry.SecurityEventNames.Anomaly),
+            new KeyValuePair<string, object?>(A2ATelemetry.Tags.Operation, operation));
+        ServerTelemetry.Anomalies.Add(1, new KeyValuePair<string, object?>(ServerTelemetry.AnomalyKindTag, kind));
+        if (logger is null || !logger.IsEnabled(LogLevel.Warning)) return;
+        // The tenant is the caller's choice: one line, capped.
+        ServerLog.SecurityAnomaly(logger, kind, operation, count, threshold, TextSanitizer.ForMessage(tenant),
+            HashPrincipal(principal));
+    }
+
     /// <summary>The first 16 hex characters (lower case) of the SHA-256 of <paramref name="principal" />.</summary>
     internal static string HashPrincipal(string? principal)
     {

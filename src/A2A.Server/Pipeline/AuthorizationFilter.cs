@@ -1,3 +1,4 @@
+using System.Text.Json;
 using A2A.Server.Audit;
 using A2A.Server.Authorization;
 
@@ -15,7 +16,8 @@ internal sealed class AuthorizationFilter(
     A2AAuthorizationHandler handler,
     A2AServerOptions options,
     SkillAuthorizer skills,
-    A2AAuditor audit) : IA2AOperationFilter
+    A2AAuditor audit,
+    IReadOnlyDictionary<string, string>? taskScopedExtensions = null) : IA2AOperationFilter
 {
     public ValueTask<object?> InvokeAsync(A2AOperationContext context, object request, A2AOperationDelegate next,
         CancellationToken cancellationToken)
@@ -37,7 +39,7 @@ internal sealed class AuthorizationFilter(
     public Task RequireAsync(A2AOperationDescriptor operation, ServerCallContext call, object request,
         CancellationToken cancellationToken)
     {
-        var taskId = TaskIdOf(request);
+        var taskId = TaskIdOf(request) ?? ExtensionTaskIdOf(operation, request);
         var authorized = handler.RequireAsync(options, call, operation, request, taskId, audit, cancellationToken);
         // Skill authorization off, or not a send: no extra work.
         return skills.AppliesTo(operation)
@@ -50,6 +52,25 @@ internal sealed class AuthorizationFilter(
     {
         await authorized.ConfigureAwait(false);
         await skills.RequireAsync(operation, call, request, taskId, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     The task a task-scoped SDK extension operation names (see <see cref="A2AExtensionOperation.TaskIdMember" />): its
+    ///     params member, when it is a non-empty string. Null for every other operation.
+    /// </summary>
+    private string? ExtensionTaskIdOf(A2AOperationDescriptor operation, object request)
+    {
+        return operation.Kind == A2AOperation.Extension && taskScopedExtensions is not null
+                                                        && taskScopedExtensions.TryGetValue(operation.Name,
+                                                            out var member)
+                                                        && request is JsonElement
+                                                        {
+                                                            ValueKind: JsonValueKind.Object
+                                                        } parameters
+                                                        && parameters.TryGetProperty(member, out var id)
+                                                        && id.ValueKind == JsonValueKind.String
+            ? id.GetString() is { Length: > 0 } taskId ? taskId : null
+            : null;
     }
 
     /// <summary>The task a request names, if any: a denial of such a call is reported as TaskNotFound.</summary>

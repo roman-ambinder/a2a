@@ -4,6 +4,41 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Protocol and bindings
+
+- Interface fallback (spec §5.2), opt-in with `A2AClientOptions.InterfaceFallback` (default false). A client made by
+  `A2AClientFactory` moves to the next interface of the card (same tenant, card order) when a call fails before any
+  request reached the agent: a connection, name lookup, proxy tunnel or TLS handshake failure, after the transport's
+  retries, and for a stream only before its first event. HTTP statuses, A2A errors, timeouts and failures during the
+  request never fall back. The interface that worked is kept; when all fail, the first error is thrown. With credential
+  providers, only interfaces the credentials may be sent to are candidates. New counter `a2a.client.interface.fallback`
+  (tags `from`, `to`).
+
+### Security
+
+- Opt-in anomaly monitoring (spec §13.4): `A2AServerOptions.Anomalies` (`A2AAnomalyOptions`: `Enabled`, default false;
+  `TaskCreationsPerMinute`, default 60; `CancellationsPerMinute`, default 20; `MaxTrackedCallers`, default 10 000). A
+  caller (principal and tenant) that creates more tasks or makes more CancelTask calls in one minute is reported once
+  per window: a new `anomaly` security event (`A2ATelemetry.SecurityEventNames.Anomaly`, log 1202) and the counter
+  `a2a.server.anomalies` (tag `a2a.anomaly.kind`: `task_creation` or `cancellation`). It reports only; no call is
+  refused or delayed. The settings can be read from configuration (`A2A:Anomalies`).
+
+### Server
+
+- New `AddTaskDeletion()` on the A2A builder (spec §13.4: agents SHOULD let users request deletion of their data). It
+  adds the opt-in SDK extension operation `a2a.tasks.delete` (extension
+  `https://github.com/roman-ambinder/a2a/extensions/task-deletion/v1`, `A2A.Deletion.TaskDeletion`) on every binding,
+  and the Agent Card lists the extension. A caller deletes its own task with everything `A2ATaskAdmin.DeleteTaskAsync`
+  removes (event log, push configs, pending deliveries and dead letters, artifact objects). Another caller's task, or a
+  missing one, is `TaskNotFound`; an anonymous caller is `Unauthenticated`, also with `AllowAnonymous`; a task that is not
+  terminal is `UnsupportedOperation` (cancel it first). Each call is audited with the new action
+  `A2AAuditAction.TaskDeleted`. Without the call nothing changes.
+
+### Client
+
+- New `DeleteTaskAsync(taskId)` on any `IA2AClient` (`TaskDeletionClientExtensions`): calls the task-deletion extension
+  operation of an agent that serves it.
+
 ### Fixes
 
 - The ASP.NET Core health check failure log line has event id 1400 (was 1200). 1200 is the security event
@@ -15,6 +50,9 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - Spec decisions: blocking and non-blocking SendMessage. The SDK follows §3.2.2 where it disagrees with §3.1.1 ("MUST
   return immediately"), and a blocking send also returns when no execution of the task is running any more, so an agent
   that leaves its task `WORKING` answers the caller with a `WORKING` task.
+- Spec decisions: message and artifact content is not sanitized by the SDK (§14.1.1); the agent escapes it for where it
+  writes it, with `TextSanitizer` and `UntrustedText` for text the SDK hands out. v0.3 names have no alias types (§1.4):
+  the compat packages map v0.3 JSON to the v1.0 model.
 
 ## 0.2.0
 

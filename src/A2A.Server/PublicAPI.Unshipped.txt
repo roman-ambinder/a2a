@@ -1,4 +1,17 @@
 #nullable enable
+A2A.Server.A2AAnomalyOptions
+A2A.Server.A2AAnomalyOptions.A2AAnomalyOptions() -> void
+A2A.Server.A2AAnomalyOptions.CancellationsPerMinute.get -> int
+A2A.Server.A2AAnomalyOptions.CancellationsPerMinute.set -> void
+A2A.Server.A2AAnomalyOptions.Enabled.get -> bool
+A2A.Server.A2AAnomalyOptions.Enabled.set -> void
+A2A.Server.A2AAnomalyOptions.MaxTrackedCallers.get -> int
+A2A.Server.A2AAnomalyOptions.MaxTrackedCallers.set -> void
+A2A.Server.A2AAnomalyOptions.TaskCreationsPerMinute.get -> int
+A2A.Server.A2AAnomalyOptions.TaskCreationsPerMinute.set -> void
+A2A.Server.A2AServerOptions.Anomalies.get -> A2A.Server.A2AAnomalyOptions!
+A2A.Server.A2AServerBuilder.AddTaskDeletion() -> A2A.Server.A2AServerBuilder!
+A2A.Server.Audit.A2AAuditAction.TaskDeleted = 13 -> A2A.Server.Audit.A2AAuditAction
 A2A.Server.Storage.InMemoryTaskStore.FindCommitAsync(A2A.Server.Storage.TaskKey task, string! mutationId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long?>
 A2A.Server.Storage.TaskBatchCommit.MutationId.get -> string?
 A2A.Server.Storage.TaskBatchCommit.MutationId.init -> void

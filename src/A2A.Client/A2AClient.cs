@@ -31,6 +31,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
     private readonly CircuitBreaker? _breaker;
     private readonly A2AClientOptions _options;
     private readonly IA2AClient _transport;
+    private readonly string? _binding;
     private volatile bool _extendedCardLoaded;
 
     /// <summary>
@@ -46,7 +47,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         _breaker = _options.CircuitBreaker is { } breaker
             ? new CircuitBreaker(breaker, _options.TimeProvider, agentCard?.Name)
             : null;
-        TelemetryBinding = (transport as ITransportBinding)?.Binding;
+        _binding = (transport as ITransportBinding)?.Binding;
     }
 
     /// <summary>The card this client was created from, if any.</summary>
@@ -59,7 +60,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
     internal AgentCard? TelemetryCard { get; }
 
     /// <summary>The binding name for the client's spans (null when the transport names none).</summary>
-    internal string? TelemetryBinding { get; }
+    internal string? TelemetryBinding => _transport is Transports.FallbackTransport fallback ? fallback.CurrentBinding : _binding;
 
     /// <summary>The protocol version the client speaks, for the client's spans.</summary>
     internal string TelemetryProtocolVersion => _options.ProtocolVersion;
