@@ -1,6 +1,6 @@
 # ADR-002: What to do with the last open gap items before the first published release
 
-**Status:** Proposed
+**Status:** Accepted (2026-11-12)
 **Date:** 2026-11-12
 **Deciders:** Repository owner
 
@@ -122,7 +122,18 @@ The main risk of Option C is the D2 investigation itself. If the failure exists,
 
    - The shipped stores never produce the conflict case themselves: `PostgresTaskStore` has no internal retry, and there is no Redis task store. It can happen with a store that retries internally.
    - The timeout case applies to any store whose commit answer can be lost after the transaction committed.
-   - Not tested yet: a conflict on an append that is not the last chunk, which could duplicate parts in the task itself.
+   - A conflict on an append that is not the last chunk (tested on 2026-11-12, `many-chunks` scenario, commit 2 is
+     chunk `1`):
+
+     | Store | The store throws | Result |
+     |---|---|---|
+     | Without `ITaskCommitLookup` | `ConcurrencyException` | The task ends `COMPLETED`, but chunk `1` is in the task twice (`0, 1, 1, 2, ...`) and the event log holds 23 artifact events instead of 22. The artifact is still open, so the second append is accepted. |
+     | Without `ITaskCommitLookup` | `TimeoutException` | The task ends `FAILED` with `0, 1`, as for the other chunks. |
+     | With `ITaskCommitLookup` | either | Correct: each chunk once, `COMPLETED`. |
+
+     So a store that retries a commit internally must implement `ITaskCommitLookup`, or it can duplicate parts in the
+     task itself. `AmbiguousCommitTests.Without_the_lookup_a_conflict_on_a_middle_append_stores_the_chunk_twice` pins
+     this behaviour until it is fixed.
 2. [x] If the event is stored twice: add an optional mutation id to `TaskCommit`, a capability interface for stores that keep it, and implementations in the in-memory, Postgres and Redis stores. Follow ADR-001 rule 2, and add the startup check from ADR-001 action item 3.
 
    Done:
@@ -133,9 +144,21 @@ The main risk of Option C is the D2 investigation itself. If the failure exists,
    - The tests in `AmbiguousCommitTests` (single and batch commits) pass, and the store contract test `A_stored_commit_is_found_by_its_mutation_id` covers both stores.
    - Still not covered: the commit that creates a task. A create whose answer is lost is reported as before.
 3. [x] ~~If the event is not stored twice: record why in the gap analysis, and close D2 there.~~ Not applicable: item 1 shows the failure.
-4. [ ] Finish ADR-001 before tagging the release:
+4. [x] Finish ADR-001 before tagging the release:
    - make `GetForMaintenanceAsync` virtual, or move it to a capability interface;
    - add the rule to `docs/site/guides/versioning.md`;
    - set ADR-001's status.
-5. [ ] Add a "Writing your own backend" section to `docs/site/guides/durable-stores.md`. It should list the base classes for stores, the event bus and the coordinator, and which guarantees each must give (for example the atomic `TryRegisterExclusiveAsync`, and the shared `EventStore` that a cross-instance bus needs).
-6. [ ] In the gap analysis, mark D1 and D3 as "not planned in this repository; extension points documented". Leave D33 open, with "on demand".
+
+   Done on 2026-11-12, after 0.2.0 had already shipped. ADR-001 is Accepted. `GetForMaintenanceAsync` stays
+   abstract: it has no safe fallback, and moving it now would break the stores built against 0.2.0. The rule is in
+   the versioning guide under "Store contracts".
+5. [x] Add a "Writing your own backend" section to `docs/site/guides/durable-stores.md`. It should list the base classes for stores, the event bus and the coordinator, and which guarantees each must give (for example the atomic `TryRegisterExclusiveAsync`, and the shared `EventStore` that a cross-instance bus needs).
+
+   Done on 2026-11-12: "Write your own backend" in `durable-stores.md` (it replaces "Write your own store"). It lists
+   every base class with its default, and the guarantees of the event bus, the coordinator and the artifact object
+   store. It also says that a store which retries commits on its own needs `ITaskCommitLookup`, because without it a
+   chunk can end up in the task twice (item 1).
+6. [x] In the gap analysis, mark D1 and D3 as "not planned in this repository; extension points documented". Leave D33 open, with "on demand".
+
+   Done on 2026-11-12: the D1 and D3 Status line and the open items table say so, and point to "Write your own
+   backend". D33 is the one open item, marked "on demand".

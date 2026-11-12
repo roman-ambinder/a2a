@@ -1,6 +1,6 @@
 # ADR-001: How store contracts evolve after the first release
 
-**Status:** Proposed
+**Status:** Accepted (2026-11-12)
 **Date:** 2026-11-09
 **Deciders:** Repository owner
 
@@ -16,6 +16,8 @@ Backends plug in through abstract classes:
 | `EventStore` | 6 |
 | `IdempotencyStore` | 6 |
 | `ArtifactObjectStore` | 4 |
+
+(Counts on 2026-11-09. The counts that shipped in 0.2.0 are under "Outcome" below.)
 
 `TaskStore` gained `GetForMaintenanceAsync` when the artifact store was added. After the first release, each such addition breaks every third-party store.
 
@@ -85,9 +87,43 @@ The main risk of Option C is a fallback that is silently unsafe on a shared back
 
 ## Action items
 
-1. [ ] Decide the final abstract core before tagging the first release.
-2. [ ] Move non-essential members to virtual or a capability interface. `GetForMaintenanceAsync` is a candidate.
-3. [ ] Add the capability check to `A2AStartupDiagnostics`.
-4. [ ] Add this rule to `docs/site/guides/versioning.md`.
-5. [ ] Move `PublicAPI.Unshipped.txt` entries to `PublicAPI.Shipped.txt` in the release commit.
-6. [ ] Settle the package names in the same pass, because published ids cannot be renamed.
+1. [x] Decide the final abstract core before tagging the first release. The core is the set of abstract members that
+   shipped in 0.2.0 (see "Outcome").
+2. [x] Move non-essential members to virtual or a capability interface. `GetForMaintenanceAsync` was the candidate. It
+   stays abstract: see "Outcome".
+3. [ ] ~~Add the capability check to `A2AStartupDiagnostics`.~~ Deferred: no feature requires a capability yet. The
+   optional capabilities that exist (`IBatchTaskCommit`, `ITaskCommitLookup`, `IContextSummaryStore`,
+   `IPushOutboxStatistics`) all have a fallback, so there is nothing to refuse at startup. ADR-002 reached the same
+   conclusion for `ITaskCommitLookup`. Add the check together with the first capability that a feature requires.
+4. [x] Add this rule to `docs/site/guides/versioning.md` ("Store contracts").
+5. [x] Move `PublicAPI.Unshipped.txt` entries to `PublicAPI.Shipped.txt` in the release commit. Done in the 0.2.0
+   release commit (#144).
+6. [x] Settle the package names in the same pass, because published ids cannot be renamed. 0.2.0 published them with
+   the `RomanAmbinder.` prefix.
+
+## Outcome (2026-11-12)
+
+0.2.0, the first version on NuGet, shipped with these abstract members. They are the frozen core:
+
+| Class | Abstract members |
+|---|---|
+| `TaskStore` | 13 |
+| `PushOutbox` | 8 |
+| `ExecutionCoordinator` | 8 |
+| `PushConfigStore` | 7 |
+| `EventStore` | 6 |
+| `IdempotencyStore` | 4 |
+| `ArtifactObjectStore` | 4 |
+
+The exact members are the `abstract` lines in `src/A2A.Server/PublicAPI.Shipped.txt`.
+
+**`TaskStore.GetForMaintenanceAsync` stays abstract.** It has no fallback that is safe with several owners:
+
+- `GetAsync` hides a task behind its owner. A fallback built on it would report another owner's live task as missing.
+  The orphan sweeps of artifact objects (`A2ARetentionService`) and uploads (`InboundFiles`) would then delete objects
+  that a live task still links to.
+- A fallback that throws is Option B, rejected above.
+
+Rule 2 would put it on a capability interface instead. That would remove a member that 0.2.0 shipped, and every store
+that overrides it would stop compiling (CS0115). The member is one read by tenant and id, which any store can
+implement. Breaking published stores to save that one method is not worth it, so it is part of the core.
