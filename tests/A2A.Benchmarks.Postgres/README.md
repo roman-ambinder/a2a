@@ -21,3 +21,14 @@ bytes, and the client sends one blocking SendMessage. It prints a Markdown table
 
 "Batch commits off" wraps the same `PostgresTaskStore` without `IBatchTaskCommit`, so every event is its own commit.
 Each case uses a fresh schema, which is dropped afterwards.
+
+## Paced appends: memory
+
+    dotnet run -c Release --project tests/A2A.Benchmarks.Postgres -- paced
+
+The agent waits 1 ms before each append, so chunks rarely queue into batches (as with a model streaming tokens), and
+appends N parts of 100 bytes to one artifact. The table shows the bytes the whole process allocated during the
+SendMessage (`GC.GetTotalAllocatedBytes`: server, client and Npgsql), in total and per append, with `ArtifactRows` on
+and off. With it on, the store counts the parts and reads only the new ones (`ModelCopies.CountParts`,
+`CopyLastParts`), so the allocation per append stays flat as the artifact grows. With it off, each commit serializes
+the whole task.

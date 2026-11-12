@@ -34,6 +34,34 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
     public static readonly DiagnosticDescriptor NoAuthorizationLive = Live(NoAuthorization);
 
     /// <summary>
+    ///     A2A0002 when the A2A builder has a policy (<c>AddApiKeyAuthentication()</c>, <c>RequirePolicy(...)</c>, ...) but
+    ///     the endpoints have <c>AllowAnonymous()</c>: the policy goes only on endpoints without authorization metadata, so
+    ///     it is kept off them, and the startup check refuses the <c>IAllowAnonymous</c> metadata.
+    /// </summary>
+    public static readonly DiagnosticDescriptor AnonymousEndpoints = new(
+        "A2A0002", "A2A endpoints need authorization",
+        "'{0}' maps A2A endpoints with AllowAnonymous(), so the A2A builder's policy is not put on them and the app refuses to start. Remove AllowAnonymous() from the endpoints, or allow anonymous callers on purpose (A2AServerOptions.AllowAnonymous or ConfigureForDevelopment()).",
+        "A2A.Hosting", DiagnosticSeverity.Warning, true,
+        "A2A endpoints refuse anonymous access unless the host opts in.",
+        "https://roman-ambinder.github.io/a2a/guides/auth-and-ownership.html",
+        WellKnownDiagnosticTags.CompilationEnd);
+
+    /// <summary><see cref="AnonymousEndpoints" /> reported while you type.</summary>
+    public static readonly DiagnosticDescriptor AnonymousEndpointsLive = Live(AnonymousEndpoints);
+
+    /// <summary>
+    ///     The property, on an <see cref="AnonymousEndpoints" /> diagnostic, that tells the code fix not to offer
+    ///     <c>RequireAuthorization()</c>: the <c>IAllowAnonymous</c> metadata would stay, and the startup check refuses it.
+    /// </summary>
+    public const string CauseProperty = "Cause";
+
+    /// <summary>The value of <see cref="CauseProperty" /> for <see cref="AnonymousEndpoints" />.</summary>
+    public const string AllowAnonymousCause = "AllowAnonymous";
+
+    private static readonly ImmutableDictionary<string, string?> AnonymousProperties =
+        ImmutableDictionary<string, string?>.Empty.Add(CauseProperty, AllowAnonymousCause);
+
+    /// <summary>
     ///     Names that, outside the method being analyzed, may change its answer: a call or setting that lifts A2A0002. When
     ///     any other code names one, the method is left to the end-of-build check.
     /// </summary>
@@ -52,7 +80,7 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
-        ImmutableArray.Create(NoAuthorization, NoAuthorizationLive);
+        ImmutableArray.Create(NoAuthorization, NoAuthorizationLive, AnonymousEndpoints, AnonymousEndpointsLive);
 
     private static DiagnosticDescriptor Live(DiagnosticDescriptor d)
     {
@@ -144,7 +172,15 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
                 // The whole setup is here: report now, so the IDE shows it while you type. The end-of-build check
                 // never sees these maps, so nothing is reported twice.
                 foreach (var map in maps)
-                    if (!anonymousOptIn && !authorizedByDefault && !IsAuthorized(map, root))
+                    if (anonymousOptIn)
+                        continue;
+                    else if (authorizedByDefault)
+                    {
+                        if (AllowsAnonymous(map, root))
+                            context.ReportDiagnostic(Diagnostic.Create(AnonymousEndpointsLive, map.Syntax.GetLocation(),
+                                AnonymousProperties, map.TargetMethod.Name));
+                    }
+                    else if (!IsAuthorized(map, root))
                         context.ReportDiagnostic(Diagnostic.Create(NoAuthorizationLive, map.Syntax.GetLocation(),
                             map.TargetMethod.Name));
 
@@ -152,8 +188,12 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
             }
 
             foreach (var map in maps)
+            {
                 if (!IsAuthorized(map, root))
                     state.Unauthorized.Add((map.Syntax.GetLocation(), map.TargetMethod.Name));
+                if (AllowsAnonymous(map, root))
+                    state.Anonymous.Add((map.Syntax.GetLocation(), map.TargetMethod.Name));
+            }
         }
     }
 
@@ -166,9 +206,22 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
     /// </summary>
     private static bool IsAuthorized(IInvocationOperation map, IOperation root)
     {
-        var walk = new BuilderWalk(root);
+        var walk = new BuilderWalk(root, true);
         var auth = walk.Uses(map, 0) | walk.Origin(Receiver(map), 0);
         return (auth & Auth.Anonymous) == 0 && (auth & (Auth.Authorized | Auth.Unknown)) != 0;
+    }
+
+    /// <summary>
+    ///     True when the mapped endpoints provably get <c>IAllowAnonymous</c> metadata from the builder <c>MapA2A</c>
+    ///     returns (<c>MapA2A(...).AllowAnonymous()</c>, through the chain and the locals that hold it). With a policy on the
+    ///     A2A builder, that is what fails the startup check: the policy goes on every endpoint without
+    ///     <c>IAuthorizeData</c> or <c>IAllowAnonymous</c> metadata, so these keep none, and the check refuses them. An outer
+    ///     group is not followed: the startup check reads the endpoints <c>MapA2A</c> builds inside the group, which the
+    ///     group's own metadata is not on, so they get the policy and the app starts.
+    /// </summary>
+    private static bool AllowsAnonymous(IInvocationOperation map, IOperation root)
+    {
+        return (new BuilderWalk(root, false).Uses(map, 0) & Auth.Anonymous) != 0;
     }
 
     /// <summary>What code applies to an endpoint builder. Flags, since several paths can apply several things.</summary>
@@ -195,9 +248,13 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
         private const string AllowAnonymous = "Microsoft.AspNetCore.Authorization.IAllowAnonymous";
         private readonly IOperation root;
 
-        public BuilderWalk(IOperation root)
+        /// <summary>Whether what an outer group applies counts, as it does for the endpoints the app serves.</summary>
+        private readonly bool groups;
+
+        public BuilderWalk(IOperation root, bool groups)
         {
             this.root = root;
+            this.groups = groups;
         }
 
         /// <summary>What the uses of the builder that <paramref name="value" /> produces apply to it.</summary>
@@ -251,7 +308,8 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
             {
                 case IInvocationOperation call when IsFramework(call.TargetMethod) &&
                                                     call.TargetMethod.Name.StartsWith("Map", StringComparison.Ordinal):
-                    return Origin(Receiver(call), depth + 1); // a new group (MapGroup, MapA2A): outer groups apply to it
+                    // a new group (MapGroup, MapA2A): outer groups apply to it
+                    return groups ? Origin(Receiver(call), depth + 1) : Auth.None;
                 case IInvocationOperation call:
                     var (applied, fluent) = Convention(call);
                     return fluent ? applied | Origin(Receiver(call), depth + 1) : applied | Auth.Unknown;
@@ -440,7 +498,14 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
 
     private static void Report(CompilationAnalysisContext context, State state)
     {
-        if (state.AnonymousOptIn || state.AuthorizedByDefault) return;
+        if (state.AnonymousOptIn) return;
+        if (state.AuthorizedByDefault)
+        {
+            foreach (var (location, method) in state.Anonymous)
+                context.ReportDiagnostic(Diagnostic.Create(AnonymousEndpoints, location, AnonymousProperties, method));
+            return;
+        }
+
         foreach (var (location, method) in state.Unauthorized)
             context.ReportDiagnostic(Diagnostic.Create(NoAuthorization, location, method));
     }
@@ -455,6 +520,9 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
     {
         public readonly ConcurrentDictionary<SyntaxTree, bool> TreeNamesLifting = new();
         public readonly ConcurrentBag<(Location Location, string Method)> Unauthorized = new();
+
+        /// <summary>Mappings whose endpoints get <c>AllowAnonymous()</c> (see <see cref="AllowsAnonymous" />).</summary>
+        public readonly ConcurrentBag<(Location Location, string Method)> Anonymous = new();
         public volatile bool AnonymousOptIn;
         public volatile bool AuthorizedByDefault;
     }

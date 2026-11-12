@@ -117,6 +117,108 @@ public class SetupAnalyzerTests
     public async Task Missing_authorization_is_A2A0002(string mapping) =>
         Assert.Equal(["A2A0002"], await Ids(Good.Replace("app.MapA2A(\"/a2a\").RequireAuthorization();", mapping, StringComparison.Ordinal)));
 
+    // ---- AllowAnonymous() next to a policy of the A2A builder ----
+
+    /// <summary><see cref="Good" /> with <paramref name="policy" /> on the A2A builder and <paramref name="mapping" /> in place of its mapping.</summary>
+    private static string WithBuilderPolicy(string policy, string mapping) =>
+        Good.Replace("var app = builder.Build();", policy + "\nvar app = builder.Build();", StringComparison.Ordinal)
+            .Replace("app.MapA2A(\"/a2a\").RequireAuthorization();", mapping, StringComparison.Ordinal);
+
+    private const string ApiKeys = "builder.Services.AddA2A(a => a.AddApiKeyAuthentication());";
+
+    public static TheoryData<string, string> AnonymousEndpointsWithBuilderPolicy()
+    {
+        string[] policies =
+        [
+            ApiKeys,
+            "builder.Services.AddA2A(a => a.AddBearerAuthentication());",
+            "builder.Services.AddA2A(a => a.AddCardAuthentication(\"oidc\", A2A.SecurityScheme.Bearer(), \"Bearer\"));",
+            "builder.Services.AddA2A(a => a.RequirePolicy(\"agents\"));"
+        ];
+        string[] mappings =
+        [
+            "app.MapA2A(\"/a2a\").AllowAnonymous();",
+            "app.MapA2A(\"/a2a\").RequireAuthorization().AllowAnonymous();",
+            "app.MapA2A(\"/a2a\").WithName(\"a2a\").AllowAnonymous();",
+            "app.MapA2A(\"/a2a\").WithMetadata(new Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute());",
+            "var a2a = app.MapA2A(\"/a2a\");\na2a.AllowAnonymous();",
+            "var a2a = app.MapA2A(\"/a2a\").AllowAnonymous();\na2a.WithName(\"a2a\");",
+            "app.MapGroup(\"/agents\").MapA2A(\"/a2a\").AllowAnonymous();"
+        ];
+        var data = new TheoryData<string, string>();
+        foreach (var policy in policies)
+        foreach (var mapping in mappings)
+            data.Add(policy, mapping);
+        return data;
+    }
+
+    // The builder's policy goes only on endpoints without authorization metadata: AllowAnonymous() on the endpoints keeps
+    // it off, and the startup check refuses the IAllowAnonymous metadata, so the app does not start.
+    [Theory]
+    [MemberData(nameof(AnonymousEndpointsWithBuilderPolicy))]
+    public async Task AllowAnonymous_on_the_endpoints_is_A2A0002_even_with_a_builder_policy(string policy, string mapping)
+    {
+        var d = Assert.Single(await Analyze(WithBuilderPolicy(policy, mapping)));
+        Assert.Equal("A2A0002", d.Id);
+        Assert.Contains("'MapA2A'", d.GetMessage(), StringComparison.Ordinal);
+        Assert.Contains("AllowAnonymous()", d.GetMessage(), StringComparison.Ordinal);
+    }
+
+    // On an outer group, AllowAnonymous() is not on the endpoints the startup check reads (those MapA2A builds inside the
+    // group), and the builder's policy goes on them: the app starts, and the A2A handler still refuses anonymous callers.
+    [Theory]
+    [InlineData("app.MapGroup(\"/agents\").AllowAnonymous().MapA2A(\"/a2a\");")]
+    [InlineData("var agents = app.MapGroup(\"/agents\").AllowAnonymous();\nagents.MapA2A(\"/a2a\");")]
+    [InlineData("var a2a = app.MapGroup(\"/agents\").AllowAnonymous().MapA2A(\"/a2a\");\na2a.WithName(\"a2a\");")]
+    public async Task AllowAnonymous_on_an_outer_group_with_a_builder_policy_is_not_reported(string mapping) =>
+        Assert.Empty(await Ids(WithBuilderPolicy(ApiKeys, mapping)));
+
+    [Theory]
+    [InlineData("builder.Services.Configure<A2AServerOptions>(o => o.AllowAnonymous = true);")]
+    [InlineData("builder.Services.AddA2A(a => a.ConfigureForDevelopment());")]
+    public async Task Anonymous_opt_in_lifts_AllowAnonymous_with_a_builder_policy(string optIn) =>
+        Assert.Empty(await Ids(WithBuilderPolicy(ApiKeys + "\n" + optIn, "app.MapA2A(\"/a2a\").AllowAnonymous();")));
+
+    [Fact]
+    public async Task AllowAnonymous_with_a_builder_policy_shows_while_typing()
+    {
+        var program = WithBuilderPolicy(ApiKeys, "app.MapA2A(\"/a2a\").AllowAnonymous();");
+        Assert.Equal(["A2A0002"], await LiveIds(program));
+        Assert.Equal(["A2A0002"], await Ids(program)); // and once in the build, not twice
+    }
+
+    [Fact]
+    public async Task AllowAnonymous_with_a_builder_policy_in_another_method_is_reported_in_the_build()
+    {
+        var program = Good.Replace("builder.Services.AddAuthorization();",
+                "builder.Services.AddAuthorization();\nSetup.Register(builder.Services);", StringComparison.Ordinal)
+            .Replace("app.MapA2A(\"/a2a\").RequireAuthorization();", "app.MapA2A(\"/a2a\").AllowAnonymous();",
+                StringComparison.Ordinal);
+        const string setup = "static class Setup { public static void Register(IServiceCollection s) => s.AddA2A(a => a.AddApiKeyAuthentication()); }";
+        Assert.Empty(await LiveIds(program, Usings + setup));
+        var d = Assert.Single(await Analyze(program, Usings + setup));
+        Assert.Equal("A2A0002", d.Id);
+        Assert.Contains("AllowAnonymous()", d.GetMessage(), StringComparison.Ordinal);
+    }
+
+    // RequireAuthorization() would not help: the IAllowAnonymous metadata stays and the startup check still refuses it.
+    [Fact]
+    public async Task No_RequireAuthorization_fix_for_AllowAnonymous_with_a_builder_policy()
+    {
+        var program = WithBuilderPolicy(ApiKeys, "app.MapA2A(\"/a2a\").AllowAnonymous();");
+        using var workspace = new AdhocWorkspace();
+        var project = workspace.AddProject(ProjectInfo.Create(ProjectId.CreateNewId(), VersionStamp.Default, "Host", "Host",
+            LanguageNames.CSharp, compilationOptions: new CSharpCompilationOptions(OutputKind.ConsoleApplication),
+            metadataReferences: References.Value));
+        var document = workspace.AddDocument(project.Id, "Program.cs", SourceText.From(Usings + program));
+        var diagnostic = Assert.Single(await (await document.Project.GetCompilationAsync())!
+            .WithAnalyzers([new A2ASetupAnalyzer()]).GetAnalyzerDiagnosticsAsync());
+        var actions = new List<CodeAction>();
+        await new A2ASetupCodeFixProvider().RegisterCodeFixesAsync(new CodeFixContext(document, diagnostic,
+            (a, _) => actions.Add(a), CancellationToken.None));
+        Assert.Empty(actions);
+    }
+
     // Code the analyzer cannot see into may add authorization (a helper that calls RequireAuthorization()): the startup
     // check decides, and no warning is reported.
     [Theory]

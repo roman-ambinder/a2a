@@ -25,6 +25,10 @@ internal sealed class A2ASetupCodeFixProvider : CodeFixProvider
     // internals.
     private const string NoAuthorizationId = "A2A0002";
 
+    // A2ASetupAnalyzer.CauseProperty and AllowAnonymousCause, for the same reason.
+    private const string CauseProperty = "Cause";
+    private const string AllowAnonymousCause = "AllowAnonymous";
+
     /// <inheritdoc />
     public override FixAllProvider GetFixAllProvider()
     {
@@ -38,6 +42,9 @@ internal sealed class A2ASetupCodeFixProvider : CodeFixProvider
         if (root is null) return;
         foreach (var diagnostic in context.Diagnostics)
         {
+            // AllowAnonymous() next to a policy of the A2A builder: RequireAuthorization() would leave the IAllowAnonymous
+            // metadata, which the startup check refuses all the same.
+            if (diagnostic.Properties.TryGetValue(CauseProperty, out var cause) && cause == AllowAnonymousCause) continue;
             if (root.FindNode(diagnostic.Location.SourceSpan, getInnermostNodeForTie: true)
                     .FirstAncestorOrSelf<InvocationExpressionSyntax>() is not { } map) continue;
             context.RegisterCodeFix(CodeAction.Create("Add .RequireAuthorization()",

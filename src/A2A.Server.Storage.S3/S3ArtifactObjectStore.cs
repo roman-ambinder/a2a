@@ -32,6 +32,15 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
 
     private const string FileNameMetadata = "filename";
     private const string CompletedAtTag = "a2a-completed-at";
+    private const string UploadMsTag = "a2a-upload-ms";
+
+    /// <summary>
+    ///     How long after its upload started a multipart object without a stamp is taken to be written. Such an object is
+    ///     either one whose stamp is still being written (the upload completed a moment ago, after however long it took) or
+    ///     one whose writer died between the two calls. Its S3 date says nothing about which, so it is aged from well after
+    ///     the start: no realistic upload takes this long, and a true orphan is still collected in the end.
+    /// </summary>
+    internal static readonly TimeSpan UnstampedAllowance = TimeSpan.FromDays(7);
 
 
     /// <summary>The marker for an empty segment. It cannot come out of percent-encoding, so no key spells it by accident.</summary>
@@ -42,15 +51,22 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
     private readonly IAmazonS3 _client;
     private readonly string _keyPrefix;
     private readonly bool _ownsClient;
+    private readonly TimeProvider _time;
 
     /// <summary>
     ///     Creates the store. When <see cref="S3ArtifactStoreOptions.Client" /> is null it makes a client of its own and
     ///     disposes it with the store.
     /// </summary>
     /// <param name="options">The settings. The bucket name is required.</param>
-    public S3ArtifactObjectStore(S3ArtifactStoreOptions options)
+    public S3ArtifactObjectStore(S3ArtifactStoreOptions options) : this(options, TimeProvider.System)
+    {
+    }
+
+    /// <summary>Creates the store with the clock that times multipart uploads (tests use a fake one).</summary>
+    internal S3ArtifactObjectStore(S3ArtifactStoreOptions options, TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(options);
+        _time = time ?? throw new ArgumentNullException(nameof(time));
         ArgumentException.ThrowIfNullOrEmpty(options.BucketName, nameof(options));
         _bucket = options.BucketName;
         // A prefix always ends with "/", so "prod" does not also cover "prod2".
@@ -133,6 +149,8 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
                 return new ArtifactObjectWriteResult(total, ArtifactHash.Format(hash.GetHashAndReset()));
             }
 
+            // Taken before the upload is initiated, so the measured time covers everything from S3's date of the object on.
+            var started = _time.GetTimestamp();
             var init = new InitiateMultipartUploadRequest
                 { BucketName = _bucket, Key = fullKey, ContentType = info.ContentType };
             AddFileName(init.Metadata, info);
@@ -158,11 +176,12 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
             {
                 BucketName = _bucket, Key = fullKey, UploadId = uploadId, PartETags = parts
             }, cancellationToken).ConfigureAwait(false);
+            var uploadTime = _time.GetElapsedTime(started);
             uploadId = null;
             committing = false; // the stamp below deletes the object itself when it fails
             try
             {
-                await StampCompletionAsync(fullKey).ConfigureAwait(false);
+                await StampCompletionAsync(fullKey, uploadTime).ConfigureAwait(false);
             }
             catch
             {
@@ -248,14 +267,16 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
 
     /// <summary>
     ///     A completed multipart object has no write time of its own: S3 dates it from when the upload was initiated (its ETag
-    ///     ends
-    ///     in <c>-N</c>), which for a slow upload is long before the object exists, and the orphan sweep ages objects by that
-    ///     date.
-    ///     So the completion time is stored as an object tag, which does not change the object, and <see cref="ListAsync" />
-    ///     uses it.
-    ///     A failure here fails the upload (the caller deletes the object), so every multipart object has its stamp.
+    ///     ends in <c>-N</c>), which for a slow upload is long before the object exists, and the orphan sweep ages objects by
+    ///     that date. So the upload's duration is stored as an object tag, which does not change the object, and
+    ///     <see cref="ListAsync" /> dates the object at its S3 date plus that duration. The duration is measured here, from
+    ///     before the initiate call to after the complete call, so it is never short, and the date stays on the S3 clock, as
+    ///     a single-part object's does: this instance's clock may be off, its stopwatch is not. The completion time by this
+    ///     instance's clock is written too, for the sweep of an earlier version.
+    ///     A failure here fails the upload (the caller deletes the object), so every kept multipart object gets its stamp;
+    ///     one listed before the stamp is written is aged by <see cref="UnstampedAllowance" />.
     /// </summary>
-    private async Task StampCompletionAsync(string fullKey)
+    private async Task StampCompletionAsync(string fullKey, TimeSpan uploadTime)
     {
         await _client.PutObjectTaggingAsync(new PutObjectTaggingRequest
         {
@@ -267,8 +288,13 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
                 [
                     new Tag
                     {
+                        Key = UploadMsTag,
+                        Value = ((long)Math.Ceiling(uploadTime.TotalMilliseconds)).ToString(CultureInfo.InvariantCulture)
+                    },
+                    new Tag
+                    {
                         Key = CompletedAtTag,
-                        Value = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture)
+                        Value = _time.GetUtcNow().ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture)
                     }
                 ]
             }
@@ -411,14 +437,19 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
     private async ValueTask<DateTimeOffset> CompletionTimeAsync(string fullKey, DateTime? lastModified,
         CancellationToken cancellationToken)
     {
+        var initiated = AsOffset(lastModified);
         try
         {
             var tags = await _client
                 .GetObjectTaggingAsync(new GetObjectTaggingRequest { BucketName = _bucket, Key = fullKey },
                     cancellationToken).ConfigureAwait(false);
-            var stamp = tags.Tagging?.FirstOrDefault(t => t.Key == CompletedAtTag)?.Value;
-            if (stamp is not null && long.TryParse(stamp, NumberStyles.None, CultureInfo.InvariantCulture, out var ms))
-                return DateTimeOffset.FromUnixTimeMilliseconds(ms);
+            if (Number(tags.Tagging, UploadMsTag) is { } ms)
+                return After(initiated, ms <= TimeSpan.MaxValue.Ticks / TimeSpan.TicksPerMillisecond
+                    ? TimeSpan.FromTicks(ms * TimeSpan.TicksPerMillisecond)
+                    : TimeSpan.MaxValue);
+            // Written by an earlier version, by the uploader's clock. The object cannot be older than its upload.
+            if (Number(tags.Tagging, CompletedAtTag) is { } at && at <= DateTimeOffset.MaxValue.ToUnixTimeMilliseconds())
+                return DateTimeOffset.FromUnixTimeMilliseconds(at) is var stamp && stamp > initiated ? stamp : initiated;
         }
         catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
         {
@@ -426,7 +457,21 @@ public sealed class S3ArtifactObjectStore : ArtifactObjectStore, IDisposable
             // date could make a live object look old, and the sweep retries.
         }
 
-        return AsOffset(lastModified);
+        // No stamp (yet): the upload may have completed a moment ago, after any length of time, so it is too new to judge.
+        return After(initiated, UnstampedAllowance);
+    }
+
+    private static long? Number(List<Tag>? tags, string key)
+    {
+        var value = tags?.FirstOrDefault(t => t.Key == key)?.Value;
+        return value is not null && long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var n)
+            ? n
+            : null;
+    }
+
+    private static DateTimeOffset After(DateTimeOffset start, TimeSpan span)
+    {
+        return DateTimeOffset.MaxValue - start > span ? start + span : DateTimeOffset.MaxValue;
     }
 
     private static DateTimeOffset AsOffset(DateTime? value)

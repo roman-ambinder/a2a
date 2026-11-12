@@ -31,7 +31,10 @@ internal sealed class PostgresArtifactRows(string parts, string tasks, int compa
         return copy;
     }
 
-    /// <summary>A shallow copy of <paramref name="artifact" /> with no parts. Every other property is kept.</summary>
+    /// <summary>
+    ///     A shallow copy of <paramref name="artifact" /> with no parts. Every other property is kept. It does not read
+    ///     <see cref="Artifact.Parts" />, so it does not build the list (ADR-004).
+    /// </summary>
     internal static Artifact WithoutParts(Artifact artifact)
     {
         return new Artifact
@@ -48,11 +51,29 @@ internal sealed class PostgresArtifactRows(string parts, string tasks, int compa
         };
     }
 
-    /// <summary>Puts the parts of <paramref name="source" /> back into <paramref name="stored" /> (parsed without them).</summary>
+    /// <summary>
+    ///     Puts the parts of <paramref name="source" /> back into <paramref name="stored" /> (parsed without them). Each
+    ///     artifact of <paramref name="stored" /> is replaced by one with its parsed properties and the parts of the source
+    ///     artifact, shared with <see cref="ModelCopies.CopyWithParts" /> rather than read (ADR-004): O(1) per artifact when
+    ///     the source's list was never built, and a single copy when it was, as before.
+    /// </summary>
     public static void CopyParts(AgentTask source, AgentTask stored)
     {
         if (source.Artifacts is not { } from || stored.Artifacts is not { } to) return;
-        for (var i = 0; i < to.Count && i < from.Count; i++) to[i].Parts = new List<Part>(from[i].Parts);
+        for (var i = 0; i < to.Count && i < from.Count; i++)
+        {
+            var parsed = to[i];
+            var copy = from[i].CopyWithParts([]);
+            copy.ArtifactId = parsed.ArtifactId;
+            copy.Name = parsed.Name;
+            copy.Description = parsed.Description;
+            copy.Metadata = parsed.Metadata;
+            copy.Extensions = parsed.Extensions;
+            copy.StartGeneration = parsed.StartGeneration;
+            copy.EndGeneration = parsed.EndGeneration;
+            copy.Role = parsed.Role;
+            to[i] = copy;
+        }
     }
 
     /// <summary>What a task's rows hold, per artifact: its parts, its rows and its highest ordinal.</summary>
@@ -99,7 +120,9 @@ internal sealed class PostgresArtifactRows(string parts, string tasks, int compa
     ///     Brings the rows of <paramref name="task" /> in line with it, after its compare-and-set, in the same transaction.
     ///     <paramref name="appended" /> holds the parts this commit appended per artifact, in order; <paramref name="replaced" />
     ///     the artifacts it replaced. An artifact that this commit did not touch, and whose rows hold as many parts as it has,
-    ///     is left alone: only artifact events change parts.
+    ///     is left alone: only artifact events change parts. It counts and reads the parts with
+    ///     <see cref="ModelCopies.CountParts" /> and <see cref="ModelCopies.CopyLastParts" />, never
+    ///     <see cref="Artifact.Parts" />, so an append costs O(the parts it adds), not O(the artifact) (ADR-004).
     /// </summary>
     public async ValueTask WriteAsync(NpgsqlConnection conn, NpgsqlTransaction tx, TaskKey key, AgentTask task,
         Stored? stored, IReadOnlyDictionary<string, List<Part>> appended, IReadOnlySet<string> replaced,
@@ -111,8 +134,8 @@ internal sealed class PostgresArtifactRows(string parts, string tasks, int compa
             // A create, or a task stored with its parts inline (or written by an instance with the option off): start over.
             batch.BatchCommands.Add(Delete(key, null));
             foreach (var artifact in task.Artifacts ?? [])
-                if (artifact.Parts.Count > 0)
-                    batch.BatchCommands.Add(Insert(key, artifact.ArtifactId, 0, artifact.Parts));
+                if (artifact.CountParts() is var all and > 0)
+                    batch.BatchCommands.Add(Insert(key, artifact.ArtifactId, 0, artifact.CopyLastParts(all)));
         }
         else
         {
@@ -121,10 +144,10 @@ internal sealed class PostgresArtifactRows(string parts, string tasks, int compa
             {
                 var id = artifact.ArtifactId;
                 present.Add(id);
-                var count = artifact.Parts.Count;
+                var count = artifact.CountParts();
                 var have = stored.Artifacts.TryGetValue(id, out var s) ? s : (Parts: 0, Rows: 0, MaxOrdinal: -1);
                 if (!replaced.Contains(id) && appended.TryGetValue(id, out var added) && added.Count > 0
-                    && have.Parts + added.Count == count && have.Rows < compactAt && EndsWith(artifact.Parts, added))
+                    && have.Parts + added.Count == count && have.Rows < compactAt && EndsWith(artifact, added))
                 {
                     batch.BatchCommands.Add(Insert(key, id, have.MaxOrdinal + 1, added));
                     continue;
@@ -133,7 +156,7 @@ internal sealed class PostgresArtifactRows(string parts, string tasks, int compa
                 if (!replaced.Contains(id) && !appended.ContainsKey(id) && have.Parts == count) continue; // untouched
 
                 batch.BatchCommands.Add(Delete(key, id));
-                if (count > 0) batch.BatchCommands.Add(Insert(key, id, 0, artifact.Parts));
+                if (count > 0) batch.BatchCommands.Add(Insert(key, id, 0, artifact.CopyLastParts(count)));
             }
 
             foreach (var id in stored.Artifacts.Keys)
@@ -218,11 +241,11 @@ internal sealed class PostgresArtifactRows(string parts, string tasks, int compa
     private static string RowJson(string artifactId, IEnumerable<Part> list) =>
         A2AJson.Serialize(new Artifact { ArtifactId = artifactId, Parts = list.ToList() });
 
-    /// <summary>True when the last parts of <paramref name="all" /> are <paramref name="tail" />, compared as JSON.</summary>
-    private static bool EndsWith(List<Part> all, List<Part> tail)
+    /// <summary>True when the last parts of <paramref name="artifact" /> are <paramref name="tail" />, compared as JSON.</summary>
+    private static bool EndsWith(Artifact artifact, List<Part> tail)
     {
-        if (tail.Count > all.Count) return false;
-        return string.Equals(RowJson("", all.GetRange(all.Count - tail.Count, tail.Count)), RowJson("", tail),
+        if (tail.Count > artifact.CountParts()) return false;
+        return string.Equals(RowJson("", artifact.CopyLastParts(tail.Count)), RowJson("", tail),
             StringComparison.Ordinal);
     }
 }
