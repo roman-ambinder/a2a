@@ -186,15 +186,7 @@ Each security event counts `a2a.server.security.events` and writes one log line 
 
 The spec asks agents to watch for unusual patterns such as rapid task creation and excessive cancellations (§13.4). The server can do this for you. It is off by default:
 
-```csharp
-services.AddA2AServer(o =>
-{
-    o.Anomalies.Enabled = true;
-    o.Anomalies.TaskCreationsPerMinute = 60; // the defaults
-    o.Anomalies.CancellationsPerMinute = 20;
-    o.Anomalies.MaxTrackedCallers = 10_000;
-});
-```
+[!code-csharp[](../../../samples/Snippets/Observability.cs#AnomalyDetection)]
 
 or, from configuration, `"A2A": { "Anomalies": { "Enabled": true } }`.
 

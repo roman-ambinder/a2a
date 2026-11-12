@@ -71,19 +71,13 @@ The <xref:A2A.Server.Storage.TaskKey> holds tenant, owner and task id. The calle
 
 Spec §13.4 says agents SHOULD let users request deletion of their data. A2A 1.0 has no delete operation, so the SDK offers one as an opt-in extension operation. Turn it on with one call:
 
-```csharp
-builder.Services.AddA2AServer()
-    .AddAgentExecutor<MyAgent>()
-    .AddTaskDeletion();
-```
+[!code-csharp[](../../../samples/Snippets/Retention.cs#TaskDeletion)]
 
 <xref:A2A.Server.A2AServerBuilder.AddTaskDeletion*> adds the extension operation `a2a.tasks.delete` (<xref:A2A.Deletion.TaskDeletion>), and the Agent Card lists its extension, `https://github.com/roman-ambinder/a2a/extensions/task-deletion/v1`. Without the call the operation does not exist (`MethodNotFound`) and the card does not list it. It is served like any [custom operation](custom-operations.md): JSON-RPC method `a2a.tasks.delete`, `POST {pattern}/ext/a2a.tasks.delete` on HTTP+JSON, and the gRPC extension service when you map `MapA2AGrpcExtensions`. The caller must activate the extension.
 
 A client calls it with <xref:A2A.Client.TaskDeletionClientExtensions.DeleteTaskAsync*>, which activates the extension for the call:
 
-```csharp
-await client.DeleteTaskAsync(task.Id);
-```
+[!code-csharp[](../../../samples/Snippets/Retention.cs#DeleteOwnTask)]
 
 The params are `{"id": "<task id>"}`, with `tenant` as usual, and the result is `{}`. The rules:
 

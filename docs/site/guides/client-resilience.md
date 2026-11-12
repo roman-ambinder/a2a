@@ -12,10 +12,7 @@ A runnable version, where the agent answers 503 once and the client retries, is 
 
 An Agent Card can list several interfaces, for example JSON-RPC and HTTP+JSON, or the same binding at two addresses. The client uses the first one it supports (spec §8.3.2). Set <xref:A2A.Client.A2AClientOptions.InterfaceFallback> to `true` and a client made by `A2AClientFactory` moves to the next interface when the one it uses cannot be reached (spec §5.2). It is off by default.
 
-```csharp
-var client = await A2AClientFactory.CreateAsync(agentUrl, http,
-    new A2AClientOptions { InterfaceFallback = true });
-```
+[!code-csharp[](../../../samples/Snippets/ClientResilience.cs#InterfaceFallback)]
 
 - **What falls back.** Only a failure that proves no request reached the agent: the connection, the name lookup, the proxy tunnel or the TLS handshake failed (an `HttpRequestException` with `HttpRequestError` `ConnectionError`, `NameResolutionError`, `ProxyTunnelError` or `SecureConnectionError`, also behind a gRPC status). The transport's own retries (`MaxRetries`) run first.
 - **What never falls back.** An HTTP status, an A2A error, a timeout, a cancellation, a failure during the request or the response, and an address the SSRF guard refused. The agent may have seen those requests: on HTTP+JSON a 404 is `TaskNotFound`, not a missing endpoint. A stream falls back only before its first event.
