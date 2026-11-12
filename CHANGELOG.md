@@ -148,6 +148,11 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- Security: `RequireAgentCardSchemes` checked the card of the route tenant only. A request to `/a2a` with
+  `"tenant": "acme"` in its body was checked against the default tenant's card, or against no card, and then ran in
+  tenant acme without proving acme's schemes. It also checked artifact and upload routes against the default card.
+  Now it checks the card of the artifact or upload route's tenant too. The call is then bound to the tenant that was
+  checked, so a different body tenant is refused with InvalidParams.
 - Server: the commit that creates a task also finds a stored commit by its mutation id (with `ITaskCommitLookup`).
   Before, a create that the store wrote but whose call failed (a lost answer, or a `DuplicateTaskException` from the
   store's own retry) left the task `FAILED`, deleted the request's inline push config, and the retried request created a
