@@ -25,8 +25,10 @@ namespace A2A.Server.AspNetCore;
 ///             <description>1400-1499: health checks.</description>
 ///         </item>
 ///     </list>
-///     The other assemblies use 100-199 (A2A.Client), 200-499, 680-699 and 1200-1299 (A2A.Server), 900-999 (A2A.Server.Grpc) and 1000-1199 (the
-///     Postgres, Redis and compat packages).
+///     The other assemblies use 100-199 (A2A.Client), 200-499, 680-699 and 1200-1299 (A2A.Server), 900-999
+///     (A2A.Server.Grpc), 1000-1099 (A2A.Server.Postgres), 1100-1199 (A2A.Server.Redis), 1500-1599 (A2A.Mcp), 1600-1699
+///     (A2A.V0_3Compat) and 1700-1799 (A2A.Server.V0_3Compat). <c>LogEventIdTests</c> checks that no two log messages
+///     share an id.
 /// </summary>
 internal static partial class AspNetCoreLog
 {

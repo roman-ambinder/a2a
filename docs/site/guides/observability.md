@@ -159,12 +159,15 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | 500-501, 600 | ASP.NET Core: unhandled errors, stream errors |
 | 700-708, 800 | ASP.NET Core: startup validation (anonymous endpoints, a failed check that stops the app, card interfaces, plain HTTP, empty required card fields), card signing warning |
 | 900 | gRPC: unhandled errors |
-| 1000-1004 | MCP bridge (1000-1004); Postgres cleanup (1000-1001); v0.3 compatibility (1000-1003) |
+| 1000-1001 | Postgres cleanup |
 | 1010-1011, 1020 | Postgres coordinator (cancel requests); Postgres schema newer than the package |
-| 1100-1104 | Redis event bus and coordinator; 1100 is also used by the v0.3 server surface (error after a response started) |
+| 1100-1104 | Redis event bus and coordinator |
 | 1200-1201 | server: security events (1200 information, 1201 warning) |
 | 1300 | ASP.NET Core: API keys could not be reloaded |
 | 1400 | ASP.NET Core: a health check failed |
+| 1500-1504 | MCP bridge |
+| 1600-1603 | v0.3 compatibility: dropped fields, card conversion problems, v0.3 operations served, v0.3 agents called |
+| 1700 | v0.3 server surface: an error after the response started |
 
 ### Security events
 
@@ -199,7 +202,6 @@ Code 250 (Debug) means the checks were skipped because of a broken registration.
 
 - No spans appear. Add the source name to `AddSource`. Client and server sources have different names.
 - Metrics from `A2A` are missing. Add `AddMeter("A2A")` as well as `AddMeter("A2A.Server")`. This also hides the registry and v0.3 counters.
-- Two log lines share an id such as 1000 or 1100. They come from different packages. Filter by category as well as by id.
 - A client span and a server span are in different traces. A proxy may drop `traceparent`, or a custom header in `A2ARequestOptions.Headers` may replace it. If a proxy drops it, set `A2AClientOptions.PropagateTraceInMetadata`.
 
 ## See also

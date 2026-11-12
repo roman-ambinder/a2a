@@ -9,6 +9,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - The ASP.NET Core health check failure log line has event id 1400 (was 1200). 1200 is the security event
   information line of `A2A.Server`, so filtering logs by 1200 also matched failed health checks. A test now checks that
   the client, server, ASP.NET Core and gRPC assemblies never share an event id.
+- Log event ids are unique across all packages. The MCP bridge logs 1500-1504 (was 1000-1004), v0.3 compatibility
+  1600-1603 (was 1000-1003) and the v0.3 server surface 1700 (was 1100), so they no longer share ids with the Postgres
+  (1000-1099) and Redis (1100-1199) stores. Update log filters that use the old ids. A test reads every `[LoggerMessage]`
+  under `src/` and fails when two share an id.
 
 ### Documentation
 
