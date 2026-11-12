@@ -86,18 +86,19 @@ internal static partial class V03LossReporter
             CardProblemFound(_logger, message);
     }
 
-    [LoggerMessage(EventId = 1000, Level = LogLevel.Warning,
+    // Event ids 1600-1699: v0.3 compatibility (A2A.V0_3Compat).
+    [LoggerMessage(EventId = 1600, Level = LogLevel.Warning,
         Message = "v0.3 compat dropped {Field} (v0.3 cannot carry it); logged once per field")]
     private static partial void FieldDropped(ILogger logger, string field);
 
-    [LoggerMessage(EventId = 1001, Level = LogLevel.Warning, Message = "v0.3 Agent Card conversion: {Problem}")]
+    [LoggerMessage(EventId = 1601, Level = LogLevel.Warning, Message = "v0.3 Agent Card conversion: {Problem}")]
     private static partial void CardProblemFound(ILogger logger, string problem);
 
-    [LoggerMessage(EventId = 1002, Level = LogLevel.Warning,
+    [LoggerMessage(EventId = 1602, Level = LogLevel.Warning,
         Message = "Served a v0.3 '{Operation}' request over {Binding}. v0.3 names are deprecated; callers should move to A2A v1.0 (spec A.2). Logged once per operation.")]
     private static partial void LegacyOperationServed(ILogger logger, string operation, string binding);
 
-    [LoggerMessage(EventId = 1003, Level = LogLevel.Warning,
+    [LoggerMessage(EventId = 1603, Level = LogLevel.Warning,
         Message = "The agent '{Agent}' at {Url} offers only A2A v0.3, so the v0.3 compat transport is used. v0.3 is deprecated (spec A.2). Logged once per URL.")]
     private static partial void LegacyAgentUsed(ILogger logger, string agent, string url);
 }
