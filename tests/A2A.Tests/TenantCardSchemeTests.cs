@@ -10,13 +10,17 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using A2A.Client;
+using A2A.Server.Grpc;
+using Microsoft.AspNetCore.Builder;
 
 namespace A2A.Tests;
 
 /// <summary>
 /// RequireAgentCardSchemes with one card per tenant: the card it checks is the card of the tenant the call runs in, also
 /// when the tenant comes from the request body (JSON-RPC <c>params.tenant</c>) or from an upload route, not from the
-/// <c>{tenant}</c> route value. Before, a body tenant was checked against the default tenant's card (or none).
+/// <c>{tenant}</c> route value. Before, a body tenant was checked against the default tenant's card (or none). gRPC
+/// carries the tenant only in the message, so a gRPC call is checked against the card of the tenant it names.
 /// </summary>
 public class TenantCardSchemeTests
 {
@@ -107,6 +111,26 @@ public class TenantCardSchemeTests
     }
 
     [Fact]
+    public async Task A_body_tenant_whose_card_scheme_is_met_runs_when_the_route_names_no_tenant()
+    {
+        await using var host = await StartAsync();
+
+        var r = await ListTasksAsync(host, "/a2a", "open");
+
+        Assert.True(Succeeded(r), $"{(int)r.Status} {r.Body}");
+    }
+
+    [Fact]
+    public async Task A_body_tenant_that_differs_from_the_route_tenant_is_refused()
+    {
+        await using var host = await StartAsync();
+
+        var r = await ListTasksAsync(host, "/a2a/open", "acme");
+
+        Assert.False(Succeeded(r), $"{(int)r.Status} {r.Body}");
+    }
+
+    [Fact]
     public async Task An_upload_is_checked_against_the_card_of_its_route_tenant()
     {
         await using var host = await StartAsync();
@@ -122,5 +146,37 @@ public class TenantCardSchemeTests
 
         Assert.Equal(HttpStatusCode.Forbidden, locked.StatusCode);
         Assert.True(open.IsSuccessStatusCode, $"{(int)open.StatusCode} {await open.Content.ReadAsStringAsync()}");
+    }
+
+    /// <summary>The same agent on gRPC, whose calls always carry the tenant in the message (the route has none).</summary>
+    private static Task<TestAgentHost> StartGrpcAsync() =>
+        TestAgentHost.StartAsync(
+            services: s =>
+            {
+                s.AddA2AServer().AddTenantCardProvider<Cards>();
+                s.AddA2AGrpc();
+                s.AddAuthentication().AddScheme<AuthenticationSchemeOptions, NobodyHandler>(NobodyHandler.SchemeName, null);
+            },
+            configurePipeline: app => app.MapA2AGrpc().RequireAuthorization()
+                .RequireAgentCardSchemes(new Dictionary<string, string> { ["locked"] = NobodyHandler.SchemeName }));
+
+    [Fact]
+    public async Task A_grpc_call_runs_in_a_tenant_whose_card_scheme_is_met()
+    {
+        await using var host = await StartGrpcAsync();
+        var client = host.Client(ProtocolBindings.Grpc);
+
+        var page = await client.ListTasksAsync(new ListTasksRequest { Tenant = "open", PageSize = 10 });
+
+        Assert.NotNull(page);
+    }
+
+    [Fact]
+    public async Task A_grpc_call_to_a_tenant_whose_card_scheme_is_not_met_is_refused()
+    {
+        await using var host = await StartGrpcAsync();
+        var client = host.Client(ProtocolBindings.Grpc);
+
+        await Assert.ThrowsAnyAsync<A2AException>(() => client.ListTasksAsync(new ListTasksRequest { Tenant = "acme", PageSize = 10 }));
     }
 }

@@ -35,6 +35,16 @@ internal static class OperationAuthorization
             throw new A2AException(A2AErrorCode.Unauthenticated);
         }
 
+        // The binding's tenant-dependent authentication, for the tenant the call runs in (it may come from the body).
+        if (call.TenantAuthentication is { } authenticate &&
+            !await authenticate(call, cancellationToken).ConfigureAwait(false))
+        {
+            SecurityEventLog.Record(options, A2ATelemetry.SecurityEventNames.Unauthenticated, operation.Name, call,
+                taskId);
+            await DeniedAsync(audit, call, operation, taskId, "Unauthenticated").ConfigureAwait(false);
+            throw new A2AException(A2AErrorCode.Unauthenticated);
+        }
+
         if (!TenantAllowed(call))
         {
             SecurityEventLog.Record(options, A2ATelemetry.SecurityEventNames.PermissionDenied, operation.Name, call,

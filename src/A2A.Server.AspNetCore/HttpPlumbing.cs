@@ -117,6 +117,7 @@ internal static partial class HttpPlumbing
         return new ServerCallContext
         {
             InboundBearerToken = bearer,
+            TenantAuthentication = AgentCardSchemeRequirement.Recheck(http),
             User = user,
             Principal = principal,
             RemoteAddress = http.Connection.RemoteIpAddress?.ToString(),
@@ -126,7 +127,7 @@ internal static partial class HttpPlumbing
             SkipRequiredExtensions = skipRequiredExtensions,
             IdempotencyKey = string.IsNullOrEmpty(idempotencyKey) ? null : idempotencyKey,
             Tenant = tenant,
-            TenantFromRoute = http.GetRouteValue("tenant") is string { Length: > 0 } || checkedTenant is not null,
+            TenantFromRoute = http.GetRouteValue("tenant") is string { Length: > 0 } || checkedTenant is { Length: > 0 },
             RouteValues = RouteValues(http),
             Binding = binding,
 #pragma warning disable A2AEXP005 // the live exchange of A2A 1.1
