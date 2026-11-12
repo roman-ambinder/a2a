@@ -4,6 +4,12 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Documentation
+
+- Spec decisions: blocking and non-blocking SendMessage. The SDK follows §3.2.2 where it disagrees with §3.1.1 ("MUST
+  return immediately"), and a blocking send also returns when no execution of the task is running any more, so an agent
+  that leaves its task `WORKING` answers the caller with a `WORKING` task.
+
 ## 0.2.0
 
 The first version published to NuGet: 0.1.0 was prepared but never published. Changes since 0.1.0 are below. One default changes behaviour for existing code: the client now rejects agent responses that lack a REQUIRED field (`A2AClientOptions.ValidateResponses`, see Protocol and bindings).
