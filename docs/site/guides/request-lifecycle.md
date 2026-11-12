@@ -1,6 +1,6 @@
 # How a request flows
 
-A deep dive into what the server does with one `SendMessage` call, from the wire to the stores and back. It names the parts from [Architecture](architecture.md). The behavior described here is taken from the server source.
+A deep dive into what the server does with one `SendMessage` call, from the wire to the stores and back. It names the parts from [Architecture](architecture.md). Read it when you debug the server, write a filter or a store, or want to know what is guaranteed. The behavior described here is taken from the server source.
 
 ## 1. The binding
 
@@ -31,13 +31,13 @@ Inside the operation the handler checks the request against the limits (parts pe
 
 ## 4. Idempotency
 
-`SendMessage` always carries an `Idempotency-Key` from the client SDK (default: the message id). The server claims the key before it does work, so a retry does not create the task twice. The claim is renewed by the execution heartbeat while the request runs, so a live request keeps its key and a crashed instance frees it sooner.
+The server keys a `SendMessage` by its `Idempotency-Key` header, or by the message id when the header is missing. The SDK client always sends the header (default: the message id). Keys are scoped by tenant and caller. The server claims the key before it does work, so a retry does not create the task twice. The claim is renewed by the execution heartbeat while the request runs, so a live request keeps its key and a crashed instance frees it sooner.
 
 ## 5. Running the agent
 
 The engine rents the executor for the tenant. By default that is a new DI scope per execution, so scoped services such as a `DbContext` are safe in your executor. The engine takes an execution slot (it can wait in a queue, and refuses with `RATE_LIMITED` and reason `execution_capacity` when there is no slot or no room), starts a span `a2a.agent.execute` as a child of the operation span, and calls your `ExecuteAsync`.
 
-While the agent runs it holds a **lease** with the `ExecutionCoordinator`, renewed every `Heartbeat` (10 s by default; the lease TTL is 30 s). Every instance that shares the coordinator can see that the task is running, and a cancel request from another instance reaches the agent through it.
+While the agent runs it holds a **lease** (a time-limited claim that says "this execution is alive on this instance") with the `ExecutionCoordinator`, renewed every `Heartbeat` (10 s by default; the lease TTL, `LeaseTtl`, is 30 s). Both are on `A2AServerOptions.Coordination`. Every instance that shares the coordinator can see that the task is running, and a cancel request from another instance reaches the agent through it.
 
 An optional `MaxTaskDuration` fails a run that goes over it. Token and cost budgets and event size caps can also fail a task. See [Task safety](task-safety.md) and [Execution limits and budgets](execution-limits.md).
 
@@ -61,15 +61,15 @@ A streaming call (`SendStreamingMessage`, `SubscribeToTask`) reads the stored ev
 
 ## 8. Push delivery
 
-If the task has push configs, the commit in step 6 also queues one delivery per config in the push outbox. The hosted `PushDeliveryService` sends them through an SSRF-guarded HTTP invoker, with retries and a dead-letter list. Each attempt is a span `a2a.push.deliver`, and the webhook request carries the `traceparent` of that span. See [Push notifications](push-notifications.md).
+If the task has push configs, the commit in step 6 also queues one delivery per config in the push outbox. The hosted `PushDeliveryService` sends them through an SSRF-guarded HTTP invoker, with retries. A delivery that cannot succeed goes to the dead letters, a list you can inspect and re-send with `A2APushAdmin`. Each attempt is a span `a2a.push.deliver`, and the webhook request carries the `traceparent` of that span. See [Push notifications](push-notifications.md).
 
 ## 9. The response
 
-For a unary `SendMessage`, the handler returns either a message (a stateless reply) or the task as it stands. Errors are mapped to each binding's form: JSON-RPC errors, HTTP problem responses, or `google.rpc.Status` with an `ErrorInfo` detail on gRPC. Unexpected exception text is not sent unless the host is in Development, and an exception from your agent moves the task to `FAILED` with a generic status text.
+For a unary `SendMessage`, the handler returns either a message (a stateless reply) or the task as it stands. Errors are mapped to each binding's form: a JSON-RPC error object, an HTTP status with a `google.rpc.Status` body on HTTP+JSON, or `google.rpc.Status` with an `ErrorInfo` detail on gRPC. Unexpected exception text is not sent unless `IncludeExceptionDetails` is on, which by default means the host is in Development. An exception from your agent moves the task to `FAILED` with the generic status text "The agent failed to process the request."
 
 ## 10. Afterwards
 
-If retention is on, a background sweep deletes old terminal tasks with their events, push configs and deliveries, cancels tasks that wait too long in `INPUT_REQUIRED` or `AUTH_REQUIRED`, and fails the tasks of executions whose lease lapsed. See [Retention](retention.md).
+If retention is on, a background sweep deletes old terminal tasks with their events, push configs and deliveries, cancels tasks that wait in `INPUT_REQUIRED` or `AUTH_REQUIRED` longer than `InterruptedTimeout` (24 hours by default), and fails the tasks of executions whose lease lapsed. See [Retention](retention.md).
 
 ## Where to look in the source
 

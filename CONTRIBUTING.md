@@ -38,8 +38,6 @@ The tests run on Microsoft.Testing.Platform ([global.json](global.json)), so `do
 
 `tests/A2A.Stores.Tests` needs Docker. It starts Postgres, Redis, MinIO and Azurite with Testcontainers. Without Docker it skips, unless `A2A_REQUIRE_DOCKER=1` is set. Then a missing Docker fails the run. CI sets it.
 
-See also [Build and test](README.md#build-and-test) in the README.
-
 ## Coverage
 
 [coverage.yml](.github/workflows/coverage.yml) runs every suite above except `samples/TestingAgent` with line coverage
@@ -123,3 +121,18 @@ After the first release, do not add a new abstract member, and do not add a virt
 - Target `main`.
 - CI must pass.
 - Add a [CHANGELOG.md](CHANGELOG.md) entry for user-visible changes.
+
+## Releasing
+
+Push a version tag on a commit that is on `main`:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+[release.yml](.github/workflows/release.yml) first requires a successful `CI` run on `main` for that exact commit, and
+waits if the run is still going. It then builds, packs every `src/` project (with SourceLink and `.snupkg` symbols),
+pushes them to nuget.org and creates a GitHub release. A tag with a suffix (`v0.2.0-preview.1`) publishes a prerelease.
+
+One-time setup: add a nuget.org API key as the repository secret `NUGET_API_KEY`, scoped to push `RomanAmbinder.A2A.*`.

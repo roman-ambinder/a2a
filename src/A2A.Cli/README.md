@@ -14,7 +14,7 @@ a2a get <taskId>               # show a task
 a2a list --status working
 a2a cancel <taskId>
 a2a download <taskId> -o ./files
-a2a keys                       # make an API key and its hash (offline)
+a2a keys new                   # make an API key and its hash (offline)
 ```
 
 - `--agent <url>` (or `A2A_AGENT_URL`) is required by every command except `keys`. Options can come anywhere after the

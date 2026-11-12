@@ -60,12 +60,11 @@ Typed skills use the same ID: `TypedSkillExtension`, `A2AClient.CallSkillAsync`,
 
 ### A2AEXP005
 
-The types A2A 1.1 adds: `TimelineEntry`, `TaskMessageUpdateEvent`, `StreamError`, `StreamRequest`, `MessageUpdateEvent` and
-`StreamErrorEvent`, `A2AServerOptions.EnableProtocolV11`, and the live exchange: `A2AClient.OpenLiveAsync`,
-`A2ALiveConnection`, `ILiveTransport`, `ILiveInput`, `LiveInputItem`, `AgentRequestContext.LiveInput`, and
-`IA2ARequestHandler.SendLiveMessageAsync` / `SendLiveUplinkAsync`. The 1.1 fields on existing types (for example `AgentTask.Generation`, `AgentTask.Timeline`,
-`SendMessageConfiguration.IfGenerationMatch`) are not marked, because the attribute cannot be put on properties for
-netstandard2.0, but they follow the same rule: they can change until 1.1 is final.
+The types A2A 1.1 adds: `TimelineEntry`, `TaskMessageUpdateEvent`, `StreamError`, `StreamRequest`, `MessageUpdateEvent` and `StreamErrorEvent`, and `A2AServerOptions.EnableProtocolV11`.
+
+The live exchange uses the same ID: `A2AClient.OpenLiveAsync`, `A2ALiveConnection`, `ILiveTransport`, `ILiveInput`, `LiveInputItem`, `MalformedStreamRequest`, `AgentRequestContext.LiveInput`, and `IA2ARequestHandler.SendLiveMessageAsync` / `SendLiveUplinkAsync`.
+
+The 1.1 fields on existing types (for example `AgentTask.Generation`, `AgentTask.Timeline`, `SendMessageConfiguration.IfGenerationMatch`) are not marked, because the attribute cannot be put on properties for netstandard2.0, but they follow the same rule: they can change until 1.1 is final.
 
 ## How a release works
 
