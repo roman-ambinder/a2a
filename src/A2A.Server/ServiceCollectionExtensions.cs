@@ -212,6 +212,30 @@ public sealed class A2AServerBuilder
         return this;
     }
 
+    /// <summary>
+    ///     Uses a function that answers each message with text as the agent: a direct reply for a new turn, or, when the
+    ///     message continues a task that waited for input, an artifact with the text and the task completed. The quickest
+    ///     agent: <c>a.AddAgentExecutor(ctx =&gt; $"You said: {ctx.UserText}")</c>. Replaces an earlier executor.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="reply" /> is null.</exception>
+    public A2AServerBuilder AddAgentExecutor(Func<AgentRequestContext, string> reply)
+    {
+        ArgumentNullException.ThrowIfNull(reply);
+        return AddAgentExecutor((context, _) => Task.FromResult(reply(context)));
+    }
+
+    /// <summary>
+    ///     Uses an async function that answers each message with text as the agent, like
+    ///     <see cref="AddAgentExecutor(Func{AgentRequestContext, string})" />. Replaces an earlier executor.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="reply" /> is null.</exception>
+    public A2AServerBuilder AddAgentExecutor(Func<AgentRequestContext, CancellationToken, Task<string>> reply)
+    {
+        ArgumentNullException.ThrowIfNull(reply);
+        Services.Replace(ServiceDescriptor.Singleton<IAgentExecutor>(new ReplyAgentExecutor(reply)));
+        return this;
+    }
+
     /// <summary>Sets the public Agent Card (same as setting <see cref="A2AServerOptions.AgentCard" />).</summary>
     public A2AServerBuilder AddAgentCard(AgentCard card)
     {
