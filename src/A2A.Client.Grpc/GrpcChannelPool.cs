@@ -29,6 +29,10 @@ internal sealed class GrpcChannelPool
     private readonly Action<GrpcChannel> _dispose;
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly object _gate = new();
+
+    // The entries no call holds, least recently released first: eviction takes from the head, so an acquire or release
+    // costs O(1) amortized whatever the number of channels.
+    private readonly LinkedList<Entry> _idle = new();
     private readonly int _maxIdle;
     private readonly TimeSpan _idleTimeout;
     private readonly TimeProvider _time;
@@ -89,7 +93,7 @@ internal sealed class GrpcChannelPool
                 _entries[key] = entry;
             }
 
-            entry.Leases++;
+            if (entry.Leases++ == 0 && entry.IdleNode.List is not null) _idle.Remove(entry.IdleNode);
             entry.LastUsed = now;
             lease = new Lease(this, entry);
             evicted = EvictLocked(now);
@@ -107,6 +111,7 @@ internal sealed class GrpcChannelPool
             entry.Leases--;
             var now = _time.GetUtcNow();
             entry.LastUsed = now;
+            if (entry.Leases == 0) _idle.AddLast(entry.IdleNode);
             evicted = EvictLocked(now);
         }
 
@@ -120,18 +125,13 @@ internal sealed class GrpcChannelPool
     private List<GrpcChannel>? EvictLocked(DateTimeOffset now)
     {
         List<GrpcChannel>? evicted = null;
-        var idle = new List<Entry>();
-        foreach (var entry in _entries.Values)
-            if (entry.Leases == 0)
-                idle.Add(entry);
-        idle.Sort((a, b) => a.LastUsed.CompareTo(b.LastUsed));
-        var excess = idle.Count - _maxIdle;
-        foreach (var entry in idle)
+        while (_idle.First is { } head)
         {
-            if (excess <= 0 && now - entry.LastUsed < _idleTimeout) break;
+            var entry = head.Value;
+            if (_idle.Count <= _maxIdle && now - entry.LastUsed < _idleTimeout) break;
+            _idle.RemoveFirst();
             _entries.Remove(entry.Key);
             (evicted ??= []).Add(entry.Channel);
-            excess--;
         }
 
         return evicted;
@@ -143,10 +143,20 @@ internal sealed class GrpcChannelPool
         foreach (var channel in channels) _dispose(channel);
     }
 
-    internal sealed class Entry(string key, GrpcChannel channel)
+    internal sealed class Entry
     {
-        public string Key { get; } = key;
-        public GrpcChannel Channel { get; } = channel;
+        public Entry(string key, GrpcChannel channel)
+        {
+            Key = key;
+            Channel = channel;
+            IdleNode = new LinkedListNode<Entry>(this);
+        }
+
+        public string Key { get; }
+        public GrpcChannel Channel { get; }
+
+        /// <summary>This entry's node in the idle list; in the list exactly while no call holds the entry.</summary>
+        public LinkedListNode<Entry> IdleNode { get; }
         public int Leases { get; set; }
         public DateTimeOffset LastUsed { get; set; }
     }
