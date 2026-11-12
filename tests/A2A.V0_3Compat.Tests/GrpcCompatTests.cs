@@ -216,6 +216,64 @@ public class GrpcCompatTests
     }
 
     [Fact]
+    public async Task HistoryLength_0_returns_no_history_over_v03_grpc()
+    {
+        // proto3 int32 has no presence: 0 reaches the server as "not set", so the client applies it.
+        await using var host = await StartAsync();
+        var client = Client(host);
+        var task = Assert.IsType<TaskResponse>(await client.SendMessageAsync("task")).Task;
+
+        Assert.Null((await client.GetTaskAsync(new GetTaskRequest { Id = task.Id, HistoryLength = 0 })).History);
+        Assert.Single((await client.GetTaskAsync(new GetTaskRequest { Id = task.Id, HistoryLength = 1 })).History!);
+        Assert.True((await client.GetTaskAsync(new GetTaskRequest { Id = task.Id })).History!.Count >= 1);
+    }
+
+    [Fact]
+    public async Task GetAgentCard_gives_an_anonymous_caller_the_public_card()
+    {
+        // The extended card requires authentication: a caller without credentials still discovers the agent.
+        await using var host = await V03Host.StartAsync(grpc: true, requireAuth: false, configure: o => o.AllowAnonymous = true);
+        var anonymous = await Stub(host, user: null).GetAgentCardAsync(new P.GetAgentCardRequest());
+        Assert.Equal("Test agent", anonymous.Description);
+
+        var bob = await Stub(host, "bob").GetAgentCardAsync(new P.GetAgentCardRequest());
+        Assert.Equal("Extended card for bob", bob.Description);
+    }
+
+    [Fact]
+    public async Task The_public_v03_card_is_the_card_of_the_calls_tenant()
+    {
+        await using var host = await StartAsync();
+        var services = host.App.Services;
+        var handler = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<A2A.Server.IA2ARequestHandler>(services);
+        var cards = new TenantCards();
+        var call = new A2A.Server.ServerCallContext { Tenant = "acme", Principal = "alice" };
+
+        var card = await A2A.Server.V0_3Compat.V03Surface.V03CardAsync(handler, cards, call, extended: false, includeGrpc: false, CancellationToken.None);
+        Assert.Equal("Card of acme", card["name"]!.GetValue<string>());
+        Assert.Equal("http://localhost/acme", card["url"]!.GetValue<string>());
+
+        var unknown = new A2A.Server.ServerCallContext { Tenant = "nobody", Principal = "alice" };
+        var ex = await Assert.ThrowsAsync<A2AException>(() => A2A.Server.V0_3Compat.V03Surface.V03CardAsync(handler, cards, unknown, false, false, CancellationToken.None));
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
+    }
+
+    /// <summary>A card per tenant; none for the tenant "nobody".</summary>
+    private sealed class TenantCards : A2A.Server.IAgentCardProvider
+    {
+        public AgentCard Get() => throw new InvalidOperationException("one card per tenant");
+
+        public ValueTask<AgentCard?> GetAsync(A2A.Server.Agents.AgentRequestScope scope, CancellationToken cancellationToken)
+        {
+            if (scope.Tenant == "nobody") return ValueTask.FromResult<AgentCard?>(null);
+            var card = V03Host.DefaultCard();
+            card.Name = $"Card of {scope.Tenant}";
+            card.SupportedInterfaces = [new AgentInterface { Url = $"http://localhost/{scope.Tenant}", ProtocolBinding = ProtocolBindings.JsonRpc }];
+            return ValueTask.FromResult<AgentCard?>(card);
+        }
+    }
+
+    [Fact]
     public void Without_UseGrpcV03_a_v03_grpc_interface_is_not_selected()
     {
         var card = V03Host.DefaultCard();

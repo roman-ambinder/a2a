@@ -65,6 +65,9 @@ public sealed class ClientVersionSelectionTests
         Assert.Null(A2AClientFactory.SelectInterface(card, Options()));
         var ex = Assert.Throws<A2AException>(() => A2AClientFactory.Create(card, new HttpClient(new Recorder()), Options()));
         Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
+        // The error names what the card offers, and the option that fixes it.
+        Assert.Contains("HTTP+JSON 1.7", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("A2AClientOptions.ProtocolVersion", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

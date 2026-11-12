@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Json;
+using A2A.Server.Agents;
 using A2A.Server.AspNetCore;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
@@ -54,6 +55,7 @@ internal sealed partial class V03Surface
         ListTasksMethod
     };
 
+    private readonly IAgentCardProvider _cards;
     private readonly bool _grpcServed;
     private readonly IA2ARequestHandler _handler;
     private readonly bool _includeDetails;
@@ -62,9 +64,11 @@ internal sealed partial class V03Surface
     private readonly ILogger _logger;
 
     public V03Surface(IA2ARequestHandler handler, IOptions<A2AServerOptions> serverOptions,
-        IHostEnvironment environment, ILoggerFactory loggerFactory, TaskStore tasks, IServiceProvider services)
+        IHostEnvironment environment, ILoggerFactory loggerFactory, TaskStore tasks, IServiceProvider services,
+        IAgentCardProvider cards)
     {
         _handler = handler;
+        _cards = cards;
         _grpcServed = V03GrpcRegistration.IsServed(services);
         // Push configs a v0.3 caller creates get v0.3 webhook bodies. Set before the host starts the delivery service.
         serverOptions.Value.PushPayloadEncoder ??= new V03PushPayloadEncoder(tasks, serverOptions.Value.Limits);
@@ -777,25 +781,30 @@ internal sealed partial class V03Surface
     /// <summary>The extended card in v0.3 form (a pure v0.3 card).</summary>
     private Task<JsonObject> ExtendedCardAsync(ServerCallContext call, CancellationToken ct)
     {
-        return V03CardAsync(_handler, call, extended: true, includeGrpc: _grpcServed, ct);
+        return V03CardAsync(_handler, _cards, call, extended: true, includeGrpc: _grpcServed, ct);
     }
 
     /// <summary>
-    ///     A pure v0.3 card (JSON-RPC dialect): the extended card, or the public card of the call's tenant. A card the host
-    ///     built by hand may not list interfaces: they are taken from the public card. With <paramref name="includeGrpc" />,
-    ///     the GRPC interfaces are listed too (the host serves v0.3 gRPC).
+    ///     A pure v0.3 card (JSON-RPC dialect): the extended card, or the public card of the call's tenant
+    ///     (<paramref name="cards" />, with the call's tenant and route values). A card the host built by hand may not list
+    ///     interfaces: they are taken from the tenant's public card. With <paramref name="includeGrpc" />, the GRPC
+    ///     interfaces are listed too (the host serves v0.3 gRPC).
     /// </summary>
-    internal static async Task<JsonObject> V03CardAsync(IA2ARequestHandler handler, ServerCallContext call, bool extended,
-        bool includeGrpc, CancellationToken ct)
+    /// <exception cref="A2AException">UnsupportedOperation: no agent serves the call's tenant.</exception>
+    internal static async Task<JsonObject> V03CardAsync(IA2ARequestHandler handler, IAgentCardProvider cards,
+        ServerCallContext call, bool extended, bool includeGrpc, CancellationToken ct)
     {
+        var publicCard = await cards.GetAsync(new AgentRequestScope(call.Tenant, call.RouteValues), ct)
+                             .ConfigureAwait(false) ??
+                         throw new A2AException(A2AErrorCode.UnsupportedOperation,
+                             "No agent is configured for this tenant.");
         var card = extended
             ? await handler.GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest { Tenant = call.Tenant }, call, ct)
                 .ConfigureAwait(false)
-            : handler.AgentCard;
+            : publicCard;
         var v1 = AgentCardCanonicalizer.ToNode(card);
         if (v1["supportedInterfaces"] is not JsonArray { Count: > 0 })
-            v1["supportedInterfaces"] =
-                AgentCardCanonicalizer.ToNode(handler.AgentCard)["supportedInterfaces"]?.DeepClone();
+            v1["supportedInterfaces"] = AgentCardCanonicalizer.ToNode(publicCard)["supportedInterfaces"]?.DeepClone();
         if (!V03CardCodec.TryToV03(v1, null, out var v03, out var problem, includeGrpc))
             throw new A2AException(A2AErrorCode.Internal,
                 $"The extended Agent Card cannot be served to v0.3 clients: {problem}");

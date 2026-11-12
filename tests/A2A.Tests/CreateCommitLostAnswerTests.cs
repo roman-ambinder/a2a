@@ -123,6 +123,21 @@ public class CreateCommitLostAnswerTests
     }
 
     [Fact]
+    public async Task Without_the_lookup_a_duplicate_from_the_stores_own_retry_carries_on_and_keeps_the_push_config()
+    {
+        // No lookup, but a DuplicateTaskException: the stored task is at version 1 and equals the one written, so it is
+        // this create (task ids are random). The run carries on with it, as with the lookup.
+        var o = await RunAsync(inner => new CreateFailsStore(inner, Failure.Duplicate));
+
+        var summary = Describe(o);
+        Assert.True(o.Error is null, summary);
+        Assert.True(o.AllTasks.Count == 1 && o.Stored?.Status.State == TaskState.Completed, summary);
+        Assert.True(o.Log.Count(e => e.Event is TaskEvent) == 1 && o.Log[0].Sequence == 1, summary);
+        Assert.True(o.Log.Select(e => e.Sequence).SequenceEqual(Enumerable.Range(1, o.Log.Count).Select(i => (long)i)), summary);
+        Assert.True(o.Configs.Count == 1, summary);
+    }
+
+    [Fact]
     public async Task Without_the_lookup_a_create_whose_answer_is_lost_is_treated_as_failed_as_before()
     {
         // A store that cannot tell whether the create was stored: the engine does not guess, so the stored task is failed.

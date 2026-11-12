@@ -24,6 +24,9 @@ jobs:
   build-test:
     name: Build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # A green run takes 2-4 minutes on either OS. Without a limit a stuck step waits for GitHub's 6 hours: on 2026-11-12
+    # "Upload test results" hung for about 40 minutes after every test passed. 20 minutes leaves room for a cold cache.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:

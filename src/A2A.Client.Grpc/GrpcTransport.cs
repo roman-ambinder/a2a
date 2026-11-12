@@ -537,13 +537,9 @@ public sealed class GrpcTransport : IA2AClient, IA2AExtensionOperationClient, ID
 /// </summary>
 public sealed class GrpcTransportFactory(GrpcChannelOptions? channelOptions = null) : IA2ATransportFactory
 {
-    // A channel per address and channel options. Before, every client opened a channel that nothing disposed. Channels made
-    // with given options live as long as those options (a weak table), so a caller that makes options per client keeps its
-    // channels collectable; the default options share one table for the process.
-    private static readonly ConcurrentDictionary<string, GrpcChannel> DefaultChannels = new(StringComparer.Ordinal);
-
-    private static readonly ConditionalWeakTable<GrpcChannelOptions, ConcurrentDictionary<string, GrpcChannel>>
-        ChannelsByOptions = new();
+    // Channels come from a pool shared per address and channel options (GrpcChannelPool): a call leases its channel while it
+    // runs, and a channel no call uses is disposed after an idle timeout or past an idle limit, so a host that calls many
+    // agents does not keep a channel per agent for the life of the process.
 
     /// <inheritdoc />
     public string ProtocolBinding => ProtocolBindings.Grpc;
@@ -572,21 +568,7 @@ public sealed class GrpcTransportFactory(GrpcChannelOptions? channelOptions = nu
     public IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options)
     {
         return new GrpcTransport(
-            ChannelFor(GrpcTransport.ParseAddress(agentInterface.Url), channelOptions).CreateCallInvoker(), options);
-    }
-
-    private static GrpcChannel ChannelFor(Uri address, GrpcChannelOptions? options)
-    {
-        var channels = options is null
-            ? DefaultChannels
-            : ChannelsByOptions.GetValue(options,
-                static _ => new ConcurrentDictionary<string, GrpcChannel>(StringComparer.Ordinal));
-        var key = address.AbsoluteUri;
-        if (channels.TryGetValue(key, out var existing)) return existing;
-        var created = GrpcChannel.ForAddress(address, options ?? new GrpcChannelOptions());
-        var winner = channels.GetOrAdd(key, created);
-        if (!ReferenceEquals(winner, created)) created.Dispose(); // lost a race: use the one already stored
-        return winner;
+            GrpcChannelPool.For(channelOptions).CallInvoker(GrpcTransport.ParseAddress(agentInterface.Url)), options);
     }
 }
 

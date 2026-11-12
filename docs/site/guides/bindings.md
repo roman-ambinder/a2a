@@ -91,6 +91,8 @@ A runnable version, with a gRPC port, the card order and all three client choice
 | Request size | HTTP 413 above `MaxRequestBodyBytes` | `RESOURCE_EXHAUSTED` from the gRPC layer. The client reports it as `InvalidRequest` with reason `PAYLOAD_TOO_LARGE`. |
 | Protocol | HTTP/1.1 or HTTP/2 | HTTP/2 |
 
+**Channels.** Clients made by `UseGrpc()`, `A2AGrpcClientFactory` and `UseGrpcV03()` share one gRPC channel per agent address and channel options. A call holds its channel while it runs. A channel no call holds is disposed after 5 minutes idle, or when more than 64 are idle (the least recently used first). A client whose channel was disposed gets a new one on its next call. So a host that calls many agents keeps only the channels its running calls use, plus at most 64 idle ones. A `GrpcTransport` you build yourself on a `CallInvoker` or address keeps the channel you give it.
+
 On gRPC, `A2ARequestOptions.Headers` become metadata. Keys are lowercase on the wire. `Timeout` is the deadline of each unary attempt (default 100 seconds). Streams have no deadline. Retries follow the same rules as the HTTP transports:
 
 [!code-csharp[](../../../samples/Snippets/Bindings.cs#RequestOptions)]

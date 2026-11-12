@@ -131,6 +131,8 @@ internal static class ResumableStream
             var progressed = false;
             // Without an event id to resume from (gRPC, or a peer that sends none), an A2A 1.1 server can resume after the
             // last generation seen instead (lastSeenGeneration), so the events before it are not sent again.
+            // A new connection: a replayed update on it must not be read as the server repeating a generation.
+            if (reconnecting) generations.OnReconnect();
             var enumerator = (reconnecting
                     ? resume(taskId!, cursor, cursor is null ? generations.Last : null, cancellationToken)
                     : first(cancellationToken))
@@ -192,9 +194,9 @@ internal static class ResumableStream
 
                     // A2A 1.1 §3.2.7: a gap in generations means a change this stream did not deliver (a missed event, or a
                     // client message to a 1.0-shaped subscriber): reconcile with Get Task and yield the task as it is now.
-                    if (verdict == GenerationVerdict.Gap && reconcileGenerationGaps && taskId is not null)
+                    if (verdict == GenerationVerdict.Gap && reconcileGenerationGaps && taskId is not null &&
+                        await TryGetTaskAsync(getTask, taskId, cancellationToken).ConfigureAwait(false) is { } current)
                     {
-                        var current = await getTask(taskId, cancellationToken).ConfigureAwait(false);
                         generations.Observe(new TaskEvent(current));
                         lastYielded = new TaskEvent(current);
                         yield return lastYielded;
@@ -224,6 +226,23 @@ internal static class ResumableStream
             await Task.Delay(delay, timeProvider, cancellationToken).ConfigureAwait(false);
             failures++;
             reconnecting = true;
+        }
+    }
+
+    /// <summary>
+    ///     The reconciling Get Task (a SHOULD): a failure skips it, so it never ends a stream that is still delivering events.
+    ///     Only cancellation goes through.
+    /// </summary>
+    private static async Task<AgentTask?> TryGetTaskAsync(Func<string, CancellationToken, Task<AgentTask>> getTask,
+        string taskId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await getTask(taskId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
         }
     }
 
@@ -329,6 +348,15 @@ internal sealed class GenerationTracker
 
     /// <summary>The last generation reflected, or null when unknown or not used.</summary>
     public long? Last => _disabled ? null : _last;
+
+    /// <summary>
+    ///     A new connection: the first update on it is not compared with the last one before it, since a peer that resumes
+    ///     without event ids may send that update again. Replays are still skipped by <see cref="Last" />.
+    /// </summary>
+    public void OnReconnect()
+    {
+        _previousUpdate = null;
+    }
 
     public GenerationVerdict Observe(StreamResponse response)
     {

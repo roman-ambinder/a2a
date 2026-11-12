@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using A2A.Server.Agents;
 using A2A.Server.AspNetCore;
 using A2A.Server.V0_3Compat;
 using A2A.V0_3Compat;
@@ -31,15 +32,17 @@ internal sealed class V03GrpcService : V03Pb.A2AService.A2AServiceBase
     // Unknown fields are skipped, as ProtoJSON readers of a newer peer's messages should.
     private static readonly JsonParser Parser = new(JsonParser.Settings.Default.WithIgnoreUnknownFields(true));
 
+    private readonly IAgentCardProvider _cards;
     private readonly IA2ARequestHandler _handler;
     private readonly bool _includeDetails;
     private readonly ILogger _logger;
     private readonly int _maxDepth;
 
     public V03GrpcService(IA2ARequestHandler handler, IOptions<A2AServerOptions> serverOptions,
-        IHostEnvironment environment, ILoggerFactory loggerFactory)
+        IHostEnvironment environment, ILoggerFactory loggerFactory, IAgentCardProvider cards)
     {
         _handler = handler;
+        _cards = cards;
         _logger = loggerFactory.CreateLogger("A2A.Server.Grpc.V0_3Compat");
         _includeDetails = HttpPlumbing.ShouldIncludeDetails(serverOptions.Value, environment);
         _maxDepth = serverOptions.Value.Limits.MaxJsonDepth;
@@ -167,11 +170,26 @@ internal sealed class V03GrpcService : V03Pb.A2AService.A2AServiceBase
     {
         return Unary<V03Pb.AgentCard>(context, "GetAgentCard", async (call, ct) =>
         {
-            // v0.3 gRPC has one card call, which the v0.3 Python client uses for the authenticated extended card: answer
-            // with the extended card when the agent offers one, else the public card.
-            var extended = _handler.AgentCard.Capabilities.ExtendedAgentCard == true;
-            var card = await V03Surface.V03CardAsync(_handler, call, extended, includeGrpc: true, ct)
+            // v0.3 gRPC has one card call. The v0.3 Python client uses it for the authenticated extended card, and a client
+            // without credentials uses it to discover the agent. An authenticated caller gets the extended card when the
+            // tenant's agent offers one; everyone else gets the tenant's public card (the extended card requires
+            // authentication, and a caller who is refused it can still read the public one).
+            var publicCard = await _cards.GetAsync(new AgentRequestScope(call.Tenant, call.RouteValues), ct)
                 .ConfigureAwait(false);
+            var extended = call.IsAuthenticated && publicCard?.Capabilities.ExtendedAgentCard == true;
+            JsonObject card;
+            try
+            {
+                card = await V03Surface.V03CardAsync(_handler, _cards, call, extended, includeGrpc: true, ct)
+                    .ConfigureAwait(false);
+            }
+            catch (A2AException ex) when (extended && ex.Code is A2AErrorCode.ExtendedAgentCardNotConfigured
+                                              or A2AErrorCode.Unauthenticated or A2AErrorCode.PermissionDenied)
+            {
+                card = await V03Surface.V03CardAsync(_handler, _cards, call, extended: false, includeGrpc: true, ct)
+                    .ConfigureAwait(false);
+            }
+
             return V03CardCodec.ToProtoCard(card);
         });
     }
