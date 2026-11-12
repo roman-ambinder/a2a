@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using A2A.Client;
+using A2A.Extensions.AI.Shared;
 using Microsoft.Extensions.AI;
 
 namespace A2A.Extensions.AI;
@@ -261,7 +262,7 @@ public sealed class A2AChatClient : IChatClient
         // Message and content properties are caller side data (they can hold anything). They are never sent to the remote agent.
         for (var i = start; i < list.Count; i++)
             foreach (var content in list[i].Contents)
-                if (A2AContentExtensions.ConvertToPart(content, false) is { } part)
+                if (ModelContent.ConvertToPart(content, false) is { } part)
                     result.Parts.Add(part);
         if (result.Parts.Count == 0)
             throw new ArgumentException("The user messages have no content that A2A can carry.", nameof(messages));
