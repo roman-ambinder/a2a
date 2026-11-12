@@ -61,12 +61,35 @@ Typed skills use the same ID: `TypedSkillExtension`, `A2AClient.CallSkillAsync`,
 
 ### A2AEXP005
 
-The types A2A 1.1 adds: `TimelineEntry`, `TaskMessageUpdateEvent`, `StreamError`, `StreamRequest`, `MessageUpdateEvent` and
-`StreamErrorEvent`, `A2AServerOptions.EnableProtocolV11`, and the live exchange: `A2AClient.OpenLiveAsync`,
-`A2ALiveConnection`, `ILiveTransport`, `ILiveInput`, `LiveInputItem`, `AgentRequestContext.LiveInput`, and
-`IA2ARequestHandler.SendLiveMessageAsync` / `SendLiveUplinkAsync`. The 1.1 fields on existing types (for example `AgentTask.Generation`, `AgentTask.Timeline`,
-`SendMessageConfiguration.IfGenerationMatch`) are not marked, because the attribute cannot be put on properties for
-netstandard2.0, but they follow the same rule: they can change until 1.1 is final.
+The types A2A 1.1 adds: `TimelineEntry`, `TaskMessageUpdateEvent`, `StreamError`, `StreamRequest`, `MessageUpdateEvent` and `StreamErrorEvent`, and `A2AServerOptions.EnableProtocolV11`.
+
+The live exchange uses the same ID: `A2AClient.OpenLiveAsync`, `A2ALiveConnection`, `ILiveTransport`, `ILiveInput`, `LiveInputItem`, `MalformedStreamRequest`, `AgentRequestContext.LiveInput`, and `IA2ARequestHandler.SendLiveMessageAsync` / `SendLiveUplinkAsync`.
+
+The 1.1 fields on existing types (for example `AgentTask.Generation`, `AgentTask.Timeline`, `SendMessageConfiguration.IfGenerationMatch`) are not marked, because the attribute cannot be put on properties for netstandard2.0, but they follow the same rule: they can change until 1.1 is final.
+
+## Store contracts
+
+Custom backends derive from the store base classes: `TaskStore`, `EventStore`, `PushConfigStore`, `PushOutbox`,
+`IdempotencyStore`, `ExecutionCoordinator` and `ArtifactObjectStore`. Their abstract members are the ones that shipped
+in 0.2.0, and that set does not grow. A store that builds against one version keeps building against the next.
+
+A member added to one of these classes later comes in one of two forms:
+
+- **A virtual member with a fallback.** The fallback must be safe when several instances share one backend. Override
+  it when your backend can do better.
+- **An optional capability interface,** when no safe fallback exists. Your store implements the interface to offer the
+  capability. A feature that needs a capability your store lacks will fail at startup with an error that names it, not
+  at first use.
+
+Capability interfaces today: `IBatchTaskCommit`, `ITaskCommitLookup`, `IContextSummaryStore` and
+`IPushOutboxStatistics`. Each one is optional, and a store without it keeps working.
+
+One virtual member is older than this rule and its fallback is not safe with several instances:
+`ExecutionCoordinator.TryRegisterExclusiveAsync` checks and then registers, which is not atomic. A coordinator that
+several instances share must override it with an atomic check.
+
+The reasoning is in
+[ADR-001](https://github.com/roman-ambinder/a2a/blob/main/docs/adr/0001-store-contract-evolution.md).
 
 ### A2AEXP006
 

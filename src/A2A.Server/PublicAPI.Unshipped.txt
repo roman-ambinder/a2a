@@ -4,3 +4,23 @@ A2A.Server.Retention.A2ARetentionService.A2ARetentionService(Microsoft.Extension
 A2A.Server.Retention.A2ARetentionService.A2ARetentionService(Microsoft.Extensions.Options.IOptions<A2A.Server.Retention.A2ARetentionOptions!>! options, A2A.Server.A2AServerOptions! serverOptions, A2A.Server.Storage.TaskStore! tasks, A2A.Server.Coordination.ExecutionCoordinator! coordinator, A2A.Server.Execution.TaskExecutionEngine! engine, A2A.Server.Retention.A2ATaskAdmin! admin, Microsoft.Extensions.Logging.ILogger<A2A.Server.Retention.A2ARetentionService!>? logger = null, System.TimeProvider? time = null, A2A.Server.Storage.ArtifactObjectStore? objects = null, System.Collections.Generic.IEnumerable<A2A.Server.Retention.IA2AContextLifecycle!>? lifecycles = null) -> void
 A2A.Server.Retention.IA2AContextLifecycle
 A2A.Server.Retention.IA2AContextLifecycle.OnContextDeletedAsync(A2A.Server.Storage.ContextRecord! context, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Server.A2AAnomalyOptions
+A2A.Server.A2AAnomalyOptions.A2AAnomalyOptions() -> void
+A2A.Server.A2AAnomalyOptions.CancellationsPerMinute.get -> int
+A2A.Server.A2AAnomalyOptions.CancellationsPerMinute.set -> void
+A2A.Server.A2AAnomalyOptions.Enabled.get -> bool
+A2A.Server.A2AAnomalyOptions.Enabled.set -> void
+A2A.Server.A2AAnomalyOptions.MaxTrackedCallers.get -> int
+A2A.Server.A2AAnomalyOptions.MaxTrackedCallers.set -> void
+A2A.Server.A2AAnomalyOptions.TaskCreationsPerMinute.get -> int
+A2A.Server.A2AAnomalyOptions.TaskCreationsPerMinute.set -> void
+A2A.Server.A2AServerOptions.Anomalies.get -> A2A.Server.A2AAnomalyOptions!
+A2A.Server.A2AServerBuilder.AddTaskDeletion() -> A2A.Server.A2AServerBuilder!
+A2A.Server.Audit.A2AAuditAction.TaskDeleted = 13 -> A2A.Server.Audit.A2AAuditAction
+A2A.Server.Storage.InMemoryTaskStore.FindCommitAsync(A2A.Server.Storage.TaskKey task, string! mutationId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long?>
+A2A.Server.Storage.TaskBatchCommit.MutationId.get -> string?
+A2A.Server.Storage.TaskBatchCommit.MutationId.init -> void
+A2A.Server.Storage.ITaskCommitLookup
+A2A.Server.Storage.ITaskCommitLookup.FindCommitAsync(A2A.Server.Storage.TaskKey task, string! mutationId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long?>
+A2A.Server.Storage.TaskCommit.MutationId.get -> string?
+A2A.Server.Storage.TaskCommit.MutationId.init -> void

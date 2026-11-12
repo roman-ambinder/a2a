@@ -1,6 +1,6 @@
 # Retention
 
-Retention is a background sweep. It deletes old tasks, removes unused contexts, times out tasks that wait for input, and fails tasks whose instance died. You need it with any durable task store. It is off by default.
+Retention is a background sweep. It deletes old tasks, removes unused contexts, times out tasks that wait for input, and fails tasks whose instance died. With an artifact object store it also deletes orphan objects and unused uploads. You need it with any durable task store. It is off by default.
 
 ## Turn it on
 
@@ -35,13 +35,14 @@ The first sweep runs after one `SweepInterval`, not at startup.
 
 ## What a sweep does
 
-A sweep runs these steps in this order (the last one only with an artifact object store). A failing step or item is logged as a warning (events 230 to 232, and 237 for objects), the other steps go on, and the next sweep tries again. Every change is idempotent.
+A sweep runs these steps in this order (the last two only with an artifact object store). A failing step or item is logged as a warning (events 230 to 232, 237 for objects and 681 for uploads), the other steps go on, and the next sweep tries again. Every change is idempotent.
 
 1. **Dead executions.** An execution whose lease expired (its instance died) belongs to a task that is still `SUBMITTED` or `WORKING`. The sweep marks the task `FAILED` with the text "The agent stopped unexpectedly." and asks every instance to cancel it. It leaves the task alone when another execution of it still runs, when the task changed since it was read, or when it changed within the last `Coordination.LeaseTtl`. An execution that lapsed on the sweeping instance itself is not failed; it registers its lease again at its next heartbeat. An interrupted task is left to the next step. See [Durable stores](durable-stores.md#dead-executions).
 2. **Interrupted tasks.** A task in `INPUT_REQUIRED` or `AUTH_REQUIRED` for longer than `InterruptedTimeout` is cancelled with the text "The task waited too long for input." This happens only if no agent runs it and nothing updated it since, such as a committed reply. It can be up to one sweep interval late. Skipped when `InterruptedTimeout` is null.
 3. **Expired tasks.** A task in a terminal state (completed, failed, canceled, rejected) older than `TaskRetention` is deleted. Its events, push configs, pending push deliveries and dead letters go with it, and so do its artifact objects.
 4. **Orphan contexts.** A context older than `OrphanContextRetention` that no task refers to is deleted. A context outlives its tasks until this step removes it.
 5. **Orphan artifact objects.** Only when an <xref:A2A.Server.Storage.ArtifactObjectStore> is registered. An object older than `ArtifactStorage.OrphanGracePeriod` (1 hour) whose task is gone, or whose task no longer refers to it, is deleted. The task is read without its owner, so a live task of anyone keeps its objects, and any doubt keeps the object. At most `BatchSize` objects go per sweep. Listing a bucket is slow, so an instance runs this step only once per `ArtifactStorage.OrphanSweepInterval` (6 hours). See [Artifact storage](artifact-storage.md).
+6. **Unused uploads.** Only when an artifact object store is registered and `ArtifactStorage.Uploads.Enabled` is true. An inbound upload that no task uses is deleted once it is older than `Uploads.UnusedUploadTtl` (24 hours) plus `OrphanGracePeriod`. Like step 5, it runs at most once per `OrphanSweepInterval` and deletes at most `BatchSize` objects per sweep. See [Artifact storage](artifact-storage.md#purge).
 
 Status changes in steps 1 and 2 go through the normal commit path. Streams and webhooks see them like any other final event.
 
@@ -58,13 +59,35 @@ Before each sweep the service takes a named lease, `a2a:retention`, from the <xr
 
 ## Delete one task: A2ATaskAdmin
 
-<xref:A2A.Server.Retention.A2ATaskAdmin> deletes a task with all its data on demand. `AddA2AServer` registers it. It is not exposed over A2A.
+<xref:A2A.Server.Retention.A2ATaskAdmin> deletes a task with all its data on demand. `AddA2AServer` registers it. It is not exposed over A2A; to let callers delete their own tasks, see [below](#let-callers-delete-their-own-tasks).
 
 [!code-csharp[](../../../samples/Snippets/Retention.cs#Admin)]
 
-`DeleteTaskAsync(TaskKey)` first cancels the task's executions on every instance, without waiting for them to stop. Then it deletes pending deliveries, dead letters, push configs and the event log, and the task row last, so a crash part way leaves a task that the next call or sweep finishes. The context stays until the sweep removes it as an orphan. With an artifact object store, the task's objects are deleted after the row; a failed object delete is logged (event 236) and left to the sweep. It returns false when the task does not exist for that tenant and owner.
+`DeleteTaskAsync(TaskKey)` first cancels the task's executions on every instance, without waiting for them to stop. Then it deletes pending deliveries, dead letters, push configs and the event log, and the task row last, so a crash part way leaves a task that the next call or sweep finishes. The context stays until the sweep removes it as an orphan. With an artifact object store, the task's objects are deleted after the row; a failed object delete is logged (event 236) and left to the sweep. It returns false when the task does not exist for that tenant and owner. Each call is written to the [audit trail](audit.md) as `AdminTaskDeleted`. Pass `actor` (`DeleteTaskAsync(key, "ops-bob")`) to record who deleted; without it the actor is `operator`. Deletes by the sweep are not audited.
 
 The <xref:A2A.Server.Storage.TaskKey> holds tenant, owner and task id. The caller of your endpoint supplies them, so decide who may.
+
+## Let callers delete their own tasks
+
+Spec §13.4 says agents SHOULD let users request deletion of their data. A2A 1.0 has no delete operation, so the SDK offers one as an opt-in extension operation. Turn it on with one call:
+
+[!code-csharp[](../../../samples/Snippets/Retention.cs#TaskDeletion)]
+
+<xref:A2A.Server.A2AServerBuilder.AddTaskDeletion*> adds the extension operation `a2a.tasks.delete` (<xref:A2A.Deletion.TaskDeletion>), and the Agent Card lists its extension, `https://github.com/roman-ambinder/a2a/extensions/task-deletion/v1`. Without the call the operation does not exist (`MethodNotFound`) and the card does not list it. It is served like any [custom operation](custom-operations.md): JSON-RPC method `a2a.tasks.delete`, `POST {pattern}/ext/a2a.tasks.delete` on HTTP+JSON, and the gRPC extension service when you map `MapA2AGrpcExtensions`. The caller must activate the extension.
+
+A client calls it with <xref:A2A.Client.TaskDeletionClientExtensions.DeleteTaskAsync*>, which activates the extension for the call:
+
+[!code-csharp[](../../../samples/Snippets/Retention.cs#DeleteOwnTask)]
+
+The params are `{"id": "<task id>"}`, with `tenant` as usual, and the result is `{}`. The rules:
+
+- **Owner only.** The task is the one of the call's tenant and principal. Another caller's task, a task of another tenant and a missing task all answer `TaskNotFound`, so the call never confirms that a task exists.
+- **Authenticated callers only.** An anonymous caller is refused with `Unauthenticated`, also with `AllowAnonymous`: anonymous callers share one owner, so none of them owns a task alone.
+- **Terminal tasks only.** A task that is not completed, failed, canceled or rejected (also one in `INPUT_REQUIRED` or `AUTH_REQUIRED`) is refused with `UnsupportedOperation`, and nothing changes. Cancel it first with `CancelTask`. The SDK does not cancel it for the caller, so a delete never stops work the caller did not mean to stop.
+- **Everything goes.** The task is deleted as `A2ATaskAdmin.DeleteTaskAsync` deletes it: the event log, push configs, pending push deliveries, dead letters, the task row, and its artifact objects. The context stays until the sweep removes it as an orphan. Idempotency entries are not keyed by task; they expire after `Idempotency.Retention`, as they do after an operator delete.
+- **Audited.** Each call is written to the audit trail as `TaskDeleted`, with the caller as the actor: `Succeeded`, or `Failed` with `NotFound` or `UnsupportedOperation`. See [Audit trail](audit.md).
+
+The call runs through the operation pipeline like any other: your filters, rate limiting and authorization. The authorization handler the server registers by default allows it. A handler of your own sees `Kind` `Extension` and `Name` `a2a.tasks.delete`, and must allow it. A denial is reported as `TaskNotFound`, as for the built-in task operations.
 
 ## Protect admin endpoints
 

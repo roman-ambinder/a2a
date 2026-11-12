@@ -92,12 +92,41 @@ public sealed class A2ATaskAdmin
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(actor);
-        var e = _audit.For(A2AAuditAction.AdminTaskDeleted, actor, key.Tenant, key.TaskId);
+        return await DeleteAuditedAsync(key, _audit.For(A2AAuditAction.AdminTaskDeleted, actor, key.Tenant, key.TaskId),
+            false, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     The caller's own delete (the task-deletion extension operation): the task of the call's tenant and principal,
+    ///     audited as <see cref="A2AAuditAction.TaskDeleted" /> with the caller as the actor. It deletes what
+    ///     <see cref="DeleteTaskAsync(TaskKey, string, CancellationToken)" /> deletes, but only a task in a terminal state.
+    /// </summary>
+    /// <exception cref="A2AException">
+    ///     TaskNotFound when the caller has no such task (it does not exist, or another caller owns it);
+    ///     UnsupportedOperation when the task is not in a terminal state.
+    /// </exception>
+    internal async ValueTask DeleteOwnTaskAsync(ServerCallContext call, string taskId,
+        CancellationToken cancellationToken)
+    {
+        var key = new TaskKey(call.Tenant, call.Principal, taskId);
+        if (!await DeleteAuditedAsync(key, _audit.For(A2AAuditAction.TaskDeleted, call, taskId), true,
+                cancellationToken).ConfigureAwait(false))
+            throw A2AException.TaskNotFound(taskId);
+    }
+
+    /// <summary>
+    ///     Deletes the task under the audit event <paramref name="e" />: the <see cref="A2AAuditOutcome.Attempted" /> row
+    ///     first (fail closed), then <see cref="A2AAuditOutcome.Succeeded" />, or <see cref="A2AAuditOutcome.Failed" /> with
+    ///     <c>NotFound</c> or the error.
+    /// </summary>
+    private async ValueTask<bool> DeleteAuditedAsync(TaskKey key, A2AAuditEvent e, bool requireTerminal,
+        CancellationToken cancellationToken)
+    {
         await _audit.BeginAsync(e, cancellationToken).ConfigureAwait(false);
         bool deleted;
         try
         {
-            deleted = await DeleteTaskCoreAsync(key, cancellationToken).ConfigureAwait(false);
+            deleted = await DeleteTaskCoreAsync(key, requireTerminal, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -110,9 +139,14 @@ public sealed class A2ATaskAdmin
         return deleted;
     }
 
-    private async ValueTask<bool> DeleteTaskCoreAsync(TaskKey key, CancellationToken cancellationToken)
+    private async ValueTask<bool> DeleteTaskCoreAsync(TaskKey key, bool requireTerminal,
+        CancellationToken cancellationToken)
     {
-        if (await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) is null) return false;
+        if (await _tasks.GetAsync(key, cancellationToken).ConfigureAwait(false) is not { } record) return false;
+        // A terminal state is final, so the task cannot leave it between this check and the delete.
+        if (requireTerminal && !record.Task.Status.State.IsTerminal())
+            throw new A2AException(A2AErrorCode.UnsupportedOperation,
+                $"Task '{key.TaskId}' is in state {record.Task.Status.State} and cannot be deleted until it is in a terminal state. Cancel it first.");
         // Always: an execution here whose register failed is invisible to the coordinator's running check.
         if (_engine is not null) await _engine.CancelExecutionsAsync(key, cancellationToken).ConfigureAwait(false);
         else await _coordinator.RequestCancelAsync(key, cancellationToken).ConfigureAwait(false);

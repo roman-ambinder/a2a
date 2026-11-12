@@ -37,6 +37,7 @@ Routes for `MapA2A("/a2a")`:
 | Push config create, list | `POST /a2a` | `POST`, `GET /a2a/tasks/{id}/pushNotificationConfigs` |
 | Push config get, delete | `POST /a2a` | `GET`, `DELETE /a2a/tasks/{id}/pushNotificationConfigs/{configId}` |
 | GetExtendedAgentCard | `POST /a2a` | `GET /a2a/extendedAgentCard` |
+| SendLiveMessage (A2A 1.1 only) | `POST /a2a` | `POST /a2a/message:live` |
 
 In JSON-RPC the operation is the `method` member of the body. The server does not accept batch requests. Each route also has a `/{tenant}` variant, unless the pattern has a `{tenant}` segment. See [Multi-tenancy](multi-tenancy.md). Extension operations add `POST /a2a/ext/{method}` to HTTP+JSON, and a JSON-RPC method. On gRPC they have their own service, `a2a.extensions.v1.A2AExtensionService` (see [Map gRPC](#map-grpc)).
 
@@ -56,7 +57,7 @@ gRPC needs HTTP/2. Over TLS, Kestrel can serve HTTP/1.1 and HTTP/2 on one port. 
 
 [!code-csharp[](../../../samples/Snippets/Bindings.cs#Http2)]
 
-In the card, a gRPC interface URL is the server address, with no path. If the card lists no interfaces, the URL is completed from <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl>.
+In the card, a gRPC interface URL is the server address, with no path. If the card lists no interfaces, the URL is completed from <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl> (or the first listen address). Over TLS it is written as `host:port`; a plain-text address keeps `http://host:port`.
 
 ## How the client picks
 

@@ -54,7 +54,7 @@ The route names start with `A2A `, so the fail-closed startup check from [authen
 
 Every v0.3 call goes through the same request handler as a v1.0 call. It gets the same call context, so ownership, tenancy, filters, body size and JSON depth limits are the same code. The tenant comes only from the route. A v0.3 body has no tenant field.
 
-A rate limiter rejection on a v0.3 route uses the v1.0 error shape, because the limiter picks its format by endpoint name.
+A rate limiter rejection on a v0.3 HTTP+JSON route uses the v0.3 error shape (`{"code": ..., "message": ...}`, with `Retry-After`). v0.3 JSON-RPC shares the v1.0 JSON-RPC endpoint, so its rejection is a JSON-RPC error there.
 
 ### Version detection
 
@@ -206,10 +206,10 @@ Watch `requests` to see when v0.3 traffic stops. Then you can remove the opt-in.
 
 Spec A.2 asks for a warning when legacy objects are received, so these are logged at Warning, each once:
 
-- each dropped field (event 1000);
-- each card conversion problem, on first use, not at startup (event 1001);
-- each v0.3 operation the server answers, per binding (event 1002);
-- each v0.3 agent URL a client talks to (event 1003).
+- each dropped field (event 1600);
+- each card conversion problem, on first use, not at startup (event 1601);
+- each v0.3 operation the server answers, per binding (event 1602);
+- each v0.3 agent URL a client talks to (event 1603).
 
 The server logs through its logger factory. A client logs only after `V03CompatClientFactory.UseLogger(logger)`. The first logger set in a process is used for all of these.
 

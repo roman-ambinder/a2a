@@ -29,6 +29,7 @@ The code in the `src/` packages (NuGet IDs `RomanAmbinder.A2A.*`). For example:
 - One caller reaching another caller's tasks, or one tenant reaching another tenant's tasks. See [authentication and ownership](docs/site/guides/auth-and-ownership.md) and [multi-tenancy](docs/site/guides/multi-tenancy.md).
 - Artifact download links that expose data to the wrong caller, or serve stored content in a way that lets it run from the storage origin. See [artifact storage](docs/site/guides/artifact-storage.md).
 - A bypass of the request and size limits. See [limits](docs/site/guides/limits-and-rate-limiting.md).
+
 ## Out of scope
 
 - `samples/`, `interop/`, `conformance/`, `tests/` and `docs/`. They are not shipped. They are for demos or tests only.

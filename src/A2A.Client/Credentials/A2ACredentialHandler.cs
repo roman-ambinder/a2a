@@ -48,6 +48,18 @@ public sealed class A2ACredentialHandler : DelegatingHandler
         }
     }
 
+    /// <summary>
+    ///     Key in <see cref="Exception.Data" /> of the refusal above: nothing was sent. Interface fallback
+    ///     (<see cref="A2AClientOptions.InterfaceFallback" />) skips such an interface instead of reporting its error.
+    /// </summary>
+    internal const string NotSentKey = "A2A.Client.CredentialsRefused";
+
+    private static A2AException MarkNotSent(A2AException error)
+    {
+        error.Data[NotSentKey] = true;
+        return error;
+    }
+
     /// <inheritdoc />
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
         CancellationToken cancellationToken)
@@ -56,8 +68,8 @@ public sealed class A2ACredentialHandler : DelegatingHandler
         {
             var uri = request.RequestUri;
             if (uri is null || !A2ACredentialBinding.IsSameOrigin(uri, _binding.CardOrigin))
-                throw new A2AException(A2AErrorCode.InvalidAgentResponse,
-                    $"Refusing to send credentials to {(uri is { IsAbsoluteUri: true } ? A2ACredentialBinding.OriginText(uri) : "(no absolute URI)")}: not the card origin {A2ACredentialBinding.OriginText(_binding.CardOrigin)}.");
+                throw MarkNotSent(new A2AException(A2AErrorCode.InvalidAgentResponse,
+                    $"Refusing to send credentials to {(uri is { IsAbsoluteUri: true } ? A2ACredentialBinding.OriginText(uri) : "(no absolute URI)")}: not the card origin {A2ACredentialBinding.OriginText(_binding.CardOrigin)}."));
 
             foreach (var (context, provider) in _binding.Pairs)
             {

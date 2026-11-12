@@ -47,7 +47,7 @@ internal static partial class ServerLog
     public static partial void AuditDetachedDropped(ILogger logger, A2AAuditAction auditAction, string auditId,
         int limit);
 
-    // TaskExecutionEngine: 200-299
+    // TaskExecutionEngine: 200-299 (228 is TaskExecutionDrainService, which has its own generated message)
     [LoggerMessage(EventId = 200, Level = LogLevel.Error, Message = "Agent executor failed for task {TaskId}")]
     public static partial void ExecutorFailed(ILogger logger, Exception exception, string taskId);
 
@@ -74,6 +74,14 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 223, Level = LogLevel.Error,
         Message = "Could not mark task {TaskId} as failed after its follow-up could not start")]
     public static partial void MarkUnstartedFailedFailed(ILogger logger, Exception exception, string taskId);
+
+    [LoggerMessage(EventId = 226, Level = LogLevel.Warning,
+        Message = "A commit of task {TaskId} failed, but the store has it (event {Sequence}): it is not applied again")]
+    public static partial void CommitFoundAfterFailure(ILogger logger, Exception exception, string taskId, long sequence);
+
+    [LoggerMessage(EventId = 227, Level = LogLevel.Warning,
+        Message = "Could not check whether the failed commit of task {TaskId} was stored")]
+    public static partial void CommitLookupFailed(ILogger logger, Exception exception, string taskId);
 
     [LoggerMessage(EventId = 205, Level = LogLevel.Debug, Message = "Dropped event for task {TaskId} in state {State}")]
     public static partial void EventDropped(ILogger logger, string taskId, TaskState state);
@@ -355,4 +363,10 @@ internal static partial class ServerLog
             "Security event {SecurityEvent} in {Operation}: tenant '{Tenant}', resource {ResourceId}, principal hash {PrincipalHash}")]
     public static partial void SecurityEventWarning(ILogger logger, string securityEvent, string operation,
         string tenant, string? resourceId, string principalHash);
+
+    [LoggerMessage(EventId = 1202, Level = LogLevel.Warning,
+        Message =
+            "Security event anomaly {AnomalyKind} in {Operation}: {Count} within one minute, over the threshold of {Threshold}; tenant '{Tenant}', principal hash {PrincipalHash}")]
+    public static partial void SecurityAnomaly(ILogger logger, string anomalyKind, string operation, int count,
+        int threshold, string tenant, string principalHash);
 }

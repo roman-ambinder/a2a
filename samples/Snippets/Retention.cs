@@ -1,6 +1,8 @@
 using A2A.Server;
 using A2A.Server.Retention;
 using A2A.Server.Storage;
+using A2A.Client;
+using MyAgent = Snippets.Audit.MyAgent;
 
 namespace Snippets.Retention;
 
@@ -29,6 +31,22 @@ public static class Samples
                         ? Results.NoContent()
                         : Results.NotFound())
             .RequireAuthorization("A2AAdmin");
+        #endregion
+    }
+
+    public static void TaskDeletion(WebApplicationBuilder builder)
+    {
+        #region TaskDeletion
+        builder.Services.AddA2AServer()
+            .AddAgentExecutor<MyAgent>()
+            .AddTaskDeletion();
+        #endregion
+    }
+
+    public static async Task DeleteOwnTask(IA2AClient client, AgentTask task)
+    {
+        #region DeleteOwnTask
+        await client.DeleteTaskAsync(task.Id);
         #endregion
     }
 }

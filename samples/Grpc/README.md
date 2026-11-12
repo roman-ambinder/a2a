@@ -17,7 +17,8 @@ gRPC needs HTTP/2. Without TLS it gets a port of its own. The card lists the gRP
 | `A2AClientFactory.CreateAsync` with `new A2AClientOptions().UseGrpc()` | gRPC, because the card lists it first |
 | `A2AClientFactory.CreateAsync` | JSON-RPC: without `UseGrpc()` the factory never picks gRPC |
 
-The last call streams over gRPC. gRPC streams carry no event ids, so they do not resume with `Last-Event-ID`.
+A fourth call streams over gRPC with the `A2AGrpcClientFactory` client. gRPC streams carry no event ids, so they do
+not resume with `Last-Event-ID`.
 
 ```bash
 dotnet run --project samples/Grpc

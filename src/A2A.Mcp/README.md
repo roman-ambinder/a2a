@@ -1,6 +1,11 @@
 # A2A.Mcp
 
-Bridge between A2A and the Model Context Protocol (MCP). NuGet ID: `RomanAmbinder.A2A.Mcp`.
+Bridge between A2A and the Model Context Protocol (MCP). NuGet ID: `RomanAmbinder.A2A.Mcp`. Use it to let an MCP
+client (such as a coding assistant) call an A2A agent, or to put MCP tools behind an A2A agent.
+
+```bash
+dotnet add package RomanAmbinder.A2A.Mcp
+```
 
 It works in two directions:
 
@@ -8,10 +13,6 @@ It works in two directions:
 - **Call.** An A2A agent runs MCP tools.
 
 It uses `ModelContextProtocol.Core` only (not the hosting package). It is AOT compatible.
-
-See the [MCP bridge guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/mcp-bridge.md) for the full
-story, and the [McpBridge sample](https://github.com/roman-ambinder/a2a/blob/main/samples/McpBridge/Program.cs) for a
-runnable one.
 
 See the [MCP bridge guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/mcp-bridge.md) for the full
 story, and the [McpBridge sample](https://github.com/roman-ambinder/a2a/blob/main/samples/McpBridge/Program.cs) for a
@@ -27,6 +28,8 @@ builder.Services.AddMcpServer().WithHttpTransport().WithTools(tools);
 Each skill becomes a tool that takes `message` (required), `contextId` and `taskId`. `get_task` and `cancel_task` are
 added too. The result is one JSON object (also in `structuredContent`) with `state`, `taskId`, `contextId`,
 `remoteContent`, `truncated`, `omittedParts` and `notice`. Bytes and links come as extra content blocks.
+`ToolNamePrefix` is put before every tool name, `get_task` and `cancel_task` included; set `IncludeTaskTools = false` to
+leave those two out.
 
 - A call waits up to `WaitTimeout` (30 s). If the task is still running, the result is a handle: call `get_task` later.
   A timeout never cancels the task. An MCP cancel does.

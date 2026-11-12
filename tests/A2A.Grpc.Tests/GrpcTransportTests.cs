@@ -274,4 +274,60 @@ public class GrpcTransportTests
         var invoker = new ScriptedInvoker().ThenFail(new RpcException(new Status(StatusCode.Cancelled, "canceled")));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Transport(invoker).GetTaskAsync(new GetTaskRequest { Id = "t1" }, null, cts.Token));
     }
+
+    /// <summary>Builds a gRPC transport per interface URL, each on its own scripted invoker.</summary>
+    private sealed class InvokerFactory(Dictionary<string, ScriptedInvoker> invokers) : IA2ATransportFactory
+    {
+        public string ProtocolBinding => ProtocolBindings.Grpc;
+        public bool CanCreate(AgentInterface agentInterface) => true;
+        public IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options) =>
+            new GrpcTransport(invokers[agentInterface.Url], options);
+    }
+
+    private static A2AClient FallbackClient(ScriptedInvoker first, ScriptedInvoker second)
+    {
+        var card = new AgentCard
+        {
+            Name = "agent", Description = "d", Version = "1", Capabilities = new(), DefaultInputModes = ["text/plain"], DefaultOutputModes = ["text/plain"], Skills = [],
+            SupportedInterfaces =
+            [
+                new AgentInterface { Url = "http://localhost:5001", ProtocolBinding = ProtocolBindings.Grpc, ProtocolVersion = "1.0" },
+                new AgentInterface { Url = "http://localhost:5002", ProtocolBinding = ProtocolBindings.Grpc, ProtocolVersion = "1.0" },
+            ],
+        };
+        var options = new A2AClientOptions
+        {
+            InterfaceFallback = true, MaxRetries = 0, EndpointPolicy = AgentEndpointPolicies.AllowAll,
+            SupportedBindings = [ProtocolBindings.Grpc],
+            TransportFactories = [new InvokerFactory(new() { ["http://localhost:5001"] = first, ["http://localhost:5002"] = second })],
+        };
+        return A2AClientFactory.Create(card, new HttpClient(), options);
+    }
+
+    [Fact]
+    public async Task Interface_fallback_sees_a_connection_failure_behind_the_rpc_status()
+    {
+        // The transport reports it as an A2AException over the RpcException; the HttpRequestException is the status's
+        // DebugException, which the RpcException also carries as its inner exception.
+        var first = new ScriptedInvoker().ThenFail(Transport(HttpRequestError.ConnectionError));
+        var second = new ScriptedInvoker().ThenReturn(ATask());
+
+        var task = await FallbackClient(first, second).GetTaskAsync("t1");
+
+        Assert.Equal("t1", task.Id);
+        Assert.Single(second.Calls);
+    }
+
+    [Fact]
+    public async Task Interface_fallback_ignores_a_server_status_and_a_failure_after_sending()
+    {
+        var unavailable = new ScriptedInvoker().ThenFail(new RpcException(new Status(StatusCode.Unavailable, "draining")));
+        var second = new ScriptedInvoker().ThenReturn(ATask());
+        await Assert.ThrowsAsync<A2AException>(() => FallbackClient(unavailable, second).GetTaskAsync("t1"));
+        Assert.Empty(second.Calls);
+
+        var reset = new ScriptedInvoker().ThenFail(Transport(HttpRequestError.ResponseEnded));
+        await Assert.ThrowsAsync<A2AException>(() => FallbackClient(reset, second).GetTaskAsync("t1"));
+        Assert.Empty(second.Calls);
+    }
 }

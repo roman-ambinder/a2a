@@ -2,7 +2,7 @@
 
 > **Historical snapshot.** This is the analysis the SDK was planned from, on 2026-11-07. Most items have shipped since, sometimes in a different form, and upstream issues may have moved. For what exists today, read the [README](../README.md) and [spec decisions](site/guides/spec-decisions.md).
 >
-> The "Status" lines were checked against the code again on 2026-11-11. The [summary of open items](#open-items-checked-2026-11-11) at the end lists what is still partial or open.
+> The "Status" lines were checked against the code again on 2026-11-11, and D1, D3 and D33 were updated on 2026-11-12 after ADR-002. The [summary of open items](#open-items-updated-2026-11-12) at the end lists what is still partial or open.
 
 Date: 2026-11-07. Scope: what this SDK should add on top of A2A v1.0 (proto in `docs/a2a.proto`) to close known gaps in (a) the A2A specification and (b) the official `a2aproject/a2a-dotnet` SDK. Everything proposed is additive and wire-compatible: other v1.0 peers ignore the extra headers and metadata.
 
@@ -110,7 +110,7 @@ State of `a2aproject/a2a-dotnet` on 2026-11-07: v1.0.0-preview4 (2026-11-02), no
 | D10 | Client has no timeout/retry/backoff. | Med | source | Built on `Microsoft.Extensions.Http.Resilience`; retry only when `ErrorInfo.metadata.retryable` or transport failure; idempotency key on every `SendMessage` (S21). |
 | D11 | Auto-delete push configs after terminal delivery broke conformance tests. | Low | #592 open | Retention policy opt-in, default off; purge via sweeper (S32). |
 
-Status: D4, D6, D7, D9, D10 and D11 are done (`TaskStateMachine` and version checks, shared `TaskStreamer` with `Parity/RegressionTests`, `PushOutbox` and `PushDeliveryService`, `RetryPolicy` instead of `Http.Resilience`, opt-in `AddA2ARetention`). D5 is done (heartbeat, ids and resume; `StreamingOptions.KeepAliveInterval`, `A2ALimits.MaxStreamDuration`, and `A2ALimits.StreamIdleTimeout`, off by default). Still partial: D1 (Postgres and Redis ship, Cosmos does not), D2 (no mutation id per write), D3 (no Azure Service Bus provider).
+Status: D4, D6, D7, D9, D10 and D11 are done (`TaskStateMachine` and version checks, shared `TaskStreamer` with `Parity/RegressionTests`, `PushOutbox` and `PushDeliveryService`, `RetryPolicy` instead of `Http.Resilience`, opt-in `AddA2ARetention`). D5 is done (heartbeat, ids and resume; `StreamingOptions.KeepAliveInterval`, `A2ALimits.MaxStreamDuration`, and `A2ALimits.StreamIdleTimeout`, off by default). D2 is done: `TaskCommit.MutationId` with the optional `ITaskCommitLookup` (in-memory and Postgres stores), so a commit whose answer was lost is neither applied twice nor treated as failed (see ADR-002). D1 and D3 are closed as not planned in this repository (ADR-002): Postgres and Redis ship, but a Cosmos store and an Azure Service Bus provider do not. Each would need a new package with an Azure dependency and an emulator that CI does not run. The extension points are documented instead: "Write your own backend" in `docs/site/guides/durable-stores.md` lists the base classes and the guarantees a store, an event bus and a coordinator must give.
 
 ### 2.2 Security
 
@@ -153,7 +153,7 @@ Status: D19, D20, D21, D22 and D24 are done (`IAgentCardProvider` and `TenantCar
 | D32 | Mandatory path param, surface noise, duplicated error maps, 5 copies of streaming lifecycle. | Low/Med | #186, #556 | Default `/` route; one error-code map in `A2A.Protocol`; one streaming pipeline. |
 | D33 | AF hosting: `ReferenceTaskIds` unsupported, message-only mode cannot cancel/resume, scoped lifetimes ignored, context memory lifecycle unresolved. | Med | AF #7733, #4876, #9481 | Not our bug, but: scoped DI per request, `referenceTaskIds` passed through to handler, context lifecycle policy hook. |
 
-Status: D27, D28, D30 and D32 are done (abstract extension points and sealed options, `A2ARequestOptions`, `ObserveTaskAsync`, default `/` route with one error map and one streamer). D26 is done (policy in `docs/site/guides/versioning.md`; `[Experimental]` with `A2AEXP001` to `A2AEXP004`; CHANGELOG current; `PublicAPI.*.txt` enforced on all 15 packable projects by warnings as errors). Package validation against a baseline version needs a first published version. D33 is partial (`A2ARetentionOptions.OrphanContextRetention` and `ConversationMemory` exist, but there is no context lifecycle policy hook).
+Status: D27, D28, D30 and D32 are done (abstract extension points and sealed options, `A2ARequestOptions`, `ObserveTaskAsync`, default `/` route with one error map and one streamer). D26 is done (policy in `docs/site/guides/versioning.md`; `[Experimental]` with `A2AEXP001` to `A2AEXP004`; CHANGELOG current; `PublicAPI.*.txt` enforced on all 15 packable projects by warnings as errors). Package validation against a baseline version needs a first published version. D33 is partial (`A2ARetentionOptions.OrphanContextRetention` and `ConversationMemory` exist, but there is no context lifecycle policy hook). It stays open, on demand (ADR-002): a hook is an API that must be kept once it ships, so it waits for a concrete use case.
 
 ---
 
@@ -220,13 +220,20 @@ A2A.Extensions.*             skill selection, elicitation, actorChain
 
 Spec repo: https://github.com/a2aproject/A2A (issues/epics cited inline; v1.1 candidates #1986–#1992, #1995). Security research: A2ABreak arXiv 2609.10871; arXiv 2609.27624; MAESTRO arXiv 2504.16902; CVE-2026-111761..111765, CVE-2026-90820, CVE-2026-116479 (a2a-java); AAIF builder's guide; Eon production report. .NET SDK: https://github.com/a2aproject/a2a-dotnet issues, PRs, docs/, releases; Microsoft Agent Framework issues; AF migration guide. Severity ratings and items marked "inferred" are this document's judgment, not sourced.
 
-## Open items (checked 2026-11-11)
+## Open items (updated 2026-11-12)
 
-Checked against the code on 2026-11-11. Everything else in Parts 1 to 3 is done, or covered in another form as its Status line says.
+Checked against the code on 2026-11-11, and updated on 2026-11-12 with the decisions of
+[ADR-002](adr/0002-remaining-durability-gaps.md). Everything else in Parts 1 to 3 is done, or covered in another form as
+its Status line says.
 
-| # | What is still missing |
-|---|---|
-| D1 | No Cosmos store. |
-| D2 | No mutation id per store write. |
-| D3 | No Azure Service Bus event bus. |
-| D33 | Done: `A2A.Extensions.AgentFramework` (scoped agent per execution, `ReferenceTaskIds` in run options, every execution is a task) and `IA2AContextLifecycle`; design: `docs/superpowers/specs/2026-11-12-agent-framework-adapter-design.md`. |
+| # | What is still missing | Decision |
+|---|---|---|
+| D33 | No context lifecycle policy hook. | Done: `IA2AContextLifecycle`, used by `A2A.Extensions.AgentFramework` (scoped agent per execution, `ReferenceTaskIds` in run options, every execution is a task); design: `docs/superpowers/specs/2026-11-12-agent-framework-adapter-design.md`. |
+
+Closed as not planned in this repository, with the extension points documented ("Write your own backend" in
+`docs/site/guides/durable-stores.md`):
+
+| # | What is missing | Why |
+|---|---|---|
+| D1 | No Cosmos store. | A new package with an Azure dependency and an emulator that CI does not run. Postgres covers durable stores, and `TaskStore`, `EventStore` and the other store base classes are public. |
+| D3 | No Azure Service Bus event bus. | The same. Redis covers cross-instance events, and `TaskEventBus` and `ExecutionCoordinator` are public base classes. |

@@ -1,6 +1,6 @@
 # Observability
 
-The SDK traces with `System.Diagnostics.ActivitySource` and counts with `System.Diagnostics.Metrics.Meter`. The core packages need no OpenTelemetry package. Use this guide to wire the SDK to OpenTelemetry (or any listener), and to know which spans, tags and counters exist. All names are constants on <xref:A2A.Diagnostics.A2ATelemetry>.
+The SDK traces with `System.Diagnostics.ActivitySource` and counts with `System.Diagnostics.Metrics.Meter`. A span is one timed step of a trace (an `Activity` in .NET); a tag is a key and value on a span or a counter. The core packages need no OpenTelemetry package. Use this guide to wire the SDK to OpenTelemetry (or any listener), and to know which spans, tags and counters exist. Most names are constants on <xref:A2A.Diagnostics.A2ATelemetry>. The artifact, execution-slot and budget counters, the upload span, and the counters on the `A2A` meter are named only in the tables below.
 
 Spans and counters cost almost nothing while nobody listens: no activity and no tag array is created.
 
@@ -19,7 +19,7 @@ On a client process, listen to `A2A.Client`:
 | `A2A.Server` | <xref:A2A.Diagnostics.A2ATelemetry.ServerSourceName> | server spans |
 | `A2A.Client` | <xref:A2A.Diagnostics.A2ATelemetry.ClientSourceName> | client spans |
 | `A2A.Server` | <xref:A2A.Diagnostics.A2ATelemetry.ServerMeterName> | server counters |
-| `A2A` | none | card, idempotency, registry and v0.3 compatibility counters (see Metrics) |
+| `A2A` | none | card, endpoint policy, idempotency, registry, circuit breaker and v0.3 compatibility counters (see [Metrics](#metrics)) |
 
 A runnable version is in [samples/ObservedAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/ObservedAgent/README.md). It keeps spans and metrics in memory instead of exporting them, and prints one trace from the client to the agent run.
 
@@ -30,6 +30,7 @@ A runnable version is in [samples/ObservedAgent](https://github.com/roman-ambind
 | `A2A.Server` | `{method}` (`SendMessage`, `GetTask`, ...) | Server; Internal when it runs under another local span such as ASP.NET Core's request span | every operation, on all three bindings |
 | `A2A.Server` | `a2a.agent.execute` | Internal | one agent run (execute, cancel or continue); child of the operation span |
 | `A2A.Server` | `a2a.push.deliver` | Client | one attempt to send one event to one webhook |
+| `A2A.Server` | `a2a.artifact.upload` | Internal | one write to the artifact object store (an offloaded artifact or an inbound upload) |
 | `A2A.Client` | `{method}` | Client | every `A2AClient` operation, with its retries and stream reconnects |
 
 The operation span is the outermost step of the operation pipeline. It wraps the host filters and authorization, so a refused or unauthenticated call still has a span with its error. Extension operations use their method name too.
@@ -48,7 +49,7 @@ The delivery span continues the trace of the agent run that produced the event. 
 
 ## Streams
 
-One span covers a whole stream. Each event is a span event named `a2a.stream.event`, not a child span. Its tags are `a2a.event.kind` (`task`, `message`, `status_update` or `artifact_update`), `a2a.event.sequence` (server only) and `a2a.task.state` (status updates, and tasks that have a status).
+One span covers a whole stream. Each event is a span event named `a2a.stream.event`, not a child span. Its tags are `a2a.event.kind` (`task`, `message`, `status_update`, `artifact_update`, `message_update` or `stream_error`), `a2a.event.sequence` (server only) and `a2a.task.state` (status updates, and tasks that have a status).
 
 A client reconnect adds an `a2a.retry` span event with `a2a.retry.attempt`. A failed webhook attempt that will be tried again adds an `a2a.retry` event, without tags, to its delivery span.
 
@@ -75,7 +76,7 @@ A client reconnect adds an `a2a.retry` span event with `a2a.retry.attempt`. A fa
 
 ## Errors
 
-A failed operation gets status `Error`, the `error.type` tag and, for A2A errors, `a2a.error.code` (the <xref:A2A.A2AErrorCode> name, for example `TaskNotFound`). For an A2A error, `error.type` is the A2A reason (`TASK_NOT_FOUND`). For a non-A2A exception, it is the exception type name.
+A failed operation gets status `Error`, the `error.type` tag and, for A2A errors, `a2a.error.code` (the <xref:A2A.A2AErrorCode> name, for example `TaskNotFound`). For an A2A error, `error.type` is the A2A reason (`TASK_NOT_FOUND`). For a non-A2A exception, it is the full exception type name (for example `System.InvalidOperationException`).
 
 A run span is an error when the agent throws, when it hits <xref:A2A.Server.A2AServerOptions.MaxTaskDuration> (`error.type` is `TimeLimit`), when it goes past its usage budget (`error.type` is `BudgetExceeded`; see [Execution limits](execution-limits.md)), or when it leaves the task `FAILED` (`error.type` is `TaskFailed`). A cancellation the caller asked for sets `a2a.canceled` to `true` and is not an error.
 
@@ -104,7 +105,7 @@ Some names have no convention, so they stay: the span names `a2a.agent.execute` 
 
 ## Metrics
 
-All counters are `Counter<long>`.
+All counters are `Counter<long>`, except the two up-down counters `a2a.server.executions.active` and `a2a.server.executions.queued` (`UpDownCounter<long>`).
 
 | Meter | Counter | Tags | Counts |
 |---|---|---|---|
@@ -117,11 +118,13 @@ All counters are `Counter<long>`.
 | `A2A.Server` | `a2a.server.executions.queued` | none | requests waiting for an execution slot (up-down counter) |
 | `A2A.Server` | `a2a.server.executions.rejected` | `a2a.rejection.reason` (`queue_full`, `queue_timeout`, `shutdown`) | requests refused for lack of an execution slot |
 | `A2A.Server` | `a2a.server.tasks.budget_exceeded` | none | tasks failed for going past their budget |
-| `A2A.Server` | `a2a.server.security.events` | `a2a.security.event` (`unauthenticated`, `permission_denied`, `context_denied`, `webhook_refused`, `idempotency_key_mismatch`), `a2a.method.name` when known | security events (spec 13.4). See [Security events](#security-events) |
+| `A2A.Server` | `a2a.server.security.events` | `a2a.security.event` (`unauthenticated`, `permission_denied`, `context_denied`, `webhook_refused`, `idempotency_key_mismatch`, `anomaly`), `a2a.method.name` when known | security events (spec 13.4). See [Security events](#security-events) |
+| `A2A.Server` | `a2a.server.anomalies` | `a2a.anomaly.kind` (`task_creation`, `cancellation`) | callers over an anomaly threshold, once per caller and window. See [Anomaly detection](#anomaly-detection) |
 | `A2A.Server` | `a2a.server.artifact.objects.written` | none | objects written to the artifact object store |
 | `A2A.Server` | `a2a.server.artifact.bytes.written` | none | bytes written to the artifact object store |
 | `A2A.Server` | `a2a.server.artifact.bytes.served` | none | artifact bytes the server streamed to callers (redirects are not counted) |
 | `A2A.Server` | `a2a.server.artifact.orphans.deleted` | none | orphan objects the retention sweep deleted. See [Artifact storage](artifact-storage.md) |
+| `A2A.Server` | `a2a.server.artifact.uploads.purged` | none | unused inbound uploads the retention sweep deleted |
 | `A2A` | `a2a.idempotency.evictions` | none | idempotency entries dropped early because the in-memory store was full |
 | `A2A` | `a2a.client.endpoint.refused` | `binding` | Agent Card endpoints the client's endpoint policy refused. See [Task safety](task-safety.md) |
 | `A2A` | `a2a.card.changed` | `origin` | cards that differ from the pinned card of their origin |
@@ -143,19 +146,30 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 
 | Ids | Area |
 |---|---|
-| 100-101 | client: card signing and pinning |
+| 100-103 | client: card signing and pinning, unsigned card accepted, card missing required fields |
+| 130-132 | client: client outbox |
 | 150-152 | client: agent registry (lookalike name, mixed-script name, identity change) |
-| 200-244 | server: agent runs, coordination, push-config cleanup, retention (244: a context lifecycle hook failed) |
-| 250-253, 255 | server: startup diagnostics (254 is not one: it is a task past its size cap) |
-| 300-313 | server: push delivery |
+| 190 | client: OAuth2 provider with no scopes |
+| 200-244 | server: agent runs, coordination, push-config cleanup, retention, continuations, task budget; 228 is the shutdown drain giving up (agents still running at `ShutdownDrainTimeout`); 244 is a context lifecycle hook that failed |
+| 250-259 | server: startup diagnostics (250-253, 255, 257, 259). 254 (a task past its size cap) and 256 (a follow-up restarted for a retry) are not diagnostics |
+| 270-273 | server: audit trail (270 is the line of `LoggerAuditSink`, 271-273 are sink failures and dropped writes) |
+| 302-316 | server: push delivery |
 | 400-402 | server: idempotency |
-| 1200-1201 | server: security events (1200 information, 1201 warning) |
+| 680-682 | server: inbound uploads (682 is a startup diagnostic) |
+| 690 | server: live input that its execution never took |
 | 500-501, 600 | ASP.NET Core: unhandled errors, stream errors |
-| 700-701, 800 | ASP.NET Core: startup validation, card signing warning |
+| 700-708, 800 | ASP.NET Core: startup validation (anonymous endpoints, a failed check that stops the app, card interfaces, plain HTTP, empty required card fields), card signing warning |
 | 900 | gRPC: unhandled errors |
-| 1000-1001 | Postgres cleanup; v0.3 compatibility (field dropped, card conversion problem) |
-| 1100-1104 | Redis event bus and coordinator; 1100 is also used by the v0.3 server surface (error after a response started) |
-| 1400-1401 | Agent Framework adapter: a session save after a failed run, a session delete for a deleted context |
+| 1000-1001 | Postgres cleanup |
+| 1010-1011, 1020 | Postgres coordinator (cancel requests); Postgres schema newer than the package |
+| 1100-1104 | Redis event bus and coordinator |
+| 1200-1202 | server: security events (1200 information, 1201 warning, 1202 anomaly warning) |
+| 1300 | ASP.NET Core: API keys could not be reloaded |
+| 1400 | ASP.NET Core: a health check failed |
+| 1500-1504 | MCP bridge |
+| 1600-1603 | v0.3 compatibility: dropped fields, card conversion problems, v0.3 operations served, v0.3 agents called |
+| 1700 | v0.3 server surface: an error after the response started |
+| 1800-1801 | Agent Framework adapter: a session save after a failed or canceled run failed; a session delete for a deleted context failed |
 
 ### Security events
 
@@ -168,17 +182,35 @@ Each security event counts `a2a.server.security.events` and writes one log line 
 | `context_denied` | The caller named a context of another principal (and `ContextAccess` did not allow it). |
 | `webhook_refused` | A webhook URL was refused when its config was created, or when a delivery was attempted. |
 | `idempotency_key_mismatch` | An idempotency key was reused with a different request. |
+| `anomaly` | A caller created tasks or called CancelTask faster than the anomaly thresholds. Only when the detector is on; see below. |
 
 **What is not counted.** A caller who reads another caller's task gets `TaskNotFound`. The store lookup is scoped by owner, so the server cannot tell that case from a task that does not exist, and the SDK does not add a lookup to find out. A denial by your own authorization handler is counted.
+
+### Anomaly detection
+
+The spec asks agents to watch for unusual patterns such as rapid task creation and excessive cancellations (§13.4). The server can do this for you. It is off by default:
+
+[!code-csharp[](../../../samples/Snippets/Observability.cs#AnomalyDetection)]
+
+or, from configuration, `"A2A": { "Anomalies": { "Enabled": true } }`.
+
+- **What is counted.** A caller is a principal in a tenant. A task creation is a `SendMessage` or `SendStreamingMessage` that starts a new task; a follow-up to an existing task, an idempotent retry and a start that was refused are not. A cancellation is every authorized `CancelTask` call, also one for a task that does not exist or is already final.
+- **When it reports.** Each caller has a one-minute window per kind, which starts at its first counted call. The call that goes over the threshold writes one Warning (id 1202, category `A2A.Server.Security`) with the kind, the operation, the count, the threshold, the tenant and the principal hash, counts an `anomaly` security event and adds 1 to `a2a.server.anomalies`. Later calls in the same window are not reported again, so a flood writes one line. The next window can report again.
+- **Reports only.** No call is refused, delayed or changed. To slow a caller down, use rate limiting (`AddA2ARateLimiting`, see [Limits and rate limiting](limits-and-rate-limiting.md)) and alert on the counter.
+- **Memory.** At most `MaxTrackedCallers` callers are tracked. When the table is full, callers whose windows have ended are dropped first; if every tracked caller is still active, a new caller is not tracked until one ends. A flood of new identities therefore cannot push out a caller already being counted, but it can hide new callers for up to a minute: alert on `a2a.server.security.events` as a whole too.
+- **Per instance.** The counts live in memory on each instance, so behind a load balancer each instance sees only its share of a caller's calls. The window uses the `TimeProvider` registered in DI.
 
 ### Startup diagnostics
 
 The server logs once at startup when a setup works on one instance but breaks across restarts or instances:
 
 - 251 (Error): push secrets use the per-process key but the push outbox is durable. Configs with a token or credentials will be dead-lettered after a restart.
-- 252 (Warning): the task store is durable but the execution coordinator is the in-process one. `CancelTask` and recovery stay on the instance that runs the agent.
+- 252 (Warning): the task store is durable but the execution coordinator is the in-process one. A crash leaves the running tasks `WORKING`, and with several instances `CancelTask` and recovery stay on the instance that runs the agent.
 - 253 (Warning): the task store is durable but the retention sweep is not registered.
 - 255 (Warning): the task store is durable but artifact objects are in the in-memory object store. See [Artifact storage](artifact-storage.md).
+- 257 (Warning): the event bus spans instances but the task, event or idempotency store is in memory.
+- 259 (Warning): agents are set up per tenant but the authorization handler is the default allow-all one. See [Multi-tenancy](multi-tenancy.md).
+- 682 (Warning): inbound uploads are on but the retention sweep is not registered.
 - 700 (Warning): endpoints allow anonymous callers.
 
 Code 250 (Debug) means the checks were skipped because of a broken registration. See [Durable stores](durable-stores.md) and [Retention](retention.md).
@@ -187,7 +219,6 @@ Code 250 (Debug) means the checks were skipped because of a broken registration.
 
 - No spans appear. Add the source name to `AddSource`. Client and server sources have different names.
 - Metrics from `A2A` are missing. Add `AddMeter("A2A")` as well as `AddMeter("A2A.Server")`. This also hides the registry and v0.3 counters.
-- Two log lines share an id such as 1000 or 1100. They come from different packages. Filter by category as well as by id.
 - A client span and a server span are in different traces. A proxy may drop `traceparent`, or a custom header in `A2ARequestOptions.Headers` may replace it. If a proxy drops it, set `A2AClientOptions.PropagateTraceInMetadata`.
 
 ## See also

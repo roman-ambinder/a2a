@@ -41,8 +41,12 @@ README, or `dotnet run --project samples/<Name>`.
 | `storage` (Docker) | [ArtifactStorage](ArtifactStorage/README.md) | Large artifacts in S3 (MinIO) or Azure Blob (Azurite), downloaded through a presigned URL | `Server.Storage.S3`, `Server.Storage.AzureBlob` | [Artifact storage](../docs/site/guides/artifact-storage.md) |
 | `outbox` (Docker) | [ClientOutbox](ClientOutbox/README.md) | Outgoing messages written in your own Postgres transaction, then harvested | `Client.Postgres` | [Client outbox](../docs/site/guides/client-outbox.md) |
 
+`Commons/` is not a sample: it is a small library with the public demo API key the MultiInstance sample uses (EchoAgent
+and EchoClient reference it too).
+
 Package names are short: add the `A2A.` prefix for the project, and `RomanAmbinder.A2A.` for the NuGet ID. Every
-package under `src/` is used by at least one runnable sample; `tests/A2A.Tests/SamplesCoverageTests.cs` checks it.
+package under `src/` except the template pack (`A2A.Templates`, checked by `src/A2A.Templates/test-templates.sh`) is used
+by at least one runnable sample; `tests/A2A.Tests/SamplesCoverageTests.cs` checks it.
 
 ## Adding a sample
 

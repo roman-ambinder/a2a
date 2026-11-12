@@ -20,26 +20,93 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   task, and background responses with continuation tokens to poll or to continue a stream after the last part read.
 - Sample `samples/AgentFrameworkAgent` (`run-samples.sh agentframework`).
 
-### Server
-
-- New `IA2AContextLifecycle`: the retention sweep calls every registered hook for each context it deletes. A failing hook
-  is logged (event 244) and stops neither the other hooks nor the sweep. `A2ARetentionService` has a new constructor that
-  takes the hooks; the earlier one keeps its signature, without its default values (`AddA2ARetention` passes the hooks).
-
 ### Extensions.AI
 
 - No behaviour change: the executor's chunking, prompt building and the client facade's send rules moved to shared source
   that `A2A.Extensions.AgentFramework` compiles too.
 
+### Protocol and bindings
+
+- Interface fallback (spec §5.2), opt-in with `A2AClientOptions.InterfaceFallback` (default false). A client made by
+  `A2AClientFactory` moves to the next interface of the card (same tenant, card order) when a call fails before any
+  request reached the agent: a connection, name lookup, proxy tunnel or TLS handshake failure, after the transport's
+  retries, and for a stream only before its first event. HTTP statuses, A2A errors, timeouts and failures during the
+  request never fall back. The interface that worked is kept; when all fail, the first error is thrown. With credential
+  providers, only interfaces the credentials may be sent to are candidates. New counter `a2a.client.interface.fallback`
+  (tags `from`, `to`).
+
+### Security
+
+- Opt-in anomaly monitoring (spec §13.4): `A2AServerOptions.Anomalies` (`A2AAnomalyOptions`: `Enabled`, default false;
+  `TaskCreationsPerMinute`, default 60; `CancellationsPerMinute`, default 20; `MaxTrackedCallers`, default 10 000). A
+  caller (principal and tenant) that creates more tasks or makes more CancelTask calls in one minute is reported once
+  per window: a new `anomaly` security event (`A2ATelemetry.SecurityEventNames.Anomaly`, log 1202) and the counter
+  `a2a.server.anomalies` (tag `a2a.anomaly.kind`: `task_creation` or `cancellation`). It reports only; no call is
+  refused or delayed. The settings can be read from configuration (`A2A:Anomalies`).
+
+### Server
+
+- New `AddTaskDeletion()` on the A2A builder (spec §13.4: agents SHOULD let users request deletion of their data). It
+  adds the opt-in SDK extension operation `a2a.tasks.delete` (extension
+  `https://github.com/roman-ambinder/a2a/extensions/task-deletion/v1`, `A2A.Deletion.TaskDeletion`) on every binding,
+  and the Agent Card lists the extension. A caller deletes its own task with everything `A2ATaskAdmin.DeleteTaskAsync`
+  removes (event log, push configs, pending deliveries and dead letters, artifact objects). Another caller's task, or a
+  missing one, is `TaskNotFound`; an anonymous caller is `Unauthenticated`, also with `AllowAnonymous`; a task that is not
+  terminal is `UnsupportedOperation` (cancel it first). Each call is audited with the new action
+  `A2AAuditAction.TaskDeleted`. Without the call nothing changes.
+
+- New `IA2AContextLifecycle`: the retention sweep calls every registered hook for each context it deletes. A failing hook
+  is logged (event 244) and stops neither the other hooks nor the sweep. `A2ARetentionService` has a new constructor that
+  takes the hooks; the earlier one keeps its signature, without its default values (`AddA2ARetention` passes the hooks).
+
+### Client
+
+- New `DeleteTaskAsync(taskId)` on any `IA2AClient` (`TaskDeletionClientExtensions`): calls the task-deletion extension
+  operation of an agent that serves it.
+
+### Fixes
+
+- A version conflict caused by the engine's own write no longer stores the event twice when the task store has no
+  `ITaskCommitLookup`. When a store applied a commit and then reported a conflict for its own write (a store that
+  retries commits internally), the engine applied the event again: an artifact append put its parts in the task
+  twice, and any other event was stored twice in the event log. It now keeps the event as stored when the task is one
+  version past the one it wrote and holds exactly this write (the same artifact for an append, the same task for
+  anything else; log event 226), and reloads and applies it again otherwise. The built-in stores have the lookup and
+  are not affected.
+
+- The ASP.NET Core health check failure log line has event id 1400 (was 1200). 1200 is the security event
+  information line of `A2A.Server`, so filtering logs by 1200 also matched failed health checks. A test now checks that
+  the client, server, ASP.NET Core and gRPC assemblies never share an event id.
+- Log event ids are unique across all packages. The MCP bridge logs 1500-1504 (was 1000-1004), v0.3 compatibility
+  1600-1603 (was 1000-1003) and the v0.3 server surface 1700 (was 1100), so they no longer share ids with the Postgres
+  (1000-1099) and Redis (1100-1199) stores. Update log filters that use the old ids. A test reads every `[LoggerMessage]`
+  under `src/` and fails when two share an id.
+- The warning that the shutdown drain gave up (agents still running after `ShutdownDrainTimeout`) has event id 228. It had
+  none, so the generator chose one (1369592127) that was in no range. A test now fails when a `[LoggerMessage]` under
+  `src/` has no `EventId`.
+
 ### Documentation
 
-- Observability guide: the server's log ids are 200-244 (the table said 200-242), and 1400-1401 are the Agent Framework
-  adapter's.
+- Durable stores: "Write your own store" is now "Write your own backend". It lists every backend base class, adds the
+  rules for a custom event bus, execution coordinator and artifact object store, and names the contract test for each.
+  `GetForMaintenanceAsync` is in the list of `TaskStore` members to implement. A store that retries commits on its own
+  needs `ITaskCommitLookup`: without it, a lost answer fails the run.
+
+- Versioning: new section "Store contracts". The abstract members of the store base classes are the ones 0.2.0
+  shipped, and the set does not grow. A later member is virtual with a fallback that is safe with several instances,
+  or goes on an optional capability interface. ADR-001 is accepted. `TaskStore.GetForMaintenanceAsync` stays
+  abstract, because it has no safe fallback.
+
+- Observability guide: the server's log ids include 244 (a context lifecycle hook failed), and 1800-1801 are the
+  Agent Framework adapter's.
 - Metadata keys: the local `AdditionalProperties` keys of the M.E.AI and Agent Framework integrations.
 
 - Spec decisions: blocking and non-blocking SendMessage. The SDK follows §3.2.2 where it disagrees with §3.1.1 ("MUST
   return immediately"), and a blocking send also returns when no execution of the task is running any more, so an agent
   that leaves its task `WORKING` answers the caller with a `WORKING` task.
+- Spec decisions: message and artifact content is not sanitized by the SDK (§14.1.1); the agent escapes it for where it
+  writes it, with `TextSanitizer` and `UntrustedText` for text the SDK hands out. v0.3 names have no alias types (§1.4):
+  the compat packages map v0.3 JSON to the v1.0 model.
 
 ## 0.2.0
 
@@ -293,6 +360,18 @@ The first version published to NuGet: 0.1.0 was prepared but never published. Ch
 
 ### Fixes
 
+- Server: a commit that the store wrote, but whose call failed, is no longer applied twice or treated as lost (D2 in
+  the gap analysis, ADR-002). Two cases:
+  - A database can commit and then lose the answer (a timeout or a reset connection). The run used to fail, although
+    the event was stored.
+  - A store that retries on its own can report a version conflict for its own write. The server then stored the event
+    a second time.
+
+  Each commit now carries a `TaskCommit.MutationId` (and `TaskBatchCommit.MutationId`). A store that implements the new
+  `ITaskCommitLookup` finds a stored commit by it, and the server carries on as if the call had succeeded (log event
+  226; event 227 when the lookup itself fails). The in-memory and Postgres task stores implement it. Postgres gets
+  migration 0006, which adds the nullable column `a2a_events.mutation_id`. A store without the interface behaves as
+  before.
 - Server: new `PushDelivery.RetryPolicy` (default null: the backoff as before). After a webhook attempt fails in a way
   worth retrying, it gets a `PushRetryContext` (the attempt, the error, the HTTP status, the receiver's `Retry-After` and
   the default wait) and returns the wait before the next attempt, or null to dead-letter now. `MaxAttempts` and
@@ -411,6 +490,42 @@ The first version published to NuGet: 0.1.0 was prepared but never published. Ch
 
 First public release of the .NET SDK for the Agent2Agent (A2A) protocol v1.0. Targets .NET 10. `A2A.Protocol` and `A2A.Client` also
 target netstandard2.0. .NET 8 is not a target: its support ends on 10 November 2026.
+
+### Upgrading from pre-release builds
+
+Only for code written against a build from before 0.1.0. Breaking changes for code that replaced SDK parts:
+
+- **`IPushNotificationSender` and `HttpPushNotificationSender` are removed.** Push delivery is now a durable outbox sent by the hosted `PushDeliveryService`. Remove your registrations. To change how deliveries are sent, tune `A2AServerOptions.PushDelivery`; to read failures, use `A2APushAdmin`.
+- **`MaxAttempts` and `InitialBackoff` moved** from `A2AServerOptions.PushNotifications` to `A2AServerOptions.PushDelivery` (with new `MaxBackoff` 5 min, `Lease`, `PollInterval`, `BatchSize`).
+- **Custom `TaskStore`:** implement the new abstract `CommitAsync(TaskCommit)`: write the task (version check), append the event to the log your `EventStore` reads, and add the deliveries to the outbox your `PushOutbox` reads, as one atomic unit.
+- **Custom stores must also implement the new members:** `TaskStore.DeleteAsync`, `ListExpiredAsync`, `ListInterruptedBeforeAsync`, `DeleteContextAsync`, `ListOrphanContextsAsync`; `EventStore.DeleteAsync`; `IdempotencyStore.RenewAsync`; `PushConfigStore.DeleteAllAsync` and `SaveIfUnderLimitAsync`; and a `PushOutbox` (`LeaseDueAsync`, `CompleteAsync`, `RescheduleAsync`, `DeadLetterAsync`, `ListDeadLettersAsync`, `RedriveAsync`, `DeleteAllAsync`). A custom `ExecutionCoordinator` is optional (the in-memory one is the default).
+- **Postgres `IdempotencyClaimTimeout` default: 1 hour -> 2 minutes.** Running claims are now renewed by the execution heartbeat, so a live request keeps its key and a crashed instance frees it sooner. Set the old value if you relied on it.
+- **`InMemoryTaskStore` constructor** is now `InMemoryTaskStore(InMemoryEventStore events, InMemoryPushOutbox? outbox = null)`. `new InMemoryTaskStore()` no longer compiles. Use the DI registration (`AddA2AServer`).
+- **`PostgresTaskStore` constructor** now takes `StreamingOptions` second: `PostgresTaskStore(NpgsqlDataSource, StreamingOptions, PostgresStoreOptions?, TimeProvider?)`. Prefer `AddPostgresStores`.
+- **Push transport:** webhooks go through the keyed `HttpMessageInvoker` `PushDeliveryService.InvokerServiceKey` (`"A2A.PushNotifications"`, the old `HttpPushNotificationSender.InvokerServiceKey` value). Register your own keyed singleton under it to replace it.
+- **Retention is opt-in.** If you expected purges, add `services.AddA2ARetention()`.
+- **Postgres schema:** P1 adds the tables `a2a_push_outbox` and `a2a_push_dead_letters` and some indexes (no existing column changes). They are created at startup. If you set `CreateSchemaOnStartup = false`, apply `PostgresSchema.ScriptFor("<schema>")` again before you deploy.
+- **Webhook receivers:** nothing breaks. To use signatures, register push configs with scheme `webhook-signature` and verify with `PushNotificationReceiver.VerifySignature`.
+- **`PushValidationResult` has new members** `InvalidSignature` and `Stale` (from `VerifySignature`). A `switch` over it that must be exhaustive needs cases for them.
+- **`TaskExecutionEngine` public constructor:** the `IPushNotificationSender push` parameter is now `PushOutbox outbox`, and an optional `ExecutionCoordinator? coordinator` follows `timeProvider`. `IAgentExecutorFactory.RentAsync` takes the tenant, and a lease with a null `Executor` means no agent serves it. Prefer resolving the parts from DI (`AddA2AServer`).
+- **Custom `ExecutionCoordinator`: `HeartbeatAsync` returns `ValueTask<bool>`.** Return true when the lease was held (and renew it), false when it is missing or expired (and do not renew it). On false the handler re-reads the task: it cancels the execution when the task has ended, and registers it again otherwise. A coordinator that always returns true turns this off.
+- **Redriven dead letters** (`A2APushAdmin.RedriveAsync`) are sent after the newer events of the same push config that were delivered meanwhile, not in their original place.
+- **`PendingApproval`** throws `ArgumentException` when `OperationId` contains a line feed. The hash format is unchanged.
+- **Startup diagnostics:** `AddA2AServer` logs an error for a durable push outbox with the per-process push secret protector, and a warning for a durable task store with the in-memory execution coordinator (see the [durable stores guide](docs/site/guides/durable-stores.md)). Nothing throws.
+
+Later pre-release changes:
+
+- **Rate limiting switch moved.** `A2AServerOptions.EnableRateLimiting` is removed. Use `A2ARateLimitOptions.Enabled` (default true): `services.AddA2ARateLimiting(o => o.Enabled = false)`. The same options set the bucket (`TokenLimit`, `TokensPerPeriod`, `ReplenishmentPeriod`).
+- **`A2AServerOptions.ExtendedAgentCardProvider` gets the public card.** It is now `Func<ServerCallContext, AgentCard, CancellationToken, ValueTask<AgentCard?>>`; the second argument is the tenant's completed public card. Add the parameter to your delegate.
+- **`A2AAuthorizationHandler.AuthorizeAsync`** takes an `A2AOperationDescriptor` instead of an `A2AOperation`: `AuthorizeAsync(ServerCallContext call, A2AOperationDescriptor operation, object request, CancellationToken cancellationToken)`. Use `operation.Kind` where you compared the `A2AOperation`; an extension operation has `Kind` = `Extension` and its registered `Name`. Every resume of a stream (Last-Event-ID, idempotent retry, duplicate follow-up) is authorized as `SubscribeToTask`.
+- **`IdempotencyClaim` is public** (`A2A.Server.Idempotency`), because the public `IdempotencyCoordinator` methods (`BeginAsync`, `RecordAsync`, `AbandonAsync`) take or return it.
+- **Constructors changed** (prefer the DI registrations, which pass the new arguments):
+  - `RedisTaskEventBus(IConnectionMultiplexer redis, StreamingOptions streaming, RedisEventBusOptions? options = null, ILogger<RedisTaskEventBus>? logger = null)`: `StreamingOptions` is new, second.
+  - `PushDeliveryService(PushOutbox, PushConfigStore, IPushSecretProtector, HttpMessageInvoker http, A2AServerOptions options, ILogger<PushDeliveryService>? logger = null, TimeProvider? time = null)`: an `HttpMessageInvoker` replaces `IHttpClientFactory`, and the options are passed directly, not as `IOptions<A2AServerOptions>`.
+  - `A2ARetentionService(IOptions<A2ARetentionOptions>, A2AServerOptions serverOptions, TaskStore, ExecutionCoordinator, TaskExecutionEngine engine, A2ATaskAdmin, ILogger<A2ARetentionService>? logger = null, TimeProvider? time = null, ArtifactObjectStore? objects = null)`: `A2AServerOptions` directly, and the `TaskExecutionEngine` replaces the `A2ARequestHandler`.
+- **Push metrics renamed.** The meter is `A2A.Server` (was `A2A`) and the counter is `a2a.server.push.deliveries` (was `a2a.push.deliveries`). It counts each attempt, with `a2a.outcome` = `sent`, `retried` or `dead_lettered` (was: final results, `delivered`/`failed`). `a2a.server.push.dead_letters` counts dead letters. Update dashboards and alerts.
+- **Per-tenant cards: `AgentCardProvider` (`A2A.Server.Agents`) is now `TenantCardProvider`**, and `AddAgentCardProvider<T>()` is now `AddTenantCardProvider<T>()`. The members are the same. Do not confuse it with the new `A2A.Server.AgentCardProvider`, the default `IAgentCardProvider` that completes each tenant's card; register a `TenantCardProvider`, not a replacement `IAgentCardProvider`.
+- **`IAgentExecutorFactory.RentAsync(string tenant, CancellationToken cancellationToken)`** rents the executor of one tenant. A lease with a null `Executor` means no agent serves the tenant. `AgentExecutorResolver` (`AddAgentExecutorResolver<T>()`) still picks the executor per tenant on top of the default factory.
 
 ### Postgres schema migrations
 
@@ -748,7 +863,7 @@ Each event is encoded once, and SSE, push and replay all write the stored bytes.
 
 ### Before you deploy
 
-These matter on a first deployment. See "Durable stores and several instances" in the README.
+These matter on a first deployment. See the [durable stores guide](docs/site/guides/durable-stores.md) and the [production checklist](docs/site/guides/production-checklist.md).
 
 - The default stores are in memory, for one instance, and are lost on restart.
 - Retention is off unless you call `AddA2ARetention`. Without it, a durable task store keeps finished tasks forever and tasks

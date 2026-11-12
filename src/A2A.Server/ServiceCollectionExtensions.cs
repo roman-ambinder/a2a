@@ -349,6 +349,11 @@ public sealed class A2AServerBuilder
                                                                             StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException($"An extension operation named '{existing.Method}' is already registered.",
                     nameof(method));
+        if (string.Equals(method, Deletion.TaskDeletion.Method, StringComparison.OrdinalIgnoreCase)
+            && Services.Any(d => d.ServiceType == typeof(TaskDeletionOperation)))
+            throw new ArgumentException(
+                $"An extension operation named '{Deletion.TaskDeletion.Method}' is already registered (AddTaskDeletion).",
+                nameof(method));
         Services.AddSingleton(new A2AExtensionOperation(method, extensionUri, handler, authorizationPolicy, allow));
         return this;
     }
@@ -400,6 +405,48 @@ public sealed class A2AServerBuilder
             var result = await handler(context, request, ct).ConfigureAwait(false);
             return JsonSerializer.SerializeToElement(result, resultType);
         }, authorizationPolicy, allow);
+    }
+
+    /// <summary>
+    ///     Lets callers delete their own tasks (spec §13.4): adds the SDK extension operation
+    ///     <see cref="A2A.Deletion.TaskDeletion.Method" /> (<c>a2a.tasks.delete</c>) of the extension
+    ///     <see cref="A2A.Deletion.TaskDeletion.ExtensionUri" />, which the public Agent Card then lists. Without this call
+    ///     the operation does not exist. It is served like any extension operation (see
+    ///     <see cref="AddExtensionOperation(string, string, Func{Pipeline.A2AOperationContext, JsonElement, CancellationToken, ValueTask{JsonElement}}, string?, bool)" />):
+    ///     the caller must activate the extension, and on gRPC the extension service must be mapped.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         A call names the task in the params member <c>id</c>. The task is the one of the call's tenant and principal,
+    ///         so a caller can delete only its own: another caller's task, or a missing one, is TaskNotFound. The caller must
+    ///         be authenticated, also with <see cref="A2AServerOptions.AllowAnonymous" />. A task that is not in a terminal
+    ///         state is refused with UnsupportedOperation (cancel it first). The task is deleted as
+    ///         <see cref="Retention.A2ATaskAdmin.DeleteTaskAsync(Storage.TaskKey, string, CancellationToken)" /> deletes it,
+    ///         with its event log, push configs, pending push deliveries, dead letters and artifact objects, and the delete is
+    ///         audited as <see cref="Audit.A2AAuditAction.TaskDeleted" />.
+    ///     </para>
+    ///     <para>
+    ///         The default authorization handler allows the operation. A custom <see cref="A2AAuthorizationHandler" /> sees
+    ///         <see cref="A2AOperation.Extension" /> with the name <c>a2a.tasks.delete</c> and must allow it; a denial is
+    ///         TaskNotFound, as for the built-in task operations. Calling this more than once has no further effect.
+    ///     </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">Another extension operation is already registered as <c>a2a.tasks.delete</c>.</exception>
+    public A2AServerBuilder AddTaskDeletion()
+    {
+        if (Services.Any(d => d.ServiceType == typeof(TaskDeletionOperation))) return this;
+        foreach (var descriptor in Services)
+            if (descriptor.ServiceType == typeof(A2AExtensionOperation) && !descriptor.IsKeyedService
+                                                                        && descriptor.ImplementationInstance is
+                                                                            A2AExtensionOperation existing
+                                                                        && string.Equals(existing.Method,
+                                                                            Deletion.TaskDeletion.Method,
+                                                                            StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException(
+                    $"An extension operation named '{existing.Method}' is already registered.");
+        Services.AddSingleton(sp => new TaskDeletionOperation(sp));
+        Services.AddSingleton(sp => sp.GetRequiredService<TaskDeletionOperation>().Create());
+        return this;
     }
 
     /// <summary>

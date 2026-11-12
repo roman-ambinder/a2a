@@ -2,7 +2,7 @@
 
 A Redis pub/sub event bus and execution coordinator for an A2A (Agent2Agent) server. Live task events (SubscribeToTask,
 blocking SendMessage) reach subscribers on every server instance, not only the one that runs the task, and CancelTask
-and blocking waits work across instances.
+and blocking waits work across instances. Use it, with a shared store, when you run more than one server instance.
 
 ```csharp
 builder.Services.AddA2AServer(o => o.AgentCard = card)
@@ -69,4 +69,5 @@ in [samples/MultiInstance](https://github.com/roman-ambinder/a2a/tree/main/sampl
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a),
 implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 10.
-See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.
+See the [durable stores guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/durable-stores.md) and the
+[repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.

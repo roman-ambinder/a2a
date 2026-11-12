@@ -19,7 +19,11 @@ An agent runs code on behalf of a peer you do not control. This guide covers the
 
 **Turn cap.** A peer can steer a long conversation one small step at a time. `MaxTurnsPerTask` counts the user messages in the stored history, including the one that created the task. A follow-up over the cap is refused with `UnsupportedOperation` before the agent runs, and the task is not changed. A retry of an accepted message is not a new turn. A value of 1 means no follow-ups. A custom `TaskStore` must keep the full history, or the cap does not hold.
 
-**Cancel requested.** CancelTask asks the agent to stop and waits up to `CancelGracePeriod`. If the agent has not stopped by then, the answer is the task as stored, with the metadata `a2a.cancelRequested = true`. That flag is never stored. The `CANCELED` state arrives later on the stream. A task that is already final gives `TaskNotCancelable`, also a repeat cancel of a `CANCELED` task, because the TCK requires it ([A2A#2358](https://github.com/a2aproject/A2A/issues/2358)). `IdempotentCancel = true` answers a repeat cancel with the canceled task instead. `A2AClient.CancelTaskAsync` handles the repeat itself: on `TaskNotCancelable` it calls GetTask for the same id and tenant and returns the task when it is `CANCELED`. In every other case, including a failing GetTask, you get the original `TaskNotCancelable`.
+**Cancel requested.** CancelTask asks the agent to stop and waits up to `CancelGracePeriod`.
+
+- If the agent has not stopped by then, the answer is the task as stored, with the metadata `a2a.cancelRequested = true`. That flag is never stored. The `CANCELED` state arrives later on the stream.
+- A task that is already final gives `TaskNotCancelable`. This includes a repeat cancel of a `CANCELED` task, because the TCK (the official A2A conformance suite) requires it ([A2A#2358](https://github.com/a2aproject/A2A/issues/2358)). <xref:A2A.Server.A2AServerOptions.IdempotentCancel> `= true` answers a repeat cancel with the canceled task instead.
+- `A2AClient.CancelTaskAsync` handles the repeat itself: on `TaskNotCancelable` it calls GetTask for the same id and tenant and returns the task when it is `CANCELED`. In every other case, including a failing GetTask, you get the original `TaskNotCancelable`.
 
 **Host shutdown.** When the host stops, the server first waits up to `ShutdownDrainTimeout` for running agents to finish (it honours the stop token too). Keep it below the host's shutdown timeout, 30 seconds by default. Agents still running after that are asked to stop, but their tasks are **not** moved to `CANCELED`: nobody cancelled them. They stay `WORKING`, and the lease expiry, the [retention](retention.md) sweep or a continuation handles them. Only a real CancelTask ends in `CANCELED`, even when it arrives during shutdown.
 
@@ -47,7 +51,7 @@ A hash that does not match, or a hash when nothing is pending, is refused with `
 
 ## Structured input (elicitation)
 
-An agent in `INPUT_REQUIRED` can ask for a small typed form instead of free text. This is an optional extension (`Elicitation.ExtensionUri`). The agent lists it on its card with `Elicitation.CreateExtension()`. The design is in `docs/superpowers/specs/2026-11-08-s38-elicitation-design.md`.
+An agent in `INPUT_REQUIRED` can ask for a small typed form instead of free text. This is called elicitation. It is an optional extension (`Elicitation.ExtensionUri`). The agent lists it on its card with `Elicitation.CreateExtension()`. The design is in `docs/superpowers/specs/2026-11-08-s38-elicitation-design.md`.
 
 On the server, build an <xref:A2A.Elicitations.ElicitationForm> and call `updater.RequireInputAsync(context, form, text)`. The answer arrives as `context.ElicitationAnswer`:
 
@@ -74,14 +78,21 @@ A runnable version is in `samples/ElicitationAgent`.
 
 - The form text is peer input. `title` and `description` are sanitized when read, and capped. Show the user which agent is asking, by card origin and not only by `name`.
 - Never let an LLM fill a form unattended. A hostile agent could use a form to pull data out of the model's context. A person fills it.
-- Secrets are refused by default. A field whose name, title or description looks like a password, token, key, card number and so on is refused when the server builds the form, and when the client answers (`allowSensitive: true` is the client's own choice and never goes on the wire). The check is by name and is best effort. It cannot catch every wording.
+- Secrets are refused by default. A field whose name, title or description looks like a password, token, key, card number and so on is refused when the server builds the form (unless the agent passes `allowSensitiveFields: true` to the `ElicitationForm` constructor), and when the client answers (`allowSensitive: true` on `ElicitationAnswer.Accept` is the client's own choice and never goes on the wire). The check is by name and is best effort. It cannot catch every wording.
 - Answers are stored in the task history, sent to webhooks with the task, and readable by anyone who can read the task. Do not collect secrets in a form. Use the auth-required flow for credentials.
 
 ## Follow-up de-duplication
 
 A follow-up whose `messageId` is already in the task's history is not run again. The caller gets the task as it is: no new turn, no push config, no execution. The check runs before the state check, so a retry after the task has finished still gets its outcome.
 
-**A message the agent never saw.** The follow-up is committed before its agent starts. If the process dies in between, the message is in the history and nothing runs. The client's retry of the same `messageId` then starts the agent, once. This happens only when all of these hold: the task is not final and still accepts a follow-up, the message is the last one in the history, no agent runs for the task on any instance (an unreachable coordinator counts as running), and the event store has no event after the one the commit recorded (an agent that wrote anything, an artifact included, leaves one). Two retries at once start one execution. The commit records a server-owned key, `a2a.followUp.pendingStart`, in the task metadata; agents cannot write it. If the client never retries, nothing starts: the task stays in its state, with no lease, until the [retention](retention.md) sweep times it out. An agent that ran and wrote nothing at all looks the same as one that never started, so a retry runs it again.
+**A message the agent never saw.** The follow-up is committed before its agent starts. If the process dies in between, the message is in the history and nothing runs. The client's retry of the same `messageId` then starts the agent, once. This happens only when all of these hold:
+
+- the task is not final and still accepts a follow-up,
+- the message is the last one in the history,
+- no agent runs for the task on any instance (an unreachable coordinator counts as running),
+- the event store has no event after the one the commit recorded (an agent that wrote anything, an artifact included, leaves one).
+
+Two retries at once start one execution. The commit records a server-owned key, `a2a.followUp.pendingStart`, in the task metadata; agents cannot write it. If the client never retries, nothing starts: the task stays in its state, with no lease, until the [retention](retention.md) sweep times it out. An agent that ran and wrote nothing at all looks the same as one that never started, so a retry runs it again.
 
 ## Executor errors
 

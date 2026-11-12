@@ -26,7 +26,7 @@ var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.c
 ```
 
 Tracing: spans on the `A2A.Client` `ActivitySource`, with W3C `traceparent` sent on every call;
-see [Observability](https://github.com/roman-ambinder/a2a#observability).
+see [Observability](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/observability.md).
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a),
 implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 10 and netstandard2.0.
@@ -39,9 +39,12 @@ Works on .NET Framework 4.7.2 and later. Not available there:
   configured trust policy refuses unverified cards.
 - `A2AMutualTls.CreateHandler`.
 - `ArtifactVerifier`. Use `ArtifactHash.Compute` on the whole artifact.
+- `A2AArtifactDownloader` and `A2AFileUploader`.
 - `JwsAlgorithms.All`. `IsSupported` still works.
 - `A2A.Security.Http` (SSRF guard).
 
 A connect failure is not retried automatically for non-idempotent requests.
 To stop calls to a peer that keeps failing, set `A2AClientOptions.CircuitBreaker` (off by default).
-See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.
+See the [getting started guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/getting-started.md), the
+[client credentials guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/client-credentials.md) and the
+[repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.

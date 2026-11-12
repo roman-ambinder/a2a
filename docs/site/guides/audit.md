@@ -18,6 +18,7 @@ By default each event is one Information log line. Send events to a store with a
 | `PushConfigCreated`, `PushConfigDeleted` | A push config was created or deleted. An inline config in SendMessage is a second event. |
 | `AccessDenied` | The call was refused: not authenticated, not allowed, a skill it may not use, or a context that is not its own (`Resource` is the context id). |
 | `AdminTaskDeleted`, `AdminDeadLetterRedriven`, `AdminDeadLettersListed` | The admin classes. |
+| `TaskDeleted` | A caller deleted its own task with the task-deletion extension (`AddTaskDeletion`). A missing task is `Failed` with `NotFound`, a task that is not terminal `Failed` with `UnsupportedOperation`. See [Retention](retention.md#let-callers-delete-their-own-tasks). |
 
 Reads are not audited, except artifact downloads and dead-letter listing. `GetTask` and `ListTasks` are polled and would flood the sink. Add them with an operation filter if you need them. Retention sweeps are not audited: they are not an act of an operator.
 
@@ -49,7 +50,7 @@ To store events in PostgreSQL, add the Postgres sink. It appends to the table `a
 
 [!code-csharp[](../../../samples/Snippets/Audit.cs#PostgresSink)]
 
-To write your own, derive from `A2AAuditSink`. It is an abstract class with one method, like the stores. One instance serves every call, so it must be safe for many threads. Honor the token.
+To write your own, derive from `A2AAuditSink`. It is an abstract class with one method, like the stores. Register it with `AddAuditSink<T>()`. One instance serves every call, so it must be safe for many threads. Honor the token. Writing the same `Id` and outcome twice must do no harm.
 
 [!code-csharp[](../../../samples/Snippets/Audit.cs#CustomSink)]
 
@@ -77,7 +78,7 @@ The admin classes have no caller, so say who acts. The old overloads record the 
 
 - A denial from ASP.NET Core `RequireAuthorization` happens before the handler. It is not audited here.
 - A request for another owner's task is `Failed` with `TaskNotFound`. The stores are keyed by owner, so they cannot tell it from a missing task.
-- An unauthenticated call is written without waiting for the sink. At most 1024 such writes run at once. More are dropped with a log, so a flood of anonymous calls cannot pile up work.
+- An unauthenticated call, and a message that names another caller's context, are written without waiting for the sink. At most 1024 such writes run at once. More are dropped with a log, so a flood of anonymous calls cannot pile up work.
 - The SDK does not delete audit rows and has no retention for them.
 
 ## PostgreSQL

@@ -71,7 +71,12 @@ Some identity providers register a certificate rather than a key, and want the a
 - The algorithm defaults to `PS256`. `RS*` and `PS*` need an RSA certificate, `ES*` an EC one. A certificate without a private key, or with a key that does not fit the algorithm, is refused when you call `CertificateJwt`.
 - You own the certificate. It is not disposed, and it must stay usable as long as the provider is. The private key is read for each token request and released after signing.
 
-**Scopes with a shared token endpoint.** With `TokenEndpoint` set, one provider serves every agent, so it holds a credential that is valid for all of them. Without `Scopes`, each agent's card chooses the scopes of the token it receives, so a card can ask for scopes meant for another agent. Set `Scopes` in that case, and `RequireScopes = true` so that a configuration without them fails at startup. A provider with `TokenEndpoint` and no `Scopes` logs a warning (event 190) through `OAuth2ClientCredentialsOptions.Logger`; `AddOAuth2ClientCredentials` sets that logger from the app's logging. Without `TokenEndpoint`, the provider binds to the first card origin and uses only that agent's own token URL, so card scopes are allowed.
+**Scopes with a shared token endpoint.**
+
+- With `TokenEndpoint` set, one provider serves every agent, so it holds a credential that is valid for all of them. Without `Scopes`, each agent's card chooses the scopes of the token it receives, so a card can ask for scopes meant for another agent.
+- Set `Scopes` in that case, and `RequireScopes = true` so that a configuration without them fails when the provider is created.
+- A provider with `TokenEndpoint` and no `Scopes` logs a warning (event 190) through `OAuth2ClientCredentialsOptions.Logger`. `AddOAuth2ClientCredentials` sets that logger from the app's logging.
+- Without `TokenEndpoint`, the provider binds to the first card origin and uses only that agent's own token URL, so card scopes are allowed.
 
 `ClientSecret` and `ClientAssertion` cannot both be set. Your own delegate works too: it gets the client id and the token endpoint, and returns the assertion. It is a credential, so it is sent only to the token endpoint the provider allows (`TokenEndpoint`, or the card's `tokenUrl` on the card's origin) and is removed from error messages. An empty assertion, one longer than 64 KiB, one with white space, or a delegate that throws fails the call with `Unauthenticated`.
 

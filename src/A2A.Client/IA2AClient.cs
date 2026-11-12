@@ -186,6 +186,23 @@ public sealed class A2AClientOptions
     public Func<ReceivedMessage, CancellationToken, ValueTask>? OnMessageReceived { get; set; }
 
     /// <summary>
+    ///     When true, a client made by <see cref="A2AClientFactory" /> from an Agent Card falls back to the next interface of
+    ///     the card (spec §5.2) when a call fails before any request reached the agent: the connection, name lookup, proxy
+    ///     tunnel or TLS handshake failed, after the transport's own retries (<see cref="MaxRetries" />). The candidates are
+    ///     the interfaces <see cref="A2AClientFactory.SelectInterface" /> would accept, in the card's order, with the tenant
+    ///     of the selected one. A call that works stays on its interface for later calls. An HTTP status, an A2A error, a
+    ///     timeout or a failure during the request never falls back, nor does a stream that already delivered an event.
+    ///     Default false: the client uses only the selected interface.
+    /// </summary>
+    /// <remarks>
+    ///     A client with credential providers falls back only to interfaces on the card's origin: credentials are never
+    ///     sent elsewhere. Every candidate passes the same <see cref="EndpointPolicy" /> check as the selected interface.
+    ///     Each fallback counts <c>a2a.client.interface.fallback</c> on the <c>A2A</c> meter. On netstandard2.0 the client
+    ///     cannot tell that a request never left, so it never falls back.
+    /// </remarks>
+    public bool InterfaceFallback { get; set; }
+
+    /// <summary>
     ///     Decides which endpoints an Agent Card may name. <see cref="A2AClientFactory" /> checks every interface of the card
     ///     that this
     ///     client could select, before it builds a client; a refusal throws <see cref="A2AErrorCode.InvalidAgentResponse" />
@@ -233,7 +250,8 @@ public sealed class A2AClientOptions
             WaitForTaskCompletion = WaitForTaskCompletion,
             PropagateTraceInMetadata = PropagateTraceInMetadata,
             OnMessageReceived = OnMessageReceived,
-            EndpointPolicy = EndpointPolicy
+            EndpointPolicy = EndpointPolicy,
+            InterfaceFallback = InterfaceFallback
         };
     }
 }

@@ -213,6 +213,13 @@ public sealed class A2AServerOptions
     public A2AAuditOptions Audit { get; } = new();
 
     /// <summary>
+    ///     Monitoring for unusual patterns (spec §13.4): reports a caller that creates tasks or calls CancelTask faster than
+    ///     the thresholds, as an <c>anomaly</c> security event. Off by default; it reports only and never refuses a call.
+    ///     Checked when the request handler is created.
+    /// </summary>
+    public A2AAnomalyOptions Anomalies { get; } = new();
+
+    /// <summary>
     ///     Serves A2A 1.1 (release candidate) next to 1.0: adds <c>"1.1"</c> to <see cref="SupportedVersions" />. A caller
     ///     that sends
     ///     <c>A2A-Version: 1.1</c> then gets the 1.1 wire (generation, timeline, message events, streams that stay open on an

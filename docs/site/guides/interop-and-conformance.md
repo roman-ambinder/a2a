@@ -1,6 +1,6 @@
 # Interop and conformance
 
-This SDK is tested against the official Python SDK, over all three bindings, in both directions. It also runs the official A2A conformance suites (the TCK and ACTS) on all three bindings. Other tests check that every method behaves the same on each binding, and that Agent Card signing matches the Python and JavaScript SDKs byte for byte. Read this to see what is covered and to run it yourself.
+This SDK is tested against the official Python SDK, over all three bindings, in both directions. It also runs two official A2A conformance suites on all three bindings: the TCK (from `a2a-tck`) and ACTS (from `a2a-itk`). Other tests check that every method behaves the same on each binding, and that Agent Card signing matches the Python and JavaScript SDKs byte for byte. Read this to see what is covered and to run it yourself.
 
 ## Interop with the official Python SDK
 
@@ -62,7 +62,7 @@ The second argument is `JSONRPC`, `HTTP+JSON` or `GRPC`.
 
 ## In CI
 
-The `interop` job in the CI workflow installs Python 3.12 and the pinned requirements, then runs `interop/run.sh`. It runs on every push and pull request. The step is named "JSON-RPC + HTTP+JSON", but the script runs all three bindings.
+The `interop` job in the CI workflow installs Python 3.12 and the pinned requirements, then runs `interop/run.sh`. It runs on every push to `main` and on every pull request. The step is named "JSON-RPC + HTTP+JSON", but the script runs all three bindings.
 
 ## Model and proto
 

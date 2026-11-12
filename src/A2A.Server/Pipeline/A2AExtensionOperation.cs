@@ -73,6 +73,13 @@ public sealed record A2AExtensionOperation(
     public const string PolicySatisfiedItem = "a2a.extension.policySatisfied";
 
     /// <summary>
+    ///     The string member of the params that names a task, for an SDK operation that is task-scoped (task deletion).
+    ///     A denial of such a call names that task and looks like a missing task (TaskNotFound), as it does for the built-in
+    ///     task operations. Null for every operation a host registers.
+    /// </summary>
+    internal string? TaskIdMember { get; init; }
+
+    /// <summary>
     ///     Checks a registration: the method name is made of letters, digits, <c>.</c>, <c>_</c> and <c>-</c> (and is not only
     ///     dots,
     ///     which a URL path cannot carry), is not reserved (see <see cref="A2AProtocol.Methods.IsReserved" />), and the
