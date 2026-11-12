@@ -124,6 +124,8 @@ Contexts, idempotency keys and push configs are scoped by the same tenant and ow
 
 A caller can only reach its own tasks. For any other task id, the server answers `TaskNotFound` ("The specified task ID does not exist or is not accessible"). It does not say whether the task exists. This also holds when an authorization handler denies a task-scoped call.
 
+The same holds for deletion. With `AddTaskDeletion()`, a caller can delete its own terminal tasks, and only those. See [Retention](retention.md#let-callers-delete-their-own-tasks).
+
 ## Extra rules: A2AAuthorizationHandler
 
 <xref:A2A.Server.Authorization.A2AAuthorizationHandler> runs in every operation, on every binding, after the tenant is known. Filters at the default stage run after it. Only `A2AFilterStage.BeforeAuthorization` filters run before it. It gets the call (user, owner, tenant), an <xref:A2A.Server.Pipeline.A2AOperationDescriptor> and the request object. Return `false` to deny.
@@ -135,7 +137,7 @@ A caller can only reach its own tasks. For any other task id, the server answers
 To allow one caller a skill and deny another, override `AuthorizeSkillAsync` too. See [Skill authorization](skill-authorization.md).
 
 - `Kind` is an <xref:A2A.Server.Authorization.A2AOperation>: the 11 built-in operations, or `Extension`. `Name` is the operation name, or the registered name of an extension operation.
-- A denied call whose request names a task (GetTask, CancelTask, SubscribeToTask, push config calls, and SendMessage with a `taskId`) is reported as `TaskNotFound`.
+- A denied call whose request names a task (GetTask, CancelTask, SubscribeToTask, push config calls, SendMessage with a `taskId`, and the task-deletion extension operation `a2a.tasks.delete`) is reported as `TaskNotFound`.
 - Any other denial (ListTasks, GetExtendedAgentCard, SendMessage without a task, extension operations) is `PermissionDenied`. Its ErrorInfo metadata says what was refused: `permission` is `operation` (your handler said no), `tenant` (the caller's `a2a:tenant` claims do not include the tenant), `skill` (skill authorization said no, or the skill is unknown; both look the same) or `policy` (the ASP.NET Core policy of an extension operation failed), and `operation` is the operation name. Neither repeats anything the caller sent.
 - The base class allows every built-in operation and denies extension operations. The handler the server registers by default also allows an extension operation registered with `allow: true`, or whose ASP.NET Core policy succeeded. A handler of your own replaces it, so decide extension operations yourself.
 - Open streams call the handler again every <xref:A2A.Server.A2ALimits.StreamReauthInterval> (default 5 minutes). On denial the stream ends with the error a new request would get: `TaskNotFound` for a task-scoped stream (it does not confirm the task exists), else `PermissionDenied`. See [limits](limits-and-rate-limiting.md).

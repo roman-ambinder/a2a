@@ -23,6 +23,22 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   `a2a.server.anomalies` (tag `a2a.anomaly.kind`: `task_creation` or `cancellation`). It reports only; no call is
   refused or delayed. The settings can be read from configuration (`A2A:Anomalies`).
 
+### Server
+
+- New `AddTaskDeletion()` on the A2A builder (spec §13.4: agents SHOULD let users request deletion of their data). It
+  adds the opt-in SDK extension operation `a2a.tasks.delete` (extension
+  `https://github.com/roman-ambinder/a2a/extensions/task-deletion/v1`, `A2A.Deletion.TaskDeletion`) on every binding,
+  and the Agent Card lists the extension. A caller deletes its own task with everything `A2ATaskAdmin.DeleteTaskAsync`
+  removes (event log, push configs, pending deliveries and dead letters, artifact objects). Another caller's task, or a
+  missing one, is `TaskNotFound`; an anonymous caller is `Unauthenticated`, also with `AllowAnonymous`; a task that is not
+  terminal is `UnsupportedOperation` (cancel it first). Each call is audited with the new action
+  `A2AAuditAction.TaskDeleted`. Without the call nothing changes.
+
+### Client
+
+- New `DeleteTaskAsync(taskId)` on any `IA2AClient` (`TaskDeletionClientExtensions`): calls the task-deletion extension
+  operation of an agent that serves it.
+
 ### Documentation
 
 - Spec decisions: blocking and non-blocking SendMessage. The SDK follows §3.2.2 where it disagrees with §3.1.1 ("MUST

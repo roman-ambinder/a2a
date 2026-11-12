@@ -205,7 +205,12 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
             _audit);
         _anomalies = AnomalyDetector.Create(options, engine.Clock);
         _accept = (r, c, claim, id, agent, ct) => AcceptAsync(r, c, claim, id, agent, true, ct); // one delegate for every stream
-        _pipeline = new OperationPipeline(new AuthorizationFilter(authorization, options, _skills, _audit), filters);
+        // SDK operations that name a task (task deletion): a denial of one looks like a missing task.
+        var taskScoped = _extensions.Values.Where(e => e.Operation.TaskIdMember is not null)
+            .ToDictionary(e => e.Operation.Method, e => e.Operation.TaskIdMember!, StringComparer.Ordinal);
+        _pipeline = new OperationPipeline(
+            new AuthorizationFilter(authorization, options, _skills, _audit, taskScoped.Count == 0 ? null : taskScoped),
+            filters);
         _sendMessage = SendMessageCoreAsync;
         _sendStreaming = (r, c, ct) =>
             new ValueTask<IAsyncEnumerable<SequencedEvent>>(

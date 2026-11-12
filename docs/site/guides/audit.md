@@ -18,6 +18,7 @@ By default each event is one Information log line. Send events to a store with a
 | `PushConfigCreated`, `PushConfigDeleted` | A push config was created or deleted. An inline config in SendMessage is a second event. |
 | `AccessDenied` | The call was refused: not authenticated, not allowed, a skill it may not use, or a context that is not its own (`Resource` is the context id). |
 | `AdminTaskDeleted`, `AdminDeadLetterRedriven`, `AdminDeadLettersListed` | The admin classes. |
+| `TaskDeleted` | A caller deleted its own task with the task-deletion extension (`AddTaskDeletion`). A missing task is `Failed` with `NotFound`, a task that is not terminal `Failed` with `UnsupportedOperation`. See [Retention](retention.md#let-callers-delete-their-own-tasks). |
 
 Reads are not audited, except artifact downloads and dead-letter listing. `GetTask` and `ListTasks` are polled and would flood the sink. Add them with an operation filter if you need them. Retention sweeps are not audited: they are not an act of an operator.
 

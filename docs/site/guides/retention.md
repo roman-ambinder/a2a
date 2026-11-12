@@ -58,13 +58,41 @@ Before each sweep the service takes a named lease, `a2a:retention`, from the <xr
 
 ## Delete one task: A2ATaskAdmin
 
-<xref:A2A.Server.Retention.A2ATaskAdmin> deletes a task with all its data on demand. `AddA2AServer` registers it. It is not exposed over A2A.
+<xref:A2A.Server.Retention.A2ATaskAdmin> deletes a task with all its data on demand. `AddA2AServer` registers it. It is not exposed over A2A; to let callers delete their own tasks, see [below](#let-callers-delete-their-own-tasks).
 
 [!code-csharp[](../../../samples/Snippets/Retention.cs#Admin)]
 
 `DeleteTaskAsync(TaskKey)` first cancels the task's executions on every instance, without waiting for them to stop. Then it deletes pending deliveries, dead letters, push configs and the event log, and the task row last, so a crash part way leaves a task that the next call or sweep finishes. The context stays until the sweep removes it as an orphan. With an artifact object store, the task's objects are deleted after the row; a failed object delete is logged (event 236) and left to the sweep. It returns false when the task does not exist for that tenant and owner.
 
 The <xref:A2A.Server.Storage.TaskKey> holds tenant, owner and task id. The caller of your endpoint supplies them, so decide who may.
+
+## Let callers delete their own tasks
+
+Spec §13.4 says agents SHOULD let users request deletion of their data. A2A 1.0 has no delete operation, so the SDK offers one as an opt-in extension operation. Turn it on with one call:
+
+```csharp
+builder.Services.AddA2AServer()
+    .AddAgentExecutor<MyAgent>()
+    .AddTaskDeletion();
+```
+
+<xref:A2A.Server.A2AServerBuilder.AddTaskDeletion*> adds the extension operation `a2a.tasks.delete` (<xref:A2A.Deletion.TaskDeletion>), and the Agent Card lists its extension, `https://github.com/roman-ambinder/a2a/extensions/task-deletion/v1`. Without the call the operation does not exist (`MethodNotFound`) and the card does not list it. It is served like any [custom operation](custom-operations.md): JSON-RPC method `a2a.tasks.delete`, `POST {pattern}/ext/a2a.tasks.delete` on HTTP+JSON, and the gRPC extension service when you map `MapA2AGrpcExtensions`. The caller must activate the extension.
+
+A client calls it with <xref:A2A.Client.TaskDeletionClientExtensions.DeleteTaskAsync*>, which activates the extension for the call:
+
+```csharp
+await client.DeleteTaskAsync(task.Id);
+```
+
+The params are `{"id": "<task id>"}`, with `tenant` as usual, and the result is `{}`. The rules:
+
+- **Owner only.** The task is the one of the call's tenant and principal. Another caller's task, a task of another tenant and a missing task all answer `TaskNotFound`, so the call never confirms that a task exists.
+- **Authenticated callers only.** An anonymous caller is refused with `Unauthenticated`, also with `AllowAnonymous`: anonymous callers share one owner, so none of them owns a task alone.
+- **Terminal tasks only.** A task that is not completed, failed, canceled or rejected (also one in `INPUT_REQUIRED` or `AUTH_REQUIRED`) is refused with `UnsupportedOperation`, and nothing changes. Cancel it first with `CancelTask`. The SDK does not cancel it for the caller, so a delete never stops work the caller did not mean to stop.
+- **Everything goes.** The task is deleted as `A2ATaskAdmin.DeleteTaskAsync` deletes it: the event log, push configs, pending push deliveries, dead letters, the task row, and its artifact objects. The context stays until the sweep removes it as an orphan. Idempotency entries are not keyed by task; they expire after `Idempotency.Retention`, as they do after an operator delete.
+- **Audited.** Each call is written to the audit trail as `TaskDeleted`, with the caller as the actor: `Succeeded`, or `Failed` with `NotFound` or `UnsupportedOperation`. See [Audit trail](audit.md).
+
+The call runs through the operation pipeline like any other: your filters, rate limiting and authorization. The authorization handler the server registers by default allows it. A handler of your own sees `Kind` `Extension` and `Name` `a2a.tasks.delete`, and must allow it. A denial is reported as `TaskNotFound`, as for the built-in task operations.
 
 ## Protect admin endpoints
 

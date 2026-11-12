@@ -1,2 +1,6 @@
 #nullable enable
 const A2A.Diagnostics.A2ATelemetry.SecurityEventNames.Anomaly = "anomaly" -> string!
+A2A.Deletion.TaskDeletion
+const A2A.Deletion.TaskDeletion.ExtensionUri = "https://github.com/roman-ambinder/a2a/extensions/task-deletion/v1" -> string!
+const A2A.Deletion.TaskDeletion.IdParam = "id" -> string!
+const A2A.Deletion.TaskDeletion.Method = "a2a.tasks.delete" -> string!
