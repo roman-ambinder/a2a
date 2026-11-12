@@ -5,6 +5,7 @@ using A2A.Server.Execution;
 using A2A.Server.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 
 namespace A2A.Tests;
 
@@ -21,6 +22,20 @@ public sealed class ShutdownTests
         Principal = "alice",
         User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "alice")], "Test")),
     };
+
+    /// <summary>Keeps the event id and level of each log line the drain service writes.</summary>
+    private sealed class DrainLog : ILogger<TaskExecutionDrainService>
+    {
+        public List<(int Id, LogLevel Level)> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            lock (Entries) Entries.Add((eventId.Id, logLevel));
+        }
+    }
 
     /// <summary>Works until its token fires (and never finishes by itself), or until <see cref="Release"/> is set.</summary>
     private sealed class Worker
@@ -164,7 +179,8 @@ public sealed class ShutdownTests
         await using var host = await StartAsync(worker);
         var task = await SendAsync(host);
         await worker.Started.Task.WaitAsync(Wait);
-        var drain = new TaskExecutionDrainService(host.Engine, new A2AServerOptions { ShutdownDrainTimeout = TimeSpan.FromSeconds(20) }, null, clock);
+        var log = new DrainLog();
+        var drain = new TaskExecutionDrainService(host.Engine, new A2AServerOptions { ShutdownDrainTimeout = TimeSpan.FromSeconds(20) }, log, clock);
 
         var stopping = drain.StopAsync(CancellationToken.None);
         Assert.False(stopping.IsCompleted);
@@ -173,6 +189,7 @@ public sealed class ShutdownTests
         clock.Advance(TimeSpan.FromSeconds(1));
         await stopping.WaitAsync(Wait);
 
+        Assert.Equal((228, LogLevel.Warning), Assert.Single(log.Entries));
         Assert.Equal(TaskState.Working, (await GetAsync(host, task.Id)).Status.State);
         host.Engine.Shutdown();
         await host.Engine.WhenIdleAsync().WaitAsync(Wait);

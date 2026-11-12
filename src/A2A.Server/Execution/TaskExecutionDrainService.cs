@@ -38,7 +38,8 @@ internal sealed partial class TaskExecutionDrainService(
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Warning,
+    // 228 is in the TaskExecutionEngine range of ServerLog (200-229): the drain waits for the engine's executions.
+    [LoggerMessage(EventId = 228, Level = LogLevel.Warning,
         Message =
             "Running agents did not finish within {Timeout} of the host stop; they are asked to stop and their tasks stay as they are.")]
     private static partial void LogDrainGaveUp(ILogger logger, TimeSpan timeout);

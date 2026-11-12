@@ -150,7 +150,7 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | 130-132 | client: client outbox |
 | 150-152 | client: agent registry (lookalike name, mixed-script name, identity change) |
 | 190 | client: OAuth2 provider with no scopes |
-| 200-243 | server: agent runs, coordination, push-config cleanup, retention, continuations, task budget |
+| 200-243 | server: agent runs, coordination, push-config cleanup, retention, continuations, task budget; 228 is the shutdown drain giving up (agents still running at `ShutdownDrainTimeout`) |
 | 250-259 | server: startup diagnostics (250-253, 255, 257, 259). 254 (a task past its size cap) and 256 (a follow-up restarted for a retry) are not diagnostics |
 | 270-273 | server: audit trail (270 is the line of `LoggerAuditSink`, 271-273 are sink failures and dropped writes) |
 | 302-316 | server: push delivery |

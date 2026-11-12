@@ -48,6 +48,9 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   1600-1603 (was 1000-1003) and the v0.3 server surface 1700 (was 1100), so they no longer share ids with the Postgres
   (1000-1099) and Redis (1100-1199) stores. Update log filters that use the old ids. A test reads every `[LoggerMessage]`
   under `src/` and fails when two share an id.
+- The warning that the shutdown drain gave up (agents still running after `ShutdownDrainTimeout`) has event id 228. It had
+  none, so the generator chose one (1369592127) that was in no range. A test now fails when a `[LoggerMessage]` under
+  `src/` has no `EventId`.
 
 ### Documentation
 
