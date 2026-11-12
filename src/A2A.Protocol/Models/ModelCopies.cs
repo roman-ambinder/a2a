@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 
 namespace A2A;
@@ -14,23 +15,58 @@ public static class ModelCopies
     ///     list and <c>Metadata</c> dictionary. It shares the <see cref="Message" />, <see cref="Artifact" /> and
     ///     <see cref="TimelineEntry" /> instances
     ///     (and the status message) with the original: callers must not mutate them. Null collections stay null.
-    ///     Each copied list has room for one more item, since a write usually appends one (a history message, a timeline
-    ///     entry, an artifact): an exact-size copy would be copied again, at twice its size, by that append.
+    ///     The <c>History</c> and <c>Timeline</c> lists of the copy are built when they are first read: until then the copy
+    ///     shares the original's items without copying them, so the copy is O(1) in their length when the original's lists
+    ///     were never read either. To append without building them, use <see cref="AppendToHistory" /> and
+    ///     <see cref="AppendToTimeline" />.
     /// </summary>
     public static AgentTask CopyForUpdate(this AgentTask task)
     {
         ArgumentNullException.ThrowIfNull(task);
-        return new AgentTask
+        var copy = new AgentTask
         {
             Id = task.Id,
             ContextId = task.ContextId,
             Status = CopyStatus(task.Status, false),
             Artifacts = CopyList(task.Artifacts),
-            History = CopyList(task.History),
             Metadata = CopyMap(task.Metadata, false),
-            Generation = task.Generation,
-            Timeline = CopyList(task.Timeline)
+            Generation = task.Generation
         };
+        // Shared, not copied (ADR-004): a read of the copy builds its own list, an append makes a new version.
+        copy.HistoryStore.SetShared(task.HistoryStore.Share());
+        copy.TimelineStore.SetShared(task.TimelineStore.Share());
+        return copy;
+    }
+
+    /// <summary>
+    ///     Appends <paramref name="message" /> to the <c>History</c> of <paramref name="task" />, as
+    ///     <c>(task.History ??= []).Add(message)</c> does, without building the list when it was not read
+    ///     (<see cref="CopyForUpdate(AgentTask)" />): O(1) amortized. <paramref name="task" /> must be an instance the caller
+    ///     owns, such as a copy from <see cref="CopyForUpdate(AgentTask)" />; other copies that share its items are not
+    ///     changed.
+    /// </summary>
+    public static void AppendToHistory(this AgentTask task, Message message)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        ArgumentNullException.ThrowIfNull(message);
+        task.HistoryStore.Add(message);
+    }
+
+    /// <summary>
+    ///     Appends <paramref name="entry" /> to the <c>Timeline</c> of <paramref name="task" />, as
+    ///     <c>(task.Timeline ??= []).Add(entry)</c> does, then drops the oldest entries beyond
+    ///     <paramref name="maxEntries" /> (zero or negative keeps them all). It does not build the list when it was not read
+    ///     (<see cref="CopyForUpdate(AgentTask)" />): O(1) amortized, also when entries are dropped.
+    ///     <paramref name="task" /> must be an instance the caller owns, such as a copy from
+    ///     <see cref="CopyForUpdate(AgentTask)" />; other copies that share its entries are not changed.
+    /// </summary>
+    [Experimental("A2AEXP005",
+        UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public static void AppendToTimeline(this AgentTask task, TimelineEntry entry, int maxEntries = 0)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        ArgumentNullException.ThrowIfNull(entry);
+        task.TimelineStore.AddKeepLast(entry, maxEntries);
     }
 
     /// <summary>A copy of <paramref name="list" /> with room for one more item, or null.</summary>
@@ -45,29 +81,43 @@ public static class ModelCopies
     /// <summary>
     ///     Copies an artifact with <paramref name="extraParts" /> added after the existing parts. The copy has a new
     ///     <c>Parts</c> list, a new <c>Metadata</c> dictionary and a new <c>Extensions</c> list. The existing
-    ///     <see cref="Part" /> instances are shared. The original is not changed.
+    ///     <see cref="Part" /> instances are shared. The original is not changed. The copy's <c>Parts</c> list is built
+    ///     when it is first read: until then the copy shares the original's parts without copying them, so the copy is
+    ///     O(1) in the part count (plus the added parts) when the original's list was never read either. To add more parts
+    ///     to the copy without building it, use <see cref="AppendParts" />.
     /// </summary>
     public static Artifact CopyWithParts(this Artifact artifact, IEnumerable<Part> extraParts)
     {
         ArgumentNullException.ThrowIfNull(artifact);
         ArgumentNullException.ThrowIfNull(extraParts);
-        // Sized once: a plain copy followed by AddRange would grow (copy) the list a second time.
-        var extra = extraParts as ICollection<Part>;
-        var parts = new List<Part>(artifact.Parts.Count + (extra?.Count ?? 4));
-        parts.AddRange(artifact.Parts);
-        parts.AddRange(extraParts);
-        return new Artifact
+        var parts = artifact.PartsStore.Share(extraParts is ICollection<Part> c ? c.Count : 4) ?? AppendList<Part>.Empty;
+        var copy = new Artifact
         {
             ArtifactId = artifact.ArtifactId,
             Name = artifact.Name,
             Description = artifact.Description,
-            Parts = parts,
+            Parts = null!, // set below, shared
             Metadata = CopyMap(artifact.Metadata, false),
             Extensions = artifact.Extensions is null ? null : new List<string>(artifact.Extensions),
             StartGeneration = artifact.StartGeneration,
             EndGeneration = artifact.EndGeneration,
             Role = artifact.Role
         };
+        copy.PartsStore.SetShared(parts.AddRange(extraParts));
+        return copy;
+    }
+
+    /// <summary>
+    ///     Appends <paramref name="parts" /> to the <c>Parts</c> of <paramref name="artifact" />, as
+    ///     <c>artifact.Parts.AddRange(parts)</c> does, without building the list when it was not read
+    ///     (<see cref="CopyWithParts" />): O(1) amortized per part. <paramref name="artifact" /> must be an instance the
+    ///     caller owns, such as a copy from <see cref="CopyWithParts" />; other copies that share its parts are not changed.
+    /// </summary>
+    public static void AppendParts(this Artifact artifact, IEnumerable<Part> parts)
+    {
+        ArgumentNullException.ThrowIfNull(artifact);
+        ArgumentNullException.ThrowIfNull(parts);
+        artifact.PartsStore.AddRange(parts);
     }
 
     /// <summary>
@@ -84,10 +134,11 @@ public static class ModelCopies
             ContextId = task.ContextId,
             Status = CopyStatus(task.Status, true),
             Artifacts = task.Artifacts?.ConvertAll(DeepArtifact),
-            History = task.History?.ConvertAll(DeepMessage),
+            // ConvertAll on the store: a deep copy does not build the original's lists (ADR-004).
+            History = task.HistoryStore.ConvertAll(DeepMessage),
             Metadata = CopyMap(task.Metadata, true),
             Generation = task.Generation,
-            Timeline = task.Timeline?.ConvertAll(DeepTimelineEntry)
+            Timeline = task.TimelineStore.ConvertAll(DeepTimelineEntry)
         };
     }
 
@@ -210,7 +261,7 @@ public static class ModelCopies
             ArtifactId = a.ArtifactId,
             Name = a.Name,
             Description = a.Description,
-            Parts = a.Parts.ConvertAll(DeepPart),
+            Parts = a.PartsStore.ConvertAll(DeepPart)!,
             Metadata = CopyMap(a.Metadata, true),
             Extensions = a.Extensions is null ? null : new List<string>(a.Extensions),
             StartGeneration = a.StartGeneration,

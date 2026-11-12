@@ -9,3 +9,6 @@ A2A.SendMessageResponse.State.get -> A2A.TaskState?
 A2A.SendMessageResponse.TaskId.get -> string?
 A2A.StreamResponse.ContextId.get -> string?
 const A2A.A2AProtocol.LegacyAgentCardPath = "/.well-known/agent.json" -> string!
+static A2A.ModelCopies.AppendParts(this A2A.Artifact! artifact, System.Collections.Generic.IEnumerable<A2A.Part!>! parts) -> void
+static A2A.ModelCopies.AppendToHistory(this A2A.AgentTask! task, A2A.Message! message) -> void
+[A2AEXP005]static A2A.ModelCopies.AppendToTimeline(this A2A.AgentTask! task, A2A.TimelineEntry! entry, int maxEntries = 0) -> void

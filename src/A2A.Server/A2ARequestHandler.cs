@@ -1022,7 +1022,7 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
                 // The stored record belongs to the store: append to a copy, with a copy of the message the executor gets.
                 var next = record.Task.CopyForUpdate();
                 var stored = message.DeepCopy();
-                (next.History ??= []).Add(stored);
+                next.AppendToHistory(stored); // O(1): the history list is not built
                 // Same update as the approving message: the approval cannot be used twice, also across instances (CAS).
                 if (consume is not null)
                     (next.Metadata ??= [])[A2AProtocol.ApprovalConsumedKey] = StringElement(consume);
