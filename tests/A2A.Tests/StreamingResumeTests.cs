@@ -527,6 +527,51 @@ public class StreamingResumeTests
         await host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = taskId }, AliceCall()); // stop the flood
     }
 
+    [Fact]
+    public async Task Time_the_reader_spends_between_reads_does_not_count_as_idle()
+    {
+        // Idle means the source sent nothing while the stream waited for it. Here the reader pauses for twice the idle
+        // timeout between reads, and the agent emits each event 50 ms after the reader comes back: the stream never waits
+        // more than 50 ms for an event, so it must not end. (It used to: the deadline started when the previous event was
+        // handed to the reader, so the pause alone used it up, and the stream ended on the next read.)
+        var agent = new LockStepAgent();
+        await using var host = await TestAgentHost.StartAsync(
+            o => o.Limits.StreamIdleTimeout = TimeSpan.FromMilliseconds(200),
+            services: s => s.AddSingleton<IAgentExecutor>(agent));
+        await using var stream = host.Handler.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("go") }, AliceCall()).GetAsyncEnumerator();
+        Assert.True(await stream.MoveNextAsync().AsTask().WaitAsync(Timeout));
+        var taskId = Assert.IsType<TaskEvent>(stream.Current.Event).Task.Id;
+        Assert.True(await stream.MoveNextAsync().AsTask().WaitAsync(Timeout)); // Working: the agent then waits for the gate
+        Assert.IsType<StatusUpdateEvent>(stream.Current.Event);
+
+        for (var i = 0; i < 3; i++)
+        {
+            await Task.Delay(400); // the reader is busy; the agent is waiting for it
+            agent.Gate.Release();
+            Assert.True(await stream.MoveNextAsync().AsTask().WaitAsync(Timeout), $"the stream ended at read {i}");
+            Assert.IsType<ArtifactUpdateEvent>(stream.Current.Event);
+        }
+
+        await host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = taskId }, AliceCall());
+    }
+
+    /// <summary>Emits one artifact 50 ms after each release of <see cref="Gate" />.</summary>
+    private sealed class LockStepAgent : IAgentExecutor
+    {
+        public SemaphoreSlim Gate { get; } = new(0);
+
+        public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct)
+        {
+            await updater.StartWorkAsync(cancellationToken: ct);
+            while (true)
+            {
+                await Gate.WaitAsync(ct);
+                await Task.Delay(50, ct);
+                await updater.AddArtifactAsync([Part.FromText("x")], artifactId: "step", cancellationToken: ct);
+            }
+        }
+    }
+
     /// <summary>Emits artifacts without end (about 5 per millisecond at most), faster than a reader that pauses can take them.</summary>
     private sealed class FloodAgent : IAgentExecutor
     {

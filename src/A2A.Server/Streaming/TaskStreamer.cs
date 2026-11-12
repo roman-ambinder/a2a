@@ -864,8 +864,9 @@ internal sealed class TaskStreamer
     ///     authorized again, as <paramref name="operation" /> with <paramref name="request" /> (what the stream was opened
     ///     with); on denial nothing more is sent and the stream ends with the error a new request would get (TaskNotFound for
     ///     a task-scoped stream, else PermissionDenied), so the client knows why. At
-    ///     <see cref="A2ALimits.MaxStreamDuration" />, and after <see cref="A2ALimits.StreamIdleTimeout" /> without an event,
-    ///     the stream ends normally, without an error; clients resume with <c>Last-Event-ID</c>. Stopping the stream never
+    ///     <see cref="A2ALimits.MaxStreamDuration" />, and when the source has sent no event for
+    ///     <see cref="A2ALimits.StreamIdleTimeout" /> while the stream waited for one (time the reader spends between reads
+    ///     does not count), the stream ends normally, without an error; clients resume with <c>Last-Event-ID</c>. Stopping the stream never
     ///     stops the task.
     /// </summary>
     private async IAsyncEnumerable<SequencedEvent> LimitStreamAsync(IAsyncEnumerable<SequencedEvent> source,
@@ -889,7 +890,7 @@ internal sealed class TaskStreamer
         Task<bool>? move = null;
         Task? deadline = null; // one timer for the re-check, kept across events until it fires
         var reauthAt = reauthEvery is { } first ? Stopwatch.GetTimestamp() + Ticks(first) : long.MaxValue;
-        var idleAt = idleAfter is { } idle ? Stopwatch.GetTimestamp() + Ticks(idle) : long.MaxValue;
+        var idleAt = long.MaxValue;
         try
         {
             while (true)
@@ -897,6 +898,10 @@ internal sealed class TaskStreamer
                 bool more;
                 try
                 {
+                    // Idle means the source sent nothing while the stream waited for it, so the deadline starts when the
+                    // stream asks for the next event. Time the reader spends between reads is not idle time: the stream
+                    // has events to send then, and ending it would cut off a busy task's stream under a slow reader.
+                    if (idleAfter is { } idle) idleAt = Stopwatch.GetTimestamp() + Ticks(idle);
                     var next = events.MoveNextAsync();
                     if ((reauthEvery is null && idleAfter is null) || next.IsCompleted)
                     {
@@ -941,7 +946,6 @@ internal sealed class TaskStreamer
                 // Busy stream: the next event may always be ready, so check the deadline before every event too.
                 if (Stopwatch.GetTimestamp() >= reauthAt && !await StillAuthorizedAsync().ConfigureAwait(false))
                     throw Revoked();
-                if (idleAfter is { } quiet) idleAt = Stopwatch.GetTimestamp() + Ticks(quiet);
                 yield return events.Current;
             }
         }

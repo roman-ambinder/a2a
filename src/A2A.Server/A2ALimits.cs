@@ -99,8 +99,9 @@ public sealed class A2ALimits
     public TimeSpan StreamReauthInterval { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    ///     How long a stream may go without sending an event; then it ends normally, as at <see cref="MaxStreamDuration" />,
-    ///     and clients resume with <c>Last-Event-ID</c>. Keep-alive comments do not count as events. The task goes on. Zero or
+    ///     How long a stream may wait for the task's next event; then it ends normally, as at
+    ///     <see cref="MaxStreamDuration" />, and clients resume with <c>Last-Event-ID</c>. The wait starts when the stream
+    ///     asks for the next event, so time the client takes to read what was already sent does not count. Keep-alive comments do not count as events. The task goes on. Zero or
     ///     <see cref="Timeout.InfiniteTimeSpan" /> turns it off. Default off.
     /// </summary>
     public TimeSpan StreamIdleTimeout { get; set; }
