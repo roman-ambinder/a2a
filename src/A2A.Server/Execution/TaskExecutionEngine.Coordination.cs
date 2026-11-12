@@ -342,7 +342,8 @@ public sealed partial class TaskExecutionEngine
     /// <summary>
     ///     Takes the start of a follow-up whose message was committed but evidently never started. Call under the task lock.
     ///     False
-    ///     when a start is pending here, an execution of the task runs here, or one runs on another instance; a coordinator
+    ///     when a start is pending here, an execution of the task runs here (one whose agent returned is waited for, see
+    ///     <see cref="LocalRunsEndedAsync" />), or one runs on another instance; a coordinator
     ///     that
     ///     fails counts as running (unlike <see cref="IsRunningAnywhereAsync" />: starting on a guess could run the agent
     ///     twice). On
@@ -358,7 +359,7 @@ public sealed partial class TaskExecutionEngine
             if (_starting.ContainsKey(scope)) return false;
         }
 
-        if (RunningCompletions(key).Count > 0) return false;
+        if (!await LocalRunsEndedAsync(key, ct).ConfigureAwait(false)) return false;
         try
         {
             if (await _coordinator.IsRunningAsync(key, ct).ConfigureAwait(false)) return false;
@@ -377,6 +378,33 @@ public sealed partial class TaskExecutionEngine
 
         ServerLog.FollowUpRestarted(Logger, key.TaskId);
         return true;
+    }
+
+    /// <summary>How long <see cref="TryClaimStartAsync" /> waits for local runs whose agent has returned to end.</summary>
+    internal static readonly TimeSpan EndingRunWait = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    ///     True when no execution of the task runs here. A run whose agent has already returned cannot take the committed
+    ///     message: it only stores its last events and ends its lease. A retry right after it (the run asked for input, the
+    ///     follow-up's start then failed) would count it as the recovered run and do nothing, leaving the message unanswered.
+    ///     So such runs are waited for, up to <see cref="EndingRunWait" />, in real time. A run whose agent still runs counts
+    ///     as running.
+    /// </summary>
+    private async Task<bool> LocalRunsEndedAsync(TaskKey key, CancellationToken ct)
+    {
+        var local = _running.Snapshot(ScopeKey(key.Tenant, key.TaskId)).Where(e => e.Key == key).ToList();
+        if (local.Count == 0) return true;
+        if (local.Any(e => !e.Returned)) return false;
+        try
+        {
+            await Task.WhenAll(local.Select(e => e.Completion)).WaitAsync(EndingRunWait, ct).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+
+        return RunningCompletions(key).Count == 0;
     }
 
     /// <summary>Whether an execution of the task runs on any instance. A failing coordinator counts as not running (logged).</summary>

@@ -158,6 +158,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Fixes
 
+- Follow-up recovery: a retry right after the previous run asked for input (that run had returned but had not ended yet,
+  for example under load) counted that run as the recovered one and did nothing. The task stayed `INPUT_REQUIRED` with
+  the message unanswered. The retry now waits up to two seconds for a run whose agent has returned to end, then starts
+  the message once. A run whose agent still runs still counts as running.
 - v0.3 gRPC: errors carry what the other bindings send. UNAUTHENTICATED names its scheme in a `www-authenticate`
   trailer, as v1 gRPC does (spec 3.3.2, 7.4). An error with a wait (a rate limit, a full input buffer) carries it in a
   `retry-after` trailer, in whole seconds. The v0.3 gRPC client reads that trailer as `A2AException.RetryAfter`.

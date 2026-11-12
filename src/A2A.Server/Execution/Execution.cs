@@ -188,6 +188,12 @@ internal sealed class Execution(TaskKey key, string id, bool isCancelRun, Cancel
         activity.Dispose();
     }
 
+    /// <summary>
+    ///     The agent returned or threw (<see cref="TryMarkReturned" />): the run takes no more input and only ends (its last
+    ///     events are stored, its lease is ended).
+    /// </summary>
+    public bool Returned => Volatile.Read(ref _outcome) == 1;
+
     /// <summary>The agent returned or threw. False when the engine had already stopped the execution.</summary>
     public bool TryMarkReturned()
     {
