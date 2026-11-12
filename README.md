@@ -38,6 +38,7 @@ Every NuGet ID is `RomanAmbinder.` + the package name, so it never clashes with 
 | Call an agent with Azure managed identity or AWS IAM | `A2A.Client.Identity.Azure` or `A2A.Client.Identity.Aws` |
 | Use gRPC | `A2A.Server.Grpc` (host) or `A2A.Client.Grpc` (call) |
 | Host an `IChatClient` as an agent, or use an agent as an AI tool | `A2A.Extensions.AI` |
+| Host a Microsoft Agent Framework `AIAgent`, or use an agent as an `AIAgent` (experimental) | `A2A.Extensions.AgentFramework` |
 | Bridge to MCP (Model Context Protocol) | `A2A.Mcp` |
 | Give skills .NET input and output types (experimental) | `A2A.Server.TypedSkills` |
 | Keep tasks across restarts | `A2A.Server.Postgres` |
@@ -116,7 +117,7 @@ The guides are written to be read on the [docs site](https://roman-ambinder.gith
 - Protocol: [Bindings](docs/site/guides/bindings.md) · [Streaming and resume](docs/site/guides/streaming.md) · [Push notifications](docs/site/guides/push-notifications.md) · [Proactive continuation](docs/site/guides/proactive-continuation.md) · [Client outbox](docs/site/guides/client-outbox.md) · [Custom operations](docs/site/guides/custom-operations.md) · [Metadata keys](docs/site/guides/metadata.md)
 - Security: [Authentication and ownership](docs/site/guides/auth-and-ownership.md) · [Client credentials](docs/site/guides/client-credentials.md) · [Identity providers](docs/site/guides/identity-providers.md) · [Agent Card signing](docs/site/guides/agent-card-signing.md) · [Peer identity](docs/site/guides/peer-identity.md)
 - Skills: [Skill selection](docs/site/guides/skill-selection.md) · [Typed skills](docs/site/guides/typed-skills.md) · [Skill authorization](docs/site/guides/skill-authorization.md)
-- Integrations: [Microsoft.Extensions.AI](docs/site/guides/extensions-ai.md) · [Conversation memory](docs/site/guides/conversation-memory.md) · [MCP bridge](docs/site/guides/mcp-bridge.md) · [v0.3 compatibility](docs/site/guides/v03-compatibility.md)
+- Integrations: [Microsoft.Extensions.AI](docs/site/guides/extensions-ai.md) · [Microsoft Agent Framework](docs/site/guides/agent-framework.md) · [Conversation memory](docs/site/guides/conversation-memory.md) · [MCP bridge](docs/site/guides/mcp-bridge.md) · [v0.3 compatibility](docs/site/guides/v03-compatibility.md)
 
 **Run in production**
 

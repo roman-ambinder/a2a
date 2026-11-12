@@ -78,6 +78,24 @@ public sealed class LogEventIdTests
     }
 
     [Fact]
+    public void Every_log_message_has_an_explicit_event_id()
+    {
+        // Without EventId the generator makes one up, which is not in any range and can collide unseen.
+        var root = RepoRoot();
+        var sep = Path.DirectorySeparatorChar;
+        var missing = (
+            from file in Directory.GetFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories)
+            where !file.Contains($"{sep}obj{sep}", StringComparison.Ordinal) &&
+                  !file.Contains($"{sep}bin{sep}", StringComparison.Ordinal)
+            from line in File.ReadLines(file).Select((text, i) => (text, n: i + 1))
+            where line.text.Contains("[LoggerMessage(", StringComparison.Ordinal) &&
+                  !LoggerMessageId.IsMatch(line.text)
+            select $"{Path.GetRelativePath(root, file)}:{line.n}").ToList();
+
+        Assert.Empty(missing);
+    }
+
+    [Fact]
     public void Security_events_keep_their_documented_ids()
     {
         // 1200 information, 1201 warning, 1202 anomaly (observability guide, spec decisions).

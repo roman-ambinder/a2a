@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using A2A.Client;
+using A2A.Extensions.AI.Shared;
 using Microsoft.Extensions.AI;
 
 namespace A2A.Extensions.AI;

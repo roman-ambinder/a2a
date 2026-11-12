@@ -14,6 +14,7 @@
     <Project Path="interop/v03/dotnet/InteropV03Client/InteropV03Client.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/AgentFrameworkAgent/AgentFrameworkAgent.csproj" />
     <Project Path="samples/ChatAgent/ChatAgent.csproj" />
     <Project Path="samples/ElicitationAgent/ElicitationAgent.csproj" />
     <Project Path="samples/McpBridge/McpBridge.csproj" />
@@ -46,6 +47,7 @@
     <Project Path="src/A2A.Client.Identity.Azure/A2A.Client.Identity.Azure.csproj" />
     <Project Path="src/A2A.Client.V0_3Compat/A2A.Client.V0_3Compat.csproj" />
     <Project Path="src/A2A.Extensions.AI/A2A.Extensions.AI.csproj" />
+    <Project Path="src/A2A.Extensions.AgentFramework/A2A.Extensions.AgentFramework.csproj" />
     <Project Path="src/A2A.Cli/A2A.Cli.csproj" />
     <Project Path="src/A2A.Client/A2A.Client.csproj" />
     <Project Path="src/A2A.Grpc/A2A.Grpc.csproj" />
@@ -68,6 +70,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/A2A.Benchmarks/A2A.Benchmarks.csproj" />
     <Project Path="tests/A2A.Extensions.AI.Tests/A2A.Extensions.AI.Tests.csproj" />
+    <Project Path="tests/A2A.Extensions.AgentFramework.Tests/A2A.Extensions.AgentFramework.Tests.csproj" />
     <Project Path="tests/A2A.Grpc.Tests/A2A.Grpc.Tests.csproj" />
     <Project Path="tests/A2A.Mcp.Tests/A2A.Mcp.Tests.csproj" />
     <Project Path="tests/A2A.NetStandard.Smoke/A2A.NetStandard.Smoke.csproj" />

@@ -4,6 +4,27 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Agent Framework
+
+- New package `RomanAmbinder.A2A.Extensions.AgentFramework` (experimental, `A2AEXP006`): Microsoft Agent Framework
+  integration. It depends on `Microsoft.Agents.AI.Abstractions` 1.28.0 only and must not be mixed with
+  `Microsoft.Agents.AI.A2A` in one project (the official `A2A` package has the same type names as `A2A.Protocol`).
+  See the [guide](docs/site/guides/agent-framework.md).
+- Host an `AIAgent` as an A2A agent with `AddAIAgent`: the agent is resolved from each execution's scope, every execution
+  is a task (cancel and follow-ups work), and the A2A ids, including `referenceTaskIds`, reach the agent in
+  `AgentRunOptions.AdditionalProperties` (`A2AAgentKeys`). Stateless by default (the prompt comes from the task history,
+  as for `AddChatClientAgent`); `SessionMode = Stored` keeps sessions in an `AgentSessionStore`, per context, tenant and
+  owner, deleted when retention deletes the context. `ToolApprovals = Bound` turns tool approval requests into approvals
+  bound to the exact call and to the task that asked.
+- Use a remote A2A agent as an `AIAgent` with `A2AClient.AsAIAgent`: sessions that continue the context or an interrupted
+  task, and background responses with continuation tokens to poll or to continue a stream after the last part read.
+- Sample `samples/AgentFrameworkAgent` (`run-samples.sh agentframework`).
+
+### Extensions.AI
+
+- No behaviour change: the executor's chunking, prompt building and the client facade's send rules moved to shared source
+  that `A2A.Extensions.AgentFramework` compiles too.
+
 ### New packages
 
 - `RomanAmbinder.A2A.Server.Grpc.V0_3Compat`: serves the v0.3 gRPC service `a2a.v1.A2AService` (the proto of tag v0.3.0)
@@ -98,12 +119,24 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   terminal is `UnsupportedOperation` (cancel it first). Each call is audited with the new action
   `A2AAuditAction.TaskDeleted`. Without the call nothing changes.
 
+- New `IA2AContextLifecycle`: the retention sweep calls every registered hook for each context it deletes. A failing hook
+  is logged (event 244) and stops neither the other hooks nor the sweep. `A2ARetentionService` has a new constructor that
+  takes the hooks; the earlier one keeps its signature, without its default values (`AddA2ARetention` passes the hooks).
+
 ### Client
 
 - New `DeleteTaskAsync(taskId)` on any `IA2AClient` (`TaskDeletionClientExtensions`): calls the task-deletion extension
   operation of an agent that serves it.
 
 ### Fixes
+
+- A version conflict caused by the engine's own write no longer stores the event twice when the task store has no
+  `ITaskCommitLookup`. When a store applied a commit and then reported a conflict for its own write (a store that
+  retries commits internally), the engine applied the event again: an artifact append put its parts in the task
+  twice, and any other event was stored twice in the event log. It now keeps the event as stored when the task is one
+  version past the one it wrote and holds exactly this write (the same artifact for an append, the same task for
+  anything else; log event 226), and reloads and applies it again otherwise. The built-in stores have the lookup and
+  are not affected.
 
 - The ASP.NET Core health check failure log line has event id 1400 (was 1200). 1200 is the security event
   information line of `A2A.Server`, so filtering logs by 1200 also matched failed health checks. A test now checks that
@@ -112,18 +145,25 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   1600-1603 (was 1000-1003) and the v0.3 server surface 1700 (was 1100), so they no longer share ids with the Postgres
   (1000-1099) and Redis (1100-1199) stores. Update log filters that use the old ids. A test reads every `[LoggerMessage]`
   under `src/` and fails when two share an id.
+- The warning that the shutdown drain gave up (agents still running after `ShutdownDrainTimeout`) has event id 228. It had
+  none, so the generator chose one (1369592127) that was in no range. A test now fails when a `[LoggerMessage]` under
+  `src/` has no `EventId`.
 
 ### Documentation
 
 - Durable stores: "Write your own store" is now "Write your own backend". It lists every backend base class, adds the
   rules for a custom event bus, execution coordinator and artifact object store, and names the contract test for each.
   `GetForMaintenanceAsync` is in the list of `TaskStore` members to implement. A store that retries commits on its own
-  needs `ITaskCommitLookup`: without it, a version conflict on an append can put a chunk in the task twice.
+  needs `ITaskCommitLookup`: without it, a lost answer fails the run.
 
 - Versioning: new section "Store contracts". The abstract members of the store base classes are the ones 0.2.0
   shipped, and the set does not grow. A later member is virtual with a fallback that is safe with several instances,
   or goes on an optional capability interface. ADR-001 is accepted. `TaskStore.GetForMaintenanceAsync` stays
   abstract, because it has no safe fallback.
+
+- Observability guide: the server's log ids include 244 (a context lifecycle hook failed), and 1800-1801 are the
+  Agent Framework adapter's.
+- Metadata keys: the local `AdditionalProperties` keys of the M.E.AI and Agent Framework integrations.
 
 - Spec decisions: blocking and non-blocking SendMessage. The SDK follows §3.2.2 where it disagrees with §3.1.1 ("MUST
   return immediately"), and a blocking send also returns when no execution of the task is running any more, so an agent

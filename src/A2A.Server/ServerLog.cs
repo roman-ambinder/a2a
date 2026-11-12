@@ -47,7 +47,7 @@ internal static partial class ServerLog
     public static partial void AuditDetachedDropped(ILogger logger, A2AAuditAction auditAction, string auditId,
         int limit);
 
-    // TaskExecutionEngine: 200-299
+    // TaskExecutionEngine: 200-299 (228 is TaskExecutionDrainService, which has its own generated message)
     [LoggerMessage(EventId = 200, Level = LogLevel.Error, Message = "Agent executor failed for task {TaskId}")]
     public static partial void ExecutorFailed(ILogger logger, Exception exception, string taskId);
 
@@ -288,6 +288,11 @@ internal static partial class ServerLog
     [LoggerMessage(EventId = 243, Level = LogLevel.Warning,
         Message = "Task {TaskId}: the agent used more than the task budget; failing the task")]
     public static partial void TaskBudgetExceeded(ILogger logger, string taskId);
+
+    [LoggerMessage(EventId = 244, Level = LogLevel.Warning,
+        Message = "Context lifecycle hook {Hook} failed for deleted context {ContextId}; the context stays deleted")]
+    public static partial void ContextLifecycleHookFailed(ILogger logger, Exception exception, string hook,
+        string contextId);
 
     [LoggerMessage(EventId = 250, Level = LogLevel.Debug, Message = "Skipped the A2A startup diagnostics")]
     public static partial void StartupDiagnosticsSkipped(ILogger logger, Exception exception);

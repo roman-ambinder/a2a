@@ -48,7 +48,7 @@ jobs:
       - name: Test with coverage (net10.0)
         run: |
           status=0
-          for p in A2A.Tests A2A.Grpc.Tests A2A.V0_3Compat.Tests A2A.Extensions.AI.Tests A2A.Mcp.Tests A2A.TestKit.Tests A2A.Stores.Tests; do
+          for p in A2A.Tests A2A.Grpc.Tests A2A.V0_3Compat.Tests A2A.Extensions.AI.Tests A2A.Extensions.AgentFramework.Tests A2A.Mcp.Tests A2A.TestKit.Tests A2A.Stores.Tests; do
             dotnet test --project "tests/$p/$p.csproj" -c Release -f net10.0 -p:A2ACoverage=true --coverage --coverage-output-format cobertura --results-directory coverage || status=1
           done
           exit $status

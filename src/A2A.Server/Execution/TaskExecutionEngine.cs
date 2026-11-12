@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using A2A.Delegation;
 using A2A.Diagnostics;
 using A2A.Elicitations;
+using A2A.Json;
 using A2A.Server.Agents;
 using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
@@ -1174,6 +1175,17 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                     committed = found;
                     recovered = true;
                 }
+                catch (ConcurrencyException conflict) when (mutationIds is null)
+                {
+                    // No commit lookup, so the ids cannot tell whether this conflict is the store's own retry meeting this
+                    // very write. Applying the event again would store it twice in the log, and an append would put its
+                    // parts in the task twice. Keep it as stored only when the task holds exactly this write; otherwise
+                    // reload and retry below.
+                    if (await FindOwnWriteAsync(key, record, next, evt, conflict).ConfigureAwait(false) is not
+                        { } found) throw;
+                    committed = found;
+                    recovered = true;
+                }
 
                 exec?.Usage.MarkStored(usage);
                 if (exec is not null)
@@ -1262,6 +1274,63 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         }
 
         return null;
+    }
+
+    /// <summary>
+    ///     After a version conflict, for a store without <see cref="ITaskCommitLookup" />: whether the conflict came from
+    ///     this very write (a store that retried the commit and met its own first attempt). Returns the task as stored and
+    ///     the sequence of that commit when the stored task is exactly one version past <paramref name="written" /> and holds
+    ///     this write: for an append, its artifact serializes to the same bytes as the one in <paramref name="next" />; for
+    ///     any other event, the whole task does. Null otherwise, and then the caller reloads and applies the event again, as
+    ///     for a conflict with another writer.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         The sequence is read before the task. A task still one version past <paramref name="written" /> means no
+    ///         commit followed this one before the task was read, so none before the sequence was read either, and every
+    ///         commit appends exactly one event.
+    ///     </para>
+    ///     <para>
+    ///         An append compares only its artifact: applying it again would put its parts in the task twice, so it should
+    ///         be found even when the store changes some other field on the way. Any other event compares the whole task:
+    ///         applying it again stores the event twice in the log, but never doubles the task, so a store that does not
+    ///         give the task back exactly as written keeps the old behaviour. The remaining doubt is another writer whose
+    ///         one commit produced exactly this write: that is taken for this write.
+    ///     </para>
+    /// </remarks>
+    private async ValueTask<CommitResult?> FindOwnWriteAsync(TaskKey key, TaskRecord written, AgentTask next,
+        StreamResponse evt, ConcurrencyException conflict)
+    {
+        try
+        {
+            var sequence = await _events.LastSequenceAsync(key, CancellationToken.None).ConfigureAwait(false);
+            if (await _tasks.GetAsync(key, CancellationToken.None).ConfigureAwait(false) is not { } stored ||
+                stored.Version != written.Version + 1)
+                return null;
+
+            if (evt is ArtifactUpdateEvent { ArtifactUpdate: { Append: true } append })
+            {
+                var mine = IndexOfArtifact(next.Artifacts, append.Artifact.ArtifactId);
+                var theirs = IndexOfArtifact(stored.Task.Artifacts, append.Artifact.ArtifactId);
+                if (mine < 0 || theirs < 0 ||
+                    !A2AJson.SerializeToUtf8Bytes(next.Artifacts![mine])
+                        .AsSpan().SequenceEqual(A2AJson.SerializeToUtf8Bytes(stored.Task.Artifacts![theirs])))
+                    return null;
+            }
+            else if (!A2AJson.SerializeToUtf8Bytes(next).AsSpan()
+                         .SequenceEqual(A2AJson.SerializeToUtf8Bytes(stored.Task)))
+            {
+                return null;
+            }
+
+            ServerLog.CommitFoundAfterFailure(Logger, conflict, key.TaskId, sequence);
+            return new CommitResult(stored, sequence);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ServerLog.CommitLookupFailed(Logger, ex, key.TaskId);
+            return null;
+        }
     }
 
     /// <summary>

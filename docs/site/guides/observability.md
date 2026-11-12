@@ -150,7 +150,7 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | 130-132 | client: client outbox |
 | 150-152 | client: agent registry (lookalike name, mixed-script name, identity change) |
 | 190 | client: OAuth2 provider with no scopes |
-| 200-243 | server: agent runs, coordination, push-config cleanup, retention, continuations, task budget |
+| 200-244 | server: agent runs, coordination, push-config cleanup, retention, continuations, task budget; 228 is the shutdown drain giving up (agents still running at `ShutdownDrainTimeout`); 244 is a context lifecycle hook that failed |
 | 250-259 | server: startup diagnostics (250-253, 255, 257, 259). 254 (a task past its size cap) and 256 (a follow-up restarted for a retry) are not diagnostics |
 | 270-273 | server: audit trail (270 is the line of `LoggerAuditSink`, 271-273 are sink failures and dropped writes) |
 | 302-316 | server: push delivery |
@@ -169,6 +169,7 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | 1500-1504 | MCP bridge |
 | 1600-1603 | v0.3 compatibility: dropped fields, card conversion problems, v0.3 operations served, v0.3 agents called |
 | 1700 | v0.3 server surface: an error after the response started |
+| 1800-1801 | Agent Framework adapter: a session save after a failed or canceled run failed; a session delete for a deleted context failed |
 
 ### Security events
 
