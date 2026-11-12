@@ -90,7 +90,7 @@ When the agent asks to approve a tool call (it streams a `ToolApprovalRequestCon
 ## Use a remote A2A agent as an AIAgent
 
 ```csharp
-var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), httpClient);
+var client = await A2AClient.ConnectAsync("https://agent.example.com/");
 AIAgent weather = client.AsAIAgent(new A2AAIAgentOptions { Name = "weather", Description = "Forecasts" });
 
 var session = await weather.CreateSessionAsync();

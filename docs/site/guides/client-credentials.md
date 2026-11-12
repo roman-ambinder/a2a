@@ -2,7 +2,7 @@
 
 An agent card says how callers must authenticate. The client can read that and attach the right credential for you. This guide is for code that calls an agent that needs OAuth2, an API key or a client certificate.
 
-You pass credential providers to <xref:A2A.Client.A2AClientFactory> (or add them to a DI client). The client chooses providers from the card, once, when it creates the client. It then applies them to every request, and only on the origin (scheme, host and port) the card came from.
+You add credential providers to `o.Credentials` of <xref:A2A.Client.A2AClient.ConnectAsync*> (or to a DI client). The client chooses providers from the card, once, when it creates the client. It then applies them to every request, and only on the origin (scheme, host and port) the card came from.
 
 A runnable version, with OAuth2 client credentials against a demo token endpoint and an API key, is in [samples/ClientFeatures](https://github.com/roman-ambinder/a2a/blob/main/samples/ClientFeatures/README.md).
 
@@ -40,7 +40,7 @@ Order matters twice: the card's order of requirements, and your order of provide
 
 [!code-csharp[](../../../samples/Snippets/ClientCredentials.cs#Order)]
 
-`CreateAsync` with providers throws `ArgumentException` when the list is empty.
+With no providers, `ConnectAsync` sends no credentials. (`A2AClientFactory.CreateAsync` with a provider list throws `ArgumentException` when the list is empty.)
 
 ## Providers
 
@@ -79,7 +79,7 @@ A credential goes only to the origin the card came from. This is the origin of t
 
 The client never follows a redirect with credentials. A redirect could send them to another host.
 
-- The default handler of `CreateAsync` is a `SocketsHttpHandler` with `AllowAutoRedirect = false` and `UseCookies = false`.
+- The default handler of `ConnectAsync` is a `SocketsHttpHandler` with `AllowAutoRedirect = false` and `UseCookies = false`. A handler you set in `o.Handler` must not follow redirects.
 - If you pass your own handler, the client checks it. It walks the chain through `DelegatingHandler.InnerHandler`. A `SocketsHttpHandler` or `HttpClientHandler` with `AllowAutoRedirect = true` is refused with `ArgumentException`.
 - A handler of any other type cannot be checked. A custom terminal handler must not follow redirects. That is on you.
 - <xref:A2A.Client.Credentials.A2ACredentialHandler.EnsureNoAutoRedirect*> runs the same check if you need it.

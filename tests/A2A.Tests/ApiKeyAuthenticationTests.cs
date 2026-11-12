@@ -247,6 +247,23 @@ public class ApiKeyAuthenticationTests
         Assert.Equal("hi there", await client.AskAsync("hello"));
     }
 
+    [Fact]
+    public async Task ConnectAsync_sends_the_key_the_card_asks_for()
+    {
+        await using var app = await StartAsync(o => o.Add("billing", Billing.Hash),
+            services: s => s.ConfigureA2AHttp(h => h.PublicBaseUrl = new Uri("http://localhost")));
+        var agent = await A2A.Client.A2AClient.ConnectAsync(new Uri("http://localhost/"), o =>
+        {
+            o.Handler = app.GetTestServer().CreateHandler();
+            o.Credentials.Add(new A2A.Client.Credentials.ApiKeyCredentialProvider(Billing.Key));
+        });
+        Assert.Equal("hi there", await agent.AskAsync("hello"));
+
+        var withoutKey = await A2A.Client.A2AClient.ConnectAsync(new Uri("http://localhost/"),
+            o => o.Handler = app.GetTestServer().CreateHandler());
+        await Assert.ThrowsAsync<A2AException>(() => withoutKey.AskAsync("hello"));
+    }
+
     private static List<string?> A2APolicies(WebApplication app) =>
         ((IEndpointRouteBuilder)app).DataSources.SelectMany(d => d.Endpoints)
         .Where(e => e.DisplayName?.StartsWith("A2A ", StringComparison.Ordinal) == true)

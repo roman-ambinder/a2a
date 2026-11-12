@@ -22,7 +22,7 @@ internal static class Snippets
             Scopes = ["agent.invoke"],
         });
 
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [oauth]);
+        var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(oauth));
         #endregion
         _ = client;
     }
@@ -36,7 +36,7 @@ internal static class Snippets
         // Or read the key on every request. Cache inside the delegate.
         var rotating = new ApiKeyCredentialProvider(ct => ValueTask.FromResult(Environment.GetEnvironmentVariable("A2A_API_KEY")!));
 
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [fixedKey]);
+        var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(fixedKey));
         #endregion
         _ = rotating;
         _ = client;
@@ -77,11 +77,11 @@ internal static class Snippets
         #region Order
         // The first requirement of the card that these providers can meet wins. Within one requirement, the first provider that
         // can handle a scheme wins.
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"),
-        [
-            oauth,
-            new ApiKeyCredentialProvider("my-api-key"),
-        ]);
+        var client = await A2AClient.ConnectAsync("https://agent.example.com/", o =>
+        {
+            o.Credentials.Add(oauth);
+            o.Credentials.Add(new ApiKeyCredentialProvider("my-api-key"));
+        });
         #endregion
         _ = client;
     }

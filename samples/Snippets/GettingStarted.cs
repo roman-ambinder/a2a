@@ -30,10 +30,10 @@ internal static class Samples
         return app;
     }
 
-    public static async Task CallAgentAsync(HttpClient httpClient)
+    public static async Task CallAgentAsync()
     {
         #region Client
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), httpClient);
+        var client = await A2AClient.ConnectAsync("https://agent.example.com/");
         string answer = await client.AskAsync("hello"); // the reply's text; throws if the task does not complete
 
         await foreach (var chunk in client.StreamTextAsync("stream this"))

@@ -36,6 +36,12 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Client
 
+- One way to reach an agent by URL: `A2AClient.ConnectAsync(url, o => ...)`. It fetches and checks the card and sends
+  through a handler that keeps no cookies and follows no redirects. `A2AConnectOptions` holds `Credentials` (sent only
+  to the card's origin), `Card` (trust and pins), `Client` (retries, extensions, `UseGrpc()`) and an optional `Handler`.
+  `A2AClient.ResolvedCard` keeps the card's source, signature check and peer identity (also set by
+  `A2AClientFactory.CreateAsync`). The README, getting started and the credential guides use it;
+  `A2AClientFactory.CreateAsync(url, httpClient)` stays for an `HttpClient` you already have.
 - Multi-turn without handling ids: `client.StartConversation()` returns an `A2AConversation`. `SendAsync` and
   `StreamTextAsync` keep the context id and the id of a task that waits for input, and return an `AgentReply` (`Text`,
   `StatusText`, `State`, ids, `IsCompleted`, `NeedsInput`, `NeedsAuth`, `EnsureCompleted()`) without throwing for a task

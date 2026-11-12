@@ -99,7 +99,7 @@ What you get with no other configuration:
 ## Call an agent
 
 ```csharp
-var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), httpClient);
+var client = await A2AClient.ConnectAsync("https://agent.example.com/");
 string answer = await client.AskAsync("hello"); // the reply's text; throws if the task does not complete
 
 await foreach (var chunk in client.StreamTextAsync("stream this"))
@@ -110,7 +110,7 @@ var reply = await chat.SendAsync("book a flight");
 while (reply.NeedsInput) reply = await chat.SendAsync(Console.ReadLine() ?? "");
 ```
 
-The client reads the agent's card, picks a binding the card offers, and retries safe failures. For credentials (OAuth2, API keys, mutual TLS, Azure, AWS), see [Client credentials](docs/site/guides/client-credentials.md). For DI and named clients, see [samples/EchoClient](samples/EchoClient/Program.cs).
+`ConnectAsync` reads the agent's card, picks a binding the card offers, and uses an HTTP handler that keeps no cookies and follows no redirects. It retries safe failures. Credentials, card trust and client options go in its options: `ConnectAsync(url, o => o.Credentials.Add(new ApiKeyCredentialProvider(key)))`. For credentials (OAuth2, API keys, mutual TLS, Azure, AWS), see [Client credentials](docs/site/guides/client-credentials.md). For DI and named clients, see [samples/EchoClient](samples/EchoClient/Program.cs).
 
 ## Guides
 

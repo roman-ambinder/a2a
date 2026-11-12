@@ -54,6 +54,46 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
     public AgentCard? AgentCard { get; private set; }
 
     /// <summary>
+    ///     The card as it was fetched and checked: where it came from, the signature verification, the peer identity and
+    ///     the sanitized text. Set for a client made by <see cref="ConnectAsync(Uri, Action{A2AConnectOptions}?, CancellationToken)" />
+    ///     or <c>A2AClientFactory.CreateAsync</c>; null for one made from a card or an endpoint you already had.
+    /// </summary>
+    public ResolvedAgentCard? ResolvedCard { get; internal set; }
+
+    /// <summary>
+    ///     Connects to the agent at <paramref name="agentUrl" />: fetches and checks its Agent Card, picks a binding the card
+    ///     offers, and returns a client over a safe HTTP handler (no cookies, no redirects). Credentials, card trust and
+    ///     client behaviour are set in <paramref name="configure" />.
+    /// </summary>
+    /// <param name="agentUrl">The agent's URL: its origin, or the URL its card is served under.</param>
+    /// <param name="configure">Sets credentials, card trust and client options. Null: none.</param>
+    /// <param name="cancellationToken">Cancels the card fetch.</param>
+    /// <example>
+    ///     <code>
+    ///     var agent = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"),
+    ///         o =&gt; o.Credentials.Add(new ApiKeyCredentialProvider(key)));
+    ///     </code>
+    /// </example>
+    /// <exception cref="ArgumentNullException"><paramref name="agentUrl" /> is null.</exception>
+    /// <exception cref="A2AException">The card could not be fetched or trusted, or offers no usable interface.</exception>
+    public static Task<A2AClient> ConnectAsync(Uri agentUrl, Action<A2AConnectOptions>? configure = null,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new A2AConnectOptions();
+        configure?.Invoke(options);
+        return A2AClientFactory.ConnectAsync(agentUrl, options, cancellationToken);
+    }
+
+    /// <summary>Connects to the agent at <paramref name="agentUrl" />, an absolute URL. See <see cref="ConnectAsync(Uri, Action{A2AConnectOptions}?, CancellationToken)" />.</summary>
+    /// <exception cref="UriFormatException"><paramref name="agentUrl" /> is not an absolute URL.</exception>
+    public static Task<A2AClient> ConnectAsync(string agentUrl, Action<A2AConnectOptions>? configure = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(agentUrl);
+        return ConnectAsync(new Uri(agentUrl, UriKind.Absolute), configure, cancellationToken);
+    }
+
+    /// <summary>
     ///     The card the client was created with: spans tag it, never the extended card a refresh may bring (for
     ///     authenticated callers only).
     /// </summary>

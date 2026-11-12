@@ -78,7 +78,7 @@ internal static class Samples
         // Any TokenCredential works: ManagedIdentityCredential, WorkloadIdentityCredential, DefaultAzureCredential, ...
         var entra = new AzureTokenCredentialProvider(new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned), options);
 
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [entra]);
+        var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(entra));
         #endregion
         _ = client;
     }
@@ -106,7 +106,7 @@ internal static class Samples
             Scopes = ["api://my-agent/.default"],
         });
 
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [oauth]);
+        var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(oauth));
         #endregion
         _ = client;
     }
@@ -127,7 +127,7 @@ internal static class Samples
             Scopes = ["agent.invoke"],
         });
 
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [oauth]);
+        var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(oauth));
         #endregion
         _ = client;
     }
@@ -147,7 +147,7 @@ internal static class Samples
             Scopes = ["api://my-agent/.default"],
         });
 
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [oauth]);
+        var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(oauth));
         #endregion
         _ = client;
     }
@@ -197,7 +197,7 @@ internal static class Samples
             Credentials = new BasicAWSCredentials("AKIDEXAMPLE", Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY")),
         });
 
-        var client = await A2AClientFactory.CreateAsync(new Uri("https://agent.example.com/"), [aws]);
+        var client = await A2AClient.ConnectAsync(new Uri("https://agent.example.com/"), o => o.Credentials.Add(aws));
         #endregion
         _ = client;
     }

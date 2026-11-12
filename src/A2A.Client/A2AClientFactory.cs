@@ -184,16 +184,40 @@ public static class A2AClientFactory
 #endif
     }
 
-    /// <summary>Resolves the card at <paramref name="agentUrl" /> and creates a client for it.</summary>
+    /// <summary>
+    ///     Resolves the card at <paramref name="agentUrl" /> and creates a client for it, over your own
+    ///     <paramref name="httpClient" />. Most callers use <see cref="A2AClient.ConnectAsync(Uri, Action{A2AConnectOptions}?, CancellationToken)" />
+    ///     instead, which sets up a safe handler (no cookies, no redirects) and applies credentials.
+    /// </summary>
     public static async Task<A2AClient> CreateAsync(Uri agentUrl, HttpClient httpClient,
         A2AClientOptions? options = null,
         A2ACardResolverOptions? resolverOptions = null, CancellationToken cancellationToken = default)
     {
         var resolver = new A2ACardResolver(httpClient, resolverOptions);
-        var card = await resolver.GetAgentCardAsync(agentUrl, cancellationToken).ConfigureAwait(false);
+        var resolved = await resolver.ResolveAsync(agentUrl, cancellationToken).ConfigureAwait(false);
         var copy = (options ?? new A2AClientOptions()).Clone();
-        await EnsureEndpointsAllowedAsync(card, agentUrl, copy, cancellationToken).ConfigureAwait(false);
-        return Build(card, httpClient, copy);
+        await EnsureEndpointsAllowedAsync(resolved.Card, agentUrl, copy, cancellationToken).ConfigureAwait(false);
+        var client = Build(resolved.Card, httpClient, copy);
+        client.ResolvedCard = resolved;
+        return client;
+    }
+
+    /// <summary>The body of <see cref="A2AClient.ConnectAsync(Uri, Action{A2AConnectOptions}?, CancellationToken)" />.</summary>
+    internal static Task<A2AClient> ConnectAsync(Uri agentUrl, A2AConnectOptions options,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(agentUrl);
+        if (options.Credentials.Count > 0)
+            return CreateAsync(agentUrl, options.Credentials, options.Handler, options.Client, options.Card,
+                cancellationToken);
+        var primary = options.Handler ?? new SharedHandler(DefaultPrimary.Value);
+        A2ACredentialHandler.EnsureNoAutoRedirect(primary);
+        var http = new HttpClient(primary, disposeHandler: false)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+            MaxResponseContentBufferSize = MaxResponseBytes
+        };
+        return CreateAsync(agentUrl, http, options.Client, options.Card, cancellationToken);
     }
 
     /// <summary>
@@ -246,7 +270,9 @@ public static class A2AClientFactory
             MaxResponseContentBufferSize = MaxResponseBytes
         };
         // A fallback interface must pass the checks the selected one passed when credentials are sent.
-        return Build(resolved.Card, client, copy, CredentialFallbackFilter(resolved, binding, providers, requireHttps));
+        var a2a = Build(resolved.Card, client, copy, CredentialFallbackFilter(resolved, binding, providers, requireHttps));
+        a2a.ResolvedCard = resolved;
+        return a2a;
     }
 
     /// <summary>

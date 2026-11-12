@@ -24,3 +24,15 @@ A2A.Client.AgentReply.StatusText.get -> string?
 A2A.Client.AgentReply.Task.get -> A2A.AgentTask?
 A2A.Client.AgentReply.TaskId.get -> string?
 A2A.Client.AgentReply.Text.get -> string!
+A2A.Client.A2AClient.ResolvedCard.get -> A2A.Client.ResolvedAgentCard?
+A2A.Client.A2AConnectOptions
+A2A.Client.A2AConnectOptions.A2AConnectOptions() -> void
+A2A.Client.A2AConnectOptions.Card.get -> A2A.Client.A2ACardResolverOptions!
+A2A.Client.A2AConnectOptions.Card.set -> void
+A2A.Client.A2AConnectOptions.Client.get -> A2A.Client.A2AClientOptions!
+A2A.Client.A2AConnectOptions.Client.set -> void
+A2A.Client.A2AConnectOptions.Credentials.get -> System.Collections.Generic.IList<A2A.Client.Credentials.IA2ACredentialProvider!>!
+A2A.Client.A2AConnectOptions.Handler.get -> System.Net.Http.HttpMessageHandler?
+A2A.Client.A2AConnectOptions.Handler.set -> void
+static A2A.Client.A2AClient.ConnectAsync(System.Uri! agentUrl, System.Action<A2A.Client.A2AConnectOptions!>? configure = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.A2AClient!>!
+static A2A.Client.A2AClient.ConnectAsync(string! agentUrl, System.Action<A2A.Client.A2AConnectOptions!>? configure = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<A2A.Client.A2AClient!>!

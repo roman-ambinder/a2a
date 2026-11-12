@@ -57,7 +57,7 @@ Call <xref:A2A.Server.TaskUpdater.ReplyAsync*> instead for a stateless reply wit
 
 [!code-csharp[](../../../samples/Snippets/GettingStarted.cs#Client)]
 
-<xref:A2A.Client.A2AClientFactory.CreateAsync*> fetches the Agent Card and picks the first interface in the card's order that the client supports.
+<xref:A2A.Client.A2AClient.ConnectAsync*> fetches the Agent Card and picks the first interface in the card's order that the client supports. It sends the requests through an HTTP handler that keeps no cookies and follows no redirects. Its options (<xref:A2A.Client.A2AConnectOptions>) hold the rest: `Credentials` (sent only to the card's origin, never on a redirect or on the card fetch), `Card` (HTTPS, signatures, pinned keys), `Client` (retries, timeouts, extensions, `UseGrpc()`) and, for a proxy or a client certificate, your own `Handler`. `ResolvedCard` on the client keeps the card's source, signature check and peer identity. To use an `HttpClient` you already have, call `A2AClientFactory.CreateAsync(url, httpClient)`.
 
 - <xref:A2A.Client.A2AClientTextExtensions.AskAsync*> returns the answer as text: the text of a direct reply, or of the task's artifacts once the task completed. A task that ends in any state other than completed (failed, rejected, canceled), or that needs input or authorization, throws <xref:A2A.Client.TaskNotCompletedException>, which holds the task. A task that is still running is polled every second until it settles.
 - <xref:A2A.Client.A2AClientTextExtensions.StreamTextAsync*> yields the text as the agent streams it, with the same exception at the end.
