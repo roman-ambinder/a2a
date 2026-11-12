@@ -82,7 +82,8 @@ public sealed class JsonRpcEndpoint(
                         throw new A2AException(A2AErrorCode.InvalidRequest, "Batch requests are not supported");
                     // The id is read first, so a request whose other members do not bind still gets its id back.
                     if (members.Id.Start >= 0) id = Member<JsonElement>(json.Span, members.Id);
-                    jsonRpc = members.JsonRpc.Start >= 0 ? Member<string>(json.Span, members.JsonRpc) : "2.0";
+                    // JSON-RPC 2.0 (spec §9.3: requests MUST follow the JSON-RPC 2.0 format): "jsonrpc" MUST be exactly "2.0"; a missing member is InvalidRequest.
+                    jsonRpc = members.JsonRpc.Start >= 0 ? Member<string>(json.Span, members.JsonRpc) : null;
                     method = members.Method.Start >= 0 ? Member<string>(json.Span, members.Method) : string.Empty;
                 }
                 catch (JsonException)

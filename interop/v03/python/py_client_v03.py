@@ -1,25 +1,30 @@
 """Drives any A2A v0.3 agent that implements the interop scenarios, using the official a2a-sdk 0.3.26 client.
 
-Usage: python py_client_v03.py <agentBaseUrl> <JSONRPC|HTTP+JSON>
+Usage: python py_client_v03.py <agentBaseUrl> <JSONRPC|HTTP+JSON|GRPC>
 Exit code: number of failed checks.
-No ListTasks: it is not in v0.3.
+No ListTasks: it is not in v0.3 JSON-RPC or gRPC, and the 0.3 Python SDK does not implement it.
 """
 
 import asyncio
+import json
 import sys
 import traceback
 import uuid
 
+import grpc
 import httpx
 
 from a2a.client import A2ACardResolver, ClientConfig, ClientFactory
 from a2a.client.errors import A2AClientHTTPError, A2AClientJSONRPCError
 from a2a.types import (
+    GetTaskPushNotificationConfigParams,
     Message,
     MessageSendConfiguration,
     Part,
+    PushNotificationConfig,
     Role,
     TaskIdParams,
+    TaskPushNotificationConfig,
     TaskQueryParams,
     TaskState,
     TextPart,
@@ -44,12 +49,34 @@ async def collect(aiter):
     return [e async for e in aiter]
 
 
+async def webhook_receiver():
+    """A minimal HTTP server for push deliveries: queues (headers, JSON body) and answers 200."""
+    received: asyncio.Queue = asyncio.Queue()
+
+    async def handle(reader, writer):
+        try:
+            head = (await reader.readuntil(b'\r\n\r\n')).decode('latin-1').split('\r\n')
+            headers = {k.strip().lower(): v.strip() for k, v in (line.split(':', 1) for line in head[1:] if ':' in line)}
+            body = await reader.readexactly(int(headers.get('content-length', '0')))
+            await received.put((headers, json.loads(body) if body else None))
+            writer.write(b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+            await writer.drain()
+        finally:
+            writer.close()
+
+    server = await asyncio.start_server(handle, '127.0.0.1', 0)
+    return server, server.sockets[0].getsockname()[1], received
+
+
 async def main(url: str, binding: str) -> int:
     failures = 0
     http = httpx.AsyncClient(timeout=30)
 
+    def channel(url: str):
+        return grpc.aio.insecure_channel(url.split('://', 1)[-1].rstrip('/'))
+
     def config(stream: bool) -> ClientConfig:
-        return ClientConfig(streaming=stream, supported_transports=[binding], httpx_client=http)
+        return ClientConfig(streaming=stream, supported_transports=[binding], httpx_client=http, grpc_channel_factory=channel)
 
     card = await A2ACardResolver(http, url).get_agent_card()
     blocking = ClientFactory(config(False)).create(card)
@@ -126,6 +153,11 @@ async def main(url: str, binding: str) -> int:
             # v0.3 REST maps TaskNotFound to HTTP 404.
             expect(ex.status_code == 404, f'HTTP 404, got {ex.status_code}')
             return
+        except grpc.aio.AioRpcError as ex:
+            # v0.3 gRPC, as the 0.3 Python server answers: NOT_FOUND and a message that starts with the error name.
+            expect(ex.code() == grpc.StatusCode.NOT_FOUND, f'NOT_FOUND, got {ex.code()}')
+            expect(ex.details().startswith('TaskNotFoundError'), f'TaskNotFoundError..., got {ex.details()!r}')
+            return
         raise AssertionError('expected a TaskNotFound error')
 
     async def subscribe_cancel():
@@ -157,6 +189,30 @@ async def main(url: str, binding: str) -> int:
         else:
             expect(c.name == card.name, f'the public card, got {c.name!r}')
 
+    async def push_notifications():
+        if not card.capabilities.push_notifications:
+            raise AssertionError('the agent to offer push notifications')
+        server, port, received = await webhook_receiver()
+        try:
+            first = (await collect(blocking.send_message(user_msg('input'))))[0][0]
+            created = await blocking.set_task_callback(TaskPushNotificationConfig(
+                task_id=first.id,
+                push_notification_config=PushNotificationConfig(url=f'http://127.0.0.1:{port}/hook', token='tok-v03')))
+            expect(created.push_notification_config.url.endswith('/hook'), 'the webhook url back')
+            got = await blocking.get_task_callback(GetTaskPushNotificationConfigParams(
+                id=first.id, push_notification_config_id=created.push_notification_config.id))
+            expect(got.push_notification_config.url == created.push_notification_config.url, 'the same config')
+            await collect(blocking.send_message(user_msg('more', first.id, first.context_id)))
+            while True:
+                headers, body = await asyncio.wait_for(received.get(), 10)
+                if (body or {}).get('status', {}).get('state') == 'completed':
+                    break
+            # The v0.3 body: the task (what the 0.3 Python server sends too), not a v1.0 StreamResponse.
+            expect(body.get('kind') == 'task' and body.get('id') == first.id, f'a v0.3 Task body, got {str(body)[:200]}')
+            expect(headers.get('x-a2a-notification-token') == 'tok-v03', f"the token header, got {headers.get('x-a2a-notification-token')!r}")
+        finally:
+            server.close()
+
     await check('direct message reply', direct_reply)
     await check('blocking send -> completed task with appended artifact', blocking_task)
     await check('streaming send -> task first, ordered events, terminal last', streaming_task)
@@ -166,6 +222,7 @@ async def main(url: str, binding: str) -> int:
     await check('get unknown task -> TaskNotFound', unknown_task)
     await check('return immediately, resubscribe, cancel', subscribe_cancel)
     await check('extended card (if offered)', extended_card)
+    await check('push notification: config, then a v0.3 Task body at the webhook', push_notifications)
 
     print('# all checks passed' if failures == 0 else f'# {failures} check(s) failed')
     await http.aclose()

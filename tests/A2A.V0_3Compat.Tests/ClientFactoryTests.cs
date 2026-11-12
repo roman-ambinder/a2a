@@ -214,13 +214,65 @@ public class ClientFactoryTests
     }
 
     [Fact]
-    public async Task A_v02_card_is_refused()
+    public async Task A_v02_card_is_used_over_json_rpc()
     {
         var card = Golden.Object("agent-card.json");
         card["protocolVersion"] = "0.2.6";
+        card["preferredTransport"] = "HTTP+JSON"; // the v0.2 HTTP+JSON wire is not used
+        var server = CardServer(card.ToJsonString());
+        var client = await V03CompatClientFactory.CreateAsync(AgentUrl, server.Client());
+        Assert.All(client.AgentCard!.SupportedInterfaces, i => Assert.Equal(ProtocolBindings.JsonRpc, i.ProtocolBinding));
+
+        await client.SendMessageAsync("hi");
+        Assert.Equal("/a2a", server.Last.PathAndQuery);
+        Assert.Equal("message/send", (string?)server.Last.Json!["method"]);
+    }
+
+    [Fact]
+    public async Task A_v01_card_is_refused()
+    {
+        var card = Golden.Object("agent-card.json");
+        card["protocolVersion"] = "0.1.0";
         var server = CardServer(card.ToJsonString());
         var ex = await Assert.ThrowsAsync<A2AException>(() => V03CompatClientFactory.CreateAsync(AgentUrl, server.Client()));
         Assert.Equal(A2AErrorCode.InvalidAgentResponse, ex.Code);
+    }
+
+    /// <summary>A v0.2 agent: 404 at agent-card.json, its card at agent.json, JSON-RPC elsewhere.</summary>
+    private static FakeV03Server LegacyCardServer(string cardJson) => new(r =>
+        r.PathAndQuery.EndsWith("agent-card.json", StringComparison.Ordinal)
+            ? new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
+            : r.PathAndQuery.EndsWith("/.well-known/agent.json", StringComparison.Ordinal)
+                ? FakeV03Server.Json(cardJson)
+                : FakeV03Server.Rpc(JsonNode.Parse(TaskJson("completed"))));
+
+    [Fact]
+    public async Task A_v02_agent_is_found_at_the_legacy_card_path()
+    {
+        var card = Golden.Object("agent-card.json");
+        card["protocolVersion"] = "0.2.5";
+        var server = LegacyCardServer(card.ToJsonString());
+        var client = await V03CompatClientFactory.CreateAsync(AgentUrl, server.Client());
+
+        Assert.Equal("/.well-known/agent-card.json", server.Requests[0].PathAndQuery);
+        Assert.Equal("/.well-known/agent.json", server.Requests[1].PathAndQuery);
+        await client.SendMessageAsync("hi");
+        Assert.Equal("message/send", (string?)server.Last.Json!["method"]);
+    }
+
+    [Fact]
+    public async Task The_legacy_card_path_is_not_tried_for_an_explicit_card_url_or_another_status()
+    {
+        var server = LegacyCardServer(Golden.Text("agent-card.json"));
+        var explicitUrl = new Uri("https://agent.example/.well-known/agent-card.json");
+        var notFound = await Assert.ThrowsAsync<A2AException>(() => V03CompatClientFactory.CreateAsync(explicitUrl, server.Client()));
+        Assert.Equal(404, notFound.HttpStatus);
+        Assert.Single(server.Requests);
+
+        var failing = new FakeV03Server(_ => new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError));
+        var error = await Assert.ThrowsAsync<A2AException>(() => V03CompatClientFactory.CreateAsync(AgentUrl, failing.Client()));
+        Assert.Equal(500, error.HttpStatus);
+        Assert.Single(failing.Requests);
     }
 
     [Fact]

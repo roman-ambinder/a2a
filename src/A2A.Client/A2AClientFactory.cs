@@ -21,7 +21,8 @@ public static class A2AClientFactory
     private static readonly TimeSpan DnsTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>
-    ///     Picks the first interface in the card's order whose binding this client supports and whose major version matches,
+    ///     Picks the first interface in the card's order whose binding this client supports and whose protocol version it
+    ///     speaks (see <see cref="SelectInterface" />),
     ///     sets the tenant from that interface, and builds the transport.
     /// </summary>
     /// <remarks>
@@ -85,11 +86,37 @@ public static class A2AClientFactory
     private static void ConfigureFor(AgentInterface selected, A2AClientOptions options)
     {
         if (!string.IsNullOrEmpty(selected.Tenant)) options.Tenant = selected.Tenant;
-        // Major.Minor only: a card that lists "1.0.2" is called with A2A-Version 1.0 (spec §3.6).
+        // Major.Minor only: a card that lists "1.0.2" is called with A2A-Version 1.0 (spec §3.6). The selected interface's
+        // version is one the client speaks (AcceptableInterfaces), never a newer minor than ProtocolVersion.
         options.ProtocolVersion = A2AProtocol.ToMajorMinor(
-            selected.ProtocolVersion is { Length: > 0 } v && Major(v) == Major(options.ProtocolVersion)
+            selected.ProtocolVersion is { Length: > 0 } v && Speaks(options, v)
                 ? v
                 : options.ProtocolVersion)!;
+    }
+
+    /// <summary>
+    ///     True when a client configured for <see cref="A2AClientOptions.ProtocolVersion" /> speaks the interface version
+    ///     <paramref name="version" /> (spec §3.6: Major.Minor, the patch ignored): the same major, and a minor no newer than
+    ///     the client's, or the same minor with <see cref="A2AClientOptions.RequireExactProtocolVersion" />. A client never asks
+    ///     for the semantics of a version it does not implement (§3.6.2), and an interface lists the one version it serves.
+    /// </summary>
+    internal static bool Speaks(A2AClientOptions options, string? version)
+    {
+        if (!TryParseVersion(options.ProtocolVersion, out var major, out var minor)) return false;
+        if (!TryParseVersion(version, out var itfMajor, out var itfMinor) || itfMajor != major) return false;
+        return options.RequireExactProtocolVersion ? itfMinor == minor : itfMinor <= minor;
+    }
+
+    /// <summary>Parses <c>Major[.Minor[.Patch]]</c>; a missing minor is 0. Digits only.</summary>
+    private static bool TryParseVersion(string? version, out int major, out int minor)
+    {
+        major = minor = 0;
+        if (string.IsNullOrWhiteSpace(version)) return false;
+        var parts = version!.Trim().Split('.');
+        if (!int.TryParse(parts[0], System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out major)) return false;
+        return parts.Length < 2 || int.TryParse(parts[1], System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture, out minor);
     }
 
     private static string? NullIfEmpty(string? value) => string.IsNullOrEmpty(value) ? null : value;
@@ -429,12 +456,13 @@ public static class A2AClientFactory
     private static A2AException NoInterface(AgentCard card, A2AClientOptions options)
     {
         return new A2AException(A2AErrorCode.UnsupportedOperation,
-            $"No supported interface in Agent Card '{card.Name}'. Client supports: {string.Join(", ", options.SupportedBindings)} (v{Major(options.ProtocolVersion)}.x).");
+            $"No supported interface in Agent Card '{card.Name}'. Client supports: {string.Join(", ", options.SupportedBindings)} (protocol {(options.RequireExactProtocolVersion ? options.ProtocolVersion : $"{Major(options.ProtocolVersion)}.x up to {options.ProtocolVersion}")}).");
     }
 
     /// <summary>
-    ///     Picks the first interface of the card that matches the client's supported bindings and protocol major version.
-    ///     Returns null when none fits.
+    ///     Picks the first interface of the card that matches the client's supported bindings and a protocol version the
+    ///     client speaks: the same major, and a minor no newer than <see cref="A2AClientOptions.ProtocolVersion" /> (only the
+    ///     same minor with <see cref="A2AClientOptions.RequireExactProtocolVersion" />). Returns null when none fits.
     /// </summary>
     public static AgentInterface? SelectInterface(AgentCard card, A2AClientOptions options)
     {
@@ -442,17 +470,17 @@ public static class A2AClientFactory
     }
 
     /// <summary>
-    ///     Every interface <see cref="SelectInterface" /> would accept, in the card's order: its binding is supported, its
-    ///     major version matches, and a transport can be built for it. The first one is the selected interface; the others
+    ///     Every interface <see cref="SelectInterface" /> would accept, in the card's order (spec §8.3.2): its binding is
+    ///     supported, the client speaks its protocol version (the same major, and a minor no newer than
+    ///     <see cref="A2AClientOptions.ProtocolVersion" />), and a transport can be built for it. The first one is the selected interface; the others
     ///     are the fallback candidates of <see cref="A2AClientOptions.InterfaceFallback" />.
     /// </summary>
     internal static IEnumerable<AgentInterface> AcceptableInterfaces(AgentCard card, A2AClientOptions options)
     {
-        var major = Major(options.ProtocolVersion);
         foreach (var itf in card.SupportedInterfaces ?? [])
         {
             if (!options.SupportedBindings.Contains(itf.ProtocolBinding)) continue;
-            if (Major(itf.ProtocolVersion) != major) continue;
+            if (!Speaks(options, itf.ProtocolVersion)) continue;
             if (FactoryFor(options, itf.ProtocolBinding) is { } factory)
             {
                 if (factory.CanCreate(itf)) yield return itf;

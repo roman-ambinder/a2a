@@ -14,5 +14,7 @@
     </ItemGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="A2A.V0_3Compat.Tests"/>
+        <!-- The v0.3 gRPC service reuses the v0.3 call setup and cards. Same build, version-checked at startup. -->
+        <InternalsVisibleTo Include="A2A.Server.Grpc.V0_3Compat"/>
     </ItemGroup>
 </Project>

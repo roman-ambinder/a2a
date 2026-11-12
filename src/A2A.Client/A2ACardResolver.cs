@@ -268,6 +268,11 @@ public sealed class A2ACardResolver
             raw = Encoding.UTF8.GetString(body.Span);
             node = ParseCard(body.Span);
             var normalizer = _options.CardNormalizer;
+            if (normalizer is null && LegacyCardVersion(node) is { } legacy)
+                throw new A2AException(A2AErrorCode.InvalidAgentResponse,
+                    $"The Agent Card at {uri} is protocol version {TextSanitizer.ForMessage(legacy)}, older than 1.0. Call it " +
+                    "with V03CompatClientFactory from the RomanAmbinder.A2A.Client.V0_3Compat package, which reads v0.2.x and " +
+                    "v0.3 cards.");
             if (normalizer is not null)
                 try
                 {
@@ -341,6 +346,19 @@ public sealed class A2ACardResolver
         else
             _cache.TryRemove(key, out _); // no-store: not kept, and no validator is sent next time
         return result;
+    }
+
+    /// <summary>
+    ///     The version of a card older than 1.0, or null for a 1.x card: a card without <c>supportedInterfaces</c> whose
+    ///     <c>protocolVersion</c> is <c>0.x</c>, or that has none but a top-level <c>url</c> (v0.2 before 0.2.5). Neither
+    ///     member is in the v1.0 card, and a blended card (v1.0 plus v0.3 members) has <c>supportedInterfaces</c>.
+    /// </summary>
+    internal static string? LegacyCardVersion(JsonObject card)
+    {
+        if (card["supportedInterfaces"] is JsonArray { Count: > 0 }) return null;
+        if (card["protocolVersion"] is JsonValue version && version.TryGetValue<string>(out var text))
+            return text.StartsWith("0.", StringComparison.Ordinal) ? text : null;
+        return card["url"] is JsonValue url && url.TryGetValue<string>(out _) ? "0.2 (no protocolVersion)" : null;
     }
 
     /// <summary>

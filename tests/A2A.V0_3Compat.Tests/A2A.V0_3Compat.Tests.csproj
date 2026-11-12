@@ -19,6 +19,7 @@
     <PackageReference Include="Google.Protobuf" />
     <PackageReference Include="Google.Api.CommonProtos" />
     <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+    <PackageReference Include="Grpc.Net.Client" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\A2A.Protocol\A2A.Protocol.csproj" />
@@ -28,10 +29,13 @@
     <ProjectReference Include="..\..\src\A2A.V0_3Compat\A2A.V0_3Compat.csproj" />
     <ProjectReference Include="..\..\src\A2A.Server.V0_3Compat\A2A.Server.V0_3Compat.csproj" />
     <ProjectReference Include="..\..\src\A2A.Client.V0_3Compat\A2A.Client.V0_3Compat.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Server.Grpc.V0_3Compat\A2A.Server.Grpc.V0_3Compat.csproj" />
+    <ProjectReference Include="..\..\src\A2A.Client.Grpc.V0_3Compat\A2A.Client.Grpc.V0_3Compat.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- The v0.3 proto, as published (a2aproject/A2A tag v0.3.0). Messages only; the golden tests parse our HTTP+JSON bodies with it. -->
-    <Protobuf Include="Golden\proto\a2a_v03.proto" ProtoRoot="Golden\proto" GrpcServices="None" />
+    <!-- The v0.3 proto, as published (a2aproject/A2A tag v0.3.0). The golden tests parse our HTTP+JSON bodies with its
+         messages, and call the v0.3 gRPC service with its client stub, as an independent v0.3 peer would. -->
+    <Protobuf Include="Golden\proto\a2a_v03.proto" ProtoRoot="Golden\proto" GrpcServices="Client" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

@@ -59,12 +59,48 @@ internal sealed class V03HttpJsonTransport : HttpTransportBase, IA2AClient, IRes
     public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromException<ListTasksResponse>(V03ClientSupport.Unsupported("ListTasks"));
+        return ListTasksCoreAsync(request, options, cancellationToken);
+    }
+
+    /// <summary>
+    ///     v0.3 REST <c>GET /v1/tasks</c> answers every task of the caller as an array, with no paging or filters. The
+    ///     request's filters are applied here, to that array: <c>contextId</c>, <c>status</c>,
+    ///     <c>statusTimestampAfter</c>, <c>historyLength</c>, <c>includeArtifacts</c> and <c>pageSize</c> (the first n). There
+    ///     is never a next page; a <c>pageToken</c> cannot come from this binding and is ignored.
+    /// </summary>
+    private async Task<ListTasksResponse> ListTasksCoreAsync(ListTasksRequest request, A2ARequestOptions? options,
+        CancellationToken cancellationToken)
+    {
+        var result = await SendAsync(HttpMethod.Get, Url(request.Tenant, "/tasks"), null, RetryMode.Idempotent, options,
+            null, cancellationToken).ConfigureAwait(false);
+        var tasks = V03ClientSupport.Read(() =>
+        {
+            var array = result as JsonArray ?? throw new JsonException("tasks/list result must be an array");
+            return array.Select(t => Codec.ReadTask(t)).ToList();
+        }, "tasks/list result");
+
+        IEnumerable<AgentTask> selected = tasks;
+        if (request.ContextId is { Length: > 0 } contextId) selected = selected.Where(t => t.ContextId == contextId);
+        if (request.Status is { } status) selected = selected.Where(t => t.Status.State == status);
+        if (request.StatusTimestampAfter is { } after)
+            selected = selected.Where(t => t.Status.Timestamp is { } at && at > after);
+        if (request.PageSize is > 0 and var size) selected = selected.Take(size);
+        var list = selected.ToList();
+        foreach (var task in list)
+        {
+            if (request.IncludeArtifacts == false) task.Artifacts = null;
+            if (request.HistoryLength is { } length && task.History is { } history && history.Count > length)
+                task.History = length <= 0 ? null : history.GetRange(history.Count - length, length);
+        }
+
+        return new ListTasksResponse { Tasks = list, NextPageToken = string.Empty };
     }
 
     public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        // The v0.3 proto CancelTaskRequest has only the task name: request metadata cannot be sent.
+        if (request.Metadata is { Count: > 0 }) V03LossReporter.Drop("tasks/cancel.metadata");
         var body = new JsonObject { ["name"] = $"tasks/{request.Id}" };
         var result = await SendAsync(HttpMethod.Post, Url(request.Tenant, $"/tasks/{Esc(request.Id)}:cancel"), body,
             RetryMode.Idempotent, options, null, cancellationToken).ConfigureAwait(false);
@@ -84,8 +120,13 @@ internal sealed class V03HttpJsonTransport : HttpTransportBase, IA2AClient, IRes
     {
         var taskId = config.TaskId ?? string.Empty;
         var query = config.Id is { } id ? "?configId=" + Esc(id) : "";
+        // The whole CreateTaskPushNotificationConfigRequest, as the a2a-sdk 0.3 Python client sends it and its server reads
+        // it (the proto's http rule says the body is only the config). configId also goes in the query, for a server that
+        // follows the http rule.
+        var body = new JsonObject { ["parent"] = $"tasks/{taskId}", ["config"] = Codec.WritePushConfig(config) };
+        if (config.Id is { Length: > 0 }) body["configId"] = config.Id;
         var result = await SendAsync(HttpMethod.Post,
-            Url(config.Tenant, $"/tasks/{Esc(taskId)}/pushNotificationConfigs") + query, Codec.WritePushConfig(config),
+            Url(config.Tenant, $"/tasks/{Esc(taskId)}/pushNotificationConfigs") + query, body,
             RetryMode.None, options, null, cancellationToken).ConfigureAwait(false);
         return V03ClientSupport.Read(() => Codec.ReadPushConfig(result), "push config");
     }

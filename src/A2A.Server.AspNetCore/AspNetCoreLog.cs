@@ -77,6 +77,10 @@ internal static partial class AspNetCoreLog
         Message = "The Agent Card's {Field} is empty, but the spec makes it REQUIRED, and required arrays must have at least one element (spec 5.7). Clients that check this may refuse the card.")]
     public static partial void CardRequiredArrayEmpty(ILogger logger, string field);
 
+    [LoggerMessage(EventId = 709, Level = LogLevel.Warning,
+        Message = "A2AServerOptions.TreatMissingVersionAsCurrent is on outside Development: a call without the A2A-Version header is served as A2A 1.0, but the spec says an empty version means 0.3 (spec 3.6.2: agents MUST interpret empty value as 0.3 version). Turn it off outside Development; serve v0.3 clients with EnableV03Compat.")]
+    public static partial void MissingVersionTreatedAsCurrent(ILogger logger);
+
     // AgentCardEndpoint: 800-899
     [LoggerMessage(EventId = 800, Level = LogLevel.Warning,
         Message =

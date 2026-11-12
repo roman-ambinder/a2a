@@ -17,7 +17,8 @@ namespace A2A.Tests;
 /// </summary>
 public class CardInterfaceCheckTests
 {
-    private const int Local = 702, NotOnCard = 703, TenantPattern = 704, Plain = 705, NoHttps = 706, EmptyArray = 708;
+    private const int Local = 702, NotOnCard = 703, TenantPattern = 704, Plain = 705, NoHttps = 706, EmptyArray = 708,
+        MissingVersionAsCurrent = 709;
 
     private sealed class Capture : ILoggerProvider
     {
@@ -38,7 +39,8 @@ public class CardInterfaceCheckTests
     }
 
     private static async Task<Capture> StartAsync(string environment, Action<AgentCard>? card = null,
-        Uri? publicBaseUrl = null, Action<WebApplication>? map = null, bool kestrel = false)
+        Uri? publicBaseUrl = null, Action<WebApplication>? map = null, bool kestrel = false,
+        Action<A2AServerOptions>? server = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = environment });
         if (kestrel) builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -53,6 +55,7 @@ public class CardInterfaceCheckTests
             o.AgentCard.SupportedInterfaces = [];
             card?.Invoke(o.AgentCard);
             o.AllowAnonymous = true;
+            server?.Invoke(o);
         }).AddAgentExecutor<ScenarioAgent>();
         builder.Services.AddA2AServerAspNetCore();
         builder.Services.AddA2ARateLimiting(o => o.Enabled = false);
@@ -64,6 +67,20 @@ public class CardInterfaceCheckTests
         await app.StopAsync();
         await app.DisposeAsync();
         return log;
+    }
+
+    [Theory]
+    [InlineData("Production", true, true)]
+    [InlineData("Staging", true, true)]
+    [InlineData("Development", true, false)]
+    [InlineData("Production", false, false)]
+    public async Task Treating_a_missing_version_as_current_warns_outside_development(string environment, bool on, bool warns)
+    {
+        // Spec 3.6.2: "Agents MUST interpret empty value as 0.3 version"; the setting breaks that for curl in Development.
+        var log = await StartAsync(environment, server: o => o.TreatMissingVersionAsCurrent = on);
+        var warnings = log.Of(MissingVersionAsCurrent);
+        Assert.Equal(warns ? 1 : 0, warnings.Count);
+        if (warns) Assert.Contains("3.6.2", warnings[0], StringComparison.Ordinal);
     }
 
     [Fact]

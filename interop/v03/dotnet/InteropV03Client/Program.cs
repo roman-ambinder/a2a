@@ -1,10 +1,15 @@
 // Drives any A2A v0.3 agent that implements the interop scenarios, using the .NET v0.3 compat client.
-// Usage: dotnet run -- <agentBaseUrl> <JSONRPC|HTTP+JSON>
-// Exit code: number of failed checks. No ListTasks: it is not in v0.3.
+// Usage: dotnet run -- <agentBaseUrl> <JSONRPC|HTTP+JSON|GRPC>
+// Exit code: number of failed checks. No ListTasks: it is not in v0.3 JSON-RPC or gRPC, and the 0.3 Python SDK does not
+// implement the REST route.
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json.Nodes;
 using A2A;
 using A2A.Client;
+using A2A.Client.Grpc.V0_3Compat;
 using A2A.Client.V0_3Compat;
+using Grpc.Net.Client;
 
 var agentUrl = new Uri(args.Length > 0 ? args[0] : "http://127.0.0.1:5400/");
 var binding = args.Length > 1 ? args[1] : ProtocolBindings.JsonRpc;
@@ -33,6 +38,9 @@ void Expect(bool condition, string what)
 var wire = new List<string>();
 using var http = new HttpClient(new RecordingHandler(wire) { InnerHandler = new HttpClientHandler() });
 var clientOptions = new A2AClientOptions { SupportedBindings = [binding] };
+// v0.3 gRPC: the same recorder sees the gRPC calls (their paths are /a2a.v1.A2AService/<method>).
+if (binding == ProtocolBindings.Grpc)
+    clientOptions.UseGrpcV03(new GrpcChannelOptions { HttpHandler = new RecordingHandler(wire) { InnerHandler = new SocketsHttpHandler() } });
 var client = await V03CompatClientFactory.CreateAsync(agentUrl, http, clientOptions);
 Console.WriteLine($"# .NET v0.3 compat client -> {client.AgentCard!.Name} via {binding}");
 
@@ -144,6 +152,55 @@ await Check("extended card", async () =>
     Expect(card.Name.EndsWith("(extended)", StringComparison.Ordinal), $"the extended card, got '{card.Name}'");
 });
 
+await Check("push notification: config, then a v0.3 Task body at the webhook", async () =>
+{
+    Expect(client.AgentCard!.Capabilities.PushNotifications == true, "the agent to offer push notifications");
+    using var listener = new HttpListener();
+    var port = FreePort();
+    listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+    listener.Start();
+    var first = ((TaskResponse)await client.SendMessageAsync("input")).Task;
+    var created = await client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig
+        { TaskId = first.Id, Url = $"http://127.0.0.1:{port}/hook", Token = "tok-net" });
+    Expect(created.Url.EndsWith("/hook", StringComparison.Ordinal), "the webhook url back");
+    // The 0.3 Python agent implements push config get on every binding, list and delete only on JSON-RPC.
+    if (created.Id is { Length: > 0 } createdId)
+    {
+        var got = await client.GetTaskPushNotificationConfigAsync(new GetTaskPushNotificationConfigRequest { TaskId = first.Id, Id = createdId });
+        Expect(got.Url == created.Url, "the same config back");
+    }
+
+    if (binding == ProtocolBindings.JsonRpc)
+    {
+        var configs = await client.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest { TaskId = first.Id });
+        Expect(configs.Configs.Count >= 1, $"the config listed, got {configs.Configs.Count}");
+    }
+    await client.SendMessageAsync("more", first.ContextId, first.Id);
+
+    JsonNode? body;
+    string? token;
+    do
+    {
+        var context = await listener.GetContextAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        using (var reader = new StreamReader(context.Request.InputStream)) body = JsonNode.Parse(await reader.ReadToEndAsync());
+        token = context.Request.Headers["X-A2A-Notification-Token"];
+        context.Response.StatusCode = 200;
+        context.Response.Close();
+    } while ((string?)body?["status"]?["state"] != "completed");
+    // The v0.3 body: the task as a v0.3 JSON-RPC Task, what the 0.3 Python server sends.
+    Expect((string?)body!["kind"] == "task" && (string?)body["id"] == first.Id, $"a v0.3 Task body, got {body.ToJsonString()[..Math.Min(200, body.ToJsonString().Length)]}");
+    Expect(token == "tok-net", $"the token header, got '{token}'");
+    if (binding == ProtocolBindings.JsonRpc && created.Id is { Length: > 0 } id)
+        await client.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest { TaskId = first.Id, Id = id });
+});
+
+static int FreePort()
+{
+    using var socket = new TcpListener(IPAddress.Loopback, 0);
+    socket.Start();
+    return ((IPEndPoint)socket.LocalEndpoint).Port;
+}
+
 // The proof that this run was v0.3: the card read as v0.3, and every call used a v0.3 method or route.
 Check2();
 void Check2()
@@ -152,9 +209,14 @@ void Check2()
     var v03Card = itf.ProtocolVersion.StartsWith("0.3", StringComparison.Ordinal);
     string[] rpcMethods = ["message/send", "message/stream", "tasks/get", "tasks/cancel", "tasks/resubscribe", "agent/getAuthenticatedExtendedCard"];
     var calls = wire.Where(w => !w.Contains("agent-card.json", StringComparison.Ordinal)).ToList();
-    var allV03 = calls.Count > 0 && calls.All(w => binding == ProtocolBindings.JsonRpc
-        ? rpcMethods.Contains(w.Split(' ')[0])
-        : w.Split(' ')[1].StartsWith("/v1/", StringComparison.Ordinal));
+    string[] pushMethods = ["tasks/pushNotificationConfig/set", "tasks/pushNotificationConfig/get", "tasks/pushNotificationConfig/list", "tasks/pushNotificationConfig/delete"];
+    var allV03 = calls.Count > 0 && calls.All(w => binding switch
+    {
+        ProtocolBindings.JsonRpc => rpcMethods.Contains(w.Split(' ')[0]) || pushMethods.Contains(w.Split(' ')[0]),
+        // The v0.3 gRPC service; the v1.0 one is /lf.a2a.v1.A2AService/.
+        ProtocolBindings.Grpc => w.Split(' ')[1].StartsWith("/a2a.v1.A2AService/", StringComparison.Ordinal),
+        _ => w.Split(' ')[1].StartsWith("/v1/", StringComparison.Ordinal),
+    });
     var ok = v03Card && allV03;
     if (!ok) failures++;
     Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  used v0.3 on the wire (card {itf.ProtocolVersion}, {calls.Count} calls){(ok ? "" : ": " + string.Join(" | ", calls.Take(5)))}");

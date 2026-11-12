@@ -27,8 +27,10 @@ public static class V03CompatClientFactory
     /// <summary>
     ///     Resolves the card at <paramref name="agentUrl" /> and creates a client for it. A v0.3 card (top-level
     ///     <c>protocolVersion</c> <c>0.3.x</c>, no <c>supportedInterfaces</c>) is converted to the v1.0 model first, and reads
-    ///     as
-    ///     unsigned. <paramref name="resolverOptions" /> is copied, never changed.
+    ///     as unsigned. A v0.2 card is converted the same way, with only its JSON-RPC interfaces. When the well-known card
+    ///     path answers 404, the A2A 0.1 to 0.2.x path <c>/.well-known/agent.json</c> is tried, unless
+    ///     <paramref name="agentUrl" /> names a <c>.json</c> document. <paramref name="resolverOptions" /> is copied, never
+    ///     changed.
     /// </summary>
     public static async Task<A2AClient> CreateAsync(Uri agentUrl, HttpClient httpClient,
         A2AClientOptions? options = null,
@@ -40,10 +42,31 @@ public static class V03CompatClientFactory
         var resolverCopy = resolverOptions?.Clone() ?? new A2ACardResolverOptions();
         resolverCopy.CardNormalizer = V03CardCodec.NormalizeForResolver;
         var resolver = new A2ACardResolver(httpClient, resolverCopy);
-        var card = await resolver.GetAgentCardAsync(agentUrl, cancellationToken).ConfigureAwait(false);
+        AgentCard card;
+        try
+        {
+            card = await resolver.GetAgentCardAsync(agentUrl, cancellationToken).ConfigureAwait(false);
+        }
+        catch (A2AException ex) when (ex.HttpStatus == 404 && LegacyCardUri(agentUrl) is { } legacy)
+        {
+            // An A2A 0.1 to 0.2.x agent publishes its card at /.well-known/agent.json (0.3 moved it to agent-card.json).
+            card = await resolver.GetAgentCardAsync(legacy, cancellationToken).ConfigureAwait(false);
+        }
+
         await EnsureEndpointsAllowedAsync(card, agentUrl, options ?? new A2AClientOptions(), cancellationToken)
             .ConfigureAwait(false);
         return Create(card, httpClient, options);
+    }
+
+    /// <summary>
+    ///     The legacy card URL of <paramref name="agentUrl" />, or null when the caller named a card document itself (a URL
+    ///     that ends in <c>.json</c>): then the caller's URL is the only one tried.
+    /// </summary>
+    private static Uri? LegacyCardUri(Uri agentUrl)
+    {
+        return agentUrl.AbsolutePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : new Uri(agentUrl, A2AProtocol.LegacyAgentCardPath);
     }
 
     /// <summary>
@@ -69,10 +92,14 @@ public static class V03CompatClientFactory
         V03LossReporter.LegacyAgent(card.Name, selected.Url);
         var v03Options = V03ClientSupport.CopyForV03(options, selected.Tenant);
         EnsureAllowedNoDns(card, v03Options);
-        var uri = new Uri(selected.Url, UriKind.Absolute);
-        IA2AClient transport = selected.ProtocolBinding == ProtocolBindings.JsonRpc
-            ? new V03JsonRpcTransport(httpClient, uri, v03Options)
-            : new V03HttpJsonTransport(httpClient, uri, v03Options);
+        IA2AClient transport = selected.ProtocolBinding switch
+        {
+            ProtocolBindings.JsonRpc => new V03JsonRpcTransport(httpClient, new Uri(selected.Url, UriKind.Absolute),
+                v03Options),
+            ProtocolBindings.HttpJson => new V03HttpJsonTransport(httpClient, new Uri(selected.Url, UriKind.Absolute),
+                v03Options),
+            _ => V03FactoryFor(options, selected)!.Create(selected, httpClient, v03Options)
+        };
         return new A2AClient(transport, v03Options, card);
     }
 
@@ -106,13 +133,26 @@ public static class V03CompatClientFactory
         foreach (var itf in card.SupportedInterfaces ?? [])
         {
             if (!V03Compat.IsV03Version(itf.ProtocolVersion)) continue;
-            if (itf.ProtocolBinding is not (ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson)) continue;
             if (!options.SupportedBindings.Contains(itf.ProtocolBinding)) continue;
+            // Other bindings (v0.3 gRPC) need a v0.3 transport factory, such as UseGrpcV03() adds.
+            if (itf.ProtocolBinding is not (ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson))
+            {
+                if (V03FactoryFor(options, itf) is not null) return itf;
+                continue;
+            }
+
             if (!Uri.TryCreate(itf.Url, UriKind.Absolute, out _)) continue;
             return itf;
         }
 
         return null;
+    }
+
+    /// <summary>The last v0.3 transport factory that can build a transport for <paramref name="itf" />, or null.</summary>
+    private static IV03TransportFactory? V03FactoryFor(A2AClientOptions options, AgentInterface itf)
+    {
+        return options.TransportFactories.OfType<IV03TransportFactory>().LastOrDefault(f =>
+            string.Equals(f.ProtocolBinding, itf.ProtocolBinding, StringComparison.OrdinalIgnoreCase) && f.CanCreate(itf));
     }
 
     private static void RequireSameVersion()
@@ -121,3 +161,10 @@ public static class V03CompatClientFactory
             typeof(V03Compat).Assembly, typeof(AgentCard).Assembly);
     }
 }
+
+/// <summary>
+///     A transport factory for a v0.3 binding other than JSON-RPC and HTTP+JSON (v0.3 gRPC, A2A.Client.Grpc.V0_3Compat).
+///     <see cref="V03CompatClientFactory" /> uses it for the v0.3 interfaces it can create. The v1.0 path never does: it
+///     selects v1.x interfaces only.
+/// </summary>
+internal interface IV03TransportFactory : IA2ATransportFactory;

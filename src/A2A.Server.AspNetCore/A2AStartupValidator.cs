@@ -30,6 +30,12 @@ internal sealed class A2AEndpointRegistry
     /// <summary>Rewrites the served Agent Card body (set by a protocol adapter). Null: the card is served as encoded.</summary>
     public Func<ReadOnlyMemory<byte>, byte[]>? CardBodyTransform { get; set; }
 
+    /// <summary>
+    ///     True when a protocol adapter serves the card at the legacy path <c>/.well-known/agent.json</c> of A2A 0.1 to 0.2.x
+    ///     (v0.3 compat). False: that path answers 404.
+    /// </summary>
+    public bool ServeLegacyCardPath { get; set; }
+
     public bool HasSources
     {
         get
@@ -162,6 +168,10 @@ internal sealed class A2AStartupValidator(
         // Listen addresses, and so the completed card, are known only once the server has started.
         lifetime.ApplicationStarted.Register(CheckCardInterfaces);
         if (options.Value.AllowAnonymous) AspNetCoreLog.AnonymousCallersAllowed(logger);
+        // Spec 3.6.2: "Agents MUST interpret empty value as 0.3 version". The setting breaks that MUST on purpose, for curl
+        // in Development; elsewhere a 0.3 client's call without the header would be served as 1.0.
+        if (options.Value.TreatMissingVersionAsCurrent && environment?.IsDevelopment() != true)
+            AspNetCoreLog.MissingVersionTreatedAsCurrent(logger);
 
         if (!registry.HasSources)
         {

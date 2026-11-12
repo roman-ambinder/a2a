@@ -14,7 +14,7 @@ How the SDK is split into packages, and what the server is made of. Read it to c
 | Persistence and scale-out | `A2A.Server.Postgres`, `A2A.Server.Redis`, `A2A.Client.Postgres` | Durable stores, a Redis event bus and execution coordinator, and a durable client outbox |
 | Artifact storage | `A2A.Server.Storage.S3`, `A2A.Server.Storage.AzureBlob` | Keep large artifact bytes outside the task store |
 | Integrations | `A2A.Extensions.AI`, `A2A.Extensions.AgentFramework`, `A2A.Mcp`, `A2A.Server.TypedSkills` | `Microsoft.Extensions.AI`, Microsoft Agent Framework (experimental), Model Context Protocol, and typed skills (experimental) |
-| Compatibility | `A2A.V0_3Compat`, `A2A.Server.V0_3Compat`, `A2A.Client.V0_3Compat` | Let v0.3 clients call a v1.0 agent, and let a client call v0.3 agents |
+| Compatibility | `A2A.V0_3Compat`, `A2A.Server.V0_3Compat`, `A2A.Client.V0_3Compat`, `A2A.Server.Grpc.V0_3Compat`, `A2A.Client.Grpc.V0_3Compat` | Let v0.3 (and v0.2.x) clients call a v1.0 agent, and let a client call v0.3 agents, over JSON-RPC, HTTP+JSON and gRPC |
 | Tooling | `A2A.Cli`, `A2A.TestKit`, `A2A.Templates` | The `a2a` command line tool, test tools, and the `dotnet new` templates |
 
 All `RomanAmbinder.A2A.*` packages that you use together must have the same version.
@@ -34,7 +34,7 @@ All `RomanAmbinder.A2A.*` packages that you use together must have the same vers
 | Run in production | add `A2A.Server.Postgres`, and `A2A.Server.Redis` for several instances. See [Durable stores](durable-stores.md) |
 | Keep large artifacts in object storage | `A2A.Server.Storage.S3` or `A2A.Server.Storage.AzureBlob`. See [Artifact storage](artifact-storage.md) |
 | Keep a durable list of the messages your agent sends to peers | `A2A.Client.Postgres`. See [Client outbox](client-outbox.md) |
-| Talk to v0.3 agents or clients | `A2A.Client.V0_3Compat` or `A2A.Server.V0_3Compat`. See [v0.3 compatibility](v03-compatibility.md) |
+| Talk to v0.3 agents or clients | `A2A.Client.V0_3Compat` or `A2A.Server.V0_3Compat`; for v0.3 gRPC also `A2A.Client.Grpc.V0_3Compat` or `A2A.Server.Grpc.V0_3Compat`. See [v0.3 compatibility](v03-compatibility.md) |
 | Test an agent | `A2A.TestKit`. See [Testing your agent](testing.md) |
 | Use the command line | the `RomanAmbinder.A2A.Cli` dotnet tool. See [Command line tool](cli.md) |
 

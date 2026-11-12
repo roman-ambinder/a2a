@@ -191,7 +191,7 @@ jobs:
           if-no-files-found: warn
 
   interop-v03:
-    name: Interop v0.3 compat (official Python a2a-sdk 0.3)
+    name: Interop v0.3 compat (official Python a2a-sdk 0.3, three bindings, push)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -212,7 +212,7 @@ jobs:
           python -m venv interop/python/.venv
           interop/python/.venv/bin/pip install -r interop/python/requirements.txt
 
-      - name: Run v0.3 interop (JSON-RPC + HTTP+JSON)
+      - name: Run v0.3 interop (JSON-RPC + HTTP+JSON + gRPC, with push)
         run: interop/v03/run.sh
 
   pack:

@@ -10,9 +10,10 @@ public static class A2AV03CompatExtensions
     ///     Also serves v0.3 clients on this <c>MapA2A</c> mapping: the v0.3 JSON-RPC methods, the v0.3 HTTP+JSON routes under
     ///     <c>{pattern}/v1/...</c>, and a blended Agent Card (the v1.0 card plus the v0.3 members). The routes sit in the
     ///     group
-    ///     <c>MapA2A</c> returns, so authorization, rate limiting and CORS on that group cover them. v0.3 push notifications
-    ///     are not
-    ///     supported (<c>-32003</c>). A tenant named <c>v1</c> on a path-tenant host is shadowed by the <c>/v1/...</c> routes.
+    ///     <c>MapA2A</c> returns, so authorization, rate limiting and CORS on that group cover them. v0.3 push config methods
+    ///     are served, and a config created over v0.3 gets the task as a v0.3 <c>Task</c> on each webhook delivery. The card
+    ///     is also served at <c>/.well-known/agent.json</c>, for v0.2.x clients. A tenant named <c>v1</c> on a path-tenant
+    ///     host is shadowed by the <c>/v1/...</c> routes.
     /// </summary>
     /// <param name="options">The options passed to <c>MapA2A</c>.</param>
     /// <returns><paramref name="options" />, for chaining.</returns>

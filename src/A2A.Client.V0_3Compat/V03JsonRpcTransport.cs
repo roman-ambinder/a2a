@@ -55,7 +55,7 @@ internal sealed class V03JsonRpcTransport : HttpTransportBase, IA2AClient, IResu
     public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await InvokeAsync(V03Compat.Methods.CancelTask, V03JsonCodec.WriteTaskIdParams(request.Id),
+        var result = await InvokeAsync(V03Compat.Methods.CancelTask, V03JsonCodec.WriteCancelParams(request),
             RetryMode.Idempotent, options, null, cancellationToken).ConfigureAwait(false);
         return V03ClientSupport.Read(() => Codec.ReadTask(result), "tasks/cancel result");
     }
@@ -250,7 +250,9 @@ internal sealed class V03JsonRpcTransport : HttpTransportBase, IA2AClient, IResu
     {
         if (V03ClientSupport.TryParse(body) is not JsonObject root) return null;
         if (V03ClientSupport.Text(root["jsonrpc"]) != "2.0") return null;
-        return root.ContainsKey("result") || root.ContainsKey("error") ? root : null;
+        // a2a-sdk 0.3 (Python) serializes with exclude_none, so a null result (tasks/pushNotificationConfig/delete) has no
+        // "result" member at all: an envelope with an id and no error is a null result.
+        return root.ContainsKey("result") || root.ContainsKey("error") || root.ContainsKey("id") ? root : null;
     }
 
     private static A2AException ErrorOf(JsonNode error, HttpResponseMessage? response)
