@@ -1,6 +1,6 @@
 # ADR-003: How a task is written on each event
 
-**Status:** Proposed
+**Status:** Accepted (2026-11-12; Option C was chosen for build by the owner)
 **Date:** 2026-11-12
 **Deciders:** Repository owner
 
@@ -126,5 +126,26 @@ The task row would hold a snapshot taken every so often. A read would apply the 
    - **Limits of this measurement:**
      - It is a single run on one machine, so the times are rough. The WAL figures depend less on timing.
      - Real model text compresses differently from these random letters, and TOAST compresses the `task` column.
-2. [ ] Decide from the numbers (owner). Design for Option C: `docs/superpowers/specs/2026-11-12-postgres-artifact-rows-design.md`. The "off" row is the slow-producer case, and it costs 140–640 times the payload in WAL, against 6–20 times with batching. That is the factor Option C would remove for appends. If a long chunk stream costs more than its batched equivalent by a factor worth fixing, design Option C in its own short spec: the table, the migration, and a round-trip test.
-3. [ ] Until then, say in `docs/site/guides/durable-stores.md` that each commit rewrites the whole task, and that long artifacts should be offloaded.
+2. [x] Decide from the numbers (owner). The owner chose to build Option C on 2026-11-12. Design for Option C: `docs/superpowers/specs/2026-11-12-postgres-artifact-rows-design.md`. The "off" row is the slow-producer case, and it costs 140–640 times the payload in WAL, against 6–20 times with batching. That is the factor Option C would remove for appends. If a long chunk stream costs more than its batched equivalent by a factor worth fixing, design Option C in its own short spec: the table, the migration, and a round-trip test.
+3. [x] Until then, say in `docs/site/guides/durable-stores.md` that each commit rewrites the whole task, and that long artifacts should be offloaded.
+
+   Done with Option C: the guide's "Artifact rows" item says both, and describes `PostgresStoreOptions.ArtifactRows`.
+
+## Results with Option C
+
+The same benchmark with `PostgresStoreOptions.ArtifactRows` (one run, 2026-11-12, same setup as above):
+
+| Chunks | Chunk bytes | Batch commits | Artifact rows | Commits | ms / chunk | WAL MB | WAL / payload |
+|---:|---:|---|---|---:|---:|---:|---:|
+| 1000 | 100 | off | off | 1003 | 4.98 | 60.7 | 636.9 |
+| 1000 | 100 | off | on | 1003 | 3.50 | 2.1 | 22.3 |
+| 1000 | 1000 | off | off | 1003 | 19.26 | 534.5 | 560.5 |
+| 1000 | 1000 | off | on | 1003 | 3.85 | 5.3 | 5.5 |
+| 250 | 10000 | off | off | 253 | 54.14 | 334.7 | 140.4 |
+| 250 | 10000 | off | on | 253 | 6.25 | 5.6 | 2.4 |
+| 1000 | 1000 | on | off | 21 | 1.33 | 12.8 | 13.4 |
+| 1000 | 1000 | on | on | 21 | 1.20 | 2.5 | 2.7 |
+
+- **One commit per chunk** (the slow-producer case) no longer grows with the artifact. WAL per payload byte drops from 140–637 to 2.4–22.3. The time per chunk drops from 5.0–54.1 ms to 3.5–6.3 ms.
+- **With batching,** it improves too: 13.4 times the payload becomes 2.7.
+- **What is left:** at 100-byte chunks the fixed cost of each commit dominates (22 times the payload). That cost is the task header, the event row and the indexes.

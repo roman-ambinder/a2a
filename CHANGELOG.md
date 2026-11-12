@@ -128,6 +128,16 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 - New `DeleteTaskAsync(taskId)` on any `IA2AClient` (`TaskDeletionClientExtensions`): calls the task-deletion extension
   operation of an agent that serves it.
 
+### Postgres artifact rows
+
+- New `PostgresStoreOptions.ArtifactRows` (default false). It stores the parts of each task's artifacts in their own
+  rows (`a2a_artifact_parts`, migration 0007), so an append writes only its new parts instead of rewriting the whole
+  task. `ArtifactRowsCompactAt` (default 256) bounds the rows of one artifact.
+- Turn it on only when every instance sharing the database runs this version. Reads handle both forms either way.
+  Before a downgrade, turn it off and call the new `PostgresTaskStore.InlineArtifactPartsAsync` until it returns 0.
+- The ADR-003 benchmark (`tests/A2A.Benchmarks.Postgres`) measures the write cost. The design is
+  `docs/superpowers/specs/2026-11-12-postgres-artifact-rows-design.md`.
+
 ### Fixes
 
 - Security: `RequireAgentCardSchemes` checked the card of the route tenant only. A request to `/a2a` with

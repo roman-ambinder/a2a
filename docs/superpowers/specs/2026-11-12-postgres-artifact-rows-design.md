@@ -1,6 +1,6 @@
 # Postgres artifact rows: append chunks without rewriting the task
 
-Status: proposed. Option C of ADR-003 (`docs/adr/0003-task-writes-per-event.md`), designed after its benchmark.
+Status: implemented, opt-in (`PostgresStoreOptions.ArtifactRows`). Option C of ADR-003 (`docs/adr/0003-task-writes-per-event.md`), designed after its benchmark.
 
 ## Why
 
@@ -124,3 +124,23 @@ The work fits one PR, test-first, behind the option. It has three parts:
 1. **Rows per append, or one row per batch:** one row per event keeps `ordinal` aligned with the event log, which helps debugging. One row per batch writes fewer rows. Proposed: one row per batch.
 2. **Compaction threshold:** 256 is a guess. The benchmark run with the option on should settle it.
 3. **Default of `ArtifactRows`:** off in the first release that ships it (proposed), or on for new databases only, detected by an empty `a2a_tasks` at startup.
+
+## As built (2026-11-12)
+
+Where the code differs from the design above:
+
+- **No `VerifyArtifactRows` option.** The tests read each task back after every commit and compare its canonical JSON
+  with the committed task (`PostgresArtifactRowsTests`). The whole `TaskStoreContract` also runs with the option on
+  (`PostgresArtifactRowsTaskStoreTests`). The engine runs end to end on Postgres with the option on: 100 chunks, some
+  batched, some not.
+- **`CreateAsync` and `UpdateAsync` write the parts inline (`parts_layout = 0`).** Only `CommitAsync` and
+  `CommitBatchAsync` write rows. The next commit of a task written inline rewrites its rows from scratch. A write with
+  the option off also sets layout 0, so rows it left behind are ignored, then rewritten when the option is on again.
+- **The layout and the row counts are read before the compare-and-set,** in the same transaction. A concurrent write in
+  between changes the version, so the compare-and-set fails and nothing uses the stale counts.
+- **Compaction happens on the append itself.** An append to an artifact that already has `ArtifactRowsCompactAt` rows
+  rewrites that artifact as one row.
+- **A row stores its parts as an artifact** with only its id and parts (`{"artifactId": …, "parts": […]}`). That is a
+  type the source-generated JSON context already knows.
+- **Open questions:** a batch writes one row per artifact for all its appended parts (question 1: one row per batch).
+  256 stays the compaction default (question 2). The option is off by default (question 3).

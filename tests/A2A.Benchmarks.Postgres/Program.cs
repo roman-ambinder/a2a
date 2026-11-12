@@ -16,7 +16,8 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using Testcontainers.PostgreSql;
 
-// ADR-003, action item 1: what one long chunked artifact costs on Postgres, with and without batch commits.
+// ADR-003, action item 1: what one long chunked artifact costs on Postgres, with and without batch commits, and with and
+// without PostgresStoreOptions.ArtifactRows.
 //
 // For each case an in-process server with the Postgres stores runs an agent that streams one artifact in N chunks of B
 // bytes, and the client sends one blocking SendMessage. Reported per case: the task-store commits, the wall time, and the
@@ -38,16 +39,16 @@ if (string.IsNullOrEmpty(external))
 var connectionString = external ?? container!.GetConnectionString();
 try
 {
-    Console.WriteLine("| Chunks | Chunk bytes | Batch commits | Commits | Total ms | ms / chunk | WAL MB | WAL / payload |");
-    Console.WriteLine("|---:|---:|---|---:|---:|---:|---:|---:|");
-    await Bench.RunAsync(connectionString, 50, 100, batching: true, warmUp: true); // JIT, pool, schema
+    Console.WriteLine("| Chunks | Chunk bytes | Batch commits | Artifact rows | Commits | Total ms | ms / chunk | WAL MB | WAL / payload |");
+    Console.WriteLine("|---:|---:|---|---|---:|---:|---:|---:|---:|");
+    await Bench.RunAsync(connectionString, 50, 100, batching: true, rows: false, warmUp: true); // JIT, pool, schema
     foreach (var (chunks, bytes) in cases)
-        foreach (var batching in new[] { true, false })
+        foreach (var (batching, rows) in new[] { (true, false), (false, false), (true, true), (false, true) })
         {
-            var r = await Bench.RunAsync(connectionString, chunks, bytes, batching, warmUp: false);
+            var r = await Bench.RunAsync(connectionString, chunks, bytes, batching, rows, warmUp: false);
             var payload = (double)chunks * bytes;
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                $"| {chunks} | {bytes} | {(batching ? "on" : "off")} | {r.Commits} | {r.Elapsed.TotalMilliseconds:F0} | " +
+                $"| {chunks} | {bytes} | {(batching ? "on" : "off")} | {(rows ? "on" : "off")} | {r.Commits} | {r.Elapsed.TotalMilliseconds:F0} | " +
                 $"{r.Elapsed.TotalMilliseconds / chunks:F2} | {r.WalBytes / 1048576.0:F1} | {r.WalBytes / payload:F1} |"));
         }
 }
@@ -61,7 +62,7 @@ internal static class Bench
     private const string BaseUrl = "http://localhost/a2a";
 
     public static async Task<(int Commits, TimeSpan Elapsed, long WalBytes)> RunAsync(string connectionString, int chunks,
-        int chunkBytes, bool batching, bool warmUp)
+        int chunkBytes, bool batching, bool rows, bool warmUp)
     {
         var schema = "bench_" + Guid.NewGuid().ToString("N")[..12];
         await using var db = NpgsqlDataSource.Create(connectionString);
@@ -83,12 +84,16 @@ internal static class Bench
         {
             o.AgentCard = card;
             o.AllowAnonymous = true;
-        }).AddAgentExecutor<ChunkAgent>().AddPostgresStores(db, o => o.Schema = schema);
+        }).AddAgentExecutor<ChunkAgent>().AddPostgresStores(db, o =>
+        {
+            o.Schema = schema;
+            o.ArtifactRows = rows;
+        });
         // The same Postgres task store, wrapped to count commits; without IBatchTaskCommit when batching is off.
         builder.Services.Replace(ServiceDescriptor.Singleton<TaskStore>(sp =>
         {
             var inner = new PostgresTaskStore(db, sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming,
-                new PostgresStoreOptions { Schema = schema });
+                new PostgresStoreOptions { Schema = schema, ArtifactRows = rows });
             return batching ? new CountingBatchStore(inner, counter) : new CountingStore(inner, counter);
         }));
         builder.Services.AddA2AServerAspNetCore();
