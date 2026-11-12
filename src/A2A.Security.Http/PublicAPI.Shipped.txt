@@ -27,3 +27,4 @@ static A2A.Security.Http.SafeHttp.CreateClient(A2A.Security.Http.SafeHttpOptions
 static A2A.Security.Http.SafeHttp.CreateHandler(A2A.Security.Http.SafeHttpOptions? options = null) -> System.Net.Http.SocketsHttpHandler!
 static A2A.Security.Http.SafeHttp.DownloadAsync(System.Net.Http.HttpClient! client, System.Uri! url, long maxBytes, A2A.Security.Http.SafeHttpOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<byte[]!>!
 static A2A.Security.Http.SafeHttp.EnsureAllowed(System.Uri! url, A2A.Security.Http.SafeHttpOptions? options = null) -> void
+A2A.Security.Http.GuardedJwksFetcher.FetchWithLifetimeAsync(System.Uri! jku, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Signing.JwksFetchResult!>

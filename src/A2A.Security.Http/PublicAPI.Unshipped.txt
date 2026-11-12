@@ -1,2 +1,1 @@
 #nullable enable
-A2A.Security.Http.GuardedJwksFetcher.FetchWithLifetimeAsync(System.Uri! jku, System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask<A2A.Signing.JwksFetchResult!>

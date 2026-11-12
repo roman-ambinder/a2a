@@ -1,7 +1,1 @@
 #nullable enable
-A2A.Extensions.AI.ChatClientAgentOptions.ContextMemoryMaxBytes.get -> long
-A2A.Extensions.AI.ChatClientAgentOptions.ContextMemoryMaxBytes.set -> void
-A2A.Extensions.AI.ChatClientAgentOptions.ContextMemoryMaxTasks.get -> int
-A2A.Extensions.AI.ChatClientAgentOptions.ContextMemoryMaxTasks.set -> void
-A2A.Extensions.AI.ChatClientAgentOptions.UseContextMemory.get -> bool
-A2A.Extensions.AI.ChatClientAgentOptions.UseContextMemory.set -> void

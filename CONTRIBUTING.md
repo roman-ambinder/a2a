@@ -127,8 +127,8 @@ After the first release, do not add a new abstract member, and do not add a virt
 Push a version tag on a commit that is on `main`:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 [release.yml](.github/workflows/release.yml) first requires a successful `CI` run on `main` for that exact commit, and

@@ -401,6 +401,37 @@ public abstract class TaskStoreContract
     }
 
     [Fact]
+    public async Task A_stored_commit_is_found_by_its_mutation_id()
+    {
+        var (s, _) = await CreateStoresAsync();
+        Assert.SkipUnless(s is ITaskCommitLookup, "The store cannot look commits up.");
+        var lookup = (ITaskCommitLookup)s;
+        var created = await s.CommitAsync(CreateCommit(NewRecord("t", "alice", "id1")) with { MutationId = "m-create" });
+        var key = created.Record.Key;
+        var working = await s.CommitAsync(new TaskCommit(WithState(created.Record, TaskState.Working), 1,
+            StatusEvent("id1", TaskState.Working), []) { MutationId = "m-working" });
+        await s.CommitAsync(new TaskCommit(WithState(working.Record, TaskState.Working), 2, StatusEvent("id1", TaskState.Working), []));
+
+        Assert.Equal(created.Sequence, await lookup.FindCommitAsync(key, "m-create"));
+        Assert.Equal(working.Sequence, await lookup.FindCommitAsync(key, "m-working"));
+        Assert.Null(await lookup.FindCommitAsync(key, "never-committed"));
+        Assert.Null(await lookup.FindCommitAsync(key with { Owner = "bob" }, "m-working"));
+
+        // A commit that lost the version race wrote nothing, so its id is not found.
+        await Assert.ThrowsAsync<ConcurrencyException>(() => s.CommitAsync(new TaskCommit(WithState(created.Record, TaskState.Failed), 1,
+            StatusEvent("id1", TaskState.Failed), []) { MutationId = "m-stale" }).AsTask());
+        Assert.Null(await lookup.FindCommitAsync(key, "m-stale"));
+
+        if (s is IBatchTaskCommit batch)
+        {
+            var current = (await s.GetAsync(key))!;
+            var result = await batch.CommitBatchAsync(new TaskBatchCommit(WithState(current, TaskState.Working), current.Version,
+                [Batched("id1", TaskState.Working, 1), Batched("id1", TaskState.Working, 2)]) { MutationId = "m-batch" });
+            Assert.Equal(result.FirstSequence, await lookup.FindCommitAsync(key, "m-batch"));
+        }
+    }
+
+    [Fact]
     public async Task Stale_foreign_or_duplicate_commit_writes_nothing()
     {
         var (s, events) = await CreateStoresAsync();
