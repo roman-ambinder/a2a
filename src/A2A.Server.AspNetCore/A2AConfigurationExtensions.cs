@@ -60,6 +60,7 @@ public static class A2AConfigurationExtensions
         [nameof(A2ALimits.MaxUserArtifactsPerRequest)] = (o, s) => o.MaxUserArtifactsPerRequest = Int(s),
         [nameof(A2ALimits.LiveInputCapacity)] = (o, s) => o.LiveInputCapacity = Int(s),
         [nameof(A2ALimits.MaxTimelineLengthReturned)] = (o, s) => o.MaxTimelineLengthReturned = Int(s),
+        [nameof(A2ALimits.MaxTimelineEntries)] = (o, s) => o.MaxTimelineEntries = Int(s),
         [nameof(A2ALimits.MaxListPageSize)] = (o, s) => o.MaxListPageSize = Int(s),
         [nameof(A2ALimits.MaxConcurrentStreamsPerTask)] = (o, s) => o.MaxConcurrentStreamsPerTask = Int(s),
         [nameof(A2ALimits.MaxConcurrentStreamsPerPrincipal)] = (o, s) => o.MaxConcurrentStreamsPerPrincipal = Int(s),

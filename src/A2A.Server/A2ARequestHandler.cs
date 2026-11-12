@@ -1042,7 +1042,7 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
                 var messageSequence = sequenceBefore + 1;
                 var generation = (record.Task.Generation ?? sequenceBefore) + 1;
                 next.Generation = generation;
-                (next.Timeline ??= []).Add(TimelineEntry.FromMessage(stored, generation));
+                TaskTimeline.Append(next, TimelineEntry.FromMessage(stored, generation), _options.Limits.MaxTimelineEntries);
                 (next.Metadata ??= [])[PendingStartKey] = StringElement(string.Create(CultureInfo.InvariantCulture,
                     $"{messageSequence}:{message.MessageId}"));
                 EnsureTaskSizeCapacity(next);
