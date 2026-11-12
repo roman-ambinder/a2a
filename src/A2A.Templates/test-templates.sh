@@ -79,6 +79,11 @@ for t in a2a-agent-apikey a2a-chat-agent-apikey; do
     >"$WORK/$t-nokey.log" 2>&1; then
     stop; cat "$WORK/$t-nokey.log"; echo "FAIL: $t answered a client without a key"; exit 1
   fi
+  # The client says what is wrong instead of crashing with a stack trace.
+  if ! grep -q "Set A2A_API_KEY" "$WORK/$t-nokey.log" || grep -q "Unhandled exception" "$WORK/$t-nokey.log"; then
+    stop; cat "$WORK/$t-nokey.log"; echo "FAIL: the client did not report the refused key cleanly"; exit 1
+  fi
+  cat "$WORK/$t-nokey.log"
   out="$(A2A_API_KEY="$KEY" dotnet run --project "$WORK/a2a-client" -c Release --no-build -- http://127.0.0.1:5199/ hello)"
   echo "$out"
   stop

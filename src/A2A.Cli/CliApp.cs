@@ -55,7 +55,8 @@ internal static class CliApp
         }
 
         // Offline: no agent, no connection options.
-        if (first == "keys") return Commands.KeysCommand.Run(args[1..], env, output);
+        if (first == "keys")
+            return await Commands.KeysCommand.RunAsync(args[1..], env, output, cancellationToken).ConfigureAwait(false);
 
         var spec = CommandTable.Find(first) ??
                    throw CliException.Usage(
@@ -99,6 +100,23 @@ internal static class CliApp
         return exitCode;
     }
 
+    /// <summary>
+    ///     The message with the innermost cause, which says why: "The SSL connection could not be established, see inner
+    ///     exception." alone does not say that the certificate is untrusted. A cause already in the message is not repeated.
+    /// </summary>
+    internal static string WithCause(Exception ex)
+    {
+        var inner = ex;
+        while (inner.InnerException is not null) inner = inner.InnerException;
+        var message = ex.Message;
+        const string seeInner = ", see inner exception.";
+        if (message.EndsWith(seeInner, StringComparison.Ordinal)) message = message[..^seeInner.Length];
+        if (ReferenceEquals(inner, ex) || string.IsNullOrWhiteSpace(inner.Message) ||
+            message.Contains(inner.Message, StringComparison.Ordinal))
+            return message;
+        return $"{message.TrimEnd('.')}: {inner.Message}";
+    }
+
     internal static (int ExitCode, string? A2ACode, string Message) Classify(Exception ex,
         CancellationToken cancellationToken)
     {
@@ -127,7 +145,7 @@ internal static class CliApp
             case HttpRequestException { StatusCode: HttpStatusCode.NotFound }:
                 return (ExitCodes.NotFound, null, ex.Message);
             case HttpRequestException or TimeoutException or SocketException:
-                return (ExitCodes.Network, null, ex.Message);
+                return (ExitCodes.Network, null, WithCause(ex));
             case JsonException:
                 return (ExitCodes.Protocol, null, "The agent sent a response that could not be read.");
             default:

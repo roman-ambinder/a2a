@@ -18,7 +18,8 @@ samples/Cli/walkthrough.sh
 | `a2a send ping` with no key | exit code 4: the card asks for an API key and none was given |
 
 The agent URL and the key go in `A2A_AGENT_URL` and `A2A_API_KEY`. Options show in process lists and shell history.
-`--allow-http` is needed for an `http://` URL; the tool still sends the key only over HTTPS or to a loopback address.
+The agent runs on `http://127.0.0.1`, a loopback address, so no `--allow-http` is needed: that option is for a plain-HTTP
+agent on another host. The tool sends the key only over HTTPS or to a loopback address.
 The script runs the tool with `dotnet run --project src/A2A.Cli`. Installed as a tool
 (`dotnet tool install -g RomanAmbinder.A2A.Cli`), each `a2a ...` line is the same command.
 

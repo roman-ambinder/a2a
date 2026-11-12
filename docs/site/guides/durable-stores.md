@@ -47,7 +47,7 @@ Each task change, its event and its push deliveries are written in one transacti
   - **What the option changes:** with `ArtifactRows`, the parts go in `a2a_artifact_parts` (migration 0007), and an append writes one row with its new parts. The ADR-003 benchmark (`tests/A2A.Benchmarks.Postgres`) has the numbers.
   - **Before you turn it on:** every instance that shares the database must run a version with the option. An older version reads such a task with empty parts.
   - **Reads:** they handle both forms either way, and a task stored inline moves to rows on its next commit.
-  - **Before a downgrade:** turn it off everywhere, then call `PostgresTaskStore.InlineArtifactPartsAsync()` until it returns 0.
+  - **Before a downgrade:** turn it off everywhere, then call `PostgresTaskStore.InlineArtifactPartsAsync()` until it returns 0. The instances can keep serving meanwhile. Each converted task gets a new version, so a commit based on an older read fails its version check and is retried.
   - **Alternative:** moving long artifacts to an [artifact object store](artifact-storage.md) also keeps them out of the task.
 - **Cleanup scope.** The cleanup deletes event logs and idempotency entries. Expired tasks, orphan contexts, timed-out tasks and dead executions are the job of the [retention sweep](retention.md).
 

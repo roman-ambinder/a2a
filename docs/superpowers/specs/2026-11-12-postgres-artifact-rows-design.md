@@ -82,7 +82,7 @@ Status events are the most frequent full-path commits and change no artifact. So
 
 ### Read path
 
-- **`GetAsync` and `GetForMaintenanceAsync`:** for a layout-1 row, read the task and the parts in one statement, a `LEFT JOIN` aggregated with `json_agg` ordered by `artifact_id, ordinal`. Then put each artifact's parts back into the deserialized task.
+- **`GetAsync` and `GetForMaintenanceAsync`:** for a layout-1 row, read the task and the parts in one statement, a `LEFT JOIN` aggregated with `json_agg` ordered by `artifact_id, ordinal`. Then put each artifact's parts back into the deserialized task. (As built: a scalar subquery instead; see "As built".)
 - **`ListAsync`:** the same, for the page's tasks, with one extra query keyed by the page's task ids.
 - **Layout-0 rows** are read exactly as today.
 - **The stored copy that `CommitAsync` returns** is still built from the JSON that was written, with the record's parts put back. Callers see no difference.
@@ -136,8 +136,24 @@ Where the code differs from the design above:
 - **`CreateAsync` and `UpdateAsync` write the parts inline (`parts_layout = 0`).** Only `CommitAsync` and
   `CommitBatchAsync` write rows. The next commit of a task written inline rewrites its rows from scratch. A write with
   the option off also sets layout 0, so rows it left behind are ignored, then rewritten when the option is on again.
-- **The layout and the row counts are read before the compare-and-set,** in the same transaction. A concurrent write in
-  between changes the version, so the compare-and-set fails and nothing uses the stale counts.
+- **The layout and the row counts are read before the compare-and-set,** in the same transaction and in one statement
+  (a `LEFT JOIN LATERAL` of the counts per artifact), so they come from one snapshot. Every write that changes the
+  layout or the rows also changes the version: the commits, `UpdateAsync` and `InlineArtifactPartsAsync`. So a write
+  that commits after the read the commit is based on makes the compare-and-set fail, and nothing uses the stale counts.
+- **Reads are one statement.** `GetAsync`, `GetForMaintenanceAsync` and `ListAsync` read the task row and, for layout 1,
+  its parts in the same statement: a scalar subquery `ARRAY(SELECT parts … ORDER BY artifact_id, ordinal)` in the select
+  list, inside a `CASE` on `parts_layout`, so a layout-0 task costs nothing more. Not `json_agg` as designed: the rows'
+  text goes to the client as it is stored, with no JSON work in the database, and each row's JSON names its artifact.
+  `ListAsync` applies its `LIMIT` in a subquery first, so only the page's tasks have their parts read. A first version
+  read the parts in a second statement. That could return version *N* with the parts of *N* + 1, or, during
+  `InlineArtifactPartsAsync`, with no parts at all.
+- **`InlineArtifactPartsAsync` moves the version up by one** (no event, as `UpdateAsync`; `updated_ticks` stays). It
+  locks the task row (`FOR UPDATE`) and then reads the rows. A first version kept the version. Then, during the
+  documented downgrade, a commit based on a read from before the conversion still passed its compare-and-set. With a
+  torn read, it stored every artifact with no parts. From an instance that still had the option on, it set the layout
+  back to rows and wrote only its new parts. Both lost parts for good.
+  `PostgresArtifactRowsTests` forces both interleavings: one with a hook between the read and the compare-and-set, the
+  other with a lock on `a2a_artifact_parts` that holds a read while another transaction commits.
 - **Compaction happens on the append itself.** An append to an artifact that already has `ArtifactRowsCompactAt` rows
   rewrites that artifact as one row.
 - **A row stores its parts as an artifact** with only its id and parts (`{"artifactId": …, "parts": […]}`). That is a

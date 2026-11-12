@@ -21,6 +21,7 @@ public class SetupAnalyzerTests
         using Microsoft.Extensions.Hosting;
         using A2A.Server;
         using A2A.Server.AspNetCore;
+        using Microsoft.AspNetCore.Routing;
 
         """.ReplaceLineEndings("\n");
 
@@ -89,6 +90,42 @@ public class SetupAnalyzerTests
     public async Task Anonymous_opt_in_lifts_A2A0002(string optIn) =>
         Assert.Empty(await Ids(Good.Replace(".RequireAuthorization()", "", StringComparison.Ordinal)
             .Replace("var app = builder.Build();", optIn + "\nvar app = builder.Build();", StringComparison.Ordinal)));
+
+    // The startup check accepts any IAuthorizeData metadata, so WithMetadata of one is authorization.
+    [Theory]
+    [InlineData("app.MapA2A(\"/a2a\").WithMetadata(new Microsoft.AspNetCore.Authorization.AuthorizeAttribute());")]
+    [InlineData("app.MapA2A(\"/a2a\").WithMetadata(new Microsoft.AspNetCore.Authorization.AuthorizeAttribute(\"agents\"));")]
+    [InlineData("app.MapGroup(\"/agents\").WithMetadata(new Microsoft.AspNetCore.Authorization.AuthorizeAttribute()).MapA2A(\"/a2a\");")]
+    [InlineData("app.MapGroup(\"/a\").RequireAuthorization().MapGroup(\"/b\").MapA2A(\"/a2a\");")]
+    [InlineData("var agents = app.MapGroup(\"/agents\");\nagents.RequireAuthorization();\nagents.MapA2A(\"/a2a\");")]
+    [InlineData("var agents = app.MapGroup(\"/agents\").RequireAuthorization();\nagents.MapA2A(\"/a2a\");")]
+    public async Task Authorization_metadata_is_accepted(string mapping) =>
+        Assert.Empty(await Ids(Good.Replace("app.MapA2A(\"/a2a\").RequireAuthorization();", mapping, StringComparison.Ordinal)));
+
+    // A group is authorized only when the group itself is; AllowAnonymous metadata fails the startup check everywhere.
+    [Theory]
+    [InlineData("app.MapGroup(\"/agents\").MapA2A(\"/a2a\");")]
+    [InlineData("app.MapGroup(\"/agents\").WithName(\"agents\").MapA2A(\"/a2a\");")]
+    [InlineData("var agents = app.MapGroup(\"/agents\");\nagents.MapA2A(\"/a2a\");")]
+    [InlineData("app.MapGroup(\"/agents\").AllowAnonymous().MapA2A(\"/a2a\");")]
+    [InlineData("app.MapGroup(\"/agents\").RequireAuthorization().AllowAnonymous().MapA2A(\"/a2a\");")]
+    [InlineData("app.MapA2A(\"/a2a\").RequireAuthorization().AllowAnonymous();")]
+    [InlineData("app.MapA2A(\"/a2a\").AllowAnonymous();")]
+    [InlineData("app.MapA2A(\"/a2a\").WithName(\"a2a\");")]
+    [InlineData("app.MapA2A(\"/a2a\").WithMetadata(\"not authorization\");")]
+    [InlineData("var a2a = app.MapA2A(\"/a2a\");\na2a.WithName(\"a2a\");")]
+    public async Task Missing_authorization_is_A2A0002(string mapping) =>
+        Assert.Equal(["A2A0002"], await Ids(Good.Replace("app.MapA2A(\"/a2a\").RequireAuthorization();", mapping, StringComparison.Ordinal)));
+
+    // Code the analyzer cannot see into may add authorization (a helper that calls RequireAuthorization()): the startup
+    // check decides, and no warning is reported.
+    [Theory]
+    [InlineData("Secure(app.MapA2A(\"/a2a\"));\napp.Run();\nstatic void Secure(RouteGroupBuilder group) => group.RequireAuthorization();")]
+    [InlineData("var a2a = app.MapA2A(\"/a2a\");\nSecure(a2a);\napp.Run();\nstatic void Secure(RouteGroupBuilder group) => group.RequireAuthorization();")]
+    [InlineData("app.MapA2A(\"/a2a\").Secure();\napp.Run();\nstatic class Security { public static RouteGroupBuilder Secure(this RouteGroupBuilder group) => group.RequireAuthorization(); }")]
+    [InlineData("Group(app).MapA2A(\"/a2a\");\napp.Run();\nstatic RouteGroupBuilder Group(WebApplication app) => app.MapGroup(\"/agents\").RequireAuthorization();")]
+    public async Task Authorization_in_code_the_analyzer_cannot_see_is_not_reported(string mapping) =>
+        Assert.Empty(await Ids(Good.Replace("app.MapA2A(\"/a2a\").RequireAuthorization();\napp.Run();", mapping, StringComparison.Ordinal)));
 
     [Fact]
     public async Task Code_with_no_A2A_call_is_ignored() =>
@@ -251,5 +288,121 @@ public class SetupAnalyzerTests
             """;
         var fixedProgram = (await Fix(program)).ReplaceLineEndings("\n");
         Assert.Contains("        app.MapA2A(\"/a2a\").RequireAuthorization();", fixedProgram, StringComparison.Ordinal);
+    }
+
+    // ---- The fix brings its own using ----
+
+    /// <summary>
+    ///     Applies the fix to <paramref name="program" />, compiled as a library with the given extra files (global usings,
+    ///     as ImplicitUsings writes them), and returns the fixed text and the errors of the fixed project.
+    /// </summary>
+    private static async Task<(string Text, string[] Errors)> FixFile(string program, params string[] others)
+    {
+        using var workspace = new AdhocWorkspace();
+        var project = workspace.AddProject(ProjectInfo.Create(ProjectId.CreateNewId(), VersionStamp.Default, "Lib", "Lib",
+            LanguageNames.CSharp, compilationOptions: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary),
+            metadataReferences: References.Value));
+        foreach (var (other, i) in others.Select((o, i) => (o, i)))
+            project = workspace.AddDocument(project.Id, $"Other{i}.cs", SourceText.From(other.ReplaceLineEndings("\n"))).Project;
+        var document = workspace.AddDocument(project.Id, "Endpoints.cs", SourceText.From(program.ReplaceLineEndings("\n")));
+        var before = (await document.Project.GetCompilationAsync())!;
+        Assert.Empty(before.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error));
+        var diagnostic = Assert.Single(await before.WithAnalyzers([new A2ASetupAnalyzer()]).GetAnalyzerDiagnosticsAsync());
+        var provider = new A2ASetupCodeFixProvider();
+        var actions = new List<CodeAction>();
+        await provider.RegisterCodeFixesAsync(new CodeFixContext(document, diagnostic, (a, _) => actions.Add(a),
+            CancellationToken.None));
+        var operation = Assert.Single(await Assert.Single(actions).GetOperationsAsync(CancellationToken.None));
+        document = ((ApplyChangesOperation)operation).ChangedSolution.GetDocument(document.Id)!;
+        var after = (await document.Project.GetCompilationAsync())!;
+        var errors = after.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).Select(d => d.ToString())
+            .ToArray();
+        return ((await document.GetTextAsync()).ToString(), errors);
+    }
+
+    private const string RoutingOnly = """
+        using A2A.Server.AspNetCore;
+        using Microsoft.AspNetCore.Routing;
+
+        namespace Lib;
+
+        public static class Endpoints
+        {
+            public static void Map(IEndpointRouteBuilder endpoints)
+            {
+                endpoints.MapA2A("/a2a");
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task Fix_adds_the_using_RequireAuthorization_needs()
+    {
+        var (text, errors) = await FixFile(RoutingOnly);
+        Assert.Empty(errors);
+        Assert.Contains("endpoints.MapA2A(\"/a2a\").RequireAuthorization();", text, StringComparison.Ordinal);
+        Assert.StartsWith("using A2A.Server.AspNetCore;\nusing Microsoft.AspNetCore.Builder;\nusing Microsoft.AspNetCore.Routing;\n",
+            text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Fix_adds_no_using_that_a_global_using_already_brings()
+    {
+        // what ImplicitUsings writes for a web project (GlobalUsings.g.cs), in part
+        const string globalUsings = """
+            global using global::System;
+            global using global::Microsoft.AspNetCore.Builder;
+            global using global::Microsoft.AspNetCore.Routing;
+            """;
+        var program = RoutingOnly.Replace("using Microsoft.AspNetCore.Routing;\n", "", StringComparison.Ordinal);
+        var (text, errors) = await FixFile(program, globalUsings);
+        Assert.Empty(errors);
+        Assert.Contains("endpoints.MapA2A(\"/a2a\").RequireAuthorization();", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Microsoft.AspNetCore.Builder", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Fix_adds_no_using_that_the_namespace_already_has()
+    {
+        var program = RoutingOnly.Replace("namespace Lib;", "namespace Lib\n{\nusing Microsoft.AspNetCore.Builder;\n", StringComparison.Ordinal) + "\n}";
+        var (text, errors) = await FixFile(program);
+        Assert.Empty(errors);
+        Assert.Equal(1, text.Split("Microsoft.AspNetCore.Builder").Length - 1);
+    }
+
+    [Fact]
+    public async Task Fix_all_adds_the_using_once()
+    {
+        var program = RoutingOnly.Replace("endpoints.MapA2A(\"/a2a\");", "endpoints.MapA2A(\"/a2a\");\n        endpoints.MapA2AJsonRpc(\"/rpc\");", StringComparison.Ordinal)
+            .ReplaceLineEndings("\n");
+        using var workspace = new AdhocWorkspace();
+        var project = workspace.AddProject(ProjectInfo.Create(ProjectId.CreateNewId(), VersionStamp.Default, "Lib", "Lib",
+            LanguageNames.CSharp, compilationOptions: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary),
+            metadataReferences: References.Value));
+        var document = workspace.AddDocument(project.Id, "Endpoints.cs", SourceText.From(program));
+        var diagnostics = await (await document.Project.GetCompilationAsync())!.WithAnalyzers([new A2ASetupAnalyzer()])
+            .GetAnalyzerDiagnosticsAsync();
+        Assert.Equal(2, diagnostics.Length);
+        var provider = new A2ASetupCodeFixProvider();
+        var context = new FixAllContext(document, provider, FixAllScope.Document, "A2A0002.RequireAuthorization", ["A2A0002"],
+            new FixedDiagnostics(diagnostics), CancellationToken.None);
+        var action = (await provider.GetFixAllProvider().GetFixAsync(context))!;
+        var operation = Assert.Single(await action.GetOperationsAsync(CancellationToken.None));
+        document = ((ApplyChangesOperation)operation).ChangedSolution.GetDocument(document.Id)!;
+        var text = (await document.GetTextAsync()).ToString();
+        Assert.Equal(1, text.Split("using Microsoft.AspNetCore.Builder;").Length - 1);
+        Assert.Empty((await document.Project.GetCompilationAsync())!.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error));
+    }
+
+    private sealed class FixedDiagnostics(ImmutableArray<Diagnostic> diagnostics) : FixAllContext.DiagnosticProvider
+    {
+        public override Task<IEnumerable<Diagnostic>> GetDocumentDiagnosticsAsync(Document document, CancellationToken cancellationToken) =>
+            Task.FromResult<IEnumerable<Diagnostic>>(diagnostics);
+
+        public override Task<IEnumerable<Diagnostic>> GetProjectDiagnosticsAsync(Project project, CancellationToken cancellationToken) =>
+            Task.FromResult<IEnumerable<Diagnostic>>([]);
+
+        public override Task<IEnumerable<Diagnostic>> GetAllDiagnosticsAsync(Project project, CancellationToken cancellationToken) =>
+            Task.FromResult<IEnumerable<Diagnostic>>(diagnostics);
     }
 }

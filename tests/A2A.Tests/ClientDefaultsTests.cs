@@ -575,4 +575,114 @@ public class ClientDefaultsTests
         var error = await Assert.ThrowsAsync<HttpRequestException>(() => provider.GetRequiredService<IA2AClientFactory>().GetClientAsync("agent").AsTask());
         Assert.Contains("buffer", error.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static readonly string LocalCardJson = JsonSerializer.Serialize(new AgentCard
+    {
+        Name = "a", Description = "d", Version = "1",
+        SupportedInterfaces = [new AgentInterface { Url = Endpoint, ProtocolBinding = ProtocolBindings.JsonRpc, ProtocolVersion = "1.0" }],
+        Capabilities = new(), DefaultInputModes = ["text/plain"], DefaultOutputModes = ["text/plain"], Skills = [],
+    }, A2A.Json.A2AJson.Options);
+
+    private static async Task<HttpResponseMessage> Hang(HttpRequestMessage _, CancellationToken ct)
+    {
+        await Task.Delay(Timeout.Infinite, ct);
+        throw new InvalidOperationException("unreachable");
+    }
+
+    private static ServiceProvider LocalAgent(ScriptedHandler handler, TimeSpan? cardTimeout = null)
+    {
+        var services = new ServiceCollection();
+        services.AddA2AClient("agent", o =>
+        {
+            o.AgentUrl = new Uri("http://localhost/");
+            if (cardTimeout is { } t) o.Resolver.Timeout = t;
+        }).ConfigurePrimaryHttpMessageHandler(() => handler);
+        return services.BuildServiceProvider();
+    }
+
+    [Fact]
+    public async Task Registered_client_retries_the_card_after_a_card_fetch_timeout()
+    {
+        var handler = new ScriptedHandler(Hang, Respond(HttpStatusCode.OK, LocalCardJson));
+        using var provider = LocalAgent(handler, TimeSpan.FromMilliseconds(50));
+        var factory = provider.GetRequiredService<IA2AClientFactory>();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => factory.GetClientAsync("agent").AsTask());
+        var client = await factory.GetClientAsync("agent");
+
+        Assert.NotNull(client);
+        Assert.Equal(2, handler.Calls.Count);
+        Assert.Same(client, await factory.GetClientAsync("agent"));
+        Assert.Equal(2, handler.Calls.Count);
+    }
+
+    [Fact]
+    public async Task Registered_client_keeps_a_running_creation_when_only_the_caller_cancels()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var card = Respond(HttpStatusCode.OK, LocalCardJson);
+        var handler = new ScriptedHandler(async (r, ct) => { await gate.Task; return await card(r, ct); });
+        using var provider = LocalAgent(handler);
+        var factory = provider.GetRequiredService<IA2AClientFactory>();
+
+        using var cts = new CancellationTokenSource();
+        var first = factory.GetClientAsync("agent", cts.Token).AsTask();
+        while (handler.Calls.IsEmpty) await Task.Delay(5);
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        var second = factory.GetClientAsync("agent").AsTask();
+        gate.SetResult();
+
+        Assert.NotNull(await second);
+        Assert.Single(handler.Calls);
+    }
+
+    [Fact]
+    public async Task Card_fetch_timeout_is_a_timeout_not_a_bare_cancellation()
+    {
+        var handler = new ScriptedHandler(Hang);
+        var resolver = new A2ACardResolver(new HttpClient(handler), new A2ACardResolverOptions { Timeout = TimeSpan.FromMilliseconds(50) });
+
+        var error = await Assert.ThrowsAsync<TaskCanceledException>(() => resolver.ResolveAsync(new Uri("http://localhost/")));
+
+        Assert.IsType<TimeoutException>(error.InnerException);
+        Assert.Contains("timed out", error.Message);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        var resolver2 = new A2ACardResolver(new HttpClient(new ScriptedHandler(Hang)), new A2ACardResolverOptions { Timeout = TimeSpan.FromMinutes(1) });
+        var cancelled = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => resolver2.ResolveAsync(new Uri("http://localhost/"), cts.Token));
+        Assert.IsNotType<TimeoutException>(cancelled.InnerException);
+    }
+
+    [Fact]
+    public async Task List_all_tasks_sends_every_filter_on_later_pages()
+    {
+        var first = new ListTasksRequest
+        {
+            Tenant = "t", ContextId = "c", Status = TaskState.Working, PageSize = 7, PageToken = null,
+            HistoryLength = 3, TimelineLength = 4, StatusTimestampAfter = DateTimeOffset.UnixEpoch.AddDays(1), IncludeArtifacts = true,
+        };
+        // Every property but the page token is set, so a field added later and not copied fails here.
+        var properties = typeof(ListTasksRequest).GetProperties().Where(p => p.Name != nameof(ListTasksRequest.PageToken)).ToList();
+        Assert.All(properties, p => Assert.NotNull(p.GetValue(first)));
+        var seen = new List<ListTasksRequest>();
+        var client = new ScriptedA2AClient
+        {
+            OnListTasks = r =>
+            {
+                seen.Add(r);
+                var token = seen.Count < 3 ? "p" + (seen.Count + 1) : "";
+                return Task.FromResult(new ListTasksResponse { Tasks = [ScriptedA2AClient.Make("t" + seen.Count, TaskState.Working)], NextPageToken = token });
+            },
+        };
+
+        var all = new List<AgentTask>();
+        await foreach (var t in client.ListAllTasksAsync(first)) all.Add(t);
+
+        Assert.Equal(3, all.Count);
+        Assert.Equal([null, "p2", "p3"], seen.Select(r => r.PageToken));
+        foreach (var later in seen.Skip(1))
+            foreach (var p in properties)
+                Assert.True(Equals(p.GetValue(first), p.GetValue(later)), $"{p.Name} was not sent on a later page");
+    }
 }

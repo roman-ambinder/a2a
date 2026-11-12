@@ -42,7 +42,10 @@ public sealed class A2ANamedClientOptions
 /// </summary>
 public interface IA2AClientFactory
 {
-    /// <summary>Resolves the agent's card on first use and returns a cached client.</summary>
+    /// <summary>
+    ///     Resolves the agent's card on first use and returns a cached client. A creation that fails or times out is not
+    ///     cached: the next call tries again. Canceling <paramref name="cancellationToken" /> only stops this call's wait.
+    /// </summary>
     ValueTask<A2AClient> GetClientAsync(string name, CancellationToken cancellationToken = default);
 }
 
@@ -59,11 +62,14 @@ internal sealed class DefaultA2AClientFactory(
     public async ValueTask<A2AClient> GetClientAsync(string name, CancellationToken cancellationToken = default)
     {
         var lazy = _clients.GetOrAdd(name, n => new Lazy<Task<A2AClient>>(() => CreateAsync(n)));
+        var creation = lazy.Value;
         try
         {
-            return await lazy.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return await creation.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception) when (lazy.Value.IsFaulted)
+        // A creation that failed or was canceled (a card fetch timeout) is not kept, so the next call tries again. When only
+        // this caller's token ended the wait, the creation is still running and stays cached for the other callers.
+        catch (Exception) when (creation.IsFaulted || creation.IsCanceled)
         {
             _clients.TryRemove(new KeyValuePair<string, Lazy<Task<A2AClient>>>(name, lazy));
             throw;
